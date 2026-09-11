@@ -1,4 +1,4 @@
-// ABOUTME: PAR-Q+ pre-participation medical-safety gate — structured Y/N, persists coach-visible flags
+// ABOUTME: PAR-Q+ pre-participation medical-safety gate — structured Y/N, persists agent-visible flags
 // ABOUTME: A "Yes" never blocks sign-up; it writes a FactKind::Medical fact with a 12-month freshness horizon
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 //!
 //! The caller submits Yes/No answers to the seven standard questions, and every
 //! "Yes" is persisted as a [`pierre_memory::FactKind::Medical`] fact so the
-//! coach sees a redacted flag (raw answer withheld from the prompt — see
+//! agent sees a redacted flag (raw answer withheld from the prompt — see
 //! `okf::render_fact`). Flags carry a 12-month `valid_until` so stale health
 //! data prompts a re-screen.
 //!
@@ -51,7 +51,7 @@ pub fn is_parq_question(id: &str) -> bool {
     PARQ_QUESTION_IDS.contains(&id)
 }
 
-/// Persist a coach-visible medical flag for each "Yes" answer.
+/// Persist an agent-visible medical flag for each "Yes" answer.
 ///
 /// Each flag is a `kind=Medical`, `source=onboarding` fact with 12-month
 /// freshness whose `object` is the question id — locale-independent, so a
@@ -80,7 +80,7 @@ where
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Medical,
             pillar: None,

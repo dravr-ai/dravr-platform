@@ -53,7 +53,7 @@ async fn seed(
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind,
             pillar,
@@ -335,11 +335,11 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
     Ok(())
 }
 
-/// A coach-authored medical flag still cannot be evicted — the by-kind
-/// guarantee is not replaced by the by-source one, since a coach-written fact
+/// An agent-authored medical flag still cannot be evicted — the by-kind
+/// guarantee is not replaced by the by-source one, since an agent-written fact
 /// is not `source=onboarding`.
 #[tokio::test]
-async fn the_by_kind_guarantee_still_covers_coach_authored_medical_facts() -> Result<()> {
+async fn the_by_kind_guarantee_still_covers_agent_authored_medical_facts() -> Result<()> {
     let db = open_in_memory_db().await?;
     let repos = db.repositories();
     let tenant = TenantId::from_uuid(Uuid::new_v4());

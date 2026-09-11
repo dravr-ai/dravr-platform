@@ -12,7 +12,7 @@
 //! Slash commands are handled synchronously in the messaging webhook path,
 //! outside the `CONVERSATION_DISPATCH_LOCKS` the background dispatch takes. So
 //! an athlete who answers a pillars probe and then types `/calibrate` while the
-//! coach is still thinking has a fresh interview written under a running turn,
+//! agent is still thinking has a fresh interview written under a running turn,
 //! and a blind write-back replaces it with the snapshot that turn loaded: the
 //! calibration reverts silently and its load snapshot is lost.
 //!

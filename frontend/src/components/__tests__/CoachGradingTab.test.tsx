@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import CoachGradingTab from '../CoachGradingTab';
-import type { CoachGradingSummary } from '../../services/api/admin';
+import type { AgentGradingSummary } from '../../services/api/admin';
 
 vi.mock('../../services/api/admin', async () => ({
   adminApi: {
@@ -32,13 +32,13 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const { adminApi } = await import('../../services/api/admin');
 
-function sampleSummary(overrides: Partial<CoachGradingSummary> = {}): CoachGradingSummary {
+function sampleSummary(overrides: Partial<AgentGradingSummary> = {}): AgentGradingSummary {
   return {
     tenant_id: 'tenant-a',
     verdicts_scanned: 100,
     grades: [
       {
-        coach_id: 'coach-broscience',
+        agent_id: 'coach-broscience',
         total_verdicts: 12,
         supported: 2,
         unsupported: 6,
@@ -49,7 +49,7 @@ function sampleSummary(overrides: Partial<CoachGradingSummary> = {}): CoachGradi
         grade: 'F',
       },
       {
-        coach_id: 'coach-stable',
+        agent_id: 'coach-stable',
         total_verdicts: 20,
         supported: 18,
         unsupported: 1,

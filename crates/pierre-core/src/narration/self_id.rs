@@ -31,7 +31,7 @@ const SELF_ID_CLAIMS: &[&str] = &[
 ];
 
 /// Role nouns that identify the speaker as a developer tool rather than a
-/// coach. Kept to phrases a fitness coach has no reason to apply to *itself* —
+/// agent. Kept to phrases a fitness agent has no reason to apply to *itself* —
 /// an athlete's own job title is never matched, because a match requires the
 /// assistant's own first-person copula immediately before it.
 const SELF_ID_ROLES: &[&str] = &[

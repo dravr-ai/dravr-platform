@@ -239,7 +239,7 @@ async fn test_configuration_tools_count_in_total() {
     // configuration tools: this split is by name prefix, and the tool is
     // registered under the chat-callable `physiology` category precisely
     // because it is not operator configuration.
-    // 2026-08-25: the Coach Store tools browse_coach_store,
+    // 2026-08-25: the Agent Store tools browse_coach_store,
     // search_coach_store and install_coach_from_store added (99→102, total
     // 105→108) — the marketplace had no chat-callable surface at all.
     assert_eq!(

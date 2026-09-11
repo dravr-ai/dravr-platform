@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The store reads a coach in the athlete's language — the coach_translations overlay reaches browse, detail and search
+// ABOUTME: The store reads an agent in the athlete's language — the coach_translations overlay reaches browse, detail and search
 // ABOUTME: An English reader keeps the canonical row; a French reader gets the French title and description contremaitre ships
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -16,12 +16,12 @@ use axum::http::StatusCode;
 use serde_json::Value;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
+use helpers::agent_fixtures::{publish_catalogue_agent, publish_catalogue_agent_tagged};
 use helpers::axum_test::AxumTestRequest;
-use helpers::coach_fixtures::{publish_catalogue_coach, publish_catalogue_coach_tagged};
-use pierre_core::models::coaches::CoachCategory;
-use pierre_database::seed_models::SeedCoachTranslation;
+use pierre_core::models::agents::AgentCategory;
+use pierre_database::seed_models::SeedAgentTranslation;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_coaches::build_store_router;
+use pierre_routes_agents::build_store_router;
 
 async fn get_json(resources: &Arc<ServerContext>, token: &str, path: &str) -> Value {
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(resources));
@@ -33,24 +33,24 @@ async fn get_json(resources: &Arc<ServerContext>, token: &str, path: &str) -> Va
     resp.json()
 }
 
-fn title_of<'a>(coaches: &'a [Value], id: &str) -> &'a str {
-    coaches
+fn title_of<'a>(agents: &'a [Value], id: &str) -> &'a str {
+    agents
         .iter()
         .find(|c| c["id"] == id)
         .and_then(|c| c["title"].as_str())
-        .unwrap_or_else(|| panic!("coach {id} missing from {coaches:?}"))
+        .unwrap_or_else(|| panic!("agent {id} missing from {agents:?}"))
 }
 
 #[tokio::test]
-async fn the_store_reads_a_coach_in_the_athletes_language() {
+async fn the_store_reads_an_agent_in_the_athletes_language() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -60,7 +60,7 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
         .expect("the test user has a tenant")
         .id;
 
-    let coach_id = publish_catalogue_coach(
+    let agent_id = publish_catalogue_agent(
         &repos,
         user_id,
         tenant_id,
@@ -70,21 +70,21 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
     .await;
     repos
         .seeder
-        .seed_upsert_coach_translation(&SeedCoachTranslation {
-            coach_id: coach_id.to_string(),
+        .seed_upsert_agent_translation(&SeedAgentTranslation {
+            agent_id: agent_id.to_string(),
             locale: "fr".to_owned(),
             title: Some("Coach marathon".to_owned()),
             description: Some("Pour courir loin, longtemps.".to_owned()),
             purpose: None,
             instructions: None,
             source_sha: None,
-            // The locale file declares its own chips; a coach without them
+            // The locale file declares its own chips; an agent without them
             // keeps the English tags, which the second case below pins.
             tags: Some(vec!["marathon".to_owned(), "endurance".to_owned()]),
         })
         .await
         .expect("translation row");
-    let id = coach_id.to_string();
+    let id = agent_id.to_string();
 
     // An English reader keeps the canonical row.
     repos
@@ -94,7 +94,7 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
         .expect("set en");
     let browse = get_json(&resources, &token, "/api/store/agents").await;
     assert_eq!(
-        title_of(browse["coaches"].as_array().unwrap(), &id),
+        title_of(browse["agents"].as_array().unwrap(), &id),
         "Marathon Coach"
     );
 
@@ -106,7 +106,7 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
         .expect("set fr");
     let browse = get_json(&resources, &token, "/api/store/agents").await;
     assert_eq!(
-        title_of(browse["coaches"].as_array().unwrap(), &id),
+        title_of(browse["agents"].as_array().unwrap(), &id),
         "Coach marathon"
     );
 
@@ -126,7 +126,7 @@ async fn the_store_reads_a_coach_in_the_athletes_language() {
 
     let search = get_json(&resources, &token, "/api/store/search?q=marathon").await;
     assert_eq!(
-        title_of(search["coaches"].as_array().unwrap(), &id),
+        title_of(search["agents"].as_array().unwrap(), &id),
         "Coach marathon"
     );
 }
@@ -138,11 +138,11 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -152,7 +152,7 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
         .expect("the test user has a tenant")
         .id;
 
-    let coach_id = publish_catalogue_coach(
+    let agent_id = publish_catalogue_agent(
         &repos,
         user_id,
         tenant_id,
@@ -162,8 +162,8 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
     .await;
     repos
         .seeder
-        .seed_upsert_coach_translation(&SeedCoachTranslation {
-            coach_id: coach_id.to_string(),
+        .seed_upsert_agent_translation(&SeedAgentTranslation {
+            agent_id: agent_id.to_string(),
             locale: "fr".to_owned(),
             title: Some("Coach récupération".to_owned()),
             description: None,
@@ -180,7 +180,7 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
         .update_locale(user_id, "fr")
         .await
         .expect("set fr");
-    let detail = get_json(&resources, &token, &format!("/api/store/agents/{coach_id}")).await;
+    let detail = get_json(&resources, &token, &format!("/api/store/agents/{agent_id}")).await;
     assert_eq!(detail["title"], "Coach récupération");
     assert_eq!(
         detail["tags"]
@@ -196,21 +196,21 @@ async fn a_translation_without_tags_keeps_the_english_chips() {
 
 /// Tag chips are localized, and tags are also what the Store search matches.
 ///
-/// A coach is published under canonical English slugs and its French overlay
+/// An agent is published under canonical English slugs and its French overlay
 /// renames them; a French athlete then sees `methode-norvegienne` on the chip.
-/// Searching the only word the Store ever showed her has to reach the coach
+/// Searching the only word the Store ever showed her has to reach the agent
 /// whose stored slug is `norwegian-method` — matching the canonical column
 /// alone made every localized label unfindable.
 #[tokio::test]
-async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
+async fn a_french_tag_finds_the_agent_published_under_the_english_slug() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -220,20 +220,20 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
         .expect("the test user has a tenant")
         .id;
 
-    let coach_id = publish_catalogue_coach_tagged(
+    let agent_id = publish_catalogue_agent_tagged(
         &repos,
         user_id,
         tenant_id,
         "Double Threshold Coach",
         "You coach the Norwegian method.",
-        CoachCategory::Training,
+        AgentCategory::Training,
         vec!["norwegian-method".to_owned(), "double-threshold".to_owned()],
     )
     .await;
     repos
         .seeder
-        .seed_upsert_coach_translation(&SeedCoachTranslation {
-            coach_id: coach_id.to_string(),
+        .seed_upsert_agent_translation(&SeedAgentTranslation {
+            agent_id: agent_id.to_string(),
             locale: "fr".to_owned(),
             title: Some("Coach double seuil".to_owned()),
             description: None,
@@ -247,7 +247,7 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
         })
         .await
         .expect("translation row");
-    let id = coach_id.to_string();
+    let id = agent_id.to_string();
 
     repos
         .users
@@ -267,7 +267,7 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
         vec!["methode-norvegienne", "double-seuil"]
     );
 
-    // Searching that chip reaches the coach stored under the English slug.
+    // Searching that chip reaches the agent stored under the English slug.
     let search = get_json(
         &resources,
         &token,
@@ -275,7 +275,7 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
     )
     .await;
     assert_eq!(
-        title_of(search["coaches"].as_array().unwrap(), &id),
+        title_of(search["agents"].as_array().unwrap(), &id),
         "Coach double seuil"
     );
 
@@ -283,7 +283,7 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
     // does not replace the one the catalogue was published with.
     let search = get_json(&resources, &token, "/api/store/search?q=norwegian-method").await;
     assert_eq!(
-        title_of(search["coaches"].as_array().unwrap(), &id),
+        title_of(search["agents"].as_array().unwrap(), &id),
         "Coach double seuil"
     );
 
@@ -301,12 +301,12 @@ async fn a_french_tag_finds_the_coach_published_under_the_english_slug() {
     )
     .await;
     assert!(
-        search["coaches"].as_array().unwrap().is_empty(),
+        search["agents"].as_array().unwrap().is_empty(),
         "a French label is not an English athlete's search key: {search:?}"
     );
     let search = get_json(&resources, &token, "/api/store/search?q=norwegian-method").await;
     assert_eq!(
-        title_of(search["coaches"].as_array().unwrap(), &id),
+        title_of(search["agents"].as_array().unwrap(), &id),
         "Double Threshold Coach"
     );
 }

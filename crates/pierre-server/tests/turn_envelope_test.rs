@@ -8,7 +8,7 @@
 //!
 //! The same turn is built twice, once against the in-app profile and once
 //! against a messaging profile, from one [`TurnState`]. What changes between
-//! the two is which blocks exist; what must not change is what the coach
+//! the two is which blocks exist; what must not change is what the agent
 //! actually said.
 //!
 //! Two of the assertions here exist because their subject fails *silently*:
@@ -52,7 +52,7 @@ use tracing_subscriber::Layer;
 // Fixtures
 // ============================================================================
 
-/// The coach's own words. Every assertion about prose compares against this
+/// The agent's own words. Every assertion about prose compares against this
 /// exact string, so a surface that quietly rewrote the reply fails loudly.
 const REPLY: &str = "Ta charge grimpe depuis trois semaines. On coupe jeudi.";
 
@@ -104,7 +104,7 @@ fn conversation() -> ConversationRecord {
         tenant_id: "tenant-1".to_owned(),
         title: "Charge".to_owned(),
         model: "opus".to_owned(),
-        coach_id: None,
+        agent_id: None,
         session_id: None,
         total_tokens: 162,
         created_at: "2026-08-24T00:00:00Z".to_owned(),
@@ -163,7 +163,7 @@ fn prose_of(blocks: &[ReplyBlock]) -> &str {
 // ============================================================================
 
 /// The in-app surface draws the list, the plan and the chart itself, so each
-/// leaves the pipeline as its own block and the prose is the coach's sentences
+/// leaves the pipeline as its own block and the prose is the agent's sentences
 /// and nothing else.
 #[test]
 fn in_app_surface_gets_a_block_per_affordance() {
@@ -256,13 +256,13 @@ fn messaging_surface_folds_what_it_cannot_draw() {
     );
 }
 
-/// The coach's own sentences are byte-identical on both surfaces.
+/// The agent's own sentences are byte-identical on both surfaces.
 ///
 /// Everything else about the two envelopes differs; this is the part that is
 /// not allowed to. A surface-specific rewrite of the reply text is how two
 /// athletes on two channels get told different things by the same turn.
 #[test]
-fn the_coach_sentences_are_byte_identical_across_surfaces() {
+fn the_agent_sentences_are_byte_identical_across_surfaces() {
     let web = build_envelope(&in_app_profile(), turn_state());
     let telegram = build_envelope(&telegram_profile(), turn_state());
 

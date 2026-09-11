@@ -2201,9 +2201,9 @@ pub fn register_group_permissions<S: BuildHasher>(
 /// Register the `Tool Execution` catalog entry.
 ///
 /// `tool_execution.max_iterations` is the tenant-wide tool-loop budget a chat
-/// turn gets when the coach carries no `max_tool_iterations` of its own. The
+/// turn gets when the agent carries no `max_tool_iterations` of its own. The
 /// range mirrors [`MIN_MAX_TOOL_ITERATIONS`] through [`MAX_MAX_TOOL_ITERATIONS`],
-/// the band the chat pipeline clamps to and the coach create/update route
+/// the band the chat pipeline clamps to and the agent create/update route
 /// rejects outside of.
 pub fn register_tool_execution<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
     add_definition(

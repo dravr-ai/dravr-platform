@@ -1,7 +1,7 @@
 // ABOUTME: Agent tuning bounds and the category vocabulary shared by the web and mobile agent surfaces
 // ABOUTME: Bounds mirror pierre_core::constants::tool_execution; category labels are corpus keys resolved with t()
 
-import type { CoachCategory } from '@pierre/shared-types';
+import type { AgentCategory } from '@pierre/shared-types';
 
 /**
  * Smallest tool-loop iteration budget an agent may be given. One pass still
@@ -26,7 +26,7 @@ export const DEFAULT_MAX_TOOL_ITERATIONS = 10;
  * badges and the onboarding proposal read one table, so a screen never shows
  * a category as a translated word in one place and a raw enum in another.
  */
-export const COACH_CATEGORY_LABEL_KEY: Record<CoachCategory, string> = {
+export const COACH_CATEGORY_LABEL_KEY: Record<AgentCategory, string> = {
   training: 'chat.categoryTraining',
   nutrition: 'chat.categoryNutrition',
   recovery: 'chat.categoryRecovery',
@@ -41,5 +41,5 @@ export const COACH_CATEGORY_LABEL_KEY: Record<CoachCategory, string> = {
  * ones reads as custom rather than as a missing key.
  */
 export function coachCategoryLabelKey(category: string): string {
-  return COACH_CATEGORY_LABEL_KEY[category as CoachCategory] ?? COACH_CATEGORY_LABEL_KEY.custom;
+  return COACH_CATEGORY_LABEL_KEY[category as AgentCategory] ?? COACH_CATEGORY_LABEL_KEY.custom;
 }

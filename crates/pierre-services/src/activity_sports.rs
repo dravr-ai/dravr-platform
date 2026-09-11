@@ -10,7 +10,7 @@
 //! wire spellings. The clients fold them onto a canonical name and resolve a
 //! catalogue key (`app.sportRun`) through `activitySportLabelKey`; this module
 //! is the same table and the same fold for server-rendered text, so the
-//! onboarding coach proposal on Telegram names the sport in French exactly as
+//! onboarding agent proposal on Telegram names the sport in French exactly as
 //! the web step does.
 
 use std::collections::HashMap;

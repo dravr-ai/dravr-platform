@@ -1,4 +1,4 @@
-// ABOUTME: Pillar — the canonical six fitness-adapted health dimensions Dravr coaches across
+// ABOUTME: Pillar — the canonical six fitness-adapted health dimensions Dravr agents across
 // ABOUTME: Single source of truth for per-user context, pillar-tagged facts, and the OKF bundle
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 
 use super::onboarding::TopicVisibility;
 
-/// One of the six fitness-adapted health dimensions Dravr coaches across.
+/// One of the six fitness-adapted health dimensions Dravr agents across.
 ///
 /// This is the single source of truth for the pillar taxonomy: it backs the
 /// `pillar` column on `user_facts`, the per-user context projection on `Dossier`,
 /// and the rendered OKF bundle. Mobility folds into [`Pillar::TrainingAndMovement`];
-/// it is a facet of training, not a seventh pillar. The marketplace `CoachCategory`
+/// it is a facet of training, not a seventh pillar. The marketplace `AgentCategory`
 /// (which still carries a `mobility` value) is a deliberately separate taxonomy.
 #[derive(
     Debug,
@@ -83,7 +83,7 @@ impl Pillar {
         }
     }
 
-    /// Short, non-clinical hint guiding the onboarding coach on what to explore
+    /// Short, non-clinical hint guiding the onboarding agent on what to explore
     /// for this pillar. Steers the conversational probe; not shown verbatim.
     #[must_use]
     pub const fn probe_hint(self) -> &'static str {
@@ -114,7 +114,7 @@ impl Pillar {
     ///
     /// Mental Resilience probes stress and psychological load; Recovery
     /// Optimisation probes substance use. Both stay between the athlete and
-    /// the coach — a room walk never surfaces them, and `/pillars` in a room
+    /// the agent — a room walk never surfaces them, and `/pillars` in a room
     /// points the athlete at a direct message for the two it leaves out.
     #[must_use]
     pub const fn visibility(self) -> TopicVisibility {

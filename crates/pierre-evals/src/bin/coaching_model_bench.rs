@@ -6,7 +6,7 @@
 
 //! # Coaching model bench
 //!
-//! A measurement tool, not a test. It loads a fixed scenario (real coach
+//! A measurement tool, not a test. It loads a fixed scenario (real agent
 //! persona + a constant athlete-context block = the experimental control) and a
 //! set of real coaching turns, then runs every turn through each candidate
 //! model with the IDENTICAL system context — so the only variable is the model.
@@ -29,10 +29,10 @@ use serde::{Deserialize, Serialize};
 /// Sampling temperature for coaching generations (a touch of warmth/variety).
 const TEMPERATURE: f32 = 0.7;
 
-/// Fixed scenario: real coach persona + constant athlete context (the control).
+/// Fixed scenario: real agent persona + constant athlete context (the control).
 #[derive(Debug, Deserialize)]
 struct Scenario {
-    coach_persona: String,
+    agent_persona: String,
     athlete_context: String,
     directive: String,
 }
@@ -95,7 +95,7 @@ async fn main() -> Result<(), String> {
     let scenario = load_scenario(&scenario_path)?;
     let system_prompt = format!(
         "{}\n\n{}\n\n{}",
-        scenario.coach_persona, scenario.athlete_context, scenario.directive
+        scenario.agent_persona, scenario.athlete_context, scenario.directive
     );
     let all_turns = load_turns(&turns_path)?;
     let turns: &[Turn] = limit.map_or(&all_turns[..], |n| &all_turns[..n.min(all_turns.len())]);

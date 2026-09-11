@@ -56,7 +56,7 @@ pub struct BackfillPlaceholder {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ActivitiesPayload {
     /// The activities rendered as prose, one line each. This is what the
-    /// coach reads and cites; the structured copy below is for tool callers.
+    /// agent reads and cites; the structured copy below is for tool callers.
     pub activity_list: String,
     /// The structured activities, in the shape `mode` names. Absent when the
     /// caller asked for TOON and the encoding succeeded.

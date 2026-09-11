@@ -13,7 +13,7 @@
 //! (e.g. a ride on Garmin that is also pushed to Strava). Both the live-fetch
 //! path (`AllProvidersMerge::fetch_and_merge`) and the warm-cache snapshot path
 //! (`fetch_member_activities`) run the merged list through this deduplicator so
-//! the coach sees one activity, not two. These tests pin that collapse.
+//! the agent sees one activity, not two. These tests pin that collapse.
 
 use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::{ActivityBuilder, SportType};

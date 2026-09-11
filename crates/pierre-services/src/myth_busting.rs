@@ -6,11 +6,11 @@
 
 //! Myth-busting summary service.
 //!
-//! The claim verdict pipeline writes one row per coach claim
+//! The claim verdict pipeline writes one row per agent claim
 //! it inspects. This service runs purely on read: it reads the most
 //! recent verdicts, filters to unsupported / contradicted entries,
 //! and rolls them up into the patterns admins care about (top claim
-//! texts, top categories, top offending coaches).
+//! texts, top categories, top offending agents).
 //!
 //! No background worker is spawned — Phase D's "myth-busting worker"
 //! framing is about analysis, not periodic batch jobs. Computing on
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use pierre_core::models::TenantId;
-use pierre_database::CoachRepos;
+use pierre_database::AgentRepos;
 use pierre_memory::{ClaimStatus, ClaimVerdict};
 
 use pierre_core::errors::{AppError, AppResult};
@@ -47,20 +47,20 @@ pub struct ClaimPattern {
     pub claim_excerpt: String,
     /// Total occurrences across the scanned window.
     pub occurrences: u64,
-    /// Distinct coaches that emitted this claim.
-    pub coach_count: u64,
+    /// Distinct agents that emitted this claim.
+    pub agent_count: u64,
     /// Most-recent occurrence as RFC3339 timestamp, or `None`.
     pub last_seen_at: Option<String>,
 }
 
-/// Aggregated stat for a coach with recurring unsupported claims.
+/// Aggregated stat for an agent with recurring unsupported claims.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoachPattern {
-    /// Coach identifier from `claim_verdicts.coach_id`.
-    pub coach_id: String,
-    /// Total unsupported/contradicted claims attributed to this coach.
+pub struct AgentPattern {
+    /// Agent identifier from `claim_verdicts.agent_id`.
+    pub agent_id: String,
+    /// Total unsupported/contradicted claims attributed to this agent.
     pub unsupported_total: u64,
-    /// Distinct claim categories the coach has flagged on.
+    /// Distinct claim categories the agent has flagged on.
     pub categories: Vec<String>,
 }
 
@@ -71,8 +71,8 @@ pub struct CategoryPattern {
     pub category: String,
     /// Total flagged claims in this category.
     pub flagged_total: u64,
-    /// Distinct coaches that touched this category.
-    pub coach_count: u64,
+    /// Distinct agents that touched this category.
+    pub agent_count: u64,
 }
 
 /// Top-level wire response for `GET /admin/myth-busting/summary`.
@@ -86,8 +86,8 @@ pub struct MythBustingSummary {
     pub flagged_total: u64,
     /// Top recurring claim texts ordered by occurrence count desc.
     pub top_claims: Vec<ClaimPattern>,
-    /// Top coaches by unsupported-claim count, desc.
-    pub top_coaches: Vec<CoachPattern>,
+    /// Top agents by unsupported-claim count, desc.
+    pub top_agents: Vec<AgentPattern>,
     /// Top categories by flagged count, desc.
     pub top_categories: Vec<CategoryPattern>,
 }
@@ -105,7 +105,7 @@ pub struct MythBustingSummary {
 /// [`pierre_database::repositories::ClaimVerdictRepository::list_recent_verdicts`]
 /// call fails.
 pub async fn compute_summary(
-    repos: &CoachRepos,
+    repos: &AgentRepos,
     tenant_id: TenantId,
     limit: i64,
 ) -> AppResult<MythBustingSummary> {
@@ -135,7 +135,7 @@ pub async fn compute_summary(
         verdicts_scanned,
         flagged_total: usize_to_u64(flagged.len()),
         top_claims: top_claim_patterns(&flagged),
-        top_coaches: top_coach_patterns(&flagged),
+        top_agents: top_agent_patterns(&flagged),
         top_categories: top_category_patterns(&flagged),
     })
 }
@@ -160,7 +160,7 @@ fn truncate_claim(text: &str) -> String {
 fn top_claim_patterns(flagged: &[&ClaimVerdict]) -> Vec<ClaimPattern> {
     struct Bucket {
         occurrences: u64,
-        coaches: HashSet<String>,
+        agents: HashSet<String>,
         last_seen: Option<DateTime<Utc>>,
     }
     let mut buckets: HashMap<String, Bucket> = HashMap::new();
@@ -168,12 +168,12 @@ fn top_claim_patterns(flagged: &[&ClaimVerdict]) -> Vec<ClaimPattern> {
         let key = truncate_claim(&v.claim_text);
         let entry = buckets.entry(key).or_insert_with(|| Bucket {
             occurrences: 0,
-            coaches: HashSet::new(),
+            agents: HashSet::new(),
             last_seen: None,
         });
         entry.occurrences += 1;
-        if let Some(coach) = &v.coach_id {
-            entry.coaches.insert(coach.clone());
+        if let Some(agent) = &v.agent_id {
+            entry.agents.insert(agent.clone());
         }
         entry.last_seen = match entry.last_seen {
             Some(prev) if prev > v.created_at => Some(prev),
@@ -185,7 +185,7 @@ fn top_claim_patterns(flagged: &[&ClaimVerdict]) -> Vec<ClaimPattern> {
         .map(|(claim_excerpt, b)| ClaimPattern {
             claim_excerpt,
             occurrences: b.occurrences,
-            coach_count: usize_to_u64(b.coaches.len()),
+            agent_count: usize_to_u64(b.agents.len()),
             last_seen_at: b.last_seen.map(|d| d.to_rfc3339()),
         })
         .collect();
@@ -194,27 +194,27 @@ fn top_claim_patterns(flagged: &[&ClaimVerdict]) -> Vec<ClaimPattern> {
     patterns
 }
 
-fn top_coach_patterns(flagged: &[&ClaimVerdict]) -> Vec<CoachPattern> {
+fn top_agent_patterns(flagged: &[&ClaimVerdict]) -> Vec<AgentPattern> {
     struct Bucket {
         unsupported_total: u64,
         categories: BTreeSet<String>,
     }
     let mut buckets: HashMap<String, Bucket> = HashMap::new();
     for v in flagged {
-        let Some(coach) = v.coach_id.clone() else {
+        let Some(agent) = v.agent_id.clone() else {
             continue;
         };
-        let entry = buckets.entry(coach).or_insert_with(|| Bucket {
+        let entry = buckets.entry(agent).or_insert_with(|| Bucket {
             unsupported_total: 0,
             categories: BTreeSet::new(),
         });
         entry.unsupported_total += 1;
         entry.categories.insert(v.category.as_str().to_owned());
     }
-    let mut patterns: Vec<CoachPattern> = buckets
+    let mut patterns: Vec<AgentPattern> = buckets
         .into_iter()
-        .map(|(coach_id, b)| CoachPattern {
-            coach_id,
+        .map(|(agent_id, b)| AgentPattern {
+            agent_id,
             unsupported_total: b.unsupported_total,
             categories: b.categories.into_iter().collect(),
         })
@@ -227,18 +227,18 @@ fn top_coach_patterns(flagged: &[&ClaimVerdict]) -> Vec<CoachPattern> {
 fn top_category_patterns(flagged: &[&ClaimVerdict]) -> Vec<CategoryPattern> {
     struct Bucket {
         flagged_total: u64,
-        coaches: HashSet<String>,
+        agents: HashSet<String>,
     }
     let mut buckets: HashMap<String, Bucket> = HashMap::new();
     for v in flagged {
         let key = v.category.as_str().to_owned();
         let entry = buckets.entry(key).or_insert_with(|| Bucket {
             flagged_total: 0,
-            coaches: HashSet::new(),
+            agents: HashSet::new(),
         });
         entry.flagged_total += 1;
-        if let Some(coach) = &v.coach_id {
-            entry.coaches.insert(coach.clone());
+        if let Some(agent) = &v.agent_id {
+            entry.agents.insert(agent.clone());
         }
     }
     let mut patterns: Vec<CategoryPattern> = buckets
@@ -246,7 +246,7 @@ fn top_category_patterns(flagged: &[&ClaimVerdict]) -> Vec<CategoryPattern> {
         .map(|(category, b)| CategoryPattern {
             category,
             flagged_total: b.flagged_total,
-            coach_count: usize_to_u64(b.coaches.len()),
+            agent_count: usize_to_u64(b.agents.len()),
         })
         .collect();
     patterns.sort_by_key(|b| Reverse(b.flagged_total));

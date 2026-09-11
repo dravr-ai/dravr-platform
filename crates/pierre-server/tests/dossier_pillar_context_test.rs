@@ -118,7 +118,7 @@ async fn seed_fact(
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind,
             pillar,
@@ -243,7 +243,7 @@ async fn medical_fact_survives_recency_window_eviction() -> Result<()> {
         SentenceRenderer::new(&MessagingStringsRegistry::new(), "en"),
     )
     .expect("non-empty bundle");
-    // The flag reaches the coach prompt (PHI redacted); raw text withheld.
+    // The flag reaches the agent prompt (PHI redacted); raw text withheld.
     assert!(bundle.contains("a medical/PAR-Q flag is on file"));
     assert!(!bundle.contains("chest pain during exercise (PAR-Q)"));
 
@@ -299,7 +299,7 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     // the surviving data, but each failed read leaves a WARN naming the error
     // and the user, the same way the neighbouring `get_profile` degrade does.
     // Silently returning an empty vec strips medical flags and every
-    // interview answer from the coach's context with no operator signal.
+    // interview answer from the agent's context with no operator signal.
     let db = open_test_db().await?;
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();

@@ -56,7 +56,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());

@@ -8,7 +8,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use chrono::Utc;
-use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupRespondMode};
 use pierre_core::models::{
     AddMessageParams, CoachingPersona, ParticipantRole, Tenant, TenantId,
@@ -43,7 +43,7 @@ fn test_tenant_id_2() -> TenantId {
 /// only joins. Each is a real `users` row, because `chat_conversations`,
 /// `conversation_participants` and `coaching_groups` reference `users(id)`
 /// on `PostgreSQL`; [`test_tenant_id`] is a real `tenants` row owned by the
-/// athlete, because `coaches.tenant_id` references it on `SQLite`.
+/// athlete, because `agents.tenant_id` references it on `SQLite`.
 struct ChatFixture {
     db: Database,
     athlete: String,
@@ -160,26 +160,26 @@ async fn add_row(
 }
 
 #[tokio::test]
-async fn test_list_rows_carry_coach_group_preview_and_unread() {
+async fn test_list_rows_carry_agent_group_preview_and_unread() {
     let fx = open_fixture().await;
     let manager = fx.chat();
     let tenant_id = test_tenant_id();
     let repos = fx.db.repositories();
 
-    // The list joins the coach and the group a conversation names, for the
+    // The list joins the agent and the group a conversation names, for the
     // row's title/handle and group name.
-    let coach_id = repos
-        .coaches
-        .create_system_coach(
+    let agent_id = repos
+        .agents
+        .create_system_agent(
             uuid_of(fx.athlete()),
             tenant_id,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: "Recovery Coach".to_owned(),
                 description: Some("Rest and recovery".to_owned()),
                 system_prompt: "You are the recovery coach.".to_owned(),
-                category: CoachCategory::Recovery,
+                category: AgentCategory::Recovery,
                 tags: vec![],
-                visibility: CoachVisibility::Tenant,
+                visibility: AgentVisibility::Tenant,
                 sample_prompts: vec![],
             },
         )
@@ -189,7 +189,7 @@ async fn test_list_rows_carry_coach_group_preview_and_unread() {
         .to_string();
     let handle = repos
         .store_listings
-        .assign_catalogue_handle(&coach_id, tenant_id)
+        .assign_catalogue_handle(&agent_id, tenant_id)
         .await
         .unwrap();
     assert_eq!(handle, "recovery-coach");
@@ -202,7 +202,7 @@ async fn test_list_rows_carry_coach_group_preview_and_unread() {
                 tenant_id: tenant_id.to_string(),
                 name: "Marathon Squad".to_owned(),
                 description: None,
-                coach_id: coach_id.clone(),
+                agent_id: agent_id.clone(),
                 owner_id: uuid_of(fx.athlete()),
                 coach_user_id: None,
                 peer_data_sharing: false,
@@ -229,7 +229,7 @@ async fn test_list_rows_carry_coach_group_preview_and_unread() {
         .await
         .unwrap();
     let coached = manager
-        .create_conversation(fx.athlete(), tenant_id, "Coach", "m", Some(&coach_id), None)
+        .create_conversation(fx.athlete(), tenant_id, "Coach", "m", Some(&agent_id), None)
         .await
         .unwrap();
     add_row(
@@ -273,8 +273,8 @@ async fn test_list_rows_carry_coach_group_preview_and_unread() {
     );
 
     let coached_row = &page.items[0];
-    assert_eq!(coached_row.coach_handle.as_deref(), Some("recovery-coach"));
-    assert_eq!(coached_row.coach_title.as_deref(), Some("Recovery Coach"));
+    assert_eq!(coached_row.agent_handle.as_deref(), Some("recovery-coach"));
+    assert_eq!(coached_row.agent_title.as_deref(), Some("Recovery Coach"));
     assert_eq!(coached_row.message_count, 2, "tool rows are not turns");
     assert_eq!(coached_row.unread_count, 2, "nothing read yet");
     let newest = coached_row.last_message.as_ref().unwrap();
@@ -465,17 +465,17 @@ async fn test_create_conversation() {
     assert_eq!(conv.tenant_id, tenant_id.to_string());
     assert_eq!(conv.title, "Test Chat");
     assert_eq!(conv.model, "gemini-1.5-flash");
-    assert!(conv.coach_id.is_none());
+    assert!(conv.agent_id.is_none());
     assert_eq!(conv.total_tokens, 0);
 }
 
 #[tokio::test]
-async fn test_create_conversation_with_coach_id() {
+async fn test_create_conversation_with_agent_id() {
     let fx = open_fixture().await;
     let manager = fx.chat();
 
-    // Pass None and assert the plumbing preserves the NULL. A coach-attached
-    // conversation is exercised by test_list_rows_carry_coach_group_preview_and_unread
+    // Pass None and assert the plumbing preserves the NULL. An agent-attached
+    // conversation is exercised by test_list_rows_carry_agent_group_preview_and_unread
     // and the route-level and orchestration integration tests.
     let tenant_id = test_tenant_id();
     let conv = manager
@@ -490,7 +490,7 @@ async fn test_create_conversation_with_coach_id() {
         .await
         .unwrap();
 
-    assert!(conv.coach_id.is_none());
+    assert!(conv.agent_id.is_none());
     assert_eq!(conv.model, "gemini-1.5-pro");
 }
 

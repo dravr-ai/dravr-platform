@@ -12,7 +12,7 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::repositories::CoachesRepository;
+use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "health-sync")]
 use pierre_enforme::SyncOrchestrator;
@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 impl ToolRuntime for ServerContext {
     fn database(&self) -> &Arc<Database> {
-        &self.coach.database
+        &self.agent.database
     }
 
     fn repos(&self) -> &Arc<RepositoryRegistry> {
@@ -82,8 +82,8 @@ impl ToolRuntime for ServerContext {
         &self.mcp.tool_selection
     }
 
-    fn coaches_manager(&self) -> &dyn CoachesRepository {
-        Self::coaches_manager(self)
+    fn agents_manager(&self) -> &dyn AgentsRepository {
+        Self::agents_manager(self)
     }
 
     fn recommendation_system_prompt(&self) -> String {

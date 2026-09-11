@@ -36,7 +36,7 @@ async fn seed(
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar,

@@ -19,7 +19,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: 'conv-1',
     title: 'Tempo Tuesday',
-    coach_id: null,
+    agent_id: null,
     message_count: 5,
     unread_count: 0,
     created_at: '2026-08-20T10:00:00Z',
@@ -71,7 +71,7 @@ describe('ConversationRow', () => {
     const model = row({
       group_id: 'group-1',
       group_name: 'Harricana',
-      coach_title: 'Coach Tempo',
+      agent_title: 'Coach Tempo',
       last_message: { preview: 'Bloc 3 starts Monday', role: 'assistant', created_at: '2026-08-26T09:50:00' },
     });
     const { getByTestId } = renderRow(model);
@@ -87,7 +87,7 @@ describe('ConversationRow', () => {
   });
 
   it('shows the coach handle beside the title of a coach thread', () => {
-    const model = row({ coach_id: 'coach-1', coach_handle: 'coach-tempo', coach_title: 'Coach Tempo' });
+    const model = row({ agent_id: 'coach-1', agent_handle: 'coach-tempo', agent_title: 'Coach Tempo' });
     expect(renderRow(model).getByTestId('conversation-handle-conv-1')).toHaveTextContent('@coach-tempo');
   });
 

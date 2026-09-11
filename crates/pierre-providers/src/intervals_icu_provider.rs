@@ -30,7 +30,7 @@
 //! and a session's steps go out in Intervals.icu's workout text DSL (see
 //! [`render_description`]) so the calendar parses them into targets and
 //! computes planned load. The DSL is parsed on every write and cannot be
-//! disabled, which is why coach prose is escaped before it is sent.
+//! disabled, which is why agent prose is escaped before it is sent.
 //!
 //! ## Authentication
 //!

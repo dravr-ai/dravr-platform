@@ -40,7 +40,7 @@ mod notification_event_locale_tests {
     /// The notification service the server boots: the upstream pipeline plus
     /// the localizer that renders each event in the recipient's language.
     fn notification_service(resources: &ServerContext) -> NotificationService {
-        let service = match &*resources.coach.database {
+        let service = match &*resources.agent.database {
             Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
             #[cfg(feature = "postgresql")]
             Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
@@ -79,7 +79,7 @@ mod notification_event_locale_tests {
     /// athlete on every surface — push included — read English and a later
     /// locale change repaired nothing.
     #[tokio::test]
-    async fn coach_message_stores_its_event_and_parameters() {
+    async fn agent_message_stores_its_event_and_parameters() {
         let resources = create_test_server_resources().await.unwrap();
         let (user, _token) = create_test_tenant(&resources, "event_params@example.com")
             .await
@@ -87,7 +87,7 @@ mod notification_event_locale_tests {
         let tenant = tenant_of(&resources, user.id).await;
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_coach_message(
+        notification_triggers::trigger_agent_message(
             &service,
             user.id,
             tenant,
@@ -104,11 +104,11 @@ mod notification_event_locale_tests {
 
         assert_eq!(
             row.notification_type,
-            NotificationEvent::CoachMessage.wire()
+            NotificationEvent::AgentMessage.wire()
         );
         let params = event_params(row.data.as_ref()).expect("the row carries its parameters");
         assert_eq!(
-            params.get("coach_name").and_then(Value::as_str),
+            params.get("agent_name").and_then(Value::as_str),
             Some("Coach Alice")
         );
 
@@ -142,7 +142,7 @@ mod notification_event_locale_tests {
         let service = Arc::new(notification_service(&resources));
         let router = NotificationRoutes::routes(Arc::clone(&resources));
 
-        notification_triggers::trigger_coach_message(
+        notification_triggers::trigger_agent_message(
             &service,
             user.id,
             tenant,
@@ -196,7 +196,7 @@ mod notification_event_locale_tests {
                 user_id: user.id,
                 tenant_id: tenant,
                 category: NotificationCategory::Coach,
-                notification_type: NotificationEvent::CoachMessage.wire().to_owned(),
+                notification_type: NotificationEvent::AgentMessage.wire().to_owned(),
                 title: "Message from your coach".to_owned(),
                 body: "Coach Alice sent you a message".to_owned(),
                 data: Some(serde_json::json!({ "screen": "coach", "id": "conv-legacy" })),
@@ -214,7 +214,7 @@ mod notification_event_locale_tests {
         assert_eq!(row["body"], "Coach Alice sent you a message");
     }
 
-    /// Every trigger, not only the coach one, records its event and reads in
+    /// Every trigger, not only the agent one, records its event and reads in
     /// the athlete's language.
     #[tokio::test]
     async fn every_trigger_renders_in_the_athletes_language() {
@@ -239,7 +239,7 @@ mod notification_event_locale_tests {
             &service, user.id, tenant, "FTP", "265 W",
         );
         notification_triggers::trigger_plan_updated(&service, user.id, tenant, "Coach Alice");
-        notification_triggers::trigger_coach_feedback(
+        notification_triggers::trigger_agent_feedback(
             &service,
             user.id,
             tenant,
@@ -341,9 +341,9 @@ mod notification_event_locale_tests {
             NotificationEvent::PersonalRecord,
             NotificationEvent::MilestoneReached,
             NotificationEvent::FitnessImprovement,
-            NotificationEvent::CoachMessage,
+            NotificationEvent::AgentMessage,
             NotificationEvent::PlanUpdated,
-            NotificationEvent::CoachFeedback,
+            NotificationEvent::AgentFeedback,
             NotificationEvent::SyncFailure,
             NotificationEvent::PersonaDigest,
         ] {

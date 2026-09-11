@@ -6,10 +6,10 @@
 
 //! Turns the platform answers itself.
 //!
-//! Almost every reply is the coach's. A few are not: the calibration wrap-up
+//! Almost every reply is the agent's. A few are not: the calibration wrap-up
 //! reports how many of the athlete's answers actually landed and names a
 //! safety topic that produced none — claims only the platform can make
-//! truthfully, since a coach asked to summarize its own interview has no view
+//! truthfully, since an agent asked to summarize its own interview has no view
 //! of what the extractor wrote and every incentive to declare success.
 //!
 //! Everything downstream of the dispatch still runs as usual, so the turn is
@@ -30,10 +30,10 @@ use crate::ChatPipelineContext;
 use super::followups::finalize_session_state;
 use super::persistence::persist_assistant_response;
 
-/// Stand-in for the coach reply when extraction runs over a turn the platform
+/// Stand-in for the agent reply when extraction runs over a turn the platform
 /// answered itself.
 ///
-/// The platform-authored text is a report about the interview, not a coach turn
+/// The platform-authored text is a report about the interview, not an agent turn
 /// about the athlete; handing it to the extractor would mint facts out of the
 /// platform's own summary of what it just captured. The athlete's message is
 /// theirs either way, so the reply side is replaced and the user side is

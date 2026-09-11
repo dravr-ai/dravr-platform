@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Regression guard for the 2026-08-22 live incident: an athlete with Strava
-//! and WHOOP asked about "ma sortie d'aujourd'hui" and the coach described
+//! and WHOOP asked about "ma sortie d'aujourd'hui" and the agent described
 //! WHOOP's distance-less, misclassified "run" — because
 //! `resolve_provider_for_tool` picks ONE provider (the most recently used
 //! connection resolved to WHOOP) and the 200km Strava ride was never
@@ -46,11 +46,11 @@ async fn a_no_provider_ask_merges_all_connections_and_keeps_the_gps_row() {
     env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
 
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

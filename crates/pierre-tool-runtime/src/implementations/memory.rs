@@ -1,12 +1,12 @@
-// ABOUTME: Tier 3 coach-authored memory tools — coach_note_add, coach_followup_schedule, remember_fact, recall_user_memory
+// ABOUTME: Tier 3 agent-authored memory tools — agent_note_add, agent_followup_schedule, remember_fact, recall_user_memory
 // ABOUTME: Pure McpTool impls; persistence goes through HarnessMemoryRepository wired in Tier 0
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Coach-Authored Memory Tools
+//! # Agent-Authored Memory Tools
 //!
-//! These tools let the coach persona itself write to and read from the
+//! These tools let the agent persona itself write to and read from the
 //! harness memory layer via the standard MCP tool-call surface. They are
 //! the Letta/MemGPT-style "active memory" complement to the background
 //! fact extractor in `services/memory_extraction.rs`.
@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use chrono::DateTime;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    InsertCoachFollowupParams, InsertCoachNoteParams, UpsertUserFactParams,
+    InsertAgentFollowupParams, InsertAgentNoteParams, UpsertUserFactParams,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use schemars::JsonSchema;
@@ -77,27 +77,27 @@ fn ctx_user_id(context: &ToolExecutionContext) -> String {
 }
 
 // ============================================================================
-// CoachNoteAddTool — write a private coach note about a user
+// AgentNoteAddTool — write a private agent note about a user
 // ============================================================================
 
-/// What `coach_note_add` answers with.
+/// What `agent_note_add` answers with.
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct CoachNoteAddResult {
+pub struct AgentNoteAddResult {
     /// Identifier of the stored note.
     pub note_id: String,
     /// RFC 3339 timestamp it was stored at.
     pub created_at: String,
 }
 
-/// What `coach_followup_schedule` answers with.
+/// What `agent_followup_schedule` answers with.
 #[derive(Debug, Serialize, JsonSchema)]
-pub struct CoachFollowupScheduleResult {
+pub struct AgentFollowupScheduleResult {
     /// Identifier of the scheduled follow-up.
     pub followup_id: String,
     /// Always `pending` on creation; a value rather than an inference, so a
     /// client reads state instead of assuming it from a successful call.
     pub status: String,
-    /// When it comes due, RFC 3339. Absent when the coach scheduled no date —
+    /// When it comes due, RFC 3339. Absent when the agent scheduled no date —
     /// the follow-up then rides the next conversation rather than a clock.
     pub due_at: Option<String>,
 }
@@ -115,9 +115,9 @@ pub struct RememberFactResult {
 
 /// One fact as `recall_user_memory` reports it.
 ///
-/// A projection of the stored row, not the row: tenant, user, coach and scope
+/// A projection of the stored row, not the row: tenant, user, agent and scope
 /// stay behind. `sentence` is the fact rendered in the athlete's own locale by
-/// the same renderer the memory screen uses, so the coach reads what they read.
+/// the same renderer the memory screen uses, so the agent reads what they read.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RecalledFact {
     /// Stable identifier.
@@ -147,16 +147,16 @@ pub struct RecallUserMemoryResult {
     pub count: usize,
 }
 
-/// Coach-authored note write tool.
+/// Agent-authored note write tool.
 ///
-/// Lets the coach persist a note it intentionally wants to remember about
+/// Lets the agent persist a note it intentionally wants to remember about
 /// the user (e.g., "user prefers no scientific jargon, dislikes percentage
-/// targets"). Notes are surfaced to admins via a coach-notes audit log and
-/// to the coach itself via recall on the next session.
-pub struct CoachNoteAddTool;
+/// targets"). Notes are surfaced to admins via an agent-notes audit log and
+/// to the agent itself via recall on the next session.
+pub struct AgentNoteAddTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
+impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -193,7 +193,7 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
             properties,
             Some(vec!["content".to_owned(), "agent_id".to_owned()]),
         );
-        answers_with::<CoachNoteAddResult>(tool_definition(
+        answers_with::<AgentNoteAddResult>(tool_definition(
             "agent_note_add",
             "Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
             schema,
@@ -227,14 +227,14 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                     "note content exceeds 2000 character limit",
                 ));
             }
-            let coach_id = require_string_field(&args, "agent_id")?;
+            let agent_id = require_string_field(&args, "agent_id")?;
             let conv_ref = optional_string_field(&args, "conversation_id");
             let user_id = ctx_user_id(&context);
 
-            let params = InsertCoachNoteParams {
+            let params = InsertAgentNoteParams {
                 tenant_id,
                 user_id: &user_id,
-                coach_id: &coach_id,
+                agent_id: &agent_id,
                 conversation_id: conv_ref.as_deref(),
                 scope: MemoryScope::User,
                 content: &body,
@@ -243,12 +243,12 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
                 .resources
                 .repos()
                 .memory
-                .insert_coach_note(&params)
+                .insert_agent_note(&params)
                 .await?;
 
             ok_typed(
                 "agent_note_add",
-                CoachNoteAddResult {
+                AgentNoteAddResult {
                     note_id: note.id,
                     created_at: note.created_at.to_rfc3339(),
                 },
@@ -260,18 +260,18 @@ impl McpTool<dyn ToolRuntime> for CoachNoteAddTool {
 }
 
 // ============================================================================
-// CoachFollowupScheduleTool — schedule a future check-in
+// AgentFollowupScheduleTool — schedule a future check-in
 // ============================================================================
 
-/// Coach followup scheduling tool.
+/// Agent followup scheduling tool.
 ///
-/// Lets the coach record a promised future check-in. Pending followups are
-/// rendered into the next conversation's system prompt so the coach
+/// Lets the agent record a promised future check-in. Pending followups are
+/// rendered into the next conversation's system prompt so the agent
 /// remembers its commitment.
-pub struct CoachFollowupScheduleTool;
+pub struct AgentFollowupScheduleTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
+impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -316,7 +316,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
             properties,
             Some(vec!["content".to_owned(), "agent_id".to_owned()]),
         );
-        answers_with::<CoachFollowupScheduleResult>(tool_definition(
+        answers_with::<AgentFollowupScheduleResult>(tool_definition(
             "agent_followup_schedule",
             "Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
@@ -352,7 +352,7 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                     "followup content exceeds 500 character limit",
                 ));
             }
-            let coach_id = require_string_field(&args, "agent_id")?;
+            let agent_id = require_string_field(&args, "agent_id")?;
             let conv_ref = optional_string_field(&args, "conversation_id");
             let due_at = optional_string_field(&args, "due_at")
                 .map(|s| {
@@ -365,10 +365,10 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                 .transpose()?;
             let user_id = ctx_user_id(&context);
 
-            let params = InsertCoachFollowupParams {
+            let params = InsertAgentFollowupParams {
                 tenant_id,
                 user_id: &user_id,
-                coach_id: &coach_id,
+                agent_id: &agent_id,
                 conversation_id: conv_ref.as_deref(),
                 content: &body,
                 due_at,
@@ -377,12 +377,12 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
                 .resources
                 .repos()
                 .memory
-                .insert_coach_followup(&params)
+                .insert_agent_followup(&params)
                 .await?;
 
             ok_typed(
                 "agent_followup_schedule",
-                CoachFollowupScheduleResult {
+                AgentFollowupScheduleResult {
                     followup_id: followup.id,
                     status: "pending".to_owned(),
                     due_at: followup.due_at.map(|d| d.to_rfc3339()),
@@ -395,12 +395,12 @@ impl McpTool<dyn ToolRuntime> for CoachFollowupScheduleTool {
 }
 
 // ============================================================================
-// RememberFactTool — let the coach assert a structured fact
+// RememberFactTool — let the agent assert a structured fact
 // ============================================================================
 
 /// Active-memory fact write tool.
 ///
-/// Lets the coach persona explicitly assert a durable fact about the user
+/// Lets the agent persona explicitly assert a durable fact about the user
 /// (e.g., a goal commitment confirmed in this turn) without waiting for
 /// the background extractor to infer it.
 pub struct RememberFactTool;
@@ -511,13 +511,13 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
                 .and_then(Value::as_f64)
                 .ok_or_else(|| AppError::invalid_input("confidence must be a number"))?;
             let confidence = (confidence_f64 as f32).clamp(0.0, 1.0);
-            let coach_id = optional_string_field(&args, "agent_id");
+            let agent_id = optional_string_field(&args, "agent_id");
             let user_id = ctx_user_id(&context);
 
             let params = UpsertUserFactParams {
                 tenant_id,
                 user_id: &user_id,
-                coach_id: coach_id.as_deref(),
+                agent_id: agent_id.as_deref(),
                 scope: MemoryScope::User,
                 kind,
                 pillar: None,
@@ -556,9 +556,9 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
 /// Memory recall read tool.
 ///
 /// Returns the most recently updated stored facts for the user, optionally
-/// scoped to a coach or fact kind. Mirrors the `services/memory_recall.rs`
+/// scoped to an agent or fact kind. Mirrors the `services/memory_recall.rs`
 /// retrieval the orchestrator uses to inject facts into the system prompt,
-/// exposed as a tool so the coach can also query it explicitly during a turn.
+/// exposed as a tool so the agent can also query it explicitly during a turn.
 pub struct RecallUserMemoryTool;
 
 #[async_trait]
@@ -619,7 +619,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let coach_id = optional_string_field(&args, "agent_id");
+            let agent_id = optional_string_field(&args, "agent_id");
             let kind = optional_string_field(&args, "kind").map(|s| FactKind::parse_lenient(&s));
             let limit = args
                 .get("limit")
@@ -632,9 +632,9 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
                 .resources
                 .repos()
                 .memory
-                .list_user_facts(tenant_id, &user_id, coach_id.as_deref(), kind, limit)
+                .list_user_facts(tenant_id, &user_id, agent_id.as_deref(), kind, limit)
                 .await?;
-            // The coach reads each fact as a sentence in the athlete's own
+            // The agent reads each fact as a sentence in the athlete's own
             // locale, rendered by the same function the memory screen uses.
             let locale =
                 resolve_user_locale(context.resources.repos().users.as_ref(), context.user_id)
@@ -673,8 +673,8 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
 #[must_use]
 pub fn create_memory_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
-        Box::new(CoachNoteAddTool),
-        Box::new(CoachFollowupScheduleTool),
+        Box::new(AgentNoteAddTool),
+        Box::new(AgentFollowupScheduleTool),
         Box::new(RememberFactTool),
         Box::new(RecallUserMemoryTool),
     ]
@@ -685,5 +685,5 @@ pub fn create_memory_tools() -> Vec<Box<dyn RuntimeTool>> {
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(RecallUserMemoryTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(RememberFactTool => empty);
-crate::declare_security!(CoachNoteAddTool => empty);
-crate::declare_security!(CoachFollowupScheduleTool => empty);
+crate::declare_security!(AgentNoteAddTool => empty);
+crate::declare_security!(AgentFollowupScheduleTool => empty);

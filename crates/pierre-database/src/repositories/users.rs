@@ -104,7 +104,7 @@ pub trait UserRepository: Send + Sync {
     async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()>;
     /// Toggle the user's `manages_roster` permission flag.
     ///
-    /// Called by admin tooling to grant or revoke the Coach-tier roster
+    /// Called by admin tooling to grant or revoke the Agent-tier roster
     /// UI / API surface. Independent from `coaching_persona` — see
     /// `Coaching Persona Architecture.md` §8 for the rationale.
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()>;

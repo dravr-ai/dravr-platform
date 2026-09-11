@@ -10,6 +10,12 @@ pub mod a2a;
 pub mod activity_cache_persistence;
 /// Admin token management and authorization
 pub mod admin;
+/// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)
+pub mod agent_artefacts;
+/// Catalogue handle assignment at Store approval time.
+pub(crate) mod agent_handle;
+/// Coaches (custom AI personas) storage and management
+pub mod agents;
 /// Analytics and usage statistics database operations
 pub mod analytics;
 /// API key management and validation
@@ -18,12 +24,6 @@ pub mod api_keys;
 pub mod chat;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
-/// Coach package artefacts — flavour, skeleton, workouts stored per coach (`SQLite`)
-pub mod coach_artefacts;
-/// Catalogue handle assignment at Store approval time.
-pub(crate) mod coach_handle;
-/// Coaches (custom AI personas) storage and management
-pub mod coaches;
 /// Coaching group storage, membership, and invite management
 pub mod coaching_groups;
 /// Athlete commitments (`SQLite`) backing `CommitmentRepository`.
@@ -79,7 +79,7 @@ pub mod recipes;
 pub mod repositories;
 /// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
 pub mod resumable_turns;
-/// Coach-athlete roster assignments (`SQLite`) backing `RosterRepository`.
+/// Agent-athlete roster assignments (`SQLite`) backing `RosterRepository`.
 pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (`SQLite`)
 pub mod route_summaries;
@@ -91,7 +91,7 @@ pub mod security_repository;
 pub mod seeder;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`SQLite`)
 pub mod short_links;
-/// Store listings for coach publishing workflow
+/// Store listings for agent publishing workflow
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)
 pub mod subscriptions;
@@ -135,12 +135,12 @@ pub mod workout_templates;
 /// Test utilities for database operations
 pub mod test_utils;
 
+pub use agents::{
+    Agent, AgentCategory, CreateAgentRequest, ListAgentsFilter, PublishStatus, UpdateAgentRequest,
+};
 pub use chat::{
     AddMessageParams, ChatManager, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
-};
-pub use coaches::{
-    Coach, CoachCategory, CreateCoachRequest, ListCoachesFilter, PublishStatus, UpdateCoachRequest,
 };
 pub use errors::{DatabaseError, DatabaseResult};
 pub use mobility::{
@@ -149,7 +149,7 @@ pub use mobility::{
 };
 pub use oauth_notifications::OAuthNotification;
 pub use pierre_core::models::a2a::{A2AUsage, A2AUsageStats};
-pub use store_listings::{CoachWithListing, StoreListing, StoreListingsManager};
+pub use store_listings::{AgentWithListing, StoreListing, StoreListingsManager};
 pub use user_mcp_tokens::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };
@@ -2279,12 +2279,12 @@ impl Database {
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         group_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
-            .create_conversation(user_id, tenant_id, title, model, coach_id, group_id)
+            .create_conversation(user_id, tenant_id, title, model, agent_id, group_id)
             .await
     }
 

@@ -9,7 +9,7 @@
 //! Everything between a provider-agnostic [`PlannedSession`] and the JSON
 //! Intervals.icu accepts on `POST /events` and `PUT /events/{id}`: the event
 //! category and `type`, the `external_id`, `moving_time`, and the description
-//! — coach prose first (escaped so it cannot be read as steps), then the
+//! — agent prose first (escaped so it cannot be read as steps), then the
 //! steps in Intervals.icu's workout text DSL (`- Warm-up 10m Z2`, `4x`
 //! repeat headers), with targets resolved through [`RelativeIntensity`] so a
 //! zone stays a zone and the athlete's own thresholds apply on the calendar.
@@ -197,7 +197,7 @@ fn escape_prose_line(line: &str) -> String {
     line.to_owned()
 }
 
-/// The event description: the coach's prose first (session notes, then each
+/// The event description: the agent's prose first (session notes, then each
 /// step's cue as `label: note`), a blank line, then the step DSL. Either half
 /// may be absent; a prose-only session is a timed entry the athlete reads, a
 /// steps-only one is pure structure.

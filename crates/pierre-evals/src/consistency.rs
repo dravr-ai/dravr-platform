@@ -8,10 +8,10 @@
 //!
 //! The rhetoric, deterministic-bounds, and evidence-retrieval layers judge each
 //! claim in isolation. The consistency-check layer looks at the *other*
-//! claims extracted from the same coach reply and flags a claim that directly
+//! claims extracted from the same agent reply and flags a claim that directly
 //! contradicts a sibling. A reply that says "your VO2max is 58" in one
 //! sentence and "your VO2max is 72" in another is internally inconsistent
-//! even if each number is individually plausible, and a coach who tells a
+//! even if each number is individually plausible, and an agent who tells a
 //! user to both "take creatine daily" and "avoid creatine" is contradicting
 //! themselves.
 //!

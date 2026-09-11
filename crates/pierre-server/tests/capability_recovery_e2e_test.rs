@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Regression guard for the live 2026-07-24 / 2026-08-11 Telegram incidents:
-//! the coach answered « Je ne suis pas capable d'accéder à tes données
+//! the agent answered « Je ne suis pas capable d'accéder à tes données
 //! d'activité en ce moment (problème de connexion de mon côté) » on turns
 //! with **zero tool calls** while every scrape in the surrounding weeks was
 //! green. The fabricated apology reached the user, was persisted, and
@@ -273,7 +273,7 @@ mod capability_recovery {
     }
 
     /// Wire a Slack channel + link for the user, post one inbound DM
-    /// (`channel_type: "im"` — the athlete alone with the coach, which is
+    /// (`channel_type: "im"` — the athlete alone with the agent, which is
     /// where the reconnect re-challenge may carry its user-scoped link), and
     /// return once the webhook was accepted.
     async fn drive_slack_turn(
@@ -353,7 +353,7 @@ mod capability_recovery {
              WHERE c.tenant_id = $1 AND m.role = 'assistant' \
              ORDER BY m.created_at DESC LIMIT 1";
         let tenant = tenant_id.to_string();
-        let row: Option<(Option<String>,)> = match resources.coach.database.as_ref() {
+        let row: Option<(Option<String>,)> = match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&tenant)
                 .fetch_optional(db.pool())
@@ -401,7 +401,7 @@ mod capability_recovery {
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..150 {
-            if let Some(content) = latest_text(&resources.coach.database, SQL, &tenant_str).await {
+            if let Some(content) = latest_text(&resources.agent.database, SQL, &tenant_str).await {
                 return Some(content);
             }
             sleep(Duration::from_millis(200)).await;
@@ -425,7 +425,7 @@ mod capability_recovery {
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..150 {
-            if let Some(body) = latest_text(&resources.coach.database, SQL, &tenant_str).await {
+            if let Some(body) = latest_text(&resources.agent.database, SQL, &tenant_str).await {
                 return Some(body);
             }
             sleep(Duration::from_millis(200)).await;
@@ -545,7 +545,7 @@ mod capability_recovery {
     ///
     /// It answers off EITHER grounding path: the prefetch's injected activity
     /// block, or the Guardian re-ask's fetched payload. That is what a real
-    /// coach does, and keeping it to only the re-ask made the mock assert the
+    /// agent does, and keeping it to only the re-ask made the mock assert the
     /// mechanism rather than the outcome — so it went red when registre#201
     /// started grounding a coachless turn up front instead of repairing it
     /// afterwards.
@@ -613,7 +613,7 @@ mod capability_recovery {
     /// gets there.
     ///
     /// It used to be the Guardian repair pass, because nothing else grounded a
-    /// conversation with no coach bound. registre#201 gave that turn a default
+    /// conversation with no agent bound. registre#201 gave that turn a default
     /// activity window, so the data is now in the prompt before the model
     /// answers rather than fetched after it does — and the repair pass stays as
     /// the net for a turn the prefetch could not fill.
@@ -1009,8 +1009,8 @@ mod capability_recovery {
         use pierre_chat_pipeline::stages::capability_subject::{
             SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
         };
-        use pierre_core::models::coaches::{
-            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        use pierre_core::models::agents::{
+            AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
             CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
@@ -1323,21 +1323,21 @@ mod capability_recovery {
             link_member(&resources, bot_tenant, phil, PHIL_SENDER, "Phil").await;
             link_member(&resources, bot_tenant, jd, JD_SENDER, "JD").await;
 
-            let coach = resources
+            let agent = resources
                 .common
                 .repos
-                .coaches
-                .create_system_coach(
+                .agents
+                .create_system_agent(
                     phil,
                     bot_tenant,
-                    &CreateSystemCoachRequest {
+                    &CreateSystemAgentRequest {
                         title: "Subject Routing Coach".to_owned(),
                         description: None,
                         system_prompt: "You are a concise test coach.".to_owned(),
-                        category: CoachCategory::Training,
+                        category: AgentCategory::Training,
                         tags: vec![],
                         sample_prompts: vec![],
-                        visibility: CoachVisibility::Global,
+                        visibility: AgentVisibility::Global,
                     },
                 )
                 .await
@@ -1356,7 +1356,7 @@ mod capability_recovery {
                         tenant_id: bot_tenant.to_string(),
                         name: "Subject Routing Group".to_owned(),
                         description: None,
-                        coach_id: coach.id.to_string(),
+                        agent_id: agent.id.to_string(),
                         owner_id: phil,
                         coach_user_id: None,
                         peer_data_sharing: true,
@@ -1445,7 +1445,7 @@ mod capability_recovery {
             );
             let tenant = scenario.bot_tenant.to_string();
             let member = member.to_string();
-            let row: Option<(Option<String>,)> = match scenario.resources.coach.database.as_ref() {
+            let row: Option<(Option<String>,)> = match scenario.resources.agent.database.as_ref() {
                 Database::SQLite(db) => sqlx::query_as(&sql)
                     .bind(&tenant)
                     .bind(&member)

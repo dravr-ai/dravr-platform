@@ -38,7 +38,7 @@ impl ServerContext {
     #[must_use]
     pub fn data(&self) -> DataContext {
         DataContext::new(
-            self.coach.database.clone(),
+            self.agent.database.clone(),
             self.common.repos.clone(),
             self.common.cache.clone(),
             self.fitness.provider_registry.clone(),
@@ -59,7 +59,7 @@ impl ServerContext {
             self.a2a.a2a_client_manager.clone(),
             #[cfg(feature = "protocol-a2a")]
             self.a2a.a2a_system_user_service.clone(),
-            self.coach.admin_config.clone(),
+            self.agent.admin_config.clone(),
         )
     }
 

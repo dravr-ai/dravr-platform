@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::CoachRepos;
+use pierre_database::AgentRepos;
 
 /// User-facing wire shape for a claim verdict.
 ///
@@ -31,8 +31,8 @@ pub struct ChatVerdictRow {
     pub conversation_id: Option<String>,
     /// Message the verdict belongs to (chip rendering key).
     pub message_id: Option<String>,
-    /// Coach that emitted the underlying claim, if known.
-    pub coach_id: Option<String>,
+    /// Agent that emitted the underlying claim, if known.
+    pub agent_id: Option<String>,
     /// The exact claim text the detector verified.
     pub claim_text: String,
     /// `nutrition`, `supplement`, etc.
@@ -72,7 +72,7 @@ pub struct ChatVerdictListResponse {
 /// - Repository errors propagated from the underlying chat or
 ///   claim verdict repositories.
 pub async fn list_for_conversation(
-    repos: &CoachRepos,
+    repos: &AgentRepos,
     conversation_id: &str,
     user_id: &str,
     tenant_id: TenantId,
@@ -94,7 +94,7 @@ pub async fn list_for_conversation(
             id: v.id,
             conversation_id: v.conversation_id,
             message_id: v.message_id,
-            coach_id: v.coach_id,
+            agent_id: v.agent_id,
             claim_text: v.claim_text,
             category: v.category.as_str().to_owned(),
             status: v.status.as_str().to_owned(),

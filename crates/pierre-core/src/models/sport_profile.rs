@@ -1,4 +1,4 @@
-// ABOUTME: Sport-mix profile computed from a user's recent activities for coach matching
+// ABOUTME: Sport-mix profile computed from a user's recent activities for agent matching
 // ABOUTME: Pure aggregation over Activity slices — counts canonical sports, computes shares + overlap
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,7 @@ use crate::models::{
 };
 
 /// A user's recent sport mix, derived from their connected providers'
-/// activities. Drives personalized coach recommendations.
+/// activities. Drives personalized agent recommendations.
 ///
 /// Keyed by the canonical `snake_case` sport label (e.g. `"run"`,
 /// `"ride"`) — the same serialization [`SportType`] uses — so the profile
@@ -52,7 +52,7 @@ impl SportProfile {
     /// the wrong question for anyone whose provider splits one sport across
     /// several — an athlete logging 20 runs against 12 mountain-bike, 11 gravel
     /// and 10 road rides came back `"run"` while 62% of his training was
-    /// cycling, and the coach proposal greeted him with "Based on your recent
+    /// cycling, and the agent proposal greeted him with "Based on your recent
     /// Run training".
     ///
     /// The second step is why this does not simply return the family head:
@@ -107,8 +107,8 @@ impl SportProfile {
     /// A sport qualifies when it clears either an absolute floor
     /// (`min_activities`) or a relative share of total activities
     /// (`min_share`, a fraction 0.0..=1.0) — so a single cross-training ride
-    /// during a running block doesn't surface cycling coaches. Both thresholds
-    /// are caller-supplied (env-tunable via `CoachRecommendationConfig`).
+    /// during a running block doesn't surface cycling agents. Both thresholds
+    /// are caller-supplied (env-tunable via `AgentRecommendationConfig`).
     ///
     /// The thresholds are applied to a FAMILY as well as to each discipline,
     /// because the unit an athlete trains in is not the unit a provider tags in.
@@ -171,36 +171,36 @@ impl SportProfile {
         active
     }
 
-    /// Fraction (0.0..=1.0) of a coach's required `activity_types` that match
+    /// Fraction (0.0..=1.0) of an agent's required `activity_types` that match
     /// a sport the user is actively training.
     ///
-    /// Returns 0.0 when the coach lists no activity types or the user does
+    /// Returns 0.0 when the agent lists no activity types or the user does
     /// none of them. `min_activities` / `min_share` define what counts as an
     /// active sport (see [`Self::active_sports`]).
     #[must_use]
     pub fn activity_type_overlap(
         &self,
-        coach_activity_types: &[String],
+        agent_activity_types: &[String],
         min_activities: u32,
         min_share: f32,
     ) -> f32 {
-        if coach_activity_types.is_empty() {
+        if agent_activity_types.is_empty() {
             return 0.0;
         }
         let active = self.active_sports(min_activities, min_share);
         if active.is_empty() {
             return 0.0;
         }
-        // Family-aware, not exact. A coach asking for `Run` is asking for the
+        // Family-aware, not exact. An agent asking for `Run` is asking for the
         // on-foot family, and an athlete who logs almost everything as
-        // `TrailRunning` is a runner; a coach asking for `Ride` wants the
+        // `TrailRunning` is a runner; an agent asking for `Ride` wants the
         // cyclist whose rides are tagged `MountainBike` and `GravelRide`.
         // Exact equality made this the mirror of the 2026-08-27 grounding
         // defect: the same athlete whose 22 mountain-bike sessions were hidden
-        // from his coach also scored 0.0 against every cycling coach, so none
-        // was ever eligible to recommend. A coach naming a specific discipline
+        // from his agent also scored 0.0 against every cycling agent, so none
+        // was ever eligible to recommend. An agent naming a specific discipline
         // still matches only that one — see `sport_matches_family`.
-        let matches = coach_activity_types
+        let matches = agent_activity_types
             .iter()
             .filter_map(|t| resolve_sport_type(t))
             .filter(|sport| {
@@ -211,7 +211,7 @@ impl SportProfile {
             .count();
         #[allow(clippy::cast_precision_loss)] // small counts; exact in f32
         let overlap = f32::from(u16::try_from(matches).unwrap_or(u16::MAX))
-            / f32::from(u16::try_from(coach_activity_types.len()).unwrap_or(u16::MAX));
+            / f32::from(u16::try_from(agent_activity_types.len()).unwrap_or(u16::MAX));
         overlap
     }
 }

@@ -51,11 +51,11 @@ use crate::common::{create_test_server_resources, create_test_user};
 #[tokio::test]
 async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

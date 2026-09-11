@@ -9,7 +9,7 @@
 
 //! The number that ended the 2026-09-02 conversation was `-77`.
 //!
-//! It reached the coach with no percentage, no band and no method. The coach
+//! It reached the agent with no percentage, no band and no method. The agent
 //! named it *"ton indice de fatigue"*, placed it in *"la zone de surentraînement
 //! profond"*, and built a race plan on it for an athlete in a deliberate
 //! overload block. Asked to show the calculation, it could not — and it was
@@ -114,7 +114,7 @@ fn the_json_metrics_carry_the_band_and_the_percentage() {
 }
 
 /// The athlete asked *"Montre moi exactement comment tu calcules l'indice"* and
-/// the coach could not answer. The payload now carries the method.
+/// the agent could not answer. The payload now carries the method.
 #[test]
 fn the_interpretation_states_the_method_and_the_windows() {
     let value = FormReading::interpretation(42, 7);

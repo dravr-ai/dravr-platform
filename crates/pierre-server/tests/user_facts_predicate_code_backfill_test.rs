@@ -27,6 +27,10 @@ use sqlx::Row;
 /// The migration under test; everything before it builds the legacy shape.
 const PREDICATE_CODE_MIGRATION: i64 = 20_260_902_000_001;
 
+// The walk stops here, older than 20260909000002 which renames
+// `user_facts.agent_id` to `agent_id`. The inserts below address the schema as
+// it stood at this point and must keep the historical column name.
+
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[cfg(feature = "postgresql")]
 static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");
@@ -112,7 +116,7 @@ async fn legacy_rows_become_codes_and_keep_the_athletes_words() {
 
 async fn backfill_on_sqlite(url: &str) {
     // One connection: every pooled connection to an in-memory database is its
-    // own empty database. Foreign keys off: the planted rows name no coach.
+    // own empty database. Foreign keys off: the planted rows name no agent.
     let options = SqliteConnectOptions::from_str(url)
         .unwrap()
         .foreign_keys(false);

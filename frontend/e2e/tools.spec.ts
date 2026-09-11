@@ -25,7 +25,7 @@ async function setupEngagementMocks(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
+        body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
       });
       return;
     }
@@ -34,7 +34,7 @@ async function setupEngagementMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           { id: 'c1', title: 'Marathon Coach', category: 'running', token_count: 15000, description: 'Marathon training' },
           { id: 'c2', title: 'Recovery Advisor', category: 'recovery', token_count: 8500, description: 'Recovery guidance' },
           { id: 'c3', title: 'Nutrition Planner', category: 'nutrition', token_count: 5200, description: 'Meal planning' },
@@ -281,7 +281,7 @@ test.describe('Engagement Tab - Loading State', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
+        body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
       });
     });
 

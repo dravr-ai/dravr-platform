@@ -1,4 +1,4 @@
-// ABOUTME: Serves a coach chart as a PNG for messaging channels that fetch media by URL
+// ABOUTME: Serves an agent chart as a PNG for messaging channels that fetch media by URL
 // ABOUTME: HMAC-signed short-TTL tokens, because the URL is handed to a third-party fetcher
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

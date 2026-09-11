@@ -84,8 +84,8 @@ fn sanitize_untrusted(s: &str) -> String {
         .replace('>', "›")
 }
 
-/// Coach-facing body for a medical fact. PAR-Q / medical answers are PHI: the
-/// coach prompt carries only the *flag that one exists*, never the raw answer
+/// Agent-facing body for a medical fact. PAR-Q / medical answers are PHI: the
+/// agent prompt carries only the *flag that one exists*, never the raw answer
 /// (the user sees their own raw answers in the GDPR export, not here).
 const MEDICAL_REDACTED_BODY: &str =
     "a medical/PAR-Q flag is on file — coach conservatively and confirm specifics with the user; raw details withheld from this prompt";
@@ -99,7 +99,7 @@ fn render_fact(fact: &DossierFact, redact_body: bool, sentences: SentenceRendere
     } else {
         // The slug was written by `PredicateCode::as_str`, so a parse failure
         // means a hand-edited row; render the athlete's words alone rather
-        // than drop the fact from the coach's view.
+        // than drop the fact from the agent's view.
         let code = PredicateCode::parse(&fact.predicate_code).unwrap_or_else(|| {
             warn!(
                 code = fact.predicate_code,

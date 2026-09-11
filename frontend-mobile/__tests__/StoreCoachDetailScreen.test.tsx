@@ -10,7 +10,7 @@ const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navig
 jest.mock('expo-router', () =>
   require('../jest.expo-router').createExpoRouterMock({
     useRouter: () => mockRouter,
-    useLocalSearchParams: () => ({ coachId: 'test-coach-id' }),
+    useLocalSearchParams: () => ({ agentId: 'test-coach-id' }),
   }),
 );
 
@@ -46,15 +46,15 @@ jest.spyOn(Alert, 'alert');
 
 import { StoreCoachDetailScreen } from '../src/screens/store/StoreCoachDetailScreen';
 import { CHAT_THREAD_ROUTE, COACH_EDIT_ROUTE } from '../src/navigation/routes';
-import type { StoreCoach, StoreCoachDetail, CoachCategory } from '../src/types';
+import type { StoreAgent, StoreAgentDetail, AgentCategory } from '../src/types';
 
 const COACH_HANDLE = 'marathon-training-coach';
 
-const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): StoreCoachDetail => ({
+const createMockStoreCoachDetail = (overrides: Partial<StoreAgentDetail> = {}): StoreAgentDetail => ({
   id: 'test-coach-id',
   title: 'Marathon Training Agent',
   description: 'A comprehensive marathon training program',
-  category: 'training' as CoachCategory,
+  category: 'training' as AgentCategory,
   tags: ['marathon', 'running', 'endurance'],
   sample_prompts: [
     'What should my weekly mileage be?',
@@ -75,11 +75,11 @@ const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): 
 
 // An install mints a personal copy with its own id, carrying the listing's
 // handle. Both the install response and the installations list return copies.
-const installedCopy: StoreCoach = {
+const installedCopy: StoreAgent = {
   id: 'installed-copy-1',
   title: 'Marathon Training Agent',
   description: 'A comprehensive marathon training program',
-  category: 'training' as CoachCategory,
+  category: 'training' as AgentCategory,
   tags: ['marathon', 'running', 'endurance'],
   sample_prompts: [],
   token_count: 1200,
@@ -98,8 +98,8 @@ describe('StoreCoachDetailScreen', () => {
     mockRouter.back.mockClear();
     mockRouter.navigate.mockClear();
     mockGet.mockResolvedValue(createMockStoreCoachDetail());
-    mockGetInstallations.mockResolvedValue({ coaches: [] });
-    mockInstall.mockResolvedValue({ message: 'Coach installed successfully', coach: installedCopy });
+    mockGetInstallations.mockResolvedValue({ agents: [] });
+    mockInstall.mockResolvedValue({ message: 'Coach installed successfully', agent: installedCopy });
   });
 
   describe('rendering', () => {
@@ -246,7 +246,7 @@ describe('StoreCoachDetailScreen', () => {
 
   describe('install functionality', () => {
     it('should show Install button when agent is not installed', async () => {
-      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockGetInstallations.mockResolvedValue({ agents: [] });
 
       const { getByText, queryByTestId } = render(
         <StoreCoachDetailScreen />
@@ -259,7 +259,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should call install when Install button is pressed', async () => {
-      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockGetInstallations.mockResolvedValue({ agents: [] });
 
       const { getByText } = render(
         <StoreCoachDetailScreen />
@@ -339,7 +339,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('should show error alert on installation failure', async () => {
-      mockGetInstallations.mockResolvedValue({ coaches: [] });
+      mockGetInstallations.mockResolvedValue({ agents: [] });
       mockInstall.mockRejectedValue(new Error('Installation failed'));
 
       const { getByText } = render(
@@ -365,7 +365,7 @@ describe('StoreCoachDetailScreen', () => {
     beforeEach(() => {
       // The installations list holds copies (own id, the listing's handle),
       // never the listing itself.
-      mockGetInstallations.mockResolvedValue({ coaches: [installedCopy] });
+      mockGetInstallations.mockResolvedValue({ agents: [installedCopy] });
     });
 
     it('recognises the installed copy by the handle it inherited from the listing', async () => {
@@ -393,7 +393,7 @@ describe('StoreCoachDetailScreen', () => {
 
       expect(mockRouter.push).toHaveBeenCalledWith({
         pathname: COACH_EDIT_ROUTE,
-        params: { coachId: 'installed-copy-1' },
+        params: { agentId: 'installed-copy-1' },
       });
     });
 
@@ -419,7 +419,7 @@ describe('StoreCoachDetailScreen', () => {
     });
 
     it('uninstalls the copy id, never the store listing id', async () => {
-      mockUninstall.mockResolvedValue({ message: 'Uninstalled', source_coach_id: 'test-coach-id' });
+      mockUninstall.mockResolvedValue({ message: 'Uninstalled', source_agent_id: 'test-coach-id' });
 
       // Mock Alert to automatically call the destructive action
       (Alert.alert as jest.Mock).mockImplementation(

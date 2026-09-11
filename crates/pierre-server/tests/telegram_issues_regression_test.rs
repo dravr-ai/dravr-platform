@@ -21,7 +21,7 @@ use pierre_llm::prompts::{
 ///
 /// These regression tests assert what the model is TOLD, not which file says
 /// it. The 2026-08-11 contract split moved the tool-deflection and
-/// connection-check rules out of the persona (a bound coach replaces that
+/// connection-check rules out of the persona (a bound agent replaces that
 /// block) and into the always-injected contract; asserting against one file
 /// would have made them pass or fail on where a rule lives rather than on
 /// whether the model receives it.
@@ -320,15 +320,15 @@ fn test_activity_intelligence_fallback_on_not_found() {
 }
 
 // =============================================================================
-// Issue #11 (2026-04-17): Custom coach personas refuse route requests
-// A user asked "Donne moi un trajet a St-Alexis" to a coach whose custom
+// Issue #11 (2026-04-17): Custom agent personas refuse route requests
+// A user asked "Donne moi un trajet a St-Alexis" to an agent whose custom
 // system_prompt contained the anti-hallucination rule but no knowledge of
-// the discover_routes tool. The coach refused ("Je ne veux pas t'inventer
+// the discover_routes tool. The agent refused ("Je ne veux pas t'inventer
 // des noms de routes") instead of calling the tool that would return real
 // OSM-backed routes.
 //
 // Fix: append a mandatory tool-discipline block to every rendered system
-// prompt in chat_pipeline::assemble_prompt_and_messages so custom coach
+// prompt in chat_pipeline::assemble_prompt_and_messages so custom agent
 // personas inherit the non-overridable rules for discover_routes and
 // get_activities.
 // =============================================================================

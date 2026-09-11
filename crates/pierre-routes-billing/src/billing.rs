@@ -86,8 +86,8 @@ pub struct PlanView {
     pub daily_tokens: i64,
     /// Monthly billable-token cap.
     pub monthly_tokens: i64,
-    /// Cap on concurrently active coaches.
-    pub max_active_coaches: i64,
+    /// Cap on concurrently active agents.
+    pub max_active_agents: i64,
     /// Daily data-tool-call cap.
     pub daily_tool_calls: i64,
     /// Monthly USD spend included before metered overage. `None` when the
@@ -112,7 +112,7 @@ fn plan_view(tier: &UserTier) -> PlanView {
         daily_messages: q.daily_messages,
         daily_tokens: q.daily_tokens,
         monthly_tokens: q.monthly_tokens,
-        max_active_coaches: q.max_active_coaches,
+        max_active_agents: q.max_active_agents,
         daily_tool_calls: q.daily_tool_calls,
         included_usd: if q.monthly_cost_cap_usd.is_finite() {
             Some(q.monthly_cost_cap_usd)

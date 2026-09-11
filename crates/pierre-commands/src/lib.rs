@@ -14,7 +14,7 @@
 //!    argument signatures `/help` renders beside each command.
 //! 2. **Handler runtime** ([`CommandHandler`], [`CommandHandlerRegistry`],
 //!    [`PlatformCommandContext`], and the per-command modules
-//!    [`account`], [`coach`], [`coach_create`], [`discover`], [`group`],
+//!    [`account`], [`agent`], [`agent_create`], [`discover`], [`group`],
 //!    [`group_membership`], [`help`], [`privacy`], [`status`]).
 //!    The [`dispatch::try_dispatch`] entry point is the single authority
 //!    for every chat surface — messaging ingress, web chat, mobile chat,
@@ -26,14 +26,14 @@
 
 /// Account management commands (logout, profile)
 pub mod account;
+/// The `/agent` command tree (list, add, remove, invite, assign)
+pub mod agent;
+/// `/agent create` — draft an agent from the conversation, confirm to create it.
+pub mod agent_create;
 /// Difficulty-calibration interview command (`/calibrate`)
 pub mod calibration;
-/// The `/coach` command tree (list, add, remove, invite, assign)
-pub mod coach;
-/// `/coach create` — draft a coach from the conversation, confirm to create it.
-pub mod coach_create;
 
-/// Coach catalogue commands (`/discover`, `/discover install`)
+/// Agent catalogue commands (`/discover`, `/discover install`)
 pub mod discover;
 /// Transport-agnostic slash-command dispatcher — single authority for every chat surface
 pub mod dispatch;
@@ -113,8 +113,8 @@ pub struct PlatformCommandContext {
     /// Slack `event.channel_type`, Discord `guild_id` absence, `WhatsApp`
     /// / Messenger always true). Web and mobile derive it from the
     /// conversation: a thread with no `group_id` is personal. Commands with
-    /// different personal vs group semantics (notably `/coach add` →
-    /// user-scoped selection in a personal thread, group coach binding
+    /// different personal vs group semantics (notably `/agent add` →
+    /// user-scoped selection in a personal thread, group agent binding
     /// otherwise) branch on this flag.
     pub is_direct_message: bool,
     /// Whether a `/group` command typed where no group is bound may act on
@@ -217,7 +217,7 @@ pub trait CommandHandler: Send + Sync {
     /// listing is a promise the command will work. The handler answers because
     /// it is the only thing that knows which group it acts on: `/group status`
     /// reads whichever group the caller belongs to, `/group invite` reads the
-    /// one bound to the conversation, and `/coach assign` reads the one named
+    /// one bound to the conversation, and `/agent assign` reads the one named
     /// in the arguments. No catalog declaration can express that difference,
     /// which is why the catalog no longer tries.
     ///

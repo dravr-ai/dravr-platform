@@ -163,7 +163,7 @@ impl<'de> Deserialize<'de> for ExternalSendAllowlist {
 
 /// How the Guardian treats an `IRREVERSIBLE` sink invoked in a tainted turn.
 ///
-/// `Log` only (default) because deleting a coach after viewing activities is
+/// `Log` only (default) because deleting an agent after viewing activities is
 /// plausibly legitimate — Phase 1 measures the base rate before escalating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -222,7 +222,7 @@ impl Default for GuardianPolicy {
             // multi-disconnect ("Strava and Garmin") is done one at a time — rare
             // and recoverable, worth the ceiling on a fully-injected turn.
             max_destructive_per_turn: 1,
-            // Generous enough to clear a legit bulk turn (a coach setting goals
+            // Generous enough to clear a legit bulk turn (an agent setting goals
             // across a group) while still bounding a runaway injected write flood.
             // Tunable via GUARDIAN_MAX_WRITES_PER_TURN.
             max_writes_per_turn: 50,

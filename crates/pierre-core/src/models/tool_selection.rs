@@ -29,7 +29,7 @@ pub enum ToolCategory {
     Configuration,
     /// OAuth provider connections
     Connections,
-    /// AI coach management (list, create, activate, hide)
+    /// AI agent management (list, create, activate, hide)
     Coaches,
     /// Admin-only tools (system agent management, assignments)
     Admin,

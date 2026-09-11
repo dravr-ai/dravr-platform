@@ -25,12 +25,12 @@ export type ThreadSubtitle =
  * participant in it.
  */
 export function threadSubtitle(
-  conversation: Pick<Conversation, 'group_name' | 'coach_handle'> | null | undefined,
+  conversation: Pick<Conversation, 'group_name' | 'agent_handle'> | null | undefined,
 ): ThreadSubtitle {
   if (!conversation) return null;
   if (conversation.group_name) return { kind: 'group' };
-  if (conversation.coach_handle) {
-    return { kind: 'handle', handle: conversation.coach_handle };
+  if (conversation.agent_handle) {
+    return { kind: 'handle', handle: conversation.agent_handle };
   }
   return null;
 }

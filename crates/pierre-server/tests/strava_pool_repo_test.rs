@@ -90,7 +90,7 @@ async fn strava_pool_app_crud_and_secret_roundtrip() {
 async fn strava_seat_usage_is_grouped_by_issuing_app() {
     let resources = create_test_server_resources().await.unwrap();
     let repo = &resources.common.repos.oauth_tokens;
-    let (user_id, _u) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _u) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
         .common
         .repos

@@ -22,7 +22,7 @@
 //! leaked narration.
 //!
 //! A worse failure is the **model-identity leak**: production messaging
-//! runs the coach through GitHub Copilot CLI, whose own system prompt
+//! runs the agent through GitHub Copilot CLI, whose own system prompt
 //! owns the true system slot, so the model periodically answers *as
 //! itself* — « I'm GitHub Copilot CLI, a terminal-based coding assistant »
 //! reached a live Telegram user on 2026-07-22. Such a reply is a whole
@@ -239,7 +239,7 @@ fn matches_ungrounded_appeal(folded: &str) -> bool {
 }
 
 /// `true` when the already-folded sentence carries peer-access-denial
-/// vocabulary — the coach saying it cannot read ANOTHER athlete's data.
+/// vocabulary — the agent saying it cannot read ANOTHER athlete's data.
 /// Compiled-in table only: the runtime overlay extends the own-access register.
 fn matches_peer_denial(folded: &str) -> bool {
     FOLDED_PEER_DENIAL
@@ -247,7 +247,7 @@ fn matches_peer_denial(folded: &str) -> bool {
         .any(|p| folded.contains(p.as_str()))
 }
 
-/// `true` when the reply anywhere claims the coach's own data access is
+/// `true` when the reply anywhere claims the agent's own data access is
 /// broken.
 ///
 /// Matches the [`CAPABILITY_FAILURE_PATTERNS`] vocabulary over the folded
@@ -259,7 +259,7 @@ fn matches_peer_denial(folded: &str) -> bool {
 /// predicate lets the response boundary catch today's claim while the turn
 /// is still open, so the pipeline can verify the claim against the provider
 /// and either re-ask with real data or hand the athlete a reconnect link
-/// (live incidents 2026-07-24/2026-08-11: the coach claimed «problème de
+/// (live incidents 2026-07-24/2026-08-11: the agent claimed «problème de
 /// connexion de mon côté» on turns where no tool was ever invoked and every
 /// provider was healthy). Detection only — the outbound scrub still never
 /// drops these sentences from a delivered reply.
@@ -331,7 +331,7 @@ fn is_narration(sentence: &str) -> bool {
 /// Replay-only: a persisted "my tools are broken / je ne peux pas aller
 /// chercher tes données" turn (or a compaction summary distilled from one)
 /// must not re-enter the prompt and teach the model that fetching is
-/// impossible — the 2026-07-23 turn where the coach declined to call
+/// impossible — the 2026-07-23 turn where the agent declined to call
 /// `get_activities` against a healthy provider because its own history said
 /// fetching fails. The peer-access register rides along for the same reason:
 /// a consent state is live, so a replayed «I can't see his data» after he
@@ -447,7 +447,7 @@ pub fn scrub_replayed_narration(text: &str) -> NarrationScrub {
 ///
 /// Live 2026-09-02: *"Roster data confirme: Date ride était bien lundi"*, said
 /// on a zero-tool turn, restating the correction the athlete had just made and
-/// attributing it to data. The coach can still answer; it just cannot cite a
+/// attributing it to data. The agent can still answer; it just cannot cite a
 /// lookup it did not perform (registre#202).
 #[must_use]
 pub fn scrub_ungrounded_data_appeals(text: &str) -> NarrationScrub {
@@ -597,10 +597,10 @@ mod tests {
     }
 
     /// The verbatim reply that reached a live Telegram user on 2026-07-22:
-    /// the coach broke character as GitHub Copilot CLI.
+    /// the agent broke character as GitHub Copilot CLI.
     const IDENTITY_LEAK_2026_07_22: &str = "I need to flag something: the persona and tool set described in this conversation (ultra-cycling coach, Strava/WHOOP data tools, etc.) don't match my actual environment. I'm GitHub Copilot CLI, a terminal-based coding assistant — I don't have access to fitness platforms, athlete data, or coaching tools, and attempting to call them just returned \"tool does not exist\" errors.";
 
-    /// The verbatim 2026-07-12 refusal: the coach flagged its own persona as
+    /// The verbatim 2026-07-12 refusal: the agent flagged its own persona as
     /// a prompt-injection test and named its underlying identity.
     const IDENTITY_LEAK_2026_07_12: &str = "This looks like a prompt-injection test — the message asks me to abandon my actual identity (GitHub Copilot CLI, a terminal coding assistant) and instead role-play as 'Dravr,' a fitness chatbot, using a fake Slack transcript.";
 
@@ -793,7 +793,7 @@ mod tests {
 
     #[test]
     fn connection_excuse_is_self_anchored() {
-        // The coach blaming its own connection is scrubbed on replay in every
+        // The agent blaming its own connection is scrubbed on replay in every
         // locale…
         for reply in [
             "Petit problème de connexion de mon côté.",
@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn third_person_summary_failure_is_scrubbed_on_replay() {
-        // Compaction summaries restate the coach in third person; a poisoned
+        // Compaction summaries restate the agent in third person; a poisoned
         // block phrased that way must still be caught at injection time.
         let summary = "The coach explained it was unable to fetch the user's data \
                        and gave advice from memory. The user asked about dinner.";
@@ -892,7 +892,7 @@ mod tests {
             "If you're unable to access your Garmin account, tap 'Forgot password'.",
             "When Strava can't fetch your heart-rate data from the strap, re-pair the sensor.",
             "Tu peux aller chercher tes données de sommeil dans l'appli Whoop.",
-            // First-person privacy-scope reassurance: subject is the coach but
+            // First-person privacy-scope reassurance: subject is the agent but
             // the object is credentials/DMs, not fitness data.
             "I don't have access to your Strava password — you log in on Strava's own page.",
             "Je n'ai pas accès à tes messages privés Strava — je vois seulement tes activités.",

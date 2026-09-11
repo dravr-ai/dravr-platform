@@ -131,7 +131,7 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Univers
 /// one the catalogue produces for a real athlete.
 fn plan_payload(flavour: &Value) -> Value {
     json!({
-        "coach_id": "endurance-coach",
+        "agent_id": "endurance-coach",
         "outline": {
             "goal_race": { "name": "Parkrun PB", "date": "2026-11-14", "discipline": "run_5k", "priority": "A" },
             "strategy": "polarised build, two hard days, one long easy",
@@ -248,7 +248,7 @@ async fn a_rule_selection_stores_the_verdict_it_came_from_and_reports_it() -> Re
         .get_active_plan(
             &tenant_id,
             &user_id.to_string(),
-            PlanOwner::coach("endurance-coach"),
+            PlanOwner::agent("endurance-coach"),
         )
         .await?
         .expect("the plan is stored");
@@ -409,7 +409,7 @@ async fn an_override_wearing_the_rules_name_is_refused() -> Result<()> {
             .get_active_plan(
                 &tenant_id,
                 &user_id.to_string(),
-                PlanOwner::coach("endurance-coach"),
+                PlanOwner::agent("endurance-coach"),
             )
             .await?
             .is_none(),

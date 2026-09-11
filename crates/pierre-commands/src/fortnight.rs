@@ -19,7 +19,7 @@ use pierre_services::fortnight::{
     decide_fortnight, CoverageReading, DeclineReason, FortnightInputs, FortnightVerdict,
     WalkReading, FORTNIGHT_WEEKS,
 };
-use pierre_services::training_plan_render::{resolve_plan_coach_slug, select_active_weeks};
+use pierre_services::training_plan_render::{resolve_plan_agent_slug, select_active_weeks};
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -33,7 +33,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 ///
 /// The readiness ladder is deliberately *not* read here. Reading it costs the
 /// rails' whole gather — the training history, the recovery feed, the sleep
-/// feed and the coach package — which the agent asks for with `include_state`
+/// feed and the agent package — which the agent asks for with `include_state`
 /// on the turn this opens, and which it needs anyway to write the days. The
 /// decision therefore sees `None` for readiness, and `None` is silence: it
 /// refuses nothing on that ground rather than treating an unread ladder as
@@ -79,9 +79,9 @@ impl CommandHandler for FortnightHandler {
         } else {
             WalkReading::Idle
         };
-        let conversation_agent = conversation.and_then(|c| c.coach_id);
+        let conversation_agent = conversation.and_then(|c| c.agent_id);
         let agent =
-            resolve_plan_coach_slug(repos, conversation_agent, ctx.tenant_id, ctx.user_id).await?;
+            resolve_plan_agent_slug(repos, conversation_agent, ctx.tenant_id, ctx.user_id).await?;
 
         let plan = repos
             .training_plans
@@ -118,7 +118,7 @@ impl CommandHandler for FortnightHandler {
                     has_phases: !plan.phases.is_empty(),
                     // The ladder is not read here, and the message does not
                     // pretend it was. Reading it needs the rails' full
-                    // gather — three history stores and the coach package —
+                    // gather — three history stores and the agent package —
                     // which is the agent's to ask for with `include_state`
                     // on the turn this opens. `None` is silence, and the
                     // decision treats it as such rather than as consent.

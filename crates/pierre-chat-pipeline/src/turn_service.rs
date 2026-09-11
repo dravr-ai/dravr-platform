@@ -46,7 +46,7 @@ use uuid::Uuid;
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
-use crate::stages::coach_mention::resolve_coach_mention;
+use crate::stages::agent_mention::resolve_agent_mention;
 use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
@@ -94,7 +94,7 @@ pub struct TurnRequest<'a> {
     /// Canonical channel identifier (`"web"`, `"mobile"`, `"telegram"`, …)
     /// used for slash-command analytics and the command context.
     pub channel_type: &'a str,
-    /// `true` when the athlete is alone with the coach: a messaging DM, or an
+    /// `true` when the athlete is alone with the agent: a messaging DM, or an
     /// in-app conversation with no coaching group bound to it.
     pub is_direct_message: bool,
     /// Whether a `/group` command typed in a conversation bound to no group
@@ -187,7 +187,7 @@ pub struct SlashRequest<'a> {
     pub channel_type: &'a str,
     /// Locale every string the handler returns is written in.
     pub locale: &'a str,
-    /// `true` when the athlete is alone with the coach.
+    /// `true` when the athlete is alone with the agent.
     pub is_direct_message: bool,
     /// See [`TurnRequest::ambient_group_fallback`].
     pub ambient_group_fallback: bool,
@@ -219,10 +219,10 @@ pub async fn execute(
 ) -> AppResult<ServedTurn> {
     let user_id_str = request.user_id.to_string();
 
-    // The conversation row supplies the coach the per-coach cap is keyed on.
+    // The conversation row supplies the agent the per-agent cap is keyed on.
     // A missing row is fine — the athlete may be opening a new conversation —
     // so a lookup failure narrows the scope rather than refusing the turn.
-    let coach_id = ctx
+    let agent_id = ctx
         .repos
         .chat
         .get_conversation(
@@ -233,7 +233,7 @@ pub async fn execute(
         .await
         .ok()
         .flatten()
-        .and_then(|conv| conv.coach_id);
+        .and_then(|conv| conv.agent_id);
 
     let quota = check_pre_chat_quotas_scoped(
         ctx,
@@ -241,7 +241,7 @@ pub async fn execute(
         request.user_id,
         &PreChatScope {
             conversation_id: Some(request.conversation_id.as_str()),
-            coach_id: coach_id.as_deref(),
+            agent_id: agent_id.as_deref(),
         },
     )
     .await?;
@@ -288,14 +288,14 @@ pub async fn execute(
         ..profile.clone()
     };
 
-    // `@handle` hands this one turn to an installed coach. Resolved here, on
+    // `@handle` hands this one turn to an installed agent. Resolved here, on
     // the ladder every surface climbs, so a Telegram mention and a web mention
     // route identically and no client has to know the grammar. A slash command
-    // never reaches this point, which is what keeps `/coach add @handle` a
+    // never reaches this point, which is what keeps `/agent add @handle` a
     // command argument rather than a mention. Installs live in the athlete's
     // own tenant, so that is where the handle resolves.
-    let mentioned_coach = resolve_coach_mention(
-        ctx.repos.coaches.as_ref(),
+    let mentioned_agent = resolve_agent_mention(
+        ctx.repos.agents.as_ref(),
         &request.content,
         request.user_id,
         request.tool_tenant_id,
@@ -313,7 +313,7 @@ pub async fn execute(
         turn_id: request.turn_id,
         ambient_context: request.ambient_context,
         quota,
-        mentioned_coach: mentioned_coach.map(Box::new),
+        mentioned_agent: mentioned_agent.map(Box::new),
     };
 
     let mut ctx_for_turn = ctx.clone();
@@ -333,7 +333,7 @@ pub async fn execute(
         i64::from(prompt_tokens) + i64::from(completion_tokens),
         &UsageIncrementScope {
             conversation_id: Some(request.conversation_id.as_str()),
-            coach_id: coach_id.as_deref(),
+            agent_id: agent_id.as_deref(),
         },
     )
     .await;
@@ -352,7 +352,7 @@ pub async fn execute(
 ///
 /// A host with no command catalog configured — a test context that skips
 /// `commands/` — resolves every text to `Ok(None)`, so the turn falls through
-/// to the coach rather than failing.
+/// to the agent rather than failing.
 ///
 /// An answered command is then written to the transcript under
 /// `request.persistence` — the `/…` line and the reply, both stamped so they
@@ -463,7 +463,7 @@ fn command_turn(outcome: DispatchOutcome, channel_type: &str) -> Option<CommandT
 /// A room-visible command turn in a shared messaging room is also fanned out
 /// to the group's shared transcript: the reply was posted to the room, so the
 /// room's history — the ambient block a later turn reads — carries it, and a
-/// coach can discuss the plan an athlete just shared. The in-app surfaces
+/// agent can discuss the plan an athlete just shared. The in-app surfaces
 /// persist every command turn into the caller's own conversation and fan
 /// nothing out, exactly as before.
 async fn persist_if_covered(
@@ -498,7 +498,7 @@ async fn persist_if_covered(
 }
 
 /// Append both rows of a room-visible command turn to the group's shared
-/// transcript — the `/…` line as the member, the reply as the coach — when
+/// transcript — the `/…` line as the member, the reply as the agent — when
 /// the conversation is group-bound. Best-effort like the rows themselves: a
 /// failed append is logged, never turned into a failed command.
 async fn fan_out_room_visible_turn(

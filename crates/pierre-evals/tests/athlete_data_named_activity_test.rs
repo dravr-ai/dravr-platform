@@ -98,7 +98,7 @@ fn the_right_weekday_is_not_contradicted() {
     );
 }
 
-/// *"Passion rando etait de la course a pied et non du velo"* — the coach put a
+/// *"Passion rando etait de la course a pied et non du velo"* — the agent put a
 /// run into a cycling plan and prescribed it 2-3x a week.
 #[test]
 fn calling_a_run_a_bike_session_is_contradicted() {
@@ -154,7 +154,7 @@ fn a_sub_discipline_matches_its_family() {
     );
 }
 
-/// Elevation was in every one of the coach's summaries — 2391 m, 895 m, 414 m —
+/// Elevation was in every one of the agent's summaries — 2391 m, 895 m, 414 m —
 /// and the extractor had no metres unit at all, so none of it was checkable.
 #[test]
 fn an_elevation_figure_is_checked_against_the_record() {

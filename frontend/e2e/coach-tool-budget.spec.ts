@@ -109,7 +109,7 @@ async function setupCoachMocks(
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
+      body: JSON.stringify({ agents: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
     });
   });
   await page.route(`**/api/store/agents/${STORE_ID}`, async (route) => {
@@ -134,7 +134,7 @@ async function setupCoachMocks(
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [coachPayload()], total: 1 }),
+      body: JSON.stringify({ agents: [coachPayload()], total: 1 }),
     });
   });
 
@@ -146,7 +146,7 @@ async function setupCoachMocks(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [] }),
+        body: JSON.stringify({ agents: [] }),
       });
       return;
     }

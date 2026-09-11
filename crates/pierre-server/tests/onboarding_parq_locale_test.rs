@@ -58,7 +58,7 @@ async fn questions_are_served_in_the_callers_locale_with_stable_ids() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let token = format!("Bearer {}", generate_test_token(&resources, &user).await);

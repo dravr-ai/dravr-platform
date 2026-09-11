@@ -6,7 +6,7 @@
 
 //! # Lactate step test → thresholds
 //!
-//! The coach hears "200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol" and
+//! The agent hears "200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol" and
 //! needs LT1, LT2, the zones and the pace table. cageux's
 //! [`LactateStepTest`] does the arithmetic by four named constructs; this
 //! tool parses the stages, keeps the constructs apart in the reply, derives
@@ -271,7 +271,7 @@ impl EstimateLactateThresholdsTool {
     /// The constructs are independent, so nothing in the arithmetic forces
     /// LT1 below LT2. When a determined pair comes back inverted the test
     /// cannot support both numbers, and the reply says so rather than
-    /// leaving a coach to quote a physiologically incoherent pair.
+    /// leaving an agent to quote a physiologically incoherent pair.
     fn ordering_note(thresholds: &LactateThresholds) -> Option<String> {
         let lt1 = thresholds.lt1_log_log.point()?;
         let inverted: Vec<&'static str> = [

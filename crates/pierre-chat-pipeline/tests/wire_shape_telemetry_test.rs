@@ -83,7 +83,7 @@ fn an_assembled_prompt_presents_exactly_one_system_message() {
 #[test]
 fn a_history_with_no_system_prompt_reports_zero() {
     // The counter must be honest in the degenerate direction too: a missing
-    // system prompt is its own defect class (the coach ships with no persona),
+    // system prompt is its own defect class (the agent ships with no persona),
     // and it should read 0 rather than being masked.
     let history = vec![row("m1", "user", "salut")];
 

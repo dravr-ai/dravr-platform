@@ -9,10 +9,10 @@ use std::sync::Arc;
 #[cfg(feature = "postgresql")]
 use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
-use crate::repositories::CoachArtefactRepository;
+use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
-    A2ARepository, ActivityCacheRepository, AdminRepository, ApiKeyRepository, ChatRepository,
-    ClaimVerdictRepository, CoachesRepository, CoachingGroupRepository, CommitmentRepository,
+    A2ARepository, ActivityCacheRepository, AdminRepository, AgentsRepository, ApiKeyRepository,
+    ChatRepository, ClaimVerdictRepository, CoachingGroupRepository, CommitmentRepository,
     DataSourceRepository, DossierRepository, EmailVerificationRepository, FeatureFlagsRepository,
     FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
@@ -47,8 +47,8 @@ pub struct RepositoryRegistry {
     pub api_keys: Arc<dyn ApiKeyRepository>,
     /// Chat conversation and message storage
     pub chat: Arc<dyn ChatRepository>,
-    /// Coach persona management
-    pub coaches: Arc<dyn CoachesRepository>,
+    /// Agent persona management
+    pub agents: Arc<dyn AgentsRepository>,
     /// Athlete commitments swept against real activity data
     pub commitments: Arc<dyn CommitmentRepository>,
     /// User fitness configuration
@@ -88,13 +88,13 @@ pub struct RepositoryRegistry {
     pub seeder: Arc<dyn SeederRepository>,
     /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
     pub playbooks: Arc<dyn PlaybookRepository>,
-    /// Coach-authored training plans: outline (macrocycle) + weekly microcycles
+    /// Agent-authored training plans: outline (macrocycle) + weekly microcycles
     pub training_plans: Arc<dyn TrainingPlanRepository>,
     /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
     pub short_links: Arc<dyn ShortLinkRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
-    /// Store listings for coach marketplace
+    /// Store listings for agent marketplace
     pub store_listings: Arc<dyn StoreListingsRepository>,
     /// Tenant CRUD and user-tenant roles
     pub tenants: Arc<dyn TenantRepository>,
@@ -146,13 +146,13 @@ pub struct RepositoryRegistry {
     pub prescribed_workouts: Arc<dyn PrescribedWorkoutRepository>,
     /// Endurance user-authored workout templates (the catalogue bank lives in TOML)
     pub workout_templates: Arc<dyn WorkoutTemplateRepository>,
-    /// Coach package artefacts — the flavour, skeleton and workouts a coach ships beside its prompt
-    pub coach_artefacts: Arc<dyn CoachArtefactRepository>,
+    /// Agent package artefacts — the flavour, skeleton and workouts an agent ships beside its prompt
+    pub agent_artefacts: Arc<dyn AgentArtefactRepository>,
     /// Continuous time-series points (`data_point_series` table). Implements
     /// riviere's `TimeSeriesStore`; backs the dravr-enforme write adapter.
     pub time_series_points: Arc<dyn TimeSeriesStore>,
-    /// Coach-athlete roster assignments (1:N junction). Gates routes that
-    /// require `manages_roster=true` and surfaces who coaches whom.
+    /// Agent-athlete roster assignments (1:N junction). Gates routes that
+    /// require `manages_roster=true` and surfaces who agents whom.
     pub roster: Arc<dyn RosterRepository>,
     /// Per-user rate-limit overrides (industry-standard exemption pattern).
     /// Row presence wins over `UserTier::monthly_limit()` in admin views and
@@ -191,7 +191,7 @@ impl RepositoryRegistry {
             admin: db.clone(),
             api_keys: db.clone(),
             chat: db.clone(),
-            coaches: db.clone(),
+            agents: db.clone(),
             commitments: db.clone(),
             fitness_config: db.clone(),
             impersonation: db.clone(),
@@ -239,7 +239,7 @@ impl RepositoryRegistry {
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
-            coach_artefacts: db.clone(),
+            agent_artefacts: db.clone(),
             time_series_points: db.clone(),
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),
@@ -261,7 +261,7 @@ impl RepositoryRegistry {
             admin: db.clone(),
             api_keys: db.clone(),
             chat: db.clone(),
-            coaches: db.clone(),
+            agents: db.clone(),
             commitments: db.clone(),
             fitness_config: db.clone(),
             impersonation: db.clone(),
@@ -309,7 +309,7 @@ impl RepositoryRegistry {
             route_summaries: db.clone(),
             prescribed_workouts: db.clone(),
             workout_templates: db.clone(),
-            coach_artefacts: db.clone(),
+            agent_artefacts: db.clone(),
             time_series_points: db.clone(),
             roster: db.clone(),
             user_rate_limit_overrides: db.clone(),

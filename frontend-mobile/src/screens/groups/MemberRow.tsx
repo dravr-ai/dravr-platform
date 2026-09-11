@@ -67,7 +67,7 @@ export function MemberRow({
   const displayName = member.display_name ?? t(UNKNOWN_MEMBER_KEY);
   // The same initials and the same colour hash the conversation list uses, so
   // one person looks like one person wherever the app draws them.
-  const slot = avatarSlot({ id: member.user_id, coach_id: null, group_id: null });
+  const slot = avatarSlot({ id: member.user_id, agent_id: null, group_id: null });
 
   return (
     <View className="flex-row items-center py-2.5" testID={`group-member-${member.user_id}`}>

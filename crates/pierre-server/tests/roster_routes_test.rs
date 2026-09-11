@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! End-to-end tests for the coach-athlete roster routes. Stands up the
+//! End-to-end tests for the agent-athlete roster routes. Stands up the
 //! full router via `Router::new().merge(roster::router(...))`, generates
 //! a JWT, and exercises the routes with `tower::ServiceExt::oneshot`.
 //!
@@ -15,7 +15,7 @@
 //! - Happy path (assign → list → revoke → list-empty)
 //! - 403 when caller has `manages_roster=false`
 //! - 403 when athlete is in a different tenant
-//! - 409 when the same (coach, athlete) is assigned twice
+//! - 409 when the same (agent, athlete) is assigned twice
 //! - 401 without auth
 
 mod common;
@@ -27,37 +27,37 @@ use helpers::axum_test::AxumTestRequest;
 use axum::http::StatusCode;
 use axum::Router;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_coaches::build_roster_router;
+use pierre_routes_agents::build_roster_router;
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
 async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<ServerContext>) {
     let resources = create_test_server_resources().await.unwrap();
-    let (coach_id, mut coach) = create_test_user(&resources.coach.database).await.unwrap();
+    let (agent_id, mut agent) = create_test_user(&resources.agent.database).await.unwrap();
     resources
         .common
         .repos
         .users
-        .set_manages_roster(coach_id, true)
+        .set_manages_roster(agent_id, true)
         .await
         .expect("grant manages_roster");
-    coach.manages_roster = true;
+    agent.manages_roster = true;
 
     let (athlete_id, _athlete) =
-        create_test_user_with_email(&resources.coach.database, "athlete@example.com")
+        create_test_user_with_email(&resources.agent.database, "athlete@example.com")
             .await
             .unwrap();
 
     // Both users need to share an active tenant. `create_test_user`
     // gives each user their own tenant — point the athlete's
-    // legacy `tenant_id` at the coach's tenant, which also upserts the
+    // legacy `tenant_id` at the agent's tenant, which also upserts the
     // junction row in `tenant_users` (see `update_user_tenant_id_impl`).
     let coach_tenants = resources
         .common
         .repos
         .tenants
-        .list_for_user(coach_id)
+        .list_for_user(agent_id)
         .await
         .unwrap();
     let coach_tenant = coach_tenants.first().expect("coach tenant").id;
@@ -73,7 +73,7 @@ async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<Serv
         .auth
         .auth_manager
         .generate_token_with_tenant(
-            &coach,
+            &agent,
             &resources.auth.jwks_manager,
             Some(coach_tenant.to_string()),
         )
@@ -81,12 +81,12 @@ async fn setup_with_coach_and_athlete() -> (Router, String, Uuid, Uuid, Arc<Serv
     let router = Router::new()
         .merge(build_roster_router::<ServerContext>().with_state(Arc::clone(&resources)));
     let auth_header = format!("Bearer {token}");
-    (router, auth_header, coach_id, athlete_id, resources)
+    (router, auth_header, agent_id, athlete_id, resources)
 }
 
 #[tokio::test]
 async fn roster_round_trip_assigns_lists_and_revokes() {
-    let (router, auth, coach_id, athlete_id, _resources) = setup_with_coach_and_athlete().await;
+    let (router, auth, agent_id, athlete_id, _resources) = setup_with_coach_and_athlete().await;
 
     // Assign athlete.
     let assign = AxumTestRequest::post("/api/roster")
@@ -96,7 +96,7 @@ async fn roster_round_trip_assigns_lists_and_revokes() {
         .await;
     assert_eq!(assign.status_code(), StatusCode::CREATED);
     let body: serde_json::Value = assign.json();
-    assert_eq!(body["coach_user_id"], coach_id.to_string());
+    assert_eq!(body["coach_user_id"], agent_id.to_string());
     assert_eq!(body["athlete_user_id"], athlete_id.to_string());
     assert!(body["revoked_at"].is_null());
 
@@ -129,9 +129,9 @@ async fn roster_round_trip_assigns_lists_and_revokes() {
 
 #[tokio::test]
 async fn roster_rejects_caller_without_manages_roster_with_403() {
-    // Build a router with a coach whose `manages_roster=false`.
+    // Build a router with a caller whose `manages_roster=false`.
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = resources
         .auth
         .auth_manager
@@ -152,18 +152,18 @@ async fn roster_rejects_caller_without_manages_roster_with_403() {
 #[tokio::test]
 async fn roster_rejects_cross_tenant_assignment_with_403() {
     let resources = create_test_server_resources().await.unwrap();
-    let (coach_id, mut coach) = create_test_user(&resources.coach.database).await.unwrap();
+    let (agent_id, mut agent) = create_test_user(&resources.agent.database).await.unwrap();
     resources
         .common
         .repos
         .users
-        .set_manages_roster(coach_id, true)
+        .set_manages_roster(agent_id, true)
         .await
         .expect("grant manages_roster");
-    coach.manages_roster = true;
-    // Athlete lives in their own tenant — never added to the coach's.
+    agent.manages_roster = true;
+    // Athlete lives in their own tenant — never added to the agent's.
     let (athlete_id, _) =
-        create_test_user_with_email(&resources.coach.database, "outsider@example.com")
+        create_test_user_with_email(&resources.agent.database, "outsider@example.com")
             .await
             .unwrap();
 
@@ -171,7 +171,7 @@ async fn roster_rejects_cross_tenant_assignment_with_403() {
         .common
         .repos
         .tenants
-        .list_for_user(coach_id)
+        .list_for_user(agent_id)
         .await
         .unwrap();
     let coach_tenant = coach_tenants.first().expect("coach tenant").id;
@@ -179,7 +179,7 @@ async fn roster_rejects_cross_tenant_assignment_with_403() {
         .auth
         .auth_manager
         .generate_token_with_tenant(
-            &coach,
+            &agent,
             &resources.auth.jwks_manager,
             Some(coach_tenant.to_string()),
         )

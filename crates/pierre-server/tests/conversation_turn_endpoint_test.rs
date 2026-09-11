@@ -140,7 +140,7 @@ async fn create_regular_user_and_token(
     // inserts — the endpoint rejects anything that is not admin or owner,
     // so this lets us exercise that branch.
     let now = chrono::Utc::now();
-    match resources.coach.database.as_ref() {
+    match resources.agent.database.as_ref() {
         Database::SQLite(db) => {
             sqlx::query(DELETE_MEMBERSHIP)
                 .bind(user_id.to_string())

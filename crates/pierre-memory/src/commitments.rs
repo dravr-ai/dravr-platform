@@ -1,4 +1,4 @@
-// ABOUTME: Commitment — a countable, time-boxed promise the athlete made and the coach confirmed
+// ABOUTME: Commitment — a countable, time-boxed promise the athlete made and the agent confirmed
 // ABOUTME: Swept against real activity data at window close, then reported back to the athlete
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -22,7 +22,7 @@ pub const MAX_WINDOW_DAYS: i64 = 30;
 
 /// Upper bound on the stored restatement of the promise.
 ///
-/// The statement reaches the coach's own system prompt and nothing else — the
+/// The statement reaches the agent's own system prompt and nothing else — the
 /// verdict message the athlete receives is composed only from counts, dates and
 /// the sanitized sport slug. Bounding it keeps a long paste from displacing the
 /// prompt around it.
@@ -31,7 +31,7 @@ pub const MAX_STATEMENT_LEN: usize = 200;
 /// Lifecycle state of a [`Commitment`].
 ///
 /// The sweep and the report are deliberately separate transitions. Collapsing
-/// them into one column is the bug the coach-followup surface still carries:
+/// them into one column is the bug the agent-followup surface still carries:
 /// there, `delivered` means both "shown in a prompt" and "pushed to the
 /// athlete", so a chat turn and the scheduler race over the same row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,7 +47,7 @@ pub enum CommitmentStatus {
     /// Closed without a usable verdict — the data never caught up, or the
     /// verdict went stale before a delivery route opened.
     Expired,
-    /// Retracted by the athlete through the coach.
+    /// Retracted by the athlete through the agent.
     Cancelled,
 }
 
@@ -118,21 +118,21 @@ impl CommitmentOutcome {
     }
 }
 
-/// A countable, time-boxed promise the athlete made and the coach confirmed.
+/// A countable, time-boxed promise the athlete made and the agent confirmed.
 ///
-/// Boundary versus the sibling coach-memory surfaces: a
-/// [`crate::training_plans::TrainingPlan`] is a coach-authored prescription the
-/// athlete did not necessarily agree to; a [`crate::followups::CoachFollowup`]
-/// is the *coach's* promise to check in, carries free-form text and is never
+/// Boundary versus the sibling agent-memory surfaces: a
+/// [`crate::training_plans::TrainingPlan`] is an agent-authored prescription the
+/// athlete did not necessarily agree to; a [`crate::followups::AgentFollowup`]
+/// is the *agent's* promise to check in, carries free-form text and is never
 /// verified against data; a [`crate::playbooks::Playbook`] is a learned
 /// trigger-to-intervention pattern with no owner and no due date. A commitment
 /// is the athlete's own, it carries a number and a window, and it is the only
 /// one of the four that gets counted against what actually happened.
 ///
 /// It is never inferred. Post-hoc extraction from a turn cannot tell an
-/// athlete's "I'll run three times" from a bare "ok" to the coach's suggestion,
+/// athlete's "I'll run three times" from a bare "ok" to the agent's suggestion,
 /// and the difference is the whole entity — so the row is written by an
-/// explicit coach tool call after the athlete has agreed to a specific count
+/// explicit agent tool call after the athlete has agreed to a specific count
 /// and a specific window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commitment {
@@ -146,8 +146,8 @@ pub struct Commitment {
     pub tenant_id: String,
     /// Athlete who made the promise.
     pub user_id: String,
-    /// Coach that took the promise, when the turn had one.
-    pub coach_id: Option<String>,
+    /// Agent that took the promise, when the turn had one.
+    pub agent_id: Option<String>,
     /// Pierre conversation the promise was made in.
     ///
     /// The single routing key: the reporter reverse-looks-up the messaging
@@ -156,9 +156,9 @@ pub struct Commitment {
     /// thread the athlete has since reset). Storing a channel slug alongside it
     /// would be duplicated state that cannot route on its own.
     pub conversation_id: Option<String>,
-    /// The promise as the coach restated it, bounded to [`MAX_STATEMENT_LEN`].
+    /// The promise as the agent restated it, bounded to [`MAX_STATEMENT_LEN`].
     ///
-    /// Reaches the coach's own system prompt only. The verdict the athlete
+    /// Reaches the agent's own system prompt only. The verdict the athlete
     /// receives is built from the counts and the sport slug, never from this
     /// field — an activity titled with an injection payload can move a number,
     /// it can never author a sentence the athlete reads.
@@ -212,7 +212,7 @@ mod tests {
             id: "c1".to_owned(),
             tenant_id: "t1".to_owned(),
             user_id: "u1".to_owned(),
-            coach_id: None,
+            agent_id: None,
             conversation_id: None,
             statement: "three easy runs this week".to_owned(),
             sport: Some("run".to_owned()),

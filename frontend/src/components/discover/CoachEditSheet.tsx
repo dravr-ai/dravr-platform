@@ -11,23 +11,23 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog } from '../ui';
 import CoachFormModal from './CoachFormModal';
 import { coachToFormData, formDataToUpdateRequest } from './coachForm';
-import type { CoachFormData } from './coachForm';
+import type { AgentFormData } from './coachForm';
 import { useTranslation } from '@pierre/i18n';
 
 /** Cache slot for one agent, under the `coaches` prefix every agent mutation invalidates. */
-const coachKey = (coachId: string) => [...QUERY_KEYS.coaches.all, 'coach', coachId] as const;
+const coachKey = (agentId: string) => [...QUERY_KEYS.coaches.all, 'coach', agentId] as const;
 
-export interface CoachEditSheetProps {
+export interface AgentEditSheetProps {
   /** The athlete's own agent — a personal agent or a copy installed from the store. */
-  coachId: string;
+  agentId: string;
   /** Called when the sheet is done: after a save, after a delete, or on cancel. */
   onClose: () => void;
 }
 
-export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps) {
+export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [formData, setFormData] = useState<CoachFormData | null>(null);
+  const [formData, setFormData] = useState<AgentFormData | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const {
@@ -35,8 +35,8 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
     isError,
     error,
   } = useQuery({
-    queryKey: coachKey(coachId),
-    queryFn: () => coachesApi.get(coachId),
+    queryKey: coachKey(agentId),
+    queryFn: () => coachesApi.get(agentId),
   });
 
   // Hydrate once from the first agent that arrives, so a background refetch
@@ -52,20 +52,20 @@ export default function CoachEditSheet({ coachId, onClose }: CoachEditSheetProps
   };
 
   const save = useMutation({
-    mutationFn: (data: CoachFormData) => coachesApi.update(coachId, formDataToUpdateRequest(data)),
+    mutationFn: (data: AgentFormData) => coachesApi.update(agentId, formDataToUpdateRequest(data)),
     onSuccess: (updated) => {
       // The response is the stored agent, so the next open hydrates from it
       // rather than from the copy this sheet was opened on.
-      queryClient.setQueryData(coachKey(coachId), updated);
+      queryClient.setQueryData(coachKey(agentId), updated);
       invalidateCoaches();
       onClose();
     },
   });
 
   const remove = useMutation({
-    mutationFn: () => coachesApi.delete(coachId),
+    mutationFn: () => coachesApi.delete(agentId),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: coachKey(coachId) });
+      queryClient.removeQueries({ queryKey: coachKey(agentId) });
       invalidateCoaches();
       setConfirmingDelete(false);
       onClose();

@@ -76,7 +76,7 @@ Only tools where `is_enabled` is true after this cascade are included. When a `u
 
 ### 2. Uncatalogued feature-flag tools
 
-Tools registered via feature flags (`tools-coaches`, `tools-mobility`) exist in the `ToolRegistry` but may not have entries in `tool_catalog`. `ToolRegistry::uncatalogued_user_schemas()` returns these so they are not lost when filtering through the catalog.
+Tools registered via feature flags (`tools-agents`, `tools-mobility`) exist in the `ToolRegistry` but may not have entries in `tool_catalog`. `ToolRegistry::uncatalogued_user_schemas()` returns these so they are not lost when filtering through the catalog.
 
 `ADMIN_ONLY` tools are excluded from both paths for non-admin users.
 

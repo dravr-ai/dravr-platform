@@ -6,7 +6,7 @@
 
 //! # Commitment sweep
 //!
-//! The athlete says "three easy runs this week", the coach confirms it through
+//! The athlete says "three easy runs this week", the agent confirms it through
 //! a tool call, and this is the half that checks. Every tick does two passes
 //! over [`CommitmentRepository`]:
 //!
@@ -31,7 +31,7 @@
 //!   (a dead provider connection, say) expires unlabeled after
 //!   [`SWEEP_STALENESS_SECS`] rather than guessing.
 //! - **Cadence.** One verdict per athlete per [`REPORT_CADENCE_SECS`]. A message
-//!   for every missed commitment is a reason to mute the coach; the value is in
+//!   for every missed commitment is a reason to mute the agent; the value is in
 //!   being noticed, not in being scolded.
 //!
 //! The sweep never composes athlete-facing prose. It hands the reporter a

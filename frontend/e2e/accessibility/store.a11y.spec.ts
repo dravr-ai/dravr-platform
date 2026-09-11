@@ -19,7 +19,7 @@ test.describe('Store Pages Accessibility', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: [
+          agents: [
             {
               id: 'coach-1',
               title: 'Marathon Training Coach',

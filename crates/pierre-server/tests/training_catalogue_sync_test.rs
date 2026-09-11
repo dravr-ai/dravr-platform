@@ -7,7 +7,7 @@
 //! The catalogue is embedded at build time; a sync is how a flavour's cap or
 //! a workout's default changes in production without a deploy. So the
 //! assertions are on the numbers the registry serves after a sync — what
-//! the coach would prescribe — never on a sync merely reporting a count.
+//! the agent would prescribe — never on a sync merely reporting a count.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]

@@ -64,7 +64,7 @@ impl GroupRole {
     }
 }
 
-/// When the group's AI coach replies in the bound channel chat
+/// When the group's AI agent replies in the bound channel chat
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GroupRespondMode {
@@ -112,9 +112,9 @@ impl fmt::Display for GroupRole {
 
 /// What redeeming a group invite grants the joining user.
 ///
-/// Separate from [`GroupRole`]: a `Coach` invite does not create a
+/// Separate from [`GroupRole`]: a `Agent` invite does not create a
 /// membership row at all — it attaches the redeemer as the group's human
-/// coach via `coaching_groups.coach_user_id`. Keeping this distinct from
+/// agent via `coaching_groups.coach_user_id`. Keeping this distinct from
 /// the member role enum means a human coach never counts against
 /// `max_members` and never appears in the athlete roster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -154,7 +154,7 @@ impl fmt::Display for GroupInviteKind {
     }
 }
 
-/// A coaching group binding a coach persona to multiple athletes
+/// A coaching group binding an agent persona to multiple athletes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoachingGroup {
     /// Unique group identifier
@@ -165,19 +165,19 @@ pub struct CoachingGroup {
     pub name: String,
     /// Optional description of the group's purpose
     pub description: Option<String>,
-    /// Coach persona assigned to this group
-    pub coach_id: String,
+    /// Agent persona assigned to this group
+    pub agent_id: String,
     /// User who created and owns the group
     pub owner_id: Uuid,
-    /// Human professional coach (a Dravr user) attached to oversee this
+    /// Human professional agent (a Dravr user) attached to oversee this
     /// group. `None` until a coach redeems a coach-kind invite. Distinct
-    /// from `coach_id`, which is the AI coach persona that answers chats:
+    /// from `agent_id`, which is the AI agent persona that answers chats:
     /// the human coach reads the roster through that persona, gated by the
     /// same per-member `peer_sharing_consent`.
     pub coach_user_id: Option<Uuid>,
     /// Whether peer data sharing is enabled for this group
     pub peer_data_sharing: bool,
-    /// When the AI coach replies in the bound channel chat: every message
+    /// When the AI agent replies in the bound channel chat: every message
     /// or only explicitly-addressed ones. Serde defaults keep payloads
     /// written before the field existed deserializable.
     #[serde(default)]
@@ -233,7 +233,7 @@ pub enum TranscriptSpeaker {
     /// A group member's own words (a coaching-turn message or ambient room
     /// chatter).
     Member,
-    /// The AI coach's reply, attributed to the member it answered.
+    /// The AI agent's reply, attributed to the member it answered.
     Coach,
 }
 
@@ -270,7 +270,7 @@ pub struct GroupTranscriptEntry {
     /// keyed on `group_id` because membership is cross-tenant)
     pub tenant_id: String,
     /// The member this entry is attributed to: the speaker for `member`
-    /// rows, the member the coach answered for `coach` rows
+    /// rows, the member the agent answered for `agent` rows
     pub author_user_id: Uuid,
     /// Who spoke
     pub speaker: TranscriptSpeaker,
@@ -348,8 +348,8 @@ pub struct CreateGroupRequest {
     pub name: String,
     /// Optional description
     pub description: Option<String>,
-    /// Coach persona to assign
-    pub coach_id: String,
+    /// Agent persona to assign
+    pub agent_id: String,
     /// Maximum members (defaults to 20)
     pub max_members: Option<i32>,
 }
@@ -361,13 +361,13 @@ pub struct UpdateGroupRequest {
     pub name: Option<String>,
     /// Updated description
     pub description: Option<String>,
-    /// Updated coach persona ID
-    pub coach_id: Option<String>,
+    /// Updated agent persona ID
+    pub agent_id: Option<String>,
     /// Updated max members
     pub max_members: Option<i32>,
     /// Toggle peer data sharing
     pub peer_data_sharing: Option<bool>,
-    /// Change when the AI coach replies in the bound channel chat
+    /// Change when the AI agent replies in the bound channel chat
     pub respond_mode: Option<GroupRespondMode>,
     /// Toggle active status
     pub is_active: Option<bool>,
@@ -393,8 +393,8 @@ pub struct GroupSummary {
     pub name: String,
     /// Optional description
     pub description: Option<String>,
-    /// Coach persona ID
-    pub coach_id: String,
+    /// Agent persona ID
+    pub agent_id: String,
     /// Number of active members
     pub member_count: i64,
     /// Whether the group is active
@@ -456,7 +456,7 @@ pub struct MemberFitnessSnapshot {
     /// without activity data.
     pub recent_activities: Vec<RosterActivity>,
     /// Provider slugs whose connection flipped to `needs_reauth`/`revoked` for this member
-    /// (an OAuth token refresh died non-recoverably). Lets the group coach name the dead
+    /// (an OAuth token refresh died non-recoverably). Lets the group agent name the dead
     /// provider ("Phil's WHOOP needs reconnecting") instead of treating it as merely quiet.
     /// Empty when all of the member's connections are healthy.
     pub needs_reauth_providers: Vec<String>,

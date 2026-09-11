@@ -1,4 +1,4 @@
-// ABOUTME: User-facing memory fact service — list and forget what the coach remembers
+// ABOUTME: User-facing memory fact service — list and forget what the agent remembers
 // ABOUTME: Wraps HarnessMemoryRepository with user-scoped wire shapes for the GDPR Forget UX
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! User-facing memory facts service.
 //!
 //! Exposes a tightly-scoped read+delete surface for [`pierre_memory::UserFact`]
-//! rows so the user-facing memory panel can show what the coach remembers
+//! rows so the user-facing memory panel can show what the agent remembers
 //! and let the user GDPR-forget any individual fact. Tenant ownership is
 //! enforced by the caller (the route handler resolves the active tenant
 //! from the authenticated session before invoking these helpers).
@@ -20,7 +20,7 @@ use uuid::Uuid;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_database::CoachRepos;
+use pierre_database::AgentRepos;
 use pierre_memory::{FactKind, PredicateCode};
 
 /// Default page size when the client omits `limit`. Bounded to 100 by
@@ -36,12 +36,12 @@ pub const MAX_LIST_LIMIT: i64 = 100;
 pub struct UserFactRow {
     /// Stable identifier — the key the Forget action uses.
     pub id: String,
-    /// Coach the fact is scoped to, or `null` for cross-coach facts.
-    pub coach_id: Option<String>,
-    /// The title of that coach, resolved for the panel so it can name the
-    /// coach rather than print its id; `null` when the fact has no coach or
-    /// the coach no longer resolves for this user.
-    pub coach_title: Option<String>,
+    /// Agent the fact is scoped to, or `null` for cross-agent facts.
+    pub agent_id: Option<String>,
+    /// The title of that agent, resolved for the panel so it can name the
+    /// agent rather than print its id; `null` when the fact has no agent or
+    /// the agent no longer resolves for this user.
+    pub agent_title: Option<String>,
     /// The `FactKind` serde name — `preference`, `physiology`, `injury`,
     /// `goal`, `schedule`, `equipment`, `north_star`, `medical` or `other`.
     pub kind: String,
@@ -51,7 +51,7 @@ pub struct UserFactRow {
     pub object: String,
     /// The whole fact as one sentence in the athlete's locale — what the memory
     /// screen shows. Rendered here from the string catalogue so the web app,
-    /// the phone and the coach prompt say the same thing.
+    /// the phone and the agent prompt say the same thing.
     pub sentence: String,
     /// Confidence in `[0.0, 1.0]` from the extractor.
     pub confidence: f32,
@@ -81,7 +81,7 @@ pub struct ForgetFactResponse {
 /// Renders facts as sentences in one locale.
 ///
 /// This is the one renderer — the memory screens, the recall tool and the
-/// coach dossier all go through it, so a fact reads the same everywhere and
+/// agent dossier all go through it, so a fact reads the same everywhere and
 /// no surface glues an English verb to the athlete's words again.
 #[derive(Clone, Copy)]
 pub struct SentenceRenderer<'a> {
@@ -125,7 +125,7 @@ pub fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
 }
 
 /// List the authenticated user's stored facts, optionally filtered by
-/// coach and/or kind.
+/// agent and/or kind.
 ///
 /// `limit` is clamped to `1..=100`; callers should default to
 /// [`DEFAULT_LIST_LIMIT`] when the client omits the parameter.
@@ -135,31 +135,31 @@ pub fn fact_kind_from_query(raw: Option<&str>) -> Option<FactKind> {
 /// Returns repository errors propagated from
 /// [`pierre_database::repositories::HarnessMemoryRepository::list_user_facts`].
 pub async fn list_user_facts(
-    repos: &CoachRepos,
+    repos: &AgentRepos,
     sentences: SentenceRenderer<'_>,
     tenant_id: TenantId,
     user_id: &str,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     kind: Option<FactKind>,
     limit: i64,
 ) -> AppResult<UserFactListResponse> {
     let clamped = limit.clamp(1, MAX_LIST_LIMIT);
     let facts = repos
         .memory
-        .list_user_facts(tenant_id, user_id, coach_id, kind, clamped)
+        .list_user_facts(tenant_id, user_id, agent_id, kind, clamped)
         .await?;
 
-    let coach_titles = coach_titles_for(repos, &facts, user_id, tenant_id).await;
+    let agent_titles = agent_titles_for(repos, &facts, user_id, tenant_id).await;
 
     let rows: Vec<UserFactRow> = facts
         .into_iter()
         .map(|f| UserFactRow {
             id: f.id,
-            coach_title: f
-                .coach_id
+            agent_title: f
+                .agent_id
                 .as_deref()
-                .and_then(|id| coach_titles.get(id).cloned()),
-            coach_id: f.coach_id,
+                .and_then(|id| agent_titles.get(id).cloned()),
+            agent_id: f.agent_id,
             kind: f.kind.as_str().to_owned(),
             predicate_code: f.predicate_code.as_str().to_owned(),
             sentence: sentences.render(f.predicate_code, &f.object),
@@ -174,14 +174,14 @@ pub async fn list_user_facts(
     Ok(UserFactListResponse { facts: rows, total })
 }
 
-/// The title of every coach the facts name, one lookup per distinct coach.
+/// The title of every agent the facts name, one lookup per distinct agent.
 ///
-/// A page of facts usually names one or two coaches many times over, so the
-/// lookups are keyed by coach id rather than run per row. A coach that no
+/// A page of facts usually names one or two agents many times over, so the
+/// lookups are keyed by agent id rather than run per row. An agent that no
 /// longer resolves for this user — deleted, or from a tenant the user left —
 /// simply has no title, and the row keeps its id.
-async fn coach_titles_for(
-    repos: &CoachRepos,
+async fn agent_titles_for(
+    repos: &AgentRepos,
     facts: &[pierre_memory::UserFact],
     user_id: &str,
     tenant_id: TenantId,
@@ -190,16 +190,12 @@ async fn coach_titles_for(
     let Ok(user_uuid) = Uuid::parse_str(user_id) else {
         return titles;
     };
-    let mut distinct: Vec<&str> = facts.iter().filter_map(|f| f.coach_id.as_deref()).collect();
+    let mut distinct: Vec<&str> = facts.iter().filter_map(|f| f.agent_id.as_deref()).collect();
     distinct.sort_unstable();
     distinct.dedup();
-    for coach_id in distinct {
-        if let Ok(Some(coach)) = repos
-            .coaches
-            .get_by_id(coach_id, user_uuid, tenant_id)
-            .await
-        {
-            titles.insert(coach_id.to_owned(), coach.title);
+    for agent_id in distinct {
+        if let Ok(Some(agent)) = repos.agents.get_by_id(agent_id, user_uuid, tenant_id).await {
+            titles.insert(agent_id.to_owned(), agent.title);
         }
     }
     titles
@@ -214,7 +210,7 @@ async fn coach_titles_for(
 /// Returns repository errors propagated from
 /// [`pierre_database::repositories::HarnessMemoryRepository::delete_user_fact`].
 pub async fn forget_user_fact(
-    repos: &CoachRepos,
+    repos: &AgentRepos,
     fact_id: &str,
     tenant_id: TenantId,
     user_id: &str,

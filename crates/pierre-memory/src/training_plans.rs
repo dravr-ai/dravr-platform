@@ -6,7 +6,7 @@
 
 //! # Training plans
 //!
-//! A training plan is the coach's strategic answer to a dated goal, split in
+//! A training plan is the agent's strategic answer to a dated goal, split in
 //! two levels that mirror endurance periodization:
 //!
 //! - [`TrainingPlan`] — the **vision** (macrocycle): a goal-race snapshot,
@@ -14,22 +14,22 @@
 //!   ordered [`PlanPhase`]s (prep/base/build/specialty/peak/taper/race/
 //!   transition/recovery — the kernel's [`PhaseKind`]) each carrying the
 //!   purpose, volume and intensity targets the fortnight is written against,
-//!   and a prose strategy. One `active` outline per (tenant, user, coach).
+//!   and a prose strategy. One `active` outline per (tenant, user, agent).
 //! - [`PlanWeek`] — one **microcycle**: seven [`PlannedDay`] rows with
 //!   intensity expressed *relative to thresholds* (zones, %FTP) so an FTP
-//!   retest never invalidates a stored plan, and — when the coach states
+//!   retest never invalidates a stored plan, and — when the agent states
 //!   it — the session's structure as [`WorkoutStep`]s.
 //!
-//! Plans are captured by explicit coach tool calls, never post-hoc
-//! extraction — Tier-2 extraction minting coach prescriptions as `user_facts`
+//! Plans are captured by explicit agent tool calls, never post-hoc
+//! extraction — Tier-2 extraction minting agent prescriptions as `user_facts`
 //! is the failure this entity replaces. Adjustments are **prospective-only
 //! whole-row supersession**: a re-save creates a new row pointing at the old
 //! one via `supersedes_id`; nothing is edited in place, past weeks stay
 //! immutable, and the chain is the audit trail.
 //!
-//! Boundary versus the sibling coach-memory surfaces: a plan is a
+//! Boundary versus the sibling agent-memory surfaces: a plan is a
 //! forward-looking structured prescription; a followup
-//! ([`crate::followups::CoachFollowup`]) is a one-off commitment to check in;
+//! ([`crate::followups::AgentFollowup`]) is a one-off commitment to check in;
 //! a playbook ([`crate::playbooks::Playbook`]) is a learned
 //! trigger→intervention pattern. A plan is never a followup (no due-at
 //! semantics) and never a playbook (not evidence-scored).
@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
-    /// The plan currently guiding this athlete (at most one per coach).
+    /// The plan currently guiding this athlete (at most one per agent).
     Active,
     /// Replaced by a newer outline (`supersedes_id` chain).
     Superseded,
@@ -208,11 +208,11 @@ pub struct FlavourSelection {
     /// Who chose it.
     pub selected_by: SelectedBy,
     /// Why a human overrode the rule, when they did. Empty for a rule
-    /// selection; required prose for a coach or athlete choice.
+    /// selection; required prose for an agent or athlete choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_reason: Option<String>,
     /// What the rule proposed at save time — `recommend_plan_flavour`'s
-    /// verdict, passed through by the coach — so an override can be measured
+    /// verdict, passed through by the agent — so an override can be measured
     /// against it later. Absent on a plan saved without running the rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict_snapshot: Option<FlavourVerdict>,
@@ -225,9 +225,9 @@ pub struct FlavourSelection {
 /// in weeks, its purpose, and the targets the fortnight is written against.
 ///
 /// `purpose` is the catalogue's text for what the phase is for (the skeleton
-/// that produced it, or the coach's own words when authored by hand);
-/// `intent` stays the coach's voice for this athlete. The targets are optional
-/// because a coach may lay out a season by hand without stating them — the
+/// that produced it, or the agent's own words when authored by hand);
+/// `intent` stays the agent's voice for this athlete. The targets are optional
+/// because an agent may lay out a season by hand without stating them — the
 /// save-time rails only measure what a phase states.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlanPhase {
@@ -242,10 +242,10 @@ pub struct PlanPhase {
     /// What the phase is for, one sentence.
     #[serde(default)]
     pub purpose: String,
-    /// The coach's intent, in coach voice ("rebuild volume, one moderate
+    /// The agent's intent, in agent voice ("rebuild volume, one moderate
     /// day/week").
     pub intent: String,
-    /// Target weekly volume in hours, when the coach prescribes one.
+    /// Target weekly volume in hours, when the agent prescribes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_hours: Option<f32>,
     /// Weekly volume as a share of the season's peak week.
@@ -365,7 +365,7 @@ pub struct PlannedDay {
     pub date: String,
     /// Sport ("mtb", "gravel", "run", …) or `"rest"` for a rest day.
     pub sport: String,
-    /// What to do, in coach voice ("2h endurance, low HR on climbs").
+    /// What to do, in agent voice ("2h endurance, low HR on climbs").
     pub workout: String,
     /// Planned duration in minutes; `None` for rest days.
     #[serde(
@@ -380,15 +380,15 @@ pub struct PlannedDay {
     /// summary label.
     #[serde(default)]
     pub intensity: String,
-    /// The session's structure, when the coach states it as steps rather
+    /// The session's structure, when the agent states it as steps rather
     /// than prose: the same [`WorkoutStep`] vocabulary a single prescription
     /// carries, so a plan day reaches a provider calendar as workout-builder
     /// steps with a computable planned load. Empty for a steady day, a rest
-    /// day, or a day the coach described in words only — `intensity` is then
+    /// day, or a day the agent described in words only — `intensity` is then
     /// the only structure the day has.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<WorkoutStep>,
-    /// What to take in during the session, when the coach prescribes it.
+    /// What to take in during the session, when the agent prescribes it.
     ///
     /// The agents prescribe fuelling on every long session; without a field
     /// to land in, that prescription was discarded on the way to storage and
@@ -398,7 +398,7 @@ pub struct PlannedDay {
     pub fueling: Option<FuelingProtocol>,
     /// The catalogue template this day instantiates, when it does — the
     /// slug `list_workout_templates` lists. Absent for a rest day and for a
-    /// session the coach wrote without a template, which the compliance
+    /// session the agent wrote without a template, which the compliance
     /// verdict then counts as unclassified rather than guesses at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_slug: Option<String>,
@@ -421,7 +421,7 @@ pub struct PlannedDay {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TemplateSource {
-    /// The coach package's own `workouts/<slug>.toml`.
+    /// The agent package's own `workouts/<slug>.toml`.
     Package,
     /// The Dravr catalogue — contremaitre's `training/workouts/`, or the
     /// compiled-in mirror of it.
@@ -451,7 +451,7 @@ impl PlannedDay {
 }
 
 /// The plan outline (macrocycle): goal-race snapshot, block structure, and
-/// strategy. Tenant-scoped; at most one `active` per (tenant, user, coach).
+/// strategy. Tenant-scoped; at most one `active` per (tenant, user, agent).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TrainingPlan {
     /// Stable identifier.
@@ -460,8 +460,8 @@ pub struct TrainingPlan {
     pub tenant_id: String,
     /// Athlete the plan is for.
     pub user_id: String,
-    /// Coach persona slug that authored it, or `None` for coach-agnostic.
-    pub coach_slug: Option<String>,
+    /// Agent persona slug that authored it, or `None` for agent-agnostic.
+    pub agent_slug: Option<String>,
     /// Pillar `Goal` user-fact this plan serves, when linked. The fact is the
     /// living goal; this plan snapshots it. A superseded fact flags the plan
     /// stale on read.
@@ -472,7 +472,7 @@ pub struct TrainingPlan {
     /// at [`RacePriority::A`] is a second peak the season is laid on, with
     /// a transition between the two blocks; B and C entries are context.
     pub races: Vec<GoalRace>,
-    /// The coach's strategy in prose — what the athlete sees as "what the
+    /// The agent's strategy in prose — what the athlete sees as "what the
     /// coach has in mind".
     pub strategy: String,
     /// The flavour the season runs on, with who chose it. `None` for a plan
@@ -515,10 +515,10 @@ pub struct PlanWeek {
     pub plan_id: String,
     /// Civil date of the week's first day, `YYYY-MM-DD`.
     pub week_start: String,
-    /// The week's intent in coach voice ("volume back up, one moderate day").
+    /// The week's intent in agent voice ("volume back up, one moderate day").
     pub focus: String,
     /// Index into the outline's `phases` of the phase this week instantiates,
-    /// when the coach states it; the week is then measured against that
+    /// when the agent states it; the week is then measured against that
     /// phase's targets.
     #[serde(
         default,
@@ -532,7 +532,7 @@ pub struct PlanWeek {
     pub status: WeekStatus,
     /// Week row this one replaced, if any (adjustment audit chain).
     pub supersedes_id: Option<String>,
-    /// Why the coach re-saved this week ("legs heavy after Buckland, moved
+    /// Why the agent re-saved this week ("legs heavy after Buckland, moved
     /// tempo to Wednesday"). Empty on first save.
     pub adjustment_reason: String,
     /// When this week row was created.

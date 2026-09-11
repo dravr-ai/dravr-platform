@@ -418,7 +418,7 @@ pub trait FitnessProvider: Send + Sync {
     /// The chat pipeline's auto-promote path calls this method when
     /// the caller's limit is at or below
     /// [`pierre_core::config::fitness::activity_detail_threshold`], so
-    /// any enrichment a provider adds here flows into coach reasoning
+    /// any enrichment a provider adds here flows into agent reasoning
     /// for "analyze my last run" / "last 10 rides" style queries.
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
         self.get_activity(id).await

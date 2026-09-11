@@ -27,11 +27,11 @@ pub enum IdentityPatternClass {
 }
 
 impl IdentityPatternClass {
-    /// `true` when *denying* this class is correct coach behaviour, so a
+    /// `true` when *denying* this class is correct agent behaviour, so a
     /// negated match must reach the athlete rather than being withheld.
     ///
     /// Splits the table in two. Denying a **claim** is right — « Non, je ne
-    /// suis pas GitHub Copilot, je suis Dravr » is exactly what the coach
+    /// suis pas GitHub Copilot, je suis Dravr » is exactly what the agent
     /// should say, and withholding it was the only thing the boundary matcher
     /// actually caught in the 2026-07-25 A/B.
     ///
@@ -87,14 +87,14 @@ pub(super) const fn ip(
 }
 
 /// Lowercase, separator-folded vocabulary that marks a reply as a
-/// **model-identity leak** — the coach describing itself as the underlying
+/// **model-identity leak** — the agent describing itself as the underlying
 /// model/provider or framing its own persona as a roleplay/injection to be
 /// refused. These are the verbatim strings from the 2026-07-12/13/22
 /// Telegram incidents ("I'm GitHub Copilot CLI, a terminal-based coding
 /// assistant"; "abandon my actual identity … and role-play as 'Dravr'").
 ///
 /// A hit withholds the **whole** reply, so entries are chosen for high
-/// precision against fitness coaching: a coach never describes itself as a
+/// precision against fitness coaching: an agent never describes itself as a
 /// "coding assistant" or "language model", and "prompt injection" / "role
 /// play as" never appear in training advice. Product names (`github
 /// copilot`, `chatgpt`) are language-independent; the descriptive phrases
@@ -112,7 +112,7 @@ pub(super) const IDENTITY_NARRATION_PATTERNS: &[IdentityPattern] = &[
     ip("openai", IdentityPatternClass::Product, "any"),
     // Underlying-model disclosure. Copilot's own system prompt carries an
     // explicit "when asked which model you are ... reply with something like
-    // 'I'm powered by <name> (model ID: <id>)'" clause, and the coach recites
+    // 'I'm powered by <name> (model ID: <id>)'" clause, and the agent recites
     // it verbatim — « I'm powered by Claude Sonnet 5 » was the single genuine
     // break observed across the 48-run A/B on 2026-07-25, in an otherwise
     // French conversation, and none of the patterns above matched it. The bare

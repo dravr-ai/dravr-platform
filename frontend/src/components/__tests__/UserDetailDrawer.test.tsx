@@ -127,7 +127,7 @@ describe('UserDetailDrawer tier control', () => {
       user_id: 'user-42',
       coaching_persona: 'supportive_coach',
       default_coach_id: null,
-      installed_coaches: [],
+      installed_agents: [],
       joined_groups: [],
     });
     setUserTier.mockResolvedValue({

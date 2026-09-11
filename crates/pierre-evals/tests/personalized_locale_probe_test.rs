@@ -1,5 +1,5 @@
 // ABOUTME: Pins that the personalized numeric probes fire in every shipped locale, not only English
-// ABOUTME: Regression for 2026-09-02 — a French coach quoted a metric fifteen turns, never checked
+// ABOUTME: Regression for 2026-09-02 — a French agent quoted a metric fifteen turns, never checked
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -103,7 +103,7 @@ fn a_wrong_max_hr_is_caught_in_french_and_german() {
     }
 }
 
-/// The label the coach actually used on 2026-09-02. It invented «indice de
+/// The label the agent actually used on 2026-09-02. It invented «indice de
 /// fatigue» for TSB and repeated it for fifteen turns; a label the model really
 /// uses is worth probing whether or not anybody chose it.
 #[test]

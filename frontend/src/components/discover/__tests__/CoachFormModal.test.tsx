@@ -12,9 +12,9 @@ import {
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from '@pierre/shared-constants';
 import CoachFormModal from '../CoachFormModal';
-import { DEFAULT_COACH_FORM_DATA, type CoachFormData } from '../coachForm';
+import { DEFAULT_COACH_FORM_DATA, type AgentFormData } from '../coachForm';
 
-function makeFormData(overrides: Partial<CoachFormData> = {}): CoachFormData {
+function makeFormData(overrides: Partial<AgentFormData> = {}): AgentFormData {
   return {
     ...DEFAULT_COACH_FORM_DATA,
     title: 'Marathon Coach',
@@ -24,7 +24,7 @@ function makeFormData(overrides: Partial<CoachFormData> = {}): CoachFormData {
 }
 
 function renderModal(
-  formData: CoachFormData,
+  formData: AgentFormData,
   onFormDataChange = vi.fn(),
   options: { onDelete?: () => void } = {},
 ) {
@@ -74,7 +74,7 @@ describe('CoachFormModal tool budget', () => {
     fireEvent.change(input, { target: { value: '18' } });
 
     expect(onFormDataChange).toHaveBeenCalledTimes(1);
-    const next = onFormDataChange.mock.calls[0][0] as CoachFormData;
+    const next = onFormDataChange.mock.calls[0][0] as AgentFormData;
     expect(next.max_tool_iterations).toBe(18);
     expect(next.title).toBe('Marathon Coach');
   });
@@ -84,7 +84,7 @@ describe('CoachFormModal tool budget', () => {
 
     fireEvent.change(input, { target: { value: '9000' } });
 
-    const next = onFormDataChange.mock.calls[0][0] as CoachFormData;
+    const next = onFormDataChange.mock.calls[0][0] as AgentFormData;
     expect(next.max_tool_iterations).toBe(MAX_MAX_TOOL_ITERATIONS);
   });
 
@@ -93,7 +93,7 @@ describe('CoachFormModal tool budget', () => {
 
     fireEvent.change(input, { target: { value: '' } });
 
-    const next = onFormDataChange.mock.calls[0][0] as CoachFormData;
+    const next = onFormDataChange.mock.calls[0][0] as AgentFormData;
     // `null`, not `undefined`: undefined is the untouched state the request
     // omits, which would preserve the 42 the user just deleted.
     expect(next.max_tool_iterations).toBeNull();

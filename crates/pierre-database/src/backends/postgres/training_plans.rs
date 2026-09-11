@@ -20,7 +20,7 @@ use crate::repositories::training_plans::{
 };
 
 /// Column list shared by every outline read so row mapping stays aligned.
-const PLAN_COLUMNS: &str = "id, tenant_id, user_id, coach_slug, goal_fact_id, goal_race_json, \
+const PLAN_COLUMNS: &str = "id, tenant_id, user_id, agent_slug, goal_fact_id, goal_race_json, \
      races_json, strategy, phases_json, status, supersedes_id, source_conversation_id, \
      created_at, updated_at, flavour_json, season_start, season_end";
 
@@ -33,7 +33,7 @@ fn plan_row(row: &PgRow) -> AppResult<TrainingPlanRow> {
         id: row.try_get("id").map_err(map_col("id"))?,
         tenant_id: row.try_get("tenant_id").map_err(map_col("tenant_id"))?,
         user_id: row.try_get("user_id").map_err(map_col("user_id"))?,
-        coach_slug: row.try_get("coach_slug").map_err(map_col("coach_slug"))?,
+        agent_slug: row.try_get("agent_slug").map_err(map_col("coach_slug"))?,
         goal_fact_id: row
             .try_get("goal_fact_id")
             .map_err(map_col("goal_fact_id"))?,
@@ -91,14 +91,14 @@ fn map_col(column: &'static str) -> impl Fn(sqlx::Error) -> AppError {
     move |e| AppError::database(format!("training plan column {column}: {e}"))
 }
 
-/// Mark the athlete's current active outline for this coach superseded,
+/// Mark the athlete's current active outline for this agent superseded,
 /// returning its id. Single-sourced so both `save_training_plan` and
 /// `save_plan_bundle` supersede identically.
 const SUPERSEDE_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans SET status = 'superseded', \
-     updated_at = $1 WHERE tenant_id = $2 AND user_id = $3 AND coach_slug = $4 \
+     updated_at = $1 WHERE tenant_id = $2 AND user_id = $3 AND agent_slug = $4 \
      AND status = 'active' RETURNING id, races_json";
 
-const INSERT_PLAN_SQL: &str = "INSERT INTO training_plans (id, tenant_id, user_id, coach_slug, \
+const INSERT_PLAN_SQL: &str = "INSERT INTO training_plans (id, tenant_id, user_id, agent_slug, \
      goal_fact_id, goal_race_json, races_json, strategy, phases_json, status, supersedes_id, \
      source_conversation_id, created_at, updated_at, flavour_json, season_start, season_end) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, \
@@ -181,7 +181,7 @@ async fn supersede_and_insert_plan(
         .bind(v.now)
         .bind(params.tenant_id)
         .bind(params.user_id)
-        .bind(&v.coach_slug)
+        .bind(&v.agent_slug)
         .fetch_optional(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("supersede active plan: {e}")))?;
@@ -219,7 +219,7 @@ async fn supersede_and_insert_plan(
         .bind(&v.id)
         .bind(params.tenant_id)
         .bind(params.user_id)
-        .bind(&v.coach_slug)
+        .bind(&v.agent_slug)
         .bind(params.goal_fact_id)
         .bind(&v.goal_race_json)
         .bind(&races_json)
@@ -252,7 +252,7 @@ async fn supersede_and_insert_plan(
         id: v.id,
         tenant_id: params.tenant_id,
         user_id: params.user_id,
-        coach_slug: params.owner.coach_slug(),
+        agent_slug: params.owner.agent_slug(),
         goal_fact_id: params.goal_fact_id,
         goal_race: params.goal_race,
         races: &written_races,
@@ -326,7 +326,7 @@ async fn supersede_and_insert_week(
 /// Read the athlete's active outline on an in-transaction connection.
 ///
 /// The owner's own plan wins over the agnostic fallback, and the `CASE` says
-/// so. It replaced `ORDER BY coach_slug DESC`, which got the same answer only
+/// so. It replaced `ORDER BY agent_slug DESC`, which got the same answer only
 /// because any real slug happens to sort above the empty-string sentinel —
 /// true, undocumented, and silently dependent on collation.
 async fn resolve_active_plan(
@@ -337,9 +337,9 @@ async fn resolve_active_plan(
 ) -> AppResult<Option<TrainingPlan>> {
     let sql = format!(
         "SELECT {PLAN_COLUMNS} FROM training_plans \
-         WHERE tenant_id = $1 AND user_id = $2 AND coach_slug IN ($3, $4) \
+         WHERE tenant_id = $1 AND user_id = $2 AND agent_slug IN ($3, $4) \
          AND status = 'active' \
-         ORDER BY CASE WHEN coach_slug = $3 THEN 0 ELSE 1 END LIMIT 1"
+         ORDER BY CASE WHEN agent_slug = $3 THEN 0 ELSE 1 END LIMIT 1"
     );
     let row = sqlx::query(&sql)
         .bind(tenant_id)
@@ -441,7 +441,7 @@ impl TrainingPlanRepository for PostgresDatabase {
         user_id: &str,
         owner: PlanOwner<'_>,
     ) -> AppResult<Option<TrainingPlan>> {
-        // Specific coach first, coach-agnostic ('') as fallback — shares the
+        // Specific agent first, agent-agnostic ('') as fallback — shares the
         // in-transaction resolver so the SELECT lives in one place.
         let mut conn =
             self.pool().acquire().await.map_err(|e| {

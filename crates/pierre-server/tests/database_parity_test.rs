@@ -289,9 +289,9 @@ async fn test_parity_chat_create_conversation() {
     let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
     let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
 
-    // Parity check: both backends round-trip a NULL coach_id identically.
-    // Full coach-attached flows are covered by chat_routes_test and the
-    // orchestration integration tests which seed a coaches row first.
+    // Parity check: both backends round-trip a NULL agent_id identically.
+    // Full agent-attached flows are covered by chat_routes_test and the
+    // orchestration integration tests which seed an agents row first.
     let sqlite_conv = sqlite_repos
         .chat
         .create_conversation(
@@ -322,7 +322,7 @@ async fn test_parity_chat_create_conversation() {
     assert_eq!(sqlite_conv.title, pg_conv.title, "Titles should match");
     assert_eq!(sqlite_conv.model, pg_conv.model, "Models should match");
     assert_eq!(
-        sqlite_conv.coach_id, pg_conv.coach_id,
+        sqlite_conv.agent_id, pg_conv.agent_id,
         "Coach IDs should match (both None when no coach attached)"
     );
     assert_eq!(

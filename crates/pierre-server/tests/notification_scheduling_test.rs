@@ -379,7 +379,7 @@ mod notification_scheduling_tests {
             .unwrap();
         let tenant_id = CommereTenantId(tenants[0].id.as_uuid());
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources.agent.database);
 
         let params = CreateNotificationParams {
             user_id: user.id,

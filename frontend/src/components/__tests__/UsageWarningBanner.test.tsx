@@ -48,8 +48,8 @@ function makeStatusResponse(overrides: Partial<{
     resources: {
       conversations: 5,
       max_conversations: 20,
-      coaches: 3,
-      max_coaches: 10,
+      agents: 3,
+      max_agents: 10,
     },
   };
 }

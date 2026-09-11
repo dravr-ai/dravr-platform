@@ -45,7 +45,7 @@ mod dispatch_tests {
     /// each event in the recipient's language. Without the localizer a row
     /// would carry the catalogue keys, which is not what any deployment does.
     fn notification_service(resources: &ServerContext) -> NotificationService {
-        let service = match &*resources.coach.database {
+        let service = match &*resources.agent.database {
             Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
             #[cfg(feature = "postgresql")]
             Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
@@ -863,11 +863,11 @@ mod dispatch_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Coach trigger tests (Phase 3)
+    // Agent trigger tests (Phase 3)
     // ════════════════════════════════════════════════════════════════
 
     #[tokio::test]
-    async fn test_trigger_coach_message() {
+    async fn test_trigger_agent_message() {
         let resources = create_test_server_resources().await.unwrap();
         let (user, _token) = create_test_tenant(&resources, "coach_msg@example.com")
             .await
@@ -883,7 +883,7 @@ mod dispatch_tests {
 
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_coach_message(
+        notification_triggers::trigger_agent_message(
             &service,
             user.id,
             tenant_id,
@@ -948,7 +948,7 @@ mod dispatch_tests {
     }
 
     #[tokio::test]
-    async fn test_trigger_coach_feedback() {
+    async fn test_trigger_agent_feedback() {
         let resources = create_test_server_resources().await.unwrap();
         let (user, _token) = create_test_tenant(&resources, "coach_feedback@example.com")
             .await
@@ -964,7 +964,7 @@ mod dispatch_tests {
 
         let service = Arc::new(notification_service(&resources));
 
-        notification_triggers::trigger_coach_feedback(
+        notification_triggers::trigger_agent_feedback(
             &service,
             user.id,
             tenant_id,
@@ -1011,7 +1011,7 @@ mod dispatch_tests {
 
         let service = notification_service(&resources);
 
-        // Set max_per_day = 1 for coach category
+        // Set max_per_day = 1 for agent category
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -1172,7 +1172,7 @@ mod dispatch_tests {
 
         let service = notification_service(&resources);
 
-        // Disable the coach category
+        // Disable the agent category
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -1215,7 +1215,7 @@ mod dispatch_tests {
     }
 
     #[tokio::test]
-    async fn test_coach_trigger_uses_bypass_flag() {
+    async fn test_agent_trigger_uses_bypass_flag() {
         let resources = create_test_server_resources().await.unwrap();
         let (user, _token) = create_test_tenant(&resources, "coach_bypass@example.com")
             .await
@@ -1231,7 +1231,7 @@ mod dispatch_tests {
 
         let service = Arc::new(notification_service(&resources));
 
-        // Set max_per_day = 1 for coach
+        // Set max_per_day = 1 for agent
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -1263,8 +1263,8 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        // Coach triggers use bypass_frequency_cap: true, so should deliver despite cap
-        notification_triggers::trigger_coach_message(
+        // Agent triggers use bypass_frequency_cap: true, so should deliver despite cap
+        notification_triggers::trigger_agent_message(
             &service,
             user.id,
             tenant_id,
@@ -1274,7 +1274,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        // Should have 2 notifications total (fill + coach trigger)
+        // Should have 2 notifications total (fill + agent trigger)
         let (notifications, total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
             .await
@@ -1464,7 +1464,7 @@ mod dispatch_tests {
     #[tokio::test]
     async fn test_live_schema_carries_the_rebuilt_category_check() {
         let resources = create_test_server_resources().await.unwrap();
-        match resources.coach.database.as_ref() {
+        match resources.agent.database.as_ref() {
             Database::SQLite(db) => assert_category_check_matches_the_enum(db.pool()).await,
             #[cfg(feature = "postgresql")]
             Database::PostgreSQL(db) => {

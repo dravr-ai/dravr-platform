@@ -170,7 +170,7 @@ pub fn activity_coverage_note(
 /// the model, in the vocabulary an athlete uses: `reconnect_required` is on
 /// `tool_results::ACTIVITIES_ENVELOPE_KEPT`, so the whole sidecar survives the
 /// projection every prompt-facing render runs the payload through, and the
-/// coach reads that the window it is about to answer from is missing a source.
+/// agent reads that the window it is about to answer from is missing a source.
 /// `provider_slug` is the backend key `tool_results::reconnect_offer_in_responses`
 /// lifts out for the chat pipeline to mint a reconnect URL from —
 /// `sciotte_garmin` takes the Dravr-hosted login page and `garmin` takes an

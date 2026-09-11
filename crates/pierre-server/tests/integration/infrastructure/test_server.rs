@@ -188,7 +188,7 @@ impl IntegrationTestServer {
             theme: None,
         };
 
-        let repos = self.resources.coach.database.repositories();
+        let repos = self.resources.agent.database.repositories();
         repos.users.create(&user).await?;
 
         // Create tenant for user
@@ -261,7 +261,7 @@ impl IntegrationTestServer {
             theme: None,
         };
 
-        let repos = self.resources.coach.database.repositories();
+        let repos = self.resources.agent.database.repositories();
         repos.users.create(&user).await?;
 
         let tenant_id = TenantId::generate();

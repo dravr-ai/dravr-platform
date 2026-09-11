@@ -1,5 +1,5 @@
 // ABOUTME: Request and response types for admin routes
-// ABOUTME: Defines DTOs for API key management, user administration, and coach review endpoints
+// ABOUTME: Defines DTOs for API key management, user administration, and agent review endpoints
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

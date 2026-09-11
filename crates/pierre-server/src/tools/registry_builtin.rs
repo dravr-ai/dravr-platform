@@ -103,12 +103,12 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-recipes")]
     register_recipe_tools(registry);
 
-    // Coach tools
-    #[cfg(feature = "tools-coaches")]
-    register_coach_tools(registry);
+    // Agent tools
+    #[cfg(feature = "tools-agents")]
+    register_agent_tools(registry);
 
-    // Coach Store tools (browse / search / install a published coach)
-    #[cfg(feature = "tools-coaches")]
+    // Agent Store tools (browse / search / install a published agent)
+    #[cfg(feature = "tools-agents")]
     register_store_tools(registry);
 
     // Admin tools
@@ -119,7 +119,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-mobility")]
     register_mobility_tools(registry);
 
-    // Memory tools (Tier 3 coach-authored memory)
+    // Memory tools (Tier 3 agent-authored memory)
     #[cfg(feature = "tools-memory")]
     register_memory_tools(registry);
     #[cfg(feature = "tools-memory")]
@@ -142,7 +142,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     info!("Registered {} built-in tools", registry.len());
 }
 
-/// Register Tier 3 coach-authored memory tools.
+/// Register Tier 3 agent-authored memory tools.
 #[cfg(feature = "tools-memory")]
 fn register_memory_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::memory::create_memory_tools;
@@ -166,7 +166,7 @@ fn register_memory_tools(registry: &mut ToolRegistry) {
 
 /// Register the training-plan persistence tools (get/save).
 ///
-/// Both are chat-callable (category `memory`): the coach reads the stored
+/// Both are chat-callable (category `memory`): the agent reads the stored
 /// plan before answering plan questions and persists agreed plans in the
 /// same turn it states them.
 #[cfg(feature = "tools-memory")]
@@ -186,7 +186,7 @@ fn register_training_plan_tools(registry: &mut ToolRegistry) {
 
 /// Register the plan-push tool (`push_training_plan`).
 ///
-/// Chat-callable (category `memory`, next to the plan it pushes): the coach
+/// Chat-callable (category `memory`, next to the plan it pushes): the agent
 /// puts the stored plan on the athlete's provider calendar when asked, and
 /// brings the calendar back in line after the plan changed.
 #[cfg(feature = "tools-memory")]
@@ -206,7 +206,7 @@ fn register_training_plan_push_tools(registry: &mut ToolRegistry) {
 
 /// Register the coaching-playbook GDPR/transparency tools.
 ///
-/// `list_coaching_playbooks` is chat-callable (category `memory`) so the coach
+/// `list_coaching_playbooks` is chat-callable (category `memory`) so the agent
 /// can surface what it has learned; `forget_playbook` is registered under a
 /// non-chat `playbook` category so the LLM cannot delete a playbook on its own.
 #[cfg(feature = "tools-memory")]
@@ -221,7 +221,7 @@ fn register_playbook_tools(registry: &mut ToolRegistry) {
 
 /// Register athlete-commitment tools.
 ///
-/// Category `memory` so the coach can reach them on a chat turn — the sweep is
+/// Category `memory` so the agent can reach them on a chat turn — the sweep is
 /// worthless if the only surface that can record a promise is an operator one.
 #[cfg(feature = "tools-memory")]
 fn register_commitment_tools(registry: &mut ToolRegistry) {
@@ -401,7 +401,7 @@ fn register_config_tools(registry: &mut ToolRegistry) {
 ///
 /// Category `physiology` rather than `configuration`: the category is what
 /// `ToolRegistry::chat_callable_schemas` gates on, and an athlete stating
-/// their FTP mid-conversation is self-report the coach must be able to save
+/// their FTP mid-conversation is self-report the agent must be able to save
 /// on that turn — not an operator configuration write.
 #[cfg(feature = "tools-config")]
 fn register_physiology_tools(registry: &mut ToolRegistry) {
@@ -509,10 +509,10 @@ fn register_recipe_tools(registry: &mut ToolRegistry) {
     );
 }
 
-/// Register coach tools
-#[cfg(feature = "tools-coaches")]
-fn register_coach_tools(registry: &mut ToolRegistry) {
-    use pierre_tool_runtime::implementations::coaches::create_coach_tools;
+/// Register agent tools
+#[cfg(feature = "tools-agents")]
+fn register_agent_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::agents::create_agent_tools;
     use std::sync::Arc;
     use tracing::debug;
 
@@ -521,8 +521,8 @@ fn register_coach_tools(registry: &mut ToolRegistry) {
         registry.len()
     );
 
-    // Register all coach tools with the "coaches" category
-    for tool in create_coach_tools() {
+    // Register all agent tools with the "coaches" category
+    for tool in create_agent_tools() {
         registry.register_with_category(Arc::from(tool), "coaches");
     }
 
@@ -532,15 +532,15 @@ fn register_coach_tools(registry: &mut ToolRegistry) {
     );
 }
 
-/// Register the Coach Store tools.
+/// Register the Agent Store tools.
 ///
 /// Category `store`, which is chat-callable: the marketplace used to be
 /// reachable only from the web UI because `CHAT_CALLABLE_CATEGORIES` named no
 /// store category, so no chat surface — web, mobile or messaging — could
-/// browse or install a coach. Uninstall stays out of the category: removing a
-/// coach the athlete has history with is a deliberate UI gesture, not an
+/// browse or install an agent. Uninstall stays out of the category: removing a
+/// agent the athlete has history with is a deliberate UI gesture, not an
 /// inference from a sentence.
-#[cfg(feature = "tools-coaches")]
+#[cfg(feature = "tools-agents")]
 fn register_store_tools(registry: &mut ToolRegistry) {
     use pierre_tool_runtime::implementations::store::create_store_tools;
     use std::sync::Arc;
@@ -659,7 +659,7 @@ fn register_route_tools(registry: &mut ToolRegistry) {
 /// Register Endurance export tools (`export_latest_snapshot`, `export_dossier`).
 ///
 /// Both are read-only data tools that surface the same payloads as the
-/// `/api/v1/endurance/{latest,dossier}` HTTP endpoints, so coaches can
+/// `/api/v1/endurance/{latest,dossier}` HTTP endpoints, so agents can
 /// pull the structured Endurance contracts via MCP.
 #[cfg(feature = "tools-data")]
 fn register_endurance_export_tools(registry: &mut ToolRegistry) {
@@ -709,7 +709,7 @@ fn register_endurance_workout_tools(registry: &mut ToolRegistry) {
 /// `export_routes`, `extract_activity_streams`).
 ///
 /// All three are read-only data tools that surface the per-activity
-/// payloads coaches need for tempo/threshold analysis and terrain
+/// payloads agents need for tempo/threshold analysis and terrain
 /// classification.
 #[cfg(feature = "tools-data")]
 fn register_endurance_intervals_tools(registry: &mut ToolRegistry) {

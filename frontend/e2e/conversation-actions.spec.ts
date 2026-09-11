@@ -12,9 +12,9 @@ const mockConversations = {
     {
       id: 'conv-1',
       title: 'Training Plan Discussion',
-      coach_id: 'coach-marathon',
-      coach_title: 'Marathon Coach',
-      coach_handle: 'marathon-coach',
+      agent_id: 'coach-marathon',
+      agent_title: 'Marathon Coach',
+      agent_handle: 'marathon-coach',
       created_at: '2024-06-01T10:00:00Z',
       updated_at: '2024-06-01T12:00:00Z',
       message_count: 5,
@@ -28,9 +28,9 @@ const mockConversations = {
     {
       id: 'conv-2',
       title: 'Nutrition Questions',
-      coach_id: 'coach-nutrition',
-      coach_title: 'Nutrition Coach',
-      coach_handle: 'nutrition-coach',
+      agent_id: 'coach-nutrition',
+      agent_title: 'Nutrition Coach',
+      agent_handle: 'nutrition-coach',
       created_at: '2024-05-28T08:00:00Z',
       updated_at: '2024-05-30T09:00:00Z',
       message_count: 3,
@@ -99,7 +99,7 @@ test.describe('Conversation Management Actions', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0 }),
+        body: JSON.stringify({ agents: [], total: 0 }),
       });
     });
     await loginToDashboard(page);

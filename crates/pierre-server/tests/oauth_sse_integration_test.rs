@@ -25,7 +25,7 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
 
     // Create test server resources
     let resources = common::create_test_server_resources().await?;
-    let (user_id, user) = common::create_test_user(&resources.coach.database).await?;
+    let (user_id, user) = common::create_test_user(&resources.agent.database).await?;
 
     // Create SSE manager
     let sse_manager = Arc::new(SseManager::new(100));
@@ -146,7 +146,7 @@ async fn test_mcp_client_oauth_notification_flow() -> Result<()> {
     println!("🔄 Testing MCP client OAuth notification flow");
 
     let resources = common::create_test_server_resources().await?;
-    let (user_id, user) = common::create_test_user(&resources.coach.database).await?;
+    let (user_id, user) = common::create_test_user(&resources.agent.database).await?;
 
     // Create SSE manager
     let sse_manager = Arc::new(SseManager::new(100));
@@ -232,7 +232,7 @@ async fn test_oauth_sse_error_scenarios() -> Result<()> {
     println!("🔄 Testing OAuth+SSE error scenarios");
 
     let resources = common::create_test_server_resources().await?;
-    let (user_id, _user) = common::create_test_user(&resources.coach.database).await?;
+    let (user_id, _user) = common::create_test_user(&resources.agent.database).await?;
 
     let sse_manager = Arc::new(SseManager::new(100));
 

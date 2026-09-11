@@ -27,7 +27,7 @@ use pierre_commands::{
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_messaging::commands::{CommandRegistry, CommandResponse};
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;

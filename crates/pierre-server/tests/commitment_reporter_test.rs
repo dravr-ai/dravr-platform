@@ -102,7 +102,7 @@ fn labeled(
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant.to_string(),
         user_id: user.to_string(),
-        coach_id: Some("marathon-coach".to_owned()),
+        agent_id: Some("marathon-coach".to_owned()),
         conversation_id,
         statement: "three easy runs this week".to_owned(),
         sport: sport.map(str::to_owned),

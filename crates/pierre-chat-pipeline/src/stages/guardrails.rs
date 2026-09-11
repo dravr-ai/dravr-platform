@@ -35,7 +35,7 @@ use pierre_contremaitre::text_guardrails::{GuardrailOutcome, GuardrailRejection}
 /// reject the response.
 ///
 /// One ceiling is in force here: the admin's `max_response_chars` guardrail,
-/// which is a policy about how much a coach may say. The surface's transport
+/// which is a policy about how much an agent may say. The surface's transport
 /// ceiling is *not* applied here — an over-limit reply is split into ordered
 /// messages at the egress ([`pierre_core::chunking::chunk_reply`]), so the
 /// athlete reads the whole answer instead of a prefix that stops mid-thought.

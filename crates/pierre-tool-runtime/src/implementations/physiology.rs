@@ -13,13 +13,13 @@
 //! `AthleteInputs::default()` and every TSS estimate dropped to the static
 //! per-sport table or the duration-only rung.
 //!
-//! Two properties make this tool safe to hand to the coach mid-conversation:
+//! Two properties make this tool safe to hand to the agent mid-conversation:
 //!
 //! - **Read-modify-write.** The underlying upsert sets every column from
 //!   `EXCLUDED.*`, so a naive "save just the FTP" would null out max HR,
 //!   weight and both zone sets. This reads the stored row first and merges.
 //! - **Read-back.** The response carries the profile as re-read from the
-//!   database, not the arguments that were passed in. A coach that reports
+//!   database, not the arguments that were passed in. An agent that reports
 //!   what the result says cannot confirm a save that did not land — which is
 //!   the failure this tool was written for.
 //!
@@ -454,7 +454,7 @@ fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
 /// Every measurement is optional: a profile is built up over time, and an
 /// athlete who has only ever given a resting heart rate has a profile with
 /// one field set. Reporting the absent ones as absent rather than as zero is
-/// what keeps a coach from reasoning off a fabricated number.
+/// what keeps an agent from reasoning off a fabricated number.
 ///
 /// `fitness_level` and `primary_sport` are NOT optional — they carry their
 /// own defaults — which is why they are the enums rather than strings.
@@ -501,7 +501,7 @@ pub struct SetPhysiologyResult {
     /// Which fields this call set, by name. Names only — the measurements
     /// themselves are health data and do not belong in a field list.
     pub updated_fields: Vec<&'static str>,
-    /// The profile as it now stands, so the coach need not read it back.
+    /// The profile as it now stands, so the agent need not read it back.
     pub profile: PhysiologyProfile,
 }
 
@@ -691,7 +691,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                 .await?;
 
             // Re-read rather than echo the merged struct: the response is what
-            // the coach will repeat to the athlete, and it should describe the
+            // the agent will repeat to the athlete, and it should describe the
             // stored row, not the intent.
             let stored = repos
                 .user_physiological_profile
@@ -740,12 +740,12 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
 /// ergometer watts. Those are things an athlete *says*, so this is the capture
 /// path. It estimates and reports; it does not write. Storing the number is
 /// `set_physiology`'s job, which keeps one writer for the profile and lets the
-/// coach confirm the value with the athlete before it becomes the basis for
+/// agent confirm the value with the athlete before it becomes the basis for
 /// every personalised calculation.
 ///
 /// Body weight and age default to the stored profile when the athlete does
 /// not restate them, and the response names which inputs came from there so
-/// the coach can say so.
+/// the agent can say so.
 pub struct EstimateVo2maxTool;
 
 /// The field-test methods the tool accepts, in the spelling the schema

@@ -113,7 +113,7 @@ fn preserves_order_across_several_blocks() {
 ///
 /// The old contract left a refused fence in place as literal text. That shipped
 /// a screenful of raw JSON to the athlete AND persisted it as the assistant
-/// message, so the coach read its own transcript on the next turn, believed it
+/// message, so the agent read its own transcript on the next turn, believed it
 /// had already drawn a chart, and refused to draw again (Telegram 2026-08-21).
 fn assert_all_refused_with(granted: &[String], tools: &[String], reply: &str) -> String {
     let out = extract_viz_blocks(&schemas(), granted, tools, &no_tracks(), reply)
@@ -382,7 +382,7 @@ fn prefetch_only_provenance() -> Vec<String> {
 /// A chart built from pre-loaded activities must render.
 ///
 /// The platform prefetches the athlete's activity window before dispatch and
-/// then tells the coach to use those rows *without* re-fetching. A coach that
+/// then tells the agent to use those rows *without* re-fetching. An agent that
 /// obeys calls no tool, so the tool loop reported an empty `tools_called` and
 /// this gate refused the chart as unsourced — leaving the raw ```dravr-viz```
 /// fence in the reply. Observed on Slack 2026-08-20: the athlete asked for a
@@ -435,7 +435,7 @@ fn prefetch_provenance_does_not_excuse_an_uncited_tool() {
 /// This is the compound failure observed on Telegram, 2026-08-21. A block was
 /// refused, the fence stayed in the reply as literal text, and that text became
 /// the persisted assistant message. The athlete saw a screenful of JSON; worse,
-/// on the next turn the coach read its own transcript, concluded it had already
+/// on the next turn the agent read its own transcript, concluded it had already
 /// drawn the chart, and answered "le graphique est déjà juste au-dessus" —
 /// refusing to draw a real one. One refusal poisoned every turn after it.
 ///
@@ -475,14 +475,14 @@ fn a_refused_block_leaves_no_machine_text_for_the_next_turn_to_read() {
     }
 }
 
-/// Stored history must never replay a fence back to the coach.
+/// Stored history must never replay a fence back to the agent.
 ///
 /// Fixes ship forward, conversations do not: every transcript that already
-/// carries a leaked fence would keep telling the coach it had drawn a chart.
+/// carries a leaked fence would keep telling the agent it had drawn a chart.
 /// Stripping on replay heals those conversations instead of requiring surgery
 /// on the message table.
 #[test]
-fn a_stored_fence_is_stripped_before_the_coach_reads_its_own_transcript() {
+fn a_stored_fence_is_stripped_before_the_agent_reads_its_own_transcript() {
     let poisoned = format!(
         "Voici ton volume hebdomadaire.\n\n{}\n\nDeux trous complets début juin.",
         fenced(CHART)
@@ -507,21 +507,21 @@ fn history_without_a_fence_is_left_exactly_as_it_was() {
     assert_eq!(strip_fences(plain), plain);
 
     // A marker is not a fence: it means a chart really was delivered, and the
-    // coach may legitimately remember showing it.
+    // agent may legitimately remember showing it.
     let with_marker = format!("Voici.\n\n{}\n\nEt donc.", marker(0));
     assert_eq!(strip_fences(&with_marker), with_marker);
 }
 
-/// A chat with no coach bound may still draw.
+/// A chat with no agent bound may still draw.
 ///
-/// The `visuals:` grant belongs to a coach author, so it only exists when a
-/// coach is bound. A Telegram group binds none — the platform answers directly
+/// The `visuals:` grant belongs to an agent author, so it only exists when a
+/// agent is bound. A Telegram group binds none — the platform answers directly
 /// — and reading that as an empty grant withheld the visual contract from the
 /// prompt. The model then told the group it had no way to draw a chart
 /// ("pas d'outil pour ça de mon côté", 2026-08-21) *after* successfully calling
 /// `get_activities`: it had the data and no permission to picture it.
 #[test]
-fn a_conversation_with_no_coach_falls_back_to_the_platform_grant() {
+fn a_conversation_with_no_agent_falls_back_to_the_platform_grant() {
     let grant = granted_visuals(None);
 
     assert!(
@@ -543,13 +543,13 @@ fn a_conversation_with_no_coach_falls_back_to_the_platform_grant() {
     assert_eq!(out.blocks[0]["kind"], "line");
 }
 
-/// A bound coach still governs its own reply — including choosing not to draw.
+/// A bound agent still governs its own reply — including choosing not to draw.
 ///
-/// The fallback must not become "everyone draws". An author who ships a coach
-/// with no `visuals:` made a decision, and 13 of the 26 catalogue coaches have
+/// The fallback must not become "everyone draws". An author who ships an agent
+/// with no `visuals:` made a decision, and 13 of the 26 catalogue agents have
 /// made exactly that one.
 #[test]
-fn a_bound_coach_governs_its_own_grant() {
+fn a_bound_agent_governs_its_own_grant() {
     assert!(
         granted_visuals(Some(&[])).is_empty(),
         "a coach that declares no visuals must not inherit the platform default"

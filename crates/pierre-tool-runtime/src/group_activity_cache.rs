@@ -122,7 +122,7 @@ pub(crate) async fn fetch_member_activities(
     // Warm-but-stale cache: refresh within the same bounded budget the self
     // path spends (`RefreshConfig::wait_for_refresh_timeout`) instead of
     // detaching the refresh and serving rows the very turn that kicked it —
-    // the 2026-08-13 incident where a coach read a stale TSB of +43 ("très
+    // the 2026-08-13 incident where an agent read a stale TSB of +43 ("très
     // frais") while the refresh that would have shown −66 (overreaching)
     // landed 3 seconds after the answer.
     let (cached, served_stale) =

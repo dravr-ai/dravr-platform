@@ -27,7 +27,7 @@ use pierre_core::models::periodization::{
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanPhase, PlanWeek, TrainingPlan};
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -72,10 +72,10 @@ pub(super) async fn assess_saved_weeks(
     weeks.retain(|w| parse_plan_date(&w.week_start).is_some());
     weeks.sort_by(|a, b| a.week_start.cmp(&b.week_start));
 
-    // The plan's coach package first, then the catalogue — the same view
+    // The plan's agent package first, then the catalogue — the same view
     // the save resolved through, so a house flavour or a package template
     // is measured against what it was saved as.
-    let package = match load_coach_package(repos, tenant, user_id, plan.coach_slug.as_deref()).await
+    let package = match load_agent_package(repos, tenant, user_id, plan.agent_slug.as_deref()).await
     {
         Ok(package) => package,
         Err(e) => {
@@ -124,7 +124,7 @@ pub(super) async fn assess_saved_weeks(
                 .and_then(|cap| u8::try_from(cap).ok()),
             target_hours: phase.and_then(|p| p.target_hours),
             // The saved phase carries its own pattern; a plan written before
-            // the field existed, or by a coach who stated none, holds None and
+            // the field existed, or by an agent who stated none, holds None and
             // the kernel reads every week as a load week.
             loading_pattern: phase.and_then(|p| p.loading_pattern),
             // The cut is the skeleton's, not the phase's — the phase records

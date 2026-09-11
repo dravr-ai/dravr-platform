@@ -38,7 +38,7 @@ pierre-agui = { version = "0.3.0", path = "../pierre-agui", optional = true }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
-pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }

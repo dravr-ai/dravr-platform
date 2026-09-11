@@ -147,7 +147,7 @@ fn assert_event_attributed(
 #[tokio::test]
 async fn service_disconnect_cleans_both_rows_and_emits() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     seed_connected_provider(
         &resources,
@@ -181,7 +181,7 @@ async fn service_disconnect_cleans_both_rows_and_emits() {
 #[tokio::test]
 async fn chat_tool_disconnect_resolves_mirror_and_emits() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     seed_connected_provider(
         &resources,
@@ -230,7 +230,7 @@ async fn chat_tool_disconnect_resolves_mirror_and_emits() {
 #[tokio::test]
 async fn mcp_carveout_disconnect_removes_connection_row_and_emits() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     seed_connected_provider(
         &resources,
@@ -279,7 +279,7 @@ async fn mcp_carveout_disconnect_removes_connection_row_and_emits() {
 #[tokio::test]
 async fn sciotte_session_routes_emit_the_provider_event_pair() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     let token = generate_test_token(&resources, &user).await;
     let auth_token = format!("Bearer {token}");

@@ -11,7 +11,7 @@
 use pierre_formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
 use pierre_llm::pricing::calculate_cost;
 use pierre_llm::prompts::{
-    COACH_GENERATION_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
+    AGENT_GENERATION_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
 };
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -268,7 +268,7 @@ mod axis2_prompt_sizes {
         let assembled = assembled_system_prompt();
         let prompts: &[(&str, &str)] = &[
             ("PIERRE_SYSTEM_PROMPT", assembled.as_str()),
-            ("COACH_GENERATION_PROMPT", COACH_GENERATION_PROMPT),
+            ("COACH_GENERATION_PROMPT", AGENT_GENERATION_PROMPT),
         ];
 
         println!("\n=== AXIS 2: Static Prompt Token Sizes (DRAVR-420) ===");
@@ -458,7 +458,7 @@ mod axis2_cost_projections {
         }
 
         // Single operation costs
-        let coach_tokens = TokenEfficiencyMetrics::estimate_tokens(COACH_GENERATION_PROMPT);
+        let coach_tokens = TokenEfficiencyMetrics::estimate_tokens(AGENT_GENERATION_PROMPT);
         let coach_output: usize = 800;
 
         let coach_cost = calculate_cost(

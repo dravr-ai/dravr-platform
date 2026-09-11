@@ -10,7 +10,7 @@ import {
   getCategoryIcon,
   getCategoryLabel,
 } from '../src/categories';
-import type { CoachCategory } from '../src/categories';
+import type { AgentCategory } from '../src/categories';
 
 describe('COACH_CATEGORIES', () => {
   it('contains all 7 categories', () => {

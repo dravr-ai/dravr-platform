@@ -38,7 +38,7 @@ mod messaging_routes_tests {
 
     async fn setup_messaging_router() -> (axum::Router, String) {
         let resources = create_test_server_resources().await.unwrap();
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let token = generate_test_token(&resources, &user).await;
         let router = MessagingRoutes::routes(Arc::clone(&resources));
         (router, format!("Bearer {token}"))
@@ -424,7 +424,7 @@ mod messaging_routes_tests {
     /// thing that stands between them and the credentials.
     async fn setup_owner_and_member_router() -> (axum::Router, String, String) {
         let resources = create_test_server_resources().await.unwrap();
-        let db = &resources.coach.database;
+        let db = &resources.agent.database;
 
         // Owner of the shared tenant (inserted into tenant_users as role `owner`).
         let (_owner_id, owner_user, shared_tenant) =
@@ -637,7 +637,7 @@ mod messaging_routes_tests {
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
         // Look up the test user's tenant_id for the channel config
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -706,7 +706,7 @@ mod messaging_routes_tests {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -772,7 +772,7 @@ mod messaging_routes_tests {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -848,7 +848,7 @@ mod messaging_routes_tests {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -927,7 +927,7 @@ mod messaging_routes_tests {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -979,7 +979,7 @@ mod messaging_routes_tests {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -1040,7 +1040,7 @@ mod messaging_routes_tests {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 
-        let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+        let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
         let tenants = resources
             .common
             .repos
@@ -1109,11 +1109,11 @@ mod messaging_routes_tests {
         // user_a is the *previous* linker. user_b is the *current*
         // linker (the channel link points at user_b after rebind).
         let (_, user_a) =
-            create_test_user_with_email(&resources.coach.database, "rebind_a@example.com")
+            create_test_user_with_email(&resources.agent.database, "rebind_a@example.com")
                 .await
                 .unwrap();
         let (_, user_b) =
-            create_test_user_with_email(&resources.coach.database, "rebind_b@example.com")
+            create_test_user_with_email(&resources.agent.database, "rebind_b@example.com")
                 .await
                 .unwrap();
         let tenants = resources

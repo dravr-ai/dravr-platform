@@ -6,7 +6,7 @@
 
 //! # Contremaitre — Prompt Hot-Reload System
 //!
-//! Manages system prompts and coach personas authored in the private
+//! Manages system prompts and agent personas authored in the private
 //! `dravr-contremaitre` GitHub repository. On startup the server pulls
 //! the latest snapshot; a webhook endpoint triggers selective reload on
 //! pushes. Admin write-back still commits to the repo via the GitHub

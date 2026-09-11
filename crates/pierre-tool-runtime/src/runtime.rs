@@ -38,7 +38,7 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
-use pierre_database::database::repositories::CoachesRepository;
+use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_intelligence::{ActivityIntelligence, IntelligenceConfig};
 use pierre_llm::LlmProvider;
@@ -136,7 +136,7 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Hot-reloadable `IntelligenceConfig` snapshot registry.
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry>;
 
-    /// The string catalogue registry, for tools that hand the coach a fact as
+    /// The string catalogue registry, for tools that hand the agent a fact as
     /// a sentence in the athlete's locale.
     fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry>;
 
@@ -189,7 +189,7 @@ pub trait ToolRuntime: Send + Sync + 'static {
     }
 
     /// Coaches repository (kept as a method because it returns `&dyn`).
-    fn coaches_manager(&self) -> &dyn CoachesRepository;
+    fn agents_manager(&self) -> &dyn AgentsRepository;
 
     /// Recommendation system prompt (delegates to the contremaitre prompt
     /// registry when the feature is enabled, otherwise the compiled-in

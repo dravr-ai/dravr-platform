@@ -54,5 +54,5 @@ export type {
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';
 
 // Export types from shared package
-export type { Coach, StoreCoach } from '@pierre/shared-types';
+export type { Agent, StoreAgent } from '@pierre/shared-types';
 export type { ExtendedProviderStatus as ProviderStatus, ProvidersStatusResponse } from '@pierre/shared-types';

@@ -658,7 +658,7 @@ fn millis_elapsed(start: Instant) -> i64 {
 /// history, and the platform was emitting five: the compaction replay, the
 /// same-turn splice, the turn-1 activity pre-load, the Stage 12b refresh and
 /// the guardian planner. Four were discarded on every turn. Nothing logged it,
-/// so the loss was invisible — the coach still looked grounded whenever it
+/// so the loss was invisible — the agent still looked grounded whenever it
 /// chose to call `get_activities` itself, which is the same observable outcome.
 ///
 /// `system_message_count` is the field that would have shown `5` on the first
@@ -1099,7 +1099,7 @@ fn append_plan_results(llm_messages: &mut Vec<ChatMessage>, outputs: &[StepOutpu
 /// existing system message.
 ///
 /// The planner prompt is prepended onto `messages[0]` rather than inserted as a
-/// second `System` message. Index 0 already carries the coach persona and the
+/// second `System` message. Index 0 already carries the agent persona and the
 /// tool catalogue, and the live provider keeps only the *first* system message
 /// and drops the rest — a second one would take the slot and silently discard
 /// the persona for the whole plan call. Merging preserves the
@@ -1463,7 +1463,7 @@ pub async fn finalize_headless_turn(
 
     // The backend key of a provider a loopback `get_activities` served the
     // window WITHOUT. `auth_recovery` mints a reconnect URL from it and appends
-    // the offer to the coach's answer, so an ACP turn a sibling connection
+    // the offer to the agent's answer, so an ACP turn a sibling connection
     // served hands the athlete the same control every other transport does.
     let served_without_provider = params
         .executor
@@ -1597,7 +1597,7 @@ async fn retry_headless_turn(
 /// list drifted from the registry — newer tools (endurance dossier/history,
 /// nutrition, mobility) ended up advertised in prose but missing from the
 /// function-calling surface, producing "no callable tool" refusals when
-/// coach prompts referenced them.
+/// agent prompts referenced them.
 ///
 /// Tool descriptions and parameter schemas come from each `McpTool`
 /// implementation's `description()` / `input_schema()` methods, with any

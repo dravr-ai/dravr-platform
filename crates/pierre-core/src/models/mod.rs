@@ -47,7 +47,7 @@ pub mod onboarding;
 /// The canonical six fitness-adapted health pillars (single source of truth
 /// for per-user context, pillar-tagged facts, and the OKF bundle).
 pub mod pillar;
-/// Coach-athlete roster assignment shape backing `coach_athlete_assignments`.
+/// Agent-athlete roster assignment shape backing `coach_athlete_assignments`.
 pub mod roster;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
@@ -86,7 +86,7 @@ pub use dravr_cageux::models::sport::SportType;
 pub use dravr_cageux::training_load::FormBand;
 
 /// One reading of an athlete's form — the single serializer every TSB surface
-/// renders through, so a bare absolute number cannot reach a coach again.
+/// renders through, so a bare absolute number cannot reach an agent again.
 pub mod form_reading;
 pub use form_reading::{FormInterpretation, FormReading};
 
@@ -202,7 +202,7 @@ pub use user_mcp_token::{
 // Chat conversation and message record types
 mod conversation;
 pub use conversation::{
-    is_in_app_channel, split_visuals, AddMessageParams, CoachRuntimeContext,
+    is_in_app_channel, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, ConversationTurnId, MessageFeedbackRecord, MessageRecord, ParticipantRole,
     PersistedAction, PersistedReplyBlock, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE,
@@ -242,19 +242,19 @@ pub use usage::{
     UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
 };
 
-/// A coach package's training artefacts — flavour, skeleton, workouts — beside its prompt
-pub mod coach_artefacts;
-/// Coach (AI persona) data types for custom AI coaching personas
-pub mod coaches;
-pub use coach_artefacts::{
-    sha256_hex, ArtefactKind, CoachArtefact, PackageArtefact, ParsedArtefact,
+/// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt
+pub mod agent_artefacts;
+/// Agent (AI persona) data types for custom AI agent personas
+pub mod agents;
+pub use agent_artefacts::{
+    sha256_hex, AgentArtefact, ArtefactKind, PackageArtefact, ParsedArtefact,
 };
 /// Mobility domain types for stretching and yoga
 pub mod mobility;
-pub use coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachHandle, CoachListItem, CoachPrerequisites,
-    CoachVersion, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
-    PublishStatus, StoreAdminStats, UpdateCoachRequest,
+pub use agents::{
+    Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentPrerequisites,
+    AgentVersion, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter,
+    PublishStatus, StoreAdminStats, UpdateAgentRequest,
 };
 /// Recipe data models for nutrition planning with training-aware meal timing (from dravr-cageux)
 pub use dravr_cageux::models::recipes;

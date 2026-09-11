@@ -41,26 +41,26 @@ function sampleSummary(overrides: Partial<MythBustingSummary> = {}): MythBusting
       {
         claim_excerpt: 'Drink a gallon of water per day',
         occurrences: 4,
-        coach_count: 2,
+        agent_count: 2,
         last_seen_at: '2026-04-13T18:00:00Z',
       },
       {
         claim_excerpt: 'Cardio kills your gains',
         occurrences: 3,
-        coach_count: 1,
+        agent_count: 1,
         last_seen_at: '2026-04-12T18:00:00Z',
       },
     ],
-    top_coaches: [
+    top_agents: [
       {
-        coach_id: 'coach-broscience',
+        agent_id: 'coach-broscience',
         unsupported_total: 5,
         categories: ['nutrition', 'training_prescription'],
       },
     ],
     top_categories: [
-      { category: 'nutrition', flagged_total: 6, coach_count: 3 },
-      { category: 'supplement', flagged_total: 3, coach_count: 1 },
+      { category: 'nutrition', flagged_total: 6, agent_count: 3 },
+      { category: 'supplement', flagged_total: 3, agent_count: 1 },
     ],
     ...overrides,
   };
@@ -87,7 +87,7 @@ describe('MythBustingTab', () => {
       sampleSummary({
         flagged_total: 0,
         top_claims: [],
-        top_coaches: [],
+        top_agents: [],
         top_categories: [],
       }),
     );

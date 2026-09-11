@@ -1,12 +1,12 @@
 // ABOUTME: Tier 6 text guardrails — per-locale disclaimer triggers, blocked topics, length caps
-// ABOUTME: Applied to coach responses post-LLM, before they leave the dispatch path
+// ABOUTME: Applied to agent responses post-LLM, before they leave the dispatch path
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Text Guardrails
 //!
-//! Per-tenant text guardrails applied to coach responses, plus a pure
+//! Per-tenant text guardrails applied to agent responses, plus a pure
 //! function that applies them at dispatch time. Handles three cases:
 //!
 //! 1. **Length cap** — responses that exceed the configured character cap
@@ -69,7 +69,7 @@ pub struct CompiledLocaleGuardrails {
     pub disclaimer_text: String,
 }
 
-/// Tenant-scoped text guardrails applied to coach responses.
+/// Tenant-scoped text guardrails applied to agent responses.
 #[derive(Debug)]
 pub struct TextGuardrails {
     /// Maximum character length for an outbound response. Responses

@@ -170,7 +170,7 @@ personas:
         let (user, tenant) = seed_user(&resources, "gate_armed@example.com").await;
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.coach.database)
+        let service = notification_service(&resources.agent.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
             .with_policy_gate(Arc::new(StubGate {
                 policy: casual_policy(true),
@@ -221,7 +221,7 @@ personas:
         let (user, tenant) = seed_user(&resources, "gate_shadow@example.com").await;
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.coach.database)
+        let service = notification_service(&resources.agent.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
             .with_policy_gate(Arc::new(StubGate {
                 policy: casual_policy(false),
@@ -295,7 +295,7 @@ personas:
         }
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.coach.database)
+        let service = notification_service(&resources.agent.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
             .with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
                 Arc::clone(&resources.common.repos),
@@ -305,7 +305,7 @@ personas:
     }
 
     /// The registre#7 promise end-to-end: an armed casual athlete's P0 floor
-    /// holds a P2 alert AND a P1 coach message (floor P0 delivers ONLY P0),
+    /// holds a P2 alert AND a P1 agent message (floor P0 delivers ONLY P0),
     /// while a P0 event goes straight through.
     #[tokio::test]
     async fn armed_casual_floor_p0_delivers_only_p0() {
@@ -340,7 +340,7 @@ personas:
             .expect("gated P2 row persisted");
         assert!(is_persona_gated(&row), "P2 > floor P0 ⇒ gated");
 
-        // P1 coach message: ALSO gated — floor P0 means only P0 delivers.
+        // P1 agent message: ALSO gated — floor P0 means only P0 delivers.
         let outcome = service
             .dispatch_with_tier(
                 &request(

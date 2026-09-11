@@ -164,7 +164,7 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
                 id: 'verdict-1',
                 conversation_id: CONVERSATION_ID,
                 message_id: ASSISTANT_MESSAGE_ID,
-                coach_id: COACH_ID,
+                agent_id: COACH_ID,
                 claim_text: FLAGGED_CLAIM,
                 category: 'physiological',
                 status: 'contradicted',
@@ -215,8 +215,8 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
             {
               id: CONVERSATION_ID,
               title: CONVERSATION_TITLE,
-              coach_id: COACH_ID,
-              coach_name: COACH_TITLE,
+              agent_id: COACH_ID,
+              agent_name: COACH_TITLE,
               created_at: '2026-08-20T09:00:00Z',
               updated_at: '2026-08-20T10:01:00Z',
               message_count: 2,
@@ -237,7 +237,7 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           {
             id: COACH_ID,
             title: COACH_TITLE,
@@ -303,7 +303,7 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
             tokens: counter(false),
             tool_calls: counter(false),
           },
-          resources: { coaches: 1, max_coaches: 3, conversations: 1, max_conversations: 20 },
+          resources: { agents: 1, max_agents: 3, conversations: 1, max_conversations: 20 },
         }),
       });
     });

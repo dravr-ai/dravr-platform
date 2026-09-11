@@ -15,7 +15,7 @@
 //!
 //! In descending order of preference: after a sentence, after a line, after a
 //! word, and — only for a single token longer than the whole ceiling — between
-//! two characters. A coach's paragraph therefore arrives as whole sentences in
+//! two characters. An agent's paragraph therefore arrives as whole sentences in
 //! order, and a URL is never broken in half by the split itself.
 //!
 //! # What is preserved
@@ -106,7 +106,7 @@ fn split_sentences(text: &str) -> Vec<&str> {
     while index < chars.len() {
         let (_, ch) = chars[index];
         let break_at = if ch == '\n' {
-            // A line end is always a legitimate place to split: a coach's
+            // A line end is always a legitimate place to split: an agent's
             // bulleted list has no sentence punctuation to look for.
             Some(index + 1)
         } else if SENTENCE_END.contains(&ch) {

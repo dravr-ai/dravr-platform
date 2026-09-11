@@ -55,7 +55,7 @@ const RESTART_HINT: &str = "start the sign-in again";
 
 async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId) {
     let resources = common::create_test_server_resources().await.unwrap();
-    let (user_id, _) = common::create_test_user(&resources.coach.database)
+    let (user_id, _) = common::create_test_user(&resources.agent.database)
         .await
         .unwrap();
     let tenant_id = resources

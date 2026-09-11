@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 import { useMentionPalette } from '../useMentionPalette';
 
 const list = vi.fn();
@@ -19,7 +19,7 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-function coach(overrides: Partial<Coach> = {}): Coach {
+function coach(overrides: Partial<Agent> = {}): Agent {
   return {
     id: 'coach-1',
     title: 'Tempo Coach',
@@ -31,7 +31,7 @@ function coach(overrides: Partial<Coach> = {}): Coach {
     created_at: '2026-08-20T10:00:00Z',
     updated_at: '2026-08-20T10:00:00Z',
     ...overrides,
-  } as Coach;
+  } as Agent;
 }
 
 function wrapperFor(client: QueryClient) {
@@ -49,7 +49,7 @@ describe('useMentionPalette candidates', () => {
   });
 
   it('offers a coach on the athlete list', async () => {
-    list.mockResolvedValue({ coaches: [coach()] });
+    list.mockResolvedValue({ agents: [coach()] });
 
     const { result } = renderHook(
       () => useMentionPalette({ value: '@', caret: 1, onChange: vi.fn() }),
@@ -64,7 +64,7 @@ describe('useMentionPalette candidates', () => {
     // `find_installed_by_handle` joins `coach_assignments` for this athlete, so a
     // coach that is merely listed would be a mention that silently does not route.
     list.mockResolvedValue({
-      coaches: [
+      agents: [
         coach(),
         coach({
           id: 'coach-2',
@@ -88,7 +88,7 @@ describe('useMentionPalette candidates', () => {
     // `WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = 1)`: a system agent
     // the athlete has been assigned resolves, so `is_system` is not the filter.
     list.mockResolvedValue({
-      coaches: [
+      agents: [
         coach({
           id: 'coach-sys',
           title: 'Sleep Coach',
@@ -110,7 +110,7 @@ describe('useMentionPalette candidates', () => {
 
   it('narrows the offer as the athlete types the handle', async () => {
     list.mockResolvedValue({
-      coaches: [coach(), coach({ id: 'coach-3', title: 'Sleep Coach', handle: 'sleep-coach' })],
+      agents: [coach(), coach({ id: 'coach-3', title: 'Sleep Coach', handle: 'sleep-coach' })],
     });
 
     // Mount on the bare `@` the way the composer does, then let the athlete

@@ -4,10 +4,10 @@
 // ========== COACH ENUMS ==========
 
 /** Category of an agent */
-export type CoachCategory = 'training' | 'nutrition' | 'recovery' | 'recipes' | 'mobility' | 'custom';
+export type AgentCategory = 'training' | 'nutrition' | 'recovery' | 'recipes' | 'mobility' | 'custom';
 
 /** Visibility setting for agents */
-export type CoachVisibility = 'private' | 'tenant' | 'global';
+export type AgentVisibility = 'private' | 'tenant' | 'global';
 
 /** Publish status for store agents */
 export type PublishStatus = 'draft' | 'pending_review' | 'published' | 'rejected';
@@ -39,7 +39,7 @@ export interface DataRequirements {
 // ========== COACH TYPES ==========
 
 /** An agent persona */
-export interface Coach {
+export interface Agent {
   id: string;
   title: string;
   description: string | null;
@@ -129,9 +129,9 @@ export interface SportProfileSummary {
 }
 
 /** An agent proposed during onboarding, with its score and a rationale. */
-export interface ProposedCoach {
+export interface ProposedAgent {
   /** The proposed agent */
-  coach: Coach;
+  agent: Agent;
   /** Relevance score in 0..1 from the deterministic prefilter */
   match_score: number;
   /** One-sentence, second-person rationale ("why this agent fits you") */
@@ -139,15 +139,15 @@ export interface ProposedCoach {
 }
 
 /** Response for GET /api/agents/proposal. */
-export interface CoachProposalResponse {
+export interface AgentProposalResponse {
   /** The inferred sport profile shown before the agent list */
   profile: SportProfileSummary;
   /** Up to 3 proposed agents, best fit first */
-  coaches: ProposedCoach[];
+  agents: ProposedAgent[];
 }
 
 /** Request to update an existing agent */
-export interface UpdateCoachRequest {
+export interface UpdateAgentRequest {
   title?: string;
   description?: string;
   system_prompt?: string;
@@ -180,22 +180,22 @@ export interface UpdateCoachRequest {
 }
 
 /** Standard metadata for agent API responses */
-export interface CoachMetadata {
+export interface AgentMetadata {
   timestamp: string;
   api_version: string;
 }
 
 /** Response for listing agents */
-export interface ListCoachesResponse {
-  coaches: Coach[];
+export interface ListAgentsResponse {
+  agents: Agent[];
   total: number;
-  metadata: CoachMetadata;
+  metadata: AgentMetadata;
 }
 
 // ========== COACH STORE TYPES ==========
 
 /** An agent in the public store */
-export interface StoreCoach {
+export interface StoreAgent {
   id: string;
   title: string;
   description: string | null;
@@ -213,7 +213,7 @@ export interface StoreCoach {
 }
 
 /** Detailed view of a store agent */
-export interface StoreCoachDetail extends StoreCoach {
+export interface StoreAgentDetail extends StoreAgent {
   system_prompt: string;
   created_at: string;
   publish_status: PublishStatus;
@@ -226,8 +226,8 @@ export interface StoreMetadata {
 }
 
 /** Response for browsing store agents */
-export interface BrowseCoachesResponse {
-  coaches: StoreCoach[];
+export interface BrowseAgentsResponse {
+  agents: StoreAgent[];
   next_cursor?: string | null;
   has_more?: boolean;
   total?: number;
@@ -235,36 +235,36 @@ export interface BrowseCoachesResponse {
 }
 
 /** Response for searching store agents */
-export interface SearchCoachesResponse {
-  coaches: StoreCoach[];
+export interface SearchAgentsResponse {
+  agents: StoreAgent[];
   query: string;
   metadata: StoreMetadata;
 }
 
 /** Response for installing an agent */
-export interface InstallCoachResponse {
+export interface InstallAgentResponse {
   message: string;
-  coach: StoreCoach;
+  agent: StoreAgent;
   metadata: StoreMetadata;
 }
 
 /** Response for uninstalling an agent */
-export interface UninstallCoachResponse {
+export interface UninstallAgentResponse {
   message: string;
-  source_coach_id: string;
+  source_agent_id: string;
   metadata: StoreMetadata;
 }
 
 /** Response for listing installed agents */
 export interface InstallationsResponse {
-  coaches: StoreCoach[];
+  agents: StoreAgent[];
   metadata: StoreMetadata;
 }
 
 // ========== COACH ASSIGNMENT TYPES ==========
 
 /** An agent assignment to a user */
-export interface CoachAssignment {
+export interface AgentAssignment {
   user_id: string;
   user_email?: string;
   assigned_at: string;
@@ -272,21 +272,21 @@ export interface CoachAssignment {
 }
 
 /** Response for assigning an agent */
-export interface AssignCoachResponse {
-  coach_id: string;
+export interface AssignAgentResponse {
+  agent_id: string;
   assigned_count: number;
   total_requested: number;
 }
 
 /** Response for unassigning an agent */
-export interface UnassignCoachResponse {
-  coach_id: string;
+export interface UnassignAgentResponse {
+  agent_id: string;
   removed_count: number;
   total_requested: number;
 }
 
 /** Response for listing assignments */
 export interface ListAssignmentsResponse {
-  coach_id: string;
-  assignments: CoachAssignment[];
+  agent_id: string;
+  assignments: AgentAssignment[];
 }

@@ -37,8 +37,8 @@ export interface UsageStatusResponse {
   resources: {
     conversations: number;
     max_conversations: number;
-    coaches: number;
-    max_coaches: number;
+    agents: number;
+    max_agents: number;
   };
 }
 

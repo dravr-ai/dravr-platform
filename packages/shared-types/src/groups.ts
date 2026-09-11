@@ -41,7 +41,7 @@ export interface CoachingGroup {
   tenant_id: string;
   name: string;
   description: string | null;
-  coach_id: string;
+  agent_id: string;
   owner_id: string;
   /** Human professional coach attached to oversee this group, if any */
   coach_user_id: string | null;
@@ -92,7 +92,7 @@ export interface GroupInvite {
 export interface UpdateGroupRequest {
   name?: string;
   description?: string;
-  coach_id?: string;
+  agent_id?: string;
   max_members?: number;
   peer_data_sharing?: boolean;
   respond_mode?: GroupRespondMode;

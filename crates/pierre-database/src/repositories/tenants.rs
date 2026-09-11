@@ -23,32 +23,32 @@ pub trait TenantRepository: Send + Sync {
     /// List tenants for a user
     async fn list_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>>;
 
-    /// The coach this user has selected within this tenant, if any.
+    /// The agent this user has selected within this tenant, if any.
     ///
     /// The single answer to "which coach is this user's?". It replaced three
-    /// disagreeing ones — `users.default_coach_id`, `coach_assignments.is_active`
+    /// disagreeing ones — `users.default_coach_id`, `agent_assignments.is_active`
     /// and per-conversation overrides — where the surface that wrote and the
     /// surface that read were often different, so a user could finish onboarding
     /// on one and read as un-onboarded on another.
     ///
-    /// Scoped per membership because coaches are tenant-scoped: a user in two
+    /// Scoped per membership because agents are tenant-scoped: a user in two
     /// tenants selects independently in each.
-    async fn get_selected_coach(
+    async fn get_selected_agent(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
     ) -> AppResult<Option<String>>;
 
-    /// Set (or clear, with `None`) this user's selected coach in this tenant.
+    /// Set (or clear, with `None`) this user's selected agent in this tenant.
     ///
     /// "At most one" is structural — one column on a row that `UNIQUE(tenant_id,
     /// user_id)` already makes unique — rather than maintained by clearing every
     /// row and setting one, which could leave zero or two.
-    async fn set_selected_coach(
+    async fn set_selected_agent(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
     ) -> AppResult<()>;
     /// Store tenant OAuth credentials
     async fn store_oauth_credentials(&self, credentials: &TenantOAuthCredentials) -> AppResult<()>;

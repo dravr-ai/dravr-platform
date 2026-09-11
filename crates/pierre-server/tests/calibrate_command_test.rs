@@ -26,7 +26,7 @@ use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandConte
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 #[cfg(feature = "postgresql")]
 use serde_json::json;
 use std::sync::Arc;

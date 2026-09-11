@@ -86,7 +86,7 @@ export default function CoachFollowupsTab() {
     const coachNeedle = coachFilter.trim();
     const userNeedle = userFilter.trim();
     return followups.filter((f) => {
-      if (coachNeedle && !f.coach_id.includes(coachNeedle)) return false;
+      if (coachNeedle && !f.agent_id.includes(coachNeedle)) return false;
       if (userNeedle && !f.user_id.includes(userNeedle)) return false;
       return true;
     });
@@ -234,7 +234,7 @@ export default function CoachFollowupsTab() {
                         </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">
-                        {f.coach_id}
+                        {f.agent_id}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">
                         {f.user_id}

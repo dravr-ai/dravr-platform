@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use super::calendar::{calendar_provider, destructive_annotations};
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
-use super::training_plans::{load_conversation, resolve_coach_slug};
+use super::training_plans::{load_conversation, resolve_agent_slug};
 use super::training_plans_output::{CalendarBlock, CalendarEntry, CalendarPreview};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -215,7 +215,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              touches dates before today. Call it when the athlete or coach asks to put or \
              update the plan on their calendar — not on your own initiative after a save; \
              save_training_plan's reply says when the calendar is behind. Requires a saved \
-             plan and a connected Intervals.icu account. Args: optional coach_id, optional \
+             plan and a connected Intervals.icu account. Args: optional agent_id, optional \
              from_date.",
             schema,
             Some(destructive_annotations()),
@@ -242,7 +242,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             let tenant = TenantId::from_uuid(context.require_tenant()?);
             let user_id = context.user_id;
             let user_str = user_id.to_string();
-            let arg_coach = args
+            let arg_agent = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
@@ -262,7 +262,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             let conv =
                 load_conversation(repos, context.conversation_id.as_deref(), tenant, &user_str)
                     .await?;
-            let coach = resolve_coach_slug(conv.as_ref(), arg_coach);
+            let agent = resolve_agent_slug(conv.as_ref(), arg_agent);
             let provider = calendar_provider(&context, tenant, user_id).await?;
 
             // When this call runs behind an MCP task handle the dispatcher
@@ -276,7 +276,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
                 &PushPlanParams {
                     tenant,
                     user_id,
-                    coach_slug: coach.as_deref(),
+                    agent_slug: agent.as_deref(),
                     provider: CALENDAR_PROVIDER,
                     from,
                     cancel: cancel_flag.as_deref(),

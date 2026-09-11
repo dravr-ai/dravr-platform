@@ -27,7 +27,7 @@ use super::Pillar;
 
 /// One question in the season walk.
 ///
-/// The variants are ordered as asked. Each carries a probe hint the coach
+/// The variants are ordered as asked. Each carries a probe hint the agent
 /// phrases naturally (never read verbatim — same contract as the pillars walk)
 /// and the fact kind its answer is stamped with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,7 +124,7 @@ impl SeasonTopic {
         Self::ALL.into_iter().find(|t| t.as_str() == slug)
     }
 
-    /// What the coach should explore this turn, phrased naturally.
+    /// What the agent should explore this turn, phrased naturally.
     #[must_use]
     pub const fn probe_hint(self) -> &'static str {
         match self {
@@ -215,7 +215,7 @@ impl SeasonTopic {
     ///
     /// Races, goals, bests, background, tools and facilities are the working
     /// vocabulary of any shared ride. Coaching fit is not: "what my last
-    /// coach got wrong" is said to a coach alone, so a room walk skips it.
+    /// coach got wrong" is said to an agent alone, so a room walk skips it.
     #[must_use]
     pub const fn visibility(self) -> TopicVisibility {
         match self {

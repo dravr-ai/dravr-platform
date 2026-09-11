@@ -145,7 +145,7 @@ pub struct LiveScenarioDriver {
     /// Whether this turn may be handed its activity data unasked.
     ///
     /// The runner clears it for a turn that asserts `ToolCalled`: that turn is
-    /// grading whether the coach invokes the tool, and a prefetch would answer
+    /// grading whether the agent invokes the tool, and a prefetch would answer
     /// the question before it was asked.
     prefetch_allowed: bool,
     provider: OpenAiCompatibleProvider,
@@ -263,7 +263,7 @@ impl LiveScenarioDriver {
 
         // Production-faithful prefetch: messaging-channel turns in
         // `chat_pipeline::run` call `DataRequirements::prefetch_activities`
-        // before LLM dispatch (otherwise coaches hallucinate "last
+        // before LLM dispatch (otherwise agents hallucinate "last
         // activity" details — see `chat_pipeline/mod.rs` rationale).
         // Mirror that here so quantitative scenarios see fresh data in
         // history regardless of whether the model would have re-called the
@@ -274,7 +274,7 @@ impl LiveScenarioDriver {
         // `turn_needs_activity_prefetch`'s keyword list, so counting it as a
         // model invocation would make every keyword-matching turn satisfy a
         // `tool_called` assertion unconditionally — grading the keyword list
-        // instead of the coach. `tools_called` records only what the model
+        // instead of the agent. `tools_called` records only what the model
         // itself asked for.
         if self.prefetch_allowed && turn_needs_activity_prefetch(user_message) {
             let synthesized = FunctionCall {
@@ -303,7 +303,7 @@ impl LiveScenarioDriver {
                 Err(e) => {
                     // Report this as a dispatch error, not a reply. Writing
                     // it into `final_reply` let the asserters grade the
-                    // error text as if the coach had said it — a crashed
+                    // error text as if the agent had said it — a crashed
                     // llama-server then surfaced as "get_activities was
                     // called 0 time(s)", indistinguishable from a genuine
                     // model failure.
@@ -745,7 +745,7 @@ impl ScenarioDriver for LiveScenarioDriver {
 /// style, coaching persona). A locale instruction and a function-calling
 /// reminder are layered under both.
 ///
-/// The two files are separate because binding a coach replaces the persona
+/// The two files are separate because binding an agent replaces the persona
 /// layer; every platform invariant the scenarios grade lives in the
 /// contract, so the eval must carry it or it grades voice alone.
 ///
@@ -787,7 +787,7 @@ fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     let dated_base = format!("{dated_contract}\n\n{PIERRE_SYSTEM_PROMPT}");
     // Strip the remaining `{{...}}` template placeholders. Production
     // replaces those via `prompt_assembly::expand_placeholders` with
-    // persona/coach/scope blocks; this driver doesn't carry that
+    // persona/agent/scope blocks; this driver doesn't carry that
     // machinery, and a model that sees a literal `{{CAPABILITY_REFUSAL}}`
     // token will helpfully echo it verbatim as the refusal text.
     let cleaned_base = strip_template_placeholders(&dated_base);
@@ -910,7 +910,7 @@ fn turn_needs_activity_prefetch(user_message: &str) -> bool {
         "today",
         // Data-access questions ("you have that via the provider no?")
         // are a silent-fetch trigger in production's DataRequirements —
-        // the coach re-pulls and delivers rather than narrating access.
+        // the agent re-pulls and delivers rather than narrating access.
         "provider",
         // FR
         "combien",
@@ -930,7 +930,7 @@ fn turn_needs_activity_prefetch(user_message: &str) -> bool {
 }
 
 /// Remove `{{PLACEHOLDER}}`-style tokens from a prompt. Production
-/// substitutes these with persona/coach/scope blocks; the live driver
+/// substitutes these with persona/agent/scope blocks; the live driver
 /// just deletes them so the LLM doesn't echo the literal token back as
 /// a canned reply (a model will reply with the verbatim string
 /// `{{CAPABILITY_REFUSAL}}` when this scrub is missing).

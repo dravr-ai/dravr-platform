@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Discover tab stack layout for Expo Router, under the native header
-// ABOUTME: StoreScreen (index, large title) and StoreCoachDetailScreen; the coach edit sheet under edit/[coachId]
+// ABOUTME: StoreScreen (index, large title) and StoreAgentDetailScreen; the agent edit sheet under edit/[agentId]
 
 import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
@@ -13,8 +13,8 @@ export default function DiscoverLayout() {
   return (
     <Stack screenOptions={useStackScreenOptions()}>
       <Stack.Screen name="index" options={{ title: t('app.discover'), headerLargeTitle: true }} />
-      <Stack.Screen name="[coachId]" options={{ title: '' }} />
-      <Stack.Screen name="edit/[coachId]" options={{ title: t('app.editAgentTitle') }} />
+      <Stack.Screen name="[agentId]" options={{ title: '' }} />
+      <Stack.Screen name="edit/[agentId]" options={{ title: t('app.editAgentTitle') }} />
     </Stack>
   );
 }

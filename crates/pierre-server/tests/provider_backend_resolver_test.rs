@@ -173,7 +173,7 @@ fn backend_kind_strings_round_trip() {
 #[tokio::test]
 async fn resolve_backend_prefers_sciotte_when_row_present() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Only the mirror row exists → resolver picks sciotte
@@ -192,7 +192,7 @@ async fn resolve_backend_prefers_sciotte_when_row_present() {
 #[tokio::test]
 async fn resolve_backend_keeps_oauth_when_only_oauth_row_exists() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
@@ -210,7 +210,7 @@ async fn resolve_backend_keeps_oauth_when_only_oauth_row_exists() {
 #[tokio::test]
 async fn resolve_backend_strava_prefers_oauth_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Both rows: for Strava the OAuth backend wins (Strava → OAuth-API migration).
@@ -231,7 +231,7 @@ async fn resolve_backend_strava_prefers_oauth_when_both_rows_exist() {
 #[tokio::test]
 async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Both rows: for Garmin the mirror still wins — Garmin's official API is
@@ -258,7 +258,7 @@ async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
 #[tokio::test]
 async fn resolve_backend_garmin_stays_on_mirror_when_no_token() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // No sciotte_garmin token row at all (e.g. after an orphaned-row disconnect).
@@ -293,7 +293,7 @@ async fn resolve_backend_collapses_garmin_aliases_to_one_cache_key() {
     // correct — both aliases of one connected provider resolve to ONE key, while
     // the user still sees the friendly name.
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // The user's only Garmin connection is the scraper mirror (no OAuth row) —
@@ -343,7 +343,7 @@ async fn get_athlete_serves_canonical_cache_key_for_garmin_alias() {
     // proves the canonical key was used; keyed raw, the read would miss and
     // the tool would fail on live provider auth instead.
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(
@@ -403,7 +403,7 @@ async fn get_athlete_serves_canonical_cache_key_for_garmin_alias() {
 #[tokio::test]
 async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
@@ -432,7 +432,7 @@ async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
 #[tokio::test]
 async fn multi_provider_status_hides_sciotte_entries() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // User has a sciotte row but no OAuth row.
@@ -486,7 +486,7 @@ async fn multi_provider_status_hides_sciotte_entries() {
 #[tokio::test]
 async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
@@ -515,7 +515,7 @@ async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
 #[tokio::test]
 async fn multi_provider_status_strava_prefers_oauth_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
@@ -548,7 +548,7 @@ async fn multi_provider_status_strava_prefers_oauth_when_both_rows_exist() {
 #[tokio::test]
 async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
@@ -589,7 +589,7 @@ async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
 #[tokio::test]
 async fn single_provider_status_rejects_explicit_sciotte_query() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Even if a sciotte row exists, the tool must refuse to confirm it
@@ -619,7 +619,7 @@ async fn single_provider_status_rejects_explicit_sciotte_query() {
 #[tokio::test]
 async fn single_provider_status_reports_mirror_backend_when_present() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
@@ -646,7 +646,7 @@ async fn single_provider_status_reports_mirror_backend_when_present() {
 #[tokio::test]
 async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // WHOOP has a token row (so the resolver reads it as connected) plus a
@@ -694,7 +694,7 @@ async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
 #[tokio::test]
 async fn multi_provider_status_reports_needs_reauth() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::WHOOP).await;
@@ -749,7 +749,7 @@ async fn multi_provider_status_reports_needs_reauth() {
 #[tokio::test]
 async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(
@@ -791,7 +791,7 @@ async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
 #[tokio::test]
 async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // A sciotte-Strava user authorizing OAuth: the block is lifted for Strava
@@ -826,7 +826,7 @@ async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
 #[tokio::test]
 async fn connect_provider_rejects_explicit_sciotte_name() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     let tool = ConnectProviderTool;
@@ -858,7 +858,7 @@ async fn connect_provider_rejects_explicit_sciotte_name() {
 #[tokio::test]
 async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     let pc = &resources.common.repos.provider_connections;
@@ -909,7 +909,7 @@ async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
 #[tokio::test]
 async fn create_authenticated_provider_signals_reauth_for_active_but_tokenless_connection() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Registered and Active — but no token row is ever seeded.
@@ -960,7 +960,7 @@ async fn create_authenticated_provider_signals_reauth_for_active_but_tokenless_c
 #[tokio::test]
 async fn disconnect_provider_tool_removes_both_token_and_connection_for_garmin() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     // Connect Garmin via the mirror: a token row + a connection row, exactly as
@@ -1033,7 +1033,7 @@ async fn disconnect_provider_tool_removes_both_token_and_connection_for_garmin()
 #[tokio::test]
 async fn reconciliation_deletes_orphans_and_spares_synthetic_and_valid() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
     let pc = &resources.common.repos.provider_connections;
 
@@ -1070,7 +1070,7 @@ async fn reconciliation_deletes_orphans_and_spares_synthetic_and_valid() {
     .unwrap();
 
     // Run the reconciliation exactly as migration 20260714000001 does.
-    match resources.coach.database.as_ref() {
+    match resources.agent.database.as_ref() {
         Database::SQLite(db) => {
             sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
         }

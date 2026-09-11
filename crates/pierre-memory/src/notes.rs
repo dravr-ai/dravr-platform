@@ -1,5 +1,5 @@
-// ABOUTME: CoachNote — a note the coach persona authored about a user
-// ABOUTME: Distinct from user_facts (extracted) — coach notes are intentional writes via tools
+// ABOUTME: AgentNote — a note the agent persona authored about a user
+// ABOUTME: Distinct from user_facts (extracted) — agent notes are intentional writes via tools
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,22 +9,22 @@ use serde::{Deserialize, Serialize};
 
 use crate::scope::MemoryScope;
 
-/// A note the coach persona wrote about a user via a tool call.
+/// A note the agent persona wrote about a user via a tool call.
 ///
-/// Coach notes are "Letta-style" active memory — the coach explicitly decides
+/// Agent notes are "Letta-style" active memory — the agent explicitly decides
 /// what to remember, rather than having a background extractor infer facts.
 /// Notes carry full provenance (which conversation, which turn) and an
 /// audit-log-friendly author field so admins can see who wrote what.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoachNote {
+pub struct AgentNote {
     /// Stable identifier for this note.
     pub id: String,
     /// Tenant that owns the note.
     pub tenant_id: String,
     /// User the note is about.
     pub user_id: String,
-    /// Coach that wrote the note.
-    pub coach_id: String,
+    /// Agent that wrote the note.
+    pub agent_id: String,
     /// Which conversation the note originated in, if applicable.
     pub conversation_id: Option<String>,
     /// Scope bucket; almost always [`MemoryScope::User`] but tenant-wide notes
@@ -37,8 +37,8 @@ pub struct CoachNote {
     /// When the note was last edited (rare — notes are mostly append-only).
     pub updated_at: DateTime<Utc>,
     /// `true` when an admin has flagged this note as harmful, off-policy,
-    /// or otherwise unfit to surface in the coach's memory recall. Memory
-    /// retrieval queries filter these out so the coach pipeline never
+    /// or otherwise unfit to surface in the agent's memory recall. Memory
+    /// retrieval queries filter these out so the agent pipeline never
     /// re-injects them, even though the row remains visible in the audit
     /// panel for review.
     #[serde(default)]

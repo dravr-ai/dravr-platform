@@ -6,17 +6,17 @@
 
 import { AtSign, Pencil, UserMinus } from 'lucide-react';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 import { Button } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface CoachInfoPanelProps {
   /** The agent bound to the conversation. */
-  coach: Coach;
+  coach: Agent;
   /** Send a turn in the open conversation — how `/agent remove` is issued. */
   onSendCommand: (text: string) => void;
-  /** Open this agent's Discover edit sheet, `discover/<coachId>`. */
-  onEditCoach: (coachId: string) => void;
+  /** Open this agent's Discover edit sheet, `discover/<agentId>`. */
+  onEditCoach: (agentId: string) => void;
 }
 
 /**

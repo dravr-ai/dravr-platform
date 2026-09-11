@@ -24,7 +24,7 @@ pub mod chat_verdicts;
 /// Client for the photograveur press service (Scene -> PNG).
 pub mod photograveur_client;
 
-/// User-facing memory fact service: list and forget what the coach remembers (Sprint C5)
+/// User-facing memory fact service: list and forget what the agent remembers (Sprint C5)
 pub mod memory_facts;
 
 /// User-facing persona cards handler: « Style de coaching » from the live contract registry

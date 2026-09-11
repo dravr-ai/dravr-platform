@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 import { ChatInputBar } from '../../screens/chat/ChatInputBar';
 import { coachesApi, chatApi } from '../../services/api';
 
@@ -22,7 +22,7 @@ jest.mock('../../services/api', () => ({
 const listCoaches = coachesApi.list as jest.Mock;
 const listCommands = chatApi.listCommands as jest.Mock;
 
-function coach(overrides: Partial<Coach>): Coach {
+function coach(overrides: Partial<Agent>): Agent {
   return {
     id: 'coach-1',
     title: 'Coach',
@@ -39,7 +39,7 @@ function coach(overrides: Partial<Coach>): Coach {
     is_system: false,
     is_assigned: true,
     ...overrides,
-  } as Coach;
+  } as Agent;
 }
 
 /**
@@ -47,7 +47,7 @@ function coach(overrides: Partial<Coach>): Coach {
  * no handle, and one listed-but-never-installed coach. Only an assignment row makes
  * `@handle` route, so the last one must never be offered.
  */
-const INSTALLED: Coach[] = [
+const INSTALLED: Agent[] = [
   coach({ id: 'coach-tempo', title: 'Coach Tempo', handle: 'coach-tempo' }),
   coach({ id: 'coach-recovery', title: 'Recovery Guru', handle: 'recovery-guru' }),
   coach({ id: 'coach-personal', title: 'My private coach' }),
@@ -98,7 +98,7 @@ describe('@handle mention palette (mobile composer)', () => {
     listCoaches.mockReset();
     listCommands.mockReset();
     onSendMessage.mockReset();
-    listCoaches.mockResolvedValue({ coaches: INSTALLED });
+    listCoaches.mockResolvedValue({ agents: INSTALLED });
   });
 
   // Turns red if "@" stops offering the athlete's installed coaches, or offers
@@ -163,7 +163,7 @@ describe('@handle mention palette (mobile composer)', () => {
   });
 
   it('offers nothing to an athlete with no installed coach', async () => {
-    listCoaches.mockResolvedValue({ coaches: [] });
+    listCoaches.mockResolvedValue({ agents: [] });
     renderComposer();
 
     fireEvent.changeText(screen.getByTestId('message-input'), '@');

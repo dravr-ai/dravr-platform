@@ -90,7 +90,7 @@ pub async fn create_conversation(
     tenant_id: TenantId,
     title: &str,
     requested_model: Option<&str>,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     group_id: Option<&str>,
 ) -> AppResult<CreateConversationResult> {
     let model = match requested_model {
@@ -101,7 +101,7 @@ pub async fn create_conversation(
     };
 
     let conversation = database
-        .create_conversation(user_id, tenant_id, title, &model, coach_id, group_id)
+        .create_conversation(user_id, tenant_id, title, &model, agent_id, group_id)
         .await?;
 
     Ok(CreateConversationResult { conversation })
@@ -111,7 +111,7 @@ pub async fn create_conversation(
 /// transcript when the conversation is group-bound.
 ///
 /// The entry is attributed to the conversation's member (`user_id`) for both
-/// speakers: a coach row is the reply that member received, so consent
+/// speakers: an agent row is the reply that member received, so consent
 /// withholding hides the pair together. Non-group conversations append
 /// nothing. Shared with the turn service, which fans out a room-visible
 /// slash-command turn the same way, so a plan posted with `/plan share` is
@@ -325,7 +325,7 @@ pub async fn resolve_platform_turn(
 /// size. Read-only: the full history remains available for the UI and export
 /// paths via `get_messages`.
 ///
-/// Slash-command rows never leave this loader: a `/coach` picker or a
+/// Slash-command rows never leave this loader: a `/agent` picker or a
 /// `/status` listing is the platform talking, and replayed as history it
 /// would teach the model to answer in the platform's voice. The rows stay in
 /// the transcript the UI reads; only the prompt is blind to them.

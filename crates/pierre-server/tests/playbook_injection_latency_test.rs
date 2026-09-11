@@ -7,7 +7,7 @@
 //! Playbook injection latency harness.
 //!
 //! The playbook subsystem injects learned playbooks + cold-start archetype priors
-//! into the coach system prompt on **every** chat turn, inline before the LLM
+//! into the agent system prompt on **every** chat turn, inline before the LLM
 //! call, with no per-tenant kill switch. This harness times the exact repository
 //! sequence `inject_playbooks` performs so we can quantify that per-turn cost and
 //! decide whether a guard is warranted.
@@ -98,13 +98,13 @@ async fn time_one_injection(
     repos: &RepositoryRegistry,
     tenant_id: &str,
     user_id: &str,
-    coach: Option<&str>,
+    agent: Option<&str>,
     phase: &mut Phase,
 ) {
     let t = Instant::now();
     let playbooks: Vec<Playbook> = repos
         .playbooks
-        .list_playbooks(tenant_id, user_id, coach, PLAYBOOK_INJECT_LIMIT)
+        .list_playbooks(tenant_id, user_id, agent, PLAYBOOK_INJECT_LIMIT)
         .await
         .unwrap();
     phase.list_playbooks += t.elapsed();
@@ -184,7 +184,7 @@ async fn seed_playbooks(repos: &RepositoryRegistry, tenant: &str, user: &str, n:
             let outcome = RecordedOutcome {
                 tenant_id: tenant,
                 user_id: user,
-                coach_slug: None,
+                agent_slug: None,
                 trigger: &trigger,
                 intervention: &intervention,
                 outcome_metric: &metric,

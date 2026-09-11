@@ -1,4 +1,4 @@
-// ABOUTME: The identity anchor must reach the hardened prompt on EVERY path, coach-bound included
+// ABOUTME: The identity anchor must reach the hardened prompt on EVERY path, agent-bound included
 // ABOUTME: Closes the gap where all anchor tests exercised the pure helper on a bare string
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,16 +8,16 @@
 #![allow(missing_docs)]
 
 //! Every existing anchor test calls `close_with_identity_anchor("body")` on a
-//! bare string. `default_and_coach_paths_get_the_identical_anchor` passes two
+//! bare string. `default_and_agent_paths_get_the_identical_anchor` passes two
 //! literals to the same pure function and proves only that `format!` is
 //! deterministic.
 //!
 //! **None of them would fail if the anchor stopped being applied on the
-//! coach-bound path** — which is the exact branch whose absence WAS the original
+//! agent-bound path** — which is the exact branch whose absence WAS the original
 //! bug. `prompt_assembly.rs` resolved the base prompt with a `map_or_else` that
 //! REPLACED `pierre_system.md` (the only file containing "You are Dravr") when a
-//! coach was bound, and zero of the 52 contremaitre coach prompts carry the
-//! string. Coach-bound turns matched the boundary detector 5/21; no-coach turns
+//! agent was bound, and zero of the 52 contremaitre agent prompts carry the
+//! string. Agent-bound turns matched the boundary detector 5/21; no-agent turns
 //! 0/10.
 //!
 //! `assemble_prompt_and_messages` is `pub(crate)` and needs a live
@@ -26,7 +26,7 @@
 //! seams that ARE reachable:
 //!
 //! 1. **Structurally** — the anchor call must be unconditional and sit AFTER the
-//!    coach/default branch, so reintroducing the branch-scoped bug reds. Same
+//!    agent/default branch, so reintroducing the branch-scoped bug reds. Same
 //!    technique as `onboarding_directive_tail_test`, and the same reason: the
 //!    regression guarded against is a source edit.
 //! 2. **Compositionally** — the anchor must survive canary hardening and the
@@ -58,12 +58,12 @@ fn sole_offset(source: &str, marker: &str) -> usize {
 }
 
 #[test]
-fn the_anchor_is_applied_unconditionally_after_the_coach_branch() {
+fn the_anchor_is_applied_unconditionally_after_the_agent_branch() {
     let source = prompt_assembly_source();
 
-    // The `map_or_else` that chooses coach prompt vs pierre_system.md. The bug
+    // The `map_or_else` that chooses agent prompt vs pierre_system.md. The bug
     // was that this branch decided whether any identity text existed at all.
-    let branch = sole_offset(&source, "coach_ctx.map_or_else(");
+    let branch = sole_offset(&source, "agent_ctx.map_or_else(");
     let anchor_call = sole_offset(&source, "close_with_anchors(&raw_system_prompt,");
 
     assert!(
@@ -97,19 +97,19 @@ fn the_anchor_is_applied_unconditionally_after_the_coach_branch() {
 fn both_arms_of_the_close_carry_the_identity_anchor() {
     // The single call site above used to be the whole guarantee: one call, so
     // no branch could skip it. `close_with_anchors` now has two arms — a
-    // coach-bound turn also gets a voice anchor — so the hazard the structural
+    // agent-bound turn also gets a voice anchor — so the hazard the structural
     // test guards against moved inside that function, and this follows it there.
     //
     // Behavioural, not a grep: it asserts the string the model would receive.
-    for coach in [Some("strength"), None] {
-        let out = close_with_anchors("## Your coaching style\nShort sessions.", coach);
+    for agent in [Some("strength"), None] {
+        let out = close_with_anchors("## Your coaching style\nShort sessions.", agent);
         assert!(
             out.contains("You are Dravr"),
-            "the identity anchor must reach the prompt with coach_slug = {coach:?}"
+            "the identity anchor must reach the prompt with coach_slug = {agent:?}"
         );
         assert!(
             out.contains("not a competing identity"),
-            "the anchor must arrive in full with coach_slug = {coach:?}"
+            "the anchor must arrive in full with coach_slug = {agent:?}"
         );
         let tail: String = out
             .chars()
@@ -121,7 +121,7 @@ fn both_arms_of_the_close_carry_the_identity_anchor() {
             .collect();
         assert!(
             tail.contains("not a competing identity"),
-            "the identity anchor must still be LAST with coach_slug = {coach:?}, got tail {tail:?}"
+            "the identity anchor must still be LAST with coach_slug = {agent:?}, got tail {tail:?}"
         );
     }
 }
@@ -155,13 +155,13 @@ fn the_anchor_survives_the_conditions_where_leaks_were_actually_observed() {
     // 2026-07-28 ran a 51,621-char prompt over 30 messages, and the local
     // reproduction on 2026-08-04 ran 62,787 chars over a compacted 48-message
     // thread. A 2-line-history harness cannot see that regime, so pin it here.
-    let bulky_coach_prompt = "## Coaching context\n".to_owned() + &"session notes. ".repeat(3_500);
+    let bulky_agent_prompt = "## Coaching context\n".to_owned() + &"session notes. ".repeat(3_500);
     assert!(
-        bulky_coach_prompt.len() > 50_000,
+        bulky_agent_prompt.len() > 50_000,
         "precondition: the fixture must reach the size band where leaks occurred"
     );
 
-    let assembled = close_with_identity_anchor(&bulky_coach_prompt);
+    let assembled = close_with_identity_anchor(&bulky_agent_prompt);
     let guard = harden_system_prompt(TenantId::generate(), Some("coach-123"), &assembled);
 
     assert!(
@@ -175,7 +175,7 @@ fn the_anchor_survives_the_conditions_where_leaks_were_actually_observed() {
         .find("You are Dravr")
         .expect("anchor present");
     assert!(
-        anchor_at > bulky_coach_prompt.len() / 2,
+        anchor_at > bulky_agent_prompt.len() / 2,
         "the anchor must sit in the tail of the prompt, not be buried mid-body"
     );
 }

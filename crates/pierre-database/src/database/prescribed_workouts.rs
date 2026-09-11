@@ -26,7 +26,7 @@ impl PrescribedWorkoutRepository for Database {
         sqlx::query(
             r"
             INSERT INTO prescribed_workouts (
-                id, tenant_id, user_id, coach_id, template_slug, sport,
+                id, tenant_id, user_id, agent_id, template_slug, sport,
                 prescribed_for_date, provider, provider_event_id, external_id,
                 source, plan_week_id, replaces_id, payload_json, payload_hash,
                 status, created_at, updated_at
@@ -43,7 +43,7 @@ impl PrescribedWorkoutRepository for Database {
         .bind(prescribed.id.to_string())
         .bind(prescribed.tenant_id.to_string())
         .bind(prescribed.user_id.to_string())
-        .bind(prescribed.coach_id.as_deref())
+        .bind(prescribed.agent_id.as_deref())
         .bind(prescribed.template_slug.as_deref())
         .bind(&sport)
         .bind(
@@ -78,7 +78,7 @@ impl PrescribedWorkoutRepository for Database {
         let bounded = limit.clamp(1, MAX_LIST_LIMIT);
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, template_slug, sport,
+            SELECT id, tenant_id, user_id, agent_id, template_slug, sport,
                    prescribed_for_date, provider, provider_event_id, external_id,
                    source, plan_week_id, replaces_id, payload_json, payload_hash,
                    status, created_at, updated_at
@@ -106,7 +106,7 @@ impl PrescribedWorkoutRepository for Database {
     ) -> AppResult<Option<PrescribedWorkout>> {
         let row = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, template_slug, sport,
+            SELECT id, tenant_id, user_id, agent_id, template_slug, sport,
                    prescribed_for_date, provider, provider_event_id, external_id,
                    source, plan_week_id, replaces_id, payload_json, payload_hash,
                    status, created_at, updated_at
@@ -134,7 +134,7 @@ impl PrescribedWorkoutRepository for Database {
         let from_str = from.map(|d| d.format(ISO_DATE_FMT).to_string());
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, template_slug, sport,
+            SELECT id, tenant_id, user_id, agent_id, template_slug, sport,
                    prescribed_for_date, provider, provider_event_id, external_id,
                    source, plan_week_id, replaces_id, payload_json, payload_hash,
                    status, created_at, updated_at
@@ -251,8 +251,8 @@ fn row_to_prescribed(row: &SqliteRow) -> AppResult<PrescribedWorkout> {
         // `Some("")`. For provider_event_id that is the difference between a
         // prescription the provider never created and one whose calendar event
         // id is the empty string.
-        coach_id: row
-            .try_get("coach_id")
+        agent_id: row
+            .try_get("agent_id")
             .map_err(|e| AppError::database(format!("read coach_id: {e}")))?,
         template_slug: row
             .try_get("template_slug")

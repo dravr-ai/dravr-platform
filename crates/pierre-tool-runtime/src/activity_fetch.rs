@@ -1,5 +1,5 @@
 // ABOUTME: Shared helper to fetch a user's recent activities from their connected providers
-// ABOUTME: One auth+fetch path reused by group snapshots and coach recommendations — no duplication
+// ABOUTME: One auth+fetch path reused by group snapshots and agent recommendations — no duplication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! Authenticating a provider (refreshing OAuth tokens, resolving sciotte
 //! mirrors) and pulling activities is identical whether the caller is the
-//! group analytics snapshot builder or the coach recommender. This module
+//! group analytics snapshot builder or the agent recommender. This module
 //! owns that single path so neither re-implements it.
 
 use std::cmp::{Ordering, Reverse};
@@ -340,7 +340,7 @@ pub fn historical_depth_covered(coverage: Option<BackfillCoverage>, after_ts: i6
 /// The coverage read is clipped at `after + 1 year` so recent rows can't mask
 /// a missing season — but rows above the clip are still inside the requested
 /// window. Served without this slice, the list tops out a year above `after`
-/// and the coach falsely reports "nothing newer" while newer rows sit in the
+/// and the agent falsely reports "nothing newer" while newer rows sit in the
 /// durable cache. `None` when the caller bounded `before` (nothing was
 /// clipped) or the clip already reaches `now`.
 /// `pub` so the slice decision is exercisable by the integration test suite.
@@ -370,14 +370,14 @@ const STALE_HEAD_REFRESH_DAYS: i64 = 30;
 /// The covered-historical path serves the durable cache with no freshness test:
 /// `read_cached_window` consults neither `synced_at` nor `activity_fetch_freshness`,
 /// and `historical_depth_covered` asks only whether the window is DEEP enough,
-/// never whether it is CURRENT. A coach whose window declares sixteen weeks takes
+/// never whether it is CURRENT. An agent whose window declares sixteen weeks takes
 /// that path on every single turn, so its grounding block was as old as whatever
 /// last happened to write through — while the block itself instructs the model to
 /// "base your analysis on these specific activities" and not to answer from memory.
 ///
 /// The freshness mark was already written and already read, but only by the
 /// `get_data_freshness` REPORTING tool. Nothing acted on it. Now the same
-/// [`DataFreshness`] bands the coach is TOLD about also decide whether to look
+/// [`DataFreshness`] bands the agent is TOLD about also decide whether to look
 /// again, so the report and the behaviour cannot disagree.
 ///
 /// Bounded windows are exempt: a closed `before` names a period that is over, so

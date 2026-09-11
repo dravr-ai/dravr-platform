@@ -1031,7 +1031,7 @@ async fn test_global_admin_user_is_allowed_admin_tool() {
     let body = call_admin_only_tool(&resources, &jwt).await;
 
     // The global admin clears the gate and runs the tool body, which lists the
-    // (empty) system-coach set — a successful, non-error result.
+    // (empty) system-agent set — a successful, non-error result.
     assert_eq!(
         body["result"]["isError"],
         json!(false),

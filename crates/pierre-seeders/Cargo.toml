@@ -11,7 +11,7 @@ repository = "https://github.com/dravr-ai/scriptcurator-platform"
 publish = false
 
 [dependencies]
-pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 

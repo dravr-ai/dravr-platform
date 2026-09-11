@@ -70,7 +70,7 @@ pub(super) async fn build_group_ambient_context(dispatch: &PendingDispatch) -> O
         if entry.content.is_empty() {
             continue;
         }
-        // A coach line re-enters every member's prompt from here, and the
+        // An agent line re-enters every member's prompt from here, and the
         // `capability_claim_unverified` stamp lives on the author's row, not
         // here — so the replay scrub runs on the way in (2026-08-30: a consent
         // denial replayed to the peer it named, after he had consented).

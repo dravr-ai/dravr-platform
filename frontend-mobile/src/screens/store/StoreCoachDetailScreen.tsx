@@ -19,7 +19,7 @@ import { trackMobile } from '../../services/analytics';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
-import type { StoreCoach, StoreCoachDetail } from '../../types';
+import type { StoreAgent, StoreAgentDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { coachCategoryLabelKey } from '@pierre/shared-constants';
 
@@ -29,7 +29,7 @@ import { coachCategoryLabelKey } from '@pierre/shared-constants';
  * endpoint returns those copies — so the handle is what maps a listing back
  * to the copy that uninstall and edit address.
  */
-function findInstalledCopy(listing: StoreCoachDetail, copies: StoreCoach[]): StoreCoach | null {
+function findInstalledCopy(listing: StoreAgentDetail, copies: StoreAgent[]): StoreAgent | null {
   if (!listing.handle) return null;
   return copies.find((copy) => copy.handle === listing.handle) ?? null;
 }
@@ -44,36 +44,36 @@ export function StoreCoachDetailScreen() {
   const colors = useThemeColors();
   const cardStyle = useCardStyle();
   const router = useRouter();
-  const { coachId } = useLocalSearchParams<{ coachId: string }>();
+  const { agentId } = useLocalSearchParams<{ agentId: string }>();
   const { isAuthenticated } = useAuth();
   // The action bar sits in the flow above the system tab bar; its own padding
   // keeps the buttons clear of the home indicator on a phone without a bar.
   const actionBarBottom = Math.max(useSafeAreaInsets().bottom, 12);
-  const [coach, setCoach] = useState<StoreCoachDetail | null>(null);
+  const [coach, setCoach] = useState<StoreAgentDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [installedCopy, setInstalledCopy] = useState<StoreCoach | null>(null);
+  const [installedCopy, setInstalledCopy] = useState<StoreAgent | null>(null);
   const [postInstall, setPostInstall] = useState<InstalledCopy | null>(null);
   const isInstalled = installedCopy !== null;
 
   const loadCoachDetail = useCallback(async () => {
-    if (!isAuthenticated || !coachId) return;
+    if (!isAuthenticated || !agentId) return;
 
     try {
       setIsLoading(true);
-      const response = await storeApi.get(coachId);
+      const response = await storeApi.get(agentId);
       setCoach(response);
 
       // Already installed? The copy is what uninstall and edit address.
       const installations = await storeApi.getInstallations();
-      setInstalledCopy(findInstalledCopy(response, installations.coaches));
+      setInstalledCopy(findInstalledCopy(response, installations.agents));
     } catch (error) {
       console.error('Failed to load coach detail:', error);
       Alert.alert(t('common.error'), t('app.failedLoadAgentDetails'));
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, coachId, t]);
+  }, [isAuthenticated, agentId, t]);
 
   useEffect(() => {
     loadCoachDetail();
@@ -85,8 +85,8 @@ export function StoreCoachDetailScreen() {
     try {
       setIsInstalling(true);
       const response = await storeApi.install(coach.id);
-      setInstalledCopy(response.coach);
-      setPostInstall({ title: coach.title, handle: response.coach.handle });
+      setInstalledCopy(response.agent);
+      setPostInstall({ title: coach.title, handle: response.agent.handle });
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     } catch (error) {
       console.error('Failed to install coach:', error);
@@ -105,7 +105,7 @@ export function StoreCoachDetailScreen() {
 
   const handleEdit = () => {
     if (!installedCopy) return;
-    router.push({ pathname: COACH_EDIT_ROUTE, params: { coachId: installedCopy.id } });
+    router.push({ pathname: COACH_EDIT_ROUTE, params: { agentId: installedCopy.id } });
   };
 
   const handleUninstall = async () => {
@@ -315,7 +315,7 @@ export function StoreCoachDetailScreen() {
         {postInstall && (
           <View className="mb-3">
             <PostInstallHint
-              coachTitle={postInstall.title}
+              agentTitle={postInstall.title}
               handle={postInstall.handle}
               onOpenChat={handleOpenChat}
               onDismiss={() => setPostInstall(null)}

@@ -21,7 +21,7 @@ import * as Haptics from 'expo-haptics';
 import { spacing, useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
-import type { UpdateCoachRequest } from '../../types';
+import type { UpdateAgentRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 
 // Category options with colors matching Stitch UX spec
@@ -50,7 +50,7 @@ export function CoachEditorScreen() {
   const colors = useThemeColors();
   const cardStyle = useCardStyle();
   const router = useRouter();
-  const { coachId } = useLocalSearchParams<{ coachId: string }>();
+  const { agentId } = useLocalSearchParams<{ agentId: string }>();
 
   // Form state
   const [title, setTitle] = useState('');
@@ -103,10 +103,10 @@ export function CoachEditorScreen() {
   }, [router, t]);
 
   useEffect(() => {
-    if (coachId) {
-      loadCoach(coachId);
+    if (agentId) {
+      loadCoach(agentId);
     }
-  }, [coachId, loadCoach]);
+  }, [agentId, loadCoach]);
 
   // Derived save-readiness for dynamic testID (Maestro sync point)
   const canSave = title.trim().length > 0 && systemPrompt.trim().length > 0 && !isSaving && !isDeleting;
@@ -164,7 +164,7 @@ export function CoachEditorScreen() {
 
   // Save handler
   const handleSave = async () => {
-    if (!coachId || !validate()) return;
+    if (!agentId || !validate()) return;
 
     try {
       setIsSaving(true);
@@ -184,7 +184,7 @@ export function CoachEditorScreen() {
           }
         : undefined;
 
-      const updateData: UpdateCoachRequest = {
+      const updateData: UpdateAgentRequest = {
         title: title.trim(),
         category,
         description: description.trim() || undefined,
@@ -193,7 +193,7 @@ export function CoachEditorScreen() {
         startup_query: startupQuery.trim() || undefined,
         data_requirements: dataRequirements,
       };
-      await coachesApi.update(coachId, updateData);
+      await coachesApi.update(agentId, updateData);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
@@ -207,7 +207,7 @@ export function CoachEditorScreen() {
 
   // Delete handler: confirmation, then the coach is gone and so is this screen.
   const handleDelete = () => {
-    if (!coachId) return;
+    if (!agentId) return;
     Alert.alert(
       t('app.deleteAgentQ'),
       t('app.confirmDeleteAgent', { coach: title }),
@@ -219,7 +219,7 @@ export function CoachEditorScreen() {
           onPress: async () => {
             try {
               setIsDeleting(true);
-              await coachesApi.delete(coachId);
+              await coachesApi.delete(agentId);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               router.back();
             } catch (error) {
@@ -237,7 +237,7 @@ export function CoachEditorScreen() {
   // Get current category info
   const currentCategory = CATEGORY_OPTIONS.find((c) => c.key === category);
 
-  if (!coachId) {
+  if (!agentId) {
     return (
       <View className="flex-1 bg-background-primary" testID="coach-editor-missing">
         <View className="flex-1 justify-center items-center p-6">

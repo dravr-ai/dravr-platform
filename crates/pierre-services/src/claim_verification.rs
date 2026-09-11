@@ -10,7 +10,7 @@
 //!
 //! The corpus is parsed from the 26 embedded markdown proposition files
 //! under `crates/pierre-evals/fixtures/sports_science/`. Thin wrappers run
-//! a single claim (or a whole coach reply) through the detector pipeline.
+//! a single claim (or a whole agent reply) through the detector pipeline.
 //!
 //! Each proposition is a markdown file with YAML frontmatter matching the
 //! dravr-contremaitre prompts/ convention. Files are compiled into the
@@ -541,7 +541,7 @@ pub fn resolve_corpus(registry: &EvidenceRegistry) -> EvidenceCorpus {
     }
 }
 
-/// Verify a coach reply against the compiled-in fallback corpus.
+/// Verify an agent reply against the compiled-in fallback corpus.
 ///
 /// Thin wrapper over [`verify_reply_heuristic_with`] for callers that
 /// don't have a [`ServerContext`] handy (tests, tool dispatch when the
@@ -549,13 +549,13 @@ pub fn resolve_corpus(registry: &EvidenceRegistry) -> EvidenceCorpus {
 /// [`verify_reply_heuristic_with`] with [`resolve_corpus`].
 #[must_use]
 pub fn verify_reply_heuristic(
-    coach_reply: &str,
+    agent_reply: &str,
     minimum_strength: EvidenceStrength,
 ) -> Vec<(ExtractedClaim, VerdictOutcome)> {
-    verify_reply_heuristic_with(coach_reply, minimum_strength, corpus())
+    verify_reply_heuristic_with(agent_reply, minimum_strength, corpus())
 }
 
-/// Verify a coach reply end-to-end against a caller-provided corpus.
+/// Verify an agent reply end-to-end against a caller-provided corpus.
 ///
 /// Extracts claims heuristically, runs each through the detector pipeline
 /// at the provided minimum evidence strength, and returns a list of
@@ -563,11 +563,11 @@ pub fn verify_reply_heuristic(
 /// from any dispatch path.
 #[must_use]
 pub fn verify_reply_heuristic_with(
-    coach_reply: &str,
+    agent_reply: &str,
     minimum_strength: EvidenceStrength,
     corpus: &EvidenceCorpus,
 ) -> Vec<(ExtractedClaim, VerdictOutcome)> {
-    let claims = extract_heuristic(coach_reply);
+    let claims = extract_heuristic(agent_reply);
     if claims.is_empty() {
         return Vec::new();
     }
@@ -582,39 +582,39 @@ pub fn verify_reply_heuristic_with(
         .collect()
 }
 
-/// Verify a coach reply honoring the per-coach [`VerificationConfig`],
+/// Verify an agent reply honoring the per-agent [`VerificationConfig`],
 /// against the compiled-in fallback corpus.
 #[must_use]
 pub fn verify_reply_with_config(
-    coach_reply: &str,
+    agent_reply: &str,
     config: &VerificationConfig,
 ) -> Vec<(ExtractedClaim, VerdictOutcome)> {
-    verify_reply_with_config_and_corpus(coach_reply, config, corpus())
+    verify_reply_with_config_and_corpus(agent_reply, config, corpus())
 }
 
-/// Verify a coach reply honoring the per-coach [`VerificationConfig`],
+/// Verify an agent reply honoring the per-agent [`VerificationConfig`],
 /// against a caller-provided corpus.
 ///
 /// Returns an empty vec when the config has `enabled = false`. For enabled
 /// configs, each extracted claim is filtered by its category's enabled flag
 /// and checked at the category's `min_strength` threshold. Categories the
-/// coach opted out of are silently dropped (not even persisted as verdicts).
+/// agent opted out of are silently dropped (not even persisted as verdicts).
 #[must_use]
 pub fn verify_reply_with_config_and_corpus(
-    coach_reply: &str,
+    agent_reply: &str,
     config: &VerificationConfig,
     corpus: &EvidenceCorpus,
 ) -> Vec<(ExtractedClaim, VerdictOutcome)> {
     if !config.enabled {
         return Vec::new();
     }
-    let claims = extract_heuristic(coach_reply);
+    let claims = extract_heuristic(agent_reply);
     if claims.is_empty() {
         return Vec::new();
     }
     // Cross-check the consistency-check layer against every extracted claim, not just the enabled
     // ones — a self-contradiction is worth flagging even if the sibling falls
-    // in a category the coach opted out of persisting.
+    // in a category the agent opted out of persisting.
     claims
         .iter()
         .filter(|claim| config.is_enabled_for(claim.category))
@@ -626,7 +626,7 @@ pub fn verify_reply_with_config_and_corpus(
         .collect()
 }
 
-/// Verify a coach reply honoring the per-coach [`VerificationConfig`], running
+/// Verify an agent reply honoring the per-agent [`VerificationConfig`], running
 /// the full five-layer pipeline including the LLM judge fallback.
 ///
 /// Identical category filtering and per-category `min_strength` handling to
@@ -640,7 +640,7 @@ pub fn verify_reply_with_config_and_corpus(
 /// Propagates the LLM error when the judge is invoked and the provider call
 /// (or its JSON parse) fails.
 pub async fn verify_reply_with_config_and_judge(
-    coach_reply: &str,
+    agent_reply: &str,
     config: &VerificationConfig,
     corpus: &EvidenceCorpus,
     judge: Option<&dyn LlmProvider>,
@@ -650,7 +650,7 @@ pub async fn verify_reply_with_config_and_judge(
     if !config.enabled {
         return Ok(Vec::new());
     }
-    let claims = extract_heuristic(coach_reply);
+    let claims = extract_heuristic(agent_reply);
     if claims.is_empty() {
         return Ok(Vec::new());
     }

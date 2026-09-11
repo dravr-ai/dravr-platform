@@ -28,7 +28,7 @@
 use pierre_chat_pipeline::stages::capability_recovery::previous_reply_asserted_athlete_facts;
 use pierre_llm::ChatMessage;
 
-/// The coach's actual reply from the turn Raph corrected.
+/// The agent's actual reply from the turn Raph corrected.
 const RECONSTRUCTION: &str = "Ça donne: mardi ta grosse sortie (161 km/2391m), \
 mercredi ce matin le Date ride (16 km/414m, plus léger), dimanche Roooadie \
 (52 km/485m), vendredi Passion rando (26 km/895m).";

@@ -167,7 +167,7 @@ export interface CreateConversationOptions {
   model?: string;
   /** Coach to attach to the conversation; the coach's system_prompt
    *  is resolved server-side at runtime. */
-  coach_id?: string;
+  agent_id?: string;
   /** Coaching group to scope the conversation to. When set, the
    *  server-side prompt-assembly stage injects group context (member
    *  roster, peer training data subject to per-member consent,

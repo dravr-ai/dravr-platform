@@ -489,7 +489,7 @@ Tool dispatch is driven by the `ToolRegistry` in `crates/pierre-tool-runtime/`.
 Tools implement the `McpTool` trait (one impl per tool, executed by `McpTool::execute`)
 and are registered through `register_builtin_tools`. Capability flags
 on each impl drive admin/user filtering at list time, and feature flags
-(`tools-data`, `tools-analytics`, `tools-coaches`, …) gate categories at compile time.
+(`tools-data`, `tools-analytics`, `tools-agents`, …) gate categories at compile time.
 
 Implementation: `crates/pierre-tool-runtime/src/registry.rs` (registry),
 `crates/pierre-tool-runtime/src/traits.rs` (`McpTool` + `ToolCapabilities`),
@@ -721,7 +721,7 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-jsonrpc` | 310 | JSON-RPC 2.0 envelope types | — |
 | `pierre-formatters` | 350 | Tool-output formatting helpers | — |
 | `pierre-tools-core` | 235 | Core tool primitives/IDs shared across the tool layers | `pierre-core` |
-| `pierre-coach-parser` | 746 | Agent markdown front-matter + section parser | `pierre-core` |
+| `pierre-agent-parser` | 746 | Agent markdown front-matter + section parser | `pierre-core` |
 | `pierre-email` | 394 | Transactional email sender | `pierre-core` |
 | `pierre-enforme` | 16 | Bridge re-exporting `dravr-enforme` (provider sync) | `dravr-enforme` |
 | `pierre-weather` | 16 | Bridge re-exporting `dravr-meteo` (weather) | `dravr-meteo` |
@@ -753,12 +753,12 @@ LOC counts are `src/**.rs` line totals and are approximate.
 | `pierre-chat-pipeline` | 3,991 | Chat orchestration pipeline (LLM + tools + memory) | ~15 siblings incl. `pierre-tool-runtime`, `pierre-services`, `pierre-evals`, `pierre-memory` |
 | `pierre-sse` | 1,168 | Server-sent events transport | `pierre-mcp-transport`, `pierre-middleware`, `pierre-services` |
 | `pierre-a2a` | 3,080 | A2A protocol types + agent card (feature-gated) | `pierre-mcp-schema`, `pierre-mcp-transport`, `pierre-tool-runtime` |
-| `pierre-seeders` | 5,177 | Dev/test data seeders | `pierre-coach-parser`, `pierre-database`, `pierre-intelligence` |
+| `pierre-seeders` | 5,177 | Dev/test data seeders | `pierre-agent-parser`, `pierre-database`, `pierre-intelligence` |
 | `pierre-routes-a2a` | 1,053 | A2A protocol HTTP endpoints | `pierre-a2a`, `pierre-mcp-transport`, `pierre-tool-runtime` |
 | `pierre-routes-admin` | 8,729 | Admin endpoints | `pierre-contremaitre`, `pierre-evals`, `pierre-services`, `pierre-tool-runtime` |
 | `pierre-routes-auth` | 3,473 | Auth / OAuth-client + provider-connect endpoints | `dravr-sciotte`, `embacle`, `pierre-providers`, `pierre-routes-admin`, `pierre-services` |
 | `pierre-routes-billing` | 428 | Billing endpoints | `pierre-database`, `pierre-middleware`, `pierre-runtime-context` |
-| `pierre-routes-coaches` | 3,269 | Agent-marketplace endpoints | `pierre-coach-parser`, `pierre-notifications`, `pierre-services` |
+| `pierre-routes-agents` | 3,269 | Agent-marketplace endpoints | `pierre-agent-parser`, `pierre-notifications`, `pierre-services` |
 | `pierre-routes-dashboard` | 1,052 | Dashboard endpoints | `pierre-auth`, `pierre-database`, `pierre-middleware` |
 | `pierre-routes-identity` | 1,581 | Identity / profile endpoints | `pierre-auth`, `pierre-database`, `pierre-middleware` |
 | `pierre-routes-groups` | 2,618 | Group-coaching + push-notification endpoints (renamed from `pierre-routes-social` on 2026-08-26, once the Chat-First Cutover had deleted the social routes) | `pierre-groups`, `pierre-notifications`, `pierre-services`, `pierre-tool-runtime` |

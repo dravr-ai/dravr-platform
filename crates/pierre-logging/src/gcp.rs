@@ -132,7 +132,7 @@ where
         }
 
         // Inherit turn-scoped context (user_id, tenant_id, conversation_id,
-        // turn_id, coach_id, group_id, …) from the enclosing span stack so
+        // turn_id, agent_id, group_id, …) from the enclosing span stack so
         // every event emitted within a request carries the identifiers needed
         // to triage it — without each call site re-passing them. Walk leaf ->
         // root so the nearest span wins; the event's own fields and the

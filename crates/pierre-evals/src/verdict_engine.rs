@@ -86,7 +86,7 @@ enum LayerResult {
 /// Check a claim against the pure-Rust pipeline layers in order, stopping at
 /// the first confident verdict.
 ///
-/// `siblings` is the other claims in the same coach reply (pass the full slice
+/// `siblings` is the other claims in the same agent reply (pass the full slice
 /// including `claim` — it is skipped by identity) so the consistency-check
 /// layer can detect a self-contradiction. For a claim checked in true
 /// isolation, pass an empty slice; the consistency-check layer then has nothing
@@ -98,7 +98,7 @@ enum LayerResult {
 ///
 /// This is the LLM-free path: the LLM-judge layer needs an LLM provider, so
 /// this function never makes a network call. Use [`check_reply`] to
-/// additionally run the LLM-judge layer over a whole coach reply.
+/// additionally run the LLM-judge layer over a whole agent reply.
 #[must_use]
 pub fn check_claim(
     claim: &ExtractedClaim,
@@ -123,7 +123,7 @@ pub fn check_claim(
     }
 }
 
-/// Run all five pipeline layers over every claim in a coach reply.
+/// Run all five pipeline layers over every claim in an agent reply.
 ///
 /// Each claim is checked against the rhetoric, deterministic-bounds, and
 /// evidence-retrieval layers individually, then the consistency-check layer

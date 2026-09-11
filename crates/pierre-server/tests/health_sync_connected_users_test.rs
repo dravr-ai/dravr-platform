@@ -27,7 +27,7 @@ use uuid::Uuid;
 #[tokio::test]
 async fn list_connected_provider_users_handles_varchar_tenant_id() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let repos = &resources.common.repos;
 
     let tenant = repos

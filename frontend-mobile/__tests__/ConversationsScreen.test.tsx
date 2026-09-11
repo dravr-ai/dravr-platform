@@ -47,9 +47,9 @@ function render(ui: React.ReactElement) {
 type Conv = {
   id: string;
   title: string | null;
-  coach_id?: string | null;
-  coach_handle?: string | null;
-  coach_title?: string | null;
+  agent_id?: string | null;
+  agent_handle?: string | null;
+  agent_title?: string | null;
   group_id?: string | null;
   group_name?: string | null;
   channel_type?: string | null;
@@ -64,7 +64,7 @@ function makeConv(overrides: Partial<Conv> = {}): Conv {
   return {
     id: 'c1',
     title: 'Hello',
-    coach_id: null,
+    agent_id: null,
     message_count: 4,
     unread_count: 0,
     created_at: '2026-04-10T10:00:00Z',
@@ -136,9 +136,9 @@ describe('ConversationsScreen — one flat list', () => {
   it('renders every conversation as a flat row, newest activity first, with no grouping', async () => {
     mockGetConversations.mockResolvedValueOnce(
       page([
-        makeConv({ id: 'c1', title: 'Training plan', coach_id: 'coach-1', coach_handle: 'coach-tempo', updated_at: '2026-04-11T10:00:00Z' }),
-        makeConv({ id: 'c2', title: 'Race strategy', coach_id: 'coach-1', updated_at: '2026-04-13T10:00:00Z' }),
-        makeConv({ id: 'c3', title: 'Orphan chat', coach_id: null, updated_at: '2026-04-12T10:00:00Z' }),
+        makeConv({ id: 'c1', title: 'Training plan', agent_id: 'coach-1', agent_handle: 'coach-tempo', updated_at: '2026-04-11T10:00:00Z' }),
+        makeConv({ id: 'c2', title: 'Race strategy', agent_id: 'coach-1', updated_at: '2026-04-13T10:00:00Z' }),
+        makeConv({ id: 'c3', title: 'Orphan chat', agent_id: null, updated_at: '2026-04-12T10:00:00Z' }),
         makeConv({ id: 'c4', title: 'Harricana', group_id: 'group-1', group_name: 'Harricana', updated_at: '2026-04-10T10:00:00Z' }),
       ]),
     );
@@ -286,7 +286,7 @@ describe('ConversationsScreen — one flat list', () => {
   it('filters rows by title, coach handle and preview from the search field', async () => {
     mockGetConversations.mockResolvedValue(
       page([
-        makeConv({ id: 'c1', title: 'Training plan', coach_handle: 'coach-tempo' }),
+        makeConv({ id: 'c1', title: 'Training plan', agent_handle: 'coach-tempo' }),
         makeConv({ id: 'c2', title: 'Nutrition', last_message: { preview: 'More carbs on Sunday', role: 'assistant', created_at: '2026-04-13T10:00:00Z' } }),
         makeConv({ id: 'c3', title: 'Sleep' }),
       ]),

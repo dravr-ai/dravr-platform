@@ -28,7 +28,7 @@ impl PrescribedWorkoutRepository for PostgresDatabase {
         sqlx::query(
             r"
             INSERT INTO prescribed_workouts (
-                id, tenant_id, user_id, coach_id, template_slug, sport,
+                id, tenant_id, user_id, agent_id, template_slug, sport,
                 prescribed_for_date, provider, provider_event_id, external_id,
                 source, plan_week_id, replaces_id, payload_json, payload_hash,
                 status, created_at, updated_at
@@ -45,7 +45,7 @@ impl PrescribedWorkoutRepository for PostgresDatabase {
         .bind(prescribed.id)
         .bind(prescribed.tenant_id)
         .bind(prescribed.user_id)
-        .bind(prescribed.coach_id.as_deref())
+        .bind(prescribed.agent_id.as_deref())
         .bind(prescribed.template_slug.as_deref())
         .bind(&sport)
         .bind(prescribed.prescribed_for_date)
@@ -75,7 +75,7 @@ impl PrescribedWorkoutRepository for PostgresDatabase {
         let bounded = limit.clamp(1, MAX_LIST_LIMIT);
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, template_slug, sport,
+            SELECT id, tenant_id, user_id, agent_id, template_slug, sport,
                    prescribed_for_date, provider, provider_event_id, external_id,
                    source, plan_week_id, replaces_id, payload_json, payload_hash,
                    status, created_at, updated_at
@@ -103,7 +103,7 @@ impl PrescribedWorkoutRepository for PostgresDatabase {
     ) -> AppResult<Option<PrescribedWorkout>> {
         let row = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, template_slug, sport,
+            SELECT id, tenant_id, user_id, agent_id, template_slug, sport,
                    prescribed_for_date, provider, provider_event_id, external_id,
                    source, plan_week_id, replaces_id, payload_json, payload_hash,
                    status, created_at, updated_at
@@ -130,7 +130,7 @@ impl PrescribedWorkoutRepository for PostgresDatabase {
     ) -> AppResult<Vec<PrescribedWorkout>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, template_slug, sport,
+            SELECT id, tenant_id, user_id, agent_id, template_slug, sport,
                    prescribed_for_date, provider, provider_event_id, external_id,
                    source, plan_week_id, replaces_id, payload_json, payload_hash,
                    status, created_at, updated_at
@@ -227,8 +227,8 @@ fn row_to_prescribed(row: &PgRow) -> AppResult<PrescribedWorkout> {
         // The SQLite tier has the sharper version of the same bug (NULL TEXT
         // decodes to an empty string there), and both backends serve the same
         // trait, so they agree here.
-        coach_id: row
-            .try_get("coach_id")
+        agent_id: row
+            .try_get("agent_id")
             .map_err(|e| AppError::database(format!("read coach_id: {e}")))?,
         template_slug: row
             .try_get("template_slug")

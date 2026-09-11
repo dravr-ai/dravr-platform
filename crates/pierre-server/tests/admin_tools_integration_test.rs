@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for admin MCP tool handlers driven through UniversalToolExecutor
-// ABOUTME: Covers the 8 admin coach tools end-to-end: happy path, not-found, and non-admin rejection
+// ABOUTME: Covers the 8 admin agent tools end-to-end: happy path, not-found, and non-admin rejection
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -115,7 +115,7 @@ fn make_request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Un
 }
 
 /// Create a system agent via `admin_create_system_agent` and return its id.
-async fn create_system_coach(
+async fn create_system_agent(
     executor: &UniversalToolExecutor,
     admin_id: Uuid,
     admin_tenant: &str,
@@ -209,7 +209,7 @@ async fn test_admin_tools_registered() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_list_system_coaches_empty() -> Result<()> {
+async fn test_admin_list_system_agents_empty() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
@@ -225,17 +225,17 @@ async fn test_admin_list_system_coaches_empty() -> Result<()> {
     assert!(resp.success, "list should succeed: {:?}", resp.error);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 0);
-    assert!(result["coaches"].as_array().unwrap().is_empty());
+    assert!(result["agents"].as_array().unwrap().is_empty());
     Ok(())
 }
 
 #[tokio::test]
-async fn test_admin_list_system_coaches_after_create() -> Result<()> {
+async fn test_admin_list_system_agents_after_create() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
-    create_system_coach(&executor, admin_id, &tenant, "Sample Coach A").await?;
-    create_system_coach(&executor, admin_id, &tenant, "Sample Coach B").await?;
+    create_system_agent(&executor, admin_id, &tenant, "Sample Coach A").await?;
+    create_system_agent(&executor, admin_id, &tenant, "Sample Coach B").await?;
 
     let resp = executor
         .execute_tool(make_request(
@@ -249,7 +249,7 @@ async fn test_admin_list_system_coaches_after_create() -> Result<()> {
     assert!(resp.success);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 2);
-    let titles: Vec<&str> = result["coaches"]
+    let titles: Vec<&str> = result["agents"]
         .as_array()
         .unwrap()
         .iter()
@@ -261,7 +261,7 @@ async fn test_admin_list_system_coaches_after_create() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_list_system_coaches_rejects_non_admin() -> Result<()> {
+async fn test_admin_list_system_agents_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -283,7 +283,7 @@ async fn test_admin_list_system_coaches_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_create_system_coach_happy_path() -> Result<()> {
+async fn test_admin_create_system_agent_happy_path() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
@@ -311,7 +311,7 @@ async fn test_admin_create_system_coach_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_create_system_coach_missing_title() -> Result<()> {
+async fn test_admin_create_system_agent_missing_title() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
@@ -332,7 +332,7 @@ async fn test_admin_create_system_coach_missing_title() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_create_system_coach_rejects_non_admin() -> Result<()> {
+async fn test_admin_create_system_agent_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -354,15 +354,15 @@ async fn test_admin_create_system_coach_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_get_system_coach_happy_path() -> Result<()> {
+async fn test_admin_get_system_agent_happy_path() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "Coach To Fetch").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "Coach To Fetch").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "admin_get_system_agent",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -375,7 +375,7 @@ async fn test_admin_get_system_coach_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_get_system_coach_not_found() -> Result<()> {
+async fn test_admin_get_system_agent_not_found() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
@@ -401,7 +401,7 @@ async fn test_admin_get_system_coach_not_found() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_get_system_coach_rejects_non_admin() -> Result<()> {
+async fn test_admin_get_system_agent_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -423,16 +423,16 @@ async fn test_admin_get_system_coach_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_update_system_coach_happy_path() -> Result<()> {
+async fn test_admin_update_system_agent_happy_path() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "Original Title").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "Original Title").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "admin_update_system_agent",
             json!({
-                "agent_id": coach_id,
+                "agent_id": agent_id,
                 "title": "Renamed Title",
                 "description": "Updated description",
             }),
@@ -446,7 +446,7 @@ async fn test_admin_update_system_coach_happy_path() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "admin_get_system_agent",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -459,7 +459,7 @@ async fn test_admin_update_system_coach_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_update_system_coach_not_found() -> Result<()> {
+async fn test_admin_update_system_agent_not_found() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
@@ -482,7 +482,7 @@ async fn test_admin_update_system_coach_not_found() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_update_system_coach_rejects_non_admin() -> Result<()> {
+async fn test_admin_update_system_agent_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -504,15 +504,15 @@ async fn test_admin_update_system_coach_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_delete_system_coach_happy_path() -> Result<()> {
+async fn test_admin_delete_system_agent_happy_path() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "To Delete").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "To Delete").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "admin_delete_system_agent",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -533,7 +533,7 @@ async fn test_admin_delete_system_coach_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_delete_system_coach_not_found() -> Result<()> {
+async fn test_admin_delete_system_agent_not_found() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
 
@@ -556,7 +556,7 @@ async fn test_admin_delete_system_coach_not_found() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_delete_system_coach_rejects_non_admin() -> Result<()> {
+async fn test_admin_delete_system_agent_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -578,16 +578,16 @@ async fn test_admin_delete_system_coach_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_assign_coach_happy_path() -> Result<()> {
+async fn test_admin_assign_agent_happy_path() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, admin_tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &admin_tenant, "Assignable").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &admin_tenant, "Assignable").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "admin_assign_agent",
             json!({
-                "agent_id": coach_id,
+                "agent_id": agent_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -599,15 +599,15 @@ async fn test_admin_assign_coach_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_assign_coach_missing_user_id() -> Result<()> {
+async fn test_admin_assign_agent_missing_user_id() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "x").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "x").await?;
 
     let result = executor
         .execute_tool(make_request(
             "admin_assign_agent",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -617,7 +617,7 @@ async fn test_admin_assign_coach_missing_user_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_assign_coach_rejects_non_admin() -> Result<()> {
+async fn test_admin_assign_agent_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -642,17 +642,17 @@ async fn test_admin_assign_coach_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_unassign_coach_happy_path() -> Result<()> {
+async fn test_admin_unassign_agent_happy_path() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "Reversible").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "Reversible").await?;
 
     // Assign first
     let assign = executor
         .execute_tool(make_request(
             "admin_assign_agent",
             json!({
-                "agent_id": coach_id,
+                "agent_id": agent_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -666,7 +666,7 @@ async fn test_admin_unassign_coach_happy_path() -> Result<()> {
         .execute_tool(make_request(
             "admin_unassign_agent",
             json!({
-                "agent_id": coach_id,
+                "agent_id": agent_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -682,15 +682,15 @@ async fn test_admin_unassign_coach_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_unassign_coach_missing_user_id() -> Result<()> {
+async fn test_admin_unassign_agent_missing_user_id() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "x").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "x").await?;
 
     let result = executor
         .execute_tool(make_request(
             "admin_unassign_agent",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -700,7 +700,7 @@ async fn test_admin_unassign_coach_missing_user_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_unassign_coach_rejects_non_admin() -> Result<()> {
+async fn test_admin_unassign_agent_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 
@@ -725,15 +725,15 @@ async fn test_admin_unassign_coach_rejects_non_admin() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_admin_list_coach_assignments_empty() -> Result<()> {
+async fn test_admin_list_agent_assignments_empty() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "Unassigned").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "Unassigned").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "admin_list_agent_assignments",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -753,16 +753,16 @@ async fn test_admin_list_coach_assignments_empty() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_list_coach_assignments_with_assignment() -> Result<()> {
+async fn test_admin_list_agent_assignments_with_assignment() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (admin_id, tenant) = create_admin_user(&executor).await?;
-    let coach_id = create_system_coach(&executor, admin_id, &tenant, "Assigned").await?;
+    let agent_id = create_system_agent(&executor, admin_id, &tenant, "Assigned").await?;
 
     executor
         .execute_tool(make_request(
             "admin_assign_agent",
             json!({
-                "agent_id": coach_id,
+                "agent_id": agent_id,
                 "user_id": admin_id.to_string(),
             }),
             admin_id,
@@ -773,7 +773,7 @@ async fn test_admin_list_coach_assignments_with_assignment() -> Result<()> {
     let resp = executor
         .execute_tool(make_request(
             "admin_list_agent_assignments",
-            json!({ "agent_id": coach_id }),
+            json!({ "agent_id": agent_id }),
             admin_id,
             &tenant,
         ))
@@ -793,7 +793,7 @@ async fn test_admin_list_coach_assignments_with_assignment() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_admin_list_coach_assignments_rejects_non_admin() -> Result<()> {
+async fn test_admin_list_agent_assignments_rejects_non_admin() -> Result<()> {
     let executor = create_admin_test_executor().await?;
     let (user_id, tenant) = create_regular_user(&executor).await?;
 

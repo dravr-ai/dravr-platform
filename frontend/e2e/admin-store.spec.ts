@@ -122,7 +122,7 @@ async function setupAdminStoreMocks(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: mockPendingCoaches,
+        agents: mockPendingCoaches,
         total: mockPendingCoaches.length,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
@@ -135,7 +135,7 @@ async function setupAdminStoreMocks(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: mockPublishedCoaches,
+        agents: mockPublishedCoaches,
         total: mockPublishedCoaches.length,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
@@ -148,7 +148,7 @@ async function setupAdminStoreMocks(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: mockRejectedCoaches,
+        agents: mockRejectedCoaches,
         total: mockRejectedCoaches.length,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
@@ -163,7 +163,7 @@ async function setupAdminStoreMocks(page: Page) {
       body: JSON.stringify({
         success: true,
         message: 'Coach approved successfully',
-        coach_id: 'pending-coach-1',
+        agent_id: 'pending-coach-1',
       }),
     });
   });
@@ -176,7 +176,7 @@ async function setupAdminStoreMocks(page: Page) {
       body: JSON.stringify({
         success: true,
         message: 'Coach rejected successfully',
-        coach_id: 'pending-coach-1',
+        agent_id: 'pending-coach-1',
       }),
     });
   });
@@ -189,7 +189,7 @@ async function setupAdminStoreMocks(page: Page) {
       body: JSON.stringify({
         success: true,
         message: 'Coach unpublished successfully',
-        coach_id: 'published-coach-1',
+        agent_id: 'published-coach-1',
       }),
     });
   });
@@ -199,7 +199,7 @@ async function setupAdminStoreMocks(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [], total: 0 }),
+      body: JSON.stringify({ agents: [], total: 0 }),
     });
   });
 }
@@ -381,7 +381,7 @@ test.describe('Admin Review Queue', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: [],
+          agents: [],
           total: 0,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
@@ -392,7 +392,7 @@ test.describe('Admin Review Queue', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0 }),
+        body: JSON.stringify({ agents: [], total: 0 }),
       });
     });
 
@@ -421,7 +421,7 @@ test.describe('Admin Agent Approval', () => {
         body: JSON.stringify({
           success: true,
           message: 'Coach approved successfully',
-          coach_id: 'pending-coach-1',
+          agent_id: 'pending-coach-1',
         }),
       });
     });
@@ -504,7 +504,7 @@ test.describe('Admin Agent Rejection', () => {
         body: JSON.stringify({
           success: true,
           message: 'Coach rejected successfully',
-          coach_id: 'pending-coach-1',
+          agent_id: 'pending-coach-1',
         }),
       });
     });

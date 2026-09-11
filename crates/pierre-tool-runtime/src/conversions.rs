@@ -279,7 +279,7 @@ pub fn object_schema<S: BuildHasher>(
 /// served schema is the only place a caller — or a model reading the tool catalogue
 /// to decide how to call it — can learn the parameter exists, so honouring it while
 /// declaring it nowhere makes the option undiscoverable. Six tool modules did
-/// exactly that — `coaches`, `analytics`, `store`, `recipes`, `sleep` and `admin`,
+/// exactly that — `agents`, `analytics`, `store`, `recipes`, `sleep` and `admin`,
 /// module and tool identifiers that kept their older spelling — 26 tools between
 /// them (registre#394).
 ///
@@ -318,7 +318,7 @@ pub fn object_schema_with_format<S: BuildHasher>(
 /// Map the platform's host capability flags to tronc's generic capability set.
 ///
 /// Only the seven host-agnostic flags cross over. The fitness domain flags
-/// (`ANALYTICS`, `GOALS`, `CONFIGURATION`, `RECIPES`, `COACHES`, `SLEEP_RECOVERY`)
+/// (`ANALYTICS`, `GOALS`, `CONFIGURATION`, `RECIPES`, `AGENTS`, `SLEEP_RECOVERY`)
 /// are intentionally dropped: tronc models domain taxonomy as registry string
 /// categories, which `register_builtin_tools` supplies via `register_with_category`.
 #[must_use]

@@ -59,9 +59,9 @@ export type { TurnCallbacks, TurnProgressSink, SseFrame } from './core/turn-stre
 
 export { createCoachesApi } from './domains/coaches';
 export type {
-  CoachesApi,
-  Coach,
-  ListCoachesOptions,
+  AgentsApi,
+  Agent,
+  ListAgentsOptions,
 } from './domains/coaches';
 
 export { createOAuthApi } from './domains/oauth';

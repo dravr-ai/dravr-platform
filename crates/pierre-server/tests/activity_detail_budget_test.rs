@@ -14,7 +14,7 @@
 //! The fix rations rather than removes. Detail is not decoration on sciotte:
 //! it carries HR streams, laps, and the real UTC start time that the
 //! date-only list page lacks, so disabling it outright would trade latency
-//! for a coach that no longer knows when a session happened. These tests pin
+//! for an agent that no longer knows when a session happened. These tests pin
 //! the two halves of that contract.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -65,7 +65,7 @@ fn api_providers_keep_unrationed_detail() {
 // compiler has not already decided.
 //
 // Zero would drop detail entirely on scrape providers. Their list page is
-// date-only, so the coach would stop knowing when a session happened and lose
+// date-only, so the agent would stop knowing when a session happened and lose
 // HR and laps with it — the shortcut this whole change exists to avoid. A
 // budget at or above the promotion threshold would ration nothing.
 const _: () = assert!(

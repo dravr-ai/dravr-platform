@@ -15,7 +15,7 @@
 //! 2. The model parrots the injected tool-result turn verbatim (the
 //!    `format_tool_results_as_text` preamble plus `<tool_result>` blocks)
 //!    instead of reasoning over it — observed leaking raw training-history
-//!    JSON into a coach reply (dev 2026-06-04).
+//!    JSON into an agent reply (dev 2026-06-04).
 //! 3. The model emits a dangling non-empty fragment instead of an answer —
 //!    «by Dravr.» reached a live Telegram group on 2026-08-22.
 //!

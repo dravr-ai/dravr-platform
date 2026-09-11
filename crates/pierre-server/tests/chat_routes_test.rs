@@ -23,7 +23,7 @@ use serde_json::json;
 
 async fn setup_test_environment() -> (axum::Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
 
     // Generate a JWT token for the user
     let token = resources
@@ -61,13 +61,13 @@ async fn test_create_conversation() {
     assert_eq!(conv.title, "Test Conversation");
     assert_eq!(conv.model, "gemini-1.5-flash");
     assert_eq!(conv.total_tokens, 0);
-    assert!(conv.coach_id.is_none());
+    assert!(conv.agent_id.is_none());
 }
 
 #[tokio::test]
-async fn test_create_conversation_without_coach_defaults_to_none() {
-    // Client-provided system_prompt strings were removed when we reified coach_id
-    // on chat_conversations. New conversations default to coach_id = NULL and the
+async fn test_create_conversation_without_agent_defaults_to_none() {
+    // Client-provided system_prompt strings were removed when we reified agent_id
+    // on chat_conversations. New conversations default to agent_id = NULL and the
     // server falls back to the default Pierre prompt at runtime.
     let (router, auth_token) = setup_test_environment().await;
 
@@ -85,7 +85,7 @@ async fn test_create_conversation_without_coach_defaults_to_none() {
     let conv: ConversationResponse = response.json();
     assert_eq!(conv.title, "Fitness Chat");
     assert_eq!(conv.model, "gemini-1.5-pro");
-    assert!(conv.coach_id.is_none());
+    assert!(conv.agent_id.is_none());
 }
 
 #[tokio::test]
@@ -121,7 +121,7 @@ async fn test_list_conversations() {
     assert_eq!(row.message_count, 0);
     assert_eq!(row.unread_count, 0);
     assert!(row.last_message.is_none());
-    assert!(row.coach_handle.is_none() && row.coach_title.is_none());
+    assert!(row.agent_handle.is_none() && row.agent_title.is_none());
     assert!(row.group_id.is_none() && row.group_name.is_none());
     assert_eq!(row.channel_type.as_deref(), Some("web"));
 }

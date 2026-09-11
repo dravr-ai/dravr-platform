@@ -11,7 +11,7 @@ import { setupDashboardMocks, loginToDashboard, APP_SHELL_TIMEOUT_MS } from '../
 const CONVERSATION = {
   id: 'conv-a11y-1',
   title: 'Sunday long run',
-  coach_id: null,
+  agent_id: null,
   created_at: '2026-08-20T10:00:00Z',
   updated_at: '2026-08-20T10:00:00Z',
   message_count: 2,

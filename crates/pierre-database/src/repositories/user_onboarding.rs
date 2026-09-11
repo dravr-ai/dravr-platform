@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait for durable per-user onboarding step state (profile-type, connect, coach, messaging)
+// ABOUTME: Repository trait for durable per-user onboarding step state (profile-type, connect, agent, messaging)
 // ABOUTME: Server-driven completion that survives device changes, replacing the web flow's localStorage-only flags
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,7 +14,7 @@ use pierre_core::errors::AppResult;
 /// messaging app the user picked); it is `None` for every other step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OnboardingStepRecord {
-    /// Step identifier (`profile_type`, `connect_provider`, `coach_proposal`,
+    /// Step identifier (`profile_type`, `connect_provider`, `agent_proposal`,
     /// `messaging_channel`, `messaging_configure`).
     pub step_id: String,
     /// `complete` or `skipped`.

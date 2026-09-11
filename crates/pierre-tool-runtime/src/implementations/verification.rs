@@ -1,5 +1,5 @@
 // ABOUTME: verify_claim MCP tool — exposes the claim-verification (bullshit detector) pipeline as a tool call
-// ABOUTME: Coach persona can call it mid-turn to sanity-check a claim before emitting it
+// ABOUTME: Agent persona can call it mid-turn to sanity-check a claim before emitting it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,7 +11,7 @@
 //! structured verdict. Persistence of the verdict to `claim_verdicts` is
 //! done by the same pipeline the dispatch hook uses, so the admin "flagged
 //! claims" surface stays consistent whether a claim was verified by the
-//! coach mid-turn or by the post-LLM sweep.
+//! agent mid-turn or by the post-LLM sweep.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -173,7 +173,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 .transpose()?
                 .unwrap_or(EvidenceStrength::Mixed);
             let conversation_id = optional_string_field(&args, "conversation_id");
-            let coach_id = optional_string_field(&args, "agent_id");
+            let agent_id = optional_string_field(&args, "agent_id");
             let user_id = context.user_id.to_string();
 
             let extracted = ExtractedClaim {
@@ -187,7 +187,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             let params = InsertClaimVerdictParams {
                 tenant_id,
                 user_id: &user_id,
-                coach_id: coach_id.as_deref(),
+                agent_id: agent_id.as_deref(),
                 conversation_id: conversation_id.as_deref(),
                 message_id: None,
                 claim_text: &claim_text,
@@ -242,7 +242,7 @@ pub struct VerifyClaimResult {
     pub layer_fired: String,
     /// Confidence in the verdict, 0.0 to 1.0.
     pub confidence: f32,
-    /// Why the pipeline reached this verdict, in the coach's words.
+    /// Why the pipeline reached this verdict, in the agent's words.
     pub explanation: String,
     /// Citations backing the verdict; absent when the layer that fired cites none.
     pub evidence_refs: Option<String>,

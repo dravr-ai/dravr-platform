@@ -1,48 +1,48 @@
 // ABOUTME: Drift detection sub-command for pierre-cli - compares contremaitre source files to DB rows
-// ABOUTME: Catches silent divergence between dravr-contremaitre and the prod coaches table
+// ABOUTME: Catches silent divergence between dravr-contremaitre and the prod agents table
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Drift Detection Sub-Command
 //!
-//! Background: on 2026-05-25 we discovered the `dravr-mcp-server-seed-coaches`
+//! Background: on 2026-05-25 we discovered the `dravr-mcp-server-seed-agents`
 //! Cloud Run job had been exit-1 on every execution for 3.5 weeks. The seeder
 //! was broken (commit c6630e46 from 2026-05-01) and no alert fired because
 //! Cloud Run Job non-zero exits weren't monitored AND no signal compared
 //! contremaitre to the prod DB.
 //!
 //! This sub-command is the daily drift gate. It walks the contremaitre clone,
-//! reuses the seeder's content-hash function (`coaches::parser::CoachDefinition::content_hash`),
-//! and compares against the `coaches.content_hash` column in the prod DB.
+//! reuses the seeder's content-hash function (`agents::parser::AgentDefinition::content_hash`),
+//! and compares against the `agents.content_hash` column in the prod DB.
 //! Hash mismatches exit non-zero so the Cloud Run Job failure alert (added
 //! in the same infra change) surfaces them.
 //!
 //! ## Usage
 //!
 //! ```bash
-//! # Run drift check (PIERRE_COACHES_DIR points at a contremaitre clone)
-//! pierre-cli check-drift coaches
+//! # Run drift check (PIERRE_AGENTS_DIR points at a contremaitre clone)
+//! pierre-cli check-drift agents
 //! ```
 //!
 //! ## Semantics
 //!
-//! For every contremaitre `prompts/coaches/<category>/<slug>/en.md` file:
+//! For every contremaitre `prompts/agents/<category>/<slug>/en.md` file:
 //! * If the matching DB row has `source = 'contremaitre'` AND a different
 //!   `content_hash` → ERROR + exit non-zero (drift detected).
 //! * If the matching DB row has any other `source` (e.g. `'seed'`, `'custom'`)
 //!   → WARN (source mismatch; the contremaitre file may need re-seeding to
 //!   take ownership).
-//! * If the DB has no row for the slug → WARN (missing coach).
+//! * If the DB has no row for the slug → WARN (missing agent).
 //! * If the DB holds a catalogue-owned row whose file is gone → WARN
-//!   (orphaned coach; the seed job's prune pass deletes it on its next run).
-//! * Clean result → INFO `coach drift check: N coaches checked, all in sync`.
+//!   (orphaned agent; the seed job's prune pass deletes it on its next run).
+//! * Clean result → INFO `agent drift check: N agents checked, all in sync`.
 
 use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
-use pierre_coach_parser::drift::{classify_drift, orphaned_slugs, DbCoachRow, DriftOutcome};
-use pierre_coach_parser::{parse_coach_file, CANONICAL_LOCALE};
+use pierre_agent_parser::drift::{classify_drift, orphaned_slugs, DbAgentRow, DriftOutcome};
+use pierre_agent_parser::{parse_agent_file, CANONICAL_LOCALE};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
@@ -53,20 +53,20 @@ use tracing::{error, info, warn};
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub enum DriftCommand {
-    /// Compare contremaitre coach files to the `coaches` table.
-    Coaches(CoachesArgs),
+    /// Compare contremaitre agent files to the `agents` table.
+    Agents(AgentsArgs),
 }
 
-/// CLI arguments for `pierre-cli check-drift coaches`.
+/// CLI arguments for `pierre-cli check-drift agents`.
 #[derive(clap::Args)]
-pub struct CoachesArgs {
-    /// Path to the cloned contremaitre `prompts/coaches` tree.
+pub struct AgentsArgs {
+    /// Path to the cloned contremaitre `prompts/agents` tree.
     ///
-    /// Set via the flag or `$PIERRE_COACHES_DIR`. The Cloud Run drift-check
+    /// Set via the flag or `$PIERRE_AGENTS_DIR`. The Cloud Run drift-check
     /// entrypoint clones contremaitre to a temp dir and exports this
     /// variable; local development can point it at a sibling checkout.
-    #[arg(long, env = "PIERRE_COACHES_DIR")]
-    pub coaches_dir: PathBuf,
+    #[arg(long, env = "PIERRE_AGENTS_DIR")]
+    pub agents_dir: PathBuf,
 }
 
 /// Dispatch a `CheckDrift` subcommand.
@@ -76,20 +76,20 @@ pub struct CoachesArgs {
 /// `dravr-mcp-server-job-failures` alert policy fires.
 pub async fn dispatch(action: DriftCommand, database_url: &str) -> AppResult<()> {
     match action {
-        DriftCommand::Coaches(args) => run_coaches(args, database_url).await,
+        DriftCommand::Agents(args) => run_agents(args, database_url).await,
     }
 }
 
-async fn run_coaches(args: CoachesArgs, database_url: &str) -> AppResult<()> {
+async fn run_agents(args: AgentsArgs, database_url: &str) -> AppResult<()> {
     let repos = connect(database_url).await?;
-    let file_hashes = scan_coach_dir(&args.coaches_dir)?;
+    let file_hashes = scan_agent_dir(&args.agents_dir)?;
     let mut totals = compare_to_db(&repos, &file_hashes).await?;
     report_orphans(&repos, &file_hashes, &mut totals).await?;
     finalize(file_hashes.len(), &totals)
 }
 
 /// Initialize the seeding-mode DB connection and return the repository
-/// registry. Split out of `run_coaches` to keep that function under the
+/// registry. Split out of `run_agents` to keep that function under the
 /// workspace cognitive-complexity ceiling.
 async fn connect(database_url: &str) -> AppResult<RepositoryRegistry> {
     info!(
@@ -100,11 +100,11 @@ async fn connect(database_url: &str) -> AppResult<RepositoryRegistry> {
     Ok(db.repositories())
 }
 
-/// Walk the contremaitre `prompts/coaches` tree and return `(slug, hash)`
+/// Walk the contremaitre `prompts/agents` tree and return `(slug, hash)`
 /// pairs for every canonical (`en.md`) file.
-fn scan_coach_dir(coaches_dir: &Path) -> AppResult<Vec<(String, String)>> {
-    info!("Scanning contremaitre coaches at {}", coaches_dir.display());
-    let file_hashes = collect_file_hashes(coaches_dir)?;
+fn scan_agent_dir(agents_dir: &Path) -> AppResult<Vec<(String, String)>> {
+    info!("Scanning contremaitre coaches at {}", agents_dir.display());
+    let file_hashes = collect_file_hashes(agents_dir)?;
     info!(
         "Discovered {} canonical (en.md) coach file(s) to verify",
         file_hashes.len()
@@ -171,7 +171,7 @@ fn finalize(checked: usize, totals: &DriftTotals) -> AppResult<()> {
     Ok(())
 }
 
-/// Per-slug outcome counters threaded through `run_coaches`.
+/// Per-slug outcome counters threaded through `run_agents`.
 #[derive(Default)]
 struct DriftTotals {
     drift: u32,
@@ -179,7 +179,7 @@ struct DriftTotals {
 }
 
 /// Emit the structured log line for a single slug's classification and
-/// bump the matching counter. Lives outside `run_coaches` to keep that
+/// bump the matching counter. Lives outside `run_agents` to keep that
 /// function under the workspace cognitive-complexity ceiling.
 fn record_outcome(slug: &str, outcome: DriftOutcome, totals: &mut DriftTotals) {
     match outcome {
@@ -210,13 +210,13 @@ fn record_outcome(slug: &str, outcome: DriftOutcome, totals: &mut DriftTotals) {
 }
 
 /// Walk the contremaitre tree and compute the canonical (`en.md`) content
-/// hash for every coach.
+/// hash for every agent.
 ///
-/// Reuses [`parse_coach_file`] so the hash matches whatever the seeder
+/// Reuses [`parse_agent_file`] so the hash matches whatever the seeder
 /// would have stored — keeping a single source of truth for the
 /// algorithm. Returns `(slug, content_hash)` pairs sorted by slug.
-fn collect_file_hashes(coaches_dir: &Path) -> AppResult<Vec<(String, String)>> {
-    let pattern = coaches_dir.join(format!("*/*/{CANONICAL_LOCALE}.md"));
+fn collect_file_hashes(agents_dir: &Path) -> AppResult<Vec<(String, String)>> {
+    let pattern = agents_dir.join(format!("*/*/{CANONICAL_LOCALE}.md"));
     let pattern_str = pattern.to_string_lossy();
 
     let mut out: Vec<(String, String)> = Vec::new();
@@ -224,9 +224,9 @@ fn collect_file_hashes(coaches_dir: &Path) -> AppResult<Vec<(String, String)>> {
         .map_err(|e| AppError::internal(format!("Glob pattern error: {e}")))?
     {
         let path = entry.map_err(|e| AppError::internal(format!("Glob error: {e}")))?;
-        match parse_coach_file(&path) {
-            Ok(coach) => {
-                out.push((coach.frontmatter.name.clone(), coach.content_hash.clone()));
+        match parse_agent_file(&path) {
+            Ok(agent) => {
+                out.push((agent.frontmatter.name.clone(), agent.content_hash.clone()));
             }
             Err(e) => {
                 // A malformed file is itself a drift signal — surface it
@@ -244,11 +244,11 @@ fn collect_file_hashes(coaches_dir: &Path) -> AppResult<Vec<(String, String)>> {
     Ok(out)
 }
 
-/// Fetch `(source, content_hash)` for a single coach slug via the
-/// repository registry. Wraps the tuple into the typed [`DbCoachRow`].
-async fn fetch_db_row(repos: &RepositoryRegistry, slug: &str) -> AppResult<Option<DbCoachRow>> {
-    let row = repos.seeder.seed_find_coach_drift_info(slug).await?;
-    Ok(row.map(|(source, content_hash)| DbCoachRow {
+/// Fetch `(source, content_hash)` for a single agent slug via the
+/// repository registry. Wraps the tuple into the typed [`DbAgentRow`].
+async fn fetch_db_row(repos: &RepositoryRegistry, slug: &str) -> AppResult<Option<DbAgentRow>> {
+    let row = repos.seeder.seed_find_agent_drift_info(slug).await?;
+    Ok(row.map(|(source, content_hash)| DbAgentRow {
         source,
         content_hash,
     }))

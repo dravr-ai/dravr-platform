@@ -231,7 +231,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
     });
   });
 
@@ -260,7 +260,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+        body: JSON.stringify({ agents: [], metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
       });
     } else if (url.includes('/categories')) {
       await route.fulfill({
@@ -272,7 +272,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], next_cursor: null, has_more: false, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+        body: JSON.stringify({ agents: [], next_cursor: null, has_more: false, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
       });
     }
   });
@@ -416,7 +416,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
           tool_calls: { allowed: true, current: 8, limit: 500, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
           tokens: { allowed: true, current: 45000, limit: 2000000, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
         },
-        resources: { coaches: 1, max_coaches: 3, conversations: 2, max_conversations: 20 },
+        resources: { agents: 1, max_agents: 3, conversations: 2, max_conversations: 20 },
       }),
     });
   });

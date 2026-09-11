@@ -322,7 +322,7 @@ mod pipeline_tool_loop {
         // failed here despite the test using a mock LLM). 30s is
         // comfortable for any happy-path tool dispatch.
         for _ in 0..150 {
-            let row: Option<(String,)> = match resources.coach.database.as_ref() {
+            let row: Option<(String,)> = match resources.agent.database.as_ref() {
                 Database::SQLite(db) => sqlx::query_as(SQL)
                     .bind(&tenant_str)
                     .fetch_optional(db.pool())

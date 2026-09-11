@@ -9,7 +9,7 @@
 //! Bug 6 (English disclaimer on French bread) sat in production for
 //! weeks before `ChefFamille` noticed during a manual Telegram test.
 //! The reply tap closes that loop: a privacy-respecting opt-in
-//! sampler captures a slice of real coach replies, redacts PII, and
+//! sampler captures a slice of real agent replies, redacts PII, and
 //! routes them to a triage queue where flagged ones become new
 //! `tests/scenarios/*.yaml` seeds.
 //!
@@ -34,7 +34,7 @@
 use std::mem;
 use std::sync::Mutex;
 
-/// One captured coach reply.
+/// One captured agent reply.
 #[derive(Debug, Clone)]
 pub struct ReplySample {
     /// Tenant + redacted user identifier (hashed before storage so
@@ -45,15 +45,15 @@ pub struct ReplySample {
     /// Conversation turn id — the same one that threads
     /// `/internal/conversation-turn/{id}` observability.
     pub turn_id: String,
-    /// Coach personality id at dispatch time (`endurance`,
+    /// Agent personality id at dispatch time (`endurance`,
     /// `strength`, …). `None` for messaging-only users without an
-    /// assigned coach.
-    pub coach_id: Option<String>,
+    /// assigned agent.
+    pub agent_id: Option<String>,
     /// PII-redacted user message verbatim — the URL-credential and
     /// PII redactor middleware has already run.
     pub user_message: String,
-    /// PII-redacted coach reply verbatim.
-    pub coach_reply: String,
+    /// PII-redacted agent reply verbatim.
+    pub agent_reply: String,
     /// Operator-set tag for triage (`flagged_by_user`,
     /// `random_sample`, `vocabulary_contract_miss`, …).
     pub triage_tag: String,
@@ -115,9 +115,9 @@ mod tests {
             hashed_user_id: "h_abc".to_owned(),
             locale: "fr".to_owned(),
             turn_id: "00000000-0000-0000-0000-000000000001".to_owned(),
-            coach_id: Some("endurance".to_owned()),
+            agent_id: Some("endurance".to_owned()),
             user_message: "Combien de km aujourd'hui ?".to_owned(),
-            coach_reply: "Aujourd'hui, 5 à 8 km très facile.".to_owned(),
+            agent_reply: "Aujourd'hui, 5 à 8 km très facile.".to_owned(),
             triage_tag: "random_sample".to_owned(),
         }
     }
@@ -153,9 +153,9 @@ mod tests {
         assert_eq!(s.hashed_user_id, "h_abc");
         assert_eq!(s.locale, "fr");
         assert_eq!(s.turn_id, "00000000-0000-0000-0000-000000000001");
-        assert_eq!(s.coach_id.as_deref(), Some("endurance"));
+        assert_eq!(s.agent_id.as_deref(), Some("endurance"));
         assert_eq!(s.user_message, "Combien de km aujourd'hui ?");
-        assert_eq!(s.coach_reply, "Aujourd'hui, 5 à 8 km très facile.");
+        assert_eq!(s.agent_reply, "Aujourd'hui, 5 à 8 km très facile.");
         assert_eq!(s.triage_tag, "random_sample");
     }
 }

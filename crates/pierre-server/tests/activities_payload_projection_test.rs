@@ -13,7 +13,7 @@ use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
 use pierre_tool_runtime::tool_results::{format_tool_results_as_text, project_activities_payload};
 use serde_json::{json, Value};
 
-/// A realistic `get_activities` envelope: the prose block the coach cites, the
+/// A realistic `get_activities` envelope: the prose block the agent cites, the
 /// structured array, the TOON copy, and the two sidecars — the shape
 /// `build_activities_success_response` actually emits.
 fn activities_envelope(rows: usize) -> Value {
@@ -64,7 +64,7 @@ fn the_projection_keeps_every_field_a_chained_call_needs() {
 
     // Five registered tools take a required `activity_id` and resolve it via
     // provider.get_activity(...) with no name-or-index fallback. Losing the id
-    // would leave the coach able to describe a session and unable to analyse it.
+    // would leave the agent able to describe a session and unable to analyse it.
     let rows = projected["activities"].as_array().unwrap();
     assert_eq!(
         rows.len(),
@@ -78,7 +78,7 @@ fn the_projection_keeps_every_field_a_chained_call_needs() {
         assert_eq!(row["start_date"], json!("2026-08-20T11:04:00Z"));
     }
 
-    // The prose is what the coach cites, and the pagination scalars are what
+    // The prose is what the agent cites, and the pagination scalars are what
     // the tool's own schema promises for a follow-up request.
     assert!(projected["activity_list"]
         .as_str()
@@ -121,7 +121,7 @@ fn the_projection_drops_the_duplicate_copies_and_the_sidecars() {
 /// A window served without a dead connection is a PARTIAL window. The tool
 /// stamps `reconnect_required` into its own result to say so, and this
 /// projection is the only thing between that stamp and the prompt: a key
-/// absent from `ACTIVITIES_ENVELOPE_KEPT` reaches no model at all, so the coach
+/// absent from `ACTIVITIES_ENVELOPE_KEPT` reaches no model at all, so the agent
 /// answers a short history as if it were the whole one.
 #[test]
 fn the_projection_carries_the_reconnect_sidecar_to_the_model() {
@@ -180,7 +180,7 @@ fn any_other_tool_passes_through_untouched() {
 #[test]
 fn an_unrecognised_shape_passes_through_untouched() {
     // No `activity_list` — an error envelope, or a future rewrite. The reducer
-    // must never be the reason a coach ends up with no data.
+    // must never be the reason an agent ends up with no data.
     let error_shape = json!({ "error": "provider unavailable", "activities": [] });
     assert!(project_activities_payload("get_activities", &error_shape).is_none());
 
@@ -273,7 +273,7 @@ fn the_loopback_seam_projects_the_activities_payload() {
 ///
 /// The projection returning `None` has to fall back to the original payload, not
 /// to null or an empty object. This is the half that keeps the reducer from ever
-/// being the reason a coach has no data.
+/// being the reason an agent has no data.
 #[test]
 fn the_loopback_seam_passes_unrecognised_payloads_through() {
     assert!(

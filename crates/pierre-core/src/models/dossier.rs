@@ -32,7 +32,7 @@ pub struct DossierFact {
     pub object: String,
     /// Extractor/author confidence in `[0.0, 1.0]`.
     pub confidence: f32,
-    /// `FactSource` slug (onboarding / conversation / device / coach).
+    /// `FactSource` slug (onboarding / conversation / device / agent).
     pub source: String,
     /// When the fact was last touched.
     pub updated_at: DateTime<Utc>,
@@ -86,7 +86,7 @@ pub struct Dossier {
 
     /// Active goals (e.g. race target, weekly volume, weight). Free-form
     /// JSON until the typed goals model lands; the Endurance payload
-    /// surfaces them as-is so coaches can read them.
+    /// surfaces them as-is so agents can read them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub goals: Vec<Value>,
 
@@ -112,7 +112,7 @@ pub struct Dossier {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub north_star: Vec<DossierFact>,
 
-    /// Medical / PAR-Q flags the coach must heed. Gated separately from pillar
+    /// Medical / PAR-Q flags the agent must heed. Gated separately from pillar
     /// facts so raw medical detail can be withheld per privacy policy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub medical: Vec<DossierFact>,

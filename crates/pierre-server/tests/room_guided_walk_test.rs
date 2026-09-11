@@ -31,7 +31,7 @@ use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId, WalkAudience};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -45,7 +45,7 @@ struct RoomFixture {
     /// The walker's own tenant — where their data lives and their tools run.
     walker_tenant: TenantId,
     /// A second member (the watching human coach).
-    coach_id: Uuid,
+    agent_id: Uuid,
     coach_tenant: TenantId,
     /// The channel/bot tenant that owns the room's conversation rows.
     channel_tenant: TenantId,
@@ -65,7 +65,7 @@ async fn setup() -> Result<RoomFixture> {
     let (walker_id, _) =
         common::create_test_user_with_email(resources.database(), &walker_email).await?;
     let coach_email = format!("room_coach_{}@example.com", Uuid::new_v4());
-    let (coach_id, _) =
+    let (agent_id, _) =
         common::create_test_user_with_email(resources.database(), &coach_email).await?;
     let bot_email = format!("room_bot_{}@example.com", Uuid::new_v4());
     let (bot_owner_id, _) =
@@ -80,7 +80,7 @@ async fn setup() -> Result<RoomFixture> {
             .expect("every created user owns a tenant")
     };
     let walker_tenant = owned(walker_id);
-    let coach_tenant = owned(coach_id);
+    let coach_tenant = owned(agent_id);
     let channel_tenant = owned(bot_owner_id);
 
     let conversation = resources
@@ -101,7 +101,7 @@ async fn setup() -> Result<RoomFixture> {
         resources,
         walker_id,
         walker_tenant,
-        coach_id,
+        agent_id,
         coach_tenant,
         channel_tenant,
         conversation_id: conversation.id,
@@ -220,7 +220,7 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
         .expect("room conversation");
 
     // With the conversation in hand: withheld for the walker, free for the
-    // watching coach — refusing the coach a plan save because their athlete
+    // watching agent — refusing the agent a plan save because their athlete
     // is calibrating would be the wrong refusal.
     assert!(
         active_guided_flow(
@@ -240,7 +240,7 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
             Some(&conv),
             None,
             fix.coach_tenant,
-            &fix.coach_id.to_string()
+            &fix.agent_id.to_string()
         )
         .await?
         .is_none(),
@@ -269,7 +269,7 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
             None,
             Some((fix.conversation_id.as_str(), fix.channel_tenant)),
             fix.coach_tenant,
-            &fix.coach_id.to_string()
+            &fix.agent_id.to_string()
         )
         .await?
         .is_none(),

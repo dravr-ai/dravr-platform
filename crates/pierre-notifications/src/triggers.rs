@@ -1,4 +1,4 @@
-// ABOUTME: Notification triggers for intelligence events, coach communications, and sync failures
+// ABOUTME: Notification triggers for intelligence events, agent communications, and sync failures
 // ABOUTME: All fire-and-forget via tokio::spawn — failures logged at WARN, never block the caller
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -210,23 +210,23 @@ pub fn trigger_fitness_improvement(
 }
 
 // ============================================================================
-// Coach Triggers (bypass frequency cap)
+// Agent Triggers (bypass frequency cap)
 // ============================================================================
 
-/// Trigger notification when a coach sends a message to an athlete.
-pub fn trigger_coach_message(
+/// Trigger notification when an agent sends a message to an athlete.
+pub fn trigger_agent_message(
     service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
     conversation_id: &str,
-    coach_name: &str,
+    agent_name: &str,
 ) {
     let dispatch = EventDispatch {
         user_id: athlete_id,
         tenant_id,
         category: NotificationCategory::Coach,
-        event: NotificationEvent::CoachMessage,
-        params: json!({ "coach_name": coach_name }),
+        event: NotificationEvent::AgentMessage,
+        params: json!({ "agent_name": agent_name }),
         route: json!({ "screen": "coach", "action": "chat", "id": conversation_id }),
         actions: Some(vec![NotificationActionSpec {
             id: ACTION_REPLY,
@@ -237,19 +237,19 @@ pub fn trigger_coach_message(
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
 
-/// Trigger notification when a coach updates an athlete's training plan.
+/// Trigger notification when an agent updates an athlete's training plan.
 pub fn trigger_plan_updated(
     service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
-    coach_name: &str,
+    agent_name: &str,
 ) {
     let dispatch = EventDispatch {
         user_id: athlete_id,
         tenant_id,
         category: NotificationCategory::Coach,
         event: NotificationEvent::PlanUpdated,
-        params: json!({ "coach_name": coach_name }),
+        params: json!({ "agent_name": agent_name }),
         route: json!({ "screen": "coach", "action": "plan" }),
         actions: None,
         bypass_frequency_cap: true,
@@ -257,21 +257,21 @@ pub fn trigger_plan_updated(
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
 
-/// Trigger notification when a coach leaves feedback on an athlete's activity.
-pub fn trigger_coach_feedback(
+/// Trigger notification when an agent leaves feedback on an athlete's activity.
+pub fn trigger_agent_feedback(
     service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
-    coach_name: &str,
+    agent_name: &str,
     activity_type: &str,
 ) {
     let dispatch = EventDispatch {
         user_id: athlete_id,
         tenant_id,
         category: NotificationCategory::Coach,
-        event: NotificationEvent::CoachFeedback,
-        params: json!({ "coach_name": coach_name, "activity_type": activity_type }),
+        event: NotificationEvent::AgentFeedback,
+        params: json!({ "agent_name": agent_name, "activity_type": activity_type }),
         route: json!({ "screen": "activity", "id": activity_id }),
         actions: None,
         bypass_frequency_cap: true,

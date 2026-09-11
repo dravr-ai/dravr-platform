@@ -23,14 +23,14 @@ pub mod admin_definitions;
 pub mod admin_env;
 /// Admin configuration data types (parameters, categories, audit, request/response)
 pub mod admin_types;
+/// Personalized agent recommendation tuning (activity scan window + scoring)
+pub mod agent_recommendations;
 /// External API provider configuration (Strava, Fitbit, Garmin APIs)
 pub mod api_providers;
 /// Cache and rate limiting configuration (Redis, TTLs, rate limits)
 pub mod cache;
 /// Configuration parameter catalog and schema definitions
 pub mod catalog;
-/// Personalized coach recommendation tuning (activity scan window + scoring)
-pub mod coach_recommendations;
 /// Application constants and runtime server config holder (`SERVER_CONFIG` `OnceLock`)
 pub mod constants;
 /// Database configuration (`DatabaseUrl`, pools, backups, `SQLx`)

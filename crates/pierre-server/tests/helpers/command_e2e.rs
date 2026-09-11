@@ -32,7 +32,7 @@ use pierre_core::errors::AppError;
 use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
-use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{ConnectionType, OnboardingState, Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::factory::Database;
@@ -536,7 +536,7 @@ impl CommandE2e {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != ''";
-        match self.resources.coach.database.as_ref() {
+        match self.resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_one(db.pool())
@@ -558,7 +558,7 @@ impl CommandE2e {
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != '' \
              ORDER BY created_at ASC";
-        match self.resources.coach.database.as_ref() {
+        match self.resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(session_id)
                 .fetch_all(db.pool())
@@ -590,7 +590,7 @@ impl CommandE2e {
     pub async fn outbound_count_containing(&self, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'outbound' AND content_body LIKE '%' || $1 || '%'";
-        match self.resources.coach.database.as_ref() {
+        match self.resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(needle)
                 .fetch_one(db.pool())
@@ -609,7 +609,7 @@ impl CommandE2e {
     pub async fn count_inbound_with_body(&self, body: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'inbound' AND content_body = $1";
-        match self.resources.coach.database.as_ref() {
+        match self.resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(body)
                 .fetch_one(db.pool())
@@ -645,22 +645,22 @@ impl RoomE2e {
         mode: GroupRespondMode,
         owner: &Member,
     ) -> Self {
-        let coach = base
+        let agent = base
             .resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 owner.user_id,
                 base.bot_tenant,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Command E2e Coach".to_owned(),
                     description: None,
                     system_prompt: "You are a concise test coach.".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -673,7 +673,7 @@ impl RoomE2e {
             tenant_id: base.bot_tenant.to_string(),
             name: format!("Command E2e Group {chat_id}"),
             description: None,
-            coach_id: coach.id.to_string(),
+            agent_id: agent.id.to_string(),
             owner_id: owner.user_id,
             coach_user_id: None,
             peer_data_sharing: true,
@@ -784,7 +784,7 @@ impl RoomE2e {
     pub async fn chat_rows_carrying(&self, conversation_id: &str, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM chat_messages \
              WHERE conversation_id = $1 AND content LIKE '%' || $2 || '%'";
-        match self.base.resources.coach.database.as_ref() {
+        match self.base.resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(conversation_id)
                 .bind(needle)

@@ -237,15 +237,15 @@ async fn test_pg_chat_create_conversation() {
     assert!(!conv.id.is_empty(), "Conversation ID should be set");
     assert_eq!(conv.title, "Test Chat");
     assert_eq!(conv.model, "gpt-4");
-    assert!(conv.coach_id.is_none());
+    assert!(conv.agent_id.is_none());
 }
 
 #[tokio::test]
-async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
-    // With coach_id reified as an FK, plain conversations default to None and
-    // the runtime resolves the default Pierre prompt. Full coach-attached
+async fn test_pg_chat_create_conversation_without_agent_defaults_to_none() {
+    // With agent_id reified as an FK, plain conversations default to None and
+    // the runtime resolves the default Pierre prompt. Full agent-attached
     // flows are exercised in the orchestration integration tests which seed
-    // a coaches row first.
+    // an agents row first.
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
@@ -266,7 +266,7 @@ async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
         .await
         .expect("Failed to create conversation");
 
-    assert!(conv.coach_id.is_none());
+    assert!(conv.agent_id.is_none());
     assert_eq!(conv.title, "Test with Prompt");
 }
 

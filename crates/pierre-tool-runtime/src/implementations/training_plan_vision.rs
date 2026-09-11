@@ -8,7 +8,7 @@
 //!
 //! The flavour and who chose it, each phase's targets, the season window, a
 //! week's phase index and a day's template. Every catalogue reference is
-//! resolved through the plan's coach package over the live registry before
+//! resolved through the plan's agent package over the live registry before
 //! anything is written, and the tier that answered is what the saved day
 //! records.
 
@@ -19,7 +19,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
     FlavourSelection, PlanPhase, PlannedDay, SelectedBy, TemplateSource,
 };
-use pierre_services::coach_package::PackagedCatalogue;
+use pierre_services::agent_package::PackagedCatalogue;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::Value;
@@ -51,7 +51,7 @@ pub(super) struct FlavourPayload {
 
 /// A snapshot field as the kernel's type, or `None` when the payload left it
 /// out — `null` and `{}` both read as absent, since neither carries a
-/// verdict. Anything else that does not parse names the field, so a coach
+/// verdict. Anything else that does not parse names the field, so an agent
 /// passing the tool's output through a mangling step hears about it rather
 /// than storing a snapshot that later reads as "the rule proposed nothing".
 fn snapshot<T: DeserializeOwned>(field: &str, raw: Option<&Value>) -> AppResult<Option<T>> {
@@ -65,7 +65,7 @@ fn snapshot<T: DeserializeOwned>(field: &str, raw: Option<&Value>) -> AppResult<
 }
 
 /// A flavour's provenance must be consistent: a rule selection carries no
-/// override reason, a coach or athlete choice must give one, and a rule
+/// override reason, an agent or athlete choice must give one, and a rule
 /// selection saved with the rule's verdict must be the flavour that verdict
 /// ranked first — anything else is an override wearing the rule's name,
 /// which is exactly what the override rate would then fail to count.
@@ -228,7 +228,7 @@ pub(super) fn check_phase_indexes(weeks: &[WeekPayload], phase_count: usize) -> 
 }
 
 /// Turn the payload's flavour into the stored selection: the id must name a
-/// flavour the coach's package or the catalogue carries, whose family,
+/// flavour the agent's package or the catalogue carries, whose family,
 /// sequencing and modifiers are copied so the stored plan still says what it
 /// was built on after the catalogue moves.
 pub(super) fn resolve_flavour(
@@ -260,7 +260,7 @@ pub(super) fn resolve_flavour(
     })
 }
 
-/// Every `template_slug` a day names must be a template of the coach's
+/// Every `template_slug` a day names must be a template of the agent's
 /// package, of the catalogue, or one of this athlete's own saved sessions —
 /// the same set `list_workout_templates` shows — so a saved day never points
 /// at a template nobody can read. The tier that answered is stamped on the

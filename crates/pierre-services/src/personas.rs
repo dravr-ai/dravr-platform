@@ -17,12 +17,12 @@
 //! - `rules` — one localized sentence per contract field that is set,
 //!   in contract-field declaration order
 //! - `enforcement` — `"verified"` when the flattened contract runs
-//!   `strict_mode` (Coach inherits it from Power-athlete through the
+//!   `strict_mode` (Agent inherits it from Power-athlete through the
 //!   registry's `inherits` overlay; this module never re-derives
 //!   inheritance), `"advisory"` otherwise
 //!
 //! Display names stay deliberately untranslated (they are brand names
-//! stored on the account and quoted inside the coach's own system
+//! stored on the account and quoted inside the agent's own system
 //! prompt); the summary, rule sentences, and enforcement label localize
 //! through [`MessagingStringsRegistry`].
 
@@ -78,7 +78,7 @@ pub struct PersonaCard {
     /// value stored on the account and sent back on selection.
     pub slug: String,
     /// Canonical untranslated brand name (Casual, Enthusiast,
-    /// Power-athlete, Coach) — deliberately not localized so the
+    /// Power-athlete, Agent) — deliberately not localized so the
     /// settings list always matches the stored value.
     pub display_name: String,
     /// Localized one-line summary of the persona's voice.
@@ -118,7 +118,7 @@ pub fn resolve_persona_locale(query: Option<&str>, stored: Option<&str>) -> Stri
 /// Canonical untranslated display name for a persona.
 ///
 /// The one definition: these are brand names, stored on the account and quoted
-/// inside the coach's system prompt, so they are deliberately identical in
+/// inside the agent's system prompt, so they are deliberately identical in
 /// every locale and the clients render whatever `GET /api/personas` hands them
 /// rather than keeping a map of their own.
 #[must_use]

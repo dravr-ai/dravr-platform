@@ -299,7 +299,7 @@ mod reset_locale {
             "the fresh thread must run on the same model as the one it replaced"
         );
         assert_eq!(
-            fresh.coach_id, previous.coach_id,
+            fresh.agent_id, previous.agent_id,
             "a reset changes the thread, not the coach the athlete trains with"
         );
         // The fresh thread names itself. Inheriting the old title left the

@@ -10,7 +10,7 @@ use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::models::coaches::CoachCategory;
+use crate::models::agents::AgentCategory;
 use crate::models::tenant::TenantId;
 
 /// Identifier for a single conversation turn.
@@ -146,13 +146,13 @@ pub struct ConversationRecord {
     pub title: String,
     /// LLM model used for this conversation
     pub model: String,
-    /// Coach that owns this conversation's persona, if any. The coach's
-    /// `system_prompt` is resolved at runtime from the `coaches` table.
+    /// Agent that owns this conversation's persona, if any. The agent's
+    /// `system_prompt` is resolved at runtime from the `agents` table.
     #[serde(default)]
-    pub coach_id: Option<String>,
-    /// Long-lived coach session this conversation participates in
+    pub agent_id: Option<String>,
+    /// Long-lived agent session this conversation participates in
     /// (Tier 4 cross-channel continuity). Resolved on first turn for
-    /// conversations that have a `coach_id`.
+    /// conversations that have a `agent_id`.
     #[serde(default)]
     pub session_id: Option<String>,
     /// Total tokens used in this conversation
@@ -180,18 +180,18 @@ pub struct ConversationRecord {
     pub onboarding_state: Option<String>,
 }
 
-/// Runtime context for a coach attached to a conversation.
+/// Runtime context for an agent attached to a conversation.
 ///
-/// Consolidates the handful of coach fields the chat pipeline needs on every
+/// Consolidates the handful of agent fields the chat pipeline needs on every
 /// turn (system prompt, startup context, tool-iteration override) into a
 /// single tenant-scoped lookup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoachRuntimeContext {
-    /// Stable slug identifier for the coach (matches the contremaitre
-    /// markdown filename without `.md`). Used to look up the live coach
+pub struct AgentRuntimeContext {
+    /// Stable slug identifier for the agent (matches the contremaitre
+    /// markdown filename without `.md`). Used to look up the live agent
     /// prompt in `PromptRegistry` when `source == "contremaitre"`.
     pub slug: String,
-    /// Origin of this coach: `"contremaitre"` (git-managed, hot-reloaded
+    /// Origin of this agent: `"contremaitre"` (git-managed, hot-reloaded
     /// from the dravr-contremaitre repo), `"seed"` (legacy seeded rows
     /// from before the contremaitre migration), or `"custom"` (user/admin
     /// authored — DB-only, no registry overlay). The prompt-assembly
@@ -199,33 +199,33 @@ pub struct CoachRuntimeContext {
     /// `"contremaitre"` rows so a contremaitre prompt edit appears in the
     /// next chat turn without a seeder re-run.
     pub source: String,
-    /// The coach's system prompt text from the database column. Acts as
+    /// The agent's system prompt text from the database column. Acts as
     /// the cold-start fallback when the registry has no entry for
     /// `(slug, locale)`.
     pub system_prompt: String,
-    /// Optional startup query the coach wants injected on the first turn
+    /// Optional startup query the agent wants injected on the first turn
     pub startup_query: Option<String>,
     /// Optional JSON-encoded data requirements for deterministic pre-fetch
     pub data_requirements: Option<String>,
-    /// Inline visuals this coach may embed, as stored wire names
+    /// Inline visuals this agent may embed, as stored wire names
     /// (`"chart"`, `"table"`). Empty means the visual contract is never added
-    /// to the prompt, so the coach never emits a block. A reply may carry
+    /// to the prompt, so the agent never emits a block. A reply may carry
     /// several. Intent only — whether a visual reaches a given athlete is
     /// decided per-channel at render time.
     #[serde(default)]
     pub visuals: Vec<String>,
-    /// Optional per-coach override for max tool-call iterations per turn
+    /// Optional per-agent override for max tool-call iterations per turn
     pub max_tool_iterations: Option<i32>,
-    /// Optional per-coach LLM sampling temperature override. `None` → use
+    /// Optional per-agent LLM sampling temperature override. `None` → use
     /// provider/server default.
     pub temperature: Option<f32>,
-    /// Coach category — drives category-specific scope carve-outs injected
-    /// into the system prompt (e.g. Nutrition coaches bypass the generic
+    /// Agent category — drives category-specific scope carve-outs injected
+    /// into the system prompt (e.g. Nutrition agents bypass the generic
     /// "food/meal finders" out-of-scope refusal for meal-planning questions).
-    pub category: CoachCategory,
+    pub category: AgentCategory,
 }
 
-/// Split the stored `coaches.visuals` column into wire names.
+/// Split the stored `agents.visuals` column into wire names.
 ///
 /// The column is a comma-separated list ("chart,table"); `NULL` or empty means
 /// no grant. Unknown names are kept as-is here — the storage layer is not the
@@ -251,7 +251,7 @@ pub fn split_visuals(raw: Option<&str>) -> Vec<String> {
 /// resend your last message") in place of the model's output. That string is
 /// real conversation history the athlete saw, so it must stay in the database
 /// and in the UI — but it is *first-person narration about the platform
-/// failing*, and replaying it into later prompts teaches the coach that its own
+/// failing*, and replaying it into later prompts teaches the agent that its own
 /// output gets blocked. That is the same self-referential-failure class the
 /// replay scrub exists to delete (2026-07-23 learned-helplessness incident,
 /// b57e0dee9), and the withhold string matched none of its pattern tables
@@ -259,12 +259,12 @@ pub fn split_visuals(raw: Option<&str>) -> Vec<String> {
 ///
 /// Stamping the row is what makes it identifiable without pattern-matching
 /// prose: `build_llm_messages` drops rows carrying this marker, so a withheld
-/// turn is excluded from the coach turn's replayed history. The column already
+/// turn is excluded from the agent turn's replayed history. The column already
 /// holds platform-synthesized values (`guardian_denied`, `max_iterations`,
 /// `provider_auth_required`), so this is not a new use of it.
 ///
 /// The one other reader of persisted rows that builds a prompt — the
-/// coach-generation excerpt behind `/coach create` — drops rows carrying this
+/// agent-generation excerpt behind `/agent create` — drops rows carrying this
 /// marker by the same stamp, so a withheld reply seeds no persona either.
 pub const WITHHELD_REPLY_FINISH_REASON: &str = "reply_withheld";
 
@@ -288,8 +288,8 @@ pub const UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON: &str = "capability_claim_un
 /// A command reply is real conversation history — Telegram keeps a bot's
 /// answer in the thread, and so does the in-app transcript from the moment it
 /// reloads — but it is *account state*, not coaching: a provider list, a group
-/// count, a coach picker. Replaying it into a later prompt would hand the model
-/// the platform's own output as if the coach had said it. The stamp is what
+/// count, an agent picker. Replaying it into a later prompt would hand the model
+/// the platform's own output as if the agent had said it. The stamp is what
 /// keeps the row in the database and the UI while `push_history_row` drops it
 /// from every prompt, the same mechanism that keeps a withheld reply out.
 ///
@@ -415,13 +415,13 @@ pub struct ConversationSummary {
     pub message_count: i64,
     /// Total tokens used
     pub total_tokens: i64,
-    /// Coach attached to the conversation, if any. Lets the listing label the
-    /// row with the coach's name and handle.
-    pub coach_id: Option<String>,
-    /// The attached coach's catalogue `@handle`, when it has one.
-    pub coach_handle: Option<String>,
-    /// The attached coach's title, when the coach still exists.
-    pub coach_title: Option<String>,
+    /// Agent attached to the conversation, if any. Lets the listing label the
+    /// row with the agent's name and handle.
+    pub agent_id: Option<String>,
+    /// The attached agent's catalogue `@handle`, when it has one.
+    pub agent_handle: Option<String>,
+    /// The attached agent's title, when the agent still exists.
+    pub agent_title: Option<String>,
     /// Coaching group the conversation is scoped to, if any.
     pub group_id: Option<String>,
     /// That group's name, when the group still exists.
@@ -479,7 +479,7 @@ pub struct MessageFeedbackRecord {
     /// Message this feedback is attached to
     pub message_id: String,
     /// Conversation the message belongs to (denormalized for conversation-
-    /// scoped loads and future per-coach analytics without a re-join)
+    /// scoped loads and future per-agent analytics without a re-join)
     pub conversation_id: String,
     /// User who left the feedback
     pub user_id: String,

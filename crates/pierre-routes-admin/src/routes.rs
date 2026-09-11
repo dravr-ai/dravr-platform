@@ -27,8 +27,8 @@ use crate::auth::middleware::admin_auth_middleware;
 use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
-    admin_rate_limit_override, api_keys, claim_verdicts, coach_followups, coach_grading,
-    coach_notes, device_auth, device_web, feature_flags, guardian_config, harness_config,
+    admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
+    claim_verdicts, device_auth, device_web, feature_flags, guardian_config, harness_config,
     memory_worker, myth_busting, settings, setup, strava_pool, tokens, users,
 };
 
@@ -44,8 +44,8 @@ impl AdminRoutes {
     ///
     /// Used by `pierre-cli` and B2B partners for API key provisioning, admin
     /// token mint/rotate, and initial setup. The human-facing admin web UI
-    /// (Claim Verdicts, Coach Grades, Myth Busting, Memory Worker, Coach
-    /// Followups, Coach Notes Audit, Eval Harness, Harness Config) is mounted
+    /// (Claim Verdicts, Agent Grades, Myth Busting, Memory Worker, Agent
+    /// Followups, Agent Notes Audit, Eval Harness, Harness Config) is mounted
     /// separately at `/api/admin/...` via [`Self::cookie_admin_routes`].
     pub fn routes(context: AdminApiContext) -> Router {
         let auth_service = context.auth_service.clone();
@@ -98,8 +98,8 @@ impl AdminRoutes {
     /// auth + `is_admin` check.
     ///
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
-    /// (Claim Verdicts, Coach Grades, Myth Busting, Memory Worker, Coach
-    /// Followups, Coach Notes Audit, Harness Config, Guardian Config, and
+    /// (Claim Verdicts, Agent Grades, Myth Busting, Memory Worker, Agent
+    /// Followups, Agent Notes Audit, Harness Config, Guardian Config, and
     /// optionally Eval Harness when `tools-verification` is enabled). Single
     /// mount, single auth for all of these EXCEPT harness and guardian
     /// settings, which also mount admin-token twins in
@@ -121,10 +121,10 @@ impl AdminRoutes {
 
         let claim_verdict_routes = Self::claim_verdict_routes(context.clone());
         let memory_worker_routes = Self::memory_worker_routes(context.clone());
-        let coach_followup_routes = Self::coach_followup_routes(context.clone());
-        let coach_note_routes = Self::coach_note_routes(context.clone());
+        let agent_followup_routes = Self::agent_followup_routes(context.clone());
+        let agent_note_routes = Self::agent_note_routes(context.clone());
         let myth_busting_routes = Self::myth_busting_routes(context.clone());
-        let coach_grading_routes = Self::coach_grading_routes(context.clone());
+        let agent_grading_routes = Self::agent_grading_routes(context.clone());
         let harness_config_routes = Self::harness_config_routes(context.clone());
         let guardian_config_routes = Self::guardian_config_routes(context.clone());
         let feature_flag_admin_routes = Self::feature_flag_admin_routes(context.clone());
@@ -133,10 +133,10 @@ impl AdminRoutes {
         let human_admin = Router::new()
             .merge(claim_verdict_routes)
             .merge(memory_worker_routes)
-            .merge(coach_followup_routes)
-            .merge(coach_note_routes)
+            .merge(agent_followup_routes)
+            .merge(agent_note_routes)
             .merge(myth_busting_routes)
-            .merge(coach_grading_routes)
+            .merge(agent_grading_routes)
             .merge(harness_config_routes)
             .merge(guardian_config_routes)
             .merge(feature_flag_admin_routes)
@@ -174,12 +174,12 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// Coach grading routes (cookie auth)
-    fn coach_grading_routes(context: Arc<AdminApiContext>) -> Router {
+    /// Agent grading routes (cookie auth)
+    fn agent_grading_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/api/admin/agent-grading/summary",
-                get(coach_grading::handle_get_summary),
+                get(agent_grading::handle_get_summary),
             )
             .with_state(context)
     }
@@ -198,34 +198,34 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// Coach note audit log + suppress routes (cookie auth)
-    fn coach_note_routes(context: Arc<AdminApiContext>) -> Router {
+    /// Agent note audit log + suppress routes (cookie auth)
+    fn agent_note_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/api/admin/agent-notes/{note_id}/suppress",
-                post(coach_notes::handle_suppress_note),
+                post(agent_notes::handle_suppress_note),
             )
             .route(
                 "/api/admin/agent-notes/{note_id}/unsuppress",
-                post(coach_notes::handle_unsuppress_note),
+                post(agent_notes::handle_unsuppress_note),
             )
             .route(
                 "/api/admin/agent-notes/audit",
-                get(coach_notes::handle_list_audit),
+                get(agent_notes::handle_list_audit),
             )
             .with_state(context)
     }
 
-    /// Coach followup triage routes (cookie auth)
-    fn coach_followup_routes(context: Arc<AdminApiContext>) -> Router {
+    /// Agent followup triage routes (cookie auth)
+    fn agent_followup_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/api/admin/agent-followups/pending",
-                get(coach_followups::handle_list_pending_followups),
+                get(agent_followups::handle_list_pending_followups),
             )
             .route(
                 "/api/admin/agent-followups/{followup_id}/cancel",
-                post(coach_followups::handle_cancel_followup),
+                post(agent_followups::handle_cancel_followup),
             )
             .with_state(context)
     }

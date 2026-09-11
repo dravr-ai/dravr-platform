@@ -12,14 +12,14 @@
 //!
 //! Centralized resource container for dependency injection.
 //! Internally composed of 8 slice structs (see `slices.rs`) that partition the
-//! ~50 shared Arc handles into semantic groups: `common`, `auth`, `coach`,
+//! ~50 shared Arc handles into semantic groups: `common`, `auth`, `agent`,
 //! `fitness`, `sse`, `a2a`, `billing`, `mcp`.
 
 #[cfg(feature = "client-chat")]
 use std::env;
 
 use super::slices::{
-    A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
+    A2ASlice, AgentSlice, AuthSlice, BillingSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };
 use super::ServerContextBuilder;
 #[cfg(feature = "client-messaging")]
@@ -42,7 +42,7 @@ use super::tool_surface::HostedToolBridge;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
-    CoachesRepository, MobilityRepository, RecipeRepository,
+    AgentsRepository, MobilityRepository, RecipeRepository,
 };
 use pierre_mcp_schema::ProgressNotification;
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
@@ -65,8 +65,8 @@ pub struct ServerContext {
     pub common: CommonSlice,
     /// Authentication and authorization subsystem.
     pub auth: AuthSlice,
-    /// Coach generation context.
-    pub coach: CoachSlice,
+    /// Agent generation context.
+    pub agent: AgentSlice,
     /// Fitness data and intelligence subsystem.
     pub fitness: FitnessSlice,
     /// Push-notification transports (SSE, AG-UI, sampling, progress).
@@ -139,10 +139,10 @@ impl ServerContext {
         &self.common.group_service
     }
 
-    /// Get the coaches repository
+    /// Get the agents repository
     #[must_use]
-    pub fn coaches_manager(&self) -> &dyn CoachesRepository {
-        self.common.repos.coaches.as_ref()
+    pub fn agents_manager(&self) -> &dyn AgentsRepository {
+        self.common.repos.agents.as_ref()
     }
 
     /// Get the store listings repository
@@ -157,13 +157,13 @@ impl ServerContext {
         self.common.repos.recipes.as_ref()
     }
 
-    /// Get the coaches repository (alias for compatibility)
+    /// Get the agents repository (alias for compatibility)
     ///
     /// # Errors
     ///
     /// This method is infallible but returns `AppResult` for API compatibility.
-    pub fn coaches_repository(&self) -> AppResult<&dyn CoachesRepository> {
-        Ok(self.common.repos.coaches.as_ref())
+    pub fn agents_repository(&self) -> AppResult<&dyn AgentsRepository> {
+        Ok(self.common.repos.agents.as_ref())
     }
 
     /// Get the mobility repository
@@ -190,10 +190,10 @@ impl ServerContext {
         self.mcp.prompt_registry.pierre_system_prompt()
     }
 
-    /// Get the coach generation prompt.
+    /// Get the agent generation prompt.
     #[must_use]
-    pub fn coach_generation_prompt(&self) -> String {
-        self.mcp.prompt_registry.coach_generation_prompt()
+    pub fn agent_generation_prompt(&self) -> String {
+        self.mcp.prompt_registry.agent_generation_prompt()
     }
 
     /// Get the messaging context prompt.
@@ -300,7 +300,7 @@ impl ServerContext {
         use pierre_tool_runtime::runtime::ToolRuntime;
         let tool_runtime: Arc<dyn ToolRuntime> = Arc::clone(self) as _;
         let admin_config = self
-            .coach
+            .agent
             .admin_config
             .as_ref()
             .map(|c| Arc::clone(c) as Arc<dyn pierre_runtime_context::AdminConfigLookup>);
@@ -363,7 +363,7 @@ impl ServerContext {
     /// earns its place, that the interpretation goes in the sentence — which no
     /// schema encodes. The limits are generated, because transcribing them by
     /// hand is what failed: the prose states the maxima and omits that a chart
-    /// series needs at least two points, so a coach writing a two-athlete
+    /// series needs at least two points, so an agent writing a two-athlete
     /// comparison as one series per athlete had its block refused on every
     /// attempt while the athlete saw prose and no chart (2026-08-31).
     ///

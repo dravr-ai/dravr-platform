@@ -14,9 +14,9 @@ import { COACH_EDIT_ROUTE } from '../../navigation/routes';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useTranslation } from '@pierre/i18n';
 
-export interface CoachInfoSheetProps {
+export interface AgentInfoSheetProps {
   /** The agent the open thread is bound to. */
-  coachId: string;
+  agentId: string;
   /** The agent's title as the conversation row spells it, until the list loads. */
   fallbackTitle: string | null;
   /** Send a command as the next turn of this thread. */
@@ -32,11 +32,11 @@ export interface CoachInfoSheetProps {
  * other conversation. Detaching is `/agent remove`, sent as a turn, so the
  * app has no private path to a state the command cannot reach.
  */
-export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose }: CoachInfoSheetProps) {
+export function CoachInfoSheet({ agentId, fallbackTitle, onSendCommand, onClose }: AgentInfoSheetProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
-  const { coach, isLoading } = useCoachInfo(coachId);
+  const { coach, isLoading } = useCoachInfo(agentId);
 
   const handleRemove = useCallback(() => {
     onClose();
@@ -45,8 +45,8 @@ export function CoachInfoSheet({ coachId, fallbackTitle, onSendCommand, onClose 
 
   const handleEdit = useCallback(() => {
     onClose();
-    router.push({ pathname: COACH_EDIT_ROUTE, params: { coachId } });
-  }, [onClose, router, coachId]);
+    router.push({ pathname: COACH_EDIT_ROUTE, params: { agentId } });
+  }, [onClose, router, agentId]);
 
   return (
     <ScrollView testID="coach-info-sheet" keyboardShouldPersistTaps="handled">

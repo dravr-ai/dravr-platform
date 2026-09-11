@@ -796,7 +796,7 @@ async fn test_persona_prompt_changes_output_style() {
         .complete(&casual_request)
         .await
         .expect("Casual persona call should succeed");
-    let coach = provider
+    let agent = provider
         .complete(&coach_request)
         .await
         .expect("Coach persona call should succeed");
@@ -806,19 +806,19 @@ async fn test_persona_prompt_changes_output_style() {
     // byte-identical, the persona prompt is being silently dropped, which is
     // exactly the regression this test is here to catch.
     assert!(!casual.content.trim().is_empty(), "Casual response empty");
-    assert!(!coach.content.trim().is_empty(), "Coach response empty");
+    assert!(!agent.content.trim().is_empty(), "Coach response empty");
     assert_ne!(
         casual.content.trim(),
-        coach.content.trim(),
+        agent.content.trim(),
         "Casual and Coach personas produced identical text — persona prompt likely ignored"
     );
 }
 
 // =============================================================================
-// Coach + Group Live-LLM Tests
+// Agent + Group Live-LLM Tests
 // =============================================================================
 //
-// These tests prove that coach prompts and group-context prompts actually
+// These tests prove that agent prompts and group-context prompts actually
 // steer the model — not just that they get attached to the request. Each
 // test runs against the local Ollama server (qwen2.5:14b-instruct) so a
 // regression in prompt assembly, scope carve-outs, or member attribution
@@ -826,39 +826,39 @@ async fn test_persona_prompt_changes_output_style() {
 //
 // Run locally with `RUN_LOCAL_LLM_TESTS=1 cargo test --test llm_local_integration_test`.
 
-const SLEEP_COACH_INSTRUCTIONS: &str = "You are a sleep optimization specialist for athletes. \
+const SLEEP_AGENT_INSTRUCTIONS: &str = "You are a sleep optimization specialist for athletes. \
     Your expertise includes: sleep architecture and its role in recovery, optimal sleep duration \
     for different training loads, sleep hygiene practices, chronotype optimization, napping \
     strategies for athletes, sleep tracking metrics interpretation (deep sleep, REM, HRV during \
     sleep), and managing sleep around competition. When giving advice, ask about their typical \
     sleep schedule, sleep quality issues, and training schedule.";
 
-const STRENGTH_COACH_INSTRUCTIONS: &str = "You are a strength and conditioning specialist for \
+const STRENGTH_AGENT_INSTRUCTIONS: &str = "You are a strength and conditioning specialist for \
     endurance athletes. Focus your advice on resistance training, exercise selection (single-leg \
     work, heavy compound lifts, hip abductor and calf loading), concurrent training interference \
     (endurance first, strength second, 6h separation), and periodization (heavy strength in \
     base/off-season, maintenance during race-specific phases). When giving advice, ask about \
     their primary sport, training volume, injury history, and equipment access.";
 
-const NUTRITION_COACH_INSTRUCTIONS: &str = "You are a sports nutrition specialist. You answer \
+const NUTRITION_AGENT_INSTRUCTIONS: &str = "You are a sports nutrition specialist. You answer \
     questions about meal timing, macronutrients, hydration, supplements, race-day fueling, \
     and recovery nutrition. You do NOT prescribe training plans, set workout intensities, or \
     program lifting sessions — if asked about training programming, redirect the user to a \
     training-focused coach and explain that programming is outside your scope.";
 
 #[tokio::test]
-async fn test_coach_prompt_steers_topic() {
+async fn test_agent_prompt_steers_topic() {
     require_local_llm!();
     let provider = create_ollama_provider();
 
     let question = "What's one thing I should focus on this week to improve my recovery?";
 
     let sleep_request = ChatRequest::new(vec![
-        ChatMessage::system(SLEEP_COACH_INSTRUCTIONS),
+        ChatMessage::system(SLEEP_AGENT_INSTRUCTIONS),
         ChatMessage::user(question),
     ]);
     let strength_request = ChatRequest::new(vec![
-        ChatMessage::system(STRENGTH_COACH_INSTRUCTIONS),
+        ChatMessage::system(STRENGTH_AGENT_INSTRUCTIONS),
         ChatMessage::user(question),
     ]);
 
@@ -874,7 +874,7 @@ async fn test_coach_prompt_steers_topic() {
     let sleep_lc = sleep.content.to_lowercase();
     let strength_lc = strength.content.to_lowercase();
 
-    // Sleep coach must lean on sleep vocabulary; strength coach should not.
+    // Sleep agent must lean on sleep vocabulary; strength agent should not.
     assert!(
         sleep_lc.contains("sleep")
             || sleep_lc.contains("rest")
@@ -893,7 +893,7 @@ async fn test_coach_prompt_steers_topic() {
         strength.content
     );
 
-    // If both responses are byte-identical, the coach system prompt was
+    // If both responses are byte-identical, the agent system prompt was
     // ignored — that's the regression this test guards against.
     assert_ne!(
         sleep.content.trim(),
@@ -903,12 +903,12 @@ async fn test_coach_prompt_steers_topic() {
 }
 
 #[tokio::test]
-async fn test_coach_scope_refusal_nutrition_vs_training() {
+async fn test_agent_scope_refusal_nutrition_vs_training() {
     require_local_llm!();
     let provider = create_ollama_provider();
 
     let request = ChatRequest::new(vec![
-        ChatMessage::system(NUTRITION_COACH_INSTRUCTIONS),
+        ChatMessage::system(NUTRITION_AGENT_INSTRUCTIONS),
         ChatMessage::user(
             "Design me a 12-week marathon training plan with weekly mileage progression \
              and tempo workout intensities.",
@@ -922,9 +922,9 @@ async fn test_coach_scope_refusal_nutrition_vs_training() {
 
     let lc = response.content.to_lowercase();
 
-    // The nutrition coach must signal that programming is out of scope
+    // The nutrition agent must signal that programming is out of scope
     // (redirect, refuse, or pivot back to nutrition). We accept any of
-    // the documented signals — the test fails only if the coach answers
+    // the documented signals — the test fails only if the agent answers
     // the training question on its own without acknowledging scope.
     let signals_scope = lc.contains("nutrition")
         || lc.contains("scope")
@@ -1013,16 +1013,16 @@ async fn test_group_summary_includes_all_members() {
 }
 
 #[tokio::test]
-async fn test_persona_x_coach_composition() {
+async fn test_persona_x_agent_composition() {
     require_local_llm!();
     let provider = create_ollama_provider();
 
-    // Compose the Coach persona on top of the sleep coach prompt. The
-    // resulting reply should be both sleep-focused (from the coach) AND
+    // Compose the Agent persona on top of the sleep agent prompt. The
+    // resulting reply should be both sleep-focused (from the agent) AND
     // structured/directive (from the persona) — neither prompt should
     // silently win.
-    let coach_persona = get_coaching_persona_prompt(CoachingPersona::Coach);
-    let combined_system = format!("{coach_persona}\n\n{SLEEP_COACH_INSTRUCTIONS}");
+    let agent_persona = get_coaching_persona_prompt(CoachingPersona::Coach);
+    let combined_system = format!("{agent_persona}\n\n{SLEEP_AGENT_INSTRUCTIONS}");
 
     let request = ChatRequest::new(vec![
         ChatMessage::system(combined_system),
@@ -1038,14 +1038,14 @@ async fn test_persona_x_coach_composition() {
 
     let lc = response.content.to_lowercase();
 
-    // Sleep coach signal must survive composition.
+    // Sleep agent signal must survive composition.
     assert!(
         lc.contains("sleep") || lc.contains("rest") || lc.contains("nap") || lc.contains("bed"),
         "Composed persona+coach response lost the sleep-coach topic. Response: {}",
         response.content
     );
 
-    // The reply should not be a single trivial sentence; the Coach persona
+    // The reply should not be a single trivial sentence; the Agent persona
     // is documented as structured/directive. We use a generous length floor
     // (the assertion fires only on a near-empty reply, which would indicate
     // the system prompt was rejected outright).

@@ -59,7 +59,7 @@ pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> Stri
 
 /// The `get_activities` envelope fields that survive projection verbatim.
 ///
-/// `activity_list` is the prose the coach actually cites. The rest are small
+/// `activity_list` is the prose the agent actually cites. The rest are small
 /// scalars that change what the model may legitimately say: `count` and
 /// `coverage` keep it from anchoring on the truncated slice, `has_more` /
 /// `offset` / `limit` are what the tool's own schema promises for a follow-up
@@ -69,7 +69,7 @@ pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> Stri
 /// `reconnect_required` is the one sidecar that survives, and it is here for
 /// the same reason `coverage` is: it changes what the model may legitimately
 /// say. A window served without a dead connection is a PARTIAL window, and a
-/// coach that never learns so answers it as if it were the whole history. The
+/// agent that never learns so answers it as if it were the whole history. The
 /// projection is the only thing between that sidecar and the prompt — both
 /// [`render_tool_payload_for_prompt`] and [`format_tool_results_as_text`]
 /// project through it, so a key absent from this list reaches no model at all.
@@ -115,12 +115,12 @@ const ACTIVITY_ADDRESSING_FIELDS: [&str; 4] = ["id", "name", "sport_type", "star
 /// nothing chains off it — it is context, injected before the model runs. Here
 /// the model *is* mid-loop and may call a tool with an `activity_id` next, so
 /// the addressing fields have to survive. Applying the prose reducer at this
-/// seam would have made the coach able to discuss a ride and unable to analyse
+/// seam would have made the agent able to discuss a ride and unable to analyse
 /// it.
 ///
 /// Returns `None` when the payload is not a recognisable `get_activities`
 /// envelope, so an unexpected shape reaches the model intact: the reducer must
-/// never be the reason a coach ends up with no data.
+/// never be the reason an agent ends up with no data.
 #[must_use]
 pub fn project_activities_payload(tool_name: &str, response: &Value) -> Option<Value> {
     if tool_name != "get_activities" {

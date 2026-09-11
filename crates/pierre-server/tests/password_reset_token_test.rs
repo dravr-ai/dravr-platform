@@ -94,7 +94,7 @@ impl ResetTokenTestSetup {
 
     /// Create a test user and return their UUID and email
     async fn create_user(&self) -> anyhow::Result<(uuid::Uuid, String)> {
-        let (_, user) = common::create_test_user(&self.resources.coach.database).await?;
+        let (_, user) = common::create_test_user(&self.resources.agent.database).await?;
         Ok((user.id, user.email))
     }
 

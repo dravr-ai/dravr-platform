@@ -33,7 +33,7 @@ function verdictForMessage(messageId: string, overrides: Partial<ClaimVerdict> =
     id: 'v1',
     conversation_id: 'conv-1',
     message_id: messageId,
-    coach_id: 'coach-1',
+    agent_id: 'coach-1',
     claim_text: 'Creatine at 5g per day improves high-intensity performance.',
     category: 'supplement',
     status: 'supported',

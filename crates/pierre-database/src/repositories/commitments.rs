@@ -34,16 +34,16 @@ pub struct SweptVerdict<'a> {
 /// scans — one task runs per server, so those span every tenant and carry the
 /// per-row `tenant_id` forward into all subsequent writes.
 ///
-/// `coach_id` / `conversation_id` / `sport` are stored as `''` for absent
+/// `agent_id` / `conversation_id` / `sport` are stored as `''` for absent
 /// rather than `NULL`, because the duplicate guard on insert compares them and
 /// `NULL`s compare distinct. The repository maps `Option<String>` <-> `''` at
 /// the boundary for all three.
 #[async_trait]
 pub trait CommitmentRepository: Send + Sync {
-    /// Record a commitment the coach confirmed with the athlete.
+    /// Record a commitment the agent confirmed with the athlete.
     ///
     /// Deduplicates in SQL: a second identical open commitment (same tenant,
-    /// user, coach, sport, target and window end) is silently dropped, so an
+    /// user, agent, sport, target and window end) is silently dropped, so an
     /// athlete re-affirming the same promise mid-window cannot end up with two
     /// rows that both sweep and both report. Returns `true` when a row was
     /// actually inserted.
@@ -117,7 +117,7 @@ pub trait CommitmentRepository: Send + Sync {
 macro_rules! select_commitments {
     ($tail:literal) => {
         concat!(
-            "SELECT id, tenant_id, user_id, coach_id, conversation_id, statement, sport, ",
+            "SELECT id, tenant_id, user_id, agent_id, conversation_id, statement, sport, ",
             "target_sessions, window_start, window_end, status, outcome, ",
             "completed_sessions, swept_at, reported_at, created_at, updated_at ",
             "FROM athlete_commitments ",
@@ -135,14 +135,14 @@ macro_rules! select_commitments {
 /// construction.
 pub(crate) const INSERT_COMMITMENT_SQL: &str = r"
     INSERT INTO athlete_commitments (
-        id, tenant_id, user_id, coach_id, conversation_id, statement, sport,
+        id, tenant_id, user_id, agent_id, conversation_id, statement, sport,
         target_sessions, window_start, window_end, status, outcome, completed_sessions,
         swept_at, reported_at, created_at, updated_at
     )
     SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, NULL, NULL, $12, $13
     WHERE NOT EXISTS (
         SELECT 1 FROM athlete_commitments
-        WHERE tenant_id = $2 AND user_id = $3 AND coach_id = $4
+        WHERE tenant_id = $2 AND user_id = $3 AND agent_id = $4
           AND sport = $7 AND target_sessions = $8 AND window_end = $10
           AND status = 'open'
     )
@@ -228,8 +228,8 @@ pub(crate) struct CommitmentRow {
     pub tenant_id: String,
     /// `user_id` column.
     pub user_id: String,
-    /// `coach_id` column (`''` = no coach on the turn).
-    pub coach_id: String,
+    /// `agent_id` column (`''` = no agent on the turn).
+    pub agent_id: String,
     /// `conversation_id` column (`''` = not raised in a Pierre conversation).
     pub conversation_id: String,
     /// `statement` column.
@@ -277,7 +277,7 @@ pub(crate) fn commitment_from_row(row: CommitmentRow) -> AppResult<Commitment> {
         id: row.id,
         tenant_id: row.tenant_id,
         user_id: row.user_id,
-        coach_id: empty_to_none(row.coach_id),
+        agent_id: empty_to_none(row.agent_id),
         conversation_id: empty_to_none(row.conversation_id),
         statement: row.statement,
         sport: empty_to_none(row.sport),

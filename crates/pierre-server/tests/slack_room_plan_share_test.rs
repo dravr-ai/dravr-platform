@@ -50,7 +50,7 @@ mod slack_room {
     use pierre_contremaitre::messaging_strings::{
         KEY_PLAN_SHARED_HEADER, KEY_SLASH_ANSWERED_PRIVATELY,
     };
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachingGroup, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
     };
@@ -150,8 +150,8 @@ mod slack_room {
         (user_id, tenant_id)
     }
 
-    /// A coach persona under `tenant`. The selected-coach pointer is a foreign
-    /// key onto `coaches`, so a plan's coach slug has to be a real persona id.
+    /// An agent persona under `tenant`. The selected-agent pointer is a foreign
+    /// key onto `agents`, so a plan's agent slug has to be a real persona id.
     async fn seed_persona(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
@@ -161,18 +161,18 @@ mod slack_room {
         resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 tenant,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: title.to_owned(),
                     description: None,
                     system_prompt: "You are a concise test coach.".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -182,14 +182,14 @@ mod slack_room {
     }
 
     /// One outline block plus one stored week straddling today, filed under
-    /// the athlete's selected coach — the same shape
+    /// the athlete's selected agent — the same shape
     /// `plan_command_test::seed_plan_with` builds, so every `/plan` view has a
     /// real session to show.
     async fn seed_week_plan(
         resources: &Arc<ServerContext>,
         user: Uuid,
         tenant: TenantId,
-        coach_slug: &str,
+        agent_slug: &str,
     ) {
         let today = Utc::now().date_naive();
         let start = today - chrono::Days::new(2);
@@ -247,7 +247,7 @@ mod slack_room {
             .save_plan_bundle(&SavePlanBundleParams {
                 tenant_id: &tenant.to_string(),
                 user_id: &user.to_string(),
-                owner: PlanOwner::coach(coach_slug),
+                owner: PlanOwner::agent(agent_slug),
                 goal_fact_id: None,
                 outline: Some(PlanOutlineInput {
                     goal_race: &goal,
@@ -322,7 +322,7 @@ mod slack_room {
             .unwrap();
     }
 
-    /// The sharer (a plan under their selected coach in their own tenant) and
+    /// The sharer (a plan under their selected agent in their own tenant) and
     /// a peer, both linked to one Slack CHANNEL bound to a coaching group
     /// under the bot tenant.
     struct SlackRoom {
@@ -343,16 +343,16 @@ mod slack_room {
             SHARER_NAME,
         )
         .await;
-        // The plan their DM built: filed under the coach they selected in
+        // The plan their DM built: filed under the agent they selected in
         // their own tenant — the room read must resolve it through the
-        // selected-coach rung, since the room conversation binds no coach the
+        // selected-agent rung, since the room conversation binds no agent the
         // athlete's tenant knows.
         let selected = seed_persona(&resources, sharer, sharer_tenant, "Share Coach").await;
         resources
             .common
             .repos
             .tenants
-            .set_selected_coach(sharer_tenant, sharer, Some(&selected))
+            .set_selected_agent(sharer_tenant, sharer, Some(&selected))
             .await
             .unwrap();
         seed_week_plan(&resources, sharer, sharer_tenant, &selected).await;
@@ -406,7 +406,7 @@ mod slack_room {
                     tenant_id: bot_tenant.to_string(),
                     name: "Slack Plan Room".to_owned(),
                     description: None,
-                    coach_id: room_persona,
+                    agent_id: room_persona,
                     owner_id: sharer,
                     coach_user_id: None,
                     peer_data_sharing: true,
@@ -479,7 +479,7 @@ mod slack_room {
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = $1 AND CAST(c.user_id AS TEXT) = $2 \
                AND m.finish_reason = $3";
-        match resources.coach.database.as_ref() {
+        match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_as(SQL)
                 .bind(tenant.to_string())
                 .bind(user.to_string())
@@ -502,7 +502,7 @@ mod slack_room {
     /// tenant — the "did the plan text land anywhere durable" probe.
     async fn chat_rows_carrying(resources: &Arc<ServerContext>, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM chat_messages WHERE content LIKE '%' || $1 || '%'";
-        match resources.coach.database.as_ref() {
+        match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(needle)
                 .fetch_one(db.pool())
@@ -524,7 +524,7 @@ mod slack_room {
         needle: &str,
     ) -> Vec<(String, String, Option<String>, String, String)> {
         const SQL: &str = "SELECT direction, channel_message_id, chat_message_id,                                   correlation_id, tenant_id              FROM messaging_messages WHERE content_body LIKE '%' || $1 || '%'              ORDER BY created_at ASC";
-        match resources.coach.database.as_ref() {
+        match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_as(SQL)
                 .bind(needle)
                 .fetch_all(db.pool())
@@ -565,7 +565,7 @@ mod slack_room {
     /// plan — what the outbound ledger row must stamp as `chat_message_id`.
     async fn assistant_chat_row_id(resources: &Arc<ServerContext>) -> String {
         const SQL: &str = "SELECT id FROM chat_messages              WHERE finish_reason = $1 AND role = 'assistant'                AND content LIKE '%' || $2 || '%'";
-        match resources.coach.database.as_ref() {
+        match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(COMMAND_FINISH_REASON)
                 .bind(PLAN_SESSION)
@@ -730,7 +730,7 @@ mod slack_room {
     /// the shared header naming the athlete, the turn's pair of rows lands in
     /// the room conversation under the BOT tenant (not the athlete's own),
     /// and the turn fans out to the group transcript — the member's line and
-    /// the coach's answer, readable by the peer, not only its author.
+    /// the agent's answer, readable by the peer, not only its author.
     #[tokio::test]
     async fn plan_share_in_a_slack_channel_is_posted_to_the_channel_with_the_header() {
         let room = build_slack_room().await;
@@ -811,7 +811,7 @@ mod slack_room {
         );
 
         // The turn fanned out to the shared transcript — the member line and
-        // the coach answer, both attributed to the sharer — and the PEER can
+        // the agent answer, both attributed to the sharer — and the PEER can
         // read both (group sharing on, sharer consenting).
         for viewer in [room.sharer, room.peer] {
             let entries = room
@@ -833,17 +833,17 @@ mod slack_room {
                 .unwrap_or_else(|| panic!("no member entry for viewer {viewer}: {entries:?}"));
             assert_eq!(member.content, "/plan share week");
             assert_eq!(member.author_user_id, room.sharer);
-            let coach = entries
+            let agent = entries
                 .iter()
                 .find(|e| matches!(e.speaker, TranscriptSpeaker::Coach))
                 .unwrap_or_else(|| panic!("no coach entry for viewer {viewer}: {entries:?}"));
             assert!(
-                coach.content.contains(&header) && coach.content.contains(PLAN_SESSION),
+                agent.content.contains(&header) && agent.content.contains(PLAN_SESSION),
                 "the fanned-out reply is the room-visible one, header and week included: {:?}",
-                coach.content
+                agent.content
             );
             assert_eq!(
-                coach.author_user_id, room.sharer,
+                agent.author_user_id, room.sharer,
                 "the coach's answer is attributed to the member it answered"
             );
         }

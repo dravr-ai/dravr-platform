@@ -104,7 +104,7 @@ fn test_recipe_tools_registered() {
 }
 
 #[test]
-fn test_user_coach_tools_registered() {
+fn test_user_agent_tools_registered() {
     assert_tools_registered(&[
         "list_agents",
         "create_agent",
@@ -123,7 +123,7 @@ fn test_user_coach_tools_registered() {
 }
 
 #[test]
-fn test_admin_coach_tools_registered() {
+fn test_admin_agent_tools_registered() {
     assert_tools_registered(&[
         "admin_list_system_agents",
         "admin_create_system_agent",

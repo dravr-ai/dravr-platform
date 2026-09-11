@@ -78,7 +78,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
   }
 
   // Build agent leaderboard sorted by token_count (proxy for usage)
-  const coaches = coachesData?.coaches || [];
+  const coaches = coachesData?.agents || [];
   const sortedCoaches = [...coaches]
     .sort((a, b) => (b.token_count ?? 0) - (a.token_count ?? 0))
     .slice(0, 20);

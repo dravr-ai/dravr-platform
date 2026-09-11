@@ -45,8 +45,8 @@ vi.mock('../../hooks/useUsageStatus', () => ({
       resources: {
         conversations: 5,
         max_conversations: 10,
-        coaches: 2,
-        max_coaches: 3,
+        agents: 2,
+        max_agents: 3,
       },
     },
     isLoading: false,

@@ -93,7 +93,7 @@ impl VerificationTestSetup {
     }
 
     async fn create_user(&self) -> anyhow::Result<uuid::Uuid> {
-        let (_, user) = common::create_test_user(&self.resources.coach.database).await?;
+        let (_, user) = common::create_test_user(&self.resources.agent.database).await?;
         Ok(user.id)
     }
 }
@@ -239,7 +239,7 @@ async fn issued_tokens_are_counted_for_rate_limiting() {
 #[tokio::test]
 async fn settings_fall_back_to_the_compiled_defaults() {
     let setup = VerificationTestSetup::new().await.expect("setup failed");
-    let settings = resolve_settings(setup.resources.coach.database.as_ref()).await;
+    let settings = resolve_settings(setup.resources.agent.database.as_ref()).await;
 
     assert_eq!(
         settings.ttl_minutes, DEFAULT_LINK_TTL_MINUTES,
@@ -255,7 +255,7 @@ async fn settings_fall_back_to_the_compiled_defaults() {
 #[tokio::test]
 async fn operator_settings_are_honoured_when_in_range() {
     let setup = VerificationTestSetup::new().await.expect("setup failed");
-    let db = setup.resources.coach.database.as_ref();
+    let db = setup.resources.agent.database.as_ref();
 
     db.set_system_setting(SETTING_EMAIL_VERIFICATION_TTL_MINUTES, "90")
         .await
@@ -282,7 +282,7 @@ async fn out_of_range_and_garbage_settings_are_clamped() {
     use pierre_config::constants::email_verification as defaults;
 
     let setup = VerificationTestSetup::new().await.expect("setup failed");
-    let db = setup.resources.coach.database.as_ref();
+    let db = setup.resources.agent.database.as_ref();
 
     // Zero would kill every link on arrival and lock users out permanently.
     db.set_system_setting(SETTING_EMAIL_VERIFICATION_TTL_MINUTES, "0")
@@ -330,7 +330,7 @@ async fn out_of_range_and_garbage_settings_are_clamped() {
 ///
 /// `upsert_user_fact` is a plain insert despite its name, so without an explicit
 /// supersede a second submission leaves the athlete with two North Stars and
-/// feeds both into the coach prompt. Asserts the live count, which a duplicating
+/// feeds both into the agent prompt. Asserts the live count, which a duplicating
 /// implementation fails.
 #[tokio::test]
 async fn re_answering_about_you_supersedes_rather_than_duplicates() {

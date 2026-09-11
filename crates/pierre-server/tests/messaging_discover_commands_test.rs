@@ -13,8 +13,8 @@ mod helpers;
 #[cfg(feature = "client-messaging")]
 mod discover_over_messaging {
     use crate::common::create_test_server_resources;
+    use crate::helpers::agent_fixtures::publish_catalogue_agent;
     use crate::helpers::axum_test::AxumTestRequest;
-    use crate::helpers::coach_fixtures::publish_catalogue_coach;
     use crate::helpers::messaging_webhooks::{telegram_webhook, ChannelSecrets};
     use crate::helpers::notify_capture::{capture_notify, named, only};
     use axum::http::StatusCode;
@@ -25,7 +25,7 @@ mod discover_over_messaging {
         KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
         KEY_GROUP_CREATED, KEY_GROUP_JOINED, KEY_HELP_DOMAIN_DISCOVER,
     };
-    use pierre_core::models::coaches::{CoachHandle, CreateCoachRequest};
+    use pierre_core::models::agents::{AgentHandle, CreateAgentRequest};
     use pierre_core::models::groups::GroupInviteKind;
     use pierre_core::models::{
         ConnectionType, MessageRecord, PersistedReplyBlock, Tenant, TenantId, User, UserStatus,
@@ -306,7 +306,7 @@ mod discover_over_messaging {
         let (author_id, author_tenant) =
             seed_user_tenant(&resources, "tg-discover-author@test.com").await;
         for title in ["Recovery Coach", "Tempo Coach"] {
-            publish_catalogue_coach(
+            publish_catalogue_agent(
                 &resources.common.repos,
                 author_id,
                 author_tenant,
@@ -376,13 +376,13 @@ mod discover_over_messaging {
     }
 
     #[tokio::test]
-    async fn telegram_dm_installs_by_handle_and_teaches_coach_add() {
+    async fn telegram_dm_installs_by_handle_and_teaches_agent_add() {
         let resources = create_test_server_resources().await.unwrap();
         let athlete = link_telegram(&resources, "tg-install@test.com", "9902").await;
         let (author_id, author_tenant) =
             seed_user_tenant(&resources, "tg-install-author@test.com").await;
         let repos = &resources.common.repos;
-        let recovery = publish_catalogue_coach(
+        let recovery = publish_catalogue_agent(
             repos,
             author_id,
             author_tenant,
@@ -390,15 +390,15 @@ mod discover_over_messaging {
             "You recover.",
         )
         .await;
-        publish_catalogue_coach(repos, author_id, author_tenant, "Tempo Coach", "You pace.").await;
+        publish_catalogue_agent(repos, author_id, author_tenant, "Tempo Coach", "You pace.").await;
         let router = MessagingRoutes::routes(Arc::clone(&resources));
 
         // Over the wire: the webhook dispatches the install and the copy lands.
         webhook(&router, &athlete, "/discover install @recovery-coach", 2).await;
         let copy = repos
-            .coaches
+            .agents
             .find_installed_by_handle(
-                &CoachHandle::parse("recovery-coach").unwrap(),
+                &AgentHandle::parse("recovery-coach").unwrap(),
                 athlete.user_id,
                 athlete.tenant_id,
             )
@@ -427,7 +427,7 @@ mod discover_over_messaging {
         assert_eq!(title.as_deref(), Some("Recovery Coach"));
         assert_eq!(values, vec!["/agent add @recovery-coach".to_owned()]);
 
-        // What the athlete reads back, for the second coach.
+        // What the athlete reads back, for the second agent.
         let (events, _guard) = capture_notify();
         let hint = dispatch(&resources, &athlete, "/discover install @tempo-coach").await;
         assert_eq!(hint.card_title.as_deref(), Some("Tempo Coach"));
@@ -456,7 +456,7 @@ mod discover_over_messaging {
         assert_eq!(named(&events, "agent.installed").len(), 1, "counted once");
         let library = repos
             .store_listings
-            .get_installed_coaches(athlete.user_id, athlete.tenant_id)
+            .get_installed_agents(athlete.user_id, athlete.tenant_id)
             .await
             .unwrap();
         assert_eq!(library.len(), 2, "one copy of each, none twice");
@@ -517,20 +517,20 @@ mod discover_over_messaging {
         let resources = create_test_server_resources().await.unwrap();
         let owner = link_telegram(&resources, "tg-group-owner@test.com", "9904").await;
         let repos = &resources.common.repos;
-        let request: CreateCoachRequest = serde_json::from_value(json!({
+        let request: CreateAgentRequest = serde_json::from_value(json!({
             "title": "Ride Coach",
             "description": null,
             "system_prompt": "You coach the ride.",
         }))
         .unwrap();
-        let coach = repos
-            .coaches
+        let agent = repos
+            .agents
             .create(owner.user_id, owner.tenant_id, &request)
             .await
             .unwrap();
         repos
             .tenants
-            .set_selected_coach(owner.tenant_id, owner.user_id, Some(&coach.id.to_string()))
+            .set_selected_agent(owner.tenant_id, owner.user_id, Some(&agent.id.to_string()))
             .await
             .unwrap();
 

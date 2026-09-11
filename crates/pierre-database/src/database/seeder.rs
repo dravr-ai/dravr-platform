@@ -14,11 +14,12 @@ use uuid::Uuid;
 
 use super::Database;
 use crate::repositories::{
-    SeedTable, SeederRepository, CATALOGUE_SOURCE_FILTER, COACH_POINTER_REWRITES,
+    SeedTable, SeederRepository, AGENT_INSTALL_COUNT_RESYNC, AGENT_POINTER_MERGES,
+    AGENT_POINTER_REWRITES, AGENT_SLUG_REWRITES, CATALOGUE_SOURCE_FILTER,
 };
 use crate::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedCoach, SeedCoachAuthor,
-    SeedCoachRelation, SeedCoachTranslation, SeedDemoUser, SeedLlmUsageRecord,
+    SeedA2AClient, SeedA2AUsage, SeedAgent, SeedAgentAuthor, SeedAgentRelation,
+    SeedAgentTranslation, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedLlmUsageRecord,
     SeedProviderConnection, SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
 
@@ -630,13 +631,13 @@ impl SeederRepository for Database {
         Ok(())
     }
 
-    async fn seed_find_coach_by_slug(
+    async fn seed_find_agent_by_slug(
         &self,
         slug: &str,
         tenant_id: &str,
     ) -> AppResult<Option<(String, Option<String>)>> {
         let row =
-            sqlx::query("SELECT id, content_hash FROM coaches WHERE slug = $1 AND tenant_id = $2")
+            sqlx::query("SELECT id, content_hash FROM agents WHERE slug = $1 AND tenant_id = $2")
                 .bind(slug)
                 .bind(tenant_id)
                 .fetch_optional(&self.pool)
@@ -650,14 +651,14 @@ impl SeederRepository for Database {
         }))
     }
 
-    async fn seed_find_coach_drift_info(
+    async fn seed_find_agent_drift_info(
         &self,
         slug: &str,
     ) -> AppResult<Option<(String, Option<String>)>> {
         // Tenant-agnostic on purpose — see trait doc on
-        // `SeederRepository::seed_find_coach_drift_info`. Used by
-        // `pierre-cli check-drift coaches`, never by the seed path.
-        let row = sqlx::query("SELECT source, content_hash FROM coaches WHERE slug = $1 LIMIT 1")
+        // `SeederRepository::seed_find_agent_drift_info`. Used by
+        // `pierre-cli check-drift agents`, never by the seed path.
+        let row = sqlx::query("SELECT source, content_hash FROM agents WHERE slug = $1 LIMIT 1")
             .bind(slug)
             .fetch_optional(&self.pool)
             .await
@@ -670,12 +671,12 @@ impl SeederRepository for Database {
         }))
     }
 
-    async fn seed_list_catalogue_coaches(
+    async fn seed_list_catalogue_agents(
         &self,
         tenant_id: &str,
     ) -> AppResult<Vec<(String, String)>> {
         let rows = sqlx::query(&format!(
-            "SELECT id, slug FROM coaches \
+            "SELECT id, slug FROM agents \
              WHERE tenant_id = $1 AND is_system = 1 AND slug IS NOT NULL \
                AND {CATALOGUE_SOURCE_FILTER} \
              ORDER BY slug"
@@ -695,30 +696,57 @@ impl SeederRepository for Database {
             .collect())
     }
 
-    async fn seed_repoint_coach_references(
+    async fn seed_repoint_agent_references(
         &self,
-        retired_coach_id: &str,
-        successor_coach_id: &str,
+        retired_agent_id: &str,
+        successor_agent_id: &str,
     ) -> AppResult<u64> {
         let mut moved = 0u64;
-        for statement in COACH_POINTER_REWRITES {
+        for statement in AGENT_POINTER_REWRITES.iter().chain(&AGENT_POINTER_MERGES) {
             let result = sqlx::query(statement)
-                .bind(successor_coach_id)
-                .bind(retired_coach_id)
+                .bind(successor_agent_id)
+                .bind(retired_agent_id)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
-                    AppError::database(format!("Failed to re-point coach references: {e}"))
+                    AppError::database(format!("Failed to re-point agent references: {e}"))
+                })?;
+            moved += result.rows_affected();
+        }
+        sqlx::query(AGENT_INSTALL_COUNT_RESYNC)
+            .bind(successor_agent_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to resync the agent install count: {e}"))
+            })?;
+        Ok(moved)
+    }
+
+    async fn seed_repoint_agent_slug_references(
+        &self,
+        retired_slug: &str,
+        successor_slug: &str,
+    ) -> AppResult<u64> {
+        let mut moved = 0u64;
+        for statement in AGENT_SLUG_REWRITES {
+            let result = sqlx::query(statement)
+                .bind(successor_slug)
+                .bind(retired_slug)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to re-point agent slug references: {e}"))
                 })?;
             moved += result.rows_affected();
         }
         Ok(moved)
     }
 
-    async fn seed_detach_coach_conversations(&self, retired_coach_id: &str) -> AppResult<u64> {
+    async fn seed_detach_agent_conversations(&self, retired_agent_id: &str) -> AppResult<u64> {
         let result =
-            sqlx::query("UPDATE chat_conversations SET coach_id = NULL WHERE coach_id = $1")
-                .bind(retired_coach_id)
+            sqlx::query("UPDATE chat_conversations SET agent_id = NULL WHERE agent_id = $1")
+                .bind(retired_agent_id)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
@@ -729,7 +757,7 @@ impl SeederRepository for Database {
 
     async fn seed_take_catalogue_ownership(&self, tenant_id: &str) -> AppResult<u64> {
         let result = sqlx::query(
-            "UPDATE coaches SET source = 'contremaitre' \
+            "UPDATE agents SET source = 'contremaitre' \
              WHERE tenant_id = $1 AND is_system = 1 AND source = 'seed'",
         )
         .bind(tenant_id)
@@ -741,7 +769,7 @@ impl SeederRepository for Database {
 
     async fn seed_list_catalogue_slugs(&self) -> AppResult<Vec<String>> {
         let rows = sqlx::query(&format!(
-            "SELECT DISTINCT slug FROM coaches \
+            "SELECT DISTINCT slug FROM agents \
              WHERE is_system = 1 AND slug IS NOT NULL \
                AND {CATALOGUE_SOURCE_FILTER} \
              ORDER BY slug"
@@ -752,15 +780,15 @@ impl SeederRepository for Database {
         Ok(rows.iter().map(|r| r.get("slug")).collect())
     }
 
-    async fn seed_insert_coach(&self, coach: &SeedCoach) -> AppResult<()> {
+    async fn seed_insert_agent(&self, agent: &SeedAgent) -> AppResult<()> {
         // `source = 'contremaitre'` flags this row for the
-        // prompt-assembly registry overlay — `resolve_coach_base_prompt`
+        // prompt-assembly registry overlay — `resolve_agent_base_prompt`
         // in chat_pipeline/stages/prompt_assembly.rs reads the live
         // contremaitre prompt from `PromptRegistry` for source =
         // contremaitre, falling back to `system_prompt` on a registry
         // miss. The seeder is the single contremaitre-only ingest path.
         sqlx::query(
-            "INSERT INTO coaches \
+            "INSERT INTO agents \
              (id, user_id, tenant_id, title, description, system_prompt, category, tags, \
               sample_prompts, token_count, created_at, updated_at, is_system, visibility, \
               slug, purpose, when_to_use, instructions, example_inputs, example_outputs, \
@@ -769,44 +797,44 @@ impl SeederRepository for Database {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1, $13, \
                      $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'contremaitre')",
         )
-        .bind(&coach.id)
-        .bind(coach.user_id.to_string())
-        .bind(coach.tenant_id)
-        .bind(&coach.title)
-        .bind(&coach.description)
-        .bind(&coach.system_prompt)
-        .bind(&coach.category)
-        .bind(&coach.tags_json)
-        .bind(&coach.sample_prompts_json)
-        .bind(coach.token_count)
-        .bind(coach.created_at.to_rfc3339())
-        .bind(coach.updated_at.to_rfc3339())
-        .bind(&coach.visibility)
-        .bind(&coach.slug)
-        .bind(&coach.purpose)
-        .bind(&coach.when_to_use)
-        .bind(&coach.instructions)
-        .bind(&coach.example_inputs)
-        .bind(&coach.example_outputs)
-        .bind(&coach.success_criteria)
-        .bind(&coach.prerequisites_json)
-        .bind(&coach.source_file)
-        .bind(&coach.content_hash)
-        .bind(&coach.startup_query)
-        .bind(&coach.data_requirements)
-        .bind(&coach.visuals)
+        .bind(&agent.id)
+        .bind(agent.user_id.to_string())
+        .bind(agent.tenant_id)
+        .bind(&agent.title)
+        .bind(&agent.description)
+        .bind(&agent.system_prompt)
+        .bind(&agent.category)
+        .bind(&agent.tags_json)
+        .bind(&agent.sample_prompts_json)
+        .bind(agent.token_count)
+        .bind(agent.created_at.to_rfc3339())
+        .bind(agent.updated_at.to_rfc3339())
+        .bind(&agent.visibility)
+        .bind(&agent.slug)
+        .bind(&agent.purpose)
+        .bind(&agent.when_to_use)
+        .bind(&agent.instructions)
+        .bind(&agent.example_inputs)
+        .bind(&agent.example_outputs)
+        .bind(&agent.success_criteria)
+        .bind(&agent.prerequisites_json)
+        .bind(&agent.source_file)
+        .bind(&agent.content_hash)
+        .bind(&agent.startup_query)
+        .bind(&agent.data_requirements)
+        .bind(&agent.visuals)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to insert coach: {e}")))?;
         Ok(())
     }
 
-    async fn seed_update_coach(&self, coach: &SeedCoach) -> AppResult<()> {
+    async fn seed_update_agent(&self, agent: &SeedAgent) -> AppResult<()> {
         // Re-stamp `source = 'contremaitre'` on every update so legacy
         // rows that were inserted before this column was populated
         // converge to the registry-overlay path on the next sync.
         sqlx::query(
-            "UPDATE coaches SET \
+            "UPDATE agents SET \
                title = $1, description = $2, system_prompt = $3, category = $4, \
                tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8, \
                visibility = $9, purpose = $10, when_to_use = $11, instructions = $12, \
@@ -815,46 +843,46 @@ impl SeederRepository for Database {
                data_requirements = $20, visuals = $21, source = 'contremaitre' \
              WHERE id = $22",
         )
-        .bind(&coach.title)
-        .bind(&coach.description)
-        .bind(&coach.system_prompt)
-        .bind(&coach.category)
-        .bind(&coach.tags_json)
-        .bind(&coach.sample_prompts_json)
-        .bind(coach.token_count)
-        .bind(coach.updated_at.to_rfc3339())
-        .bind(&coach.visibility)
-        .bind(&coach.purpose)
-        .bind(&coach.when_to_use)
-        .bind(&coach.instructions)
-        .bind(&coach.example_inputs)
-        .bind(&coach.example_outputs)
-        .bind(&coach.success_criteria)
-        .bind(&coach.prerequisites_json)
-        .bind(&coach.source_file)
-        .bind(&coach.content_hash)
-        .bind(&coach.startup_query)
-        .bind(&coach.data_requirements)
-        .bind(&coach.visuals)
-        .bind(&coach.id)
+        .bind(&agent.title)
+        .bind(&agent.description)
+        .bind(&agent.system_prompt)
+        .bind(&agent.category)
+        .bind(&agent.tags_json)
+        .bind(&agent.sample_prompts_json)
+        .bind(agent.token_count)
+        .bind(agent.updated_at.to_rfc3339())
+        .bind(&agent.visibility)
+        .bind(&agent.purpose)
+        .bind(&agent.when_to_use)
+        .bind(&agent.instructions)
+        .bind(&agent.example_inputs)
+        .bind(&agent.example_outputs)
+        .bind(&agent.success_criteria)
+        .bind(&agent.prerequisites_json)
+        .bind(&agent.source_file)
+        .bind(&agent.content_hash)
+        .bind(&agent.startup_query)
+        .bind(&agent.data_requirements)
+        .bind(&agent.visuals)
+        .bind(&agent.id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update coach: {e}")))?;
         Ok(())
     }
 
-    async fn seed_insert_coach_relation_if_absent(
+    async fn seed_insert_agent_relation_if_absent(
         &self,
-        relation: &SeedCoachRelation,
+        relation: &SeedAgentRelation,
     ) -> AppResult<bool> {
         let result = sqlx::query(
-            "INSERT OR IGNORE INTO coach_relations \
-             (id, coach_id, related_coach_id, relation_type, created_at) \
+            "INSERT OR IGNORE INTO agent_relations \
+             (id, agent_id, related_agent_id, relation_type, created_at) \
              VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(&relation.id)
-        .bind(&relation.coach_id)
-        .bind(&relation.related_coach_id)
+        .bind(&relation.agent_id)
+        .bind(&relation.related_agent_id)
         .bind(&relation.relation_type)
         .bind(relation.created_at.to_rfc3339())
         .execute(&self.pool)
@@ -864,10 +892,10 @@ impl SeederRepository for Database {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn seed_upsert_coach_author(&self, author: &SeedCoachAuthor) -> AppResult<String> {
+    async fn seed_upsert_agent_author(&self, author: &SeedAgentAuthor) -> AppResult<String> {
         // Check if author already exists for this user+tenant
         let existing: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM coach_authors WHERE user_id = $1 AND tenant_id = $2",
+            "SELECT id FROM agent_authors WHERE user_id = $1 AND tenant_id = $2",
         )
         .bind(author.user_id.to_string())
         .bind(&author.tenant_id)
@@ -880,9 +908,9 @@ impl SeederRepository for Database {
         }
 
         sqlx::query(
-            "INSERT INTO coach_authors \
+            "INSERT INTO agent_authors \
              (id, user_id, tenant_id, display_name, is_verified, \
-              published_coach_count, total_install_count, created_at, updated_at) \
+              published_agent_count, total_install_count, created_at, updated_at) \
              VALUES ($1, $2, $3, $4, 0, 0, 0, $5, $6)",
         )
         .bind(&author.id)
@@ -904,12 +932,12 @@ impl SeederRepository for Database {
     ) -> AppResult<bool> {
         let result = sqlx::query(
             "INSERT OR IGNORE INTO store_listings \
-             (id, coach_id, tenant_id, publish_status, published_at, install_count, \
+             (id, agent_id, tenant_id, publish_status, published_at, install_count, \
               author_id, created_at, updated_at) \
              VALUES ($1, $2, $3, 'published', $4, 0, $5, $6, $7)",
         )
         .bind(&listing.id)
-        .bind(&listing.coach_id)
+        .bind(&listing.agent_id)
         .bind(listing.tenant_id)
         .bind(listing.created_at.to_rfc3339())
         .bind(&listing.author_id)
@@ -922,17 +950,17 @@ impl SeederRepository for Database {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn seed_upsert_coach_translation(
+    async fn seed_upsert_agent_translation(
         &self,
-        translation: &SeedCoachTranslation,
+        translation: &SeedAgentTranslation,
     ) -> AppResult<()> {
-        // SQLite UPSERT via ON CONFLICT — primary key is (coach_id, locale).
+        // SQLite UPSERT via ON CONFLICT — primary key is (agent_id, locale).
         // Re-running the seeder after a file edit refreshes the content + sha.
         sqlx::query(
-            "INSERT INTO coach_translations \
-             (coach_id, locale, title, description, purpose, instructions, source_sha, tags, created_at, updated_at) \
+            "INSERT INTO agent_translations \
+             (agent_id, locale, title, description, purpose, instructions, source_sha, tags, created_at, updated_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
-             ON CONFLICT(coach_id, locale) DO UPDATE SET \
+             ON CONFLICT(agent_id, locale) DO UPDATE SET \
                title = excluded.title, \
                description = excluded.description, \
                purpose = excluded.purpose, \
@@ -941,7 +969,7 @@ impl SeederRepository for Database {
                tags = excluded.tags, \
                updated_at = CURRENT_TIMESTAMP",
         )
-        .bind(&translation.coach_id)
+        .bind(&translation.agent_id)
         .bind(&translation.locale)
         .bind(&translation.title)
         .bind(&translation.description)

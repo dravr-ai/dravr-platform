@@ -42,11 +42,11 @@ pub(super) const NEGATION_TOKENS: &[&str] = &[
 /// identity ([`asserts_self`]).
 ///
 /// A comma is as often a list separator as a clause break, and the two need
-/// opposite answers: « je ne suis pas un coach, je suis GitHub Copilot »
+/// opposite answers: « je ne suis pas un agent, je suis GitHub Copilot »
 /// starts a new predication the negation does not reach, while "you are not a
 /// general-purpose AI, a language model, a chat bot" keeps every item under
-/// the one negation — the shape of the identity anchor the coach is told to
-/// embody, so treating its commas as clause breaks would withhold the coach's
+/// the one negation — the shape of the identity anchor the agent is told to
+/// embody, so treating its commas as clause breaks would withhold the agent's
 /// own persona statement.
 pub(super) const fn is_soft_clause_break(c: char) -> bool {
     matches!(c, ',' | ';' | ':')
@@ -69,13 +69,13 @@ pub(super) fn asserts_self(segment: &str) -> bool {
 }
 
 /// `true` when a negation marker in the identity phrase's **own clause**
-/// denies it — i.e. the coach is rejecting the identity, not claiming it.
+/// denies it — i.e. the agent is rejecting the identity, not claiming it.
 ///
 /// `dash_breaks` are the folded offsets [`fold_into`] reported for erased
 /// clause-breaking dashes.
 ///
 /// The clause bound is what makes the guard grammatical rather than merely
-/// proximate. « Je ne suis pas un coach, je suis GitHub Copilot » negates
+/// proximate. « Je ne suis pas un agent, je suis GitHub Copilot » negates
 /// "un coach"; reading the negation across the comma marked a full persona
 /// break as a denial and delivered it to the athlete, as did "I'm not able to
 /// help with that. I'm GitHub Copilot CLI" across the sentence boundary and
@@ -118,7 +118,7 @@ pub(super) fn is_negated_at(folded: &str, dash_breaks: &[usize], at: usize) -> b
 /// product hit.
 ///
 /// **Denials do not count.** A hit whose every occurrence is denied by a
-/// negation marker *in its own clause* is the coach correctly rejecting the
+/// negation marker *in its own clause* is the agent correctly rejecting the
 /// identity (« Non, je ne suis pas GitHub Copilot — je suis Dravr ») and must
 /// reach the athlete. Left unguarded this was not a theoretical false positive
 /// but the *only* thing the matcher caught: across a 48-run live A/B on

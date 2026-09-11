@@ -4,7 +4,7 @@
 // ABOUTME: Shared types for chat components
 // ABOUTME: Centralizes type definitions used across chat-related components
 
-import type { Conversation, Coach, MessageActions, MessageRole } from '@pierre/shared-types';
+import type { Conversation, Agent, MessageActions, MessageRole } from '@pierre/shared-types';
 
 export interface Message {
   id: string;
@@ -54,4 +54,4 @@ export interface DeleteConfirmation {
 }
 
 // Re-export for convenience
-export type { Conversation, Coach };
+export type { Conversation, Agent };

@@ -7,7 +7,7 @@
 //! # Rhetoric Detector
 //!
 //! The first gate in the bullshit detector pipeline. Given a sentence
-//! or atomic claim extracted from a coach reply, decides whether it is:
+//! or atomic claim extracted from an agent reply, decides whether it is:
 //!
 //! - **Rhetorical** — motivational ("you're crushing it!"), greeting,
 //!   question to the user, or imperative with no factual predicate. Fast

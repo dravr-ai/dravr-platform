@@ -1,4 +1,4 @@
-// ABOUTME: Prompt assembly stage (stages 7a-8) — coach prompt → provider/group/memory → canary → messages
+// ABOUTME: Prompt assembly stage (stages 7a-8) — agent prompt → provider/group/memory → canary → messages
 // ABOUTME: Composes the lower-level stages (prompt_builder, refresh, memory, followups) into one flow
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,8 +18,8 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_contremaitre::PromptRegistry;
 use pierre_core::civil_time::{clock_date, format_clock_stamp, resolve_zone};
 use pierre_core::errors::AppResult;
-use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::{CoachRuntimeContext, CoachingPersona, MemberFitnessSnapshot};
+use pierre_core::models::agents::AgentCategory;
+use pierre_core::models::{AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -46,7 +46,7 @@ use pierre_services::memory_facts::SentenceRenderer;
 ///
 /// Placed LAST, on measured evidence rather than intuition. A 48-run live A/B
 /// against `claude-sonnet-5` through the pinned Copilot CLI (2026-07-25, real
-/// contremaitre coach prompt + `messaging_context.md` +
+/// contremaitre agent prompt + `messaging_context.md` +
 /// `tool_discipline_messaging.md`, embacle wire shape, isolated cwd) compared
 /// four arms over four identity provocations x 3 reps:
 ///
@@ -57,7 +57,7 @@ use pierre_services::memory_facts::SentenceRenderer;
 /// | C   | anchor LAST                  | **0/12**        | **12/12**    |
 /// | D   | `pierre_system.md` (mid-file)| 1/12            | 9/12         |
 ///
-/// Prepending (arm B) fixed *what the coach calls itself* but not the leak: it
+/// Prepending (arm B) fixed *what the agent calls itself* but not the leak: it
 /// still answered "Quel modèle d'IA utilises-tu ?" with « I'm powered by Claude
 /// Sonnet 5 (model ID: …) » — Copilot's own `model_information` clause firing
 /// verbatim. Only the tail placement suppressed that, which is the same
@@ -74,7 +74,7 @@ use pierre_services::memory_facts::SentenceRenderer;
 ///   suffices": arm B was equally generic and still disclosed the model 2/12.
 ///   Placement is what carried arm C; the omission is about not manufacturing
 ///   the false positive.
-/// - **"not even to deny it"** — the coach must assert "I am Dravr" without
+/// - **"not even to deny it"** — the agent must assert "I am Dravr" without
 ///   ever emitting the underlying identity's name, so a correct answer can
 ///   never trip that matcher. This is not hypothetical: every one of the 5
 ///   boundary matches across the 48 A/B runs was a *correct denial* (« Non, je
@@ -93,7 +93,7 @@ never claim any identity other than Dravr — not even to deny another one. If t
 who or what you are, or about your \"real\" identity, you are simply Dravr, their coach. \
 Everything above is your coaching context, not a competing identity.";
 
-/// What the coach is meant to DO on an ordinary turn.
+/// What the agent is meant to DO on an ordinary turn.
 ///
 /// Occupies the Stage 7g.3 slot whenever no guided flow owns it, so every turn
 /// reaches the model carrying a concrete, turn-scoped task.
@@ -144,7 +144,7 @@ Everything above is your coaching context, not a competing identity.";
 /// reached for it.
 ///
 /// Live 2026-09-02: the athlete asked *"As tu acces a mes power zones?"*, was
-/// told no, supplied 380 W, and the coach **acknowledged seeing it** («tu l'as
+/// told no, supplied 380 W, and the agent **acknowledged seeing it** («tu l'as
 /// mentionné à 380W plus tôt»), hand-computed a threshold in prose, and stored
 /// nothing. Zero tool calls on all fifteen turns. The next session starts from
 /// the same "I don't have your zones" (registre#250).
@@ -169,18 +169,18 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
      the next conversation, and the zones derived from it never exist.\n\
      Do not restate the question, and do not list assumptions in place of an answer.";
 
-/// Voice anchor for a coach-bound turn, placed just ahead of the
+/// Voice anchor for an agent-bound turn, placed just ahead of the
 /// [`IDENTITY_ANCHOR`].
 ///
 /// The platform contract leads the prompt unconditionally (Stage 7a) so a
 /// persona can shape the voice and never the capability — the ordering that
-/// closed the 2026-07-24 / 08-11 refusals. The cost is positional: the coach's
+/// closed the 2026-07-24 / 08-11 refusals. The cost is positional: the agent's
 /// own prompt moved from the head of the prompt to the middle of it, and the
 /// 48-run A/B documented on [`IDENTITY_ANCHOR`] measured exactly that placement
 /// as the weak one — mid-file scored 9/12 against 12/12 at the tail.
 ///
-/// The identity got a tail anchor from that finding; the coach's *specialisation*
-/// never did. `Chat Eval` caught the consequence: the strength coach answered
+/// The identity got a tail anchor from that finding; the agent's *specialisation*
+/// never did. `Chat Eval` caught the consequence: the strength agent answered
 /// "How should I improve recovery this week?" correctly, in Dravr's voice, and
 /// in nobody's vocabulary — none of `strength`, `lift`, `deload`, `rir`, `set`,
 /// `volume`, `soreness`. That scenario's header calls itself a ~50% flake, and
@@ -188,7 +188,7 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
 /// in a row, which at p=0.5 is p ≈ 0.00003.
 ///
 /// Voice only, deliberately. It restates *how* to answer, never *what* may be
-/// answered, so the contract above keeps sole authority — a coach that regains
+/// answered, so the contract above keeps sole authority — an agent that regains
 /// its vocabulary must not regain the ability to decline a question
 /// `get_activities` can answer.
 ///
@@ -206,7 +206,7 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
 /// Ahead of the identity anchor, not after it: that block's tail placement is
 /// the measured result and nothing may displace it.
 #[must_use]
-pub fn coach_voice_anchor(slug: &str) -> String {
+pub fn agent_voice_anchor(slug: &str) -> String {
     format!(
         "Answer as the {slug} coach throughout. Stay in that discipline's own \
 vocabulary and framing even when the athlete asks about something adjacent to \
@@ -219,8 +219,8 @@ do; the rules above already settle that."
 
 /// Append the [`IDENTITY_ANCHOR`] to an assembled system prompt.
 ///
-/// Applied unconditionally to both the default and coach-bound paths, so no
-/// turn can ship without an identity statement (the coach-bound bug this
+/// Applied unconditionally to both the default and agent-bound paths, so no
+/// turn can ship without an identity statement (the agent-bound bug this
 /// closes). Kept as a named helper purely so the contract is unit-testable
 /// without standing up the full async assembly stage.
 #[must_use]
@@ -229,27 +229,27 @@ pub fn close_with_identity_anchor(assembled_prompt: &str) -> String {
 }
 
 /// Close an assembled prompt with every tail block, in the one order that is
-/// allowed: coach voice, then identity.
+/// allowed: agent voice, then identity.
 ///
 /// The ordering lives here rather than at the call site so a test can exercise
 /// the real composition. Building the same string inside a test proves only
 /// that `format!` concatenates — the first version of this change did exactly
 /// that, and inverting the call site left all its assertions passing.
 #[must_use]
-pub fn close_with_anchors(assembled_prompt: &str, coach_slug: Option<&str>) -> String {
-    coach_slug.map_or_else(
+pub fn close_with_anchors(assembled_prompt: &str, agent_slug: Option<&str>) -> String {
+    agent_slug.map_or_else(
         || close_with_identity_anchor(assembled_prompt),
         |slug| {
             close_with_identity_anchor(&format!(
                 "{assembled_prompt}\n\n{}",
-                coach_voice_anchor(slug)
+                agent_voice_anchor(slug)
             ))
         },
     )
 }
 
 /// Return the [`MessagingStringsRegistry`] key that holds the scope
-/// carve-out for a given coach category, or
+/// carve-out for a given agent category, or
 /// `None` when the category does not collide with the generic scope list
 /// in `pierre_system.md`.
 ///
@@ -258,50 +258,50 @@ pub fn close_with_anchors(assembled_prompt: &str, coach_slug: Option<&str>) -> S
 /// finders" refusal would otherwise block. Training / Recovery /
 /// Mobility / Analysis / Custom do not collide — adding a carve-out for
 /// them only makes sense once a real refusal surfaces.
-const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static str> {
+const fn agent_scope_carve_out_key(category: AgentCategory) -> Option<&'static str> {
     match category {
-        CoachCategory::Nutrition => Some(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION),
-        CoachCategory::Recipes => Some(KEY_AGENT_SCOPE_CARVE_OUT_RECIPES),
-        CoachCategory::Training
-        | CoachCategory::Recovery
-        | CoachCategory::Mobility
-        | CoachCategory::Analysis
-        | CoachCategory::Custom => None,
+        AgentCategory::Nutrition => Some(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION),
+        AgentCategory::Recipes => Some(KEY_AGENT_SCOPE_CARVE_OUT_RECIPES),
+        AgentCategory::Training
+        | AgentCategory::Recovery
+        | AgentCategory::Mobility
+        | AgentCategory::Analysis
+        | AgentCategory::Custom => None,
     }
 }
 
-/// Whether a coach in this category can prescribe training load, and so needs
+/// Whether an agent in this category can prescribe training load, and so needs
 /// the progression guardrails.
 ///
-/// Training is the obvious case. Recovery earns it because a recovery coach
+/// Training is the obvious case. Recovery earns it because a recovery agent
 /// decides deload cadence and hard-day spacing, which is a load decision by
 /// another name. Analysis earns it because it is routinely asked "should I do
 /// more?" and answers with a recommendation. Nutrition, Recipes and Mobility do
 /// not prescribe endurance load; `Custom` is excluded because its scope is
-/// user-defined and unknown, and spending ~450 tokens on every turn of a coach
+/// user-defined and unknown, and spending ~450 tokens on every turn of an agent
 /// that may never discuss load is the wrong default.
-const fn category_prescribes_load(category: CoachCategory) -> bool {
+const fn category_prescribes_load(category: AgentCategory) -> bool {
     matches!(
         category,
-        CoachCategory::Training | CoachCategory::Recovery | CoachCategory::Analysis
+        AgentCategory::Training | AgentCategory::Recovery | AgentCategory::Analysis
     )
 }
 
 /// The load-progression guardrails block for this turn, or `None` when it does
 /// not apply.
 ///
-/// Returns `None` for a turn with no bound coach: the guardrails bound how a
-/// *coach* prescribes, and the generic assistant has no plan-writing surface to
+/// Returns `None` for a turn with no bound agent: the guardrails bound how a
+/// *agent* prescribes, and the generic assistant has no plan-writing surface to
 /// bound.
 fn progression_guardrails(
     ctx: &ChatPipelineContext,
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     guided_flow_active: bool,
 ) -> Option<String> {
     if guided_flow_active {
         return None;
     }
-    let category = coach_ctx?.category;
+    let category = agent_ctx?.category;
     if !category_prescribes_load(category) {
         return None;
     }
@@ -309,7 +309,7 @@ fn progression_guardrails(
     if block.trim().is_empty() {
         return None;
     }
-    // Prompt cost is charged on every turn of every load-prescribing coach, so
+    // Prompt cost is charged on every turn of every load-prescribing agent, so
     // it is recorded rather than assumed — the block's size is the thing to
     // watch if the guardrails are later expanded.
     debug!(
@@ -326,14 +326,14 @@ fn progression_guardrails(
 ///
 /// - `{{SCOPE_REFUSAL}}` → canonical off-scope refusal sentence
 /// - `{{CAPABILITY_REFUSAL}}` → canonical missing-capability refusal sentence
-/// - `{{COACH_SCOPE_CARVE_OUT}}` → coach-category-specific relaxation that
-///   counteracts the generic scope list (e.g. Nutrition coaches bypass
+/// - `{{COACH_SCOPE_CARVE_OUT}}` → agent-category-specific relaxation that
+///   counteracts the generic scope list (e.g. Nutrition agents bypass
 ///   the "food/meal finders" out-of-scope rule for meal-planning
-///   questions). Empty string when the coach's category does not need a
-///   carve-out or when no coach is attached to the conversation.
+///   questions). Empty string when the agent's category does not need a
+///   carve-out or when no agent is attached to the conversation.
 /// - `{{COACHING_PERSONA_RULES}}` → output-format/cadence block keyed off
 ///   the user's selected [`CoachingPersona`]. Persona is orthogonal to
-///   the chosen coach personality — it controls structure / citation
+///   the chosen agent personality — it controls structure / citation
 ///   density / verbosity, not voice or domain.
 /// - `{{CURRENT_DATE}}` → today's local date and wall-clock time in the
 ///   user's IANA timezone, formatted `YYYY-MM-DD HH:MM (Continent/City)`.
@@ -348,7 +348,7 @@ fn interpolate_prompt_placeholders(
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
     prompt_registry: &Arc<PromptRegistry>,
     locale: &str,
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     persona: CoachingPersona,
     user_timezone: Option<&str>,
     prompt: &str,
@@ -364,8 +364,8 @@ fn interpolate_prompt_placeholders(
         } else {
             let scope = messaging_strings_registry.get(KEY_SCOPE_REFUSAL, locale);
             let capability = messaging_strings_registry.get(KEY_CAPABILITY_REFUSAL, locale);
-            let carve_out = coach_ctx
-                .and_then(|c| coach_scope_carve_out_key(c.category))
+            let carve_out = agent_ctx
+                .and_then(|c| agent_scope_carve_out_key(c.category))
                 .map_or_else(String::new, |key| {
                     messaging_strings_registry.get(key, locale)
                 });
@@ -398,7 +398,7 @@ fn interpolate_prompt_placeholders(
 ///
 /// Five minutes: long enough that consecutive turns in a conversation share a
 /// byte-identical prompt prefix (so a provider that caches implicitly on a
-/// stable prefix can actually hit), short enough that the clock the coach reads
+/// stable prefix can actually hit), short enough that the clock the agent reads
 /// is never meaningfully wrong. The date boundaries below are NOT quantized —
 /// they are derived from the true local time, so "today" never shifts.
 const NOW_QUANTUM_SECS: i64 = 300;
@@ -416,7 +416,7 @@ const _: () = assert!(NOW_QUANTUM_SECS > 0);
 /// date and time are *local* to the user's tz, not the server's UTC clock —
 /// that's the whole point of the anchor: when the user says "today" at 23:30
 /// EDT, the prompt must say 2026-05-21 23:30, not the 2026-05-22 the server
-/// clock has already rolled over to. The wall-clock time lets the coach reason
+/// clock has already rolled over to. The wall-clock time lets the agent reason
 /// about time of day (morning/evening) without asking.
 ///
 /// The weekday is named in `locale` for the same reason the epoch table below
@@ -486,7 +486,7 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
 
     // A full epoch reference table so the model COPIES every common boundary
     // instead of converting an absolute date to an epoch — the arithmetic LLMs
-    // get wrong. 2026-07-24: a coach reading the human date still passed
+    // get wrong. 2026-07-24: an agent reading the human date still passed
     // `before=1753362000` (2025-07-24, a year early) and served year-old data;
     // the same failure lurks on any window bound (`after=<Monday 00:00>` etc.),
     // so every boundary is precomputed here. Local to the user's tz, not the
@@ -541,42 +541,42 @@ pub(crate) async fn resolve_user_persona_and_timezone(
     }
 }
 
-/// Resolve a coach's system prompt for the current turn.
+/// Resolve an agent's system prompt for the current turn.
 ///
 /// For `source == "contremaitre"` rows we consult
-/// [`PromptRegistry::get_coach_prompt`] first so the next chat turn picks
-/// up a webhook-driven hot-reload without waiting for the seed-coaches
-/// job to rewrite the `coaches.system_prompt` column. A registry miss
+/// [`PromptRegistry::get_agent_prompt`] first so the next chat turn picks
+/// up a webhook-driven hot-reload without waiting for the seed-agents
+/// job to rewrite the `agents.system_prompt` column. A registry miss
 /// falls back to the DB column and logs a `warn!` — for a contremaitre
-/// coach that miss means the registry never loaded the entry (cold start
+/// agent that miss means the registry never loaded the entry (cold start
 /// before the first sync, or hot-reload is broken).
 ///
 /// Any other source (`"custom"`, `"seed"`) reads the DB column
-/// directly — those coaches are not git-managed and have no upstream
+/// directly — those agents are not git-managed and have no upstream
 /// source of truth.
 ///
 /// `locale` is the turn's resolved locale, taken from
-/// [`crate::SurfaceProfile::locale`]; `coach_prompt_for_locale` keys on
+/// [`crate::SurfaceProfile::locale`]; `agent_prompt_for_locale` keys on
 /// `(slug, locale)` and layers the default-locale fallback (carnet#386).
-pub fn resolve_coach_base_prompt(
+pub fn resolve_agent_base_prompt(
     prompt_registry: &Arc<PromptRegistry>,
-    coach_ctx: &CoachRuntimeContext,
+    agent_ctx: &AgentRuntimeContext,
     locale: &str,
 ) -> String {
-    if coach_ctx.source != "contremaitre" {
-        return coach_ctx.system_prompt.clone();
+    if agent_ctx.source != "contremaitre" {
+        return agent_ctx.system_prompt.clone();
     }
 
-    if let Some(content) = prompt_registry.coach_prompt_for_locale(&coach_ctx.slug, locale) {
+    if let Some(content) = prompt_registry.agent_prompt_for_locale(&agent_ctx.slug, locale) {
         return content;
     }
 
     warn!(
-        slug = %coach_ctx.slug,
+        slug = %agent_ctx.slug,
         locale = %locale,
-        "contremaitre coach prompt missing from PromptRegistry in every locale — falling back to coaches.system_prompt column. Hot-reload may be broken or the registry has not been populated.",
+        "contremaitre agent prompt missing from PromptRegistry in every locale — falling back to agents.system_prompt column. Hot-reload may be broken or the registry has not been populated.",
     );
-    coach_ctx.system_prompt.clone()
+    agent_ctx.system_prompt.clone()
 }
 
 /// Output of [`assemble_prompt_and_messages`]: the hardened prompt guard,
@@ -596,7 +596,7 @@ pub(crate) type AssembledPrompt = (
 /// Assemble the hardened system prompt and flatten history into an
 /// LLM-ready message list.
 ///
-/// Owns pipeline stages 7a through 8: coach/default prompt,
+/// Owns pipeline stages 7a through 8: agent/default prompt,
 /// connected-provider context, group context, freshness hint, memory
 /// recall, pending followups, channel-specific response constraints,
 /// and canary hardening — followed by
@@ -618,7 +618,7 @@ pub(crate) type AssembledPrompt = (
     fields(
         turn_id = %input.turn_id,
         channel = profile.surface.as_str(),
-        coach_id = input.turn_coach_id(conv).unwrap_or("none"),
+        agent_id = input.turn_agent_id(conv).unwrap_or("none"),
         history_len = history.len(),
         prompt_len = field::Empty,
         msg_count = field::Empty,
@@ -629,31 +629,31 @@ pub(crate) async fn assemble_prompt_and_messages(
     input: &TurnInput,
     profile: &SurfaceProfile,
     conv: &ConversationRecord,
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     history: &[MessageRecord],
     onboarding: Option<&super::onboarding::OnboardingTurn>,
 ) -> AppResult<AssembledPrompt> {
     // Stage 7a: Build the base prompt in two layers — platform contract, then
     // persona.
-    // For contremaitre-sourced coaches we consult the in-memory
+    // For contremaitre-sourced agents we consult the in-memory
     // `PromptRegistry` first so a webhook-driven hot-reload reaches the
     // next chat turn without a seeder re-run. Other sources (`"custom"`,
     // `"seed"`) read the DB `system_prompt` column as before.
-    // The persona layer: a bound coach's voice, or the default Dravr voice.
+    // The persona layer: a bound agent's voice, or the default Dravr voice.
     // Voice only — every platform invariant lives in the contract below, which
     // is why replacing this block is safe.
-    let persona_prompt = coach_ctx.map_or_else(
+    let persona_prompt = agent_ctx.map_or_else(
         || ctx.pierre_system_prompt.clone(),
-        |c| resolve_coach_base_prompt(&ctx.prompt_registry, c, &profile.locale),
+        |c| resolve_agent_base_prompt(&ctx.prompt_registry, c, &profile.locale),
     );
 
     // The platform contract leads, unconditionally.
     //
-    // Binding a coach REPLACES the persona block, and before the contract was
+    // Binding an agent REPLACES the persona block, and before the contract was
     // split out of `pierre_system.md` that replacement took the platform rules
-    // with it: all 52 coach personas ran with no current date (so "hier" could
+    // with it: all 52 agent personas ran with no current date (so "hier" could
     // not be resolved to an epoch window), no Available-Tools framing, and no
-    // "never refuse a question `get_activities` can answer" rule. The coach
+    // "never refuse a question `get_activities` can answer" rule. The agent
     // then declined data questions it had every means to answer — the
     // 2026-07-24 and 2026-08-11 live incidents. Contract first, persona second,
     // so a persona can shape the voice and never the capability.
@@ -668,14 +668,14 @@ pub(crate) async fn assemble_prompt_and_messages(
     // from the per-locale messaging registry; the persona block comes
     // from the user's `coaching_persona` column and controls output
     // format (structure, citation density, length) orthogonally to the
-    // coach personality.
+    // agent personality.
     let (persona, user_timezone) =
         resolve_user_persona_and_timezone(ctx.repos.users.as_ref(), &input.user_id).await;
     let base_prompt = interpolate_prompt_placeholders(
         &ctx.messaging_strings_registry,
         &ctx.prompt_registry,
         &profile.locale,
-        coach_ctx,
+        agent_ctx,
         persona,
         user_timezone.as_deref(),
         &base_prompt,
@@ -689,8 +689,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // 11,763 characters, restating names the model was already given. It was
     // built from `user_visible_schemas()` while the declarations were built
     // from `chat_callable_schemas()`, so it advertised every non-chat-callable
-    // category — coach CRUD, config writes, claim verification — as though the
-    // coach could call them. Two lists from two sources cannot help drifting;
+    // category — agent CRUD, config writes, claim verification — as though the
+    // agent could call them. Two lists from two sources cannot help drifting;
     // deleting one is what stops it, not regenerating both.
     //
     // What the list was carrying that nothing else says is the boundary itself,
@@ -699,12 +699,12 @@ pub(crate) async fn assemble_prompt_and_messages(
     // The names — and only the names — come back with it, from
     // `chat_callable_schemas()`. That is the source the declarations are built
     // from, which is the half the deleted list got wrong: it read
-    // `user_visible_schemas()` and advertised tools the coach could not call.
+    // `user_visible_schemas()` and advertised tools the agent could not call.
     // One source cannot drift against itself, and names-only is ~2 KB against
     // the 11,763 characters that were removed.
     //
     // It is load-bearing on the `mcp_tool_calling` path, where the catalogue
-    // goes to Copilot over MCP and never reaches the prompt — the coach started
+    // goes to Copilot over MCP and never reaches the prompt — the agent started
     // those turns unable to enumerate a single tool, and answered capability
     // questions from a prompt that named none. On the native path the full
     // schemas already ship every turn (registre#406 covers that cost), so the
@@ -776,7 +776,7 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     // Stage 7e: Render the per-user OKF context bundle (North Star + pillar +
     // medical facts) from the read-time Dossier into the prompt. Single
-    // fact->prompt surface; user-wide (coach-agnostic) facts.
+    // fact->prompt surface; user-wide (agent-agnostic) facts.
     let base_prompt = inject_okf_bundle(
         ctx.repos.dossier.as_ref(),
         input.conversation_tenant_id,
@@ -786,14 +786,14 @@ pub(crate) async fn assemble_prompt_and_messages(
     )
     .await;
 
-    // Every per-coach block below follows the coach answering this turn — the
-    // mentioned coach on a `@handle` turn — so a routed turn carries that
-    // coach's playbooks, followups and plan, not another coach's under its
+    // Every per-agent block below follows the agent answering this turn — the
+    // mentioned agent on a `@handle` turn — so a routed turn carries that
+    // agent's playbooks, followups and plan, not another agent's under its
     // persona.
-    let turn_coach_id = input.turn_coach_id(conv);
+    let turn_agent_id = input.turn_agent_id(conv);
 
     // Stage 7e.2: Inject the athlete's proven coaching playbooks (learned from
-    // their own outcomes) so the coach prefers what has worked for them. Scoped
+    // their own outcomes) so the agent prefers what has worked for them. Scoped
     // to the TOOL tenant — where the activity data and playbooks live.
     let playbook_tenant = input.tool_tenant_id.to_string();
     let base_prompt = inject_playbooks(
@@ -801,18 +801,18 @@ pub(crate) async fn assemble_prompt_and_messages(
         ctx.repos.activity_cache.as_ref(),
         &playbook_tenant,
         &input.user_id,
-        turn_coach_id,
+        turn_agent_id,
         base_prompt,
     )
     .await;
 
-    // Stage 7f: Render pending coach followups. Surfaced IDs are marked
+    // Stage 7f: Render pending agent followups. Surfaced IDs are marked
     // delivered after the turn succeeds.
     let (base_prompt, pending_followup_ids) = inject_pending_followups(
         &ctx.data,
         input.conversation_tenant_id,
         &input.user_id,
-        turn_coach_id,
+        turn_agent_id,
         base_prompt,
     )
     .await;
@@ -821,7 +821,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // TOOL tenant — the tenant `commitment_create` writes under and the one
     // their activity data lives in, so the block and the sweep agree on which
     // promises exist. Deliberately above the training plan: a promise the
-    // athlete made themselves outranks a plan the coach wrote for them.
+    // athlete made themselves outranks a plan the agent wrote for them.
     let base_prompt = inject_commitments(
         &ctx.data,
         &input.tool_tenant_id.to_string(),
@@ -851,14 +851,14 @@ pub(crate) async fn assemble_prompt_and_messages(
         ctx.plan_prompt_sources(),
         &input.tool_tenant_id.to_string(),
         &input.user_id,
-        turn_coach_id,
+        turn_agent_id,
         athlete_today,
         interview_owns_turn,
         base_prompt,
     )
     .await;
 
-    // Stage 7f.3: Append the load-progression guardrails for coaches whose
+    // Stage 7f.3: Append the load-progression guardrails for agents whose
     // category can actually prescribe load.
     //
     // Deliberately ABOVE the tool-discipline block (7g.1), the visual contract
@@ -874,14 +874,14 @@ pub(crate) async fn assemble_prompt_and_messages(
     // is: a calibration interview is asking questions, not
     // prescribing load, so the block would be pure prompt cost on every turn of
     // the interview.
-    let base_prompt = match progression_guardrails(ctx, coach_ctx, interview_owns_turn) {
+    let base_prompt = match progression_guardrails(ctx, agent_ctx, interview_owns_turn) {
         Some(guardrails) => format!("{base_prompt}\n\n{guardrails}"),
         None => base_prompt,
     };
 
     // Stage 7f.4: Append the group ambient transcript supplied by the
     // messaging ingress. Group chat history is per member, so without this
-    // block the coach never sees what OTHER members said — the transcript
+    // block the agent never sees what OTHER members said — the transcript
     // is the only cross-member view of the room's discussion.
     let base_prompt = match input.ambient_context.as_deref() {
         Some(ambient) => format!("{base_prompt}\n\n{ambient}"),
@@ -897,7 +897,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7g.1: Append mandatory tool-discipline rules at the very end of
     // the system prompt, immediately before the user turn. LLMs
     // (claude-opus-4.7 especially) recency-bias heavily — mid-prompt rules
-    // get drowned out by 20 KB of coach persona + provider context.
+    // get drowned out by 20 KB of agent persona + provider context.
     // Keeping this block last ensures the tool-call and "no narration"
     // constraints are the freshest instructions when the model starts
     // generating.
@@ -920,25 +920,25 @@ pub(crate) async fn assemble_prompt_and_messages(
     // resolved them; this is the surface-specific half plus that tail.
     let raw_system_prompt = format!("{raw_system_prompt}\n\n{tool_discipline_prompt}");
 
-    // Stage 7g.2b: Inline visual contract. Granted per coach via `visuals:` and
-    // withheld everywhere else, so a coach that was never granted one is never
+    // Stage 7g.2b: Inline visual contract. Granted per agent via `visuals:` and
+    // withheld everywhere else, so an agent that was never granted one is never
     // even told the syntax — the post-process gate refuses its fences anyway,
     // but not telling it is what keeps the two consistent.
     //
     // Withheld on a surface that can neither draw a Scene inline nor fetch a
-    // rasterised one, because a coach that emitted a fence there would have it
+    // rasterised one, because an agent that emitted a fence there would have it
     // stripped to a marker pointing at nothing. Every surface shipping today
     // does one or the other — the app draws inline, the channels fetch pixels
     // the egress presses — so the gate is what keeps a future text-only
     // transport from being taught a syntax it cannot honour.
     //
     // The grant is read through `granted_visuals`, so "no coach bound" means the
-    // platform baseline rather than "no visuals". A group chat binds no coach —
+    // platform baseline rather than "no visuals". A group chat binds no agent —
     // the platform is answering — and treating that as an empty grant withheld
     // the contract entirely, leaving the model to report it had no way to draw.
     let visual_contract_active = !interview_owns_turn
         && (profile.render.blocks.scene_inline || profile.render.blocks.scene_raster)
-        && !viz_blocks::granted_visuals(coach_ctx.map(|c| c.visuals.as_slice())).is_empty();
+        && !viz_blocks::granted_visuals(agent_ctx.map(|c| c.visuals.as_slice())).is_empty();
     let raw_system_prompt = if visual_contract_active {
         format!("{raw_system_prompt}\n\n{}", ctx.visual_blocks_prompt)
     } else {
@@ -946,11 +946,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     };
 
     // Stage 7g.3: Onboarding directive — when this conversation is mid guided
-    // pillar walk, steer the coach to probe the current topic conversationally.
+    // pillar walk, steer the agent to probe the current topic conversationally.
     // On the first turn after that walk ends, the same slot carries the
     // directive that revokes it: the interview block claims to override every
     // other instruction and forbids saving a plan, and dropping it does not
-    // retract it from the transcript it already shaped (2026-07-28 — a coach
+    // retract it from the transcript it already shaped (2026-07-28 — an agent
     // reported a save failure 48 seconds after a completed calibration, having
     // never called the tool). The two are mutually exclusive by construction —
     // a conversation is either in a flow or just out of one — so they share one
@@ -961,7 +961,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // what to do this turn, so it does not compete for behavioural precedence.
     // It used to sit mid-prompt
     // (7e.1) where the channel response constraints and the tool-discipline
-    // block landed after it; a builder coach
+    // block landed after it; a builder agent
     // whose persona mandates a plan on its first reply won that recency
     // contest, which is how the 2026-07-24 walk derailed into a 16-week plan on
     // the athlete's first answer.
@@ -989,7 +989,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7g.3b: State the language this turn is conducted in.
     //
     // `profile.locale` is already the authority for everything else the turn
-    // renders — which coach prompt is loaded, which refusal strings interpolate
+    // renders — which agent prompt is loaded, which refusal strings interpolate
     // above, which acronym glosses expand, which disclaimer the text guardrails
     // prepend, which language the verification banner speaks. Until now it was
     // the authority for every one of those EXCEPT the coaching text they wrap,
@@ -998,7 +998,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // It loses that inference. On 2026-08-30 a francophone athlete asked a
     // long question in French on Telegram and got an English answer, then
     // answered "Yes" and got French: the athlete's few hundred French
-    // characters were outweighed by tens of KB of English contract, coach
+    // characters were outweighed by tens of KB of English contract, agent
     // scaffolding, provider context and tool results, and the short second turn
     // was not. The locale was `fr` throughout — provably, because the French
     // medical disclaimer fired on the second turn while the first, the one
@@ -1028,7 +1028,7 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     // Stage 7g.4: Close every prompt with the identity anchor.
     //
-    // The coach LLM runs through the GitHub Copilot CLI, whose own system
+    // The agent LLM runs through the GitHub Copilot CLI, whose own system
     // prompt ("You are the GitHub Copilot CLI, a terminal assistant built by
     // GitHub", plus an explicit "when asked which model you are, reply 'I'm
     // powered by <name>'" clause) occupies the true system slot: Copilot's ACP
@@ -1039,11 +1039,11 @@ pub(crate) async fn assemble_prompt_and_messages(
     // (embacle v0.19.6's tool-catalog reframing did, over 9 live A/B runs) — so
     // the fight is "adversarial slot vs. something" rather than "vs. nothing".
     //
-    // Until now coach-bound turns fought it with nothing: [`resolve_coach_base_prompt`]
+    // Until now agent-bound turns fought it with nothing: [`resolve_agent_base_prompt`]
     // REPLACES `pierre_system.md` (the only prompt carrying "You are Dravr")
-    // with the coach's own prompt, which never states who the assistant is.
-    // The result was an accidental prod A/B — coach-bound turns matched the
-    // boundary detector ~24% of the time while no-coach turns (which keep the
+    // with the agent's own prompt, which never states who the assistant is.
+    // The result was an accidental prod A/B — agent-bound turns matched the
+    // boundary detector ~24% of the time while no-agent turns (which keep the
     // anchor) matched 0%.
     //
     // LAST, not first: see [`IDENTITY_ANCHOR`] for the 48-run A/B that measured
@@ -1057,13 +1057,13 @@ pub(crate) async fn assemble_prompt_and_messages(
     // (`tool_simulation::inject_tool_catalog`), so "last" here means last
     // platform-controlled block, not last on the wire.
     let raw_system_prompt =
-        close_with_anchors(&raw_system_prompt, coach_ctx.map(|c| c.slug.as_str()));
+        close_with_anchors(&raw_system_prompt, agent_ctx.map(|c| c.slug.as_str()));
 
-    // Stage 7h: Harden the prompt with a per-turn canary. Salted with the coach
+    // Stage 7h: Harden the prompt with a per-turn canary. Salted with the agent
     // answering this turn, which is also what the reply scan reads.
     let prompt_guard = prompt_leak::harden_system_prompt(
         input.conversation_tenant_id,
-        turn_coach_id,
+        turn_agent_id,
         &raw_system_prompt,
     );
 
@@ -1128,26 +1128,26 @@ pub(crate) async fn assemble_prompt_and_messages(
     ))
 }
 
-/// Resolve the coach runtime context this turn answers as.
+/// Resolve the agent runtime context this turn answers as.
 ///
-/// A mentioned coach arrives with its context already resolved — in the
+/// A mentioned agent arrives with its context already resolved — in the
 /// athlete's own tenant, where the install lives, so a `@handle` turn on a
 /// shared messaging room reads the athlete's copy rather than looking for it
-/// under the bot's tenant. Otherwise the conversation's bound coach resolves
+/// under the bot's tenant. Otherwise the conversation's bound agent resolves
 /// under the conversation's tenant, as every turn did before mentions existed.
-pub(crate) async fn resolve_turn_coach_ctx(
+pub(crate) async fn resolve_turn_agent_ctx(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,
-) -> AppResult<Option<CoachRuntimeContext>> {
-    if let Some(mention) = &input.mentioned_coach {
+) -> AppResult<Option<AgentRuntimeContext>> {
+    if let Some(mention) = &input.mentioned_agent {
         return Ok(Some(mention.runtime.clone()));
     }
-    match conv.coach_id.as_deref() {
-        Some(coach_id) => {
+    match conv.agent_id.as_deref() {
+        Some(agent_id) => {
             ctx.repos
-                .coaches
-                .get_coach_runtime_context(coach_id, input.conversation_tenant_id)
+                .agents
+                .get_agent_runtime_context(agent_id, input.conversation_tenant_id)
                 .await
         }
         None => Ok(None),

@@ -1,4 +1,4 @@
-// ABOUTME: A route block carries the platform's reading of a recorded track, never the coach's
+// ABOUTME: A route block carries the platform's reading of a recorded track, never the agent's
 // ABOUTME: Asserts the hydrated block's real coordinates, its trimmed endpoints and its climb marks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -66,7 +66,7 @@ fn hill_streams() -> TimeSeriesData {
     }
 }
 
-/// A route block as a coach writes one: a reference, with no geometry in it.
+/// A route block as an agent writes one: a reference, with no geometry in it.
 fn route_block(highlight: Option<&str>) -> Value {
     let mut block = json!({
         "type": "route",
@@ -221,7 +221,7 @@ fn a_hydrated_block_carries_the_read_geometry() {
         "the grade is carried as the athlete reads it, since the client captions it directly"
     );
 
-    // The reference the coach wrote survives; the question it asked does not,
+    // The reference the agent wrote survives; the question it asked does not,
     // because hydration answered it.
     assert_eq!(block["activity_id"], json!("14872003941"));
     assert_eq!(block["title"], json!("Ta sortie de dimanche"));

@@ -22,7 +22,7 @@
 //! absence in the system prompt, the athlete-data verifier contradicts any
 //! specific figure asserted with no source behind it, and the tool-dispatch
 //! chokepoint refuses every `REQUIRES_PROVIDER` tool. A providerless athlete
-//! now gets a coach that says what it cannot see, instead of a closed door.
+//! now gets an agent that says what it cannot see, instead of a closed door.
 //!
 //! ## Who reads it now
 //!
@@ -47,8 +47,8 @@ use uuid::Uuid;
 /// Returns `true` when the user has at least one row in `provider_connections`
 /// — including `Synthetic` (seed/demo) connections.
 ///
-/// This is the **coach-access** gate: synthetic connections carry seeded
-/// activity data the LLM coach can legitimately discuss, so a demo user with
+/// This is the **agent-access** gate: synthetic connections carry seeded
+/// activity data the LLM agent can legitimately discuss, so a demo user with
 /// only synthetic data is allowed through (mirrors how the OAuth callback
 /// unblocks chat). For the *connect-a-real-provider* onboarding decision, use
 /// [`user_has_real_provider`] instead.
@@ -73,7 +73,7 @@ pub async fn user_has_connected_provider(
 /// `provider = "synthetic"` row for test/demo users; that's seeded data, not a
 /// real provider link, so it must NOT suppress the redirect — a user whose only
 /// connection is synthetic still needs to connect a real provider. Distinct from
-/// [`user_has_connected_provider`] (the coach-access gate), which counts
+/// [`user_has_connected_provider`] (the agent-access gate), which counts
 /// synthetic so demos can chat about their seeded data.
 ///
 /// # Errors

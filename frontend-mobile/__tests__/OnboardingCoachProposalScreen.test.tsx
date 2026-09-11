@@ -7,7 +7,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CoachProposalResponse } from '@pierre/shared-types';
+import type { AgentProposalResponse } from '@pierre/shared-types';
 
 const mockRouter = {
   push: jest.fn(),
@@ -55,7 +55,7 @@ import { CHAT_THREAD_ROUTE, threadHref } from '../src/navigation/routes';
 // The same proposal the web sibling test renders: a primary sport spelled as
 // the wire spells it, a mix entry in snake_case and one carrying a version
 // suffix, and one proposed coach in the training category.
-const PROPOSAL: CoachProposalResponse = {
+const PROPOSAL: AgentProposalResponse = {
   profile: {
     has_profile: true,
     window_days: 14,
@@ -66,9 +66,9 @@ const PROPOSAL: CoachProposalResponse = {
       { sport: 'Kayaking V2', count: 4, share: 0.4 },
     ],
   },
-  coaches: [
+  agents: [
     {
-      coach: {
+      agent: {
         id: 'coach-trail',
         title: 'Trail Coach',
         description: 'Hills and long climbs',
@@ -109,7 +109,7 @@ describe('OnboardingCoachProposalScreen', () => {
     mockGetProposal.mockResolvedValue(PROPOSAL);
     mockRecordUsage.mockResolvedValue(undefined);
     mockMarkSeen.mockResolvedValue(undefined);
-    mockCreateConversation.mockResolvedValue({ id: 'conv-9', title: 'Trail Coach', coach_id: 'coach-trail' });
+    mockCreateConversation.mockResolvedValue({ id: 'conv-9', title: 'Trail Coach', agent_id: 'coach-trail' });
   });
 
   // A coach the store shipped without a title used to open a thread named "",
@@ -118,7 +118,7 @@ describe('OnboardingCoachProposalScreen', () => {
   it('names the thread by the clock when the coach has no title', async () => {
     mockGetProposal.mockResolvedValue({
       ...PROPOSAL,
-      coaches: [{ ...PROPOSAL.coaches[0], coach: { ...PROPOSAL.coaches[0].coach, title: '' } }],
+      agents: [{ ...PROPOSAL.agents[0], agent: { ...PROPOSAL.agents[0].agent, title: '' } }],
     });
 
     const { findByText } = renderScreen();
@@ -126,7 +126,7 @@ describe('OnboardingCoachProposalScreen', () => {
 
     await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
     expect(mockCreateConversation.mock.calls[0][0]).toEqual({
-      coach_id: 'coach-trail',
+      agent_id: 'coach-trail',
       title: expect.stringMatching(/^Chat .+ \d{2}:\d{2}$/),
     });
   });
@@ -141,7 +141,7 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(mockRecordUsage).toHaveBeenCalledWith('coach-trail');
     expect(mockMarkSeen).toHaveBeenCalledTimes(1);
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockCreateConversation).toHaveBeenCalledWith({ coach_id: 'coach-trail', title: 'Trail Coach' });
+    expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail', title: 'Trail Coach' });
     expect(mockRouter.push).toHaveBeenCalledWith({
       pathname: CHAT_THREAD_ROUTE,
       params: { conversationId: 'conv-9' },
@@ -167,7 +167,7 @@ describe('OnboardingCoachProposalScreen', () => {
       fireEvent.press(await findByText('Start'));
 
       await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
-      expect(mockCreateConversation).toHaveBeenCalledWith({ coach_id: 'coach-trail', title: 'Trail Coach' });
+      expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail', title: 'Trail Coach' });
       // Node reports an orphaned rejection only after the microtask queue
       // drains; a macrotask boundary lets that report land before we look.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));

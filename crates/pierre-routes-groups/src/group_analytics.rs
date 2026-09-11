@@ -131,7 +131,7 @@ impl GroupAnalyticsRoutes {
     /// Delegates to the canonical
     /// [`fetch_member_snapshots`](pierre_tool_runtime::group_fitness::fetch_member_snapshots)
     /// builder so the REST analytics endpoints see the exact same
-    /// all-providers + deduplicated snapshots the chat coach sees. This is the
+    /// all-providers + deduplicated snapshots the chat agent sees. This is the
     /// single source of truth for member fitness snapshots across both paths.
     async fn fetch_snapshots<C: ToolRuntime + MiddlewareCtx>(
         resources: &Arc<C>,

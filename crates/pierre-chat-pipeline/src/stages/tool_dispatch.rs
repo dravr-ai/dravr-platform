@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::GuidedFlow;
-use pierre_core::models::{CoachRuntimeContext, MemberFitnessSnapshot};
+use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
 use pierre_llm::ChatMessage;
@@ -37,7 +37,7 @@ use super::prefetch::{
 
 /// Pre-dispatch prep plus the multi-turn tool execution loop.
 ///
-/// Owns pipeline stages 9 through 14: MCP executor construction, coach
+/// Owns pipeline stages 9 through 14: MCP executor construction, agent
 /// `DataRequirements` activity prefetch, LLM provider resolution, Tier
 /// 1 context-window compaction, the surface's max-iteration budget
 /// resolution, and the tool loop itself.
@@ -60,8 +60,8 @@ pub(crate) struct DispatchLlmInputs<'a> {
     pub profile: &'a SurfaceProfile,
     /// Effective LLM model id selected for this turn.
     pub active_model: &'a str,
-    /// Active coach runtime context, when one is bound.
-    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Active agent runtime context, when one is bound.
+    pub agent_ctx: Option<&'a AgentRuntimeContext>,
     /// Prior conversation messages (oldest first) used for context.
     pub history: &'a [MessageRecord],
     /// Per-message history-row ids parallel to `llm_messages` (`None` for the
@@ -105,7 +105,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         input,
         profile,
         active_model,
-        coach_ctx,
+        agent_ctx,
         history,
         source_ids,
         guided_flow,
@@ -129,7 +129,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             .with_turn_token(input.turn_id.0.to_string()),
     );
 
-    // Stage 10: Deterministic activity prefetch driven by coach DataRequirements.
+    // Stage 10: Deterministic activity prefetch driven by agent DataRequirements.
     //
     // The return value is provenance, not status: `true` means a real
     // `get_activities` run put the athlete's activities in front of the model.
@@ -139,7 +139,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         &executor,
         llm_messages,
         history,
-        coach_ctx,
+        agent_ctx,
         &input.user_id,
         input.tool_tenant_id,
         guided_flow.is_some(),
@@ -166,14 +166,14 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Stage 12b: Later-turn activity grounding. On any turn past the first,
     // a plan/analysis/recommendation ask must be answered from the athlete's
-    // real activities, not the coach persona alone. Runs AFTER compaction so
+    // real activities, not the agent persona alone. Runs AFTER compaction so
     // the freshly injected block is never summarized away and cannot desync
     // the `source_ids`/`llm_messages` vectors compaction consumed above.
     prefetched_activities |= maybe_refresh_activity_context(
         ActivityRefreshInputs {
             executor: &executor,
             history,
-            coach_ctx,
+            agent_ctx,
             user_id: &input.user_id,
             tenant_id: input.tool_tenant_id,
             guided_flow_active: guided_flow.is_some(),
@@ -291,14 +291,14 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Stage 13: the coaching tool surface. Every turn sees the full
     // chat-callable set (`ToolRegistry::chat_callable_schemas`), so a capable
-    // coach model routes natively over all coaching tools — no per-turn
+    // agent model routes natively over all coaching tools — no per-turn
     // narrowing that could starve a turn of a tool it needs.
     //
     // LIMITATION(registre#406): `build_mcp_tools` publishes the whole
     // chat-callable set on every native call, so the catalogue is re-sent in
     // each iteration's prefix. That width is deliberate, not an oversight --
     // c89da2396 deleted the keyword prefilter after it dropped `search_recipes`
-    // from a meal question and the coach invented a dinner, and an LLM
+    // from a meal question and the agent invented a dinner, and an LLM
     // classifier in its place was rejected. What remains registered is the cost
     // of that trade, not a missing narrowing step.
     //
@@ -332,7 +332,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         call_recorder,
         tool_message_recorder,
         stream_sink,
-        temperature: coach_ctx.and_then(|c| c.temperature),
+        temperature: agent_ctx.and_then(|c| c.temperature),
         mcp_servers,
     };
     let loop_start = Instant::now();
@@ -364,7 +364,7 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Record the prefetch as what it is: a tool run. Stage 10/12b invoked
     // `get_activities` on the athlete's behalf and put the rows in the prompt,
-    // and the platform contract then tells the coach to use them WITHOUT
+    // and the platform contract then tells the agent to use them WITHOUT
     // re-fetching — so the model answering from pre-loaded data calls nothing
     // and the loop reports an empty `tools_called`.
     //
@@ -409,7 +409,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         channel = profile.surface.as_str(),
         content_len = result.content.len(),
         tool_calls = result.tool_calls_count,
-        // Per-turn tool-usage observability: the exact tools the coach ran and
+        // Per-turn tool-usage observability: the exact tools the agent ran and
         // how long the agentic loop took. One structured line per turn answers
         // "which tools fired and was it slow" without grepping per-call logs.
         tools_called = ?result.tools_called,

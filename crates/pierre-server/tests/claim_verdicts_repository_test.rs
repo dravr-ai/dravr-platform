@@ -36,7 +36,7 @@ async fn insert_and_list_claim_verdict_round_trip() -> Result<()> {
     let params = InsertClaimVerdictParams {
         tenant_id: tenant(),
         user_id: "user-1",
-        coach_id: None,
+        agent_id: None,
         conversation_id: None,
         message_id: None,
         claim_text: "Protein at 1.6 g/kg/day maximizes muscle protein synthesis",
@@ -77,7 +77,7 @@ async fn insert_personalized_layer_verdict_round_trip() -> Result<()> {
     let params = InsertClaimVerdictParams {
         tenant_id: tenant(),
         user_id: "user-1",
-        coach_id: None,
+        agent_id: None,
         conversation_id: None,
         message_id: None,
         claim_text: "Run your threshold pace at 4:00/km",
@@ -122,7 +122,7 @@ async fn list_recent_verdicts_returns_newest_first() -> Result<()> {
         let params = InsertClaimVerdictParams {
             tenant_id: tenant(),
             user_id: "user-1",
-            coach_id: None,
+            agent_id: None,
             conversation_id: None,
             message_id: None,
             claim_text: &claim,
@@ -161,7 +161,7 @@ async fn list_verdicts_for_conversation_filters_by_conversation() -> Result<()> 
     let params_a = InsertClaimVerdictParams {
         tenant_id: tenant(),
         user_id: "user-1",
-        coach_id: None,
+        agent_id: None,
         conversation_id: None,
         message_id: None,
         claim_text: "tenant-scoped claim a",
@@ -201,7 +201,7 @@ async fn aggregate_verdict_stats_rolls_up_totals_and_daily() -> Result<()> {
         let params = InsertClaimVerdictParams {
             tenant_id: tenant(),
             user_id: "user-1",
-            coach_id: None,
+            agent_id: None,
             conversation_id: None,
             message_id: None,
             claim_text: "test",
@@ -241,7 +241,7 @@ async fn aggregate_verdict_stats_clamps_window_days() -> Result<()> {
     let params = InsertClaimVerdictParams {
         tenant_id: tenant(),
         user_id: "user-1",
-        coach_id: None,
+        agent_id: None,
         conversation_id: None,
         message_id: None,
         claim_text: "test",

@@ -349,7 +349,7 @@ mod intake_tests {
 
     /// Count assistant rows on the athlete's messaging conversation.
     ///
-    /// The coach's answer is persisted before `deliver_reply` sends it, so this
+    /// The agent's answer is persisted before `deliver_reply` sends it, so this
     /// is the observable "the turn was served" signal a test can order the
     /// intake against.
     /// Poll until `fragment` appears in the model transcript.
@@ -375,7 +375,7 @@ mod intake_tests {
 
     /// Poll until `step` is recorded with `status`.
     ///
-    /// The retirement now runs in the bottom-of-turn hook, AFTER the coach's
+    /// The retirement now runs in the bottom-of-turn hook, AFTER the agent's
     /// reply is delivered, so a test that reads the steps the moment the model
     /// was called reads them before they are written.
     async fn wait_for_step(
@@ -403,7 +403,7 @@ mod intake_tests {
              JOIN messaging_sessions s ON s.pierre_conversation_id = m.conversation_id \
              WHERE CAST(s.user_id AS TEXT) = $1 AND m.role = 'assistant'";
         let user = user_id.to_string();
-        let count: i64 = match resources.coach.database.as_ref() {
+        let count: i64 = match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(SQL)
                 .bind(&user)
                 .fetch_one(db.pool())
@@ -426,7 +426,7 @@ mod intake_tests {
              JOIN messaging_sessions s ON s.pierre_conversation_id = c.id \
              WHERE CAST(s.user_id AS TEXT) = $1";
         let user = user_id.to_string();
-        let row: Option<(Option<String>,)> = match resources.coach.database.as_ref() {
+        let row: Option<(Option<String>,)> = match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_optional(db.pool())
@@ -504,7 +504,7 @@ mod intake_tests {
     async fn medical_facts(resources: &ServerContext, user_id: Uuid) -> Vec<String> {
         const SQL: &str = "SELECT object FROM user_facts WHERE user_id = $1 AND kind = 'medical'";
         let user = user_id.to_string();
-        let rows: Vec<(String,)> = match resources.coach.database.as_ref() {
+        let rows: Vec<(String,)> = match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_as(SQL)
                 .bind(&user)
                 .fetch_all(db.pool())
@@ -744,8 +744,8 @@ mod intake_tests {
         );
     }
 
-    /// Someone who wants to talk gets one re-ask, then the coach takes over.
-    /// The re-ask rides BEHIND the coach's answer, never in front of it.
+    /// Someone who wants to talk gets one re-ask, then the agent takes over.
+    /// The re-ask rides BEHIND the agent's answer, never in front of it.
     ///
     /// Production Telegram, 2026-08-28 17:34. With the persona question
     /// outstanding, the athlete asked "Demain j'attaque Alfred Kelly la Moc et
@@ -800,7 +800,7 @@ mod intake_tests {
              and was handed the form instead"
         );
 
-        // The question itself must reach the coach. On the old code it was
+        // The question itself must reach the agent. On the old code it was
         // HandledNotStored and never reached the model at all, so this fragment
         // can only appear if the turn genuinely ran.
         assert!(
@@ -860,7 +860,7 @@ mod intake_tests {
 
     #[tokio::test]
     #[serial]
-    async fn two_unparsed_answers_stand_aside_for_the_coach() {
+    async fn two_unparsed_answers_stand_aside_for_the_agent() {
         env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
         let mock = MockLlm::new();
         let calls = mock.counter();
@@ -892,10 +892,10 @@ mod intake_tests {
 
         // Second non-answer: the budget is spent, so the intake retires.
         //
-        // `calls >= 3`, not 2. Every message now reaches the coach — that is the
+        // `calls >= 3`, not 2. Every message now reaches the agent — that is the
         // fix — so turn 1 plus both non-answers is three. The old assertion said
         // 2, which the first non-answer alone already satisfies, making it
-        // impossible to fail once the coach stopped being skipped. The claim is
+        // impossible to fail once the agent stopped being skipped. The claim is
         // tightened rather than relaxed: the count is paired with the third
         // message's own text, so it pins WHICH message reached the model instead
         // of only that some message did.

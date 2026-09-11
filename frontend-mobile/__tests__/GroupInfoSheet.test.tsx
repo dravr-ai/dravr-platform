@@ -24,7 +24,7 @@ jest.mock('../src/services/api', () => ({
       tenant_id: 'tenant-1',
       name: 'Harricana 2027',
       description: 'Bloc ultra',
-      coach_id: 'coach-1',
+      agent_id: 'coach-1',
       owner_id: 'user-owner',
       coach_user_id: null,
       peer_data_sharing: true,

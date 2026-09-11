@@ -101,8 +101,8 @@ pub struct UserInfo {
     /// as `snake_case` enum text so the frontend can drive its persona
     /// picker without translating between `camelCase` and `snake_case`.
     pub coaching_persona: String,
-    /// Coach-tier roster access flag — toggled when the user buys / is
-    /// granted the Coach persona tier. Surfaces in the Settings UI to
+    /// Agent-tier roster access flag — toggled when the user buys / is
+    /// granted the Agent persona tier. Surfaces in the Settings UI to
     /// show/hide roster-management screens.
     pub manages_roster: bool,
 }

@@ -14,8 +14,8 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use common::{create_test_server_resources, create_test_server_resources_with_chat_provider};
 use futures_util::stream;
+use helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 use helpers::axum_test::AxumTestRequest;
-use helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_ASSIGN_FORBIDDEN, KEY_AGENT_CREATE_CARD_TITLE, KEY_AGENT_CREATE_DISCARDED,
@@ -27,8 +27,8 @@ use pierre_core::llm::{
     ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
 };
-use pierre_core::models::coaches::{
-    CoachCategory, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
+use pierre_core::models::agents::{
+    AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter,
 };
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{AddMessageParams, COMMAND_FINISH_REASON};
@@ -220,18 +220,18 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     (user_id, tenant_id, format!("Bearer {token}"))
 }
 
-async fn seed_coach(
+async fn seed_agent(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     title: &str,
     description: &str,
 ) -> String {
-    let request = CreateCoachRequest {
+    let request = CreateAgentRequest {
         title: title.to_owned(),
         description: Some(description.to_owned()),
         system_prompt: "You are a test coach.".to_owned(),
-        category: CoachCategory::Training,
+        category: AgentCategory::Training,
         tags: vec![],
         sample_prompts: vec![],
         startup_query: None,
@@ -244,14 +244,14 @@ async fn seed_coach(
         success_criteria: None,
         max_tool_iterations: None,
     };
-    let coach = resources
+    let agent = resources
         .common
         .repos
-        .coaches
+        .agents
         .create(user_id, tenant_id, &request)
         .await
         .unwrap();
-    coach.id.to_string()
+    agent.id.to_string()
 }
 
 /// Put `user_id` in a coaching group with the given role, so `/help` resolves a
@@ -260,7 +260,7 @@ async fn seed_group_membership(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
-    coach_id: &str,
+    agent_id: &str,
     role: GroupRole,
 ) -> Uuid {
     let now = chrono::Utc::now();
@@ -270,7 +270,7 @@ async fn seed_group_membership(
         tenant_id: tenant_id.to_string(),
         name: "Help Filter Group".to_owned(),
         description: None,
-        coach_id: coach_id.to_owned(),
+        agent_id: agent_id.to_owned(),
         // owner_id must reference a real user (FK). It plays no part in the
         // filter either way: `caller_group_standing` reads the membership row's
         // `role`, which is what `role` below sets.
@@ -403,15 +403,15 @@ fn rendered(resources: &Arc<ServerContext>, key: &str, args: &[&str]) -> String 
 }
 
 /// Publish "Recovery Coach" under a fresh author and install it for the
-/// athlete; returns the installed copy's id, which answers to `@recovery-coach`.
-async fn install_recovery_coach(
+/// athlete; returns the installed copy's id, which answers to `@recovery-agent`.
+async fn install_recovery_agent(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> String {
     let (author_id, author_tenant, _author_auth) =
         seed_user_tenant(resources, &format!("author-{user_id}@test.com")).await;
-    let origin = publish_catalogue_coach(
+    let origin = publish_catalogue_agent(
         &resources.common.repos,
         author_id,
         author_tenant,
@@ -420,7 +420,7 @@ async fn install_recovery_coach(
     )
     .await;
     let installed =
-        install_catalogue_coach(&resources.common.repos, origin, user_id, tenant_id).await;
+        install_catalogue_agent(&resources.common.repos, origin, user_id, tenant_id).await;
     assert_eq!(installed.handle.as_deref(), Some("recovery-coach"));
     installed.id.to_string()
 }
@@ -444,8 +444,8 @@ async fn group_conversation(
     conv_id
 }
 
-/// The coach the conversation row is bound to.
-async fn conversation_coach(
+/// The agent the conversation row is bound to.
+async fn conversation_agent(
     resources: &Arc<ServerContext>,
     conv_id: &str,
     user_id: Uuid,
@@ -459,11 +459,11 @@ async fn conversation_coach(
         .await
         .unwrap()
         .expect("the conversation exists")
-        .coach_id
+        .agent_id
 }
 
 /// The athlete's selection pointer.
-async fn selected_coach(
+async fn selected_agent(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -472,13 +472,13 @@ async fn selected_coach(
         .common
         .repos
         .tenants
-        .get_selected_coach(tenant_id, user_id)
+        .get_selected_agent(tenant_id, user_id)
         .await
         .unwrap()
 }
 
-/// The coach a group is pointed at.
-async fn group_coach(
+/// The agent a group is pointed at.
+async fn group_agent(
     resources: &Arc<ServerContext>,
     group_id: Uuid,
     tenant_id: TenantId,
@@ -491,11 +491,11 @@ async fn group_coach(
         .await
         .unwrap()
         .expect("the group exists")
-        .coach_id
+        .agent_id
 }
 
 /// Write a coaching exchange into `conv_id`, so there is something to draft
-/// a coach from.
+/// an agent from.
 async fn seed_coaching_exchange(
     resources: &Arc<ServerContext>,
     conv_id: &str,
@@ -534,22 +534,22 @@ async fn seed_coaching_exchange(
     }
 }
 
-/// The athlete's coach count, read the way the quota reads it.
-async fn coach_count(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> u32 {
+/// The athlete's agent count, read the way the quota reads it.
+async fn agent_count(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> u32 {
     resources
         .common
         .repos
-        .coaches
+        .agents
         .count(user_id, tenant_id)
         .await
         .unwrap()
 }
 
 #[tokio::test]
-async fn coach_command_returns_card_with_actions_no_llm_call() {
+async fn agent_command_returns_card_with_actions_no_llm_call() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "web-chat@test.com").await;
-    let coach = seed_coach(
+    let agent = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -581,14 +581,14 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
         turn_actions_title(&body).is_some(),
         "expected a title on /coach's actions block"
     );
-    // Actions populated with per-coach add buttons. A coach created here owns
+    // Actions populated with per-agent add buttons. An agent created here owns
     // no catalogue handle, so its button carries the id form.
     let actions = turn_actions(&body);
     assert!(!actions.is_empty(), "expected at least one coach action");
     assert_eq!(actions[0].action_type, "postback");
     assert_eq!(
         actions[0].value,
-        format!("/agent add {coach}"),
+        format!("/agent add {agent}"),
         "an agent without a handle is added by id"
     );
     // Markdown emphasis stripped uniformly (same behaviour as messaging channels).
@@ -602,33 +602,33 @@ async fn coach_command_returns_card_with_actions_no_llm_call() {
     assert_eq!(body.telemetry.model, "command");
 }
 
-/// `/coach` is the athlete's shelf, not the catalogue: the coaches they
+/// `/agent` is the athlete's shelf, not the catalogue: the agents they
 /// created and the ones they installed, each with the `@handle` that adds it,
 /// and no system agent they never installed. Every button fits Telegram's
 /// callback-data ceiling.
 #[tokio::test]
-async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_system_coach() {
+async fn agent_list_shows_installed_agents_with_handles_and_no_uninstalled_system_agent() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-list@test.com").await;
-    let own = seed_coach(&resources, user_id, tenant_id, "My Own Coach", "Mine.").await;
-    let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
+    let own = seed_agent(&resources, user_id, tenant_id, "My Own Coach", "Mine.").await;
+    let installed = install_recovery_agent(&resources, user_id, tenant_id).await;
     // A system agent every tenant can see — visible to `/discover`, absent
     // from the shelf until it is installed.
     let uninstalled = resources
         .common
         .repos
-        .coaches
-        .create_system_coach(
+        .agents
+        .create_system_agent(
             user_id,
             tenant_id,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: "Global Strength Coach".to_owned(),
                 description: Some("Strength for everyone.".to_owned()),
                 system_prompt: "You are the strength coach.".to_owned(),
-                category: CoachCategory::Training,
+                category: AgentCategory::Training,
                 tags: vec![],
                 sample_prompts: vec![],
-                visibility: CoachVisibility::Global,
+                visibility: AgentVisibility::Global,
             },
         )
         .await
@@ -685,10 +685,10 @@ async fn coach_list_shows_installed_coaches_with_handles_and_no_uninstalled_syst
 /// handle — moves the selection pointer and binds the conversation, and says
 /// so without any "group" wording: an unbound thread is personal.
 #[tokio::test]
-async fn coach_add_by_id_in_chat_binds_the_conversation_and_the_selection() {
+async fn agent_add_by_id_in_chat_binds_the_conversation_and_the_selection() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-add-id@test.com").await;
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -696,13 +696,13 @@ async fn coach_add_by_id_in_chat_binds_the_conversation_and_the_selection() {
         "Experts in training intensity distribution.",
     )
     .await;
-    assert!(selected_coach(&resources, user_id, tenant_id)
+    assert!(selected_agent(&resources, user_id, tenant_id)
         .await
         .is_none());
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = create_conversation(router.clone(), &auth).await;
-    let body = send_command(router, &auth, &conv_id, &format!("/coach add {coach_id}")).await;
+    let body = send_command(router, &auth, &conv_id, &format!("/coach add {agent_id}")).await;
 
     let text = &body.assistant.message.content;
     assert!(
@@ -714,44 +714,44 @@ async fn coach_add_by_id_in_chat_binds_the_conversation_and_the_selection() {
         "a personal thread never mentions a group: {text}"
     );
     assert_eq!(
-        selected_coach(&resources, user_id, tenant_id)
+        selected_agent(&resources, user_id, tenant_id)
             .await
             .as_deref(),
-        Some(coach_id.as_str())
+        Some(agent_id.as_str())
     );
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id)
+        conversation_agent(&resources, &conv_id, user_id, tenant_id)
             .await
             .as_deref(),
-        Some(coach_id.as_str()),
+        Some(agent_id.as_str()),
         "the conversation the command was typed in is bound"
     );
 }
 
-/// `/coach add @handle` binds the caller's installed copy; a handle nobody
+/// `/agent add @handle` binds the caller's installed copy; a handle nobody
 /// installed — unknown, or a system agent still on the catalogue only — is
 /// refused by name and binds nothing.
 #[tokio::test]
-async fn coach_add_by_handle_in_chat_binds_the_conversation() {
+async fn agent_add_by_handle_in_chat_binds_the_conversation() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "coach-add-handle@test.com").await;
-    let installed_id = install_recovery_coach(&resources, user_id, tenant_id).await;
+    let installed_id = install_recovery_agent(&resources, user_id, tenant_id).await;
     let uninstalled_system = resources
         .common
         .repos
-        .coaches
-        .create_system_coach(
+        .agents
+        .create_system_agent(
             user_id,
             tenant_id,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: "Global Strength Coach".to_owned(),
                 description: None,
                 system_prompt: "You are the strength coach.".to_owned(),
-                category: CoachCategory::Training,
+                category: AgentCategory::Training,
                 tags: vec![],
                 sample_prompts: vec![],
-                visibility: CoachVisibility::Global,
+                visibility: AgentVisibility::Global,
             },
         )
         .await
@@ -767,7 +767,7 @@ async fn coach_add_by_handle_in_chat_binds_the_conversation() {
         body.assistant.message.content
     );
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id).await,
+        conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
         None,
         "an unknown handle binds nothing"
     );
@@ -782,7 +782,7 @@ async fn coach_add_by_handle_in_chat_binds_the_conversation() {
     )
     .await;
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id).await,
+        conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
         None,
         "a coach off the shelf binds nothing: {}",
         body.assistant.message.content
@@ -795,28 +795,28 @@ async fn coach_add_by_handle_in_chat_binds_the_conversation() {
         body.assistant.message.content
     );
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id)
+        conversation_agent(&resources, &conv_id, user_id, tenant_id)
             .await
             .as_deref(),
         Some(installed_id.as_str()),
         "the conversation is bound to the installed copy"
     );
     assert_eq!(
-        selected_coach(&resources, user_id, tenant_id)
+        selected_agent(&resources, user_id, tenant_id)
             .await
             .as_deref(),
         Some(installed_id.as_str())
     );
 }
 
-/// In a group thread `/coach add` is a group setting: an owner points the
-/// group at the coach — every member gets it — and the thread rebinds, while
+/// In a group thread `/agent add` is a group setting: an owner points the
+/// group at the agent — every member gets it — and the thread rebinds, while
 /// the owner's personal selection is left alone.
 #[tokio::test]
-async fn coach_add_in_a_group_thread_by_an_owner_sets_the_group_coach_and_binds() {
+async fn agent_add_in_a_group_thread_by_an_owner_sets_the_group_agent_and_binds() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-add-owner@test.com").await;
-    let first_coach = seed_coach(&resources, user_id, tenant_id, "First Coach", "First.").await;
+    let first_coach = seed_agent(&resources, user_id, tenant_id, "First Coach", "First.").await;
     let group_id = seed_group_membership(
         &resources,
         user_id,
@@ -825,7 +825,7 @@ async fn coach_add_in_a_group_thread_by_an_owner_sets_the_group_coach_and_binds(
         GroupRole::Owner,
     )
     .await;
-    let installed_id = install_recovery_coach(&resources, user_id, tenant_id).await;
+    let installed_id = install_recovery_agent(&resources, user_id, tenant_id).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = group_conversation(&resources, router.clone(), &auth, tenant_id, group_id).await;
@@ -838,32 +838,32 @@ async fn coach_add_in_a_group_thread_by_an_owner_sets_the_group_coach_and_binds(
         "names the group: {text}"
     );
     assert_eq!(
-        group_coach(&resources, group_id, tenant_id).await,
+        group_agent(&resources, group_id, tenant_id).await,
         installed_id,
         "the group's coach changed"
     );
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id)
+        conversation_agent(&resources, &conv_id, user_id, tenant_id)
             .await
             .as_deref(),
         Some(installed_id.as_str()),
         "the group thread is bound"
     );
     assert_eq!(
-        selected_coach(&resources, user_id, tenant_id).await,
+        selected_agent(&resources, user_id, tenant_id).await,
         None,
         "a group setting does not move the owner's personal selection"
     );
 }
 
-/// A plain member may not change the group's coach: refused in their locale,
+/// A plain member may not change the group's agent: refused in their locale,
 /// and nothing moves.
 #[tokio::test]
-async fn coach_add_in_a_group_thread_by_a_member_is_refused() {
+async fn agent_add_in_a_group_thread_by_a_member_is_refused() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "coach-add-member@test.com").await;
-    let first_coach = seed_coach(&resources, user_id, tenant_id, "First Coach", "First.").await;
+    let first_coach = seed_agent(&resources, user_id, tenant_id, "First Coach", "First.").await;
     let group_id = seed_group_membership(
         &resources,
         user_id,
@@ -872,7 +872,7 @@ async fn coach_add_in_a_group_thread_by_a_member_is_refused() {
         GroupRole::Member,
     )
     .await;
-    install_recovery_coach(&resources, user_id, tenant_id).await;
+    install_recovery_agent(&resources, user_id, tenant_id).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = group_conversation(&resources, router.clone(), &auth, tenant_id, group_id).await;
@@ -883,26 +883,26 @@ async fn coach_add_in_a_group_thread_by_a_member_is_refused() {
         rendered(&resources, KEY_AGENT_ASSIGN_FORBIDDEN, &[])
     );
     assert_eq!(
-        group_coach(&resources, group_id, tenant_id).await,
+        group_agent(&resources, group_id, tenant_id).await,
         first_coach,
         "the group's coach is untouched"
     );
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id).await,
+        conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
         None,
         "nothing was bound"
     );
 }
 
-/// `/coach remove` detaches the conversation's coach and clears the
+/// `/agent remove` detaches the conversation's agent and clears the
 /// selection a messaging thread would otherwise re-apply on the next
-/// message; a thread with no coach says so; a group thread is refused
-/// because its coach is the group's.
+/// message; a thread with no agent says so; a group thread is refused
+/// because its agent is the group's.
 #[tokio::test]
-async fn coach_remove_in_chat_detaches_the_coach() {
+async fn agent_remove_in_chat_detaches_the_agent() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-remove@test.com").await;
-    let coach_id = seed_coach(&resources, user_id, tenant_id, "Removable Coach", "Bye.").await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id, "Removable Coach", "Bye.").await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = create_conversation(router.clone(), &auth).await;
@@ -910,14 +910,14 @@ async fn coach_remove_in_chat_detaches_the_coach() {
         router.clone(),
         &auth,
         &conv_id,
-        &format!("/coach add {coach_id}"),
+        &format!("/coach add {agent_id}"),
     )
     .await;
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id)
+        conversation_agent(&resources, &conv_id, user_id, tenant_id)
             .await
             .as_deref(),
-        Some(coach_id.as_str())
+        Some(agent_id.as_str())
     );
 
     let body = send_command(router.clone(), &auth, &conv_id, "/coach remove").await;
@@ -927,12 +927,12 @@ async fn coach_remove_in_chat_detaches_the_coach() {
         body.assistant.message.content
     );
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id).await,
+        conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
         None,
         "the conversation is detached"
     );
     assert_eq!(
-        selected_coach(&resources, user_id, tenant_id).await,
+        selected_agent(&resources, user_id, tenant_id).await,
         None,
         "the selection pointer is cleared too"
     );
@@ -944,7 +944,7 @@ async fn coach_remove_in_chat_detaches_the_coach() {
     );
 
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
     let group_conv =
         group_conversation(&resources, router.clone(), &auth, tenant_id, group_id).await;
     let body = send_command(router, &auth, &group_conv, "/coach remove").await;
@@ -953,19 +953,19 @@ async fn coach_remove_in_chat_detaches_the_coach() {
         rendered(&resources, KEY_AGENT_REMOVE_GROUP_THREAD, &[])
     );
     assert_eq!(
-        group_coach(&resources, group_id, tenant_id).await,
-        coach_id,
+        group_agent(&resources, group_id, tenant_id).await,
+        agent_id,
         "a group thread's coach is the group's and stays"
     );
 }
 
-/// `/coach create` drafts a persona from the conversation's coaching turns —
+/// `/agent create` drafts a persona from the conversation's coaching turns —
 /// never from the command lines — parks it behind a confirm/deny pair that
 /// fits Telegram's buttons, and creates nothing until the athlete confirms.
-/// Confirming creates the coach with its catalogue handle, binds the thread,
+/// Confirming creates the agent with its catalogue handle, binds the thread,
 /// and spends the single-use token: a second confirm is refused.
 #[tokio::test]
-async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
+async fn agent_create_drafts_then_confirm_creates_and_binds_once() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
         create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
@@ -1020,7 +1020,7 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
         "command turns never reach the proposal prompt: {prompt}"
     );
     assert_eq!(
-        coach_count(&resources, user_id, tenant_id).await,
+        agent_count(&resources, user_id, tenant_id).await,
         0,
         "drafting creates nothing"
     );
@@ -1035,20 +1035,20 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
         text.contains("@coach-tempo"),
         "teaches the coach's handle: {text}"
     );
-    assert_eq!(coach_count(&resources, user_id, tenant_id).await, 1);
+    assert_eq!(agent_count(&resources, user_id, tenant_id).await, 1);
     let created = resources
         .common
         .repos
-        .coaches
-        .list(user_id, tenant_id, &ListCoachesFilter::with_defaults())
+        .agents
+        .list(user_id, tenant_id, &ListAgentsFilter::with_defaults())
         .await
         .unwrap()
         .into_iter()
-        .map(|item| item.coach)
-        .find(|coach| coach.title == "Coach Tempo")
+        .map(|item| item.agent)
+        .find(|agent| agent.title == "Coach Tempo")
         .expect("the coach was created");
     assert_eq!(created.handle.as_deref(), Some("coach-tempo"));
-    assert_eq!(created.category, CoachCategory::Training);
+    assert_eq!(created.category, AgentCategory::Training);
     assert_eq!(created.system_prompt, "You are a tempo-run coach.");
     assert_eq!(
         created.tags,
@@ -1056,14 +1056,14 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
     );
     let created_id = created.id.to_string();
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id)
+        conversation_agent(&resources, &conv_id, user_id, tenant_id)
             .await
             .as_deref(),
         Some(created_id.as_str()),
         "the new coach answers in this thread"
     );
     assert_eq!(
-        selected_coach(&resources, user_id, tenant_id)
+        selected_agent(&resources, user_id, tenant_id)
             .await
             .as_deref(),
         Some(created_id.as_str())
@@ -1075,14 +1075,14 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
         body.assistant.message.content,
         rendered(&resources, KEY_GUARDIAN_CONFIRM_NOT_FOUND, &[])
     );
-    assert_eq!(coach_count(&resources, user_id, tenant_id).await, 1);
+    assert_eq!(agent_count(&resources, user_id, tenant_id).await, 1);
 
-    // The created coach is on the shelf under its handle, so `/coach add`
+    // The created agent is on the shelf under its handle, so `/agent add`
     // reaches it from any other thread.
     let other = create_conversation(router.clone(), &auth).await;
     send_command(router, &auth, &other, "/coach add @coach-tempo").await;
     assert_eq!(
-        conversation_coach(&resources, &other, user_id, tenant_id)
+        conversation_agent(&resources, &other, user_id, tenant_id)
             .await
             .as_deref(),
         Some(created_id.as_str())
@@ -1092,7 +1092,7 @@ async fn coach_create_drafts_then_confirm_creates_and_binds_once() {
 
 /// An empty conversation is refused before any model is asked.
 #[tokio::test]
-async fn coach_create_on_an_empty_conversation_is_refused_without_a_model_call() {
+async fn agent_create_on_an_empty_conversation_is_refused_without_a_model_call() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
         create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
@@ -1111,12 +1111,12 @@ async fn coach_create_on_an_empty_conversation_is_refused_without_a_model_call()
     );
     assert!(turn_actions(&body).is_empty(), "nothing to confirm");
     assert_eq!(llm.calls(), 0, "no model call for an empty conversation");
-    assert_eq!(coach_count(&resources, user_id, tenant_id).await, 0);
+    assert_eq!(agent_count(&resources, user_id, tenant_id).await, 0);
 }
 
 /// `/deny <token>` drops a draft: nothing is created, and the token is spent.
 #[tokio::test]
-async fn deny_discards_a_coach_draft() {
+async fn deny_discards_an_agent_draft() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
         create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
@@ -1144,13 +1144,13 @@ async fn deny_discards_a_coach_draft() {
         rendered(&resources, KEY_GUARDIAN_CONFIRM_NOT_FOUND, &[]),
         "a discarded draft cannot be confirmed"
     );
-    assert_eq!(coach_count(&resources, user_id, tenant_id).await, 0);
+    assert_eq!(agent_count(&resources, user_id, tenant_id).await, 0);
 }
 
-/// The confirm step enforces the same per-user coach cap as `POST /api/agents`:
+/// The confirm step enforces the same per-user agent cap as `POST /api/agents`:
 /// at the cap, the draft is refused with the numbers and nothing is created.
 #[tokio::test]
-async fn coach_create_confirm_is_refused_at_the_coach_quota() {
+async fn agent_create_confirm_is_refused_at_the_agent_quota() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
         create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
@@ -1158,9 +1158,9 @@ async fn coach_create_confirm_is_refused_at_the_coach_quota() {
             .unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "coach-create-quota@test.com").await;
-    // The compiled-in cap is three coaches per athlete.
+    // The compiled-in cap is three agents per athlete.
     for n in 1..=3 {
-        seed_coach(
+        seed_agent(
             &resources,
             user_id,
             tenant_id,
@@ -1181,9 +1181,9 @@ async fn coach_create_confirm_is_refused_at_the_coach_quota() {
         body.assistant.message.content,
         rendered(&resources, KEY_AGENT_CREATE_QUOTA, &["3", "3"])
     );
-    assert_eq!(coach_count(&resources, user_id, tenant_id).await, 3);
+    assert_eq!(agent_count(&resources, user_id, tenant_id).await, 3);
     assert_eq!(
-        conversation_coach(&resources, &conv_id, user_id, tenant_id).await,
+        conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
         None
     );
 }
@@ -1220,7 +1220,7 @@ async fn client_platform_header_shapes_channel_type_without_breaking() {
     // analytics. Smoke-test that mobile flag is accepted (no 400).
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "mobile-cmd@test.com").await;
-    let _coach = seed_coach(
+    let _coach = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1370,13 +1370,13 @@ async fn slash_command_turn_is_persisted_to_history_and_kept_out_of_the_prompt()
     );
 }
 
-/// A card's controls survive the reload: `/coach` is answered with buttons,
+/// A card's controls survive the reload: `/agent` is answered with buttons,
 /// and reading the thread back returns the same buttons on the persisted row.
 #[tokio::test]
-async fn coach_command_persists_its_actions_for_reload() {
+async fn agent_command_persists_its_actions_for_reload() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "persisted-card@test.com").await;
-    let _coach = seed_coach(
+    let _coach = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1439,7 +1439,7 @@ async fn coach_command_persists_its_actions_for_reload() {
 async fn owner_in_a_solo_thread_is_not_offered_group_management() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-solo-owner@test.com").await;
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1447,7 +1447,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "Coaches a group.",
     )
     .await;
-    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+    seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
 
     let text = fetch_help(router, &auth).await;
@@ -1585,7 +1585,7 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
 async fn help_hides_admin_only_commands_from_a_plain_group_member() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-member@test.com").await;
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1594,7 +1594,7 @@ async fn help_hides_admin_only_commands_from_a_plain_group_member() {
     )
     .await;
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Member).await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
 
     let text = help_in_group_thread(&resources, router, &auth, tenant_id, group_id).await;
@@ -1628,7 +1628,7 @@ async fn help_hides_admin_only_commands_from_a_plain_group_member() {
 async fn help_shows_admin_only_commands_to_a_group_owner() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-owner@test.com").await;
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1637,7 +1637,7 @@ async fn help_shows_admin_only_commands_to_a_group_owner() {
     )
     .await;
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
 
     let text = help_in_group_thread(&resources, router, &auth, tenant_id, group_id).await;
@@ -1666,7 +1666,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-args@test.com").await;
     // Owner standing so every command is listed — the signatures, not the
     // role filter, are what this test pins.
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1675,7 +1675,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
     )
     .await;
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
 
     let text = help_in_group_thread(&resources, router, &auth, tenant_id, group_id).await;
@@ -1753,16 +1753,16 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
 /// `/agent assign` names its own group in the arguments, so an owner of *any*
 /// group can run it — even from a room where they are only a plain member.
 ///
-/// `/group invite`, `/group coach` and `/group respond` resolve the
+/// `/group invite`, `/group agent` and `/group respond` resolve the
 /// conversation's group and check the caller's role there, so the ambient role
-/// decides them. `CoachAssignHandler` does not: it reads `get_member` on the
+/// decides them. `AgentAssignHandler` does not: it reads `get_member` on the
 /// group id the caller typed. Deciding it on the ambient role hid a command
 /// that works.
 #[tokio::test]
-async fn help_shows_coach_assign_to_an_owner_who_is_a_member_of_the_ambient_group() {
+async fn help_shows_agent_assign_to_an_owner_who_is_a_member_of_the_ambient_group() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "help-two-groups@test.com").await;
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1772,9 +1772,9 @@ async fn help_shows_coach_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
     .await;
 
     // Owner of one group, plain member of another.
-    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+    seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
     let member_group =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Member).await;
 
     // Bind the conversation to the group where the caller is only a member, so
     // the ambient role is Member no matter how the group list happens to sort.
@@ -1820,7 +1820,7 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "help-foreign-room@test.com").await;
-    let coach_id = seed_coach(
+    let agent_id = seed_agent(
         &resources,
         user_id,
         tenant_id,
@@ -1830,12 +1830,12 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
     .await;
 
     // The caller's own group, which `/group status` would answer about.
-    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+    seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Member).await;
 
     // A second group the caller does NOT belong to, bound to the conversation.
     let (other_id, _, _) = seed_user_tenant(&resources, "help-room-owner@test.com").await;
     let foreign_group =
-        seed_group_membership(&resources, other_id, tenant_id, &coach_id, GroupRole::Owner).await;
+        seed_group_membership(&resources, other_id, tenant_id, &agent_id, GroupRole::Owner).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv_id = create_conversation(router.clone(), &auth).await;

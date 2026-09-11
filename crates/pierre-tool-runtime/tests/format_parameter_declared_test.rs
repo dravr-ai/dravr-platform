@@ -13,7 +13,7 @@
 //! undiscoverable to every client and to any model reading the tool catalogue to
 //! decide how to call the tool.
 //!
-//! Six tool modules did exactly that — `coaches`, `analytics`, `store`, `recipes`,
+//! Six tool modules did exactly that — `agents`, `analytics`, `store`, `recipes`,
 //! `sleep` and `admin`, module and tool identifiers that kept the older spelling —
 //! 26 tools that answered `format=toon` correctly and never said so (registre#394).
 //!
@@ -26,7 +26,10 @@
 use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_tool_runtime::implementations::admin::{
-    AdminGetSystemCoachTool, AdminListSystemCoachesTool,
+    AdminGetSystemAgentTool, AdminListSystemAgentsTool,
+};
+use pierre_tool_runtime::implementations::agents::{
+    GetActiveAgentTool, GetAgentTool, ListAgentsTool, ListHiddenAgentsTool, SearchAgentsTool,
 };
 use pierre_tool_runtime::implementations::analytics::{
     AnalyzeActivityTool, AnalyzePerformanceTrendsTool, AnalyzeTrainingLoadTool,
@@ -34,9 +37,6 @@ use pierre_tool_runtime::implementations::analytics::{
     GenerateRecommendationsTool, GetActivityIntelligenceTool, PredictPerformanceTool,
 };
 use pierre_tool_runtime::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
-use pierre_tool_runtime::implementations::coaches::{
-    GetActiveCoachTool, GetCoachTool, ListCoachesTool, ListHiddenCoachesTool, SearchCoachesTool,
-};
 use pierre_tool_runtime::implementations::recipes::{
     GetRecipeTool, ListRecipesTool, SearchRecipesTool,
 };
@@ -44,7 +44,7 @@ use pierre_tool_runtime::implementations::sleep::{
     AnalyzeSleepQualityTool, CalculateRecoveryScoreTool, TrackSleepTrendsTool,
 };
 use pierre_tool_runtime::implementations::store::{
-    BrowseCoachStoreTool, InstallCoachFromStoreTool, SearchCoachStoreTool,
+    BrowseAgentStoreTool, InstallAgentFromStoreTool, SearchAgentStoreTool,
 };
 use pierre_tool_runtime::implementations::stored_data::{
     GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
@@ -60,8 +60,8 @@ fn formatted_tools() -> Vec<Tool> {
         };
     }
     vec![
-        def!(AdminListSystemCoachesTool),
-        def!(AdminGetSystemCoachTool),
+        def!(AdminListSystemAgentsTool),
+        def!(AdminGetSystemAgentTool),
         def!(AnalyzeTrainingLoadTool),
         def!(DetectPatternsTool),
         def!(CalculateFitnessScoreTool),
@@ -74,20 +74,20 @@ fn formatted_tools() -> Vec<Tool> {
         def!(PredictPerformanceTool),
         def!(GetAthleteTool),
         def!(GetStatsTool),
-        def!(ListCoachesTool),
-        def!(GetCoachTool),
-        def!(SearchCoachesTool),
-        def!(GetActiveCoachTool),
-        def!(ListHiddenCoachesTool),
+        def!(ListAgentsTool),
+        def!(GetAgentTool),
+        def!(SearchAgentsTool),
+        def!(GetActiveAgentTool),
+        def!(ListHiddenAgentsTool),
         def!(ListRecipesTool),
         def!(GetRecipeTool),
         def!(SearchRecipesTool),
         def!(AnalyzeSleepQualityTool),
         def!(CalculateRecoveryScoreTool),
         def!(TrackSleepTrendsTool),
-        def!(BrowseCoachStoreTool),
-        def!(SearchCoachStoreTool),
-        def!(InstallCoachFromStoreTool),
+        def!(BrowseAgentStoreTool),
+        def!(SearchAgentStoreTool),
+        def!(InstallAgentFromStoreTool),
         def!(GetSleepSessionsTool),
         def!(GetRecoveryMetricsTool),
         def!(GetHealthSnapshotsTool),

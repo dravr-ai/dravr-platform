@@ -23,7 +23,7 @@ use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::plan_calendar_push::CALENDAR_PROVIDER;
 
 use super::calendar::{
@@ -31,7 +31,7 @@ use super::calendar::{
     TargetRule, MAX_SESSION_STEPS,
 };
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
-use super::training_plans::{load_conversation, resolve_coach_slug};
+use super::training_plans::{load_conversation, resolve_agent_slug};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -89,7 +89,7 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     })
 }
 
-/// A structured session the coach authored in conversation, rather than one
+/// A structured session the agent authored in conversation, rather than one
 /// the catalogue's workout bank carries.
 ///
 /// `structure` deserializes straight into [`WorkoutStep`] so the argument shape
@@ -97,7 +97,7 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
 /// distance and note) are the model's own.
 #[derive(Deserialize)]
 struct SessionPayload {
-    /// Session name as the coach states it to the athlete.
+    /// Session name as the agent states it to the athlete.
     name: String,
     /// Sport the session is for.
     sport: SportType,
@@ -192,8 +192,8 @@ async fn store_session(
         .get_user_workout_template(tenant_id, user_id, &slug)
         .await?;
     // An inline session's readiness floor follows from its intensity
-    // distribution, and so does its purpose unless the coach named one. It is
-    // the coach's own judgement with no citation behind it.
+    // distribution, and so does its purpose unless the agent named one. It is
+    // the agent's own judgement with no citation behind it.
     let (default_purpose, readiness_min) =
         WorkoutTemplate::inline_defaults(session.intensity_distribution);
     let purpose = session.purpose.unwrap_or(default_purpose);
@@ -234,13 +234,13 @@ async fn store_session(
     Ok(template)
 }
 
-/// The coach this call runs under: the conversation's, else the `coach_id`
+/// The agent this call runs under: the conversation's, else the `agent_id`
 /// argument on a direct MCP call. What decides which package lays over the
 /// catalogue for the athlete.
-async fn turn_coach(
+async fn turn_agent(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
-    arg_coach: Option<String>,
+    arg_agent: Option<String>,
 ) -> AppResult<Option<String>> {
     let conversation = load_conversation(
         context.resources.repos(),
@@ -249,18 +249,18 @@ async fn turn_coach(
         &context.user_id.to_string(),
     )
     .await?;
-    Ok(resolve_coach_slug(conversation.as_ref(), arg_coach))
+    Ok(resolve_agent_slug(conversation.as_ref(), arg_agent))
 }
 
-/// The catalogue as this athlete's coach lays it out: the coach's package
+/// The catalogue as this athlete's agent lays it out: the agent's package
 /// over the registry.
 async fn packaged_catalogue<'a>(
     context: &'a ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
-    coach: Option<&str>,
+    agent: Option<&str>,
 ) -> AppResult<PackagedCatalogue<'a>> {
-    let package = load_coach_package(context.resources.repos(), tenant_id, user_id, coach).await?;
+    let package = load_agent_package(context.resources.repos(), tenant_id, user_id, agent).await?;
     Ok(PackagedCatalogue::new(
         context.resources.training_catalogue(),
         package,
@@ -273,7 +273,7 @@ async fn resolve_template(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
     user_id: Uuid,
-    coach: Option<&str>,
+    agent: Option<&str>,
     args: &Value,
 ) -> AppResult<WorkoutTemplate> {
     let slug = args.get("template_slug").and_then(Value::as_str);
@@ -297,7 +297,7 @@ async fn resolve_template(
             store_session(context, tenant_id, user_id, session).await
         }
         (Some(slug), None) => {
-            let catalogue = packaged_catalogue(context, tenant_id, user_id, coach).await?;
+            let catalogue = packaged_catalogue(context, tenant_id, user_id, agent).await?;
             if let Some((template, _)) = catalogue.workout(slug) {
                 return Ok(template);
             }
@@ -379,7 +379,7 @@ fn optional_prescription_id(args: &Value, key: &str) -> AppResult<Option<Uuid>> 
 /// The two shapes a listed template comes in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListDetail {
-    /// The fields a coach picks a session by.
+    /// The fields an agent picks a session by.
     Summary,
     /// The whole template, steps and target zones included.
     Full,
@@ -439,7 +439,7 @@ fn vocab_arg<T: Copy>(
 /// Resolve the optional `sport` argument: a `snake_case` [`SportType`] name.
 ///
 /// An unknown name is refused with the sports the bank is written for, so
-/// the coach can pick one that returns something.
+/// the agent can pick one that returns something.
 fn sport_arg(args: &Value, bank: &[WorkoutTemplate]) -> AppResult<Option<SportType>> {
     let Some(raw) = optional_text(args, "sport") else {
         return Ok(None);
@@ -465,7 +465,7 @@ fn sport_arg(args: &Value, bank: &[WorkoutTemplate]) -> AppResult<Option<SportTy
         })
 }
 
-/// The fields a coach picks a session by, without the steps.
+/// The fields an agent picks a session by, without the steps.
 fn summary_row(template: &WorkoutTemplate) -> AppResult<WorkoutTemplateSummary> {
     let params = serde_json::to_value(&template.params)
         .map_err(|e| AppError::internal(format!("serialize template params: {e}")))?;
@@ -598,14 +598,14 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             let detail = vocab_arg(&args, "detail", ListDetail::ALL, ListDetail::as_str)?
                 .unwrap_or(ListDetail::Summary);
 
-            // The coach's package and the athlete's own sessions are both
+            // The agent's package and the athlete's own sessions are both
             // scoped by tenant; a call with no tenant context lists the
             // catalogue alone.
             let templates = match context.tenant_id.map(TenantId::from_uuid) {
                 Some(tenant_id) => {
-                    let coach = turn_coach(&context, tenant_id, None).await?;
+                    let agent = turn_agent(&context, tenant_id, None).await?;
                     let catalogue =
-                        packaged_catalogue(&context, tenant_id, context.user_id, coach.as_deref())
+                        packaged_catalogue(&context, tenant_id, context.user_id, agent.as_deref())
                             .await?;
                     let mut templates = catalogue.workouts_matching(&filter);
                     let own = context
@@ -783,7 +783,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              this athlete before — OR session, a structured session you authored \
              for anything those do not express. Args: date (YYYY-MM-DD), \
              template_slug or session, \
-             optional coach_id, optional replaces. Without replaces every call \
+             optional agent_id, optional replaces. Without replaces every call \
              adds a new calendar entry; with replaces = a prescription_id (from an \
              earlier call, or from get_training_plan's calendar block) that entry \
              is changed in place instead. withdraw_prescribed_workout removes one.",
@@ -817,16 +817,16 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 .ok_or_else(|| AppError::invalid_input("date is required"))?;
             let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
                 .map_err(|e| AppError::invalid_input(format!("date must be YYYY-MM-DD: {e}")))?;
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
 
             let replaces = optional_prescription_id(&args, "replaces")?;
 
-            let coach = turn_coach(&context, tenant_id, coach_id.clone()).await?;
+            let agent = turn_agent(&context, tenant_id, agent_id.clone()).await?;
             let template =
-                resolve_template(&context, tenant_id, user_id, coach.as_deref(), &args).await?;
+                resolve_template(&context, tenant_id, user_id, agent.as_deref(), &args).await?;
             // The previous entry is resolved before the provider is built, so a
             // bad id is refused without a credential lookup.
             let previous = match replaces {
@@ -878,7 +878,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             }
 
             // The ledger records the attempt either way. A prescription the
-            // provider refused is a fact the coach and the athlete both need,
+            // provider refused is a fact the agent and the athlete both need,
             // and a ledger that holds only successes cannot answer the one
             // question it exists for: did this workout reach the athlete?
             let repos = context.resources.repos();
@@ -903,7 +903,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 id: prescription_id,
                 tenant_id: tenant_id.as_uuid(),
                 user_id,
-                coach_id,
+                agent_id,
                 template_slug: Some(template.slug.clone()),
                 sport: template.sport.clone(),
                 prescribed_for_date: date,
@@ -934,7 +934,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             // A push failure is the root cause and outranks a failed ledger
             // write. Only once the push is known to have landed does a ledger
             // failure surface — and then it must say the event IS on the
-            // calendar, because a coach told "the prescription failed" would
+            // calendar, because an agent told "the prescription failed" would
             // retry, and a retry adds a second entry.
             let event_id = push?;
             audit.map_err(|e| {

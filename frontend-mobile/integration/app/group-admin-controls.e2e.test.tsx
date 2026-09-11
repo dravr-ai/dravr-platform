@@ -50,7 +50,7 @@ const GROUP: CoachingGroup = {
   tenant_id: 'tenant-1',
   name: 'Harricana 2027',
   description: 'Bloc ultra',
-  coach_id: 'coach-1',
+  agent_id: 'coach-1',
   owner_id: 'user-owner',
   coach_user_id: null,
   peer_data_sharing: true,
@@ -204,7 +204,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
       'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
-      'GET /api/agents': { data: { coaches: [] } },
+      'GET /api/agents': { data: { agents: [] } },
       'PUT /api/groups/group-1/members/me/consent': (request) => {
         ownerConsent = (request.body as { consent: boolean }).consent;
         return { data: { success: true } };
@@ -313,7 +313,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
       'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
-      'GET /api/agents': { data: { coaches: [] } },
+      'GET /api/agents': { data: { agents: [] } },
       'PUT /api/groups/group-1': { data: { ...GROUP, respond_mode: 'mentions' } },
     });
 

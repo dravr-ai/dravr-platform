@@ -6,17 +6,17 @@
 
 import type { AxiosInstance } from 'axios';
 import type {
-  Coach,
-  UpdateCoachRequest,
-  ListCoachesResponse,
-  CoachProposalResponse,
+  Agent,
+  UpdateAgentRequest,
+  ListAgentsResponse,
+  AgentProposalResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { Coach, UpdateCoachRequest, ListCoachesResponse, CoachProposalResponse };
+export type { Agent, UpdateAgentRequest, ListAgentsResponse, AgentProposalResponse };
 
-export interface ListCoachesOptions {
+export interface ListAgentsOptions {
   category?: string;
   favorites_only?: boolean;
   include_hidden?: boolean;
@@ -35,7 +35,7 @@ export function createCoachesApi(axios: AxiosInstance) {
     /**
      * List coaches with optional filters.
      */
-    async list(options?: ListCoachesOptions): Promise<ListCoachesResponse> {
+    async list(options?: ListAgentsOptions): Promise<ListAgentsResponse> {
       const params = new URLSearchParams();
       if (options?.category) params.append('category', options.category);
       if (options?.favorites_only) params.append('favorites_only', 'true');
@@ -47,7 +47,7 @@ export function createCoachesApi(axios: AxiosInstance) {
       const queryString = params.toString();
       const url = queryString ? `${ENDPOINTS.COACHES.LIST}?${queryString}` : ENDPOINTS.COACHES.LIST;
 
-      const response = await axios.get<ListCoachesResponse>(url);
+      const response = await axios.get<ListAgentsResponse>(url);
       return response.data;
     },
 
@@ -56,40 +56,40 @@ export function createCoachesApi(axios: AxiosInstance) {
      * the top (≤3) coaches for them, each with a one-line rationale. Backs the
      * post-onboarding "we analyzed your data → here are your coaches" screen.
      */
-    async getProposal(): Promise<CoachProposalResponse> {
-      const response = await axios.get<CoachProposalResponse>(ENDPOINTS.COACHES.PROPOSAL);
+    async getProposal(): Promise<AgentProposalResponse> {
+      const response = await axios.get<AgentProposalResponse>(ENDPOINTS.COACHES.PROPOSAL);
       return response.data;
     },
 
     /**
      * Get a specific coach by ID.
      */
-    async get(coachId: string): Promise<Coach> {
-      const response = await axios.get<Coach>(ENDPOINTS.COACHES.COACH(coachId));
+    async get(agentId: string): Promise<Agent> {
+      const response = await axios.get<Agent>(ENDPOINTS.COACHES.COACH(agentId));
       return response.data;
     },
 
     /**
      * Update an existing coach.
      */
-    async update(coachId: string, request: UpdateCoachRequest): Promise<Coach> {
-      const response = await axios.put<Coach>(ENDPOINTS.COACHES.COACH(coachId), request);
+    async update(agentId: string, request: UpdateAgentRequest): Promise<Agent> {
+      const response = await axios.put<Agent>(ENDPOINTS.COACHES.COACH(agentId), request);
       return response.data;
     },
 
     /**
      * Delete a coach.
      */
-    async delete(coachId: string): Promise<void> {
-      await axios.delete(ENDPOINTS.COACHES.COACH(coachId));
+    async delete(agentId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.COACHES.COACH(agentId));
     },
 
     /**
      * Record coach usage (for analytics).
      */
-    async recordUsage(coachId: string): Promise<void> {
+    async recordUsage(agentId: string): Promise<void> {
       try {
-        await axios.post(ENDPOINTS.COACHES.USAGE(coachId));
+        await axios.post(ENDPOINTS.COACHES.USAGE(agentId));
       } catch {
         // Silent failure - usage tracking is non-critical
       }
@@ -97,4 +97,4 @@ export function createCoachesApi(axios: AxiosInstance) {
   };
 }
 
-export type CoachesApi = ReturnType<typeof createCoachesApi>;
+export type AgentsApi = ReturnType<typeof createCoachesApi>;

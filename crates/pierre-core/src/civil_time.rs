@@ -6,7 +6,7 @@
 
 //! The athlete's civil clock.
 //!
-//! Every surface that puts a date in front of the coach renders it here, in the
+//! Every surface that puts a date in front of the agent renders it here, in the
 //! athlete's own zone and with the weekday spelled out. Two separate incidents
 //! are the reason both halves exist.
 //!
@@ -15,14 +15,14 @@
 //! On 2026-08-28 an athlete in `America/Toronto` was told "today is 2026-08-27
 //! 22:59 (America/Toronto)" and handed an activity row stamped `2026-08-28` for
 //! a hike started at 22:59 the previous evening. Two calendars in one prompt;
-//! the coach reconciled them by inventing a time of day. Rendering every
+//! the agent reconciled them by inventing a time of day. Rendering every
 //! instant through [`resolve_zone`] keeps the prompt in one frame.
 //!
 //! ## Why the weekday
 //!
 //! On 2026-09-02 an athlete spent the back half of a fifteen-turn conversation
 //! correcting weekday claims — *"road 2 aus etait hier, mardi. T'es melé big"*,
-//! *"date ride etait lundi. Ca va pas les dates"* — and the coach reassigned the
+//! *"date ride etait lundi. Ca va pas les dates"* — and the agent reassigned the
 //! same five activities three times before he left. Nothing in the prompt named
 //! a weekday: rows carried a bare `%Y-%m-%d` and the date anchor carried a bare
 //! date plus a zone name, so the model derived every weekday by mental calendar
@@ -65,7 +65,7 @@ fn locale_index(locale: &str) -> usize {
 /// Short localized weekday name, keyed by BCP-47 locale.
 ///
 /// Short rather than full because these ride inside dense activity rows the
-/// coach scans; the abbreviation is unambiguous in every shipped locale. The
+/// agent scans; the abbreviation is unambiguous in every shipped locale. The
 /// match has no wildcard arm, so the table stays exhaustive over `Weekday`.
 #[must_use]
 pub fn weekday_short(weekday: Weekday, locale: &str) -> &'static str {
@@ -104,8 +104,8 @@ pub fn weekday_short(weekday: Weekday, locale: &str) -> &'static str {
 /// no day at all — a warning banner on a true reply, which is the exact
 /// false-positive class this verifier exists to prevent (registre#258).
 ///
-/// Missing a coach who writes "mar." costs one unchecked claim. Contradicting a
-/// coach who wrote "la mer" costs the athlete's trust. Only full names, and the
+/// Missing an agent who writes "mar." costs one unchecked claim. Contradicting a
+/// agent who wrote "la mer" costs the athlete's trust. Only full names, and the
 /// Portuguese `-feira` compounds that disambiguate the ordinals, are listed.
 #[must_use]
 pub fn weekday_forms(weekday: Weekday) -> &'static [&'static str] {
@@ -176,7 +176,7 @@ pub fn format_local_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> Str
 /// The `{{CURRENT_DATE}}` anchor is the caller that needed it. It floors `now`
 /// to a five-minute quantum so the prompt prefix stays byte-identical between
 /// requests, and that floor lands exactly on midnight UTC once a day, every
-/// day. Rendered through the sentinel-guessing stamp, the coach read the UTC
+/// day. Rendered through the sentinel-guessing stamp, the agent read the UTC
 /// weekday for those five minutes: a Toronto athlete at 20:00 on a Friday was
 /// told it was Saturday, in the block that LEADS the system prompt.
 ///

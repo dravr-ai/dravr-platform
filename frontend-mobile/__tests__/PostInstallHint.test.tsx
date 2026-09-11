@@ -10,7 +10,7 @@ describe('PostInstallHint', () => {
   it('teaches /agent add @handle and the @handle mention for the installed agent', () => {
     const { getByTestId } = render(
       <PostInstallHint
-        coachTitle="Marathon Training Agent"
+        agentTitle="Marathon Training Agent"
         handle="marathon-training-coach"
         onOpenChat={jest.fn()}
         onDismiss={jest.fn()}
@@ -26,7 +26,7 @@ describe('PostInstallHint', () => {
   it('hands the /agent add draft to Open chat', () => {
     const onOpenChat = jest.fn();
     const { getByTestId } = render(
-      <PostInstallHint coachTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={jest.fn()} />,
+      <PostInstallHint agentTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={jest.fn()} />,
     );
 
     fireEvent.press(getByTestId('post-install-open-chat'));
@@ -37,7 +37,7 @@ describe('PostInstallHint', () => {
   it('dismisses through onDismiss', () => {
     const onDismiss = jest.fn();
     const { getByTestId } = render(
-      <PostInstallHint coachTitle="Tempo" handle="tempo-coach" onOpenChat={jest.fn()} onDismiss={onDismiss} />,
+      <PostInstallHint agentTitle="Tempo" handle="tempo-coach" onOpenChat={jest.fn()} onDismiss={onDismiss} />,
     );
 
     fireEvent.press(getByTestId('post-install-dismiss'));

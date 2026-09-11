@@ -77,7 +77,7 @@ struct GarminSummary {
     average_power: Option<f32>,
     max_power: Option<f32>,
     /// LIMITATION(registre#105): `normalized_power` is deserialized here but never mapped onto
-    /// the canonical `Activity`, so Garmin rides reach the coach with no NP and a `None`
+    /// the canonical `Activity`, so Garmin rides reach the agent with no NP and a `None`
     /// intensity factor. Settling Garmin's real list/detail payload shapes gates the mapping.
     normalized_power: Option<f32>,
     calories: Option<f64>,
@@ -505,7 +505,7 @@ fn parse_garmin_timestamp(s: &str) -> Result<DateTime<Utc>, String> {
 /// running cadence is in steps/min; biking cadence in revs/min — we surface
 /// whichever is present. Returns `None` when distance or duration are absent
 /// — a lap without those two anchors cannot be located on the timeline and
-/// would only add noise to coach reasoning.
+/// would only add noise to agent reasoning.
 fn convert_garmin_lap(slot: usize, l: &GarminLap) -> Option<Lap> {
     let distance_meters = l.distance?;
     let elapsed_time_seconds = utils::conversions::f64_to_u64(l.duration?);

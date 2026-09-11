@@ -51,7 +51,7 @@ fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
 async fn active_tenant_id_verified_membership_returns_claimed() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user_id, _user) =
-        common::create_test_user_with_email(&resources.coach.database, "claim-ok@pierre.test")
+        common::create_test_user_with_email(&resources.agent.database, "claim-ok@pierre.test")
             .await?;
 
     let tenants = resources.repos().tenants.list_for_user(user_id).await?;
@@ -78,7 +78,7 @@ async fn active_tenant_id_verified_membership_returns_claimed() -> Result<()> {
 async fn active_tenant_id_mismatch_returns_auth_error() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user_id, _user) = common::create_test_user_with_email(
-        &resources.coach.database,
+        &resources.agent.database,
         "claim-mismatch@pierre.test",
     )
     .await?;
@@ -103,7 +103,7 @@ async fn active_tenant_id_mismatch_returns_auth_error() -> Result<()> {
 async fn no_claim_falls_back_to_first_tenant() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user_id, _user) =
-        common::create_test_user_with_email(&resources.coach.database, "no-claim@pierre.test")
+        common::create_test_user_with_email(&resources.agent.database, "no-claim@pierre.test")
             .await?;
 
     let expected = resources

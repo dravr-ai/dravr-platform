@@ -24,9 +24,9 @@
 //!   `OAuth2` rate limiter, admin JWT secret, tenant OAuth client, OAuth
 //!   notification sender, sciotte nonce store + mint rate limiter. Also
 //!   carries an `AuthRepos` view-struct projection.
-//! - `CoachSlice` — coach generation context: database handle (still needed
+//! - `AgentSlice` — agent generation context: database handle (still needed
 //!   for migrations / pool access by `NotificationService` / `AdminConfigService`),
-//!   admin config service. Also carries a `CoachRepos` view-struct projection.
+//!   admin config service. Also carries an `AgentRepos` view-struct projection.
 //! - `FitnessSlice` — fitness data and intelligence: provider registry,
 //!   activity intelligence, sync orchestrator and its abort handle, cageux /
 //!   harness / persona contract config registries. Also carries a
@@ -44,8 +44,8 @@
 //! ## View-struct projections
 //!
 //! Slices that semantically partition repository access (`AuthSlice`,
-//! `CoachSlice`, `FitnessSlice`, `BillingSlice`) carry a typed view-struct
-//! projection (`AuthRepos`, `CoachRepos`, `FitnessRepos`, `UsageRepos`) built
+//! `AgentSlice`, `FitnessSlice`, `BillingSlice`) carry a typed view-struct
+//! projection (`AuthRepos`, `AgentRepos`, `FitnessRepos`, `UsageRepos`) built
 //! at construction time via [`RepositoryRegistry::auth_repos`] etc. These are
 //! cheap Arc clones of the same underlying repository state — narrower typed
 //! surface, identical data. They are positioned for a future per-view trait
@@ -79,7 +79,7 @@ use pierre_contremaitre::{
 };
 use pierre_core::billing::BillingProvider;
 use pierre_database::backends::factory::Database;
-use pierre_database::views::{AuthRepos, CoachRepos, FitnessRepos, UsageRepos};
+use pierre_database::views::{AgentRepos, AuthRepos, FitnessRepos, UsageRepos};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_intelligence::ActivityIntelligence;
@@ -125,7 +125,7 @@ use tokio::task::AbortHandle;
 /// `repos` here is the single source of truth that satisfies every
 /// `pierre_runtime_context::*Ctx` impl's `fn repos() -> &Arc<RepositoryRegistry>`
 /// accessor. The per-subsystem slices also carry typed view-struct projections
-/// (`AuthRepos`, `CoachRepos`, …) built from the same registry, but only this
+/// (`AuthRepos`, `AgentRepos`, …) built from the same registry, but only this
 /// one is the canonical Arc.
 #[derive(Clone)]
 pub struct CommonSlice {
@@ -158,7 +158,7 @@ pub struct CommonSlice {
     pub email_service: Option<Arc<ResendEmailService>>,
     /// Optional LLM provider for insight validation and generation.
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
-    /// Pre-built [`ChatProvider`] singleton shared across chat/coach/health-probe.
+    /// Pre-built [`ChatProvider`] singleton shared across chat/agent/health-probe.
     pub chat_provider: Option<Arc<ChatProvider>>,
     /// TTL cache of per-tenant chat providers built from stored BYO LLM keys.
     /// Empty for tenants on the system default; resolved lazily per turn.
@@ -227,19 +227,19 @@ pub struct AuthSlice {
     pub repos: AuthRepos,
 }
 
-/// Coach generation context.
+/// Agent generation context.
 ///
 /// `database` is retained for lifecycle (migrations, encryption key updates),
 /// system settings, and pool access (`NotificationService`,
 /// `AdminConfigService`); data access should go through repos instead.
 #[derive(Clone)]
-pub struct CoachSlice {
+pub struct AgentSlice {
     /// Database connection pool for persistent storage operations.
     pub database: Arc<Database>,
     /// Admin configuration service for runtime parameter management.
     pub admin_config: Option<Arc<AdminConfigService>>,
-    /// Coach-domain repository view (projection of [`CommonSlice::repos`]).
-    pub repos: CoachRepos,
+    /// Agent-domain repository view (projection of [`CommonSlice::repos`]).
+    pub repos: AgentRepos,
 }
 
 /// Fitness data and intelligence subsystem.
@@ -315,7 +315,7 @@ pub struct McpSlice {
     pub tool_registry: Arc<ToolRegistry>,
     /// Tool selection service for per-tenant MCP tool filtering.
     pub tool_selection: Arc<ToolSelectionService>,
-    /// Prompt registry for hot-reloadable system prompts and coach personas.
+    /// Prompt registry for hot-reloadable system prompts and agent personas.
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description registry for hot-reloadable MCP tool schema overlays.
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
@@ -324,7 +324,7 @@ pub struct McpSlice {
     /// Messaging strings registry for hot-reloadable user-facing canned replies.
     pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
     /// Training catalogue registry — the hot-reloadable workout bank, flavours,
-    /// season skeletons and selection table the coach prescribes from.
+    /// season skeletons and selection table the agent prescribes from.
     pub training_catalogue_registry: Arc<TrainingCatalogueRegistry>,
     /// Best-effort notifier that pushes a "your historical backfill finished"
     /// notice back to the channel that triggered a background activity backfill.
@@ -334,7 +334,7 @@ pub struct McpSlice {
     pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
     /// Chat-pipeline re-entry handle for the backfill-completion push, shared
     /// (same `Arc`) with [`ServerBackfillNotifier`] so it can synthesize a real
-    /// coach answer instead of a templated list. Empty until the composition
+    /// agent answer instead of a templated list. Empty until the composition
     /// root installs it post-`Arc` in `spawn_background_workers` (the handle
     /// needs the `Arc<ServerContext>`, absent when the notifier is built).
     /// Mirrors the SSE protocol-factory install.

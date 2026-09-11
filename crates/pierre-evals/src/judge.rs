@@ -10,7 +10,7 @@
 //! verdicts so consumers don't have to redefine the JSON envelope. Two
 //! distinct judges live here:
 //!
-//! - [`judge_response`] — rubric-based 1–5 scoring of a whole coach reply
+//! - [`judge_response`] — rubric-based 1–5 scoring of a whole agent reply
 //!   against the golden fixtures, used by the eval report layer.
 //! - [`judge_claim`] — the bullshit detector's **LLM-judge** fallback. When
 //!   the earlier layers cannot reach a confident verdict on a single claim, the
@@ -81,7 +81,7 @@ impl JudgeVerdict {
     }
 }
 
-/// Score one coach response against the given rubrics using the configured LLM provider.
+/// Score one agent response against the given rubrics using the configured LLM provider.
 ///
 /// # Errors
 ///

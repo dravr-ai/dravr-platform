@@ -37,7 +37,7 @@ use tracing::{info, warn};
 /// Features are organized into logical groups:
 /// - Protocols: REST, MCP, A2A protocol support
 /// - Transports: HTTP, SSE, stdio communication
-/// - Clients: Dashboard, settings, chat, coaches, admin, etc.
+/// - Clients: Dashboard, settings, chat, agents, admin, etc.
 /// - Infrastructure: OAuth, `OpenAPI`
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FeatureConfig;
@@ -156,10 +156,10 @@ impl FeatureConfig {
         cfg!(feature = "client-chat")
     }
 
-    /// Check if coaches client is enabled
+    /// Check if agents client is enabled
     #[must_use]
-    pub const fn client_coaches() -> bool {
-        cfg!(feature = "client-coaches")
+    pub const fn client_agents() -> bool {
+        cfg!(feature = "client-agents")
     }
 
     /// Check if OAuth apps client is enabled
@@ -222,7 +222,7 @@ impl FeatureConfig {
         cfg!(feature = "client-mcp-tokens")
     }
 
-    /// Check if store client is enabled (Coach Store REST API)
+    /// Check if store client is enabled (Agent Store REST API)
     #[must_use]
     pub const fn client_store() -> bool {
         cfg!(feature = "client-store")
@@ -240,7 +240,7 @@ impl FeatureConfig {
         Self::client_dashboard()
             || Self::client_settings()
             || Self::client_chat()
-            || Self::client_coaches()
+            || Self::client_agents()
             || Self::client_oauth_apps()
             || Self::client_admin_api()
             || Self::client_admin_ui()
@@ -348,7 +348,7 @@ impl FeatureConfig {
             (Self::client_dashboard(), "dashboard"),
             (Self::client_settings(), "settings"),
             (Self::client_chat(), "chat"),
-            (Self::client_coaches(), "coaches"),
+            (Self::client_agents(), "coaches"),
             (Self::client_oauth_apps(), "oauth-apps"),
             (Self::client_admin_api(), "admin-api"),
             (Self::client_admin_ui(), "admin-ui"),

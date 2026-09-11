@@ -10,7 +10,7 @@ import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 const CONVERSATION = {
   id: 'conv-1',
   title: 'Sunday long run',
-  coach_id: null,
+  agent_id: null,
   created_at: '2026-08-20T10:00:00Z',
   updated_at: '2026-08-20T10:00:00Z',
   message_count: 0,
@@ -158,7 +158,7 @@ async function setupShellMocks(page: Page): Promise<ShellTraffic> {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           {
             id: 'coach-recovery',
             title: 'Recovery Coach',

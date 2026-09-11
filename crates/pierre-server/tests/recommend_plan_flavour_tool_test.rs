@@ -14,7 +14,7 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -439,7 +439,7 @@ async fn an_unknown_vocabulary_word_lists_the_real_ones() -> Result<()> {
 #[tokio::test]
 async fn every_flavour_in_the_verdict_carries_its_plain_words_label() -> Result<()> {
     // D9: the athlete hears "mostly easy with two hard days", never
-    // "polarized". The id stays beside the label for the coach.
+    // "polarized". The id stays beside the label for the agent.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let payload = recommend(
@@ -517,29 +517,29 @@ async fn seed_named_user(
     Ok((user_id, tenant_id))
 }
 
-/// A group the coach is attached to as its human coach, with the athlete a
+/// A group the agent is attached to as its human coach, with the athlete a
 /// consenting member and peer sharing on — every gate the resolver walks, open.
 async fn attach_as_coach(
     executor: &UniversalToolExecutor,
-    coach: Uuid,
+    agent: Uuid,
     coach_tenant: TenantId,
     athlete: Uuid,
     athlete_tenant: TenantId,
 ) -> Result<()> {
     let repos = executor.resources.repos();
     let persona = repos
-        .coaches
-        .create_system_coach(
-            coach,
+        .agents
+        .create_system_agent(
+            agent,
             coach_tenant,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: "Flavour Scope Coach".to_owned(),
                 description: None,
                 system_prompt: "Test prompt".to_owned(),
-                category: CoachCategory::Training,
+                category: AgentCategory::Training,
                 tags: vec![],
                 sample_prompts: vec![],
-                visibility: CoachVisibility::Global,
+                visibility: AgentVisibility::Global,
             },
         )
         .await?
@@ -555,9 +555,9 @@ async fn attach_as_coach(
                 tenant_id: coach_tenant.to_string(),
                 name: "Flavour Squad".to_owned(),
                 description: None,
-                coach_id: persona.to_string(),
-                owner_id: coach,
-                coach_user_id: Some(coach),
+                agent_id: persona.to_string(),
+                owner_id: agent,
+                coach_user_id: Some(agent),
                 peer_data_sharing: true,
                 respond_mode: GroupRespondMode::default(),
                 max_members: 20,
@@ -571,7 +571,7 @@ async fn attach_as_coach(
         .await?;
     repos
         .groups
-        .set_group_coach_user(&group_id.to_string(), Some(coach), coach_tenant)
+        .set_group_coach_user(&group_id.to_string(), Some(agent), coach_tenant)
         .await?;
     repos
         .groups
@@ -594,12 +594,12 @@ async fn attach_as_coach(
 #[tokio::test]
 async fn a_coach_reads_the_consenting_athletes_thresholds_not_their_own() -> Result<()> {
     let executor = create_executor().await?;
-    let (coach, coach_tenant) = seed_named_user(&executor, "Coach Karine").await?;
+    let (agent, coach_tenant) = seed_named_user(&executor, "Coach Karine").await?;
     let (athlete, athlete_tenant) = seed_named_user(&executor, "Phil Tremblay").await?;
-    attach_as_coach(&executor, coach, coach_tenant, athlete, athlete_tenant).await?;
+    attach_as_coach(&executor, agent, coach_tenant, athlete, athlete_tenant).await?;
 
-    // Only the athlete has thresholds on file. Read through the coach, the
-    // devices must be the athlete's — the coach's own empty profile would
+    // Only the athlete has thresholds on file. Read through the agent, the
+    // devices must be the athlete's — the agent's own empty profile would
     // resolve to effort alone.
     let saved = executor
         .execute_tool(request(
@@ -613,7 +613,7 @@ async fn a_coach_reads_the_consenting_athletes_thresholds_not_their_own() -> Res
 
     let payload = recommend(
         &executor,
-        coach,
+        agent,
         &coach_tenant.to_string(),
         json!({ "hours_per_week": 8.0, "sessions_per_week": 5, "athlete": "phil" }),
     )

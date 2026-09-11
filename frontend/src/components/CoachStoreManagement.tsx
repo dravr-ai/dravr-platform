@@ -70,7 +70,7 @@ export default function CoachStoreManagement() {
     queryFn: () => adminApi.getSystemCoaches(),
     staleTime: 30_000,
   });
-  const totalCoaches = systemCoaches?.coaches?.length;
+  const totalCoaches = systemCoaches?.agents?.length;
 
   const formatNumber = (num: number | undefined) => {
     if (num === undefined) return '—';

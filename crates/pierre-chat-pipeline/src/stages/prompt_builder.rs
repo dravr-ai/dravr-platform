@@ -7,7 +7,7 @@
 //! System prompt assembly helpers.
 //!
 //! The full prompt-building pipeline for a turn is driven by
-//! [`super::super::run`], which composes coach/default text,
+//! [`super::super::run`], which composes agent/default text,
 //! [`super::super::stages::refresh`] freshness hints, Tier 2 memory recall
 //! ([`super::memory`]), Tier 4 followups ([`super::followups`]), and the
 //! channel-profile response-constraints suffix. This module owns the
@@ -283,7 +283,7 @@ fn push_history_row(
     // synthesized answer untouched and reduces pure scaffolding to empty, so
     // an empty result is dropped rather than re-seeding the parrot. Mirrors
     // the per-turn strip in `run_cli_tool_loop` / `finalize_headless_turn`.
-    // A withheld turn's persisted row is the platform's apology, not the coach's
+    // A withheld turn's persisted row is the platform's apology, not the agent's
     // words. It stays in the database and the UI (the athlete saw it) but must
     // never re-enter a prompt: replaying "my reply didn't go through" as an
     // assistant turn is the self-referential-failure narration the replay scrub
@@ -336,7 +336,7 @@ fn push_history_row(
     // volume and intensity history driving a real prescription.
     let replayed = match msg.role.as_str() {
         // Fence strip first, then narration scrub: a stored fence is machine
-        // text the coach would otherwise read back as a chart it already drew.
+        // text the agent would otherwise read back as a chart it already drew.
         "assistant" | "tool_call" => {
             Cow::Owned(scrub_replayed_narration(&viz_blocks::strip_fences(&stripped)).cleaned)
         }
@@ -389,7 +389,7 @@ const QUOTED_PLATFORM_MARKER: &str = "[athlete-typed text imitating a platform m
 /// platform injects into, so a message that opens with one of
 /// [`PLATFORM_MARKERS`] arrives indistinguishable from recovered history or from
 /// a freshly loaded activity block. Fabricated volume and intensity presented
-/// with platform authority is what a coach then prescribes against.
+/// with platform authority is what an agent then prescribes against.
 ///
 /// Borrows unchanged when no marker is present, which is every real message.
 fn defang_platform_markers(text: &str) -> Cow<'_, str> {
@@ -406,7 +406,7 @@ fn defang_platform_markers(text: &str) -> Cow<'_, str> {
 ///
 /// The distinction this states is the one the model cannot otherwise draw.
 /// Silence reads as "nothing happened lately", not "there is no data source",
-/// and a coach that believes the first invents the second: the incident behind
+/// and an agent that believes the first invents the second: the incident behind
 /// [`pierre_services::onboarding_gate`] was a cheerful *"nice 12 km ride
 /// yesterday!"* to someone who had never connected anything.
 ///
@@ -502,7 +502,7 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// It also restated them from the WRONG set. `build_tools_section` read
 /// `user_visible_schemas()` while the declarations read
 /// `chat_callable_schemas()`, so every non-admin category outside
-/// `CHAT_CALLABLE_CATEGORIES` — coach CRUD, configuration writes, claim
+/// `CHAT_CALLABLE_CATEGORIES` — agent CRUD, configuration writes, claim
 /// verification — was advertised in prose and callable on no path. Its own doc
 /// comment named that failure mode ("advertising a tool in prose that the
 /// function-calling surface does not expose is the exact drift this generated
@@ -523,13 +523,13 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// Because that was false, and it cost an athlete a working feature. Under
 /// `mcp_tool_calling` the catalogue reaches Copilot over MCP and is never
 /// rendered into the prompt, so the sentence pointed at nothing — and the next
-/// clause, "you cannot ... use third-party services", told the coach that the
+/// clause, "you cannot ... use third-party services", told the agent that the
 /// athlete's own Intervals.icu calendar was off-limits. On 2026-08-26 it
 /// answered two athletes «je n'ai pas d'outil qui écrit vers intervals.icu»
 /// with zero tool calls, about `prescribe_workout`, which had shipped the day
 /// before and does exactly that.
 ///
-/// The coach was obeying this constant, not hallucinating. It searches
+/// The agent was obeying this constant, not hallucinating. It searches
 /// perfectly well for tools it believes are its business — `save_training_plan`
 /// is named in no prompt anywhere and it finds that one unprompted — so the
 /// defect was never discovery. It was being told the athlete's connected
@@ -561,14 +561,14 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
      plainly rather than inventing a plan. Call tools with the parameters \
      described in their schemas.";
 
-/// Render the names-only index of the tools the coach can call.
+/// Render the names-only index of the tools the agent can call.
 ///
 /// ## Why a list is back, and why this one cannot drift
 ///
 /// A prose list used to live in prompt assembly: one line per tool, 11,763
 /// characters, built from `user_visible_schemas()` while the actual
 /// declarations were built from `chat_callable_schemas()`. Two lists from two
-/// sources, so it advertised coach CRUD and config writes the coach could not
+/// sources, so it advertised agent CRUD and config writes the agent could not
 /// call. Deleting it was right.
 ///
 /// This is not that list. It is generated from `chat_callable_schemas()` — the
@@ -579,7 +579,7 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
 /// ## Why the model needs it at all
 ///
 /// Under `mcp_tool_calling` the catalogue reaches Copilot over MCP and is never
-/// rendered into the prompt, so the coach began a turn with no enumerable tool
+/// rendered into the prompt, so the agent began a turn with no enumerable tool
 /// surface. On 2026-08-26 it told two athletes it had no tool to write to
 /// Intervals.icu, with zero tool calls, about a tool it had. It searches
 /// perfectly well when it decides to *act* — it found `save_training_plan`

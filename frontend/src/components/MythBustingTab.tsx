@@ -159,7 +159,7 @@ export default function MythBustingTab() {
                       </p>
                       <p className="mt-1 text-xs text-on-surface-variant">
                         {claim.occurrences} occurrence{claim.occurrences === 1 ? '' : 's'} ·
-                        {claim.coach_count} agent{claim.coach_count === 1 ? '' : 's'} · last seen{' '}
+                        {claim.agent_count} agent{claim.agent_count === 1 ? '' : 's'} · last seen{' '}
                         {formatTimestamp(claim.last_seen_at)}
                       </p>
                     </div>
@@ -201,11 +201,11 @@ export default function MythBustingTab() {
               </h3>
             </div>
             <ul className="divide-y divide-outline-variant">
-              {data.top_coaches.map((coach) => (
-                <li key={coach.coach_id} className="px-6 py-3">
+              {data.top_agents.map((coach) => (
+                <li key={coach.agent_id} className="px-6 py-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="font-mono text-sm text-on-surface">
-                      {coach.coach_id}
+                      {coach.agent_id}
                     </div>
                     <div className="text-sm font-semibold text-on-surface">
                       {coach.unsupported_total} flagged
@@ -235,8 +235,8 @@ export default function MythBustingTab() {
                     {humanizeCategory(cat.category)}
                   </div>
                   <div className="text-xs text-on-surface-variant">
-                    {cat.flagged_total} flagged · {cat.coach_count} agent
-                    {cat.coach_count === 1 ? '' : 's'}
+                    {cat.flagged_total} flagged · {cat.agent_count} agent
+                    {cat.agent_count === 1 ? '' : 's'}
                   </div>
                 </li>
               ))}

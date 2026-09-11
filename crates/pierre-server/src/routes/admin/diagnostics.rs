@@ -276,7 +276,7 @@ pub fn partition_stale_captures(
 /// The table this reads, `activity_fetch_freshness`, has held the honest answer
 /// since it was added — it was simply never read by anything but a per-user
 /// freshness report. On 2026-08-28 one athlete's sciotte capture stopped and was
-/// still stopped two days later; three real activities never landed and the coach
+/// still stopped two days later; three real activities never landed and the agent
 /// kept answering from a training log that had frozen. `176ab975c` removed the
 /// mask that made the freshness mark lie; this is the reader that makes it
 /// matter (carnet#149, which cites that fix by its pre-squash SHA `5c3c405ce` —

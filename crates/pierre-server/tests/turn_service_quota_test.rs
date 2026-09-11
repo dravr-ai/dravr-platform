@@ -68,7 +68,7 @@ mod turn_service_quota_tests {
     use tokio::time::sleep;
     use uuid::Uuid;
 
-    /// Deterministic coach: one short reply, real token counts, no tools.
+    /// Deterministic agent: one short reply, real token counts, no tools.
     struct CountingMockProvider;
 
     #[async_trait]
@@ -224,7 +224,7 @@ mod turn_service_quota_tests {
                  WHERE c.tenant_id = $1 AND m.role = 'assistant'";
         let tenant = tenant_id.to_string();
         for _ in 0..150 {
-            let count: i64 = match resources.coach.database.as_ref() {
+            let count: i64 = match resources.agent.database.as_ref() {
                 Database::SQLite(db) => sqlx::query_scalar(SQL)
                     .bind(&tenant)
                     .fetch_one(db.pool())

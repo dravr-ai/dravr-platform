@@ -136,7 +136,7 @@ pub async fn build_athlete_metrics(
     };
 
     // data_days = distinct calendar days with an activity — the density signal
-    // gating whether the personalized layer trusts the snapshot enough to contradict a coach.
+    // gating whether the personalized layer trusts the snapshot enough to contradict an agent.
     let zone = resolve_zone(user_timezone.as_deref());
     let mut activity_days: Vec<_> = activities
         .iter()

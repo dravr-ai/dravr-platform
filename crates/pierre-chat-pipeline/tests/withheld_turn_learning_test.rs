@@ -13,14 +13,14 @@
 //! gate achieved that by dropping *all* background learning for the turn, which
 //! also dropped the athlete's own message.
 //!
-//! That is what stalls a guided profile walk. The athlete answers, the coach's
+//! That is what stalls a guided profile walk. The athlete answers, the agent's
 //! reply is withheld, no fact is extracted, coverage never flips, and the next
 //! turn asks the same question — indefinitely, since every recorded withhold to
-//! date is on the coach this flow runs against.
+//! date is on the agent this flow runs against.
 //!
 //! The invariant now: user-side extraction runs either way, with a marker
 //! standing in for the reply; only assistant-side learning (playbook advice
-//! capture, whose whole purpose is learning from what the coach said) is
+//! capture, whose whole purpose is learning from what the agent said) is
 //! skipped. Asserted structurally because the branch spawns detached tasks
 //! against a live LLM provider — the regression this guards against is a source
 //! edit restoring the early `return`.

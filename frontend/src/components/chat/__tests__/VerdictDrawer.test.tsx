@@ -14,7 +14,7 @@ function verdict(id: string, overrides: Partial<ClaimVerdict> = {}): ClaimVerdic
     id,
     conversation_id: 'conv-1',
     message_id: 'msg-1',
-    coach_id: 'coach-1',
+    agent_id: 'coach-1',
     claim_text: 'Creatine at 5 g per day improves high-intensity performance.',
     category: 'supplement',
     status: 'supported',

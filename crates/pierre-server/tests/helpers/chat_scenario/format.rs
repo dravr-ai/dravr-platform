@@ -6,7 +6,7 @@
 
 //! Scenario file format.
 //!
-//! A *scenario* describes a multi-turn user → coach conversation with
+//! A *scenario* describes a multi-turn user → agent conversation with
 //! per-turn property assertions. The format is intentionally narrow:
 //! every assertion the runner can execute is enumerated as a variant
 //! of [`AssertionSpec`], so a YAML author cannot smuggle in arbitrary
@@ -59,7 +59,7 @@ pub struct ChatScenario {
     /// Ordered list of user turns.
     pub turns: Vec<TurnSpec>,
     /// Opt out of the cross-turn numeric-drift asserter for this scenario.
-    /// Default `false` (drift is enforced). Set `true` only when the coach
+    /// Default `false` (drift is enforced). Set `true` only when the agent
     /// legitimately names individual activity legs across turns (e.g. a
     /// "yesterday's activities" turn listing the 8 km road leg after an
     /// earlier turn stated the 33 km run total): a leg figure is not a
@@ -151,7 +151,7 @@ pub struct ScenarioActivity {
     pub date: String,
 }
 
-/// One user → coach exchange.
+/// One user → agent exchange.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnSpec {
     /// What the user says.
@@ -162,7 +162,7 @@ pub struct TurnSpec {
     /// this one." Defaults to `false`.
     #[serde(default)]
     pub trigger_sync_before_turn: bool,
-    /// Property assertions evaluated against the coach's reply for
+    /// Property assertions evaluated against the agent's reply for
     /// this turn, on top of the language check every turn gets (see
     /// [`Self::skip_language_check`]). Empty list ⇒ the reply is graded
     /// on its language alone.
@@ -201,7 +201,7 @@ pub enum AssertionSpec {
     ReplyContains { value: String },
     /// Reply must NOT contain any of the listed substrings. Used to
     /// catch wrong-language disclaimer leaks (Bug 6) and refusal-text
-    /// leaks across coach personalities.
+    /// leaks across agent personalities.
     NoSubstring { values: Vec<String> },
     /// Reply must reference a distance value within `tolerance_km`
     /// of `value_km`. Wraps `messaging_eval::assert_citation_grounded`
@@ -256,12 +256,12 @@ pub enum AssertionSpec {
         #[serde(default)]
         tid_within: bool,
     },
-    /// Reply must contain ≥1 term from the coach's declared
+    /// Reply must contain ≥1 term from the agent's declared
     /// vocabulary contract (P4 — vocabulary-contract pattern). The
     /// contract is loaded from the contremaitre manifest under
-    /// `coaches.<coach_id>.vocabulary_contract`; the asserter resolves
-    /// the active coach from the turn's `TurnInput`.
-    VocabularyContract { coach_id: String },
+    /// `agents.<agent_id>.vocabulary_contract`; the asserter resolves
+    /// the active agent from the turn's `TurnInput`.
+    VocabularyContract { agent_id: String },
     /// Reply must include at least one of the listed substrings —
     /// "OR" semantics. The shape `Anyof` (deliberately misspelled to
     /// dodge YAML's reserved-word table) reads naturally as a list
@@ -284,7 +284,7 @@ pub enum AssertionSpec {
     /// author who believes the check is opt-in is one turn away from the
     /// gap carnet#159 walked through. Name a `locale:` only to assert a
     /// language that differs from the run's — a turn where the athlete
-    /// deliberately switches and the coach is expected to follow.
+    /// deliberately switches and the agent is expected to follow.
     ReplyLanguage {
         /// BCP-47 short code. `None` means "the turn's own locale", which
         /// is how the runner constructs the implied per-turn assertion;
@@ -497,7 +497,7 @@ turns:
       - { kind: distance_mentioned, value_km: 33.10 }
       - { kind: activity_count_mentioned, value: 10, tolerance: 0 }
       - { kind: tool_called, name: get_activities }
-      - { kind: vocabulary_contract, coach_id: strength }
+      - { kind: vocabulary_contract, agent_id: strength }
       - { kind: any_of, values: ["aujourd'hui", "today"] }
 "#;
         let s: ChatScenario = serde_yaml::from_str(yaml).expect("parse");

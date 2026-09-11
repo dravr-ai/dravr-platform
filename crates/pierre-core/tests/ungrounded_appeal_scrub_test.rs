@@ -7,13 +7,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The athlete had corrected the coach's weekday ordering three times. On the
-//! third, the coach replied:
+//! The athlete had corrected the agent's weekday ordering three times. On the
+//! third, the agent replied:
 //!
 //! > *"Roster data confirme: Date ride était bien lundi (16 km, 414 m), et Road
 //! > 2 AUS mardi"*
 //!
-//! No tool ran on that turn. The coach took the athlete's own correction,
+//! No tool ran on that turn. The agent took the athlete's own correction,
 //! attributed it to a data lookup it had not performed, and handed it back as
 //! confirmation. Claiming data confirmation without a fetch is worse than
 //! abstaining — it converts a correction into evidence against the person
@@ -60,7 +60,7 @@ fn the_appeal_is_caught_in_every_shipped_locale() {
     }
 }
 
-/// A coach answering from what it was given, without claiming a lookup, is
+/// An agent answering from what it was given, without claiming a lookup, is
 /// doing the right thing and must pass through byte-identical.
 #[test]
 fn an_ordinary_reply_passes_through_untouched() {

@@ -14,10 +14,10 @@
 //!    Typing `/pillars` in the room is the consent; the state binds the caller
 //!    as subject with a room audience, and the DM-only pillars can be neither
 //!    walked nor re-screened from there.
-//! 2. **The opener is persisted as an assistant message.** Without it the coach
+//! 2. **The opener is persisted as an assistant message.** Without it the agent
 //!    receives the athlete's North Star answer with no question attached, and —
-//!    because that answer is then message #1 — the first-turn coach startup
-//!    prefetch fires and injects an activity dump plus the coach's own "build a
+//!    because that answer is then message #1 — the first-turn agent startup
+//!    prefetch fires and injects an activity dump plus the agent's own "build a
 //!    block" query as if the athlete had asked for it.
 //! 3. **A state write that matched no row is reported, not swallowed.**
 
@@ -30,7 +30,7 @@ use pierre_core::models::{
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -166,7 +166,7 @@ async fn pillars_mental_in_a_group_is_refused_before_any_expiry() -> Result<()> 
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: &user_id.to_string(),
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Preference,
             pillar: Some(Pillar::MentalResilience),

@@ -183,14 +183,14 @@ pub struct ReentryRequest<'a> {
     pub channel_type: ChannelType,
     /// BCP-47 short locale resolved from the messaging session.
     pub locale: &'a str,
-    /// The user's own question, re-asked verbatim so the coach queries the
+    /// The user's own question, re-asked verbatim so the agent queries the
     /// same window (e.g. "2022") against the now-warm activity cache.
     pub prompt: &'a str,
 }
 
 /// A synthesized backfill-push reply.
 ///
-/// Carries the coach's analysis plus the rendered activity list the re-entry's
+/// Carries the agent's analysis plus the rendered activity list the re-entry's
 /// `get_activities` produced (sorted per the re-asked question). The list is
 /// prepended to the analysis on delivery so the user SEES their activities,
 /// mirroring the live messaging path.
@@ -203,14 +203,14 @@ pub struct ReentryReply {
     pub body: String,
     /// Whether the re-entry turn actually fetched the athlete's activities.
     ///
-    /// The push exists to deliver a freshly backfilled history, so a coach
+    /// The push exists to deliver a freshly backfilled history, so an agent
     /// reply that never looked at it is discarded in favour of the templated
     /// list rather than surfacing an analysis of nothing.
     pub fetched_activities: bool,
 }
 
 /// Re-runs one chat-pipeline turn so the backfill-completion push can deliver a
-/// real in-persona coach answer instead of a templated activity list.
+/// real in-persona agent answer instead of a templated activity list.
 ///
 /// Extracted as a trait — mirroring [`AdapterResolver`] — so the notifier's
 /// "synthesize, else fall back to the templated list" branch is unit-testable
@@ -432,7 +432,7 @@ impl ServerBackfillNotifier {
     }
 
     /// Build a notifier with an explicit adapter resolver and a pre-installed
-    /// re-entry handle. Test seam for the coach-synthesis path: inject a fake
+    /// re-entry handle. Test seam for the agent-synthesis path: inject a fake
     /// [`ChatReentry`] and assert the notifier sends its reply instead of the
     /// templated list.
     #[must_use]
@@ -743,7 +743,7 @@ impl ServerBackfillNotifier {
 
     /// Fetch the user's most recent question in this conversation so the
     /// re-entry can re-ask it verbatim — carrying the same window (e.g. "2022")
-    /// the coach must query against the now-warm cache.
+    /// the agent must query against the now-warm cache.
     ///
     /// The chat repo returns newest-first, so the latest non-empty `user`-role
     /// message is the question that triggered the backfill. A slash-command
@@ -776,7 +776,7 @@ impl ServerBackfillNotifier {
             .map(|m| m.content)
     }
 
-    /// Try to synthesize a real coach answer by re-entering the chat pipeline
+    /// Try to synthesize a real agent answer by re-entering the chat pipeline
     /// with the user's own question, now that the activity cache is warm.
     ///
     /// Loop-safe: re-asking a deep window after the cache is warmed serves
@@ -785,7 +785,7 @@ impl ServerBackfillNotifier {
     /// Returns `None` (caller falls back to the templated list) when no re-entry
     /// handle is installed, the conversation has no re-askable question, or the
     /// pipeline produced nothing.
-    async fn try_synthesize_coach_reply(
+    async fn try_synthesize_agent_reply(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -892,7 +892,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // DECOUPLING (data delivery ≠ LLM judgment): the deterministic list,
             // rendered from the warmed cache the backfill just wrote, is the SPINE
             // — the user ALWAYS receives the data they asked for, regardless of the
-            // model. We still attempt an in-persona coach answer via chat re-entry,
+            // model. We still attempt an in-persona agent answer via chat re-entry,
             // but only TRUST it when the model actually engaged with the data:
             // `activity_list_captured` is set only when the tool loop itself
             // returned a list, never when the platform prefetched activities into
@@ -904,7 +904,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // activities. This makes the LLM a best-effort enhancement, not a gate
             // on delivery.
             match self
-                .try_synthesize_coach_reply(
+                .try_synthesize_agent_reply(
                     user_id,
                     tenant_id,
                     pierre_conversation_id,
@@ -914,7 +914,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 .await
                 .filter(|r| r.fetched_activities)
             {
-                Some(coach_reply) => coach_reply.body,
+                Some(agent_reply) => agent_reply.body,
                 None => self.render_list_body(&locale, &warmed),
             }
         } else {

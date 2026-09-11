@@ -307,7 +307,7 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
 /// After storing, spawns a background task to pre-fetch activities into cache so the
-/// coach can serve data immediately when the user starts chatting.
+/// agent can serve data immediately when the user starts chatting.
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: uuid::Uuid,
@@ -360,7 +360,7 @@ async fn store_sciotte_session(
 }
 
 /// Spawn a background task to pre-fetch and cache activities after a
-/// successful sciotte login, so the coach has warm data on the first chat.
+/// successful sciotte login, so the agent has warm data on the first chat.
 /// Backpressure now lives on the dedicated service (its own concurrency
 /// limiter), so the platform just fires the scrape — no in-pod permit
 /// (ADR-021 Phase 4 cutover).

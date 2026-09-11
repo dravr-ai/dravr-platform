@@ -24,6 +24,9 @@
 pub mod acronym_expansion;
 /// Shape a `get_activities` list for a surface that folds it into prose.
 pub mod activity_fold;
+/// Per-turn `@handle` routing: an installed agent named in the message
+/// answers that turn only.
+pub mod agent_mention;
 /// Re-auth recovery: short-circuit a turn with a hosted-login URL.
 pub mod auth_recovery;
 /// Capability-failure recovery: verify a "my data access is broken" claim
@@ -32,12 +35,9 @@ pub mod capability_recovery;
 /// Subject-routed capability recovery: an ask about a roster peer is
 /// adjudicated with that peer's data, never the requester's.
 pub mod capability_subject;
-/// Per-turn `@handle` routing: an installed coach named in the message
-/// answers that turn only.
-pub mod coach_mention;
 /// Slash-command turns written to the transcript — and kept out of prompts.
 pub mod command_persistence;
-/// Open athlete commitments rendered into the coach's system prompt.
+/// Open athlete commitments rendered into the agent's system prompt.
 pub mod commitments;
 pub mod compaction;
 /// Deterministic completion for the calibration interview — the facts-landed
@@ -65,7 +65,7 @@ pub mod plan_block;
 /// Post-LLM content processing: canary scan, guardrails, verification, hook.
 pub mod post_process;
 pub mod prefetch;
-/// Prompt assembly: coach/default → provider/group/memory → canary → messages.
+/// Prompt assembly: agent/default → provider/group/memory → canary → messages.
 pub mod prompt_assembly;
 pub mod prompt_builder;
 pub mod refresh;

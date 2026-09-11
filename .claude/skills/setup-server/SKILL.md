@@ -54,7 +54,7 @@ curl -sf -o /dev/null http://localhost:5173 && echo " vite ok"
 - `.envrc` present and populated (`cp .envrc.example .envrc && direnv allow`). The script
   hard-fails listing any missing required var — `DATABASE_URL`,
   `PIERRE_MASTER_ENCRYPTION_KEY`, and the seven `PIERRE_SCIOTTE_*` backpressure vars.
-- An agent source at `../dravr-contremaitre/prompts/coaches`, or `PIERRE_COACHES_DIR` set.
+- An agent source at `../dravr-contremaitre/prompts/coaches`, or `PIERRE_AGENTS_DIR` set.
   The script exits if it is absent — agent definitions live in dravr-contremaitre as the
   single source of truth.
 
@@ -106,7 +106,7 @@ database you do not want to wipe.
 | Subcommand | Creates |
 |---|---|
 | `pierre-cli seed bootstrap` | admin + demo users (idempotent) |
-| `pierre-cli seed coaches --coaches-dir <dir>` | agent personas from contremaitre markdown |
+| `pierre-cli seed agents --agents-dir <dir>` | agent personas from contremaitre markdown |
 | `pierre-cli seed demo-data --days 30` | demo users, dashboard analytics, API keys, usage series |
 | `pierre-cli seed social` | friend connections, shared insights, reactions, feed |
 | `pierre-cli seed mobility` | stretches, yoga poses, activity-muscle mappings |

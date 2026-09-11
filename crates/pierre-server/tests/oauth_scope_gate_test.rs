@@ -125,7 +125,7 @@ async fn a_read_only_grant_is_refused_a_write_tool() {
     let resources = create_test_server_resources()
         .await
         .expect("test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -181,7 +181,7 @@ async fn a_scope_refusal_on_the_chat_path_is_a_failed_tool_result_naming_the_sco
     let resources = create_test_server_resources()
         .await
         .expect("test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -223,7 +223,7 @@ async fn the_matching_grant_reaches_the_same_tool() {
     let resources = create_test_server_resources()
         .await
         .expect("test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -263,7 +263,7 @@ async fn an_unbound_executor_grants_nothing() {
     let resources = create_test_server_resources()
         .await
         .expect("test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());

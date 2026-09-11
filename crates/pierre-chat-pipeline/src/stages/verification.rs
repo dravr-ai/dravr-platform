@@ -8,8 +8,8 @@
 //!
 //! Runs the `pierre_evals` heuristic pipeline over the assistant reply to
 //! detect unsupported claims, persists verdicts for the admin dashboard,
-//! and reacts per the coach's `VerificationConfig` (parsed from YAML
-//! frontmatter on the coach's system prompt). Pure-Rust in Phase A, no
+//! and reacts per the agent's `VerificationConfig` (parsed from YAML
+//! frontmatter on the agent's system prompt). Pure-Rust in Phase A, no
 //! measurable latency.
 //!
 //! Gated behind `#[cfg(feature = "tools-verification")]` because the
@@ -115,7 +115,7 @@ pub(crate) fn resolve_banner_locale(reply: &str, locale: &str) -> String {
     locale.to_owned()
 }
 
-/// Approximate "lead" of a coach reply for verification-banner deduplication.
+/// Approximate "lead" of an agent reply for verification-banner deduplication.
 ///
 /// Returns the first ~600 bytes of `reply`, snapped to a UTF-8 char
 /// boundary. The Warn-banner builder uses this to decide whether a flagged
@@ -210,7 +210,7 @@ fn actionable_flag(claim: &ExtractedClaim, outcome: &VerdictOutcome) -> Option<b
 
 /// The dispatch action for a single verdict.
 ///
-/// Personalized verdicts route through the coach's
+/// Personalized verdicts route through the agent's
 /// [`ContradictionPolicy`]; every other layer keeps the existing
 /// `fallback_behavior` mapping, so non-personalized behavior is unchanged.
 fn resolved_action(outcome: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction {
@@ -355,7 +355,7 @@ pub struct ClaimVerificationParams<'a> {
     pub renders_chips: bool,
     /// Assistant reply text to scan.
     pub reply: &'a str,
-    /// Parsed verification config (from the coach's prompt frontmatter).
+    /// Parsed verification config (from the agent's prompt frontmatter).
     pub config: &'a VerificationConfig,
     /// The turn's resolved locale, used for the Warn/Block fallback strings
     /// when the reply's own language cannot be detected.
@@ -385,7 +385,7 @@ pub struct ClaimVerificationOutcome {
     pub chips: Vec<VerdictChip>,
 }
 
-/// Run `stage` under a panic boundary, degrading per the coach's configured
+/// Run `stage` under a panic boundary, degrading per the agent's configured
 /// [`VerificationConfig::fallback_behavior`].
 ///
 /// Claim verification is decorative and it runs *late*: by the time it sees
@@ -394,7 +394,7 @@ pub struct ClaimVerificationOutcome {
 ///
 /// On 2026-07-28 it cost the turn. A byte-offset window in the
 /// deterministic-bounds scanner sliced through an accented character in a
-/// French coach reply; the panic unwound past post-processing to the
+/// French agent reply; the panic unwound past post-processing to the
 /// turn-level boundary in messaging dispatch, which correctly reported a
 /// total failure — six seconds after `save_training_plan` had committed the
 /// athlete's first successful plan. He was shown an outage message for a plan
@@ -407,15 +407,15 @@ pub struct ClaimVerificationOutcome {
 /// withhold. Only stages whose output can be dropped without changing what
 /// the turn is allowed to say belong inside a boundary like this one.
 ///
-/// Delivering the unverified reply is right for a coach that would only have
+/// Delivering the unverified reply is right for an agent that would only have
 /// appended a banner or recorded the verdict. It is wrong for one whose
 /// [`VerificationFallback::Block`] exists to REPLACE a reply carrying a
 /// contradicted claim — "an HR max of 300 bpm", "500 g of creatine per day" are
 /// the class the deterministic bounds catch, and they are precisely the class
 /// that panics the scanner. An unscanned reply is exactly as unproven as a
-/// flagged one, so a blocking coach gets its block fallback, which the caller
+/// flagged one, so a blocking agent gets its block fallback, which the caller
 /// supplies through `block_fallback` (localized, so it needs the messaging
-/// registry). The closure is only called when the coach blocks *and* the stage
+/// registry). The closure is only called when the agent blocks *and* the stage
 /// panicked.
 ///
 /// `AssertUnwindSafe` is sound because a caught panic discards the stage's
@@ -457,7 +457,7 @@ where
 
 /// Run the bullshit detector over the finalized assistant reply.
 ///
-/// Computes verdicts and applies the coach's
+/// Computes verdicts and applies the agent's
 /// [`VerificationConfig::fallback_behavior`] to the reply, but defers
 /// persisting verdicts. The caller is expected to write the assistant message
 /// first and then invoke [`persist_pending_verdicts`] with the resulting
@@ -476,7 +476,7 @@ pub async fn apply_claim_verification(
     let ctx = params.ctx;
     let locale = params.locale;
     // Rendering the block fallback costs a language detection, so it is built
-    // lazily: only a blocking coach whose stage actually panicked pays for it.
+    // lazily: only a blocking agent whose stage actually panicked pays for it.
     degrade_to_unverified(verify_and_apply(params), reply, config, || {
         ctx.messaging_strings_registry.get(
             KEY_VERIFICATION_BLOCK_FALLBACK,
@@ -526,7 +526,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     );
     let judge: Option<&dyn LlmProvider> = judge_provider.as_deref().map(|p| p as &dyn LlmProvider);
 
-    // The personalized layer — build the athlete snapshot + tolerance strategy when the coach
+    // The personalized layer — build the athlete snapshot + tolerance strategy when the agent
     // enabled personalized verification. The snapshot owns its data so its
     // borrow lives through the verify call; an unusable snapshot (thin history)
     // makes the layer a silent no-op. Kept in fn-scope so `personalized` can
@@ -644,7 +644,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
 /// connection lookup *fails*. Both mean we cannot establish the athlete's state,
 /// and this is the one layer where guessing is dangerous in a specific
 /// direction: "providerless" is what licenses a `Contradicted` verdict at 0.95
-/// confidence, saying the coach invented a figure. Collapsing an `Err` into
+/// confidence, saying the agent invented a figure. Collapsing an `Err` into
 /// `false` would let a pool timeout brand an accurate reply a fabrication and
 /// persist that accusation. Skipping the layer costs a verdict; guessing costs
 /// the athlete's trust, so absence of knowledge must never read as knowledge of
@@ -736,7 +736,7 @@ async fn build_athlete_record(
 
 /// How far back the athlete-data layer looks when matching a claim.
 ///
-/// A coach discussing "last month" or "the past few weeks" is the common case;
+/// An agent discussing "last month" or "the past few weeks" is the common case;
 /// a quarter covers those without pulling a whole history into a per-reply
 /// check.
 const ATHLETE_RECORD_WINDOW_DAYS: i64 = 90;
@@ -785,7 +785,7 @@ pub async fn persist_pending_verdicts(
     tenant_id: TenantId,
     user_id: &str,
     conversation_id: &str,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     message_id: &str,
     pending: &[(ExtractedClaim, VerdictOutcome)],
 ) {
@@ -793,7 +793,7 @@ pub async fn persist_pending_verdicts(
         let params = InsertClaimVerdictParams {
             tenant_id,
             user_id,
-            coach_id,
+            agent_id,
             conversation_id: Some(conversation_id),
             message_id: Some(message_id),
             claim_text: &claim.text,

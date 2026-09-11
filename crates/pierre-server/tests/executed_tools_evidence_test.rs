@@ -13,7 +13,7 @@
 //! identically to a success.
 //!
 //! That matters because `tools_called` is the evidence set for the
-//! anti-fabrication gate on coach visuals: a chart carrying
+//! anti-fabrication gate on agent visuals: a chart carrying
 //! `source_tool: "get_activities"` renders only if that tool ran. With the old
 //! behaviour a merely-*attempted* call satisfied the citation, so a fabricated
 //! chart could be published with provenance that reads as verified.
@@ -29,14 +29,14 @@ use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use serde_json::json;
 use uuid::Uuid;
 
-/// A name the coach invented. It matches no registered tool, so dispatch fails
+/// A name the agent invented. It matches no registered tool, so dispatch fails
 /// — and it must not appear in the executed set.
 const HALLUCINATED: &str = "analyze_my_vibes";
 
 #[tokio::test]
 async fn a_call_that_did_not_run_is_not_recorded_as_having_run() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant_id = TenantId::from_uuid(Uuid::new_v4());

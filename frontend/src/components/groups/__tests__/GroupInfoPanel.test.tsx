@@ -50,7 +50,7 @@ function sampleGroup(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
     tenant_id: 'tenant-a',
     name: 'Marathon Squad',
     description: 'Sunday long runs',
-    coach_id: 'coach-1',
+    agent_id: 'coach-1',
     coach_user_id: null,
     owner_id: CALLER_ID,
     max_members: 10,

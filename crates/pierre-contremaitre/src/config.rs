@@ -31,7 +31,7 @@ const DEFAULT_BRANCH: &str = "main";
 ///   the [`GitHubContentsClient`]. This is the local-dev default.
 ///
 /// In both cases [`Self::github_client`] is still available for **admin
-/// write operations** (coach promotion, edit-in-place from the admin UI),
+/// write operations** (agent promotion, edit-in-place from the admin UI),
 /// which always commit to the GitHub repo.
 #[derive(Clone)]
 pub struct ContremaitreConfig {
@@ -105,7 +105,7 @@ impl ContremaitreConfig {
 
     /// Create a GitHub Contents API client from this configuration.
     ///
-    /// Used by admin write operations (coach promotion / system prompt
+    /// Used by admin write operations (agent promotion / system prompt
     /// edit-in-place). The read sync path uses [`Self::store`] instead so
     /// production reads bypass the GitHub API entirely.
     #[must_use]

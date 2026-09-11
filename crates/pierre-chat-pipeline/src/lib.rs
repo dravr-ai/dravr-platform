@@ -95,7 +95,7 @@ use pierre_contremaitre::{
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    AddMessageParams, CoachRuntimeContext, GuidedFlow, MemberFitnessSnapshot, OnboardingState,
+    AddMessageParams, AgentRuntimeContext, GuidedFlow, MemberFitnessSnapshot, OnboardingState,
     TenantId, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -122,7 +122,7 @@ use tracing::field::Empty;
 use tracing::{info, warn};
 
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
-use stages::followups::{ensure_coach_session_attached, finalize_session_state};
+use stages::followups::{ensure_agent_session_attached, finalize_session_state};
 use stages::persistence::{
     append_platform_prompt, get_conversation_history, persist_assistant_response,
     resolve_turn_prompt,
@@ -180,14 +180,14 @@ pub struct ChatPipelineContext {
     /// during provider re-auth recovery.
     pub admin_jwt_secret: Arc<str>,
     /// Optional admin config lookup — used to resolve the tool-loop
-    /// iteration budget when no per-coach override is set.
+    /// iteration budget when no per-agent override is set.
     pub admin_config: Option<Arc<dyn AdminConfigLookup>>,
     /// Pre-built `ChatProvider` singleton (shared subprocess / token cache).
     pub chat_provider: Option<Arc<ChatProvider>>,
     /// Lower-level LLM provider, used as a fallback when no dedicated
     /// `ChatProvider` is configured.
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
-    /// Hot-reloadable system prompts (Pierre, coach personas, tool discipline).
+    /// Hot-reloadable system prompts (Pierre, agent personas, tool discipline).
     pub prompt_registry: Arc<PromptRegistry>,
     /// Hot-reloadable tool description overlays.
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
@@ -221,9 +221,9 @@ pub struct ChatPipelineContext {
     pub tool_discipline_prompt: String,
     /// Tool-discipline prompt for messaging channels.
     pub tool_discipline_messaging_prompt: String,
-    /// Contract telling a granted coach how to embed an inline chart or table,
+    /// Contract telling a granted agent how to embed an inline chart or table,
     /// and which of those rules the platform enforces. Appended only when the
-    /// coach carries a non-empty `visuals:` grant and the channel can render a
+    /// agent carries a non-empty `visuals:` grant and the channel can render a
     /// block.
     pub visual_blocks_prompt: String,
     /// JSON Schema texts keyed by schema id, compiled once on first use — the
@@ -298,8 +298,8 @@ struct AssemblePromptArgs<'a> {
     profile: &'a SurfaceProfile,
     /// Resolved conversation record.
     conv: &'a ConversationRecord,
-    /// Optional coach runtime context.
-    coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Optional agent runtime context.
+    agent_ctx: Option<&'a AgentRuntimeContext>,
     /// Persisted conversation history.
     history: &'a [MessageRecord],
     /// Onboarding turn context when the conversation is mid pillar walk.
@@ -315,7 +315,7 @@ async fn assemble_prompt_stage(
         args.input,
         args.profile,
         args.conv,
-        args.coach_ctx,
+        args.agent_ctx,
         args.history,
         args.onboarding,
     )
@@ -332,7 +332,7 @@ async fn assemble_prompt_stage(
 /// never the topic this turn goes on to ask.
 /// The tool that persists a training plan.
 ///
-/// Named here because the memory extractor's coach-prescription filter is
+/// Named here because the memory extractor's agent-prescription filter is
 /// justified entirely by this tool having run: it drops schedule facts on the
 /// grounds that plans live in the plan store instead. When it did not run, the
 /// drop deletes the only copy (registre#203).
@@ -374,7 +374,7 @@ fn spawn_turn_extraction(
         SpawnedExtractionRequest {
             tenant_id: extraction_tenant,
             user_id: input.user_id.clone(),
-            coach_id: input.turn_coach_id(conv).map(ToOwned::to_owned),
+            agent_id: input.turn_agent_id(conv).map(ToOwned::to_owned),
             user_message: input.content.clone(),
             assistant_reply: assistant_reply.to_owned(),
             source_msg_id: Some(assistant_message_id.to_owned()),
@@ -411,7 +411,7 @@ fn spawn_turn_advice_capture(
             // conversation tenant for group channels.
             tenant_id: input.tool_tenant_id.to_string(),
             user_id: input.user_id.clone(),
-            coach_slug: input.turn_coach_id(conv).map(ToOwned::to_owned),
+            agent_slug: input.turn_agent_id(conv).map(ToOwned::to_owned),
             user_message: input.content.clone(),
             assistant_reply: assistant_reply.to_owned(),
             source_msg_id: Some(assistant_message_id.to_owned()),
@@ -429,12 +429,12 @@ fn spawn_turn_advice_capture(
 /// though — so extraction still runs over the user turn with
 /// [`WITHHELD_REPLY_TRANSCRIPT_MARKER`] standing in for the reply, and only
 /// assistant-side learning (playbook advice capture, which exists to learn from
-/// what the coach said) is skipped.
+/// what the agent said) is skipped.
 ///
 /// Dropping the user turn as well is what stalled the guided pillar walk: the
 /// answer was never extracted, the topic never flipped to covered, and the next
 /// turn re-asked the same question. Every recorded withhold to date is on the
-/// coach this flow runs against.
+/// agent this flow runs against.
 ///
 /// Owning the `leak_replaced` branch here keeps `run_turn` itself branch-free
 /// over this concern.
@@ -517,7 +517,7 @@ async fn persist_verdicts_for_turn(
         input.conversation_tenant_id,
         &input.user_id,
         &input.conversation_id,
-        input.turn_coach_id(conv),
+        input.turn_agent_id(conv),
         assistant_message_id,
         pending_verdicts,
     )
@@ -535,7 +535,7 @@ struct FinishTurnInputs<'a> {
     onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
     leak_replaced: bool,
     /// Whether `save_training_plan` ran on this turn. Decides whether the
-    /// memory extractor may drop a coach-prescription schedule fact on the
+    /// memory extractor may drop an agent-prescription schedule fact on the
     /// grounds that the plan is stored elsewhere (registre#203).
     plan_was_saved: bool,
 }
@@ -609,8 +609,8 @@ struct DispatchStageArgs<'a> {
     profile: &'a SurfaceProfile,
     /// Resolved active LLM model identifier.
     active_model: &'a str,
-    /// Optional coach runtime context.
-    coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Optional agent runtime context.
+    agent_ctx: Option<&'a AgentRuntimeContext>,
     /// Persisted conversation history.
     history: &'a [MessageRecord],
     /// Per-message history-row ids parallel to `llm_messages` (`None` for the
@@ -630,14 +630,14 @@ async fn dispatch_stage(
 ) -> AppResult<(ToolLoopResult, String)> {
     emit_step_started(args.hooks, "dispatch").await;
     let max_iterations =
-        resolve_max_iterations(args.profile.budget, args.ctx, args.coach_ctx).await;
+        resolve_max_iterations(args.profile.budget, args.ctx, args.agent_ctx).await;
     let result = stages::tool_dispatch::dispatch_llm_with_tools(
         stages::tool_dispatch::DispatchLlmInputs {
             ctx: args.ctx,
             input: args.input,
             profile: args.profile,
             active_model: args.active_model,
-            coach_ctx: args.coach_ctx,
+            agent_ctx: args.agent_ctx,
             history: args.history,
             source_ids: args.source_ids,
             guided_flow: args.guided_flow,
@@ -657,14 +657,14 @@ pub(crate) fn call_type_for_profile(profile: &SurfaceProfile) -> &'static str {
     profile.surface.call_type()
 }
 
-/// Record the turn span's deferred `coach_id`/`group_id` fields (declared
+/// Record the turn span's deferred `agent_id`/`group_id` fields (declared
 /// `Empty` on the `run` span) once the conversation record resolves them, so
-/// every log line for the rest of the turn names the coach answering it — the
+/// every log line for the rest of the turn names the agent answering it — the
 /// mentioned one on a `@handle` turn — and the group. A no-op when unset.
-fn record_turn_span_context(coach_id: Option<&str>, group_id: Option<&str>) {
+fn record_turn_span_context(agent_id: Option<&str>, group_id: Option<&str>) {
     let span = tracing::Span::current();
-    if let Some(coach_id) = coach_id {
-        span.record("coach_id", coach_id);
+    if let Some(agent_id) = agent_id {
+        span.record("coach_id", agent_id);
     }
     if let Some(group_id) = group_id {
         span.record("group_id", group_id);
@@ -685,7 +685,7 @@ fn record_turn_span_context(coach_id: Option<&str>, group_id: Option<&str>) {
         tenant_id = %input.conversation_tenant_id,
         user_id = %input.user_id,
         // Resolved mid-turn once the conversation record loads; recorded below.
-        coach_id = Empty,
+        agent_id = Empty,
         group_id = Empty,
     )
 )]
@@ -811,13 +811,13 @@ async fn run_turn(
     let active_model =
         resolve_active_model(profile.model_policy, &input.conversation_id, &conv.model);
 
-    // Stage 4: Ensure a long-lived coach session exists and is attached.
-    let conv = ensure_coach_session_attached(&ctx.data, conv, input.conversation_tenant_id).await;
+    // Stage 4: Ensure a long-lived agent session exists and is attached.
+    let conv = ensure_agent_session_attached(&ctx.data, conv, input.conversation_tenant_id).await;
 
     // Fill the turn span's deferred context now that the conversation record is
-    // resolved, so every downstream log line carries the coach and group-chat
+    // resolved, so every downstream log line carries the agent and group-chat
     // identifiers alongside user/tenant/conversation/turn.
-    record_turn_span_context(input.turn_coach_id(&conv), conv.group_id.as_deref());
+    record_turn_span_context(input.turn_agent_id(&conv), conv.group_id.as_deref());
 
     // Stage 4.5: Guided mode. If this conversation is mid pillars walk, mid
     // calibration interview or mid season walk, resolve the topic being probed
@@ -875,10 +875,10 @@ async fn run_turn(
 
     append_platform_prompt(&mut history, &user_message, input.origin);
 
-    stages::coach_mention::apply_prompt_text(&mut history, &user_message.id, &input);
+    stages::agent_mention::apply_prompt_text(&mut history, &user_message.id, &input);
 
-    // Stage 6: Resolve the coach runtime context this turn answers as.
-    let coach_ctx = stages::prompt_assembly::resolve_turn_coach_ctx(ctx, &input, &conv).await?;
+    // Stage 6: Resolve the agent runtime context this turn answers as.
+    let agent_ctx = stages::prompt_assembly::resolve_turn_agent_ctx(ctx, &input, &conv).await?;
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
@@ -889,7 +889,7 @@ async fn run_turn(
             input: &input,
             profile,
             conv: &conv,
-            coach_ctx: coach_ctx.as_ref(),
+            agent_ctx: agent_ctx.as_ref(),
             history: &history,
             onboarding: onboarding_turn.as_ref(),
         })
@@ -903,7 +903,7 @@ async fn run_turn(
             input: &input,
             profile,
             active_model: &active_model,
-            coach_ctx: coach_ctx.as_ref(),
+            agent_ctx: agent_ctx.as_ref(),
             history: &history,
             source_ids: &source_ids,
             guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
@@ -923,7 +923,7 @@ async fn run_turn(
             input: &input,
             profile,
             conv: &conv,
-            coach_ctx: coach_ctx.as_ref(),
+            agent_ctx: agent_ctx.as_ref(),
             prompt_guard: &prompt_guard,
             llm_messages: &llm_messages,
             active_model: &active_model,
@@ -1071,7 +1071,7 @@ async fn run_turn(
 ///
 /// Returns empty when the surface draws specs itself, when no publisher is
 /// wired, or when the reply carried no blocks — all three mean the reply keeps
-/// the sentences the coach wrote around the chart, which is the contract the
+/// the sentences the agent wrote around the chart, which is the contract the
 /// visual-blocks prompt sets.
 fn publish_scenes(
     hooks: &PipelineHooks<'_>,
@@ -1122,7 +1122,7 @@ enum GuidedOutcome {
 ///
 /// The wrap-up reports how many answers actually landed and names a safety
 /// topic that produced none — claims only the platform can make truthfully,
-/// since a coach asked to summarize its own interview has no view of what the
+/// since an agent asked to summarize its own interview has no view of what the
 /// extractor wrote and every incentive to declare success.
 async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<GuidedOutcome> {
     let GuidedStageInputs {

@@ -10,7 +10,7 @@
 //!
 //! The resolver itself is exercised against a real database in
 //! `pierre-server/tests/calibration_walk_test.rs`; what is checked here is the
-//! pure per-turn output: which directive the coach receives, how the answer is
+//! pure per-turn output: which directive the agent receives, how the answer is
 //! stamped, and that the two flows cannot corrupt each other's ledger entries.
 
 use pierre_chat_pipeline::stages::onboarding::{
@@ -101,7 +101,7 @@ fn the_injury_turn_files_the_availability_answer_as_a_schedule_fact() {
     //
     // Stamping the inbound message with the topic being asked filed "8 h/week,
     // Tuesdays protected" as `FactKind::Injury`. That is what the dossier then
-    // hands the coach as the athlete's injury history, and what the completion
+    // hands the agent as the athlete's injury history, and what the completion
     // check counts as the safety answer landing — Injury being the sole writer
     // of its kind is precisely what makes the mis-file invisible.
     let state = state_when_asking(CalibrationTopic::Injury);
@@ -267,7 +267,7 @@ fn a_provider_less_athlete_is_asked_cold_rather_than_given_invented_figures() {
 
 #[test]
 fn only_the_baseline_topic_recites_the_athletes_numbers() {
-    // Quoting the snapshot on every turn would have the coach reading the
+    // Quoting the snapshot on every turn would have the agent reading the
     // athlete's own training history back at them six times.
     for topic in CalibrationTopic::ALL {
         if topic == CalibrationTopic::BaselineConfirm {
@@ -284,7 +284,7 @@ fn only_the_baseline_topic_recites_the_athletes_numbers() {
 
 #[test]
 fn the_calibration_directive_keeps_the_override_and_no_plan_clauses() {
-    // Calibration runs against the same builder coaches whose first-turn
+    // Calibration runs against the same builder agents whose first-turn
     // protocol derailed the pillars walk on 2026-07-24. The override and the
     // no-plan clause are what hold that off, so they must survive in this
     // flow's directive too.
@@ -299,7 +299,7 @@ fn the_calibration_directive_keeps_the_override_and_no_plan_clauses() {
 }
 
 #[test]
-fn the_directive_tells_the_coach_to_recover_from_a_clarifying_question() {
+fn the_directive_tells_the_agent_to_recover_from_a_clarifying_question() {
     // Turn-structure advance is lossy: a topic the athlete answered with a
     // question of their own still advances. Within-turn recovery is the only
     // mitigation available before the completion check.
@@ -365,9 +365,9 @@ fn the_two_flows_write_disjoint_ledger_slugs() {
 
 #[test]
 fn a_room_walk_directive_names_the_subject_binding_and_the_audience() {
-    // The room line is what tells the coach that other members' messages are
+    // The room line is what tells the agent that other members' messages are
     // conversation, not answers — without it the model happily treats the
-    // watching coach's "looking good!" as the athlete's injury answer.
+    // watching agent's "looking good!" as the athlete's injury answer.
     let mut turn = calibration_turn(CalibrationTopic::Injury, None);
     turn.state = turn.state.with_audience(WalkAudience::Room);
     let text = directive(&turn);

@@ -24,12 +24,12 @@
 //!
 //! When a claimed number falls outside the athlete's expected range, whether
 //! that fires `Contradicted` — and how much slack to allow first — is decided by
-//! a [`ToleranceStrategy`]. Three are provided and selected per-coach via the
+//! a [`ToleranceStrategy`]. Three are provided and selected per-agent via the
 //! YAML `verification_config`:
 //!
-//! - [`CoachConfiguredStrategy`] (the default) reads the buffer margin from the
-//!   coach's YAML config.
-//! - [`ConservativeStrategy`] applies a fixed safety buffer a coach cannot
+//! - [`AgentConfiguredStrategy`] (the default) reads the buffer margin from the
+//!   agent's YAML config.
+//! - [`ConservativeStrategy`] applies a fixed safety buffer an agent cannot
 //!   loosen.
 //! - [`TightStrategy`] allows zero buffer: any value outside the range is
 //!   contradicted.
@@ -48,13 +48,13 @@ use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 
 /// Minimum days of activity history backing the snapshot before the personalized
 /// layer is allowed to fire. Below this the estimates are too noisy to contradict a
-/// coach against.
+/// agent against.
 pub const MIN_DATA_DAYS: u32 = 14;
 
 /// Default buffer margin beyond the athlete's expected range.
 ///
 /// A fraction of the metric value, applied before a claim is called
-/// `Contradicted`. Used by [`CoachConfiguredStrategy`] when the coach YAML does
+/// `Contradicted`. Used by [`AgentConfiguredStrategy`] when the agent YAML does
 /// not override it.
 pub const DEFAULT_MARGIN_FRAC: f64 = 0.08;
 
@@ -120,7 +120,7 @@ pub enum ToleranceCall {
 
 /// Pluggable policy for when a claimed value contradicts the athlete's range.
 ///
-/// Decides how much buffer to allow before firing. Selected per-coach via the
+/// Decides how much buffer to allow before firing. Selected per-agent via the
 /// YAML `verification_config` (see
 /// [`crate::verification_config::PersonalizedConfig`]).
 pub trait ToleranceStrategy: Send + Sync {
@@ -130,15 +130,15 @@ pub trait ToleranceStrategy: Send + Sync {
     fn label(&self) -> &'static str;
 }
 
-/// The default strategy: the buffer margin comes from the coach's YAML config
+/// The default strategy: the buffer margin comes from the agent's YAML config
 /// (falling back to [`DEFAULT_MARGIN_FRAC`]).
 #[derive(Debug, Clone, Copy)]
-pub struct CoachConfiguredStrategy {
+pub struct AgentConfiguredStrategy {
     /// Buffer margin as a fraction of the metric value.
     pub margin_frac: f64,
 }
 
-impl Default for CoachConfiguredStrategy {
+impl Default for AgentConfiguredStrategy {
     fn default() -> Self {
         Self {
             margin_frac: DEFAULT_MARGIN_FRAC,
@@ -146,7 +146,7 @@ impl Default for CoachConfiguredStrategy {
     }
 }
 
-impl ToleranceStrategy for CoachConfiguredStrategy {
+impl ToleranceStrategy for AgentConfiguredStrategy {
     fn assess(&self, claim: f64, range: (f64, f64)) -> ToleranceCall {
         assess_with_margin(claim, range, self.margin_frac.max(0.0))
     }
@@ -155,9 +155,9 @@ impl ToleranceStrategy for CoachConfiguredStrategy {
     }
 }
 
-/// A fixed safety buffer a coach cannot loosen or override. Use when the
+/// A fixed safety buffer an agent cannot loosen or override. Use when the
 /// platform wants a guaranteed floor on how aggressively contradictions fire,
-/// independent of any per-coach YAML.
+/// independent of any per-agent YAML.
 #[derive(Debug, Clone, Copy)]
 pub struct ConservativeStrategy {
     margin_frac: f64,
@@ -181,7 +181,7 @@ impl ToleranceStrategy for ConservativeStrategy {
 }
 
 /// Zero buffer: any value outside the athlete's range is contradicted. The
-/// strictest opt-in, for coaches running their prescriptions as hard QA.
+/// strictest opt-in, for agents running their prescriptions as hard QA.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TightStrategy;
 
@@ -443,7 +443,7 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
             "tsb",
             "training stress balance",
             "current form",
-            // fr. "indice de fatigue" is here because the coach invented it
+            // fr. "indice de fatigue" is here because the agent invented it
             // live on 2026-09-02 and then repeated it for fifteen turns — a
             // label the model actually uses is worth probing whether or not
             // anybody chose it (registre#204).

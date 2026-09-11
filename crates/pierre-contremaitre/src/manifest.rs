@@ -19,7 +19,7 @@ use super::errors::ContremaitreError;
 /// enabling efficient change detection without downloading file contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Schema version (5 = locale-keyed coaches, single source of truth in contremaitre)
+    /// Schema version (5 = locale-keyed agents, single source of truth in contremaitre)
     pub version: u32,
     /// All prompt entries grouped by type
     pub prompts: ManifestPrompts,
@@ -74,18 +74,28 @@ pub struct ManifestTraining {
     pub selection: Option<ManifestEntry>,
 }
 
-/// Prompt entries grouped by type: system prompts, coach personas, and
+/// Prompt entries grouped by type: system prompts, agent personas, and
 /// the coaching-persona output-format blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestPrompts {
-    /// System prompts keyed by name (e.g., `pierre_system`, `coach_generation`)
+    /// System prompts keyed by name (e.g., `pierre_system`, `agent_generation`)
     pub system: HashMap<String, ManifestEntry>,
-    /// Coach personas keyed by slug → locale → entry. The path encodes the
-    /// category as `prompts/coaches/<category>/<slug>/<locale>.md`, so the
+    /// Agent personas keyed by slug → locale → entry. The path encodes the
+    /// category as `prompts/agents/<category>/<slug>/<locale>.md`, so the
     /// manifest entry itself carries no separate category field.
-    pub coaches: HashMap<String, HashMap<String, ManifestEntry>>,
+    ///
+    /// The key is dravr-contremaitre's, and the two repositories deploy
+    /// independently, so for the length of the rename a manifest may arrive
+    /// spelling it either way. The field carries no `serde(default)` — an
+    /// absent personas map is a broken manifest, not an empty one — so
+    /// without the alias whichever side moved first would fail to parse every
+    /// manifest the other produced. The alias accepts both and writes
+    /// `agents`; it comes out when contremaitre's own key has moved and the
+    /// pin carrying it has landed.
+    #[serde(alias = "coaches")]
+    pub agents: HashMap<String, HashMap<String, ManifestEntry>>,
     /// Coaching-persona output-format blocks keyed by `snake_case` enum
-    /// slug (`casual`, `enthusiast`, `power_athlete`, `coach`). Each
+    /// slug (`casual`, `enthusiast`, `power_athlete`, `agent`). Each
     /// block defines the user's desired structure / citation density /
     /// length / cadence — what the [`Coaching Persona Architecture`]
     /// vault doc calls "how every coach speaks". Fall back to the

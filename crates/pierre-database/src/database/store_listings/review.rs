@@ -1,4 +1,4 @@
-// ABOUTME: Store review decisions on SQLite: approving a coach into the catalogue and rejecting one
+// ABOUTME: Store review decisions on SQLite: approving an agent into the catalogue and rejecting one
 // ABOUTME: Approval assigns the catalogue handle inside the same transaction as the status change
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,25 +6,25 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::coaches::PublishStatus;
+use pierre_core::models::agents::PublishStatus;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
-use super::{CoachWithListing, StoreListingsManager};
-use crate::database::coach_handle::ensure_catalogue_handle;
+use super::{AgentWithListing, StoreListingsManager};
+use crate::database::agent_handle::ensure_catalogue_handle;
 
 impl StoreListingsManager {
-    /// Approve a coach and publish to the Store
+    /// Approve an agent and publish to the Store
     ///
     /// # Errors
     ///
     /// Returns an error if listing not found or not pending review
-    pub async fn approve_coach(
+    pub async fn approve_agent(
         &self,
-        coach_id: &str,
+        agent_id: &str,
         tenant_id: TenantId,
         admin_user_id: impl Into<Option<Uuid>>,
-    ) -> AppResult<CoachWithListing> {
+    ) -> AppResult<AgentWithListing> {
         let admin_user_id = admin_user_id.into();
         let now = Utc::now();
 
@@ -42,13 +42,13 @@ impl StoreListingsManager {
                 review_decision_by = $3,
                 rejection_reason = NULL,
                 updated_at = $2
-            WHERE coach_id = $4 AND tenant_id = $5 AND publish_status = 'pending_review'
+            WHERE agent_id = $4 AND tenant_id = $5 AND publish_status = 'pending_review'
             ",
         )
         .bind(PublishStatus::Published.as_str())
         .bind(now.to_rfc3339())
         .bind(admin_user_id.map(|id| id.to_string()))
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(tenant_id)
         .execute(&mut *tx)
         .await
@@ -60,26 +60,26 @@ impl StoreListingsManager {
             ));
         }
 
-        ensure_catalogue_handle(&mut tx, coach_id, tenant_id).await?;
+        ensure_catalogue_handle(&mut tx, agent_id, tenant_id).await?;
         tx.commit()
             .await
             .map_err(|e| AppError::database(format!("Failed to commit approval: {e}")))?;
 
-        self.get_coach_with_listing(coach_id, &tenant_id).await
+        self.get_agent_with_listing(agent_id, &tenant_id).await
     }
 
-    /// Reject a coach with a reason
+    /// Reject an agent with a reason
     ///
     /// # Errors
     ///
     /// Returns an error if listing not found or not pending review
-    pub async fn reject_coach(
+    pub async fn reject_agent(
         &self,
-        coach_id: &str,
+        agent_id: &str,
         tenant_id: TenantId,
         admin_user_id: impl Into<Option<Uuid>>,
         reason: &str,
-    ) -> AppResult<CoachWithListing> {
+    ) -> AppResult<AgentWithListing> {
         let admin_user_id = admin_user_id.into();
         let now = Utc::now();
 
@@ -91,14 +91,14 @@ impl StoreListingsManager {
                 review_decision_by = $3,
                 rejection_reason = $4,
                 updated_at = $2
-            WHERE coach_id = $5 AND tenant_id = $6 AND publish_status = 'pending_review'
+            WHERE agent_id = $5 AND tenant_id = $6 AND publish_status = 'pending_review'
             ",
         )
         .bind(PublishStatus::Rejected.as_str())
         .bind(now.to_rfc3339())
         .bind(admin_user_id.map(|id| id.to_string()))
         .bind(reason)
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(tenant_id)
         .execute(&self.pool)
         .await
@@ -110,6 +110,6 @@ impl StoreListingsManager {
             ));
         }
 
-        self.get_coach_with_listing(coach_id, &tenant_id).await
+        self.get_agent_with_listing(agent_id, &tenant_id).await
     }
 }

@@ -146,11 +146,11 @@ async fn an_auth_trip_keeps_the_window_a_sibling_call_already_served() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

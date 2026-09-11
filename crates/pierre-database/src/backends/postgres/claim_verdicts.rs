@@ -43,7 +43,7 @@ fn row_to_verdict(row: &PgRow) -> AppResult<ClaimVerdict> {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
         user_id: row.get("user_id"),
-        coach_id: row.get("coach_id"),
+        agent_id: row.get("agent_id"),
         conversation_id: row.get("conversation_id"),
         message_id: row.get("message_id"),
         claim_text: row.get("claim_text"),
@@ -70,7 +70,7 @@ impl ClaimVerdictRepository for PostgresDatabase {
         sqlx::query(
             r"
             INSERT INTO claim_verdicts (
-                id, tenant_id, user_id, coach_id, conversation_id, message_id,
+                id, tenant_id, user_id, agent_id, conversation_id, message_id,
                 claim_text, category, status, evidence_strength, confidence,
                 layer_fired, explanation, evidence_refs, created_at
             )
@@ -80,7 +80,7 @@ impl ClaimVerdictRepository for PostgresDatabase {
         .bind(&id)
         .bind(params.tenant_id.to_string())
         .bind(params.user_id)
-        .bind(params.coach_id)
+        .bind(params.agent_id)
         .bind(params.conversation_id)
         .bind(params.message_id)
         .bind(params.claim_text)
@@ -100,7 +100,7 @@ impl ClaimVerdictRepository for PostgresDatabase {
             id,
             tenant_id: params.tenant_id.to_string(),
             user_id: params.user_id.to_owned(),
-            coach_id: params.coach_id.map(ToOwned::to_owned),
+            agent_id: params.agent_id.map(ToOwned::to_owned),
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
             message_id: params.message_id.map(ToOwned::to_owned),
             claim_text: params.claim_text.to_owned(),
@@ -122,7 +122,7 @@ impl ClaimVerdictRepository for PostgresDatabase {
     ) -> AppResult<Vec<ClaimVerdict>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, conversation_id, message_id,
+            SELECT id, tenant_id, user_id, agent_id, conversation_id, message_id,
                    claim_text, category, status, evidence_strength, confidence,
                    layer_fired, explanation, evidence_refs, created_at
             FROM claim_verdicts
@@ -146,7 +146,7 @@ impl ClaimVerdictRepository for PostgresDatabase {
     ) -> AppResult<Vec<ClaimVerdict>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, conversation_id, message_id,
+            SELECT id, tenant_id, user_id, agent_id, conversation_id, message_id,
                    claim_text, category, status, evidence_strength, confidence,
                    layer_fired, explanation, evidence_refs, created_at
             FROM claim_verdicts

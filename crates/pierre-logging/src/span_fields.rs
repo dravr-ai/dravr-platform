@@ -11,14 +11,14 @@
 //! a form a custom event formatter can read back. This layer records each
 //! span's fields into a [`SpanFields`] map stored in the span's extensions, so
 //! [`crate::gcp::GcpFormatter`] can copy turn-scoped context
-//! (`user_id`, `tenant_id`, `conversation_id`, `turn_id`, `coach_id`,
+//! (`user_id`, `tenant_id`, `conversation_id`, `turn_id`, `agent_id`,
 //! `group_id`, …) onto every child event — without each call site re-passing
 //! those identifiers.
 //!
 //! Fields declared `Empty` in an `#[instrument]` attribute are not recorded
 //! until a later `Span::record(...)` call; [`SpanFieldStorage::on_record`]
 //! folds those late values into the same map, so deferred identifiers (the
-//! conversation's `coach_id`/`group_id`, resolved mid-turn) still propagate.
+//! conversation's `agent_id`/`group_id`, resolved mid-turn) still propagate.
 
 use serde_json::{Map, Value};
 use tracing::field::{Field, Visit};

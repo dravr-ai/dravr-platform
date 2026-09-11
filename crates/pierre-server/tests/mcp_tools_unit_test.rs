@@ -49,20 +49,20 @@ fn tool_input_schema(tool: &dyn McpTool<dyn ToolRuntime>) -> JsonSchema {
 }
 
 // ============================================================================
-// COACHES TOOLS TESTS (13 tools)
+// AGENTS TOOLS TESTS (13 tools)
 // ============================================================================
 
-mod coaches_tests {
+mod agents_tests {
     use super::*;
-    use pierre_tool_runtime::implementations::coaches::{
-        ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool,
-        GetActiveCoachTool, GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool,
-        SearchCoachesTool, ShowCoachTool, ToggleCoachFavoriteTool, UpdateCoachTool,
+    use pierre_tool_runtime::implementations::agents::{
+        ActivateAgentTool, CreateAgentTool, DeactivateAgentTool, DeleteAgentTool,
+        GetActiveAgentTool, GetAgentTool, HideAgentTool, ListAgentsTool, ListHiddenAgentsTool,
+        SearchAgentsTool, ShowAgentTool, ToggleAgentFavoriteTool, UpdateAgentTool,
     };
 
     #[test]
-    fn test_list_coaches_tool_metadata() {
-        let tool = ListCoachesTool;
+    fn test_list_agents_tool_metadata() {
+        let tool = ListAgentsTool;
         assert_eq!(tool.definition().name, "list_agents");
         assert!(!tool.definition().description.is_empty());
 
@@ -75,8 +75,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_create_coach_tool_metadata() {
-        let tool = CreateCoachTool;
+    fn test_create_agent_tool_metadata() {
+        let tool = CreateAgentTool;
         assert_eq!(tool.definition().name, "create_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -94,8 +94,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_get_coach_tool_metadata() {
-        let tool = GetCoachTool;
+    fn test_get_agent_tool_metadata() {
+        let tool = GetAgentTool;
         assert_eq!(tool.definition().name, "get_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -112,8 +112,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_update_coach_tool_metadata() {
-        let tool = UpdateCoachTool;
+    fn test_update_agent_tool_metadata() {
+        let tool = UpdateAgentTool;
         assert_eq!(tool.definition().name, "update_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -130,8 +130,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_delete_coach_tool_metadata() {
-        let tool = DeleteCoachTool;
+    fn test_delete_agent_tool_metadata() {
+        let tool = DeleteAgentTool;
         assert_eq!(tool.definition().name, "delete_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -148,8 +148,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_toggle_coach_favorite_tool_metadata() {
-        let tool = ToggleCoachFavoriteTool;
+    fn test_toggle_agent_favorite_tool_metadata() {
+        let tool = ToggleAgentFavoriteTool;
         assert_eq!(tool.definition().name, "toggle_agent_favorite");
         assert!(!tool.definition().description.is_empty());
 
@@ -166,8 +166,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_search_coaches_tool_metadata() {
-        let tool = SearchCoachesTool;
+    fn test_search_agents_tool_metadata() {
+        let tool = SearchAgentsTool;
         assert_eq!(tool.definition().name, "search_agents");
         assert!(!tool.definition().description.is_empty());
 
@@ -177,8 +177,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_activate_coach_tool_metadata() {
-        let tool = ActivateCoachTool;
+    fn test_activate_agent_tool_metadata() {
+        let tool = ActivateAgentTool;
         assert_eq!(tool.definition().name, "activate_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -195,8 +195,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_deactivate_coach_tool_metadata() {
-        let tool = DeactivateCoachTool;
+    fn test_deactivate_agent_tool_metadata() {
+        let tool = DeactivateAgentTool;
         assert_eq!(tool.definition().name, "deactivate_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -206,8 +206,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_get_active_coach_tool_metadata() {
-        let tool = GetActiveCoachTool;
+    fn test_get_active_agent_tool_metadata() {
+        let tool = GetActiveAgentTool;
         assert_eq!(tool.definition().name, "get_active_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -217,8 +217,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_hide_coach_tool_metadata() {
-        let tool = HideCoachTool;
+    fn test_hide_agent_tool_metadata() {
+        let tool = HideAgentTool;
         assert_eq!(tool.definition().name, "hide_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -235,8 +235,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_show_coach_tool_metadata() {
-        let tool = ShowCoachTool;
+    fn test_show_agent_tool_metadata() {
+        let tool = ShowAgentTool;
         assert_eq!(tool.definition().name, "show_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -253,8 +253,8 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_list_hidden_coaches_tool_metadata() {
-        let tool = ListHiddenCoachesTool;
+    fn test_list_hidden_agents_tool_metadata() {
+        let tool = ListHiddenAgentsTool;
         assert_eq!(tool.definition().name, "list_hidden_agents");
         assert!(!tool.definition().description.is_empty());
 
@@ -264,10 +264,10 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_create_coach_tools_factory() {
-        use pierre_tool_runtime::implementations::coaches::create_coach_tools;
+    fn test_create_agent_tools_factory() {
+        use pierre_tool_runtime::implementations::agents::create_agent_tools;
 
-        let tools = create_coach_tools();
+        let tools = create_agent_tools();
         assert_eq!(tools.len(), 13, "Expected 13 coach tools");
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
@@ -296,10 +296,10 @@ mod coaches_tests {
     }
 
     #[test]
-    fn test_all_coach_tools_require_auth() {
-        use pierre_tool_runtime::implementations::coaches::create_coach_tools;
+    fn test_all_agent_tools_require_auth() {
+        use pierre_tool_runtime::implementations::agents::create_agent_tools;
 
-        let tools = create_coach_tools();
+        let tools = create_agent_tools();
         for tool in &tools {
             assert!(
                 tool.capabilities()
@@ -1275,14 +1275,14 @@ mod connection_tests {
 mod admin_tests {
     use super::*;
     use pierre_tool_runtime::implementations::admin::{
-        AdminAssignCoachTool, AdminCreateSystemCoachTool, AdminDeleteSystemCoachTool,
-        AdminGetSystemCoachTool, AdminListCoachAssignmentsTool, AdminListSystemCoachesTool,
-        AdminUnassignCoachTool, AdminUpdateSystemCoachTool,
+        AdminAssignAgentTool, AdminCreateSystemAgentTool, AdminDeleteSystemAgentTool,
+        AdminGetSystemAgentTool, AdminListAgentAssignmentsTool, AdminListSystemAgentsTool,
+        AdminUnassignAgentTool, AdminUpdateSystemAgentTool,
     };
 
     #[test]
-    fn test_admin_list_system_coaches_tool_metadata() {
-        let tool = AdminListSystemCoachesTool;
+    fn test_admin_list_system_agents_tool_metadata() {
+        let tool = AdminListSystemAgentsTool;
         assert_eq!(tool.definition().name, "admin_list_system_agents");
         assert!(!tool.definition().description.is_empty());
 
@@ -1292,8 +1292,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_create_system_coach_tool_metadata() {
-        let tool = AdminCreateSystemCoachTool;
+    fn test_admin_create_system_agent_tool_metadata() {
+        let tool = AdminCreateSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_create_system_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -1303,8 +1303,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_get_system_coach_tool_metadata() {
-        let tool = AdminGetSystemCoachTool;
+    fn test_admin_get_system_agent_tool_metadata() {
+        let tool = AdminGetSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_get_system_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -1314,8 +1314,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_update_system_coach_tool_metadata() {
-        let tool = AdminUpdateSystemCoachTool;
+    fn test_admin_update_system_agent_tool_metadata() {
+        let tool = AdminUpdateSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_update_system_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -1325,8 +1325,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_delete_system_coach_tool_metadata() {
-        let tool = AdminDeleteSystemCoachTool;
+    fn test_admin_delete_system_agent_tool_metadata() {
+        let tool = AdminDeleteSystemAgentTool;
         assert_eq!(tool.definition().name, "admin_delete_system_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -1336,8 +1336,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_assign_coach_tool_metadata() {
-        let tool = AdminAssignCoachTool;
+    fn test_admin_assign_agent_tool_metadata() {
+        let tool = AdminAssignAgentTool;
         assert_eq!(tool.definition().name, "admin_assign_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -1347,8 +1347,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_unassign_coach_tool_metadata() {
-        let tool = AdminUnassignCoachTool;
+    fn test_admin_unassign_agent_tool_metadata() {
+        let tool = AdminUnassignAgentTool;
         assert_eq!(tool.definition().name, "admin_unassign_agent");
         assert!(!tool.definition().description.is_empty());
 
@@ -1358,8 +1358,8 @@ mod admin_tests {
     }
 
     #[test]
-    fn test_admin_list_coach_assignments_tool_metadata() {
-        let tool = AdminListCoachAssignmentsTool;
+    fn test_admin_list_agent_assignments_tool_metadata() {
+        let tool = AdminListAgentAssignmentsTool;
         assert_eq!(tool.definition().name, "admin_list_agent_assignments");
         assert!(!tool.definition().description.is_empty());
 
@@ -1418,14 +1418,14 @@ mod admin_tests {
 #[test]
 fn test_total_tool_count() {
     use pierre_tool_runtime::implementations::{
-        admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
+        admin::create_admin_tools, agents::create_agent_tools, analytics::create_analytics_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
         goals::create_goal_tools, mobility::create_mobility_tools,
         nutrition::create_nutrition_tools, recipes::create_recipe_tools, sleep::create_sleep_tools,
     };
 
-    let coaches = create_coach_tools();
+    let agents = create_agent_tools();
     let configuration = create_configuration_tools();
     let fitness_config = create_fitness_config_tools();
     let nutrition = create_nutrition_tools();
@@ -1438,7 +1438,7 @@ fn test_total_tool_count() {
     let admin = create_admin_tools();
     let mobility = create_mobility_tools();
 
-    let total = coaches.len()
+    let total = agents.len()
         + configuration.len()
         + fitness_config.len()
         + nutrition.len()
@@ -1457,14 +1457,14 @@ fn test_total_tool_count() {
 #[test]
 fn test_all_tools_have_valid_schemas() {
     use pierre_tool_runtime::implementations::{
-        admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
+        admin::create_admin_tools, agents::create_agent_tools, analytics::create_analytics_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
         goals::create_goal_tools, nutrition::create_nutrition_tools, recipes::create_recipe_tools,
         sleep::create_sleep_tools,
     };
 
-    let all_tools: Vec<Box<dyn RuntimeTool>> = create_coach_tools()
+    let all_tools: Vec<Box<dyn RuntimeTool>> = create_agent_tools()
         .into_iter()
         .chain(create_configuration_tools())
         .chain(create_fitness_config_tools())
@@ -1508,14 +1508,14 @@ fn test_all_tools_have_valid_schemas() {
 #[test]
 fn test_all_tool_names_are_unique() {
     use pierre_tool_runtime::implementations::{
-        admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
+        admin::create_admin_tools, agents::create_agent_tools, analytics::create_analytics_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
         goals::create_goal_tools, nutrition::create_nutrition_tools, recipes::create_recipe_tools,
         sleep::create_sleep_tools,
     };
 
-    let all_tools: Vec<Box<dyn RuntimeTool>> = create_coach_tools()
+    let all_tools: Vec<Box<dyn RuntimeTool>> = create_agent_tools()
         .into_iter()
         .chain(create_configuration_tools())
         .chain(create_fitness_config_tools())
@@ -1544,14 +1544,14 @@ fn test_all_tool_names_are_unique() {
 #[test]
 fn test_all_tools_have_descriptions() {
     use pierre_tool_runtime::implementations::{
-        admin::create_admin_tools, analytics::create_analytics_tools, coaches::create_coach_tools,
+        admin::create_admin_tools, agents::create_agent_tools, analytics::create_analytics_tools,
         configuration::create_configuration_tools, connection::create_connection_tools,
         data::create_data_tools, fitness_config::create_fitness_config_tools,
         goals::create_goal_tools, nutrition::create_nutrition_tools, recipes::create_recipe_tools,
         sleep::create_sleep_tools,
     };
 
-    let all_tools: Vec<Box<dyn RuntimeTool>> = create_coach_tools()
+    let all_tools: Vec<Box<dyn RuntimeTool>> = create_agent_tools()
         .into_iter()
         .chain(create_configuration_tools())
         .chain(create_fitness_config_tools())

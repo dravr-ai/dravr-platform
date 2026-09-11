@@ -26,11 +26,11 @@ async fn a_french_athlete_reads_her_facts_in_french() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     repos
         .users
         .update_locale(user_id, "fr")
@@ -64,7 +64,7 @@ async fn a_french_athlete_reads_her_facts_in_french() {
             .upsert_user_fact(&UpsertUserFactParams {
                 tenant_id,
                 user_id: &user_s,
-                coach_id: None,
+                agent_id: None,
                 scope: MemoryScope::User,
                 kind,
                 pillar: None,

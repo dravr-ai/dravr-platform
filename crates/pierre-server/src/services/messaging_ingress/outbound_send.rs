@@ -115,7 +115,7 @@ async fn deliver_and_persist(
 /// A body past the channel's ceiling is split here, at the one point every
 /// non-pipeline reply in this module passes through: an over-limit message is
 /// rejected outright by the channel API, so a `/plan`, an intake question or a
-/// coach list that outgrew Discord's 2000 characters used to arrive truncated
+/// agent list that outgrew Discord's 2000 characters used to arrive truncated
 /// or not at all. The parts are sent sequentially inside one spawned task so a
 /// split answer never arrives out of order, and a failure part-way stops the
 /// rest rather than posting a tail with no head.

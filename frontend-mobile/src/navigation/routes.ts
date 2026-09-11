@@ -57,4 +57,4 @@ export function threadHref(
  * The edit sheet for one of the athlete's own agents, under Discover. The
  * only agent editor in the app: agent creation is the `/agent create` command.
  */
-export const COACH_EDIT_ROUTE = '/(app)/(tabs)/(discover)/edit/[coachId]' as const;
+export const COACH_EDIT_ROUTE = '/(app)/(tabs)/(discover)/edit/[agentId]' as const;

@@ -136,9 +136,9 @@ async fn setup() -> Fixture {
     let resources = create_test_server_resources_with_llm(provider.clone())
         .await
         .unwrap();
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let (user_id, _user, _) = create_test_user_with_plan(
-        &resources.coach.database,
+        &resources.agent.database,
         "proactive-turn@test.com",
         "professional",
     )

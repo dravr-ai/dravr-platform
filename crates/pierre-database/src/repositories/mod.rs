@@ -10,16 +10,16 @@ pub mod a2a;
 pub mod activity_cache;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
+/// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
+pub mod agent_artefacts;
+/// Repository traits for agents catalogue, coaching groups, store listings.
+pub mod agents;
 /// Repository traits for API keys and user-scoped `MCP` tokens.
 pub mod api_keys;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
-/// Repository trait for coach package artefacts (flavour, skeleton, workouts beside a coach's prompt).
-pub mod coach_artefacts;
-/// Repository traits for coaches catalogue, coaching groups, store listings.
-pub mod coaches;
 /// Repository trait for athlete commitments swept against real activity data.
 pub mod commitments;
 /// Repository traits for data source registration persistence.
@@ -50,7 +50,7 @@ pub mod playbooks;
 pub mod recipes;
 /// Repository trait for messaging turns the shutdown drain handed off to another instance.
 pub mod resumable_turns;
-/// Repository traits for coach-athlete roster persistence.
+/// Repository traits for agent-athlete roster persistence.
 pub mod roster;
 /// Repository traits for security/audit/key-version persistence.
 pub mod security;
@@ -62,7 +62,7 @@ pub mod short_links;
 pub mod tenants;
 /// Repository traits for tool selection telemetry persistence.
 pub mod tool_selection;
-/// Coach-authored training plans (outline + weekly microcycles).
+/// Agent-authored training plans (outline + weekly microcycles).
 pub mod training_plans;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.
 pub mod usage;
@@ -78,11 +78,11 @@ pub mod workouts;
 pub use a2a::*;
 pub use activity_cache::*;
 pub use admin::*;
+pub use agent_artefacts::*;
+pub use agents::*;
 pub use api_keys::*;
 pub use chat::*;
 pub use claim_verdicts::*;
-pub use coach_artefacts::*;
-pub use coaches::*;
 pub use commitments::*;
 pub use data_source::*;
 pub use feature_flags::*;

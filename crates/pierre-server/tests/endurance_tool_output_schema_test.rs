@@ -100,7 +100,7 @@ fn the_snapshot_schema_describes_the_metrics_the_contract_names() {
 #[test]
 fn compute_training_history_reports_the_window_it_actually_used() {
     // The caller may pass no window and take the default, so the answer
-    // echoes the range it computed. rows_upserted is how a coach tells a
+    // echoes the range it computed. rows_upserted is how an agent tells a
     // recompute that had days to work with from one that did not — zero is
     // a valid answer for a window the athlete did not train in.
     let derived = output_schema_for::<ComputeTrainingHistoryResult>();
@@ -123,7 +123,7 @@ fn compute_training_history_reports_the_window_it_actually_used() {
 
     // A partial answer carries the days it could NOT stand behind, and the
     // instruction not to invent them. `from` later than `requested_from` is the
-    // whole signal — a coach reading only `rows_upserted` cannot tell a short
+    // whole signal — an agent reading only `rows_upserted` cannot tell a short
     // window from a rest week.
     let partial_window = serde_json::to_value(ComputeTrainingHistoryResult {
         from: "2026-07-23".to_owned(),

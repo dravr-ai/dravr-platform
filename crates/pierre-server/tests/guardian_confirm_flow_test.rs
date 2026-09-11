@@ -143,7 +143,7 @@ async fn chokepoint_parks_the_call_and_the_claim_is_single_use() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -226,7 +226,7 @@ async fn deny_handler_consumes_the_row_and_wrong_user_probes_see_nothing() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -277,7 +277,7 @@ async fn confirm_handler_re_dispatches_and_expiry_is_checked_at_resolution() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());

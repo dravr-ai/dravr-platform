@@ -14,7 +14,7 @@ import StoreScreen from '../StoreScreen';
 vi.mock('../../services/api', () => ({
   storeApi: {
     browse: vi.fn().mockResolvedValue({
-      coaches: [
+      agents: [
         {
           id: 'coach-1',
           title: 'Marathon Training Coach',
@@ -59,7 +59,7 @@ vi.mock('../../services/api', () => ({
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
     search: vi.fn().mockResolvedValue({
-      coaches: [
+      agents: [
         {
           id: 'coach-1',
           title: 'Marathon Training Coach',
@@ -95,7 +95,7 @@ vi.mock('../../services/api', () => ({
     }),
     install: vi.fn().mockResolvedValue({
       message: 'Coach installed successfully',
-      coach: {
+      agent: {
         id: 'installed-copy-1',
         title: 'Marathon Training Coach',
         description: 'A comprehensive marathon training program',
@@ -113,13 +113,13 @@ vi.mock('../../services/api', () => ({
     }),
     uninstall: vi.fn().mockResolvedValue({
       message: 'Coach uninstalled successfully',
-      source_coach_id: 'coach-1',
+      source_agent_id: 'coach-1',
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
   },
   coachesApi: {
     list: vi.fn().mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
@@ -185,7 +185,7 @@ describe('StoreScreen', () => {
     // clearAllMocks keeps implementations, so re-establish the default of "no
     // agent installed" that the installed-state tests override.
     vi.mocked(coachesApi.list).mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
@@ -373,7 +373,7 @@ describe('StoreScreen', () => {
   describe('empty state', () => {
     it('should show empty state when no agents', async () => {
       vi.mocked(storeApi.browse).mockResolvedValueOnce({
-        coaches: [],
+        agents: [],
         total: 0,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });
@@ -387,7 +387,7 @@ describe('StoreScreen', () => {
 
     it('should show search empty state when no search results', async () => {
       vi.mocked(storeApi.search).mockResolvedValueOnce({
-        coaches: [],
+        agents: [],
         query: 'nonexistent',
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });
@@ -447,7 +447,7 @@ describe('StoreScreen', () => {
   describe('no agent list of its own', () => {
     it('renders the catalogue straight under the search box, with no pinned agents', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
-        coaches: [installedCopyOfCoach1],
+        agents: [installedCopyOfCoach1],
         total: 1,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });
@@ -514,7 +514,7 @@ describe('StoreScreen', () => {
   describe('edit sheet', () => {
     it('opens the edit sheet on the installed copy from the listing detail', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
-        coaches: [installedCopyOfCoach1],
+        agents: [installedCopyOfCoach1],
         total: 1,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });
@@ -555,7 +555,7 @@ describe('StoreScreen', () => {
   describe('installed state', () => {
     it('should show Remove for a store agent the user already installed', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
-        coaches: [installedCopyOfCoach1],
+        agents: [installedCopyOfCoach1],
         total: 1,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });
@@ -573,7 +573,7 @@ describe('StoreScreen', () => {
 
     it('should uninstall the personal copy id, not the store listing id', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
-        coaches: [installedCopyOfCoach1],
+        agents: [installedCopyOfCoach1],
         total: 1,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });

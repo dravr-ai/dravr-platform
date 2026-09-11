@@ -1,4 +1,4 @@
-// ABOUTME: The admin store review surfaces carry each coach's package — every artefact with what the review could not resolve
+// ABOUTME: The admin store review surfaces carry each agent's package — every artefact with what the review could not resolve
 // ABOUTME: /api/admin/store/review-queue and /published over HTTP, against the live catalogue and evidence registries
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -18,12 +18,12 @@ use anyhow::Result;
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::{ArtefactKind, PackageArtefact, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_evals::evidence_retriever::EvidenceCorpus;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_coaches::build_coaches_admin_router;
+use pierre_routes_agents::build_agents_admin_router;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::Value;
 use serial_test::serial;
@@ -35,7 +35,7 @@ const CATALOGUE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../training
 fn router(resources: &Arc<ServerContext>) -> Router {
     Router::new().nest(
         "/api/admin",
-        build_coaches_admin_router::<ServerContext>().with_state(Arc::clone(resources)),
+        build_agents_admin_router::<ServerContext>().with_state(Arc::clone(resources)),
     )
 }
 
@@ -74,31 +74,31 @@ async fn admin(resources: &Arc<ServerContext>) -> Result<(Uuid, TenantId, String
     Ok((user_id, tenant_id, format!("Bearer {token}")))
 }
 
-/// A coach submitted for review, carrying a house flavour and one workout,
+/// An agent submitted for review, carrying a house flavour and one workout,
 /// both citing propositions.
-async fn pending_coach_with_package(
+async fn pending_agent_with_package(
     resources: &Arc<ServerContext>,
     author: Uuid,
     tenant: TenantId,
 ) -> Result<String> {
     let repos = &resources.common.repos;
-    let coach = repos
-        .coaches
-        .create_system_coach(
+    let agent = repos
+        .agents
+        .create_system_agent(
             author,
             tenant,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: "House Polarized".to_owned(),
                 description: Some("The house way".to_owned()),
                 system_prompt: "You coach the house way.".to_owned(),
-                category: CoachCategory::Training,
+                category: AgentCategory::Training,
                 tags: vec!["polarized".to_owned()],
-                visibility: CoachVisibility::Tenant,
+                visibility: AgentVisibility::Tenant,
                 sample_prompts: vec![],
             },
         )
         .await?;
-    let id = coach.id.to_string();
+    let id = agent.id.to_string();
     repos
         .store_listings
         .submit_for_review(&id, author, tenant)
@@ -118,16 +118,16 @@ async fn pending_coach_with_package(
         PackageArtefact::parse(ArtefactKind::Workout, &workout)?,
     ];
     repos
-        .coach_artefacts
-        .replace_coach_artefacts(&tenant.to_string(), &id, &artefacts)
+        .agent_artefacts
+        .replace_agent_artefacts(&tenant.to_string(), &id, &artefacts)
         .await?;
     Ok(id)
 }
 
-fn coach_named<'a>(body: &'a Value, id: &str) -> &'a Value {
-    body["coaches"]
+fn agent_named<'a>(body: &'a Value, id: &str) -> &'a Value {
+    body["agents"]
         .as_array()
-        .and_then(|coaches| coaches.iter().find(|c| c["id"] == id))
+        .and_then(|agents| agents.iter().find(|c| c["id"] == id))
         .unwrap_or_else(|| panic!("coach {id} listed: {body}"))
 }
 
@@ -136,7 +136,7 @@ fn coach_named<'a>(body: &'a Value, id: &str) -> &'a Value {
 async fn the_review_queue_lists_the_package_and_what_it_cannot_resolve() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (admin_id, tenant, auth) = admin(&resources).await?;
-    let coach_id = pending_coach_with_package(&resources, admin_id, tenant).await?;
+    let agent_id = pending_agent_with_package(&resources, admin_id, tenant).await?;
 
     // The evidence registry holds one proposition, so every other path the
     // package cites is unresolved and the reviewer sees each one.
@@ -153,8 +153,8 @@ async fn the_review_queue_lists_the_package_and_what_it_cannot_resolve() -> Resu
         .await;
     assert_eq!(response.status(), 200);
     let body: Value = response.json();
-    let coach = coach_named(&body, &coach_id);
-    let package = &coach["package"];
+    let agent = agent_named(&body, &agent_id);
+    let package = &agent["package"];
     assert_eq!(package["evidence_checked"], Value::Bool(true), "{package}");
     let artefacts = package["artefacts"].as_array().expect("artefacts");
     assert_eq!(artefacts.len(), 2, "{package}");
@@ -193,7 +193,7 @@ async fn the_review_queue_lists_the_package_and_what_it_cannot_resolve() -> Resu
 async fn an_empty_evidence_registry_is_reported_rather_than_read_as_clean() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (admin_id, tenant, auth) = admin(&resources).await?;
-    let coach_id = pending_coach_with_package(&resources, admin_id, tenant).await?;
+    let agent_id = pending_agent_with_package(&resources, admin_id, tenant).await?;
 
     let response = AxumTestRequest::get("/api/admin/store/review-queue")
         .header("Authorization", &auth)
@@ -201,7 +201,7 @@ async fn an_empty_evidence_registry_is_reported_rather_than_read_as_clean() -> R
         .await;
     assert_eq!(response.status(), 200);
     let body: Value = response.json();
-    let package = &coach_named(&body, &coach_id)["package"];
+    let package = &agent_named(&body, &agent_id)["package"];
     assert_eq!(package["evidence_checked"], Value::Bool(false), "{package}");
     assert!(package["artefacts"]
         .as_array()
@@ -213,18 +213,18 @@ async fn an_empty_evidence_registry_is_reported_rather_than_read_as_clean() -> R
 
 #[tokio::test]
 #[serial]
-async fn a_published_coach_without_a_package_lists_an_empty_one() -> Result<()> {
+async fn a_published_agent_without_a_package_lists_an_empty_one() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (admin_id, tenant, auth) = admin(&resources).await?;
-    let coach_id = pending_coach_with_package(&resources, admin_id, tenant).await?;
+    let agent_id = pending_agent_with_package(&resources, admin_id, tenant).await?;
     let repos = &resources.common.repos;
     repos
-        .coach_artefacts
-        .replace_coach_artefacts(&tenant.to_string(), &coach_id, &[])
+        .agent_artefacts
+        .replace_agent_artefacts(&tenant.to_string(), &agent_id, &[])
         .await?;
     repos
         .store_listings
-        .approve_coach(&coach_id, tenant, Some(admin_id))
+        .approve_agent(&agent_id, tenant, Some(admin_id))
         .await?;
 
     let response = AxumTestRequest::get("/api/admin/store/published")
@@ -233,7 +233,7 @@ async fn a_published_coach_without_a_package_lists_an_empty_one() -> Result<()> 
         .await;
     assert_eq!(response.status(), 200);
     let body: Value = response.json();
-    let package = &coach_named(&body, &coach_id)["package"];
+    let package = &agent_named(&body, &agent_id)["package"];
     assert_eq!(package["artefacts"], Value::Array(vec![]), "{package}");
     Ok(())
 }

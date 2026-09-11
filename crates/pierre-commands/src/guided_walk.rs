@@ -141,7 +141,7 @@ async fn record_start_and_snapshot(
 }
 
 /// Persist the opener as an assistant message, for the same two reasons
-/// `/pillars` does: the coach otherwise receives the athlete's first answer
+/// `/pillars` does: the agent otherwise receives the athlete's first answer
 /// with no question attached and improvises a reply to a question it cannot
 /// see, and with no history row that answer is message #1, which arms the
 /// first-turn startup prefetch.
@@ -175,7 +175,7 @@ async fn persist_opener(
 /// in a room is the athlete's consent to a room-visible walk — the same
 /// per-invocation grant `/plan share` established — and the walk binds to
 /// them alone: the state carries their `subject_user_id`, so nobody else's
-/// message advances it, and their coach follows along read-only. The walk
+/// message advances it, and their agent follows along read-only. The walk
 /// state and opener land on the conversation row's own tenant (the channel
 /// tenant in a room), while the athlete-scoped writes — the supersession
 /// window, the profile stamp, the load snapshot — stay under the athlete's

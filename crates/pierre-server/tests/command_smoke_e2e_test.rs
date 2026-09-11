@@ -30,7 +30,7 @@
 //!   session, and for `/reset`, which rotates that session onto a fresh
 //!   conversation. The prime's own reply is the per-member baseline row.
 //! - **A fresh conversation per command** (implied by the fresh member): a
-//!   command that inspects the conversation — `/coach create` reads its
+//!   command that inspects the conversation — `/agent create` reads its
 //!   coaching turns — must meet the empty conversation it meets in
 //!   production right after linking, or it reaches for the LLM.
 

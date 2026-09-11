@@ -8,7 +8,7 @@
 /// preserving the inner text.
 ///
 /// Handles only the four emphasis forms — not code spans, links, headings, or
-/// list markers. Coach and tool descriptions seeded from `.md` files are
+/// list markers. Agent and tool descriptions seeded from `.md` files are
 /// short single paragraphs where emphasis is the only `CommonMark` feature
 /// that leaks when the text is relayed as plain-text messaging output
 /// (Telegram HTML mode, Discord plain, `WhatsApp` template body, Messenger

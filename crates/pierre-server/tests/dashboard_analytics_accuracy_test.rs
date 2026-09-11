@@ -88,7 +88,7 @@ impl AnalyticsFixture {
         init_server_config();
         let resources = create_test_server_resources().await?;
         let (user_id, _user, tenant) =
-            create_test_user_with_plan(&resources.coach.database, email, "starter").await?;
+            create_test_user_with_plan(&resources.agent.database, email, "starter").await?;
         let tenant_id = tenant.as_uuid();
         let today = Utc::now().date_naive();
 

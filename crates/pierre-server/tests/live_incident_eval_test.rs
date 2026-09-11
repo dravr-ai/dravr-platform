@@ -6,7 +6,7 @@
 
 //! Live-model incident corpus.
 //!
-//! Action #1 of the 2026-08-23 post-mortem *Why E2E Kept Missing the Coach
+//! Action #1 of the 2026-08-23 post-mortem *Why E2E Kept Missing the Agent
 //! Regressions*, which asked why a 325-binary suite with e2e coverage let four
 //! consecutive days of live coaching failures through. The answer it reached:
 //!
@@ -84,7 +84,7 @@ mod live_incident_eval {
     use axum::{Json, Router};
     use chrono::{Duration as ChronoDuration, Utc};
     use hmac::{Hmac, Mac};
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{
         ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus, UserTier,
@@ -143,7 +143,7 @@ mod live_incident_eval {
     /// The peer's seeded run, in metres. 6.1 km, from the live incident.
     const PEER_RUN_METRES: f64 = 6_100.0;
     /// The pace those two imply, spelled out so the judge does not have to
-    /// divide to check a figure the coach reported.
+    /// divide to check a figure the agent reported.
     const PEER_RUN_PACE: &str = "8min41/km";
 
     /// How many weeks of ordinary training the fixture seeds behind the Sunday
@@ -197,7 +197,7 @@ mod live_incident_eval {
     /// A reply cut to [`DELIVERED_EXCERPT_CHARS`], the one length every printed
     /// body in this lane is quoted at.
     ///
-    /// Counted in `char`s rather than bytes because a coach reply is French and
+    /// Counted in `char`s rather than bytes because an agent reply is French and
     /// a byte slice would split an accent mid-codepoint.
     fn excerpt(body: &str) -> String {
         body.chars().take(DELIVERED_EXCERPT_CHARS).collect()
@@ -249,7 +249,7 @@ mod live_incident_eval {
     ///
     /// Zero by default, because pacing is a property of the key in use rather
     /// than of the corpus. A Cohere **trial** key allows 20 calls/minute and one
-    /// turn spends several (the coach-proposal re-rank, the turn itself, the
+    /// turn spends several (the agent-proposal re-rank, the turn itself, the
     /// judge), so a local run on one wants roughly 10; a production key and the
     /// Copilot primary want none. Surfaced as a knob instead of a baked-in sleep
     /// so the lane never quietly pays for a limit the runner does not have.
@@ -302,7 +302,7 @@ mod live_incident_eval {
         ///
         /// The only expectation here that reads STATE rather than text, and
         /// deliberately so. What failed on 2026-09-02 was never the wording:
-        /// the coach acknowledged the number — «tu l'as mentionné à 380W plus
+        /// the agent acknowledged the number — «tu l'as mentionné à 380W plus
         /// tôt» — and hand-computed a threshold from it in prose. It simply
         /// wrote nothing, so the next conversation opened on the same flat "je
         /// n'ai pas accès à tes zones" and the derived zones never existed
@@ -364,7 +364,7 @@ mod live_incident_eval {
         turns: &'static [Turn],
     }
 
-    /// Output-mechanics self-talk. A coach discussing its own formatting has
+    /// Output-mechanics self-talk. An agent discussing its own formatting has
     /// leaked its scaffolding into the room (Telegram, 2026-08-23).
     const NARRATION_LEAKS: &[&str] = &[
         "real newlines",
@@ -381,7 +381,7 @@ mod live_incident_eval {
         "i could not formulate",
     ];
 
-    /// Wording that means the coach failed to resolve a roster member it can
+    /// Wording that means the agent failed to resolve a roster member it can
     /// see. The typo must not become a stranger.
     const UNKNOWN_PEER: &[&str] = &[
         "je ne connais pas",
@@ -732,7 +732,7 @@ mod live_incident_eval {
         // `max_conversations_per_day` at 10 against an 11-turn corpus. The first
         // ACP run truncated at turn 8 with «Tu as atteint la limite de
         // conversation de ton forfait», which the lane correctly filed as
-        // infrastructure rather than as a coach regression — but four turns went
+        // infrastructure rather than as an agent regression — but four turns went
         // ungraded because the fixture had put itself on the free tier.
         user.tier = UserTier::Enterprise;
         user.user_status = UserStatus::Active;
@@ -809,7 +809,7 @@ mod live_incident_eval {
     ///
     /// The live fetch path returns its result directly, so whatever this serves
     /// IS the athlete's history for any turn that resolves sciotte. Serving
-    /// anything other than what the fixture seeds gives the coach two
+    /// anything other than what the fixture seeds gives the agent two
     /// disagreeing accounts of one athlete and then grades it for noticing.
     async fn spawn_eval_scraper() -> String {
         let sunday = (Utc::now() - ChronoDuration::days(days_since_sunday()))
@@ -892,7 +892,7 @@ mod live_incident_eval {
 
         // A connection with no token behind it is the documented dead-provider
         // state — `create_authenticated_provider` signals reauth, every live
-        // fetch fails, and the athlete is served stale cache with the coach
+        // fetch fails, and the athlete is served stale cache with the agent
         // honestly reporting it cannot reach fresh data. The first clean ACP run
         // produced two findings that were exactly that: «la connexion semble
         // buggée» and «Essaie de reconnecter ton compte Strava», both correct,
@@ -904,7 +904,7 @@ mod live_incident_eval {
         // «Sortie vélo matinale», 21 km, 2026-08-10 — to whoever fetches, and
         // giving the peer a live session too put two disagreeing sources behind
         // one person: the cache says Philippe ran 6.1 km yesterday, the scraper
-        // says he rode 21 km on the 10th. The coach spotted the contradiction
+        // says he rode 21 km on the 10th. The agent spotted the contradiction
         // and reported it («le relevé précis montre plutôt une sortie vélo, pas
         // une course, et la date ne colle pas exactement à hier») — exactly the
         // self-correction the challenged_claim episode exists to reward — and the
@@ -944,7 +944,7 @@ mod live_incident_eval {
         let group_channel = "C_LIVE_INCIDENT_EVAL".to_owned();
         let dm_channel = "D_LIVE_INCIDENT_EVAL".to_owned();
 
-        let coach = seed_coach(resources, athlete, tenant).await;
+        let agent = seed_agent(resources, athlete, tenant).await;
         let group_id = Uuid::new_v4();
         let now = Utc::now();
         resources
@@ -958,7 +958,7 @@ mod live_incident_eval {
                     tenant_id: tenant.to_string(),
                     name: "Eval Squad".to_owned(),
                     description: None,
-                    coach_id: coach.to_string(),
+                    agent_id: agent.to_string(),
                     owner_id: athlete,
                     coach_user_id: None,
                     // Peers must be readable or every comparison turn in the
@@ -1015,7 +1015,7 @@ mod live_incident_eval {
         }
     }
 
-    async fn seed_coach(
+    async fn seed_agent(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -1023,18 +1023,18 @@ mod live_incident_eval {
         resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 tenant_id,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Eval Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -1085,7 +1085,7 @@ mod live_incident_eval {
         // have something real to plot. Runs on Strava only.
         //
         // Sunday is skipped. The first live ACP run put a 12 km run on the same
-        // Sunday as the 200 km twin, and the coach — correctly — described the
+        // Sunday as the 200 km twin, and the agent — correctly — described the
         // day as two sessions; the `two_provider_day` judge then read that as a
         // failure to merge the twin. The episode is asking whether ONE session
         // recorded twice reads as one, so the day it asks about has to hold
@@ -1114,8 +1114,8 @@ mod live_incident_eval {
             }
         }
 
-        // The peer's real record — the one the coach invented over on 08-22.
-        // 53 minutes, 6.1 km. Any figure the coach reports for Philippe that is
+        // The peer's real record — the one the agent invented over on 08-22.
+        // 53 minutes, 6.1 km. Any figure the agent reports for Philippe that is
         // not these is a fabrication with the truth sitting in its context.
         let mut peer = vec![ActivityBuilder::new(
             "eval-peer-run",
@@ -1131,9 +1131,9 @@ mod live_incident_eval {
         // Plus four weeks of his own history, because the chart episode asks for
         // «un graphique des heures PAR SEMAINE pour Phillipe et moi» and a
         // single activity cannot answer that. The first live ACP run had him at
-        // one run, and the coach correctly declined to draw a multi-week chart
+        // one run, and the agent correctly declined to draw a multi-week chart
         // from one week — the honest reply the fabrication gates exist to
-        // produce. Grading that as a dropped chart blamed the coach for the
+        // produce. Grading that as a dropped chart blamed the agent for the
         // fixture's silence. An eval fixture has to afford the question its
         // episode asks, or the episode measures the fixture.
         for week in 0..FIXTURE_WEEKS {
@@ -1207,7 +1207,7 @@ mod live_incident_eval {
         /// row carries that branch's `finish_reason` stamp. The sentence is
         /// localized copy from the messaging registry — no model wrote a word of
         /// it — so a judged expectation would be grading our own string as the
-        /// coach's answer.
+        /// agent's answer.
         Platform { finish_reason: String, body: String },
     }
 
@@ -1266,7 +1266,7 @@ mod live_incident_eval {
     /// [`PLATFORM_AUTHORED_FINISH_REASONS`] separates those.
     async fn assistant_row_count(resources: &Arc<ServerContext>, tenant: TenantId) -> i64 {
         count_for_tenant(
-            &resources.coach.database,
+            &resources.agent.database,
             "SELECT COUNT(*) FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = $1 AND m.role = 'assistant'",
@@ -1385,7 +1385,7 @@ mod live_incident_eval {
                     // assistant row in this conversation. Reading the first
                     // outbound as "the reply" therefore reports a dispatch
                     // failure for a turn that is merely still running, and the
-                    // corpus then grades the push's text as the coach's answer.
+                    // corpus then grades the push's text as the agent's answer.
                     //
                     // Observed on runs 33563564035 and 33611420214: both graded
                     // «✅ Ton historique est prêt — N activités» as a canned
@@ -1438,7 +1438,7 @@ mod live_incident_eval {
 
     async fn outbound_count(resources: &Arc<ServerContext>, tenant: TenantId) -> i64 {
         count_for_tenant(
-            &resources.coach.database,
+            &resources.agent.database,
             "SELECT COUNT(*) FROM messaging_messages \
              WHERE tenant_id = $1 AND direction = 'outbound'",
             tenant,
@@ -1449,7 +1449,7 @@ mod live_incident_eval {
     /// The reply as it went **out**, not as it was stored.
     async fn latest_outbound(resources: &Arc<ServerContext>, tenant: TenantId) -> Option<String> {
         latest_for_tenant(
-            &resources.coach.database,
+            &resources.agent.database,
             "SELECT content_body, NULL FROM messaging_messages \
              WHERE tenant_id = $1 AND direction = 'outbound' \
              ORDER BY created_at DESC LIMIT 1",
@@ -1468,7 +1468,7 @@ mod live_incident_eval {
         tenant: TenantId,
     ) -> (Option<String>, Option<String>) {
         latest_for_tenant(
-            &resources.coach.database,
+            &resources.agent.database,
             "SELECT m.content_blocks, m.finish_reason FROM chat_messages m \
              JOIN chat_conversations c ON m.conversation_id = c.id \
              WHERE c.tenant_id = $1 AND m.role = 'assistant' \
@@ -1659,7 +1659,7 @@ mod live_incident_eval {
     ///
     /// The same class as the pace guard and for the same reason: a range stated
     /// wider than the data widens the band the judge accepts, so a figure the
-    /// coach invented lands inside it and is graded honest. The peer's runs are
+    /// agent invented lands inside it and is graded honest. The peer's runs are
     /// `day * 1.5 km + 7 km` over days 2 and 4 — 10 km and 13 km. "7 km" is the
     /// intercept, a value no seeded day carries.
     #[test]
@@ -1911,7 +1911,7 @@ mod live_incident_eval {
         // successful live fetch is returned directly rather than merged with the
         // cache — so seeding a session against it made sciotte the resolved
         // provider and shrank the athlete's history to that single activity. The
-        // coach said so («je ne vois qu'une seule sortie cette semaine … ça ne
+        // agent said so («je ne vois qu'une seule sortie cette semaine … ça ne
         // colle pas avec ce que je t'ai dit plus tôt sur ta sortie de 200 km»),
         // was right, and every episode downstream inherited the contradiction.
         //
@@ -1949,7 +1949,7 @@ mod live_incident_eval {
 
         // Each pass gets its own server and fixture. Reusing one would let a
         // pass inherit the previous pass's conversation history, and the
-        // episodes are multi-turn — the coach would be answering turn 0 with
+        // episodes are multi-turn — the agent would be answering turn 0 with
         // three earlier corpus runs already in its context, which is not the
         // turn the incident recorded.
         for pass in 1..=attempts {

@@ -28,7 +28,7 @@
 //!
 //! When a provider **is** connected and we simply hold nothing for the window,
 //! the honest verdict is [`ClaimStatus::Unverifiable`]: the data may exist and
-//! be unsynced, and calling the coach a liar over our own sync lag would be
+//! be unsynced, and calling the agent a liar over our own sync lag would be
 //! worse than saying nothing.
 //!
 //! When we do hold records, a figure that matches one is supported and a figure
@@ -45,7 +45,7 @@ use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
 /// One activity as this layer holds it.
 ///
-/// The fields are the ones a coach quotes back and an athlete corrects. Two of
+/// The fields are the ones an agent quotes back and an athlete corrects. Two of
 /// them — the date and the sport — carried no representation here at all until
 /// registre#249, so every claim about *which day* or *which sport* was
 /// structurally unfalsifiable, in every locale.
@@ -56,7 +56,7 @@ pub struct RecordedActivity {
     /// Canonical sport for the activity.
     pub sport: SportType,
     /// The provider's name for it — "Road 2 AUS", "Passion rando". This is how
-    /// an athlete and a coach both refer to a specific session.
+    /// an athlete and an agent both refer to a specific session.
     pub name: String,
     /// Distance in kilometres, when the source carries GPS.
     pub distance_km: Option<f64>,
@@ -111,7 +111,7 @@ impl AthleteRecord {
 
 /// Relative tolerance when matching an asserted figure to a recorded one.
 ///
-/// A coach rounding 21.4 km to "21 km" is describing the same run, not a
+/// An agent rounding 21.4 km to "21 km" is describing the same run, not a
 /// different one. 5% keeps that honest rounding while still separating a 21 km
 /// run from a 30 km one.
 const MATCH_TOLERANCE: f64 = 0.05;
@@ -465,7 +465,7 @@ fn generic_referent_between(text: &str, name: (usize, usize), claim: (usize, usi
 /// contradiction costs more than a missed one.
 ///
 /// This is the check the 2026-09-02 conversation needed and did not have. The
-/// coach placed a Tuesday ride on Sunday, called a run a bike session, and both
+/// agent placed a Tuesday ride on Sunday, called a run a bike session, and both
 /// claims passed the verifier untouched while four *benign* coaching
 /// prescriptions were flagged (registre#249).
 fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOutcome> {
@@ -492,7 +492,7 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
     // Blank the activity's own name, keeping every other byte where it was.
     // Removing it was necessary — "Passion rando" carries the word `rando`, so
     // leaving it in had the record contradict itself, the layer reading the
-    // athlete's own session title as the coach's claim about its sport. Doing
+    // athlete's own session title as the agent's claim about its sport. Doing
     // it by `replace` also moved every offset after it, and the checks below
     // need the name's position to decide what a weekday is attached to.
     let residual = blank_span(&lower, name_span);
@@ -571,7 +571,7 @@ fn sole_sport(lower: &str) -> Option<(SportType, (usize, usize))> {
     // them. Dropped as homographs (registre#258): English "run"/"ride"/"trail"
     // (a run of days, a ride home, a trail of), French "course" (an errand),
     // "marche" (it works) and "marche" the noun, "ski" (resolves to
-    // AlpineSkiing, which `sport_family_head` gives no family, so a coach
+    // AlpineSkiing, which `sport_family_head` gives no family, so an agent
     // naming a ski discipline exactly right was contradicted).
     //
     // The asymmetry is the same one the weekday table follows: a missed sport
@@ -609,7 +609,7 @@ fn sole_sport(lower: &str) -> Option<(SportType, (usize, usize))> {
 
 /// Whether two sports are the same discipline, collapsing sub-variants onto
 /// their head — a mountain bike ride and a gravel ride are both cycling, and a
-/// coach calling one the other is not making a false claim about the sport.
+/// agent calling one the other is not making a false claim about the sport.
 fn same_family(a: &SportType, b: &SportType) -> bool {
     let head = |s: &SportType| sport_family_head(s).unwrap_or_else(|| s.clone());
     head(a) == head(b)
@@ -655,7 +655,7 @@ fn contradicted(explanation: String) -> VerdictOutcome {
     }
 }
 
-/// Whether the claim is about sleep, in any locale the coach replies in.
+/// Whether the claim is about sleep, in any locale the agent replies in.
 ///
 /// Deliberately a substring test on stems: `dorm` covers "dormi"/"dormir"/
 /// "dormido", `schlaf` covers "geschlafen". A false positive here costs one
@@ -893,7 +893,7 @@ fn thousands_separator_at(bytes: &[u8], at: usize) -> Option<usize> {
     }
 }
 
-/// Whether the claim is about climbing, in any locale the coach replies in.
+/// Whether the claim is about climbing, in any locale the agent replies in.
 ///
 /// Deliberately substring tests on stems, like [`mentions_sleep`]: `dénivel`
 /// covers "dénivelé"/"dénivelés"/"dénivellation", `grimp` covers

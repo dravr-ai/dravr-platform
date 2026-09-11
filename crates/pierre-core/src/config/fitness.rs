@@ -437,10 +437,10 @@ impl Default for WeatherApiConfig {
 ///
 /// 20 matches Strava's per-15-minute rate-limit budget comfortably (100
 /// requests / 15 min / user, so a single `limit <= 20` query burns at most
-/// 20% of the window) while covering the overwhelming majority of coach
+/// 20% of the window) while covering the overwhelming majority of agent
 /// questions ("my last run", "last 10 rides this week", "last 20 workouts
 /// for fitness trend"). Above 20, the expanded summary shape still carries
-/// HR, elevation, cadence, power, and calories per activity — coaches can
+/// HR, elevation, cadence, power, and calories per activity — agents can
 /// reason about load without the N+1 cost.
 pub const DEFAULT_ACTIVITY_DETAIL_THRESHOLD: usize = 20;
 

@@ -88,7 +88,7 @@ fn every_key_the_table_names_ships_in_the_catalogue() {
 
 #[test]
 fn a_server_rendered_sport_reads_in_the_athletes_language() {
-    // The seam the messaging coach proposal goes through: a French athlete
+    // The seam the messaging agent proposal goes through: a French athlete
     // whose most-logged sport is trail running is greeted with the French
     // word, not the wire spelling that used to be interpolated raw.
     let registry = MessagingStringsRegistry::new();

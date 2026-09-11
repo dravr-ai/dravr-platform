@@ -242,8 +242,8 @@ pub struct ClaimVerdict {
     pub tenant_id: String,
     /// User the claim was said to.
     pub user_id: String,
-    /// Coach persona that authored the claim, if known.
-    pub coach_id: Option<String>,
+    /// Agent persona that authored the claim, if known.
+    pub agent_id: Option<String>,
     /// Conversation the claim came from.
     pub conversation_id: Option<String>,
     /// Message the claim was extracted from.

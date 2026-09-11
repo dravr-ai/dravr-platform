@@ -1,4 +1,4 @@
-// ABOUTME: User-facing memory routes — list and forget what the coach remembers (GDPR)
+// ABOUTME: User-facing memory routes — list and forget what the agent remembers (GDPR)
 // ABOUTME: Thin router; all business logic lives in services::memory_facts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,7 @@
 //! Two endpoints power the user "what the coach remembers about me" panel:
 //!
 //! - `GET /api/memory/facts` — list the authenticated user's stored facts
-//!   with optional `coach_id` and `kind` filters
+//!   with optional `agent_id` and `kind` filters
 //! - `DELETE /api/memory/facts/:fact_id` — GDPR-grade Forget for a single
 //!   fact owned by the user
 //!

@@ -7,7 +7,7 @@
 //! Persona conformance stage.
 //!
 //! Each user has a [`CoachingPersona`] (Casual / Enthusiast / Power-athlete /
-//! Coach). The "Coaching Persona Architecture" vault doc defines per-persona
+//! Agent). The "Coaching Persona Architecture" vault doc defines per-persona
 //! rules for cadence, citation density, structured-block usage, softeners, and
 //! word budget. This stage checks the LLM reply against the active
 //! [`PersonaContract`] (loaded from contremaitre via
@@ -28,7 +28,7 @@
 //!
 //! Per-persona `strict_mode` defaults to `false` — violations log and the
 //! reply ships unchanged. `power_athlete` has been strict since 2026-08-12,
-//! and `coach` inherits strict through the `child || parent` contract overlay;
+//! and `agent` inherits strict through the `child || parent` contract overlay;
 //! `casual` and `enthusiast` remain shadow-mode.
 //!
 //! `strict_mode: true` raises the log to `error!` **and** runs the re-prompt
@@ -123,9 +123,9 @@ pub fn check_reply_conformance(
     violations
 }
 
-/// The set of athlete identifiers a coach reply may legitimately cite.
+/// The set of athlete identifiers an agent reply may legitimately cite.
 ///
-/// Built from the coach's active roster assignments and consumed by
+/// Built from the agent's active roster assignments and consumed by
 /// [`check_tenant_isolation`]. Identity is carried as the lowercased last four
 /// characters of each athlete's UUID, matching the `<display_name> · <last4uuid>`
 /// citation shape [`PersonaContract::require_athlete_id_prefix`] mandates —
@@ -136,7 +136,7 @@ pub struct RosterScope {
 }
 
 impl RosterScope {
-    /// Build a scope from the athlete UUIDs assigned to one coach.
+    /// Build a scope from the athlete UUIDs assigned to one agent.
     #[must_use]
     pub fn from_athlete_ids<I, S>(ids: I) -> Self
     where
@@ -151,13 +151,13 @@ impl RosterScope {
         }
     }
 
-    /// `true` when `suffix` belongs to an athlete this coach manages.
+    /// `true` when `suffix` belongs to an athlete this agent manages.
     #[must_use]
     pub fn allows(&self, suffix: &str) -> bool {
         self.suffixes.contains(&suffix.to_lowercase())
     }
 
-    /// `true` when the coach has no assigned athletes.
+    /// `true` when the agent has no assigned athletes.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.suffixes.is_empty()
@@ -190,7 +190,7 @@ fn athlete_suffix(id: &str) -> Option<String> {
 /// The style path fails OPEN (no strict contract, no chat provider, or a
 /// failed/empty rewrite returns the reply unchanged — a style miss must never
 /// drop or blank the user's answer). `power_athlete` ships strict (armed
-/// 2026-08-12) and `coach` inherits strict through the contract overlay;
+/// 2026-08-12) and `agent` inherits strict through the contract overlay;
 /// `casual` and `enthusiast` remain shadow-mode.
 ///
 /// Callers run [`apply_isolation_redaction`] first; this function excludes
@@ -699,7 +699,7 @@ fn check_acronyms_first_use(
     }
 }
 
-/// Enforce [`PersonaContract::require_athlete_id_prefix`]. A coach reply
+/// Enforce [`PersonaContract::require_athlete_id_prefix`]. An agent reply
 /// carrying an athlete data block must name whose data it is, in the
 /// `<display_name> · <last4uuid>` shape, so two athletes never blur together in
 /// scrollback. The data block is the trigger: prose with no block is a general
@@ -721,11 +721,11 @@ fn check_athlete_id_prefix(
 }
 
 /// Enforce [`PersonaContract::require_tenant_isolation`]. Every athlete cited
-/// in a coach reply must belong to that coach's roster.
+/// in an agent reply must belong to that agent's roster.
 ///
 /// This is a **detective** control, not the primary one: tenant isolation is
 /// enforced at the query layer, where every statement carries `tenant_id`. This
-/// catches the residue — a reply that names an athlete the coach no longer
+/// catches the residue — a reply that names an athlete the agent no longer
 /// manages, or that a tool surfaced in error.
 ///
 /// Fails OPEN when the roster could not be resolved (`None`) or is empty:

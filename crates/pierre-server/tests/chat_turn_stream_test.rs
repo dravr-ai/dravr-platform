@@ -41,7 +41,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::time::timeout;
 
-/// The coach's reply, verbatim. Every assertion about prose compares against
+/// The agent's reply, verbatim. Every assertion about prose compares against
 /// this exact string so a surface that quietly rewrote it fails loudly.
 const MOCK_REPLY: &str = "Ta charge grimpe depuis trois semaines. On coupe jeudi.";
 

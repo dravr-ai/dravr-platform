@@ -6,7 +6,7 @@
 
 //! Alert sections for the injected group context.
 //!
-//! A member the coach cannot fully read is in one of three states, each with
+//! A member the agent cannot fully read is in one of three states, each with
 //! its own rendering: **broken** (a provider connection died — Connection
 //! alerts), **stale** (the snapshot's cache could not be refreshed this turn —
 //! Stale snapshots), and **quiet** (fresh snapshot, no recent training), which
@@ -22,7 +22,7 @@ use pierre_core::models::groups::MemberFitnessSnapshot;
 /// state. A member's own reconnect link is delivered out-of-band — never here.
 pub fn connection_and_staleness_alerts(visible_snapshots: &[&MemberFitnessSnapshot]) -> String {
     // Connection alerts: name any visible member whose provider connection died
-    // so the coach reports the dead provider instead of treating it as merely
+    // so the agent reports the dead provider instead of treating it as merely
     // quiet.
     let mut reauth_lines: Vec<String> = visible_snapshots
         .iter()

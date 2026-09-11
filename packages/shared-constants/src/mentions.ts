@@ -1,7 +1,7 @@
 // ABOUTME: @handle mention grammar for the chat composers — when a draft opens the palette and what it lists
 // ABOUTME: Mirrors the server's mention scanner so an inserted handle is one the turn ladder will resolve
 
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 
 /** The character that opens a mention. */
 export const MENTION_PREFIX = '@';
@@ -73,7 +73,7 @@ export function mentionDraftAt(value: string, caret: number): MentionDraft | nul
  * A user's installed copy carries its origin's handle, so when both sit on
  * the list they collapse to one row.
  */
-export function matchMentionCoaches(coaches: readonly Coach[], query: string): MentionCandidate[] {
+export function matchMentionCoaches(coaches: readonly Agent[], query: string): MentionCandidate[] {
   const prefix = query.toLowerCase();
   const byHandle = new Map<string, MentionCandidate>();
   for (const coach of coaches) {

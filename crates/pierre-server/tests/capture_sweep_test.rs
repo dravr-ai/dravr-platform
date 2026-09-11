@@ -41,11 +41,11 @@ struct Fixture {
 /// Register `provider` for a fresh athlete and hand back the sweep's inputs.
 async fn fixture_with_connection(provider: &str) -> Fixture {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

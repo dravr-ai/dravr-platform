@@ -21,7 +21,7 @@
 //! The activity injections are the expensive ones: the text that never arrived
 //! reads *"base your analysis and any plan on these specific activities, cite
 //! them by name and date … do not answer from memory"* — i.e. the entire
-//! deterministic grounding mechanism. The loss was invisible because the coach
+//! deterministic grounding mechanism. The loss was invisible because the agent
 //! can still call `get_activities` on its own initiative, which produces the
 //! same observable result. `c1ffca625` shipped Stage 12b as "validated live on
 //! Telegram" against the exact embacle rev that drops it; the feature was

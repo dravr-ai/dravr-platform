@@ -73,18 +73,18 @@ const SQLX_BOOKKEEPING_TABLE: &str = "_sqlx_migrations";
 /// so does removing one of these three without editing the constant. Sorted,
 /// because a `BTreeSet` difference is.
 ///
+/// - `agents_orphaned` — quarantine target of the PostgreSQL-only migration
+///   that converts `agents.tenant_id` to a UUID foreign key. Rows whose
+///   `tenant_id` is not a UUID are moved here instead of deleted. SQLite runs
+///   no such conversion and has nothing to quarantine.
 /// - `authorization_codes` — the PostgreSQL OAuth2 authorization-code store,
 ///   read by `pierre_database::backends::postgres::oauth`. Both trees also
 ///   create `oauth2_auth_codes`; only PostgreSQL carries this second table.
-/// - `coaches_orphaned` — quarantine target of the PostgreSQL-only migration
-///   that converts `coaches.tenant_id` to a UUID foreign key. Rows whose
-///   `tenant_id` is not a UUID are moved here instead of deleted. SQLite runs
-///   no such conversion and has nothing to quarantine.
 /// - `tenant_provider_usage` — per-tenant, per-provider request/error counters,
 ///   created only in the PostgreSQL tree.
 const PG_ONLY_TABLES: [&str; 3] = [
+    "agents_orphaned",
     "authorization_codes",
-    "coaches_orphaned",
     "tenant_provider_usage",
 ];
 

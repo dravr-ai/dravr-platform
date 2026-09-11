@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for StoreCursor and cursor-based pagination for Coach Store
+// ABOUTME: Unit tests for StoreCursor and cursor-based pagination for Agent Store
 // ABOUTME: Tests encoding, decoding, and sort order validation for cursor pagination
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

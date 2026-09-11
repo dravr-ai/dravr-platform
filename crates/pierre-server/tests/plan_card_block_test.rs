@@ -198,9 +198,9 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
     let resources = create_test_server_resources_with_chat_provider(provider)
         .await
         .unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -229,7 +229,7 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
         quota: QuotaState::Ok,
-        mentioned_coach: None,
+        mentioned_agent: None,
     };
 
     let ctx = resources.chat_pipeline_context();
@@ -305,9 +305,9 @@ async fn a_turn_that_saved_nothing_carries_no_card() {
     let resources = create_test_server_resources_with_chat_provider(provider)
         .await
         .unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -335,7 +335,7 @@ async fn a_turn_that_saved_nothing_carries_no_card() {
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
         quota: QuotaState::Ok,
-        mentioned_coach: None,
+        mentioned_agent: None,
     };
     let ctx = resources.chat_pipeline_context();
     let envelope = pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none())
@@ -457,9 +457,9 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
     let resources = create_test_server_resources_with_chat_provider(provider)
         .await
         .unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -495,7 +495,7 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
         quota: QuotaState::Ok,
-        mentioned_coach: None,
+        mentioned_agent: None,
     };
 
     let ctx = resources.chat_pipeline_context();

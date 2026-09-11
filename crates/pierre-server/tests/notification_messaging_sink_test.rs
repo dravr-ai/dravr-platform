@@ -107,7 +107,7 @@ mod sink_tests {
             .id;
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.coach.database)
+        let service = notification_service(&resources.agent.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
 
         let outcome = service
@@ -155,7 +155,7 @@ mod sink_tests {
             .id;
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.coach.database)
+        let service = notification_service(&resources.agent.database)
             .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
 
         // The athlete turned the category off. Messaging must respect that —

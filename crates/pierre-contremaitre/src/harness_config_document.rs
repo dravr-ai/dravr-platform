@@ -101,7 +101,7 @@ impl Default for HarnessCompactionConfig {
 /// disclaimer can never leak.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HarnessGuardrailsConfig {
-    /// Maximum character length for an outbound coach response. `0` disables the cap.
+    /// Maximum character length for an outbound agent response. `0` disables the cap.
     pub max_response_chars: u32,
     /// Substrings (case-insensitive) that must not appear in any response.
     pub blocked_topics: Vec<String>,

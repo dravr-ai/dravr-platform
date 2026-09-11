@@ -37,8 +37,8 @@ interface UsageStatusResponse {
   resources: {
     conversations: number;
     max_conversations: number;
-    coaches: number;
-    max_coaches: number;
+    agents: number;
+    max_agents: number;
   };
 }
 
@@ -73,8 +73,8 @@ function makeStatusResponse(overrides: Partial<{
     resources: {
       conversations: 5,
       max_conversations: 20,
-      coaches: 3,
-      max_coaches: 10,
+      agents: 3,
+      max_agents: 10,
     },
   };
 }

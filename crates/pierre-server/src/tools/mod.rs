@@ -47,7 +47,7 @@
 //! - `tools-nutrition` - Nutrition tools
 //! - `tools-sleep` - Sleep/recovery tools
 //! - `tools-recipes` - Recipe management tools
-//! - `tools-coaches` - AI coach tools
+//! - `tools-agents` - AI agent tools
 //! - `tools-admin` - Admin-only tools
 //!
 //! ## Example

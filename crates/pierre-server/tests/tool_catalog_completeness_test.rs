@@ -9,13 +9,13 @@
 //! `guardian::tenant_tool_enabled` treats an uncatalogued tool as always
 //! enabled (`ResourceNotFound` means "no per-tenant override applies"), so a
 //! tool missing from `tool_catalog` can never be disabled by a tenant — the
-//! cross-tenant coach-write guard in `plan_scope.rs` was inert in production
+//! cross-tenant agent-write guard in `plan_scope.rs` was inert in production
 //! for exactly that reason (carnet#143).
 //!
 //! The gate covers every registered tool, not the chat-callable subset, because
 //! the guardian sits at the universal dispatch chokepoint: MCP-direct, A2A and
 //! internal calls consult `tool_catalog` too. `chat_callable_schemas()` gates
-//! only what the LLM may call mid-turn and deliberately excludes the `coaches`
+//! only what the LLM may call mid-turn and deliberately excludes the `agents`
 //! and `admin` categories, so a tool there is invisible to a chat-callable
 //! comparison.
 //!
@@ -77,7 +77,7 @@ const MIN_CATALOG_ROWS: usize = 100;
 /// for them (owner enrolment included).
 async fn seed_user_with_tenant(resources: &Arc<ServerContext>, label: &str) -> (Uuid, TenantId) {
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
-    let (user_id, _user) = create_test_user_with_email(&resources.coach.database, &email)
+    let (user_id, _user) = create_test_user_with_email(&resources.agent.database, &email)
         .await
         .unwrap();
     let tenants = resources
@@ -131,7 +131,7 @@ async fn the_seeded_catalog_and_the_registry_name_the_same_tools() {
         seeded.len()
     );
 
-    // Name the category alongside the tool: a `coaches` or `admin` tool is the
+    // Name the category alongside the tool: an `agents` or `admin` tool is the
     // case no chat-callable comparison can see, so the message says which one
     // the reader is looking at.
     let unseeded: Vec<String> = registered

@@ -15,7 +15,7 @@ pub mod postgres;
 pub mod shared;
 
 pub use crate::repositories::{
-    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
+    A2ARepository, AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository,
     CoachingGroupRepository, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
     FitnessConfigRepository, ImpersonationRepository, InsertMessageParams, LlmCredentialRepository,
     LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,

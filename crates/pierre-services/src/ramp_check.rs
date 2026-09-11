@@ -6,14 +6,14 @@
 
 //! Plan-save ramp check.
 //!
-//! The progression guidance in the coach prompt is guidance to a model this
+//! The progression guidance in the agent prompt is guidance to a model this
 //! repo has documented ignoring directives. This check is the only thing that
 //! actually looks at a saved plan and measures it, so it must not overstate
 //! what it saw.
 //!
 //! It compares the plan's **first** week against the athlete's real six-week
 //! average, not week two against week one. The dangerous plan is not the one
-//! that ramps internally — a coach writing +5% a week is doing the right thing
+//! that ramps internally — an agent writing +5% a week is doing the right thing
 //! — it is the one that opens far above what the athlete actually does. A
 //! four-week bundle that is uniformly 60% too hard has no internal jump at all
 //! and would pass a week-over-week check silently.
@@ -104,7 +104,7 @@ pub enum RampVerdict {
 ///
 /// A week of pure rest days legitimately sums to zero minutes across days that
 /// *do* carry `duration_min: 0`; that is measurable and returns `Some(0)`. A
-/// week where the coach simply omitted the field everywhere is not measurable
+/// week where the agent simply omitted the field everywhere is not measurable
 /// and returns `None` — the two cases must not collapse, or an unquantified
 /// plan would read as a rest week and always pass.
 #[must_use]

@@ -26,7 +26,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: 'conv-1',
     title: 'Marathon plan',
-    coach_id: null,
+    agent_id: null,
     group_id: null,
     channel_type: 'web',
     message_count: 4,
@@ -46,10 +46,10 @@ function localIso(year: number, month: number, day: number, hour = 9, minute = 5
 describe('deriveKind', () => {
   it('ranks group over channel over coach over plain', () => {
     expect(
-      deriveKind(conversation({ group_id: 'g1', channel_type: 'telegram', coach_id: 'c1' })),
+      deriveKind(conversation({ group_id: 'g1', channel_type: 'telegram', agent_id: 'c1' })),
     ).toBe('group');
-    expect(deriveKind(conversation({ channel_type: 'telegram', coach_id: 'c1' }))).toBe('channel');
-    expect(deriveKind(conversation({ coach_id: 'c1' }))).toBe('coach');
+    expect(deriveKind(conversation({ channel_type: 'telegram', agent_id: 'c1' }))).toBe('channel');
+    expect(deriveKind(conversation({ agent_id: 'c1' }))).toBe('coach');
     expect(deriveKind(conversation())).toBe('plain');
   });
 
@@ -81,8 +81,8 @@ describe('initialsFor', () => {
 describe('avatarSlot', () => {
   it('is deterministic and stays inside the palette', () => {
     const ids = Array.from({ length: 200 }, (_, i) => `conv-${i}`);
-    const slots = ids.map((id) => avatarSlot({ id, coach_id: null, group_id: null }));
-    expect(slots).toEqual(ids.map((id) => avatarSlot({ id, coach_id: null, group_id: null })));
+    const slots = ids.map((id) => avatarSlot({ id, agent_id: null, group_id: null }));
+    expect(slots).toEqual(ids.map((id) => avatarSlot({ id, agent_id: null, group_id: null })));
     expect(slots.every((slot) => Number.isInteger(slot) && slot >= 0 && slot < AVATAR_SLOTS)).toBe(
       true,
     );
@@ -92,14 +92,14 @@ describe('avatarSlot', () => {
   });
 
   it('keys on the group, then the coach, then the conversation', () => {
-    const byGroup = avatarSlot({ id: 'a', coach_id: 'coach-x', group_id: 'group-z' });
-    expect(byGroup).toBe(avatarSlot({ id: 'b', coach_id: 'coach-y', group_id: 'group-z' }));
+    const byGroup = avatarSlot({ id: 'a', agent_id: 'coach-x', group_id: 'group-z' });
+    expect(byGroup).toBe(avatarSlot({ id: 'b', agent_id: 'coach-y', group_id: 'group-z' }));
 
-    const byCoach = avatarSlot({ id: 'a', coach_id: 'coach-x', group_id: null });
-    expect(byCoach).toBe(avatarSlot({ id: 'b', coach_id: 'coach-x', group_id: null }));
+    const byCoach = avatarSlot({ id: 'a', agent_id: 'coach-x', group_id: null });
+    expect(byCoach).toBe(avatarSlot({ id: 'b', agent_id: 'coach-x', group_id: null }));
 
-    expect(avatarSlot({ id: 'a', coach_id: null, group_id: null })).toBe(
-      avatarSlot({ id: 'a', coach_id: null, group_id: null }),
+    expect(avatarSlot({ id: 'a', agent_id: null, group_id: null })).toBe(
+      avatarSlot({ id: 'a', agent_id: null, group_id: null }),
     );
   });
 
@@ -124,15 +124,15 @@ describe('avatarSlot', () => {
     // rows share an id and land on three different hues, so a client that
     // keyed on the id alone, or on the coach under a group, cannot pass by
     // coincidence: each precedence step changes the answer.
-    const byId = avatarSlot({ id: 'conv-1', coach_id: null, group_id: null });
+    const byId = avatarSlot({ id: 'conv-1', agent_id: null, group_id: null });
     expect(byId).toBe(1);
     expect(AVATAR_SLOT_HUES[byId]).toBe('activity');
 
-    const byCoach = avatarSlot({ id: 'conv-1', coach_id: 'coach-x', group_id: null });
+    const byCoach = avatarSlot({ id: 'conv-1', agent_id: 'coach-x', group_id: null });
     expect(byCoach).toBe(4);
     expect(AVATAR_SLOT_HUES[byCoach]).toBe('mobility');
 
-    const byGroup = avatarSlot({ id: 'conv-1', coach_id: 'coach-x', group_id: 'group-2' });
+    const byGroup = avatarSlot({ id: 'conv-1', agent_id: 'coach-x', group_id: 'group-2' });
     expect(byGroup).toBe(5);
     expect(AVATAR_SLOT_HUES[byGroup]).toBe('tertiary');
   });
@@ -144,16 +144,16 @@ describe('previewFor', () => {
 
   it('prefixes the athlete\'s own rows with You: on every kind of row', () => {
     expect(previewFor(conversation({ last_message: user }), LABELS)).toBe('You: How was my week?');
-    expect(previewFor(conversation({ group_id: 'g1', coach_title: 'Phil', last_message: user }), LABELS)).toBe(
+    expect(previewFor(conversation({ group_id: 'g1', agent_title: 'Phil', last_message: user }), LABELS)).toBe(
       'You: How was my week?',
     );
   });
 
   it('names the coach only in a group row', () => {
     expect(
-      previewFor(conversation({ group_id: 'g1', coach_title: 'Marathon Coach', last_message: assistant }), LABELS),
+      previewFor(conversation({ group_id: 'g1', agent_title: 'Marathon Coach', last_message: assistant }), LABELS),
     ).toBe('Marathon Coach: Ease off this week.');
-    expect(previewFor(conversation({ coach_id: 'c1', coach_title: 'Marathon Coach', last_message: assistant }), LABELS)).toBe(
+    expect(previewFor(conversation({ agent_id: 'c1', agent_title: 'Marathon Coach', last_message: assistant }), LABELS)).toBe(
       'Ease off this week.',
     );
     expect(previewFor(conversation({ channel_type: 'telegram', last_message: assistant }), LABELS)).toBe(
@@ -162,7 +162,7 @@ describe('previewFor', () => {
   });
 
   it('falls to "Coach" in a group whose coach no longer exists', () => {
-    expect(previewFor(conversation({ group_id: 'g1', coach_title: null, last_message: assistant }), LABELS)).toBe(
+    expect(previewFor(conversation({ group_id: 'g1', agent_title: null, last_message: assistant }), LABELS)).toBe(
       'Coach: Ease off this week.',
     );
   });
@@ -204,9 +204,9 @@ describe('buildConversationRow', () => {
         title: 'Harricana 80',
         group_id: 'group-1',
         group_name: 'Harricana crew',
-        coach_id: 'coach-1',
-        coach_handle: 'trail-coach',
-        coach_title: 'Trail Coach',
+        agent_id: 'coach-1',
+        agent_handle: 'trail-coach',
+        agent_title: 'Trail Coach',
         unread_count: 3,
         last_message: {
           preview: 'Long run Sunday, 28 km.',
@@ -222,12 +222,12 @@ describe('buildConversationRow', () => {
       id: 'conv-9',
       kind: 'group',
       title: 'Harricana 80',
-      coachHandle: 'trail-coach',
-      coachTitle: 'Trail Coach',
+      agentHandle: 'trail-coach',
+      agentTitle: 'Trail Coach',
       groupName: 'Harricana crew',
       channel: null,
       initials: 'H8',
-      avatarSlot: avatarSlot({ id: 'conv-9', coach_id: 'coach-1', group_id: 'group-1' }),
+      avatarSlot: avatarSlot({ id: 'conv-9', agent_id: 'coach-1', group_id: 'group-1' }),
       preview: 'Trail Coach: Long run Sunday, 28 km.',
       timestamp: '09:50',
       unreadCount: 3,
@@ -288,7 +288,7 @@ describe('sortRowsByActivity', () => {
 describe('filterRows', () => {
   const rows = [
     buildConversationRow(
-      conversation({ id: 'a', title: 'Marathon plan', coach_id: 'c1', coach_handle: 'marathon-coach' }),
+      conversation({ id: 'a', title: 'Marathon plan', agent_id: 'c1', agent_handle: 'marathon-coach' }),
       LABELS,
       NOW,
     ),

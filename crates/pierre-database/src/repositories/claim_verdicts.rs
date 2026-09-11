@@ -16,8 +16,8 @@ pub struct InsertClaimVerdictParams<'a> {
     pub tenant_id: TenantId,
     /// User the claim was said to.
     pub user_id: &'a str,
-    /// Coach persona that authored the claim, if resolvable.
-    pub coach_id: Option<&'a str>,
+    /// Agent persona that authored the claim, if resolvable.
+    pub agent_id: Option<&'a str>,
     /// Conversation the claim came from, if in-dispatch.
     pub conversation_id: Option<&'a str>,
     /// Message the claim was extracted from, if available.

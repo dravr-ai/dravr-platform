@@ -8,7 +8,7 @@
 //!
 //! Tests the 6 remaining MCP tools that previously had only schema/registry
 //! coverage:
-//! - `agent_note_add`, `agent_followup_schedule` — coach-authored memory writes
+//! - `agent_note_add`, `agent_followup_schedule` — agent-authored memory writes
 //! - `remember_fact`, `recall_user_memory` — Letta-style active memory
 //! - `verify_claim` — bullshit detector
 //! - `analyze_weather_impact` — weather-correlation analytics (provider-gated)
@@ -98,9 +98,9 @@ fn assert_tenant_refused(err: &ProtocolError, tool: &str) {
     }
 }
 
-/// Seed a real coach so coach-note / coach-followup tests have a valid
-/// `coach_id` for the FK constraint to be satisfied.
-async fn seed_coach(
+/// Seed a real agent so agent-note / agent-followup tests have a valid
+/// `agent_id` for the FK constraint to be satisfied.
+async fn seed_agent(
     executor: &UniversalToolExecutor,
     user_id: Uuid,
     tenant_id: &str,
@@ -160,17 +160,17 @@ async fn test_misc_tools_registered() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_coach_note_add_happy_path() -> Result<()> {
+async fn test_agent_note_add_happy_path() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
-    let coach_id = seed_coach(&executor, user_id, &tenant, "Note Coach").await?;
+    let agent_id = seed_agent(&executor, user_id, &tenant, "Note Coach").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "agent_note_add",
             json!({
                 "content": "User prefers no scientific jargon when discussing zones.",
-                "agent_id": coach_id,
+                "agent_id": agent_id,
             }),
             user_id,
             Some(&tenant),
@@ -188,7 +188,7 @@ async fn test_coach_note_add_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_coach_note_add_empty_content() -> Result<()> {
+async fn test_agent_note_add_empty_content() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
@@ -209,7 +209,7 @@ async fn test_coach_note_add_empty_content() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_coach_note_add_missing_coach_id() -> Result<()> {
+async fn test_agent_note_add_missing_agent_id() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
@@ -227,7 +227,7 @@ async fn test_coach_note_add_missing_coach_id() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_coach_note_add_rejects_no_tenant() -> Result<()> {
+async fn test_agent_note_add_rejects_no_tenant() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, _tenant) = create_test_user(&executor).await?;
 
@@ -252,17 +252,17 @@ async fn test_coach_note_add_rejects_no_tenant() -> Result<()> {
 // ============================================================================
 
 #[tokio::test]
-async fn test_coach_followup_schedule_happy_path() -> Result<()> {
+async fn test_agent_followup_schedule_happy_path() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
-    let coach_id = seed_coach(&executor, user_id, &tenant, "Followup Coach").await?;
+    let agent_id = seed_agent(&executor, user_id, &tenant, "Followup Coach").await?;
 
     let resp = executor
         .execute_tool(make_request(
             "agent_followup_schedule",
             json!({
                 "content": "check on Achilles pain after long run",
-                "agent_id": coach_id,
+                "agent_id": agent_id,
                 "due_at": "2026-06-15T10:00:00Z",
             }),
             user_id,
@@ -281,7 +281,7 @@ async fn test_coach_followup_schedule_happy_path() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_coach_followup_schedule_invalid_due_at() -> Result<()> {
+async fn test_agent_followup_schedule_invalid_due_at() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
 
@@ -303,7 +303,7 @@ async fn test_coach_followup_schedule_invalid_due_at() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_coach_followup_schedule_rejects_no_tenant() -> Result<()> {
+async fn test_agent_followup_schedule_rejects_no_tenant() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, _tenant) = create_test_user(&executor).await?;
 
@@ -514,7 +514,7 @@ async fn test_recall_user_memory_returns_seeded_fact() -> Result<()> {
         })
         .expect("recall must include the seeded goal fact");
     assert_eq!(goal["predicate_code"], "target_race");
-    // The coach reads the fact as a sentence in the athlete's locale (the
+    // The agent reads the fact as a sentence in the athlete's locale (the
     // test user has the default locale, French), never as a code.
     assert_eq!(goal["sentence"], "Ta course cible : sub-3 marathon");
     assert!(goal.get("subject").is_none() && goal.get("predicate").is_none());

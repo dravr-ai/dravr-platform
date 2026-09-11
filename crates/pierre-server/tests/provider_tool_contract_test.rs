@@ -183,7 +183,7 @@ async fn a_contract_provider_completes_a_tool_round_trip_through_the_generic_loo
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
 
@@ -271,7 +271,7 @@ async fn a_contract_provider_that_calls_nothing_answers_directly() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
 
@@ -331,7 +331,7 @@ async fn a_parameters_argument_envelope_is_lifted_before_dispatch() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
 

@@ -1,18 +1,18 @@
-// ABOUTME: Tier 4 coach session + followup stages — session attach, pending followups, finalize
+// ABOUTME: Tier 4 agent session + followup stages — session attach, pending followups, finalize
 // ABOUTME: Wires coach_session bookkeeping into chat-turn pre/post hooks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tier 4 coach session + followup handling.
+//! Tier 4 agent session + followup handling.
 //!
 //! Three related responsibilities:
 //!
-//! 1. Session attach (pre-dispatch) — ensure a long-lived coach session
-//!    exists for the `(user, coach)` pair and is attached to the conversation.
+//! 1. Session attach (pre-dispatch) — ensure a long-lived agent session
+//!    exists for the `(user, agent)` pair and is attached to the conversation.
 //!    Idempotent and best-effort; failures do not block the turn.
-//! 2. Pending followups (prompt-assembly) — render any pending coach
-//!    followups as a system-prompt block so the coach honors commitments it
+//! 2. Pending followups (prompt-assembly) — render any pending agent
+//!    followups as a system-prompt block so the agent honors commitments it
 //!    made on prior turns. Returns the IDs of followups surfaced so they
 //!    can be marked delivered after the turn succeeds.
 //! 3. Session finalize (post-dispatch) — touch the session's last-active
@@ -26,24 +26,24 @@ use pierre_database::database::ConversationRecord;
 use pierre_core::models::TenantId;
 use pierre_runtime_context::DataContext;
 
-/// Ensure the conversation has a coach session attached.
+/// Ensure the conversation has an agent session attached.
 ///
 /// Idempotent — returns the original conversation untouched when there is
-/// no coach, when a session is already attached, or when the underlying
+/// no agent, when a session is already attached, or when the underlying
 /// repository operations fail. The conversation row is mutated in memory
 /// and in the database so the rest of the dispatch path can rely on
 /// `conv.session_id` being set.
 ///
-/// The session is the conversation's own coach's, read from `conv.coach_id`:
-/// a `@handle` turn answers as another coach but never attaches that coach's
+/// The session is the conversation's own agent's, read from `conv.agent_id`:
+/// a `@handle` turn answers as another agent but never attaches that agent's
 /// session to the row, which is what keeps a per-turn mention from leaving a
 /// durable mark on the conversation.
-pub async fn ensure_coach_session_attached(
+pub async fn ensure_agent_session_attached(
     data: &DataContext,
     mut conv: ConversationRecord,
     tenant_id: TenantId,
 ) -> ConversationRecord {
-    let Some(coach_id) = conv.coach_id.clone() else {
+    let Some(agent_id) = conv.agent_id.clone() else {
         return conv;
     };
     if conv.session_id.is_some() {
@@ -53,7 +53,7 @@ pub async fn ensure_coach_session_attached(
     let session = match data
         .repos()
         .memory
-        .get_or_open_coach_session(tenant_id, &conv.user_id, &coach_id)
+        .get_or_open_agent_session(tenant_id, &conv.user_id, &agent_id)
         .await
     {
         Ok(s) => s,
@@ -77,7 +77,7 @@ pub async fn ensure_coach_session_attached(
     conv
 }
 
-/// Render pending coach followups into the prompt.
+/// Render pending agent followups into the prompt.
 ///
 /// Returns the prompt with an injected followups block (when there are
 /// any) plus the list of followup IDs that were surfaced this turn so the
@@ -86,16 +86,16 @@ pub async fn inject_pending_followups(
     data: &DataContext,
     tenant_id: TenantId,
     user_id: &str,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     base_prompt: String,
 ) -> (String, Vec<String>) {
-    let Some(coach_id) = coach_id else {
+    let Some(agent_id) = agent_id else {
         return (base_prompt, Vec::new());
     };
     let followups = match data
         .repos()
         .memory
-        .list_pending_followups(tenant_id, user_id, coach_id)
+        .list_pending_followups(tenant_id, user_id, agent_id)
         .await
     {
         Ok(list) => list,
@@ -126,7 +126,7 @@ pub async fn inject_pending_followups(
 
 /// Post-turn cleanup of session state.
 ///
-/// Touches the active coach session (so "continue where you left off" UI
+/// Touches the active agent session (so "continue where you left off" UI
 /// surfaces a fresh timestamp) and marks any followups we surfaced this
 /// turn as delivered. Errors are logged and swallowed.
 pub async fn finalize_session_state(
@@ -139,7 +139,7 @@ pub async fn finalize_session_state(
         if let Err(e) = data
             .repos()
             .memory
-            .touch_coach_session(session_id, tenant_id)
+            .touch_agent_session(session_id, tenant_id)
             .await
         {
             tracing::warn!(error = %e, "failed to touch coach session");

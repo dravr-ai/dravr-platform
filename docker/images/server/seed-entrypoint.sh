@@ -41,9 +41,9 @@ fi
 # its prompts/coaches subtree. CONTREMAITRE_REPO / CONTREMAITRE_BRANCH /
 # CONTREMAITRE_GITHUB_PAT are the same env vars used by the runtime
 # hot-reload client, so this seed step shares one auth surface.
-if [ "$DOMAIN" = "coaches" ]; then
-    : "${CONTREMAITRE_REPO:?CONTREMAITRE_REPO is required to ${VERB} coaches}"
-    : "${CONTREMAITRE_GITHUB_PAT:?CONTREMAITRE_GITHUB_PAT is required to ${VERB} coaches}"
+if [ "$DOMAIN" = "agents" ]; then
+    : "${CONTREMAITRE_REPO:?CONTREMAITRE_REPO is required to ${VERB} agents}"
+    : "${CONTREMAITRE_GITHUB_PAT:?CONTREMAITRE_GITHUB_PAT is required to ${VERB} agents}"
     BRANCH="${CONTREMAITRE_BRANCH:-main}"
     CLONE_DIR=$(mktemp -d -t contremaitre.XXXXXX)
     trap 'rm -rf "$CLONE_DIR"' EXIT
@@ -53,7 +53,7 @@ if [ "$DOMAIN" = "coaches" ]; then
         --branch "$BRANCH" \
         "https://x-access-token:${CONTREMAITRE_GITHUB_PAT}@github.com/${CONTREMAITRE_REPO}.git" \
         "$CLONE_DIR"
-    export PIERRE_COACHES_DIR="${CLONE_DIR}/prompts/coaches"
+    export PIERRE_AGENTS_DIR="${CLONE_DIR}/prompts/coaches"
 fi
 
 echo "Running: pierre-cli ${VERB} ${DOMAIN}"

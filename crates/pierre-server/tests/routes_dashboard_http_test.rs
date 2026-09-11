@@ -413,7 +413,7 @@ async fn test_dashboard_logs_with_api_key_filter() {
 
     // Create an API key
     let key = common::create_and_store_test_api_key(
-        setup.resources.coach.database.as_ref(),
+        setup.resources.agent.database.as_ref(),
         setup.user_id,
         "Key for Logs",
     )
@@ -477,7 +477,7 @@ async fn test_dashboard_user_isolation() {
 
     // User 1 creates API keys
     let _ = common::create_and_store_test_api_key(
-        setup1.resources.coach.database.as_ref(),
+        setup1.resources.agent.database.as_ref(),
         setup1.user_id,
         "User 1 Key",
     )

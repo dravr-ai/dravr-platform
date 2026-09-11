@@ -6,23 +6,23 @@
 
 //! Form, rendered the same way everywhere.
 //!
-//! Three surfaces put a TSB in front of the coach: `analyze_training_load`, the
+//! Three surfaces put a TSB in front of the agent: `analyze_training_load`, the
 //! group roster card, and `get_training_history`. Only the first normalized it.
 //! The other two shipped a bare absolute number, and on 2026-09-02 the roster
-//! card handed the coach `TSB: -77` with nothing to read it against.
+//! card handed the agent `TSB: -77` with nothing to read it against.
 //!
-//! The coach called it *"ton indice de fatigue"* — a label that appears nowhere
+//! The agent called it *"ton indice de fatigue"* — a label that appears nowhere
 //! in this codebase — placed it in *"la zone de surentraînement profond"*, and
 //! anchored fifteen turns of advice on it, including a race build-up plan. The
 //! athlete was in a deliberate peak-load block and said so: *"Je suis dans mon
 //! pic de charge en ce moment mais toi tu pense que je suis sur entrainé."* A
 //! deeply negative TSB during planned overload is the expected signal. The card
-//! gave the coach no way to know that.
+//! gave the agent no way to know that.
 //!
 //! When he asked *"Montre moi exactement comment tu calcules l'indice"*, the
-//! coach answered that it had no access to the formula — and that was true. So
+//! agent answered that it had no access to the formula — and that was true. So
 //! [`FormReading::interpretation`] carries the method as well as the bands: a
-//! number the coach cannot explain is a number the athlete stops believing.
+//! number the agent cannot explain is a number the athlete stops believing.
 //!
 //! Every field here comes off [`FormBand`], which lives in the sports-science
 //! engine so the edges are defined once. Nothing in this module re-derives a
@@ -123,7 +123,7 @@ impl FormReading {
 
     /// The interpretation key shipped alongside the numbers.
     ///
-    /// `ctl_days` / `atl_days` are the configured EMA windows, so the coach can
+    /// `ctl_days` / `atl_days` are the configured EMA windows, so the agent can
     /// answer "how do you calculate this" from the payload instead of admitting
     /// it cannot.
     #[must_use]
@@ -159,7 +159,7 @@ pub struct FormInterpretation {
     pub tsb_pct_of_ctl: String,
     /// The bands, their edges, and that they are not an injury prediction.
     pub form_band: String,
-    /// How the numbers were computed, so a coach can answer "how do you
+    /// How the numbers were computed, so an agent can answer "how do you
     /// calculate this" from the payload instead of admitting it cannot.
     pub method: String,
     /// That a deeply negative reading is the expected signal in a planned

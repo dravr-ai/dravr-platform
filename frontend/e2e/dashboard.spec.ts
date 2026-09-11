@@ -408,7 +408,7 @@ test.describe('Dashboard Content Loading', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
+        body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
       });
     });
 

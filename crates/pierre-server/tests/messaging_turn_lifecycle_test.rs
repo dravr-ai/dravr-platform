@@ -369,7 +369,7 @@ mod drained_mid_turn {
     use crate::helpers::offline_channel::OfflineSendAdapters;
 
     /// The coaching the athlete was owed. Distinctive enough that no other
-    /// outbound row (a coach proposal, an intake question) can match it.
+    /// outbound row (an agent proposal, an intake question) can match it.
     const ANSWER: &str = "Ton NP sur la dernière course: 245 W, soit 3,4 W/kg — solide.";
 
     /// Seed one `WhatsApp` athlete and post one question through the real

@@ -1,17 +1,17 @@
-// ABOUTME: Coach vocabulary contracts loaded from the contremaitre manifest
+// ABOUTME: Agent vocabulary contracts loaded from the contremaitre manifest
 // ABOUTME: One source of truth — same list referenced by prompt and test asserter
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Coach vocabulary contracts.
+//! Agent vocabulary contracts.
 //!
-//! A *vocabulary contract* is a per-coach commitment that the coach
+//! A *vocabulary contract* is a per-agent commitment that the agent
 //! will use at least one term from a curated domain vocabulary in
 //! every reply, regardless of the question topic. The same list lives
 //! in two places:
 //!
-//! 1. **The coach's prompt** (in `dravr-contremaitre`) — instructs the
+//! 1. **The agent's prompt** (in `dravr-contremaitre`) — instructs the
 //!    LLM to always frame responses using these terms.
 //! 2. **This registry** — loaded by the test runner so the
 //!    `AssertionSpec::VocabularyContract` asserter can check the
@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 
-/// A single coach's vocabulary commitment.
+/// A single agent's vocabulary commitment.
 #[derive(Debug, Clone)]
 pub struct VocabularyContract {
     /// Lower-snake-case domain terms. Asserter matches case-insensitive
@@ -33,7 +33,7 @@ pub struct VocabularyContract {
     pub terms: Vec<String>,
 }
 
-/// Registry of vocabulary contracts, keyed by coach id.
+/// Registry of vocabulary contracts, keyed by agent id.
 #[derive(Debug, Clone, Default)]
 pub struct VocabularyContractRegistry {
     contracts: HashMap<String, VocabularyContract>,
@@ -44,7 +44,7 @@ impl VocabularyContractRegistry {
     ///
     /// These are the same terms the contremaitre prompt should
     /// declare — when contremaitre ships a `vocabulary_contract`
-    /// field per coach (P4 follow-up), this loader will read from
+    /// field per agent (P4 follow-up), this loader will read from
     /// there instead of hard-coding.
     #[must_use]
     pub fn with_defaults() -> Self {
@@ -130,14 +130,14 @@ impl VocabularyContractRegistry {
     }
 
     /// Install or overwrite a contract.
-    pub fn insert(&mut self, coach_id: String, contract: VocabularyContract) {
-        self.contracts.insert(coach_id, contract);
+    pub fn insert(&mut self, agent_id: String, contract: VocabularyContract) {
+        self.contracts.insert(agent_id, contract);
     }
 
-    /// Look up by coach id.
+    /// Look up by agent id.
     #[must_use]
-    pub fn contract_for(&self, coach_id: &str) -> Option<&VocabularyContract> {
-        self.contracts.get(coach_id)
+    pub fn contract_for(&self, agent_id: &str) -> Option<&VocabularyContract> {
+        self.contracts.get(agent_id)
     }
 }
 
@@ -146,7 +146,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_cover_the_four_coach_archetypes() {
+    fn defaults_cover_the_four_agent_archetypes() {
         let r = VocabularyContractRegistry::with_defaults();
         assert!(r.contract_for("strength").is_some());
         assert!(r.contract_for("endurance").is_some());
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn strength_contract_includes_recovery_aware_terms() {
         // The Monitor: LLM Live Integration test failure showed the
-        // strength coach answering recovery questions with sleep
+        // strength agent answering recovery questions with sleep
         // vocabulary. The contract must cover recovery framing too —
         // deload, soreness, RIR — so the asserter accepts the LLM's
         // recovery answer when framed in strength terms.

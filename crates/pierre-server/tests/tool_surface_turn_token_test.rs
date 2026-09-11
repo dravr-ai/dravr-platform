@@ -72,7 +72,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());

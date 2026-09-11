@@ -11,7 +11,7 @@ pub mod host_seams;
 pub mod multitenant;
 /// Curated, user-invokable analysis prompt templates (prompts/list + prompts/get)
 pub mod prompt_templates;
-/// Coach marketplace catalog backing MCP resources/list + resources/read
+/// Agent marketplace catalog backing MCP resources/list + resources/read
 pub mod resource_catalog;
 /// Resource management for MCP
 pub mod resources;

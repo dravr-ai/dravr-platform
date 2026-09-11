@@ -162,7 +162,7 @@ async function loginAsSuperAdminWithUsers(page: Page) {
         user_id: 'user-active-1',
         coaching_persona: 'casual',
         default_coach_id: null,
-        installed_coaches: [],
+        installed_agents: [],
         joined_groups: [],
       }),
     });
@@ -192,7 +192,7 @@ async function loginAsSuperAdminWithUsers(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      body: JSON.stringify({ agents: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
     });
   });
 

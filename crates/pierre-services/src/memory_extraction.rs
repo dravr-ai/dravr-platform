@@ -91,12 +91,12 @@ struct RawFact {
 /// Platform-appended provenance instruction for the extraction prompt.
 ///
 /// The base `memory_extraction.md` prompt (dravr-contremaitre) already says
-/// "only record facts the user stated" — and a live coach prescription was
+/// "only record facts the user stated" — and a live agent prescription was
 /// minted as a `schedule` fact anyway (fact 1b6199d8, 2026-07-10: "do long
 /// ride on Sunday (4h-4h30 with 2x20min at 280-300W)"). Prompt-only
 /// enforcement failed, so the platform appends a machine-checkable
-/// provenance field and [`is_coach_prescription`] enforces it structurally:
-/// coach prescriptions now live in `training_plans` (saved explicitly via
+/// provenance field and [`is_agent_prescription`] enforces it structurally:
+/// agent prescriptions now live in `training_plans` (saved explicitly via
 /// `save_training_plan`), never in `user_facts`.
 const PROVENANCE_ADDENDUM: &str = r#"
 
@@ -175,8 +175,8 @@ pub struct ExtractionRequest<'a> {
     pub tenant_id: TenantId,
     /// User the facts are about.
     pub user_id: &'a str,
-    /// Coach attached to the conversation, if any.
-    pub coach_id: Option<&'a str>,
+    /// Agent attached to the conversation, if any.
+    pub agent_id: Option<&'a str>,
     /// The user message that started this turn.
     pub user_message: &'a str,
     /// The assistant reply that completed this turn.
@@ -194,9 +194,9 @@ pub struct ExtractionRequest<'a> {
     pub force_kind: Option<FactKind>,
     /// Whether `save_training_plan` actually ran on the turn being extracted.
     ///
-    /// The coach-prescription filter drops schedule facts *because* plans are
+    /// The agent-prescription filter drops schedule facts *because* plans are
     /// supposed to persist through that tool. When it did not run, the drop
-    /// deletes the only copy — see [`is_coach_prescription`].
+    /// deletes the only copy — see [`is_agent_prescription`].
     pub plan_was_saved: bool,
 }
 
@@ -233,7 +233,7 @@ where
         .list_user_facts(
             req.tenant_id,
             req.user_id,
-            req.coach_id,
+            req.agent_id,
             None,
             i64::from(dedup.candidate_limit_i64()),
         )
@@ -288,14 +288,14 @@ impl ExtractionOutcome {
     }
 }
 
-/// `true` when the fact is a coach prescription masquerading as an athlete
+/// `true` when the fact is an agent prescription masquerading as an athlete
 /// schedule constraint and must not become a `user_fact`.
 ///
 /// Applies only to background conversation extraction: the guided
 /// onboarding walk (`FactSource::Onboarding`) records the user's own
-/// answers, and coach tools (`FactSource::Coach`) write deliberately.
+/// answers, and agent tools (`FactSource::Coach`) write deliberately.
 /// `schedule` is the proven failure kind (plan days minted as availability);
-/// a fact without an explicit `stated_by: "user"` is treated as coach-stated
+/// a fact without an explicit `stated_by: "user"` is treated as agent-stated
 /// because the base-rate cost of a stored prescription (stale plan beliefs
 /// replayed for weeks) far exceeds the cost of missing one constraint the
 /// user can restate.
@@ -306,13 +306,13 @@ impl ExtractionOutcome {
 ///
 /// Live 2026-09-02: the athlete asked for a dated plan to a goal race
 /// (*"je fais une course avec beaucoup de dénivelé le 11 octobre. Sors moi un
-/// plan journalier jusqu'à la course"*). The coach produced a week-by-week
+/// plan journalier jusqu'à la course"*). The agent produced a week-by-week
 /// build-up in prose, this filter logged three drops, and `save_training_plan`
 /// was never called — `PostHog` shows zero `training_plan.saved` that day. The
 /// plan existed only in a conversation whose history was being raw-dropped
 /// every turn, and by the end of the session it was unrecoverable from either
 /// store (registre#203).
-fn is_coach_prescription(
+fn is_agent_prescription(
     kind: FactKind,
     stated_by: Option<&str>,
     source: FactSource,
@@ -328,7 +328,7 @@ fn is_coach_prescription(
         && !user_stated
 }
 
-/// Gate one raw fact: confidence floor + coach-prescription filter. Returns
+/// Gate one raw fact: confidence floor + agent-prescription filter. Returns
 /// the resolved `(kind, confidence)` for facts that should persist, `None`
 /// (with the reason logged) for facts to drop.
 fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f32)> {
@@ -345,7 +345,7 @@ fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f
     let kind = req
         .force_kind
         .unwrap_or_else(|| FactKind::parse_lenient(&fact.kind));
-    if is_coach_prescription(
+    if is_agent_prescription(
         kind,
         fact.stated_by.as_deref(),
         req.source,
@@ -359,7 +359,7 @@ fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f
         return None;
     }
     // The same fact on a turn where the tool did NOT run: retained, because
-    // nothing else holds it. WARN rather than INFO — a coach that prescribed a
+    // nothing else holds it. WARN rather than INFO — an agent that prescribed a
     // schedule without persisting it is a gap worth seeing in the logs, not
     // just a fact worth keeping.
     if !req.plan_was_saved
@@ -539,7 +539,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         let params = UpsertUserFactParams {
             tenant_id: req.tenant_id,
             user_id: req.user_id,
-            coach_id: req.coach_id,
+            agent_id: req.agent_id,
             scope: MemoryScope::User,
             kind,
             pillar: req.pillar,
@@ -606,7 +606,7 @@ fn restated_fact_id(
 }
 
 /// Call the extraction LLM and parse the response into [`RawFact`] records.
-/// Stand-in for the coach reply on a turn whose reply was withheld by the
+/// Stand-in for the agent reply on a turn whose reply was withheld by the
 /// identity-leak detector.
 ///
 /// The withheld text must never reach the extractor — a leaked narration minted
@@ -727,8 +727,8 @@ pub struct SpawnedExtractionRequest {
     pub tenant_id: TenantId,
     /// User the facts are about.
     pub user_id: String,
-    /// Coach attached to the conversation, if any.
-    pub coach_id: Option<String>,
+    /// Agent attached to the conversation, if any.
+    pub agent_id: Option<String>,
     /// User turn text.
     pub user_message: String,
     /// Assistant reply text.
@@ -792,7 +792,7 @@ pub fn spawn_extract_for_turn(
         let request = ExtractionRequest {
             tenant_id: req.tenant_id,
             user_id: &req.user_id,
-            coach_id: req.coach_id.as_deref(),
+            agent_id: req.agent_id.as_deref(),
             user_message: &req.user_message,
             assistant_reply: &req.assistant_reply,
             source_msg_id: req.source_msg_id.as_deref(),
@@ -827,7 +827,7 @@ pub fn spawn_extract_for_turn(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_coach_prescription, parse_raw_facts, resolve_predicate, RawFact, EXTRACTABLE_KINDS,
+        is_agent_prescription, parse_raw_facts, resolve_predicate, RawFact, EXTRACTABLE_KINDS,
         PREDICATE_CODES_ADDENDUM, PROVENANCE_ADDENDUM,
     };
     use pierre_memory::{FactKind, FactSource, PredicateCode};
@@ -922,22 +922,22 @@ mod tests {
     #[test]
     fn schedule_gate_drops_coach_prescriptions_once_the_plan_is_stored() {
         // The 1b6199d8 shape: a schedule fact the extractor did not attribute
-        // to the user. Absent stated_by is treated as coach-stated. Dropped
+        // to the user. Absent stated_by is treated as agent-stated. Dropped
         // only because `save_training_plan` ran and holds the plan.
-        assert!(is_coach_prescription(
+        assert!(is_agent_prescription(
             FactKind::Schedule,
             None,
             FactSource::Conversation,
             true
         ));
-        assert!(is_coach_prescription(
+        assert!(is_agent_prescription(
             FactKind::Schedule,
             Some("coach"),
             FactSource::Conversation,
             true
         ));
         // User-stated availability constraints still persist.
-        assert!(!is_coach_prescription(
+        assert!(!is_agent_prescription(
             FactKind::Schedule,
             Some("user"),
             FactSource::Conversation,
@@ -946,7 +946,7 @@ mod tests {
         // …including when the extractor drifts the casing/spacing of "user".
         for variant in ["User", "USER", " user ", "User "] {
             assert!(
-                !is_coach_prescription(
+                !is_agent_prescription(
                     FactKind::Schedule,
                     Some(variant),
                     FactSource::Conversation,
@@ -957,7 +957,7 @@ mod tests {
         }
         // Other kinds are not gated (goal write-back is the save tool's job,
         // but user-stated goals from chat remain extractable).
-        assert!(!is_coach_prescription(
+        assert!(!is_agent_prescription(
             FactKind::Goal,
             Some("coach"),
             FactSource::Conversation,
@@ -965,7 +965,7 @@ mod tests {
         ));
         // The guided onboarding walk records the user's own answers even
         // when the extractor forgets the provenance field.
-        assert!(!is_coach_prescription(
+        assert!(!is_agent_prescription(
             FactKind::Schedule,
             None,
             FactSource::Onboarding,
@@ -978,7 +978,7 @@ mod tests {
     /// copy.
     ///
     /// Live 2026-09-02: the athlete asked for a dated plan to a 3 700 m race on
-    /// 11 October. The coach wrote a week-by-week build-up in prose, this gate
+    /// 11 October. The agent wrote a week-by-week build-up in prose, this gate
     /// logged three drops, and `save_training_plan` was never called — zero
     /// `training_plan.saved` events that day. The plan survived only in a
     /// conversation whose history was being raw-dropped every turn, and was
@@ -986,11 +986,11 @@ mod tests {
     #[test]
     fn a_prescription_is_retained_when_save_training_plan_did_not_run() {
         assert!(
-            !is_coach_prescription(FactKind::Schedule, None, FactSource::Conversation, false),
+            !is_agent_prescription(FactKind::Schedule, None, FactSource::Conversation, false),
             "with no plan stored, the fact is the only record of the prescription"
         );
         assert!(
-            !is_coach_prescription(
+            !is_agent_prescription(
                 FactKind::Schedule,
                 Some("coach"),
                 FactSource::Conversation,

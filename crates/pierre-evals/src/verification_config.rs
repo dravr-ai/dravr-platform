@@ -1,5 +1,5 @@
-// ABOUTME: Per-coach configuration for the bullshit detector pipeline
-// ABOUTME: Loaded from YAML frontmatter in the coach's system prompt; defaults are safe
+// ABOUTME: Per-agent configuration for the bullshit detector pipeline
+// ABOUTME: Loaded from YAML frontmatter in the agent's system prompt; defaults are safe
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,18 +7,18 @@
 //! # Verification Config
 //!
 //! A compact struct describing how the verification pipeline should behave for
-//! a given coach. Coaches can opt out entirely (rhetorical personas), raise
+//! a given agent. Coaches can opt out entirely (rhetorical personas), raise
 //! the Evidence Strength threshold for specific categories, or choose how
 //! the dispatch path reacts to an `Unsupported` or `Contradicted` verdict
 //! (warn the user, record the verdict silently without altering the reply,
 //! or block the whole reply pending retry).
 //!
-//! Phase A loads it from YAML frontmatter embedded in the coach's system
+//! Phase A loads it from YAML frontmatter embedded in the agent's system
 //! prompt text. The loader is tolerant — any parse failure falls back to
-//! the safe default so misconfigured coaches never crash dispatch.
+//! the safe default so misconfigured agents never crash dispatch.
 
 use crate::personalized::{
-    CoachConfiguredStrategy, ConservativeStrategy, TightStrategy, ToleranceStrategy,
+    AgentConfiguredStrategy, ConservativeStrategy, TightStrategy, ToleranceStrategy,
     DEFAULT_MARGIN_FRAC,
 };
 use crate::verdict_engine::VerdictOutcome;
@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// How the dispatch path reacts when the pipeline emits a non-`Supported`
-/// verdict on a claim in a coach's reply.
+/// verdict on a claim in an agent's reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerificationFallback {
@@ -63,7 +63,7 @@ impl Default for CategoryConfig {
     }
 }
 
-/// Full verification config for a single coach.
+/// Full verification config for a single agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationConfig {
     /// Master switch. When false the pipeline is skipped entirely.
@@ -124,7 +124,7 @@ impl VerificationConfig {
         self.enabled && self.for_category(category).enabled
     }
 
-    /// Load a verification config from the frontmatter of a coach system
+    /// Load a verification config from the frontmatter of an agent system
     /// prompt. Looks for the first `---`-delimited YAML block containing a
     /// top-level `verification_config:` key.
     ///
@@ -159,25 +159,25 @@ fn parse_verification_config_yaml(frontmatter: &str) -> Option<VerificationConfi
 }
 
 /// Which [`ToleranceStrategy`] the personalized-physiology layer uses to decide
-/// when a claim contradicts the athlete's range. Selected per-coach via YAML.
+/// when a claim contradicts the athlete's range. Selected per-agent via YAML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToleranceMode {
-    /// Buffer margin read from the coach YAML (`margin_frac`). The default.
+    /// Buffer margin read from the agent YAML (`margin_frac`). The default.
     #[default]
-    CoachConfigured,
-    /// Fixed safety buffer the coach cannot loosen.
+    AgentConfigured,
+    /// Fixed safety buffer the agent cannot loosen.
     Conservative,
     /// Zero buffer: any value outside the range is contradicted.
     Tight,
 }
 
 /// What a personalized verdict does to the reply. Selected
-/// per-coach via YAML.
+/// per-agent via YAML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionMode {
-    /// Reuse the coach's existing [`VerificationFallback`]. The default.
+    /// Reuse the agent's existing [`VerificationFallback`]. The default.
     #[default]
     Inherit,
     /// Record the verdict for admin / the human coach, never alter the reply.
@@ -186,7 +186,7 @@ pub enum ActionMode {
     UserWarn,
 }
 
-/// Per-coach configuration for the personalized-physiology layer.
+/// Per-agent configuration for the personalized-physiology layer.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PersonalizedConfig {
     /// Master switch for the personalized-physiology layer.
@@ -196,7 +196,7 @@ pub struct PersonalizedConfig {
     #[serde(default)]
     pub tolerance: ToleranceMode,
     /// Buffer margin (fraction of the metric value) for the
-    /// [`ToleranceMode::CoachConfigured`] strategy.
+    /// [`ToleranceMode::AgentConfigured`] strategy.
     #[serde(default = "default_margin_frac")]
     pub margin_frac: f64,
     /// What a personalized verdict does to the reply.
@@ -221,11 +221,11 @@ fn default_margin_frac() -> f64 {
 
 impl PersonalizedConfig {
     /// Build the [`ToleranceStrategy`] selected by `tolerance`. The default
-    /// ([`ToleranceMode::CoachConfigured`]) carries the YAML `margin_frac`.
+    /// ([`ToleranceMode::AgentConfigured`]) carries the YAML `margin_frac`.
     #[must_use]
     pub fn tolerance_strategy(&self) -> Box<dyn ToleranceStrategy> {
         match self.tolerance {
-            ToleranceMode::CoachConfigured => Box::new(CoachConfiguredStrategy {
+            ToleranceMode::AgentConfigured => Box::new(AgentConfiguredStrategy {
                 margin_frac: self.margin_frac,
             }),
             ToleranceMode::Conservative => Box::new(ConservativeStrategy::default()),
@@ -234,7 +234,7 @@ impl PersonalizedConfig {
     }
 
     /// Build the [`ContradictionPolicy`] selected by `action`. The default
-    /// ([`ActionMode::Inherit`]) defers to the coach's [`VerificationFallback`].
+    /// ([`ActionMode::Inherit`]) defers to the agent's [`VerificationFallback`].
     #[must_use]
     pub fn contradiction_policy(&self) -> Box<dyn ContradictionPolicy> {
         match self.action {
@@ -258,16 +258,16 @@ pub enum ResolvedAction {
     BlockRetry,
 }
 
-/// Pluggable policy mapping a verdict + coach config to a [`ResolvedAction`].
+/// Pluggable policy mapping a verdict + agent config to a [`ResolvedAction`].
 ///
-/// Selected per-coach via [`ActionMode`]. The default ([`InheritConfigPolicy`])
+/// Selected per-agent via [`ActionMode`]. The default ([`InheritConfigPolicy`])
 /// reproduces the pipeline's pre-Layer-2.5 behavior exactly.
 pub trait ContradictionPolicy: Send + Sync {
     /// Resolve what the dispatch path should do with `verdict`.
     fn resolve(&self, verdict: &VerdictOutcome, config: &VerificationConfig) -> ResolvedAction;
 }
 
-/// Default policy: defer to the coach's existing [`VerificationFallback`].
+/// Default policy: defer to the agent's existing [`VerificationFallback`].
 pub struct InheritConfigPolicy;
 
 impl ContradictionPolicy for InheritConfigPolicy {

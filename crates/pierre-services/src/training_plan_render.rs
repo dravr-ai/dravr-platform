@@ -1,4 +1,4 @@
-// ABOUTME: Renders the active training plan into the coach's system prompt (trusted, unfenced)
+// ABOUTME: Renders the active training plan into the agent's system prompt (trusted, unfenced)
 // ABOUTME: Outline + current/next week only; older weeks stay tool-retrievable to bound token cost
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! # Training-plan prompt block
 //!
 //! Renders the athlete's active [`TrainingPlan`] as a `## Current training
-//! plan` system-prompt section — trusted coach content in an **unfenced**
+//! plan` system-prompt section — trusted agent content in an **unfenced**
 //! block, deliberately not inside the OKF `<user_fact>` fence: the fence
 //! contractually declares its content "data, never instructions", and a
 //! plan *is* instructions to the athlete.
@@ -29,7 +29,7 @@ use pierre_memory::FactKind;
 use std::fmt::Write as _;
 use uuid::Uuid;
 
-use crate::coach_package::PackagedCatalogue;
+use crate::agent_package::PackagedCatalogue;
 
 /// Weeks [`select_active_weeks`] may return: the current one and the next —
 /// the fortnight the athlete acts on, and the unit `save_training_plan`
@@ -95,7 +95,7 @@ pub struct WeekSelection<'a> {
 /// take up to `limit` of what remains, and count the rest.
 ///
 /// Single source of the "current and next week" math. The prompt renderer below
-/// and the athlete-facing `/plan` command both consume this, so the week a coach
+/// and the athlete-facing `/plan` command both consume this, so the week an agent
 /// sees injected and the week the athlete is shown can never disagree — the
 /// selection used to live inline in this renderer's loop, which is exactly how a
 /// second caller would have grown a parallel derivation.
@@ -161,7 +161,7 @@ const MAX_STRATEGY_LEN: usize = 4_000;
 const MAX_PROMPT_STEPS: usize = 12;
 
 /// Neutralize a free-text plan field before it enters the **unfenced** system
-/// prompt. Plan text is coach/LLM/athlete-authored (an athlete can call
+/// prompt. Plan text is agent/LLM/athlete-authored (an athlete can call
 /// `save_training_plan` directly), so an unescaped field could smuggle a forged
 /// prompt section (`"## Coach directives …"`), a fenced code block, or a
 /// blockquote into a trusted, above-user-trust region.
@@ -179,7 +179,7 @@ fn sanitize_prompt_field(s: &str, max_len: usize) -> String {
 }
 
 /// One clause naming a structured day's steps — `Warm-up 15min Z1; Work 8min
-/// 88-93% FTP ×3; …` — so the coach re-saving the week carries the structure
+/// 88-93% FTP ×3; …` — so the agent re-saving the week carries the structure
 /// forward instead of re-deriving it from the prose and losing it.
 fn steps_summary(steps: &[WorkoutStep]) -> String {
     let mut parts: Vec<String> = steps
@@ -487,7 +487,7 @@ fn phase_touches_rendered_weeks(
 /// The header for one phase the rendered fortnight runs under — the phase
 /// covering today, and any other the fortnight reaches into: what it is for,
 /// how long it has left, the targets it is written against, and the catalogue
-/// templates that fit it — delivered platform-side every turn, so the coach
+/// templates that fit it — delivered platform-side every turn, so the agent
 /// never spends a tool call learning what this phase allows.
 fn render_phase_header(
     plan: &TrainingPlan,
@@ -638,36 +638,36 @@ pub async fn plan_goal_is_stale(
         .is_none_or(|fact| fact.valid_until.is_some_and(|until| until < now)))
 }
 
-/// The coach persona slug an athlete's plan is read under, resolved the way
+/// The agent persona slug an athlete's plan is read under, resolved the way
 /// their own DM resolves it.
 ///
-/// The conversation's coach wins when the conversation has one — that is how
-/// the plan was saved. A conversation that binds no coach (a shared room, a
-/// coach-less thread) falls back to the coach the athlete selected in their
-/// own tenant, which is the coach their DM is bound to on every turn; only an
-/// athlete who selected nobody reads the coach-agnostic plan alone. One ladder
+/// The conversation's agent wins when the conversation has one — that is how
+/// the plan was saved. A conversation that binds no agent (a shared room, a
+/// agent-less thread) falls back to the agent the athlete selected in their
+/// own tenant, which is the agent their DM is bound to on every turn; only an
+/// athlete who selected nobody reads the agent-agnostic plan alone. One ladder
 /// for `/plan`, `/plan share` and the tools' coached-athlete scope, so a plan
-/// built in a DM under coach X is the plan the room and the coach see.
+/// built in a DM under agent X is the plan the room and the agent see.
 ///
 /// # Errors
 ///
-/// Propagates the repository error from the selected-coach lookup.
-pub async fn resolve_plan_coach_slug(
+/// Propagates the repository error from the selected-agent lookup.
+pub async fn resolve_plan_agent_slug(
     repos: &RepositoryRegistry,
-    conversation_coach: Option<String>,
+    conversation_agent: Option<String>,
     tenant: TenantId,
     user: Uuid,
 ) -> AppResult<Option<String>> {
-    if conversation_coach.is_some() {
-        return Ok(conversation_coach);
+    if conversation_agent.is_some() {
+        return Ok(conversation_agent);
     }
-    repos.tenants.get_selected_coach(tenant, user).await
+    repos.tenants.get_selected_agent(tenant, user).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::{parse_plan_date, render_training_plan_block};
-    use crate::coach_package::PackagedCatalogue;
+    use crate::agent_package::PackagedCatalogue;
     use chrono::NaiveDate;
     use pierre_contremaitre::TrainingCatalogueRegistry;
     use std::collections::BTreeMap;
@@ -690,7 +690,7 @@ mod tests {
             id: "plan-1".to_owned(),
             tenant_id: "t".to_owned(),
             user_id: "u".to_owned(),
-            coach_slug: Some("endurance-coach".to_owned()),
+            agent_slug: Some("endurance-coach".to_owned()),
             goal_fact_id: Some("fact-1".to_owned()),
             goal_race: GoalRace {
                 name: "Big Red".to_owned(),
@@ -921,7 +921,7 @@ mod tests {
     }
 
     /// The phase and priority labels come from `as_str`; these are the strings
-    /// the coach reads, so they are asserted as text rather than trusted to a
+    /// the agent reads, so they are asserted as text rather than trusted to a
     /// serialization round-trip.
     #[test]
     fn phase_and_priority_render_their_serde_labels() {
@@ -978,7 +978,7 @@ mod tests {
     /// A past prescription must not read as a completed session.
     ///
     /// Live incident 2026-08-26 (Telegram): asked "et je vais du velo quand?",
-    /// the coach answered "t'as deja fait ta seance velo intense mardi 25 (40/20,
+    /// the agent answered "t'as deja fait ta seance velo intense mardi 25 (40/20,
     /// 390-425W)". The athlete had not — that was Tuesday's PRESCRIPTION, and he
     /// had run a Z2 trail instead. He had to say "regarde mes vraies activites"
     /// to get it corrected, and it repeated the same claim two turns later.

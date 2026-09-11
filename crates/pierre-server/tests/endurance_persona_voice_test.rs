@@ -1,17 +1,17 @@
-// ABOUTME: Cross-product fixtures proving persona × endurance-coach voice differentiation
+// ABOUTME: Cross-product fixtures proving persona × endurance-agent voice differentiation
 // ABOUTME: Pure-Rust assertion run on canned replies — gateway test for the live messaging-eval workflow
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Persona-axis voice validation for the endurance coach.
+//! Persona-axis voice validation for the endurance agent.
 //!
 //! The persona MVP shipped on main as `48582760` placed coaching
 //! discipline (line-by-line cadence, citation density, P-level
-//! surfacing, word count) on the persona axis — not the coach axis.
-//! The endurance-coach prompt rewrite in this branch removed every
-//! discipline rule from `endurance-coach/{en,fr}.md` and pushed the
-//! responsibility to `prompts/personas/{casual,enthusiast,power_athlete,coach}.md`.
+//! surfacing, word count) on the persona axis — not the agent axis.
+//! The endurance-agent prompt rewrite in this branch removed every
+//! discipline rule from `endurance-agent/{en,fr}.md` and pushed the
+//! responsibility to `prompts/personas/{casual,enthusiast,power_athlete,agent}.md`.
 //!
 //! This test is the gateway proof that the differentiation actually
 //! works in two layers:
@@ -49,33 +49,33 @@ use helpers::messaging_eval::{
 use pierre_core::models::CoachingPersona;
 use pierre_llm::prompts::{get_coaching_persona_prompt, PLATFORM_CONTRACT_PROMPT};
 
-/// English endurance coach prompt fixture. The runtime source of truth lives
+/// English endurance agent prompt fixture. The runtime source of truth lives
 /// in the dravr-contremaitre repo (manifest v5, keyed by `(slug, locale)`);
 /// this fixture is a compile-time snapshot kept under
-/// `tests/fixtures/endurance-coach/en.md` so a future reshape of the prompt
+/// `tests/fixtures/endurance-agent/en.md` so a future reshape of the prompt
 /// fails this test loudly rather than silently passing on stale content. Bump
 /// the fixture in lockstep with the contremaitre push.
-const ENDURANCE_COACH_EN: &str = include_str!("fixtures/endurance-coach/en.md");
+const ENDURANCE_AGENT_EN: &str = include_str!("fixtures/endurance-coach/en.md");
 
 /// Build the full system prompt the LLM would see for `persona` when
-/// the user's active coach is endurance-coach. Mirrors the production
-/// coach-bound shape in `chat_pipeline::stages::prompt_assembly`:
+/// the user's active agent is endurance-agent. Mirrors the production
+/// agent-bound shape in `chat_pipeline::stages::prompt_assembly`:
 /// platform contract first (which carries `{{COACHING_PERSONA_RULES}}`),
-/// then the coach voice — a bound coach REPLACES the `pierre_system` persona
-/// layer, so assembling `pierre_system` + coach here would test a prompt
-/// shape production never produces (that masked the coach-bound persona
+/// then the agent voice — a bound agent REPLACES the `pierre_system` persona
+/// layer, so assembling `pierre_system` + agent here would test a prompt
+/// shape production never produces (that masked the agent-bound persona
 /// drop until 2026-09-01).
 fn assemble_for_persona(persona: CoachingPersona) -> String {
     let persona_block = get_coaching_persona_prompt(persona);
     let assembled = PLATFORM_CONTRACT_PROMPT.replace("{{COACHING_PERSONA_RULES}}", persona_block);
-    format!("{assembled}\n\n{ENDURANCE_COACH_EN}")
+    format!("{assembled}\n\n{ENDURANCE_AGENT_EN}")
 }
 
 #[test]
 fn platform_contract_carries_the_persona_placeholder() {
-    // The whole coach-bound persona feature hangs on this: the placeholder
+    // The whole agent-bound persona feature hangs on this: the placeholder
     // must live in the contract layer that leads EVERY assembled prompt.
-    // If it drifts back into pierre_system.md only, bound coaches silently
+    // If it drifts back into pierre_system.md only, bound agents silently
     // lose persona steering again.
     assert!(
         PLATFORM_CONTRACT_PROMPT.contains("{{COACHING_PERSONA_RULES}}"),

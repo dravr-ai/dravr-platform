@@ -129,7 +129,7 @@ async fn get_my_quota(
     // Fall back to compile-time tier defaults when admin config is
     // unavailable so the user can still see their quota; enforcement
     // reads the same defaults.
-    let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+    let admin_config: &dyn AdminConfigLookup = match resources.agent.admin_config.as_deref() {
         Some(c) => c,
         None => default_admin_config(),
     };

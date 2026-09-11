@@ -8,7 +8,7 @@
 //!
 //! Pure-Rust realization of the messaging-eval plan's assertion-adapter
 //! approach: small composable functions that each assert one
-//! property of a coach reply. Callers compose them to describe the
+//! property of an agent reply. Callers compose them to describe the
 //! correctness of a scenario.
 //!
 //! # Asserter catalog
@@ -19,7 +19,7 @@
 //! |---|---|---|
 //! | [`assert_citation_grounded`] | Reply text + [`CitationFixture`] | Hallucinated counts, distances, CTL/ATL/TSB |
 //! | [`assert_guardrail`] | Reply text + expected substring | Scope/capability refusal emitted as LLM completion instead of the canonical localized string |
-//! | [`assert_tool_called`] | JSON from `/internal/conversation-turn/{id}` | Coach claimed a tool-derived answer without actually invoking the tool |
+//! | [`assert_tool_called`] | JSON from `/internal/conversation-turn/{id}` | Agent claimed a tool-derived answer without actually invoking the tool |
 //! | [`assert_latency_ms_at_most`] | Same endpoint JSON | Per-turn end-to-end latency SLO violation |
 //! | [`assert_tokens_at_most`] | Same endpoint JSON | Per-turn token budget (cost proxy until pricing tables land) |
 //!
@@ -31,7 +31,7 @@
 //!
 //! # Citation grounding
 //!
-//! A coach reply is *grounded* if every numeric claim it makes about
+//! An agent reply is *grounded* if every numeric claim it makes about
 //! the user's data matches the value pre-computed from the seeded
 //! activities, within a per-metric tolerance. Three claim kinds are
 //! extracted today:
@@ -170,7 +170,7 @@ const DEFAULT_WEIGHT_KG: f64 = 70.0;
 ///
 /// Computed once from the seeded `Vec<Activity>` before the pipeline
 /// runs, and passed to [`assert_citation_grounded`] to verify the
-/// coach's reply cites these numbers rather than hallucinating.
+/// agent's reply cites these numbers rather than hallucinating.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CitationFixture {
     /// Number of activities in the evaluation window.
@@ -733,7 +733,7 @@ pub struct WordCountOver {
 /// The Casual persona block forbids citation density — citations make
 /// the answer feel like math homework rather than a friend's text.
 /// This asserter is the runtime check that the Casual block is winning
-/// against the coach's domain prompt, which carries its own citation
+/// against the agent's domain prompt, which carries its own citation
 /// instinct.
 ///
 /// # Errors
@@ -764,7 +764,7 @@ pub fn assert_no_framework_citations(reply: &str) -> Result<(), FrameworkCitatio
 /// numeric claim". Perfect 100% is brittle in practice (the LLM may
 /// summarize "10 runs" without a Banister tag, which is fine), so the
 /// caller chooses the floor. `0.7` is a reasonable default for
-/// `PowerAthlete`; `0.5` for `Coach` (slightly relaxed for roster framing).
+/// `PowerAthlete`; `0.5` for `Agent` (slightly relaxed for roster framing).
 ///
 /// A "numeric claim" is any standalone number — integer, decimal, or
 /// percentage. A "sentence" is a run of text terminated by `.`, `!`,

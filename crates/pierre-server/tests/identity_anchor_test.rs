@@ -1,5 +1,5 @@
 // ABOUTME: Pins that every assembled system prompt closes with the Dravr identity anchor
-// ABOUTME: Regression for the coach-bound identity-leak gap (2026-07-25)
+// ABOUTME: Regression for the agent-bound identity-leak gap (2026-07-25)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,15 +7,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! Every turn must carry the identity anchor — coach-bound or not — and it
+//! Every turn must carry the identity anchor — agent-bound or not — and it
 //! must be LAST.
 //!
 //! 2026-07-25: `assemble_prompt_and_messages` resolved the base prompt with a
 //! `map_or_else` that REPLACED `pierre_system.md` (the only prompt containing
-//! "You are Dravr") with the coach's own prompt when a coach was bound. Coach
+//! "You are Dravr") with the agent's own prompt when an agent was bound. Agent
 //! prompts never state who the assistant is, so those turns fought the Copilot
 //! CLI's own "you are a terminal assistant" system prompt with nothing and
-//! matched the boundary detector ~24% of the time, versus 0% on no-coach turns.
+//! matched the boundary detector ~24% of the time, versus 0% on no-agent turns.
 //!
 //! Placement is not cosmetic. A 48-run live A/B against `claude-sonnet-5`
 //! through the pinned Copilot CLI measured four arms over four identity
@@ -28,19 +28,19 @@
 //! | C   | anchor LAST                   | 0/12            | 12/12        |
 //! | D   | `pierre_system.md` (mid-file) | 1/12            | 9/12         |
 //!
-//! Prepending fixed what the coach *called* itself but not the disclosure — it
+//! Prepending fixed what the agent *called* itself but not the disclosure — it
 //! still answered « Quel modèle d'IA utilises-tu ? » with "I'm powered by
 //! Claude Sonnet 5 (model ID: …)". Only the tail placement suppressed that.
 //! These tests pin the tail contract and the no-product-names rule.
 
 use pierre_chat_pipeline::stages::prompt_assembly::{
-    close_with_anchors, close_with_identity_anchor, coach_voice_anchor,
+    agent_voice_anchor, close_with_anchors, close_with_identity_anchor,
 };
 use pierre_core::narration::contains_identity_leak;
 
 #[test]
-fn coach_prompt_with_no_identity_gains_the_anchor_last() {
-    // A realistic coach body that never says who the assistant is.
+fn agent_prompt_with_no_identity_gains_the_anchor_last() {
+    // A realistic agent body that never says who the assistant is.
     let coach_body = "## Your coaching style\nYou write short, punchy sessions and always cite \
                       the athlete's recent training load before prescribing.";
     let out = close_with_identity_anchor(coach_body);
@@ -97,9 +97,9 @@ fn anchor_itself_never_trips_the_boundary_matcher() {
 }
 
 #[test]
-fn default_and_coach_paths_get_the_identical_anchor() {
+fn default_and_agent_paths_get_the_identical_anchor() {
     // Both branches of the assembly map_or_else route through this helper, so
-    // the anchor suffix is byte-identical regardless of coach binding.
+    // the anchor suffix is byte-identical regardless of agent binding.
     let a = close_with_identity_anchor("default pierre body");
     let b = close_with_identity_anchor("some coach body");
     let suffix_a = &a[a.find("default pierre body").unwrap() + "default pierre body".len()..];
@@ -112,12 +112,12 @@ fn default_and_coach_paths_get_the_identical_anchor() {
 }
 
 // ---------------------------------------------------------------------------
-// Coach voice anchor — the specialisation half of the same recency argument.
+// Agent voice anchor — the specialisation half of the same recency argument.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn the_voice_anchor_names_the_coach_it_speaks_for() {
-    let out = coach_voice_anchor("strength");
+fn the_voice_anchor_names_the_agent_it_speaks_for() {
+    let out = agent_voice_anchor("strength");
     assert!(
         out.contains("strength"),
         "the anchor must name the coach; a generic reminder is what already failed"
@@ -140,7 +140,7 @@ fn the_voice_anchor_governs_voice_and_never_capability() {
     // The platform contract leads the prompt precisely so a persona cannot
     // take capability with it. This block sits after that contract, so it must
     // not re-open the door the contract closed: no refusing, no scope.
-    let out = coach_voice_anchor("nutrition").to_lowercase();
+    let out = agent_voice_anchor("nutrition").to_lowercase();
     // Stems, not whole words. The first version of this test listed "refuse"
     // and passed while the anchor said "refusals" — which is the token that
     // primes, and it sat in the highest-recency position in the prompt.
@@ -195,9 +195,9 @@ fn the_identity_anchor_still_comes_last() {
 }
 
 #[test]
-fn a_turn_with_no_coach_gets_no_voice_anchor() {
+fn a_turn_with_no_agent_gets_no_voice_anchor() {
     // The default Dravr path has no specialisation to hold, so it must not pay
-    // the tokens or gain a coach name it does not have.
+    // the tokens or gain an agent name it does not have.
     let out = close_with_anchors("default pierre body", None);
     assert!(
         !out.contains("Answer as the"),
@@ -215,7 +215,7 @@ fn the_voice_anchor_does_not_read_as_an_identity_leak() {
     // Same trap the identity anchor documents: platform text that trips the
     // response-boundary matcher would be withheld as if the model had leaked.
     assert!(
-        !contains_identity_leak(&coach_voice_anchor("strength")),
+        !contains_identity_leak(&agent_voice_anchor("strength")),
         "the voice anchor's own wording must not match identity_leak_match"
     );
 }

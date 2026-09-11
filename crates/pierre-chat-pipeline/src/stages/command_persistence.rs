@@ -54,7 +54,7 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 /// `/plan share` is the same read whose explicit trigger IS the athlete's
 /// consent to post it: a grant given per invocation, with no stored flag that
 /// can go stale, and legible in the room as the athlete's own turn. Only the
-/// caller's own plan is ever shared this way; a coach edits an athlete's plan
+/// caller's own plan is ever shared this way; an agent edits an athlete's plan
 /// from their direct chat through the plan tools' `athlete` argument.
 ///
 /// `calibrate`, `season` and `pillars` are room-visible on the same consent

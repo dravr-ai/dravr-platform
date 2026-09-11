@@ -200,7 +200,7 @@ mod rendering_snapshots {
     fn telegram_escapes_html_special_characters_in_body() {
         // Explicit escape test: <, >, & must be HTML-encoded so the
         // body can't open unclosed tags or inject markup. If this
-        // breaks, coach replies containing "<100 bpm" or "A & B" will
+        // breaks, agent replies containing "<100 bpm" or "A & B" will
         // render mangled or fail Telegram's parse_mode=HTML validator.
         let msg = OutgoingMessage {
             channel_type: ChannelType::Telegram,

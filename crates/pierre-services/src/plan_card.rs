@@ -111,7 +111,7 @@ pub struct PhaseCard {
     pub weeks: u8,
     /// What the phase is for.
     pub purpose: String,
-    /// The coach's intent for it.
+    /// The agent's intent for it.
     pub intent: String,
     /// Weekly hours the phase targets, when stated.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,7 +128,7 @@ pub struct PhaseCard {
 pub struct WeekCard {
     /// Monday, `YYYY-MM-DD`.
     pub week_start: String,
-    /// The week's focus in the coach's words.
+    /// The week's focus in the agent's words.
     pub focus: String,
     /// Index into `phases`, when the week names its phase.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,12 +146,12 @@ pub struct DayCard {
     pub date: String,
     /// Sport label.
     pub sport: String,
-    /// The session in the coach's words.
+    /// The session in the agent's words.
     pub workout: String,
     /// Planned duration in minutes, when stated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_min: Option<u32>,
-    /// Intensity label as the coach wrote it.
+    /// Intensity label as the agent wrote it.
     pub intensity: String,
     /// `true` for a rest day.
     pub rest: bool,
@@ -274,7 +274,7 @@ fn day_card(day: &PlannedDay) -> DayCard {
 ///
 /// Plain words — "mostly easy with two hard days", never "polarized" — from
 /// the string catalogue under `messaging.flavour.<id>`, the hyphens of the id
-/// folded to underscores. A flavour the catalogue has no words for (a coach
+/// folded to underscores. A flavour the catalogue has no words for (an agent
 /// package's house flavour) is named by its id, which is at least honest.
 ///
 /// The card and `recommend_plan_flavour` both call this, so the label the
@@ -291,7 +291,7 @@ pub fn flavour_label(registry: &MessagingStringsRegistry, locale: &str, id: &str
     }
 }
 
-/// Load the athlete's active plan under `coach` and project it for the card.
+/// Load the athlete's active plan under `agent` and project it for the card.
 ///
 /// `None` when there is no active plan or the store cannot be read — a card
 /// is a courtesy on the reply, never a reason to fail the turn.
@@ -299,7 +299,7 @@ pub async fn load_plan_card(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    coach: Option<&str>,
+    agent: Option<&str>,
     today: NaiveDate,
     registry: &MessagingStringsRegistry,
     locale: &str,
@@ -308,7 +308,7 @@ pub async fn load_plan_card(
     let user = user_id.to_string();
     let plan = match repos
         .training_plans
-        .get_active_plan(&tenant_id, &user, PlanOwner::from_slug(coach))
+        .get_active_plan(&tenant_id, &user, PlanOwner::from_slug(agent))
         .await
     {
         Ok(Some(plan)) => plan,

@@ -305,7 +305,7 @@ async fn test_login_success() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create a test user first
-    let (_, user) = common::create_test_user(&setup.resources.coach.database)
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -380,7 +380,7 @@ async fn test_login_wrong_password() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create a test user first
-    let (_, user) = common::create_test_user(&setup.resources.coach.database)
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -433,7 +433,7 @@ async fn test_refresh_token_success() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (user_id, user) = common::create_test_user(&setup.resources.coach.database)
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -487,7 +487,7 @@ async fn test_refresh_token_user_id_mismatch() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.coach.database)
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -541,7 +541,7 @@ async fn test_oauth_status_success() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.coach.database)
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -600,7 +600,7 @@ async fn test_oauth_status_includes_all_providers() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
 
     // Create test user and generate token
-    let (_, user) = common::create_test_user(&setup.resources.coach.database)
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 

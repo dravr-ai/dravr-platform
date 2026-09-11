@@ -1,4 +1,4 @@
-// ABOUTME: Coach system prompt extension builders for group context
+// ABOUTME: Agent system prompt extension builders for group context
 // ABOUTME: Produces prompt text blocks tailored to the requester's role (member vs admin)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,7 +10,7 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, SummaryDetailLevel,
 };
 
-/// Strategy for building group context text injected into the coach's system prompt.
+/// Strategy for building group context text injected into the agent's system prompt.
 ///
 /// Different implementations produce different prompt styles depending on
 /// who is asking (admin overview vs individual member focus).
@@ -217,12 +217,12 @@ fn resolve_requester_name(group: &GroupContext, members: &[MemberSummaryCard]) -
         .map_or_else(|| "the current user".to_owned(), |m| m.display_name.clone())
 }
 
-/// Tell the coach how to pull a peer's detailed or older activities. The
+/// Tell the agent how to pull a peer's detailed or older activities. The
 /// injected roster cards only carry a short snapshot (this week + the last few
 /// activities); a specific past race or an older date range is not in them. The
 /// `get_activities` tool always runs as the requester and silently returns the
 /// requester's OWN data for a peer (the cause of peer activities being
-/// misattributed), so the coach must use the consent-gated
+/// misattributed), so the agent must use the consent-gated
 /// `get_group_member_activities` tool to read a peer's data.
 fn write_peer_fetch_instructions(text: &mut String) {
     let _ = writeln!(

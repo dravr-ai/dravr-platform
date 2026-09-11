@@ -6,7 +6,7 @@
 
 //! # Group tools
 //!
-//! [`GetGroupMemberActivitiesTool`] lets the AI coach pull a *consenting* group
+//! [`GetGroupMemberActivitiesTool`] lets the AI agent pull a *consenting* group
 //! member's activities on demand (e.g. a named past race) inside a group chat.
 //!
 //! The single-user data tools (`get_activities`) always execute as the
@@ -85,7 +85,7 @@ struct MemberMatch {
 }
 
 /// A group the requester may read peers of: one they belong to, or one they
-/// coach. Both repository shapes collapse to the three facts the resolver
+/// agent. Both repository shapes collapse to the three facts the resolver
 /// needs.
 struct ReadableGroup {
     id: Uuid,
@@ -224,8 +224,8 @@ fn resolve_unique_peer<'a>(
     Ok(best)
 }
 
-/// Project an activity to the compact shape the coach reasons over. Mirrors the
-/// fields a coach asks about (distance, duration, climbing, power, HR) without
+/// Project an activity to the compact shape the agent reasons over. Mirrors the
+/// fields an agent asks about (distance, duration, climbing, power, HR) without
 /// the full activity payload's timeseries/laps token cost.
 fn project_activity(a: &Activity) -> GroupMemberActivity {
     GroupMemberActivity {
@@ -506,7 +506,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             // `fetch_provider_activities` returns `None` when the live fetch
             // fails and the stale cache is empty. Every connection failing is an
             // outage, and it must be reported as one: the old unconditional
-            // `ok(count: 0)` taught the coach the peer had not trained.
+            // `ok(count: 0)` taught the agent the peer had not trained.
             // A successful fetch that genuinely finds nothing in the window
             // still answers `ok` with a zero count — that emptiness is real.
             let mut activities = Vec::new();

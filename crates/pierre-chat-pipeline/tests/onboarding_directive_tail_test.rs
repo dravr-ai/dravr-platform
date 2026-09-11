@@ -11,14 +11,14 @@
 //! directive was appended mid-prompt (Stage 7e.1), then buried under the channel
 //! response constraints (7g), the tool-discipline block (7g.1 — placed last *by
 //! design* for recency) and, on card-capable channels, the structured-output
-//! JSON contract (7g.2). A builder coach whose persona says "your first reply in
+//! JSON contract (7g.2). A builder agent whose persona says "your first reply in
 //! any conversation MUST emit the plan JSON" won that recency contest and
 //! emitted a 16-week plan on the athlete's first profile answer.
 //!
 //! Two invariants keep the fix in place, and both are asserted here:
 //!
 //! - **Wording** — the directive states its own precedence rather than relying
-//!   on position alone, forbids plan work for the turn, and tells the coach to
+//!   on position alone, forbids plan work for the turn, and tells the agent to
 //!   go deeper rather than re-ask when the answer already landed.
 //! - **Position** — Stage 7g.3 (the directive) is appended *after* 7g/7g.1/7g.2.
 //!   Only Stage 7g.4, the identity anchor, may follow it before Stage 7h hardens
@@ -111,7 +111,7 @@ fn directive_is_appended_after_every_other_prompt_block() {
 /// directive, on the same grounds: it says how to write, never what to
 /// produce, so it does not enter the recency contest the 2026-07-24 derail was
 /// decided by. That is exactly why it is appended unconditionally rather than
-/// from an arm of the directive's `match` — a builder coach under the
+/// from an arm of the directive's `match` — a builder agent under the
 /// structured-output contract still writes prose inside its JSON, and the
 /// English-answer incident (carnet#159) reached a surface that was carrying no
 /// language rule at all.
@@ -242,7 +242,7 @@ fn directive_for(target: CoverageTarget) -> String {
 }
 
 #[test]
-fn directive_claims_precedence_over_a_coach_turn_one_protocol() {
+fn directive_claims_precedence_over_an_agent_turn_one_protocol() {
     let text = directive_for(CoverageTarget::NorthStar);
 
     // Position alone is not enough against a persona block that calls itself

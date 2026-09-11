@@ -1,4 +1,4 @@
-// ABOUTME: External tests for per-coach verification config parsing (verification_config.rs)
+// ABOUTME: External tests for per-agent verification config parsing (verification_config.rs)
 // ABOUTME: Covers defaults, frontmatter parsing, malformed YAML tolerance, and disabling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

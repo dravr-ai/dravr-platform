@@ -9,8 +9,8 @@
 
 //! A command reply is history the athlete sees on reload — Telegram keeps a
 //! bot's answer in the thread, and so does the in-app transcript now — but it
-//! is the platform talking, not the coach. Replayed as an assistant turn, a
-//! `/status` listing or a `/coach` picker teaches the model to answer in the
+//! is the platform talking, not the agent. Replayed as an assistant turn, a
+//! `/status` listing or a `/agent` picker teaches the model to answer in the
 //! platform's voice. Both rows of the turn carry [`COMMAND_FINISH_REASON`], and
 //! the replay drops them by that stamp, whatever the text says.
 
@@ -81,7 +81,7 @@ fn both_rows_of_a_command_turn_are_dropped_from_the_replayed_prompt() {
 
 #[test]
 fn an_unstamped_row_with_the_same_text_is_kept() {
-    // The drop is keyed on the stamp, not on the words: a coach that quotes a
+    // The drop is keyed on the stamp, not on the words: an agent that quotes a
     // status line back is still replayed. Prose matching is exactly the
     // mechanism the withheld-reply fix retired.
     let history = vec![

@@ -22,7 +22,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_RESPOND_STATUS_MENTIONS, KEY_GROUP_RESPOND_USAGE, KEY_GROUP_ROLE_ADMIN,
     KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
 };
-use pierre_core::models::coaches::ListCoachesFilter;
+use pierre_core::models::agents::ListAgentsFilter;
 use pierre_core::models::groups::{
     GroupInviteKind, GroupRespondMode, GroupRole, UpdateGroupRequest,
 };
@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use crate::{CommandHandler, PlatformCommandContext};
 
-/// The coaching group a `/group` subcommand — or `/coach add` in a group
+/// The coaching group a `/group` subcommand — or `/agent add` in a group
 /// conversation — acts on, together with the tenant whose rows describe it.
 pub(crate) struct TargetGroup {
     /// `coaching_groups.id`.
@@ -163,13 +163,13 @@ async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<Target
 /// Two facts, because the handlers genuinely ask two different questions
 /// about the caller's groups:
 ///
-/// - `/group invite`, `/group coach`, `/group respond`, `/group consent`
+/// - `/group invite`, `/group agent`, `/group respond`, `/group consent`
 ///   resolve the conversation's group and check the caller's standing
 ///   *there*. `ambient` answers them.
 /// - `/group status`, `/group members`, `/group leave` read
 ///   `list_groups_for_user().first()` instead — any group the caller belongs
-///   to will do, and the conversation's group is irrelevant. `/coach assign
-///   <coach-id> <group-id>` checks the group the caller *typed*, which no
+///   to will do, and the conversation's group is irrelevant. `/agent assign
+///   <agent-id> <group-id>` checks the group the caller *typed*, which no
 ///   conversation-scoped fact can decide. `highest` answers all four, because
 ///   holding a role anywhere means some invocation succeeds.
 pub struct CallerGroupStanding {
@@ -345,7 +345,7 @@ impl CommandHandler for GroupStatusHandler {
         );
 
         // Respond mode lives on the full group row (the summary omits it).
-        // Plain-text suffix, mirroring the /group coach and /group respond
+        // Plain-text suffix, mirroring the /group agent and /group respond
         // replies that stay outside the tools-groups-gated string registry.
         if let Ok(Some(full)) = ctx
             .ctx
@@ -421,8 +421,8 @@ impl CommandHandler for GroupMembersHandler {
 /// Issue an invite of `kind` for the conversation's group on the caller's
 /// behalf, refusing anyone who may not manage its members.
 ///
-/// The one implementation behind two triggers: `/group invite [coach]` and
-/// `/coach invite` both resolve the same chat-bound group, enforce the same
+/// The one implementation behind two triggers: `/group invite [agent]` and
+/// `/agent invite` both resolve the same chat-bound group, enforce the same
 /// role and file the invite through the same `GroupService` path, so the
 /// two spellings cannot drift.
 ///
@@ -520,7 +520,7 @@ pub struct GroupInviteHandler;
 impl GroupInviteHandler {
     /// The single authority on who may invite. `execute` checks it against the
     /// membership row it fetched; `is_available` checks it against the role
-    /// `/help` already resolved for the same group. `/coach invite` lists
+    /// `/help` already resolved for the same group. `/agent invite` lists
     /// itself on the same answer.
     pub(crate) fn permits(role: GroupRole) -> bool {
         role.can_manage_members()
@@ -552,19 +552,19 @@ impl CommandHandler for GroupInviteHandler {
     }
 }
 
-/// Handler for `/group coach <name>` and `/group coach detach`.
+/// Handler for `/group agent <name>` and `/group agent detach`.
 ///
-/// Owner/admin only, both forms. `<name>` resolves a Dravr coach by
-/// (case-insensitive) title from the coaches visible to the caller and points
-/// the group's `coach_id` at it, so that persona answers in the group
-/// thereafter. `detach` clears the group's *human* coach
-/// (`coaching_groups.coach_user_id`) — the attachment `/group invite coach`
+/// Owner/admin only, both forms. `<name>` resolves a Dravr agent by
+/// (case-insensitive) title from the agents visible to the caller and points
+/// the group's `agent_id` at it, so that persona answers in the group
+/// thereafter. `detach` clears the group's *human* agent
+/// (`coaching_groups.coach_user_id`) — the attachment `/group invite agent`
 /// creates — leaving the AI persona untouched, and is the only way to undo it
 /// from chat.
 pub struct GroupCoachHandler;
 
 impl GroupCoachHandler {
-    /// The single authority on who may change the group's coach, shared by
+    /// The single authority on who may change the group's agent, shared by
     /// `execute` and `is_available`.
     fn permits(role: GroupRole) -> bool {
         role.can_manage_members()
@@ -609,7 +609,7 @@ impl CommandHandler for GroupCoachHandler {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
 
-        // Coach name argument — joined so multi-word names like "5K Marathon"
+        // Agent name argument — joined so multi-word names like "5K Marathon"
         // arrive intact.
         let name = ctx.args.join(" ");
         let name = name.trim();
@@ -624,7 +624,7 @@ impl CommandHandler for GroupCoachHandler {
         // Resolve the chat-bound group (mirrors /group invite).
         let group = resolve_target_group(ctx).await?;
 
-        // Owner/admin only — changing the group's coach is a settings change.
+        // Owner/admin only — changing the group's agent is a settings change.
         let member = ctx
             .ctx
             .repos()
@@ -642,29 +642,29 @@ impl CommandHandler for GroupCoachHandler {
 
         // `detach` clears the human coach attached by `/group invite coach`.
         // It runs behind the same owner/admin gate as setting the persona, and
-        // is deliberately not a coach *title*: a Dravr coach named "detach"
-        // would still be reachable as `/group coach detach coach`.
+        // is deliberately not an agent *title*: a Dravr agent named "detach"
+        // would still be reachable as `/group agent detach agent`.
         if name.eq_ignore_ascii_case("detach") {
             return Self::detach_human_coach(ctx, &group).await;
         }
 
-        // Find a visible coach whose title matches — exact (case-insensitive)
+        // Find a visible agent whose title matches — exact (case-insensitive)
         // first, otherwise the first whose title contains the text.
-        let filter = ListCoachesFilter::with_defaults();
-        let coaches = ctx
+        let filter = ListAgentsFilter::with_defaults();
+        let agents = ctx
             .ctx
             .repos()
-            .coaches
+            .agents
             .list(ctx.user_id, ctx.tenant_id, &filter)
             .await?;
         let needle = name.to_lowercase();
-        let matched = coaches
+        let matched = agents
             .iter()
-            .find(|c| c.coach.title.eq_ignore_ascii_case(name))
+            .find(|c| c.agent.title.eq_ignore_ascii_case(name))
             .or_else(|| {
-                coaches
+                agents
                     .iter()
-                    .find(|c| c.coach.title.to_lowercase().contains(&needle))
+                    .find(|c| c.agent.title.to_lowercase().contains(&needle))
             });
         let Some(found) = matched else {
             return Ok(CommandResponse::text(format!(
@@ -672,11 +672,11 @@ impl CommandHandler for GroupCoachHandler {
             )));
         };
 
-        // Point the group at the chosen coach persona.
+        // Point the group at the chosen agent persona.
         let request = UpdateGroupRequest {
             name: None,
             description: None,
-            coach_id: Some(found.coach.id.to_string()),
+            agent_id: Some(found.agent.id.to_string()),
             max_members: None,
             peer_data_sharing: None,
             respond_mode: None,
@@ -693,13 +693,13 @@ impl CommandHandler for GroupCoachHandler {
 
         info!(
             group_id = %updated.id,
-            coach_id = %found.coach.id,
+            agent_id = %found.agent.id,
             "Group AI coach updated via /group coach"
         );
 
         Ok(CommandResponse::text(format!(
             "{}'s agent is now {}.",
-            updated.name, found.coach.title
+            updated.name, found.agent.title
         )))
     }
 
@@ -710,18 +710,18 @@ impl CommandHandler for GroupCoachHandler {
 }
 
 /// Handler for `/group respond <mentions|all>` — set when the group's AI
-/// coach replies in the bound chat.
+/// agent replies in the bound chat.
 ///
 /// Owner/admin only. `mentions` restricts replies to explicitly-addressed
 /// messages (an @-mention of the bot or a reply to one of its messages);
 /// unaddressed chatter is captured silently as ambient context. `all`
 /// restores the answer-everything default. Replies in plain text so it does
 /// not depend on the `tools-groups`-gated messaging strings (mirrors
-/// `/group coach`).
+/// `/group agent`).
 pub struct GroupRespondHandler;
 
 impl GroupRespondHandler {
-    /// The single authority on who may change when the coach speaks, shared by
+    /// The single authority on who may change when the agent speaks, shared by
     /// `execute` and `is_available`.
     fn permits(role: GroupRole) -> bool {
         role.can_modify_settings()
@@ -751,10 +751,10 @@ impl CommandHandler for GroupRespondHandler {
             }
         };
 
-        // Resolve the chat-bound group (mirrors /group coach).
+        // Resolve the chat-bound group (mirrors /group agent).
         let group = resolve_target_group(ctx).await?;
 
-        // Owner/admin only — changing when the coach speaks is a settings change.
+        // Owner/admin only — changing when the agent speaks is a settings change.
         let member = ctx
             .ctx
             .repos()
@@ -773,7 +773,7 @@ impl CommandHandler for GroupRespondHandler {
         let request = UpdateGroupRequest {
             name: None,
             description: None,
-            coach_id: None,
+            agent_id: None,
             max_members: None,
             peer_data_sharing: None,
             respond_mode: Some(mode),

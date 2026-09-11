@@ -13,7 +13,7 @@ describe('PostInstallHint', () => {
   it('teaches /agent add @handle and the @handle mention for the installed agent', () => {
     render(
       <PostInstallHint
-        coachTitle="Marathon Training Coach"
+        agentTitle="Marathon Training Coach"
         handle="marathon-training-coach"
         onOpenChat={vi.fn()}
         onDismiss={vi.fn()}
@@ -30,7 +30,7 @@ describe('PostInstallHint', () => {
   it('hands the /agent add draft to Open chat', () => {
     const onOpenChat = vi.fn();
     render(
-      <PostInstallHint coachTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={vi.fn()} />,
+      <PostInstallHint agentTitle="Tempo" handle="tempo-coach" onOpenChat={onOpenChat} onDismiss={vi.fn()} />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Open chat' }));
@@ -40,7 +40,7 @@ describe('PostInstallHint', () => {
 
   it('dismisses through onDismiss', () => {
     const onDismiss = vi.fn();
-    render(<PostInstallHint coachTitle="Tempo" handle="tempo-coach" onOpenChat={vi.fn()} onDismiss={onDismiss} />);
+    render(<PostInstallHint agentTitle="Tempo" handle="tempo-coach" onOpenChat={vi.fn()} onDismiss={onDismiss} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
 

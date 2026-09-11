@@ -55,7 +55,7 @@ impl RenderedReply {
     ///
     /// Both halves, not just the prose. A reply that is one chart and no words
     /// answers "fais-moi un graphique" completely, and testing `prose` alone
-    /// discarded the chart and told the athlete the coach could not formulate a
+    /// discarded the chart and told the athlete the agent could not formulate a
     /// response. Empty prose *and* no attachments is the case the channel
     /// itself rejects — Telegram refuses an empty message body.
     #[must_use]
@@ -206,7 +206,7 @@ fn reconnect_control(
 /// How many characters one message on `channel_type` may carry.
 ///
 /// Read off [`RenderCapabilities`] rather than off canot's descriptor
-/// directly, so the number the egress splits at is the same field the coach
+/// directly, so the number the egress splits at is the same field the agent
 /// was told about in its prose contract. The locale plays no part in a
 /// character ceiling; the profile needs one, so it gets the default.
 #[must_use]

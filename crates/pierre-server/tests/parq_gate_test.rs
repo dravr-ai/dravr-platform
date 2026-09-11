@@ -1,4 +1,4 @@
-// ABOUTME: Integration test for the PAR-Q+ gate — Yes answers persist coach-visible medical flags
+// ABOUTME: Integration test for the PAR-Q+ gate — Yes answers persist agent-visible medical flags
 // ABOUTME: Verifies flags land in the Dossier medical bucket with a 12-month freshness horizon
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

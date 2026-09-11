@@ -71,7 +71,7 @@ impl Stored {
             id: self.id.into(),
             tenant_id: "t1".into(),
             user_id: "u1".into(),
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: self.kind,
             pillar: None,

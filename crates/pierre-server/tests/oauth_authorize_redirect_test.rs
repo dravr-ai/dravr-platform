@@ -32,7 +32,7 @@ use pierre_routes_auth::AuthRoutes;
 
 async fn setup() -> (Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     // The session must carry an active tenant: OAuth state is tenant-scoped, so
     // a tenant-less token is rejected before any authorize URL is built.
     let tenant_id = resources

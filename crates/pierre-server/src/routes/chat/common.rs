@@ -46,7 +46,7 @@ pub async fn verify_group_membership(
     }
 
     // The group's human coach can reach the group even though they are
-    // not a member — they oversee the group through its coach persona, with
+    // not a member — they oversee the group through its agent persona, with
     // each member's data still gated by their own peer_sharing_consent.
     if let Some(group) = resources
         .common

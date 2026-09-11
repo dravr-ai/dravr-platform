@@ -72,10 +72,10 @@ pub struct ResourceUsageStatus {
     pub conversations: i64,
     /// Maximum allowed conversations
     pub max_conversations: i64,
-    /// Current number of coaches
-    pub coaches: i64,
-    /// Maximum allowed coaches
-    pub max_coaches: i64,
+    /// Current number of agents
+    pub agents: i64,
+    /// Maximum allowed agents
+    pub max_agents: i64,
 }
 
 /// Usage routes handler
@@ -111,7 +111,7 @@ impl UsageRoutes {
         // Degrade to compile-time tier defaults when admin config is
         // unavailable so usage status still reflects real counters and
         // limits rather than disabling the view.
-        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        let admin_config: &dyn AdminConfigLookup = match resources.agent.admin_config.as_deref() {
             Some(c) => c,
             None => default_admin_config(),
         };
@@ -139,7 +139,7 @@ impl UsageRoutes {
             .check_limit(&tenant_id_str, &user_id_str, "weekly_tool_calls")
             .await?;
 
-        // Get resource counts for conversations and coaches
+        // Get resource counts for conversations and agents
         let conversation_count = resources
             .common
             .repos
@@ -159,15 +159,15 @@ impl UsageRoutes {
             .and_then(|v| v.as_i64())
             .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS);
 
-        let coach_count_val = i64::from(
+        let agent_count_val = i64::from(
             resources
-                .coaches_manager()
+                .agents_manager()
                 .count(auth.user_id, tenant_id)
                 .await
                 .unwrap_or(0),
         );
 
-        let max_coaches = admin_config
+        let max_agents = admin_config
             .get_value(
                 "usage_quotas.max_coaches_per_user",
                 ConfigLookupScope::user(&user_id_str, &tenant_id_str),
@@ -192,8 +192,8 @@ impl UsageRoutes {
             resources: ResourceUsageStatus {
                 conversations: conversation_count,
                 max_conversations,
-                coaches: coach_count_val,
-                max_coaches,
+                agents: agent_count_val,
+                max_agents,
             },
         };
 

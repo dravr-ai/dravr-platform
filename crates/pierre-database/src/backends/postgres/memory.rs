@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_memory::{
-    CoachFollowup, CoachNote, CoachSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
+    AgentFollowup, AgentNote, AgentSession, CompactionBlock, FactKind, FactSource, FollowupStatus,
     MemoryScope, PredicateCode, SessionStatus, UserFact, UserFactMetrics,
 };
 use sqlx::postgres::PgRow;
@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use super::PostgresDatabase;
 use crate::repositories::{
-    HarnessMemoryRepository, InsertCoachFollowupParams, InsertCoachNoteParams,
+    HarnessMemoryRepository, InsertAgentFollowupParams, InsertAgentNoteParams,
     InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
 
@@ -67,7 +67,7 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
         user_id: row.get("user_id"),
-        coach_id: row.get("coach_id"),
+        agent_id: row.get("agent_id"),
         scope,
         kind: FactKind::parse_lenient(&kind_str),
         pillar: pillar_str.as_deref().and_then(Pillar::parse),
@@ -82,18 +82,18 @@ fn row_to_user_fact(row: &PgRow) -> AppResult<UserFact> {
     })
 }
 
-fn row_to_coach_note(row: &PgRow) -> AppResult<CoachNote> {
+fn row_to_agent_note(row: &PgRow) -> AppResult<AgentNote> {
     let scope_str: String = row.get("scope");
     let created_at: DateTime<Utc> = row.get("created_at");
     let updated_at: DateTime<Utc> = row.get("updated_at");
     let scope = MemoryScope::parse(&scope_str)
         .ok_or_else(|| AppError::internal(format!("Invalid scope in coach_notes: {scope_str}")))?;
     let suppressed: bool = row.try_get("suppressed").unwrap_or(false);
-    Ok(CoachNote {
+    Ok(AgentNote {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
         user_id: row.get("user_id"),
-        coach_id: row.get("coach_id"),
+        agent_id: row.get("agent_id"),
         conversation_id: row.get("conversation_id"),
         scope,
         content: row.get("content"),
@@ -103,7 +103,7 @@ fn row_to_coach_note(row: &PgRow) -> AppResult<CoachNote> {
     })
 }
 
-fn row_to_coach_followup(row: &PgRow) -> AppResult<CoachFollowup> {
+fn row_to_agent_followup(row: &PgRow) -> AppResult<AgentFollowup> {
     let status_str: String = row.get("status");
     let created_at: DateTime<Utc> = row.get("created_at");
     let updated_at: DateTime<Utc> = row.get("updated_at");
@@ -112,11 +112,11 @@ fn row_to_coach_followup(row: &PgRow) -> AppResult<CoachFollowup> {
     let status = FollowupStatus::parse(&status_str).ok_or_else(|| {
         AppError::internal(format!("Invalid status in coach_followups: {status_str}"))
     })?;
-    Ok(CoachFollowup {
+    Ok(AgentFollowup {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
         user_id: row.get("user_id"),
-        coach_id: row.get("coach_id"),
+        agent_id: row.get("agent_id"),
         conversation_id: row.get("conversation_id"),
         content: row.get("content"),
         due_at,
@@ -127,7 +127,7 @@ fn row_to_coach_followup(row: &PgRow) -> AppResult<CoachFollowup> {
     })
 }
 
-fn row_to_coach_session(row: &PgRow) -> AppResult<CoachSession> {
+fn row_to_agent_session(row: &PgRow) -> AppResult<AgentSession> {
     let status_str: String = row.get("status");
     let opened_at: DateTime<Utc> = row.get("opened_at");
     let created_at: DateTime<Utc> = row.get("created_at");
@@ -137,11 +137,11 @@ fn row_to_coach_session(row: &PgRow) -> AppResult<CoachSession> {
     let status = SessionStatus::parse(&status_str).ok_or_else(|| {
         AppError::internal(format!("Invalid status in coach_sessions: {status_str}"))
     })?;
-    Ok(CoachSession {
+    Ok(AgentSession {
         id: row.get("id"),
         tenant_id: row.get("tenant_id"),
         user_id: row.get("user_id"),
-        coach_id: row.get("coach_id"),
+        agent_id: row.get("agent_id"),
         status,
         opened_at,
         last_turn_at,
@@ -224,7 +224,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         sqlx::query(
             r"
             INSERT INTO user_facts (
-                id, tenant_id, user_id, coach_id, scope, kind, pillar,
+                id, tenant_id, user_id, agent_id, scope, kind, pillar,
                 predicate_code, object, confidence, source, valid_until,
                 source_msg_id, created_at, updated_at
             )
@@ -234,7 +234,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(&id)
         .bind(params.tenant_id.to_string())
         .bind(params.user_id)
-        .bind(params.coach_id)
+        .bind(params.agent_id)
         .bind(params.scope.as_str())
         .bind(params.kind.as_str())
         .bind(params.pillar.map(Pillar::as_str))
@@ -253,7 +253,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
             id,
             tenant_id: params.tenant_id.to_string(),
             user_id: params.user_id.to_owned(),
-            coach_id: params.coach_id.map(ToOwned::to_owned),
+            agent_id: params.agent_id.map(ToOwned::to_owned),
             scope: params.scope,
             kind: params.kind,
             pillar: params.pillar,
@@ -300,7 +300,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
 
         let row = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_id, scope, kind, pillar,
+            SELECT id, tenant_id, user_id, agent_id, scope, kind, pillar,
                    predicate_code, object, confidence, source, valid_until,
                    source_msg_id, created_at, updated_at
             FROM user_facts
@@ -320,17 +320,17 @@ impl HarnessMemoryRepository for PostgresDatabase {
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         kind: Option<FactKind>,
         limit: i64,
     ) -> AppResult<Vec<UserFact>> {
         let tenant_str = tenant_id.to_string();
-        let rows = match (coach_id, kind) {
+        let rows = match (agent_id, kind) {
             (Some(cid), Some(k)) => {
                 sqlx::query(
                     r"
                     SELECT * FROM user_facts
-                    WHERE tenant_id = $1 AND user_id = $2 AND coach_id = $3 AND kind = $4
+                    WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND kind = $4
                     ORDER BY updated_at DESC
                     LIMIT $5
                     ",
@@ -347,7 +347,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
                 sqlx::query(
                     r"
                     SELECT * FROM user_facts
-                    WHERE tenant_id = $1 AND user_id = $2 AND coach_id = $3
+                    WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3
                     ORDER BY updated_at DESC
                     LIMIT $4
                     ",
@@ -578,14 +578,14 @@ impl HarnessMemoryRepository for PostgresDatabase {
         })
     }
 
-    async fn insert_coach_note(&self, params: &InsertCoachNoteParams<'_>) -> AppResult<CoachNote> {
+    async fn insert_agent_note(&self, params: &InsertAgentNoteParams<'_>) -> AppResult<AgentNote> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
         sqlx::query(
             r"
-            INSERT INTO coach_notes (
-                id, tenant_id, user_id, coach_id, conversation_id,
+            INSERT INTO agent_notes (
+                id, tenant_id, user_id, agent_id, conversation_id,
                 scope, content, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
@@ -594,7 +594,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(&id)
         .bind(params.tenant_id.to_string())
         .bind(params.user_id)
-        .bind(params.coach_id)
+        .bind(params.agent_id)
         .bind(params.conversation_id)
         .bind(params.scope.as_str())
         .bind(params.content)
@@ -603,11 +603,11 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to insert coach note: {e}")))?;
 
-        Ok(CoachNote {
+        Ok(AgentNote {
             id,
             tenant_id: params.tenant_id.to_string(),
             user_id: params.user_id.to_owned(),
-            coach_id: params.coach_id.to_owned(),
+            agent_id: params.agent_id.to_owned(),
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
             scope: params.scope,
             content: params.content.to_owned(),
@@ -617,21 +617,21 @@ impl HarnessMemoryRepository for PostgresDatabase {
         })
     }
 
-    async fn list_coach_notes(
+    async fn list_agent_notes(
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: &str,
+        agent_id: &str,
         limit: i64,
-    ) -> AppResult<Vec<CoachNote>> {
+    ) -> AppResult<Vec<AgentNote>> {
         // Recall queries exclude suppressed rows. Admins re-surface them
-        // via `list_coach_notes_for_tenant` in the audit panel.
+        // via `list_agent_notes_for_tenant` in the audit panel.
         let rows = sqlx::query(
             r"
-            SELECT * FROM coach_notes
+            SELECT * FROM agent_notes
             WHERE tenant_id = $1
               AND user_id = $2
-              AND coach_id = $3
+              AND agent_id = $3
               AND suppressed = FALSE
             ORDER BY created_at DESC
             LIMIT $4
@@ -639,23 +639,23 @@ impl HarnessMemoryRepository for PostgresDatabase {
         )
         .bind(tenant_id.to_string())
         .bind(user_id)
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(limit)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list coach notes: {e}")))?;
 
-        rows.iter().map(row_to_coach_note).collect()
+        rows.iter().map(row_to_agent_note).collect()
     }
 
-    async fn list_coach_notes_for_tenant(
+    async fn list_agent_notes_for_tenant(
         &self,
         tenant_id: TenantId,
         limit: i64,
-    ) -> AppResult<Vec<CoachNote>> {
+    ) -> AppResult<Vec<AgentNote>> {
         let rows = sqlx::query(
             r"
-            SELECT * FROM coach_notes
+            SELECT * FROM agent_notes
             WHERE tenant_id = $1
             ORDER BY created_at DESC
             LIMIT $2
@@ -667,10 +667,10 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to list coach notes for tenant: {e}")))?;
 
-        rows.iter().map(row_to_coach_note).collect()
+        rows.iter().map(row_to_agent_note).collect()
     }
 
-    async fn set_coach_note_suppressed(
+    async fn set_agent_note_suppressed(
         &self,
         note_id: &str,
         tenant_id: TenantId,
@@ -680,7 +680,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         let now = Utc::now();
         let result = sqlx::query(
             r"
-            UPDATE coach_notes
+            UPDATE agent_notes
             SET suppressed = $1,
                 suppressed_at = CASE WHEN $1 THEN $2 ELSE NULL END,
                 suppressed_by = CASE WHEN $1 THEN $3 ELSE NULL END,
@@ -700,17 +700,17 @@ impl HarnessMemoryRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn insert_coach_followup(
+    async fn insert_agent_followup(
         &self,
-        params: &InsertCoachFollowupParams<'_>,
-    ) -> AppResult<CoachFollowup> {
+        params: &InsertAgentFollowupParams<'_>,
+    ) -> AppResult<AgentFollowup> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
         sqlx::query(
             r"
-            INSERT INTO coach_followups (
-                id, tenant_id, user_id, coach_id, conversation_id,
+            INSERT INTO agent_followups (
+                id, tenant_id, user_id, agent_id, conversation_id,
                 content, due_at, status, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8)
@@ -719,7 +719,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(&id)
         .bind(params.tenant_id.to_string())
         .bind(params.user_id)
-        .bind(params.coach_id)
+        .bind(params.agent_id)
         .bind(params.conversation_id)
         .bind(params.content)
         .bind(params.due_at)
@@ -728,11 +728,11 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to insert coach followup: {e}")))?;
 
-        Ok(CoachFollowup {
+        Ok(AgentFollowup {
             id,
             tenant_id: params.tenant_id.to_string(),
             user_id: params.user_id.to_owned(),
-            coach_id: params.coach_id.to_owned(),
+            agent_id: params.agent_id.to_owned(),
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
             content: params.content.to_owned(),
             due_at: params.due_at,
@@ -747,33 +747,33 @@ impl HarnessMemoryRepository for PostgresDatabase {
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: &str,
-    ) -> AppResult<Vec<CoachFollowup>> {
+        agent_id: &str,
+    ) -> AppResult<Vec<AgentFollowup>> {
         let rows = sqlx::query(
             r"
-            SELECT * FROM coach_followups
-            WHERE tenant_id = $1 AND user_id = $2 AND coach_id = $3 AND status = 'pending'
+            SELECT * FROM agent_followups
+            WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND status = 'pending'
             ORDER BY due_at ASC NULLS LAST, created_at ASC
             ",
         )
         .bind(tenant_id.to_string())
         .bind(user_id)
-        .bind(coach_id)
+        .bind(agent_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list pending followups: {e}")))?;
 
-        rows.iter().map(row_to_coach_followup).collect()
+        rows.iter().map(row_to_agent_followup).collect()
     }
 
     async fn list_pending_followups_for_tenant(
         &self,
         tenant_id: TenantId,
         limit: i64,
-    ) -> AppResult<Vec<CoachFollowup>> {
+    ) -> AppResult<Vec<AgentFollowup>> {
         let rows = sqlx::query(
             r"
-            SELECT * FROM coach_followups
+            SELECT * FROM agent_followups
             WHERE tenant_id = $1 AND status = 'pending'
             ORDER BY due_at ASC NULLS LAST, created_at ASC
             LIMIT $2
@@ -787,7 +787,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
             AppError::database(format!("Failed to list pending followups for tenant: {e}"))
         })?;
 
-        rows.iter().map(row_to_coach_followup).collect()
+        rows.iter().map(row_to_agent_followup).collect()
     }
 
     async fn mark_followup_delivered(
@@ -798,7 +798,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         let now = Utc::now();
         let result = sqlx::query(
             r"
-            UPDATE coach_followups
+            UPDATE agent_followups
             SET status = 'delivered', delivered_at = $1, updated_at = $1
             WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
             ",
@@ -817,10 +817,10 @@ impl HarnessMemoryRepository for PostgresDatabase {
         &self,
         now: chrono::DateTime<chrono::Utc>,
         limit: i64,
-    ) -> AppResult<Vec<CoachFollowup>> {
+    ) -> AppResult<Vec<AgentFollowup>> {
         let rows = sqlx::query(
             r"
-            SELECT * FROM coach_followups
+            SELECT * FROM agent_followups
             WHERE status = 'pending'
               AND due_at IS NOT NULL
               AND due_at <= $1
@@ -834,14 +834,14 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to list due followups: {e}")))?;
 
-        rows.iter().map(row_to_coach_followup).collect()
+        rows.iter().map(row_to_agent_followup).collect()
     }
 
     async fn cancel_followup(&self, followup_id: &str, tenant_id: TenantId) -> AppResult<bool> {
         let now = Utc::now();
         let result = sqlx::query(
             r"
-            UPDATE coach_followups
+            UPDATE agent_followups
             SET status = 'cancelled', updated_at = $1
             WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
             ",
@@ -856,36 +856,36 @@ impl HarnessMemoryRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn get_or_open_coach_session(
+    async fn get_or_open_agent_session(
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: &str,
-    ) -> AppResult<CoachSession> {
+        agent_id: &str,
+    ) -> AppResult<AgentSession> {
         if let Some(row) = sqlx::query(
             r"
-            SELECT * FROM coach_sessions
-            WHERE tenant_id = $1 AND user_id = $2 AND coach_id = $3 AND status = 'active'
+            SELECT * FROM agent_sessions
+            WHERE tenant_id = $1 AND user_id = $2 AND agent_id = $3 AND status = 'active'
             ORDER BY opened_at DESC
             LIMIT 1
             ",
         )
         .bind(tenant_id.to_string())
         .bind(user_id)
-        .bind(coach_id)
+        .bind(agent_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get active coach session: {e}")))?
         {
-            return row_to_coach_session(&row);
+            return row_to_agent_session(&row);
         }
 
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         sqlx::query(
             r"
-            INSERT INTO coach_sessions (
-                id, tenant_id, user_id, coach_id, status,
+            INSERT INTO agent_sessions (
+                id, tenant_id, user_id, agent_id, status,
                 opened_at, created_at, updated_at
             )
             VALUES ($1, $2, $3, $4, 'active', $5, $5, $5)
@@ -894,17 +894,17 @@ impl HarnessMemoryRepository for PostgresDatabase {
         .bind(&id)
         .bind(tenant_id.to_string())
         .bind(user_id)
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to open coach session: {e}")))?;
 
-        Ok(CoachSession {
+        Ok(AgentSession {
             id,
             tenant_id: tenant_id.to_string(),
             user_id: user_id.to_owned(),
-            coach_id: coach_id.to_owned(),
+            agent_id: agent_id.to_owned(),
             status: SessionStatus::Active,
             opened_at: now,
             last_turn_at: None,
@@ -914,11 +914,11 @@ impl HarnessMemoryRepository for PostgresDatabase {
         })
     }
 
-    async fn touch_coach_session(&self, session_id: &str, tenant_id: TenantId) -> AppResult<()> {
+    async fn touch_agent_session(&self, session_id: &str, tenant_id: TenantId) -> AppResult<()> {
         let now = Utc::now();
         sqlx::query(
             r"
-            UPDATE coach_sessions
+            UPDATE agent_sessions
             SET last_turn_at = $1, updated_at = $1
             WHERE id = $2 AND tenant_id = $3
             ",
@@ -932,7 +932,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         Ok(())
     }
 
-    async fn archive_coach_session(
+    async fn archive_agent_session(
         &self,
         session_id: &str,
         tenant_id: TenantId,
@@ -940,7 +940,7 @@ impl HarnessMemoryRepository for PostgresDatabase {
         let now = Utc::now();
         let result = sqlx::query(
             r"
-            UPDATE coach_sessions
+            UPDATE agent_sessions
             SET status = 'archived', archived_at = $1, updated_at = $1
             WHERE id = $2 AND tenant_id = $3 AND status = 'active'
             ",

@@ -110,7 +110,7 @@ fn discover_annotations() -> ToolAnnotations {
 /// Tool for discovering real routes and trails near a location from OSM data.
 ///
 /// The LLM calls this instead of fabricating terrain. When the user asks
-/// "propose a 10km run in Prévost, QC", the coach looks up the approximate
+/// "propose a 10km run in Prévost, QC", the agent looks up the approximate
 /// coordinates of Prévost and invokes this tool to get a list of named
 /// real trails within the search radius.
 pub struct DiscoverRoutesTool;
@@ -299,7 +299,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
 ///
 /// Carries the Nominatim display name when the caller passed a `place`
 /// string so we can echo the canonical resolution back to the LLM — the
-/// coach then has something it can safely quote to the user (e.g.
+/// agent then has something it can safely quote to the user (e.g.
 /// "I found running trails near Prévost, QC").
 struct ResolvedCenter {
     latitude: f64,
@@ -317,7 +317,7 @@ struct ResolvedCenter {
 ///    within valid WGS84 ranges.
 ///
 /// Returns an LLM-facing JSON error payload when neither path works, so
-/// the coach gets a structured message it can act on instead of a panic.
+/// the agent gets a structured message it can act on instead of a panic.
 async fn resolve_center(args: &Value) -> Result<ResolvedCenter, Value> {
     if let Some(place) = args
         .get("place")

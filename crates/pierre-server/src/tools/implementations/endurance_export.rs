@@ -1,5 +1,5 @@
 // ABOUTME: Endurance Phase 1 MCP tools — export_latest_snapshot + export_dossier
-// ABOUTME: Mirrors GET /api/v1/endurance/{latest,dossier} so coaches can pull the same payloads via MCP
+// ABOUTME: Mirrors GET /api/v1/endurance/{latest,dossier} so agents can pull the same payloads via MCP
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -42,7 +42,7 @@ use tracing::warn;
 /// has always sent.
 ///
 /// `threshold_estimate` is always present, empty when nothing is known.
-/// That is the dossier's own "empty slots, not 404" contract: a coach reading
+/// That is the dossier's own "empty slots, not 404" contract: an agent reading
 /// the payload can tell "no FTP on file" from "this tool does not report
 /// thresholds", and a key that appears only sometimes cannot.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -236,7 +236,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
              level), HR + power zones, goals, nutrition, and equipment slots — \
              composed at read time from the underlying tables. Empty slots come \
-             back as `null` rather than 404, so coaches can rely on the shape. \
+             back as `null` rather than 404, so agents can rely on the shape. \
              Mirrors `GET /api/v1/endurance/dossier`.",
             schema,
             Some(read_only_annotations()),

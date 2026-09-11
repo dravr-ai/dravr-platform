@@ -174,7 +174,7 @@ fn apply_downloaded_catalogue_file(
 /// empty one means the sync has not reached the propositions yet (or is
 /// disabled), and every path would read as unresolved, so the pass is
 /// skipped until it fills. A catalogue with nothing dangling logs nothing;
-/// one with a dangling reference says so on every tick, because the coach
+/// one with a dangling reference says so on every tick, because the agent
 /// is prescribing from it in the meantime.
 fn warn_unresolved_references(
     registry: &TrainingCatalogueRegistry,

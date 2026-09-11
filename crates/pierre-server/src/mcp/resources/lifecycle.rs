@@ -31,12 +31,12 @@ use pierre_commands as commands;
 #[cfg(feature = "client-messaging")]
 use pierre_commands::{
     account::LogoutHandler,
-    calibration::CalibrateHandler,
-    coach::{
-        CoachAddHandler, CoachAssignHandler, CoachInviteHandler, CoachListHandler,
-        CoachRemoveHandler,
+    agent::{
+        AgentAddHandler, AgentAssignHandler, AgentListHandler, AgentRemoveHandler,
+        CoachInviteHandler,
     },
-    coach_create::CoachCreateHandler,
+    agent_create::AgentCreateHandler,
+    calibration::CalibrateHandler,
     discover::{DiscoverHandler, DiscoverInstallHandler},
     fortnight::FortnightHandler,
     group::{
@@ -387,7 +387,7 @@ impl ServerContext {
                 // only programmatic path replaces the whole app config
                 // app-globally behind a 12h human-bootstrapped token, and its
                 // slash commands cannot be invoked in threads, where the
-                // coach conversation lives; Discord is deprioritized.
+                // agent conversation lives; Discord is deprioritized.
                 publish_messenger_menu(&messenger_commands).await;
             });
             // A panic in a detached task is otherwise swallowed, leaving a
@@ -461,7 +461,7 @@ impl ServerContext {
         // each is an Arc-clone-only operation. The full registry continues
         // to live in `CommonSlice.repos` as the single source of truth.
         let auth_repos_view = repos.auth_repos();
-        let coach_repos_view = repos.coach_repos();
+        let agent_repos_view = repos.agent_repos();
         let fitness_repos_view = repos.fitness_repos();
         let usage_repos_view = repos.usage_repos();
 
@@ -521,10 +521,10 @@ impl ServerContext {
             repos: auth_repos_view,
         };
 
-        let coach = super::slices::CoachSlice {
+        let agent = super::slices::AgentSlice {
             database: database_arc,
             admin_config,
-            repos: coach_repos_view,
+            repos: agent_repos_view,
         };
 
         let fitness = super::slices::FitnessSlice {
@@ -577,7 +577,7 @@ impl ServerContext {
         // history is ready" notice back to the originating channel.
         //
         // The chat-pipeline re-entry handle (which lets that push synthesize a
-        // real coach answer) needs the composition-root `Arc<ServerContext>`,
+        // real agent answer) needs the composition-root `Arc<ServerContext>`,
         // which doesn't exist yet — so the notifier and the context share this
         // empty `OnceLock` slot, filled post-`Arc` by `install_backfill_reentry`.
         #[cfg(feature = "client-messaging")]
@@ -613,7 +613,7 @@ impl ServerContext {
         Self {
             common,
             auth,
-            coach,
+            agent,
             fitness,
             sse,
             a2a,
@@ -686,11 +686,11 @@ impl ServerContext {
             ("group-join", Arc::new(GroupJoinHandler)),
             ("discover", Arc::new(DiscoverHandler)),
             ("discover-install", Arc::new(DiscoverInstallHandler)),
-            ("agent-list", Arc::new(CoachListHandler)),
-            ("agent-add", Arc::new(CoachAddHandler)),
-            ("agent-remove", Arc::new(CoachRemoveHandler)),
-            ("agent-create", Arc::new(CoachCreateHandler)),
-            ("agent-assign", Arc::new(CoachAssignHandler)),
+            ("agent-list", Arc::new(AgentListHandler)),
+            ("agent-add", Arc::new(AgentAddHandler)),
+            ("agent-remove", Arc::new(AgentRemoveHandler)),
+            ("agent-create", Arc::new(AgentCreateHandler)),
+            ("agent-assign", Arc::new(AgentAssignHandler)),
             ("coach-invite", Arc::new(CoachInviteHandler)),
             ("privacy", Arc::new(PrivacyStatusHandler)),
             ("reset", Arc::new(ResetHandler)),

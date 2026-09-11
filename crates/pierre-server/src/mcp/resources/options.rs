@@ -25,7 +25,7 @@ pub struct ServerContextOptions {
     pub jwks_manager: Option<Arc<JwksManager>>,
     /// LLM provider for insight validation (injected for testing with mock providers)
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
-    /// Pre-built [`ChatProvider`] singleton shared by every chat / coach /
+    /// Pre-built [`ChatProvider`] singleton shared by every chat / agent /
     /// social / memory-extraction / health-probe caller.
     ///
     /// The production binary builds this once at startup via

@@ -230,7 +230,7 @@ async fn corrupt_coaching_group_timestamp_fails_the_read() {
         sqlx::query(
             r"
             INSERT INTO coaching_groups (
-                id, tenant_id, name, description, coach_id, owner_id,
+                id, tenant_id, name, description, agent_id, owner_id,
                 peer_data_sharing, max_members, is_active, created_at, updated_at
             ) VALUES ($1, $2, 'Test Group', NULL, 'coach-1', $3, 0, 20, 1, $4, $4)
             ",

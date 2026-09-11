@@ -29,9 +29,9 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: 'conv-1',
     title: 'Marathon plan',
-    coach_id: 'coach-running',
-    coach_title: 'Running Coach',
-    coach_handle: 'running-coach',
+    agent_id: 'coach-running',
+    agent_title: 'Running Coach',
+    agent_handle: 'running-coach',
     message_count: 3,
     unread_count: 0,
     created_at: '2026-04-13T18:00:00Z',
@@ -88,7 +88,7 @@ describe('ConversationList', () => {
           title: 'Sunday Riders',
           group_id: 'group-1',
           group_name: 'Sunday Riders',
-          coach_title: 'Tempo Coach',
+          agent_title: 'Tempo Coach',
           updated_at: '2026-04-10T10:00:00Z',
           last_message: { preview: 'Ride at 8', role: 'assistant', created_at: '2026-04-10T10:00:00Z' },
         }),
@@ -123,7 +123,7 @@ describe('ConversationList', () => {
     getConversations.mockResolvedValue(
       page([
         conversation({ id: 'c1', title: 'Marathon plan' }),
-        conversation({ id: 'c2', title: 'Deadlift form', coach_handle: 'strength-coach', last_message: null }),
+        conversation({ id: 'c2', title: 'Deadlift form', agent_handle: 'strength-coach', last_message: null }),
       ]),
     );
     renderList();

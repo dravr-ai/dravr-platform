@@ -8,12 +8,12 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { coachesApi } from '../services/api';
-import type { Coach } from '../types';
+import type { Agent } from '../types';
 
 /** What Agent info needs about the agent a thread is bound to. */
-export interface UseCoachInfoResult {
+export interface UseAgentInfoResult {
   /** The coach row, or null while it loads or when it is not on the list. */
-  coach: Coach | null;
+  coach: Agent | null;
   isLoading: boolean;
 }
 
@@ -26,18 +26,18 @@ export interface UseCoachInfoResult {
  * mention can reach, so the sheet cannot describe a coach `@handle` would
  * miss.
  */
-export function useCoachInfo(coachId: string | null): UseCoachInfoResult {
+export function useCoachInfo(agentId: string | null): UseAgentInfoResult {
   const { data, isLoading } = useQuery({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
-    enabled: coachId !== null,
+    enabled: agentId !== null,
     staleTime: 5 * 60_000,
   });
 
   const coach = useMemo(
-    () => (coachId === null ? null : (data?.coaches ?? []).find((row) => row.id === coachId) ?? null),
-    [data, coachId],
+    () => (agentId === null ? null : (data?.agents ?? []).find((row) => row.id === agentId) ?? null),
+    [data, agentId],
   );
 
-  return { coach, isLoading: coachId !== null && isLoading };
+  return { coach, isLoading: agentId !== null && isLoading };
 }

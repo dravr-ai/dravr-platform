@@ -136,7 +136,7 @@ async fn history_optional_metrics_serialise_as_null_when_missing() {
     state.ramp_rate = None;
     let json = serde_json::to_value(&state).expect("serialize");
     let obj = json.as_object().expect("object root");
-    // skip_serializing_if drops the keys entirely when None — coaches reading
+    // skip_serializing_if drops the keys entirely when None — agents reading
     // the JSON should treat absent keys as "insufficient history".
     assert!(!obj.contains_key("acwr"));
     assert!(!obj.contains_key("monotony"));

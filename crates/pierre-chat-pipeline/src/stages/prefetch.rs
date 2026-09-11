@@ -6,29 +6,29 @@
 
 //! `DataRequirements` activity prefetch.
 //!
-//! When the conversation's coach has a `data_requirements.activities` block
+//! When the conversation's agent has a `data_requirements.activities` block
 //! in its YAML frontmatter, this stage deterministically invokes
-//! `get_activities` with exact parameters from the coach definition before
+//! `get_activities` with exact parameters from the agent definition before
 //! the LLM runs. The fetched activities are formatted and injected as a
 //! system-prompt section ("The following activity data has been pre-loaded
-//! for your analysis"), and the coach's startup query (if any) is appended
+//! for your analysis"), and the agent's startup query (if any) is appended
 //! as the analysis instruction.
 //!
 //! Before this stage was extended to messaging, only web chat's first-turn
-//! dispatch ran prefetch. On Telegram / `WhatsApp` / Discord / Slack the coach
+//! dispatch ran prefetch. On Telegram / `WhatsApp` / Discord / Slack the agent
 //! had to decide to call `get_activities` itself — and when the LLM skipped
 //! the call, it would hallucinate activity details (observed 2026-04-16 on
 //! a Telegram conversation about route planning between Prévost and
-//! Saint-Alexis-des-Monts, where the coach admitted "je n'ai pas encore
+//! Saint-Alexis-des-Monts, where the agent admitted "je n'ai pas encore
 //! chargé les détails exacts de cette sortie").
 //!
 //! First-turn dispatch runs the full startup prefetch
-//! ([`inject_startup_context`]: activity data + the coach's startup query).
+//! ([`inject_startup_context`]: activity data + the agent's startup query).
 //! Later turns are grounded by [`maybe_refresh_activity_context`] whenever the
-//! coach declares an activity `data_requirements` window: it is re-fetched and
+//! agent declares an activity `data_requirements` window: it is re-fetched and
 //! injected as fresh context. Whether the athlete's wording "sounds like" a data
 //! question is deliberately not consulted — a keyword test there sent a real
-//! Telegram turn to the model with no data at all, and the coach answered from
+//! Telegram turn to the model with no data at all, and the agent answered from
 //! memory. That later-turn refresh runs AFTER Tier-1 compaction,
 //! so the freshly injected block is never summarized away and cannot desync
 //! the `source_ids`/`llm_messages` vectors compaction consumes.
@@ -36,8 +36,8 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use pierre_core::models::coaches::{ActivityDataRequirements, DataRequirements};
-use pierre_core::models::CoachRuntimeContext;
+use pierre_core::models::agents::{ActivityDataRequirements, DataRequirements};
+use pierre_core::models::AgentRuntimeContext;
 use pierre_database::database::MessageRecord;
 use tracing::{info, warn};
 
@@ -57,11 +57,11 @@ fn extract_prefetch_content(response: &UniversalResponse) -> String {
     }
 }
 
-/// Parse a coach's `data_requirements` JSON frontmatter into the structured
+/// Parse an agent's `data_requirements` JSON frontmatter into the structured
 /// [`DataRequirements`]. A malformed block logs at WARN and degrades to `None`
 /// (the turn proceeds without deterministic prefetch) rather than failing.
-fn parse_data_requirements(coach_ctx: &CoachRuntimeContext) -> Option<DataRequirements> {
-    let json = coach_ctx.data_requirements.as_ref()?;
+fn parse_data_requirements(agent_ctx: &AgentRuntimeContext) -> Option<DataRequirements> {
+    let json = agent_ctx.data_requirements.as_ref()?;
     match serde_json::from_str::<DataRequirements>(json) {
         Ok(dr) => Some(dr),
         Err(e) => {
@@ -71,30 +71,30 @@ fn parse_data_requirements(coach_ctx: &CoachRuntimeContext) -> Option<DataRequir
     }
 }
 
-/// The activity window a turn gets when no coach is bound.
+/// The activity window a turn gets when no agent is bound.
 ///
-/// Both grounding gates used to require a coach, so a conversation with
-/// `coach_id = none` received no deterministic prefetch on turn 1 and no
+/// Both grounding gates used to require an agent, so a conversation with
+/// `agent_id = none` received no deterministic prefetch on turn 1 and no
 /// re-grounding on any later turn. Grounding degraded to whatever the model
 /// chose to fetch for itself, plus the best-effort Guardian repair pass.
 ///
 /// On a shared Telegram room that is the normal case, not an edge one. Live
-/// 2026-09-02: fifteen turns, `coach_id="none"`, **zero** model-initiated tool
+/// 2026-09-02: fifteen turns, `agent_id="none"`, **zero** model-initiated tool
 /// calls. The only athlete data in the prompt was a ~420-token group roster
-/// card, and the coach reconstructed a training week from it — inventing the
+/// card, and the agent reconstructed a training week from it — inventing the
 /// weekdays, the sport of one activity, and which rides counted as long, each
 /// of which the athlete corrected by hand.
 ///
 /// The window is deliberately the shape a general "how was my week" question
-/// needs: four weeks, summary detail, token-efficient format. A coach that
+/// needs: four weeks, summary detail, token-efficient format. An agent that
 /// declares its own requirements still wins — this only fills the hole where
 /// there was nothing.
 #[must_use]
-pub fn coachless_activity_window() -> DataRequirements {
+pub fn agentless_activity_window() -> DataRequirements {
     DataRequirements {
         activities: Some(ActivityDataRequirements {
-            count: COACHLESS_ACTIVITY_COUNT,
-            time_frame: Some(COACHLESS_TIME_FRAME.to_owned()),
+            count: AGENTLESS_ACTIVITY_COUNT,
+            time_frame: Some(AGENTLESS_TIME_FRAME.to_owned()),
             mode: ActivityDataRequirements::default_mode(),
             format: ActivityDataRequirements::default_format(),
             analysis_type: ActivityDataRequirements::default_analysis_type(),
@@ -107,45 +107,45 @@ pub fn coachless_activity_window() -> DataRequirements {
 ///
 /// Four weeks of training for a typical athlete. Large enough to answer "how
 /// was my week" and "what did I do Tuesday" — the questions that actually get
-/// asked in a room — without the cost of a coach's full 12-week analysis window.
-const COACHLESS_ACTIVITY_COUNT: u32 = 30;
+/// asked in a room — without the cost of an agent's full 12-week analysis window.
+const AGENTLESS_ACTIVITY_COUNT: u32 = 30;
 
-/// Lookback for a coachless turn, matching [`COACHLESS_ACTIVITY_COUNT`].
-const COACHLESS_TIME_FRAME: &str = "4w";
+/// Lookback for a coachless turn, matching [`AGENTLESS_ACTIVITY_COUNT`].
+const AGENTLESS_TIME_FRAME: &str = "4w";
 
 /// Decide whether the turn should run the first-turn startup prefetch.
 ///
 /// Returns `Some((query, data_requirements))` when:
 /// - This is the first message in the conversation (`history_len == 1`)
-/// - The conversation has a resolved coach context
-/// - The coach has a `startup_query` or `data_requirements` configured
+/// - The conversation has a resolved agent context
+/// - The agent has a `startup_query` or `data_requirements` configured
 /// - No guided flow (e.g. the `/pillars` walk) owns the turn
 ///
 /// Returns `None` otherwise. Later turns are handled by
 /// [`maybe_refresh_activity_context`], not this gate.
 ///
-/// The guided-flow gate is not cosmetic. Startup grounding injects the coach's
+/// The guided-flow gate is not cosmetic. Startup grounding injects the agent's
 /// `startup_query` as a synthetic **user** message right before the athlete's
-/// real one, so a builder coach's "Build an ultra-endurance block for my
+/// real one, so a builder agent's "Build an ultra-endurance block for my
 /// athlete" arrived as if the athlete had asked for it — on the very turn they
 /// were answering a profile question (2026-07-24). A profile interview is
 /// grounded in the athlete's words, not in 60 prefetched rides.
 #[must_use]
 pub fn get_startup_context_if_applicable(
     history_len: usize,
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     guided_flow_active: bool,
 ) -> Option<(Option<String>, Option<DataRequirements>)> {
     if history_len != 1 || guided_flow_active {
         return None;
     }
 
-    // No coach is not a reason to leave the athlete's own data out of the
-    // prompt (registre#201). A coach's declared requirements still win; this is
+    // No agent is not a reason to leave the athlete's own data out of the
+    // prompt (registre#201). An agent's declared requirements still win; this is
     // the floor beneath them.
-    let Some(ctx) = coach_ctx else {
+    let Some(ctx) = agent_ctx else {
         info!("No coach bound; grounding the first turn on the default activity window");
-        return Some((None, Some(coachless_activity_window())));
+        return Some((None, Some(agentless_activity_window())));
     };
 
     let query = ctx.startup_query.clone();
@@ -168,13 +168,13 @@ pub fn get_startup_context_if_applicable(
     Some((query, data_reqs))
 }
 
-/// How much of a coach's `startup_query` the log line shows.
+/// How much of an agent's `startup_query` the log line shows.
 const STARTUP_QUERY_PREVIEW_CHARS: usize = 50;
 
-/// The opening of a coach's `startup_query`, for the log line only.
+/// The opening of an agent's `startup_query`, for the log line only.
 ///
 /// Counted in characters rather than bytes. `startup_query` is accepted
-/// verbatim by the custom-coach create/update API on a fr-first platform, so a
+/// verbatim by the custom-agent create/update API on a fr-first platform, so a
 /// byte slice at a fixed offset panics as soon as that offset lands inside an
 /// accented character — and this runs on the `history_len == 1` path, before
 /// dispatch, with no panic boundary between it and the turn boundary. The same
@@ -193,25 +193,25 @@ pub fn startup_query_preview(query: &str) -> String {
 /// built from pre-loaded data reads as invented and gets refused.
 pub const PREFETCH_TOOL: &str = "get_activities";
 
-/// Build the `get_activities` parameters for a coach's declared activity window.
+/// Build the `get_activities` parameters for an agent's declared activity window.
 ///
 /// The window is bounded by time and count, never by sport — and there is no
 /// knob to narrow it by sport, deliberately.
 ///
-/// A coach's specialization says what it should TALK about, not what it should
+/// An agent's specialization says what it should TALK about, not what it should
 /// be allowed to SEE, and it already reaches the model where it belongs: in the
 /// persona prompt, its title and its tags. The block this window is injected
 /// under tells the model to base its plan on these activities and to "infer the
 /// sport mix from them rather than asking" — an instruction that is a lie over a
 /// filtered window, and one the model has no way to detect.
 ///
-/// A coach-declared sport filter used to exist here. On 2026-08-27 it turned a
-/// 106-activity window into 24 run-family sessions for a marathon coach, which
-/// was handed over as the athlete's training; the coach answered "no
+/// An agent-declared sport filter used to exist here. On 2026-08-27 it turned a
+/// 106-activity window into 24 run-family sessions for a marathon agent, which
+/// was handed over as the athlete's training; the agent answered "no
 /// mountain-bike history, 100% trail running" to someone who had ridden 18 km of
 /// singletrack that morning, and dosed the next day's session on that reading.
-/// Cross-sport load is load: the ride the run coach cannot see is the ride it
-/// plans on top of. A coach that wants more of its own sport in view raises
+/// Cross-sport load is load: the ride the run agent cannot see is the ride it
+/// plans on top of. An agent that wants more of its own sport in view raises
 /// `count`; it never gets there by hiding the rest. Over-fetching is corrected by
 /// later stages; dropped data is not.
 ///
@@ -250,9 +250,9 @@ pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde
 /// Pre-fetch activity data based on structured `DataRequirements`.
 ///
 /// Calls `get_activities` deterministically with exact parameters from the
-/// coach definition, bypassing LLM interpretation. Returns the activity
+/// agent definition, bypassing LLM interpretation. Returns the activity
 /// data as a formatted string for injection into the conversation context,
-/// or `None` when the coach has no activity requirements or the tool call
+/// or `None` when the agent has no activity requirements or the tool call
 /// fails.
 pub async fn prefetch_activity_context(
     executor: &Arc<UniversalExecutor>,
@@ -298,9 +298,9 @@ pub async fn prefetch_activity_context(
 
 /// Inject startup context (pre-fetched data + analysis query) into LLM messages.
 ///
-/// When a coach has `data_requirements`, activity data is fetched
+/// When an agent has `data_requirements`, activity data is fetched
 /// deterministically via [`prefetch_activity_context`] and injected as
-/// system context immediately after the system prompt. The coach's
+/// system context immediately after the system prompt. The agent's
 /// startup query becomes the analysis instruction appended before the
 /// user turn.
 ///
@@ -315,13 +315,13 @@ pub async fn inject_startup_context(
     executor: &Arc<UniversalExecutor>,
     llm_messages: &mut Vec<ChatMessage>,
     history: &[MessageRecord],
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     user_id: &str,
     tenant_id: TenantId,
     guided_flow_active: bool,
 ) -> bool {
     let Some((startup_query, data_reqs)) =
-        get_startup_context_if_applicable(history.len(), coach_ctx, guided_flow_active)
+        get_startup_context_if_applicable(history.len(), agent_ctx, guided_flow_active)
     else {
         return false;
     };
@@ -349,7 +349,7 @@ pub async fn inject_startup_context(
                 // `User`, not `System`. The live provider (copilot_headless)
                 // keeps only the first system message and filters every other
                 // one out of history, so this pre-load never reached the model
-                // — the coach looked grounded only when it chose to call
+                // — the agent looked grounded only when it chose to call
                 // `get_activities` itself, which is the non-determinism this
                 // injection exists to remove. Index 1 keeps it directly after
                 // the system prompt and before the athlete's turn.
@@ -376,23 +376,23 @@ pub async fn inject_startup_context(
 /// Whether a later turn should re-ground the model in fresh activity data.
 ///
 /// True when all hold: it is past the first turn (turn 1 is already grounded by
-/// [`inject_startup_context`]); no guided flow owns the turn; a coach is bound;
-/// and that coach declares an activity `data_requirements` window. A
-/// nutrition/mobility coach with no activity window is left untouched. Pure, so
+/// [`inject_startup_context`]); no guided flow owns the turn; an agent is bound;
+/// and that agent declares an activity `data_requirements` window. A
+/// nutrition/mobility agent with no activity window is left untouched. Pure, so
 /// the full gate is unit-testable without an executor.
 ///
 /// Deliberately no test of what the athlete asked. The declared window is the
-/// decision — a coach that asks for 12 weeks of activities is a coach whose
+/// decision — an agent that asks for 12 weeks of activities is an agent whose
 /// answers are supposed to stand on them, whatever the wording of the question.
 ///
 /// The guided-flow gate carries real weight on its own: a pillar interview turn
-/// must not pull in an activity dump instructing the coach to "base your
+/// must not pull in an activity dump instructing the agent to "base your
 /// analysis and any plan on these specific activities", which is the opposite of
 /// what a profile interview should do.
 #[must_use]
 pub fn should_refresh_activity_context(
     history_len: usize,
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     guided_flow_active: bool,
 ) -> bool {
     if history_len <= 1 || guided_flow_active {
@@ -400,12 +400,12 @@ pub fn should_refresh_activity_context(
     }
     // A coachless conversation re-grounds on the default window rather than on
     // nothing. The guarantee is that an athlete turn stands on the athlete's
-    // data; making it contingent on coach binding is what let a shared room run
+    // data; making it contingent on agent binding is what let a shared room run
     // fifteen ungrounded turns (registre#201).
-    let Some(coach) = coach_ctx else {
+    let Some(agent) = agent_ctx else {
         return true;
     };
-    let Some(data_reqs) = parse_data_requirements(coach) else {
+    let Some(data_reqs) = parse_data_requirements(agent) else {
         return false;
     };
     if data_reqs.activities.is_none() {
@@ -415,12 +415,12 @@ pub fn should_refresh_activity_context(
     // that had to match the athlete's phrasing before their own data was
     // fetched — and it failed exactly the way substring routing always fails:
     // "Montre-moi l'évolution de mon volume hebdomadaire sur les 3 derniers
-    // mois" matched none of the 61 terms, so the coach answered a question
+    // mois" matched none of the 61 terms, so the agent answered a question
     // about training data with no training data, from conversation history
     // alone (live on Telegram, 2026-08-21). Adding "évolution" would only have
     // moved the blind spot.
     //
-    // A coach that declares an activity window is a coach whose every answer is
+    // An agent that declares an activity window is an agent whose every answer is
     // supposed to be grounded in it. The window is bounded and cached, so the
     // honest rule is the simple one: if it declared the requirement, satisfy it.
     true
@@ -434,7 +434,7 @@ pub fn should_refresh_activity_context(
 /// window as empty only when we can parse that field and it is `0`. When the
 /// content cannot be parsed we assume non-empty rather than risk dropping real
 /// grounding data on a serialization hiccup.
-/// Reduce a `get_activities` payload to the part the coach actually reads.
+/// Reduce a `get_activities` payload to the part the agent actually reads.
 ///
 /// The tool answers with the same activities two or three times over: a
 /// pre-rendered `activity_list` prose block, the structured `activities` (or
@@ -442,11 +442,11 @@ pub fn should_refresh_activity_context(
 /// whole serialized response put every copy in the prompt — 12,448 bytes for a
 /// 30-activity window, roughly 3k tokens, on every grounded turn.
 ///
-/// `activity_list` alone carries what the coach cites: date, sport, name,
+/// `activity_list` alone carries what the agent cites: date, sport, name,
 /// distance, duration, elevation, temperature — one line each — and the
 /// formatter folds the fragment-dedup note into it, so the "count sessions, not
 /// rows" signal survives without the sidecar. The structured copy exists for
-/// tool consumers, and the prefetch is not one; the coach reads prose.
+/// tool consumers, and the prefetch is not one; the agent reads prose.
 ///
 /// Falls back to the raw payload whenever the list is absent or empty, so a
 /// response shape this does not recognise still reaches the model intact.
@@ -473,7 +473,7 @@ fn prefetch_window_is_empty(content: &str) -> bool {
 /// Opening sentence of the later-turn activity-refresh block.
 ///
 /// Named because it is a platform framing that rides in the User channel: it
-/// tells the coach that what follows is data the platform loaded, which is
+/// tells the agent that what follows is data the platform loaded, which is
 /// authority the athlete's own text must never borrow. `push_history_row`
 /// neutralizes it in replayed user rows, and it can only do that against one
 /// stated source — see [`super::prompt_builder`].
@@ -527,13 +527,13 @@ pub fn inject_activity_refresh(
 
 /// Later-turn activity refresh — the belt-and-suspenders for a smaller model.
 ///
-/// [`inject_startup_context`] deterministically grounds a coach conversation in
+/// [`inject_startup_context`] deterministically grounds an agent conversation in
 /// real activities, but only on its first message. On every later turn the
 /// model had to *choose* to call `get_activities` itself; when it skipped that
 /// call, a "fais-moi un plan" / "analyse ma charge" request was answered from
 /// the persona prompt alone, producing the generic, ungrounded plans this stage
 /// fixes. When [`should_refresh_activity_context`] holds, this stage re-fetches
-/// the coach's activity window and injects it via [`inject_activity_refresh`].
+/// the agent's activity window and injects it via [`inject_activity_refresh`].
 ///
 /// Must run AFTER [`super::compaction::apply_tier1_compaction`]: the injected
 /// block is then safe from summarization, and the insertion cannot desync the
@@ -549,22 +549,22 @@ pub async fn maybe_refresh_activity_context(
     let ActivityRefreshInputs {
         executor,
         history,
-        coach_ctx,
+        agent_ctx,
         user_id,
         tenant_id,
         guided_flow_active,
     } = inputs;
-    if !should_refresh_activity_context(history.len(), coach_ctx, guided_flow_active) {
+    if !should_refresh_activity_context(history.len(), agent_ctx, guided_flow_active) {
         return false;
     }
 
-    // The gate above guaranteed a window: either the bound coach's declared one
-    // or, with no coach bound, the default. This re-extracts it for the fetch
+    // The gate above guaranteed a window: either the bound agent's declared one
+    // or, with no agent bound, the default. This re-extracts it for the fetch
     // parameters (a deterministic re-parse, not a second decision — the gate
     // remains the single decision authority).
-    let data_reqs = coach_ctx
+    let data_reqs = agent_ctx
         .and_then(parse_data_requirements)
-        .unwrap_or_else(coachless_activity_window);
+        .unwrap_or_else(agentless_activity_window);
 
     let Some(activity_context) =
         prefetch_activity_context(executor, user_id, tenant_id, &data_reqs).await
@@ -580,13 +580,13 @@ pub async fn maybe_refresh_activity_context(
 /// Read-only inputs for [`maybe_refresh_activity_context`], bundled so the
 /// mutable `llm_messages` borrow stays the only positional argument.
 pub struct ActivityRefreshInputs<'a> {
-    /// Tool executor used to re-fetch the coach's activity window.
+    /// Tool executor used to re-fetch the agent's activity window.
     pub executor: &'a Arc<UniversalExecutor>,
     /// Persisted conversation history — only its length is consulted (turn 1
     /// belongs to [`inject_startup_context`]).
     pub history: &'a [MessageRecord],
-    /// Active coach runtime context, when one is bound.
-    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Active agent runtime context, when one is bound.
+    pub agent_ctx: Option<&'a AgentRuntimeContext>,
     /// Athlete whose activities are fetched.
     pub user_id: &'a str,
     /// Tenant the activity data lives under.

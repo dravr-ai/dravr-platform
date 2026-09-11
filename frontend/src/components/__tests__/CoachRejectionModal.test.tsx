@@ -21,7 +21,7 @@ vi.mock('../../services/api', () => ({
     rejectStoreCoach: vi.fn().mockResolvedValue({
       success: true,
       message: 'Coach rejected',
-      coach_id: 'coach-1',
+      agent_id: 'coach-1',
     }),
   },
 }));

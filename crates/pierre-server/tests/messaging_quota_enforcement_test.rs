@@ -286,7 +286,7 @@ mod messaging_quota_enforcement_tests {
         // The gate runs before the pipeline persists the user message, so a
         // refused turn must leave no chat rows at all.
         let tenant = tenant_id.to_string();
-        let chat_rows: i64 = match resources.coach.database.as_ref() {
+        let chat_rows: i64 = match resources.agent.database.as_ref() {
             Database::SQLite(db) => sqlx::query_scalar(CHAT_ROWS_FOR_TENANT)
                 .bind(&tenant)
                 .fetch_one(db.pool())

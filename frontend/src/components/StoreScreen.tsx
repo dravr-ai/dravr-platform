@@ -53,7 +53,7 @@ const COACH_CATEGORY_DOT: Record<string, string> = {
   custom: 'bg-outline-variant',
 };
 
-interface StoreCoach {
+interface StoreAgent {
   id: string;
   title: string;
   description: string | null;
@@ -67,7 +67,7 @@ interface StoreCoach {
   author_id: string | null;
 }
 
-interface StoreCoachDetail extends StoreCoach {
+interface StoreAgentDetail extends StoreAgent {
   system_prompt: string;
   created_at: string;
   publish_status: string;
@@ -88,7 +88,7 @@ interface StoreScreenProps {
   onNavigate?: (route: string) => void;
   /**
    * One of the athlete's own agents to open the edit sheet on, as the
-   * `discover/<coachId>` route carries it. The sheet also opens from the
+   * `discover/<agentId>` route carries it. The sheet also opens from the
    * store detail of a listing the athlete has installed.
    */
   ownCoachId?: string | null;
@@ -98,7 +98,7 @@ interface StoreScreenProps {
 export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps) {
   const { t, language } = useTranslation();
   const queryClient = useQueryClient();
-  const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
   const [selectedSort, setSelectedSort] = useState<SortOption>('popular');
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,9 +166,9 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
 
   // Fetch agent detail when selected
   const { data: coachDetail, isLoading: isLoadingDetail } = useQuery({
-    queryKey: QUERY_KEYS.store.coachDetail(selectedCoachId ?? undefined),
-    queryFn: () => storeApi.get(selectedCoachId!),
-    enabled: !!selectedCoachId,
+    queryKey: QUERY_KEYS.store.coachDetail(selectedAgentId ?? undefined),
+    queryFn: () => storeApi.get(selectedAgentId!),
+    enabled: !!selectedAgentId,
     staleTime: 30_000,
   });
 
@@ -184,7 +184,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   // Store listing id -> id of the personal copy that installing it created.
   const installedCopyBySource = useMemo(() => {
     const bySource = new Map<string, string>();
-    for (const coach of myCoaches?.coaches ?? []) {
+    for (const coach of myCoaches?.agents ?? []) {
       if (coach.forked_from) {
         bySource.set(coach.forked_from, coach.id);
       }
@@ -193,21 +193,21 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   }, [myCoaches]);
 
   // Uninstall and edit address the personal copy, not the store listing.
-  const installedCopyId = selectedCoachId
-    ? installedCopyBySource.get(selectedCoachId)
+  const installedCopyId = selectedAgentId
+    ? installedCopyBySource.get(selectedAgentId)
     : undefined;
   const isInstalled = installedCopyId !== undefined;
 
   // Install mutation. The response is the minted copy, carrying the handle
   // the listing was approved with — the name the hint teaches.
   const installMutation = useMutation({
-    mutationFn: (coachId: string) => storeApi.install(coachId),
+    mutationFn: (agentId: string) => storeApi.install(agentId),
     onSuccess: (installed) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setSuccessMessage(null);
-      setInstalledCopy({ title: installed.coach.title, handle: installed.coach.handle });
+      setInstalledCopy({ title: installed.agent.title, handle: installed.agent.handle });
       track({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     },
     onError: (error: Error) => {
@@ -218,7 +218,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
 
   // Uninstall mutation
   const uninstallMutation = useMutation({
-    mutationFn: (coachId: string) => storeApi.uninstall(coachId),
+    mutationFn: (agentId: string) => storeApi.uninstall(agentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
@@ -261,7 +261,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     setInstalledCopy(null);
   }, []);
 
-  // The edit sheet: opened by the `discover/<coachId>` route or from the
+  // The edit sheet: opened by the `discover/<agentId>` route or from the
   // store detail of an installed listing. Closing a route-opened sheet hands
   // the route back to Discover.
   const editingCoachId = ownCoachId ?? detailEditCoachId;
@@ -281,9 +281,9 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   // Flatten pages for rendering
   const coaches = useMemo(() => {
     if (debouncedSearch && searchData) {
-      return searchData.coaches;
+      return searchData.agents;
     }
-    return browseData?.pages.flatMap(page => page.coaches) ?? [];
+    return browseData?.pages.flatMap(page => page.agents) ?? [];
   }, [debouncedSearch, searchData, browseData]);
 
   const isLoading = debouncedSearch ? isSearching : isBrowsing;
@@ -318,8 +318,8 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, debouncedSearch]);
 
-  const handleSelectCoach = useCallback((coachId: string) => {
-    setSelectedCoachId(coachId);
+  const handleSelectCoach = useCallback((agentId: string) => {
+    setSelectedCoachId(agentId);
   }, []);
 
   const handleBackToStore = useCallback(() => {
@@ -330,11 +330,11 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   }, []);
 
   const handleInstall = useCallback(() => {
-    if (selectedCoachId) {
+    if (selectedAgentId) {
       setActionError(null);
-      installMutation.mutate(selectedCoachId);
+      installMutation.mutate(selectedAgentId);
     }
-  }, [selectedCoachId, installMutation]);
+  }, [selectedAgentId, installMutation]);
 
   const handleRemove = useCallback(() => {
     if (installedCopyId && window.confirm(`Remove Agent?\n\nRemove "${coachDetail?.title}" from your agents? You can always reinstall it later.`)) {
@@ -344,15 +344,15 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   }, [installedCopyId, coachDetail, uninstallMutation]);
 
   const editSheet = editingCoachId ? (
-    <CoachEditSheet coachId={editingCoachId} onClose={handleCloseEditSheet} />
+    <CoachEditSheet agentId={editingCoachId} onClose={handleCloseEditSheet} />
   ) : null;
 
   // Render detail view if an agent is selected
-  if (selectedCoachId) {
+  if (selectedAgentId) {
     return (
       <>
         <CoachDetailView
-          coach={coachDetail as StoreCoachDetail | undefined}
+          coach={coachDetail as StoreAgentDetail | undefined}
           isLoading={isLoadingDetail}
           isInstalled={isInstalled}
           isInstalling={installMutation.isPending || uninstallMutation.isPending}
@@ -504,7 +504,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
 
 // Store agent card - memoized to prevent unnecessary re-renders during scrolling
 interface CoachCardProps {
-  coach: StoreCoach;
+  coach: StoreAgent;
   onClick: () => void;
 }
 
@@ -570,7 +570,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
 
 // Agent detail view component
 interface CoachDetailViewProps {
-  coach: StoreCoachDetail | undefined;
+  coach: StoreAgentDetail | undefined;
   isLoading: boolean;
   isInstalled: boolean;
   isInstalling: boolean;
@@ -749,7 +749,7 @@ function CoachDetailView({
               any chat. Discover keeps no coach list of its own. */}
           {installedCopy && (
             <PostInstallHint
-              coachTitle={installedCopy.title}
+              agentTitle={installedCopy.title}
               handle={installedCopy.handle}
               onOpenChat={onOpenChat}
               onDismiss={onDismissHint}

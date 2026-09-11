@@ -162,7 +162,7 @@ pub fn decide(existing: &[UserFact], candidate: &Candidate<'_>, config: DedupCon
 /// the extractor that a different distance is a new fact, and measured against
 /// two production providers one of them named the anchor anyway. The same file
 /// learned this once before: prompt-only enforcement of provenance failed and
-/// was replaced by a field the code checks (see `is_coach_prescription`).
+/// was replaced by a field the code checks (see `is_agent_prescription`).
 ///
 /// Numbers are compared as whole tokens, so "3:30" is one quantity and not a
 /// three and a thirty — otherwise "sub-3:30" would read as a restatement of

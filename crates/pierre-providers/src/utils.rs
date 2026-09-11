@@ -170,7 +170,7 @@ fn rate_limit_error(
 /// wrong in one direction that matters: Strava (and others) invalidate tokens on
 /// **user revocation**, which does not move the expiry. A revoked-but-unexpired
 /// credential therefore looks healthy forever, so nothing refreshes and every
-/// call fails — the athlete's coach silently has no data.
+/// call fails — the athlete's agent silently has no data.
 ///
 /// Returning [`AppError::provider_auth_required`] instead of a generic external
 /// error puts the failure on the path that already exists for it: the chat

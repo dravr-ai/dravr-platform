@@ -83,7 +83,7 @@ fn real_execution_fixture() -> Result<RealExecution, String> {
         let resources = common::create_test_server_resources()
             .await
             .map_err(|e| format!("server resources: {e}"))?;
-        let (user_id, _user) = common::create_test_user(&resources.coach.database)
+        let (user_id, _user) = common::create_test_user(&resources.agent.database)
             .await
             .map_err(|e| format!("test user: {e}"))?;
         let tenant_id = resources
@@ -274,7 +274,7 @@ fn check_assertion(spec: &AssertionSpec) -> Result<(), String> {
         AssertionSpec::ToolCalled { name, .. } if name.trim().is_empty() => {
             Err("tool_called name is empty".to_owned())
         }
-        AssertionSpec::VocabularyContract { coach_id } if coach_id.trim().is_empty() => {
+        AssertionSpec::VocabularyContract { agent_id } if agent_id.trim().is_empty() => {
             Err("vocabulary_contract coach_id is empty".to_owned())
         }
         AssertionSpec::DistanceMentioned { tolerance_km, .. } if *tolerance_km < 0.0 => {

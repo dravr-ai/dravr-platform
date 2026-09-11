@@ -1274,7 +1274,7 @@ impl WebAdminRoutes {
     }
 
     /// Handle GET /api/admin/users/{user_id}/admin-profile — returns the user's
-    /// coaching persona, installed coaches, and joined groups for the admin
+    /// coaching persona, installed agents, and joined groups for the admin
     /// User Details drawer.
     async fn handle_get_user_admin_profile(
         State(resources): State<WebAdminContext>,

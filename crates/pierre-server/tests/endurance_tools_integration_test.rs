@@ -100,7 +100,7 @@ async fn create_connected_test_user(executor: &UniversalToolExecutor) -> Result<
 /// which kills the turn. The dispatch chokepoint refuses first and returns the
 /// same `UniversalResponse` the provider resolvers mint, carrying
 /// `auth_required_provider` — the signal `auth_recovery` turns into a
-/// hosted-login prompt, so the coach can offer to fix it instead of the turn
+/// hosted-login prompt, so the agent can offer to fix it instead of the turn
 /// simply dying.
 fn assert_provider_refusal(resp: &UniversalResponse, tool: &str) {
     assert!(!resp.success, "{tool}: providerless call must not succeed");
@@ -444,9 +444,9 @@ async fn test_get_training_history_empty() -> Result<()> {
         0
     );
 
-    // This is the tool the endurance coach prompt says to call first, and it
+    // This is the tool the endurance agent prompt says to call first, and it
     // used to answer with bare ctl/atl/tsb floats. The interpretation key ships
-    // even on an empty window, because the coach reads it to know what the
+    // even on an empty window, because the agent reads it to know what the
     // numbers mean before it has any (registre#199).
     let method = result["interpretation"]["method"]
         .as_str()

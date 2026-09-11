@@ -36,7 +36,7 @@ pub enum NotificationScreen {
     Recovery,
     /// Training statistics and load trends.
     Stats,
-    /// A coach message or plan update.
+    /// An agent message or plan update.
     Coach,
     /// Account settings.
     Settings,
@@ -81,7 +81,7 @@ impl NotificationScreen {
     #[must_use]
     pub const fn surface(self) -> &'static str {
         match self {
-            // There is no activity, load or recovery dashboard: the coach reads
+            // There is no activity, load or recovery dashboard: the agent reads
             // those numbers to the athlete in the conversation, so a sync, a
             // load alert or a recovery score opens the chat where the question
             // can be asked.

@@ -1,5 +1,5 @@
 // ABOUTME: Parser for command markdown files with YAML frontmatter
-// ABOUTME: Extracts command definitions from .md files following the coach parser pattern
+// ABOUTME: Extracts command definitions from .md files following the agent parser pattern
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

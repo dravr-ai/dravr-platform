@@ -9,7 +9,7 @@ import { coachAddDraft, coachMention } from './coachDraft';
 import { useTranslation } from '@pierre/i18n';
 
 export interface PostInstallHintProps {
-  coachTitle: string;
+  agentTitle: string;
   /** The catalogue handle the copy inherited from its listing. */
   handle: string | undefined;
   /**
@@ -20,7 +20,7 @@ export interface PostInstallHintProps {
   onDismiss: () => void;
 }
 
-export default function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
+export default function PostInstallHint({ agentTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
   const { t } = useTranslation();
   const draft = coachAddDraft(handle);
   const mention = coachMention(handle);
@@ -28,7 +28,7 @@ export default function PostInstallHint({ coachTitle, handle, onOpenChat, onDism
     <section data-testid="post-install-hint" aria-live="polite">
       <Card variant="dark" className="space-y-3">
         <h3 className="text-base font-semibold text-on-surface">
-          &ldquo;{coachTitle}&rdquo; is in your agents
+          &ldquo;{agentTitle}&rdquo; is in your agents
         </h3>
         <p className="text-sm text-on-surface-variant">
           {t('discover.postInstallUseHint')} <code className="font-mono text-primary">{draft}</code> — or mention{' '}

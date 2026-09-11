@@ -196,7 +196,7 @@ async fn personal_records_returns_empty_no_endpoint() {
         .set_credentials(good_credentials())
         .await
         .expect("set creds");
-    // No Intervals.icu endpoint exposes personal records in a coach-relevant
+    // No Intervals.icu endpoint exposes personal records in an agent-relevant
     // shape; the provider returns an empty list rather than an error.
     let records = provider
         .get_personal_records()
@@ -373,7 +373,7 @@ async fn activity_list_sends_local_datetime_bounds_not_rfc3339() {
     // appends a UTC offset and fractional seconds, and the API answers that with
     // 422 — which is what every activity read got against the live service
     // (prod 2026-08-26: `GET /api/v1/athlete/i550405/activities` → 422, and the
-    // coach then told the athlete it could only "read" a provider it could not
+    // agent then told the athlete it could only "read" a provider it could not
     // read either). The same file already sends `%Y-%m-%d` on /wellness and
     // /events, so the dialect was never in doubt — only this call site.
     let (base_url, stub) = stub_once("[]").await;

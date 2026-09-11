@@ -589,7 +589,7 @@ async fn a_saved_ftp_changes_the_training_load_the_engine_computes() -> Result<(
 }
 
 // ============================================================================
-// The coach can actually call it
+// The agent can actually call it
 // ============================================================================
 
 #[test]

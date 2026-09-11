@@ -18,8 +18,8 @@
 //!
 //! The verdict is a near-mirror rather than the kernel type itself, for one
 //! field: every ranked and excluded flavour carries a `label`, the flavour in
-//! the athlete's own words and locale. That is what the coach says out loud
-//! while the id stays the coach's name for it, and it is resolved from the
+//! the athlete's own words and locale. That is what the agent says out loud
+//! while the id stays the agent's name for it, and it is resolved from the
 //! messaging registry, so it cannot live on the kernel type.
 
 use std::collections::BTreeSet;
@@ -33,7 +33,7 @@ use serde::Serialize;
 /// What `recommend_plan_flavour` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PlanFlavourResult {
-    /// The athlete this is for — a coach may be acting for someone else,
+    /// The athlete this is for — an agent may be acting for someone else,
     /// and `None` means the caller's own plan.
     pub athlete: Option<String>,
     /// What they can run, what they cannot, and how sure the rule is.
@@ -48,7 +48,7 @@ pub struct PlanFlavourResult {
 /// The verdict, with each flavour named in the athlete's language.
 ///
 /// Every field but the labels is [`pierre_core::models::periodization::FlavourVerdict`]'s
-/// own, and an unknown field is ignored on the way back in, so a coach can
+/// own, and an unknown field is ignored on the way back in, so an agent can
 /// pass this straight to `save_training_plan.flavour.verdict` and the stored
 /// snapshot still deserializes into the kernel type.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -61,14 +61,17 @@ pub struct LabelledVerdict {
     pub confidence: Confidence,
     /// Dimensions the profile could not answer — the ones to ask about.
     pub missing_inputs: Vec<InputDimension>,
-    /// Set when a coach package pinned a flavour and it survived eligibility.
+    /// Set when an agent package pinned a flavour and it survived eligibility.
+    ///
+    /// `coach_` for the same reason as [`FlavourInputsEcho::coach_preference`]:
+    /// it mirrors `FlavourVerdict`, which is dravr-cageux's type.
     pub coach_pinned: Option<String>,
 }
 
 /// A flavour the athlete can run.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct LabelledFlavour {
-    /// The flavour id — the coach's name for it, stable across locales.
+    /// The flavour id — the agent's name for it, stable across locales.
     pub id: String,
     /// The same flavour in the athlete's language. Falls back to the id when
     /// the registry has no string for it, so this is never empty.
@@ -196,11 +199,15 @@ pub struct FlavourInputsEcho {
     pub sport_mix: SportMix,
     /// Where in the season they are, when it is known.
     pub season_phase: Option<SeasonPhase>,
-    /// The house flavour the coach's package pins, when the package ships
+    /// The house flavour the agent's package pins, when the package ships
     /// one; the rule ranks it first whenever the athlete can run it.
+    ///
+    /// Spelled `coach_` because the name is `FlavourInputs`', and that
+    /// struct lives in dravr-cageux — this echo has to match the field it
+    /// echoes. It renames when cageux renames it, not before.
     pub coach_preference: Option<String>,
     /// Where each input came from — what the athlete answered, what the
-    /// profile held, what the coach's package pinned, what was assumed. An
+    /// profile held, what the agent's package pinned, what was assumed. An
     /// assumed input is the one to correct first.
     pub sources: Vec<InputSource>,
 }

@@ -6,11 +6,11 @@
 
 //! ClaimVerdict backfill worker.
 //!
-//! Claim verdicts are only written as new coach replies land via
+//! Claim verdicts are only written as new agent replies land via
 //! `chat_pipeline::stages::verification::apply_claim_verification`. That leaves Sprint
-//! C14 coach grading starved of statistical power for tenants with
-//! existing history: every coach starts as `Provisional` until the
-//! live stream accumulates 3+ graded verdicts per coach.
+//! C14 agent grading starved of statistical power for tenants with
+//! existing history: every agent starts as `Provisional` until the
+//! live stream accumulates 3+ graded verdicts per agent.
 //!
 //! The backfill walks every historical `assistant` message for the
 //! tenant in `(created_at ASC, conversation_id ASC)` order and runs
@@ -162,7 +162,7 @@ struct AssistantMessageRow {
     message_id: String,
     conversation_id: String,
     user_id: String,
-    coach_id: Option<String>,
+    agent_id: Option<String>,
     content: String,
 }
 
@@ -305,7 +305,7 @@ async fn persist_verdict(
     let insert = InsertClaimVerdictParams {
         tenant_id,
         user_id: &row.user_id,
-        coach_id: row.coach_id.as_deref(),
+        agent_id: row.agent_id.as_deref(),
         conversation_id: Some(&row.conversation_id),
         message_id: Some(&row.message_id),
         claim_text: &claim.text,
@@ -353,7 +353,7 @@ async fn fetch_assistant_messages(
                 SELECT m.id AS message_id,
                        m.conversation_id AS conversation_id,
                        c.user_id AS user_id,
-                       c.coach_id AS coach_id,
+                       c.agent_id AS agent_id,
                        m.content AS content,
                        m.created_at AS created_at
                 FROM chat_messages m
@@ -383,7 +383,7 @@ async fn fetch_assistant_messages(
                     message_id: row.get("message_id"),
                     conversation_id: row.get("conversation_id"),
                     user_id: row.get("user_id"),
-                    coach_id: row.try_get("coach_id").ok(),
+                    agent_id: row.try_get("agent_id").ok(),
                     content: row.get("content"),
                 });
             }
@@ -415,7 +415,7 @@ async fn fetch_assistant_messages(
                 SELECT m.id AS message_id,
                        m.conversation_id AS conversation_id,
                        c.user_id::text AS user_id,
-                       c.coach_id AS coach_id,
+                       c.agent_id AS agent_id,
                        m.content AS content
                 FROM chat_messages m
                 INNER JOIN chat_conversations c ON c.id = m.conversation_id
@@ -444,7 +444,7 @@ async fn fetch_assistant_messages(
                     message_id: row.get("message_id"),
                     conversation_id: row.get("conversation_id"),
                     user_id: row.get("user_id"),
-                    coach_id: row.try_get("coach_id").ok(),
+                    agent_id: row.try_get("agent_id").ok(),
                     content: row.get("content"),
                 });
             }

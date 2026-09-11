@@ -63,7 +63,7 @@ async fn add_user_to_tenant_as_member(
                           VALUES ($1, $2, $3, 'member', $4, $5)";
     let row_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-    match &*resources.coach.database {
+    match &*resources.agent.database {
         Database::SQLite(db) => {
             sqlx::query(INSERT)
                 .bind(row_id.to_string())
@@ -376,7 +376,7 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
     // The wire gate resolves the flag from the DB at request time, so flipping it here
     // makes the already-issued token an admin caller.
     resources
-        .coach
+        .agent
         .database
         .repositories()
         .users
@@ -440,7 +440,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     // (`User.is_admin`) sees; a tenant owner gets the filtered non-admin subset. Flipping
     // the flag in the DB makes the already-issued token authenticate as an admin.
     resources
-        .coach
+        .agent
         .database
         .repositories()
         .users
@@ -487,7 +487,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
 ///
 /// When the tenant's `tool_catalog` is empty/unseeded, `tenant_filtered_tools()` must
 /// still return a meaningful set via the `uncatalogued_user_schemas()` merge (feature-flag
-/// tools like coaches, mobility, nutrition, etc.). The regression that shipped collapsed
+/// tools like agents, mobility, nutrition, etc.). The regression that shipped collapsed
 /// this path to ~15 tools; this test pins a floor so that collapse fails CI.
 ///
 /// The test deliberately:
@@ -508,7 +508,7 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
         common::create_test_tenant(&resources, "member-path-member@example.com").await?;
 
     // Fetch T_owner's id (O is owner here, so list_for_user returns it).
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let owner_tenants = repos
         .tenants
         .list_for_user(owner.id)

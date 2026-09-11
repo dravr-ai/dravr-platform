@@ -12,12 +12,12 @@ describe('threadSubtitle', () => {
    */
   it('names the group when a thread has both a group and a coach', () => {
     expect(
-      threadSubtitle({ group_name: 'Sunday Long Run', coach_handle: 'trail' }),
+      threadSubtitle({ group_name: 'Sunday Long Run', agent_handle: 'trail' }),
     ).toEqual({ kind: 'group' });
   });
 
   it('names the coach handle for a one-to-one thread', () => {
-    expect(threadSubtitle({ group_name: null, coach_handle: 'trail' })).toEqual({
+    expect(threadSubtitle({ group_name: null, agent_handle: 'trail' })).toEqual({
       kind: 'handle',
       handle: 'trail',
     });
@@ -26,7 +26,7 @@ describe('threadSubtitle', () => {
   it('says nothing for a plain thread, so the client can fall back', () => {
     // Web shows connected-provider status in that space; returning a kind here
     // would take the decision away from it.
-    expect(threadSubtitle({ group_name: null, coach_handle: null })).toBeNull();
+    expect(threadSubtitle({ group_name: null, agent_handle: null })).toBeNull();
   });
 
   it('says nothing when there is no conversation at all', () => {

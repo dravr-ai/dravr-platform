@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import CoachNotesAuditTab from '../CoachNotesAuditTab';
-import type { CoachNoteAuditRow } from '../../services/api/admin';
+import type { AgentNoteAuditRow } from '../../services/api/admin';
 
 vi.mock('../../services/api/admin', async () => ({
   adminApi: {
@@ -32,12 +32,12 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const { adminApi } = await import('../../services/api/admin');
 
-function sampleNote(overrides: Partial<CoachNoteAuditRow> = {}): CoachNoteAuditRow {
+function sampleNote(overrides: Partial<AgentNoteAuditRow> = {}): AgentNoteAuditRow {
   return {
     id: 'note-1',
     tenant_id: 'tenant-a',
     user_id: 'user-42',
-    coach_id: 'coach-strength',
+    agent_id: 'coach-strength',
     conversation_id: 'conv-7',
     scope: 'user',
     content: 'User prefers Monday morning strength sessions.',
@@ -80,7 +80,7 @@ describe('CoachNotesAuditTab', () => {
         sampleNote(),
         sampleNote({
           id: 'note-2',
-          coach_id: 'coach-endurance',
+          agent_id: 'coach-endurance',
           user_id: 'user-7',
           scope: 'conversation',
           content: 'Mentioned achilles pain last session.',

@@ -141,7 +141,7 @@ describe('chat-first landing', () => {
         {
           id: 'conv-1',
           title: 'Tempo Tuesday',
-          coach_id: null,
+          agent_id: null,
           message_count: 3,
           unread_count: 0,
           created_at: '2026-08-20T10:00:00Z',

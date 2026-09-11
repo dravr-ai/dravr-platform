@@ -33,7 +33,7 @@ fn commitment(
         id: uuid::Uuid::new_v4().to_string(),
         tenant_id: tenant.to_owned(),
         user_id: user.to_owned(),
-        coach_id: Some("marathon-coach".to_owned()),
+        agent_id: Some("marathon-coach".to_owned()),
         conversation_id: Some("conv-1".to_owned()),
         statement: "three easy runs this week".to_owned(),
         sport: sport.map(str::to_owned),
@@ -68,7 +68,7 @@ async fn insert_round_trips_every_field() {
     assert_eq!(got.id, c.id);
     assert_eq!(got.target_sessions, 3);
     assert_eq!(got.sport.as_deref(), Some("run"));
-    assert_eq!(got.coach_id.as_deref(), Some("marathon-coach"));
+    assert_eq!(got.agent_id.as_deref(), Some("marathon-coach"));
     assert_eq!(got.conversation_id.as_deref(), Some("conv-1"));
     assert_eq!(got.statement, "three easy runs this week");
     assert_eq!(got.status, CommitmentStatus::Open);
@@ -87,7 +87,7 @@ async fn absent_optional_fields_round_trip_as_none() {
     let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
 
     let mut c = commitment("t1", "u1", None, 2, 5);
-    c.coach_id = None;
+    c.agent_id = None;
     c.conversation_id = None;
     assert!(repos.commitments.insert_commitment(&c).await.unwrap());
 
@@ -99,7 +99,7 @@ async fn absent_optional_fields_round_trip_as_none() {
         .remove(0);
     // Stored as '' so the duplicate guard can compare them; they must not come
     // back as empty strings.
-    assert_eq!(got.coach_id, None);
+    assert_eq!(got.agent_id, None);
     assert_eq!(got.conversation_id, None);
     assert_eq!(got.sport, None);
 }

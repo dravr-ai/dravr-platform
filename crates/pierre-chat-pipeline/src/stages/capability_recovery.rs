@@ -6,7 +6,7 @@
 
 //! Capability-failure recovery for the chat pipeline.
 //!
-//! Live incidents 2026-07-24 and 2026-08-11 (Telegram): the coach answered
+//! Live incidents 2026-07-24 and 2026-08-11 (Telegram): the agent answered
 //! «Je ne suis pas capable de récupérer tes activités … (problème de
 //! connexion de mon côté)» on turns where **no tool was ever invoked** and
 //! every sciotte scrape in the surrounding weeks had succeeded. The claim was
@@ -76,7 +76,7 @@ pub(super) const VERIFICATION_TOOL: &str = "get_activities";
 /// Was 5, which could not answer the questions this pass actually gets. Live
 /// 2026-09-02: seven recovery fetches, every one `requested_limit: 5`, against
 /// an athlete asking about a six-activity week — so the repair pass re-grounded
-/// the model on a window too small to contain the answer, and on the no-coach
+/// the model on a window too small to contain the answer, and on the no-agent
 /// path it was the only fetch of the whole conversation (registre#201).
 ///
 /// Twenty covers a month of training for a typical athlete: enough for "how was
@@ -271,7 +271,7 @@ enum RecoveryTrigger {
     /// Dravr.» — nine characters of sign-off with the answer missing.
     DegenerateReply,
     /// The reply names a group roster member and carries numbers. Numeric
-    /// claims about another person are the highest-stakes content a coach
+    /// claims about another person are the highest-stakes content an agent
     /// produces, and the 2026-08-22 challenge turn fabricated both a duration
     /// («4h30», real: 0h53) and a missing-distance detail against the peer's
     /// true record sitting in its own context — so every such reply is
@@ -313,8 +313,8 @@ impl RecoveryTrigger {
 /// This list used to gate whether the athlete's activities were fetched at all,
 /// and in that job it was actively harmful: "Montre-moi l'évolution de mon
 /// volume hebdomadaire sur les 3 derniers mois" matches none of these terms, so
-/// a real Telegram turn reached the model with no activity data and the coach
-/// answered from memory (2026-08-21). Grounding no longer consults it — a coach
+/// a real Telegram turn reached the model with no activity data and the agent
+/// answered from memory (2026-08-21). Grounding no longer consults it — an agent
 /// that declares an activity window now always gets one.
 ///
 /// It survives here because the job is different. Missing a term no longer
@@ -322,7 +322,7 @@ impl RecoveryTrigger {
 /// on a turn where it might have helped. A lossy trigger for an extra check is
 /// tolerable in a way that a lossy gate on the athlete's own data never was.
 /// LIMITATION(registre#202): `DATA_ASK_TERMS` matches no phrasing of a factual correction, and
-/// the reasoning above holds only while a bound coach grounds the turn — with no coach bound this
+/// the reasoning above holds only while a bound agent grounds the turn — with no agent bound this
 /// list is again the sole gate on the athlete's own data.
 const DATA_ASK_TERMS: &[&str] = &[
     // Planning / prescription — needs the real training history to be specific.
@@ -368,8 +368,8 @@ const DATA_ASK_TERMS: &[&str] = &[
     "dois-je",
     // Temporal + meal + outing words: a "qu'est-ce que je mange/fais
     // aujourd'hui" or "ma course de ce soir" question must ground in real
-    // recent training (the coach's meal/session advice depends on today's
-    // load). Their absence let the 2026-07-24 coach decline to fetch on a
+    // recent training (the agent's meal/session advice depends on today's
+    // load). Their absence let the 2026-07-24 agent decline to fetch on a
     // recommendation turn. Errs toward a wasted fetch, per the contract above.
     "aujourd'hui",
     "aujourd hui",
@@ -450,7 +450,7 @@ fn recovery_trigger(
         return Some(RecoveryTrigger::UngroundedDataAsk);
     }
     // The structural arm: no vocabulary, so no phrasing can slip past it. If
-    // the coach just asserted numbers about the athlete's training and this
+    // the agent just asserted numbers about the athlete's training and this
     // turn adds nothing fresh, re-ground — whether the athlete asked a
     // question, corrected a fact, or simply pushed back (registre#202).
     if ungrounded_turn && previous_reply_asserted_athlete_facts(deps.llm_messages) {

@@ -15,7 +15,7 @@ Anything below that renders empty **despite** these seeds is a finding, not an e
 | Seeded by | Data |
 |---|---|
 | `user create --super-admin` | the resolved `$ADMIN_EMAIL` (`admin@example.com` only when `.envrc` sets no override) |
-| `seed coaches` | full coach catalogue from `../dravr-contremaitre/prompts/coaches` |
+| `seed agents` | full coach catalogue from `../dravr-contremaitre/prompts/coaches` |
 | `seed demo-data --days 30` | demo users incl. `webtest@pierre.dev`, `mobiletest@pierre.dev`, `alice@acme.com`, `bob@startup.io` |
 | `seed social` | friendships / social graph |
 | `seed mobility` | stretches, yoga content |

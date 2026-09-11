@@ -58,7 +58,7 @@ mod delivered {
     use crate::helpers::offline_channel::OfflineSendAdapters;
 
     /// The coaching the athlete was owed. Distinctive enough that no other
-    /// outbound row (a coach proposal, an intake question) can match it.
+    /// outbound row (an agent proposal, an intake question) can match it.
     const ANSWER: &str = "Ton NP sur la dernière course: 245 W, soit 3,4 W/kg — solide.";
     const QUESTION: &str = "peux-tu sortir le NP de ma dernière course?";
     const WA_SECRET: &str = "wa_turn_delivery_secret";

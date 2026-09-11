@@ -95,9 +95,9 @@ export interface ConversationRowModel {
   /** The title as displayed — never empty. */
   title: string;
   /** The attached coach's catalogue handle, without the `@`, when it has one. */
-  coachHandle: string | null;
+  agentHandle: string | null;
   /** The attached coach's title, when the coach still exists. */
-  coachTitle: string | null;
+  agentTitle: string | null;
   /** The group's name, for a group row. */
   groupName: string | null;
   /** Messaging origin for the channel badge; null for an in-app thread. */
@@ -120,7 +120,7 @@ export interface ConversationRowModel {
 export function deriveKind(conversation: Conversation): ConversationKind {
   if (conversation.group_id) return 'group';
   if (resolveChannelOrigin(conversation)) return 'channel';
-  if (conversation.coach_id) return 'coach';
+  if (conversation.agent_id) return 'coach';
   return 'plain';
 }
 
@@ -166,9 +166,9 @@ function fnv1a(key: string): number {
  * device, and {@link AVATAR_SLOT_HUES} makes that slot the same hue.
  */
 export function avatarSlot(
-  conversation: Pick<Conversation, 'id' | 'coach_id' | 'group_id'>,
+  conversation: Pick<Conversation, 'id' | 'agent_id' | 'group_id'>,
 ): number {
-  const key = conversation.group_id || conversation.coach_id || conversation.id;
+  const key = conversation.group_id || conversation.agent_id || conversation.id;
   return fnv1a(key) % AVATAR_SLOTS;
 }
 
@@ -189,7 +189,7 @@ export function previewFor(
   if (!last) return '';
   if (last.role === 'user') return `${labels.you}: ${last.preview}`;
   if (deriveKind(conversation) === 'group') {
-    return `${conversation.coach_title || labels.coach}: ${last.preview}`;
+    return `${conversation.agent_title || labels.coach}: ${last.preview}`;
   }
   return last.preview;
 }
@@ -254,8 +254,8 @@ export function buildConversationRow(
     id: conversation.id,
     kind: deriveKind(conversation),
     title,
-    coachHandle: conversation.coach_handle || null,
-    coachTitle: conversation.coach_title || null,
+    agentHandle: conversation.agent_handle || null,
+    agentTitle: conversation.agent_title || null,
     groupName: conversation.group_name || null,
     channel: resolveChannelOrigin(conversation),
     initials: initialsFor(title),
@@ -291,7 +291,7 @@ export function filterRows(
   return rows.filter(
     (row) =>
       row.title.toLowerCase().includes(needle) ||
-      (row.coachHandle !== null && row.coachHandle.toLowerCase().includes(needle)) ||
+      (row.agentHandle !== null && row.agentHandle.toLowerCase().includes(needle)) ||
       row.preview.toLowerCase().includes(needle),
   );
 }

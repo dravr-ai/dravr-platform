@@ -44,7 +44,7 @@ async fn byo_key_resolves_provider_and_absence_falls_back() {
 
     // Tenant WITH a stored Gemini key → resolves to a per-tenant provider.
     let (user_id, _u, tenant_id) =
-        create_test_user_with_plan(&resources.coach.database, "byo@test.com", "professional")
+        create_test_user_with_plan(&resources.agent.database, "byo@test.com", "professional")
             .await
             .unwrap();
     TenantLlmManager::store_credentials(
@@ -72,7 +72,7 @@ async fn byo_key_resolves_provider_and_absence_falls_back() {
 
     // Tenant WITHOUT a stored key → None (use the global singleton).
     let (other_user, _ou, other_tenant) =
-        create_test_user_with_plan(&resources.coach.database, "nobyo@test.com", "professional")
+        create_test_user_with_plan(&resources.agent.database, "nobyo@test.com", "professional")
             .await
             .unwrap();
     let fallback =

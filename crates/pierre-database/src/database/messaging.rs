@@ -1451,7 +1451,7 @@ impl MessagingRepository for Database {
         Ok(())
     }
 
-    async fn coach_proposal_sent(
+    async fn agent_proposal_sent(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
@@ -1459,7 +1459,7 @@ impl MessagingRepository for Database {
     ) -> AppResult<bool> {
         let sent_at: Option<Option<String>> = sqlx::query_scalar(
             r"
-            SELECT coach_proposal_sent_at
+            SELECT agent_proposal_sent_at
             FROM messaging_channel_links
             WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
             ",
@@ -1474,7 +1474,7 @@ impl MessagingRepository for Database {
         Ok(sent_at.flatten().is_some())
     }
 
-    async fn proposed_coach_ids(
+    async fn proposed_agent_ids(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
@@ -1482,7 +1482,7 @@ impl MessagingRepository for Database {
     ) -> AppResult<Vec<String>> {
         let row = sqlx::query(
             r"
-            SELECT proposed_coach_ids FROM messaging_channel_links
+            SELECT proposed_agent_ids FROM messaging_channel_links
              WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
             ",
         )
@@ -1497,25 +1497,25 @@ impl MessagingRepository for Database {
         // worst outcome is that a numeric reply reaches the model as ordinary
         // text, which is exactly the old behaviour.
         Ok(row
-            .and_then(|r| r.get::<Option<String>, _>("proposed_coach_ids"))
+            .and_then(|r| r.get::<Option<String>, _>("proposed_agent_ids"))
             .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
             .unwrap_or_default())
     }
 
-    async fn mark_coach_proposal_sent(
+    async fn mark_agent_proposal_sent(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
-        proposed_coach_ids: &[String],
+        proposed_agent_ids: &[String],
     ) -> AppResult<()> {
         let ids_json =
-            serde_json::to_string(proposed_coach_ids).unwrap_or_else(|_| "[]".to_owned());
+            serde_json::to_string(proposed_agent_ids).unwrap_or_else(|_| "[]".to_owned());
         sqlx::query(
             r"
             UPDATE messaging_channel_links
-               SET coach_proposal_sent_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
-                   proposed_coach_ids = ?4
+               SET agent_proposal_sent_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                   proposed_agent_ids = ?4
              WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
             ",
         )

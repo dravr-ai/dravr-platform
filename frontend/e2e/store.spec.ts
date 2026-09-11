@@ -117,7 +117,7 @@ async function setupStoreMocks(
         title: 'Chat Aug 26 9:00 PM',
         model: null,
         total_tokens: 0,
-        coach_id: null,
+        agent_id: null,
         channel_type: null,
         created_at: '2026-08-26T21:00:00Z',
         updated_at: '2026-08-26T21:00:00Z',
@@ -135,7 +135,7 @@ async function setupStoreMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: installedCopies,
+        agents: installedCopies,
         total: installedCopies.length,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
@@ -148,7 +148,7 @@ async function setupStoreMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: installedCopies,
+        agents: installedCopies,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
     });
@@ -160,7 +160,7 @@ async function setupStoreMocks(
     const url = new URL(route.request().url());
     const query = url.searchParams.get('q') || '';
 
-    const coaches = emptyStore
+    const agents = emptyStore
       ? []
       : mockStoreCoaches.filter(
           (c) =>
@@ -173,7 +173,7 @@ async function setupStoreMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches,
+        agents,
         query,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
@@ -209,7 +209,7 @@ async function setupStoreMocks(
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach installed successfully',
-          coach: copy,
+          agent: copy,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
@@ -236,7 +236,7 @@ async function setupStoreMocks(
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach uninstalled successfully',
-          source_coach_id: copy.forked_from,
+          source_agent_id: copy.forked_from,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
@@ -273,28 +273,28 @@ async function setupStoreMocks(
     const category = url.searchParams.get('category');
     const sortBy = url.searchParams.get('sort_by');
 
-    let coaches = emptyStore ? [] : [...mockStoreCoaches];
+    let agents = emptyStore ? [] : [...mockStoreCoaches];
 
     // Apply category filter
     if (category && category !== 'all') {
-      coaches = coaches.filter((c) => c.category === category);
+      agents = agents.filter((c) => c.category === category);
     }
 
     // Apply sort
     if (sortBy === 'newest') {
-      coaches.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+      agents.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
     } else if (sortBy === 'title') {
-      coaches.sort((a, b) => a.title.localeCompare(b.title));
+      agents.sort((a, b) => a.title.localeCompare(b.title));
     } else {
       // Default: popular (by install_count)
-      coaches.sort((a, b) => b.install_count - a.install_count);
+      agents.sort((a, b) => b.install_count - a.install_count);
     }
 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches,
+        agents,
         next_cursor: null,
         has_more: false,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
@@ -444,7 +444,7 @@ test.describe('Agent Store Pagination', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0 }),
+        body: JSON.stringify({ agents: [], total: 0 }),
       });
     });
 
@@ -454,7 +454,7 @@ test.describe('Agent Store Pagination', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: [],
+          agents: [],
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
@@ -476,7 +476,7 @@ test.describe('Agent Store Pagination', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            coaches: page1Coaches,
+            agents: page1Coaches,
             next_cursor: 'test-cursor-page-2',
             has_more: true,
             metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
@@ -488,7 +488,7 @@ test.describe('Agent Store Pagination', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            coaches: [page2Coach],
+            agents: [page2Coach],
             next_cursor: null,
             has_more: false,
             metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },

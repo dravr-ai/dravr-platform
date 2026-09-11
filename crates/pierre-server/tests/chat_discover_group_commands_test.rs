@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for /discover, /discover install, /group create and /group join over the web chat route
-// ABOUTME: Content-asserting: real published coaches, real groups and invites, every reply checked against the database
+// ABOUTME: Content-asserting: real published agents, real groups and invites, every reply checked against the database
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,8 @@ mod helpers;
 
 use axum::http::StatusCode;
 use common::{create_test_server_resources, generate_test_token};
+use helpers::agent_fixtures::{publish_catalogue_agent, publish_catalogue_agent_in};
 use helpers::axum_test::AxumTestRequest;
-use helpers::coach_fixtures::{publish_catalogue_coach, publish_catalogue_coach_in};
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_contremaitre::messaging_strings::{
@@ -24,7 +24,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_CREATE_USAGE, KEY_GROUP_INVITE_LABEL, KEY_GROUP_JOINED, KEY_GROUP_JOINED_AS_COACH,
     KEY_GROUP_JOIN_ALREADY_MEMBER, KEY_GROUP_JOIN_INVALID_CODE,
 };
-use pierre_core::models::coaches::{CoachCategory, CoachHandle, CreateCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentHandle, CreateAgentRequest};
 use pierre_core::models::groups::{CreateGroupRequest, GroupInviteKind, GroupRole};
 use pierre_core::models::{
     default_locale, AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus,
@@ -110,7 +110,7 @@ fn admin_config_repository(db: &Database) -> Box<dyn AdminConfigRepository> {
 }
 
 /// tenant's `group_creation_policy` decides whether they may create groups.
-/// `manages_roster` marks a roster-managing coach account.
+/// `manages_roster` marks a roster-managing agent account.
 async fn seed_tenant_member(
     resources: &Arc<ServerContext>,
     email: &str,
@@ -125,7 +125,7 @@ async fn seed_tenant_member(
     // repository exposes no direct writer, so the fixture files the row the
     // way those flows do.
     let now = chrono::Utc::now();
-    match resources.coach.database.as_ref() {
+    match resources.agent.database.as_ref() {
         Database::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)
                 .bind(Uuid::new_v4().to_string())
@@ -189,36 +189,36 @@ async fn finish_user(resources: &Arc<ServerContext>, user: &User, tenant_id: Ten
     format!("Bearer {}", generate_test_token(resources, user).await)
 }
 
-/// A private coach owned by `user_id`, selected as their default so
-/// `/group create` in a coach-less thread has a coach to build on.
-async fn seed_selected_coach(
+/// A private agent owned by `user_id`, selected as their default so
+/// `/group create` in an agent-less thread has an agent to build on.
+async fn seed_selected_agent(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
     title: &str,
 ) -> String {
-    let request: CreateCoachRequest = serde_json::from_value(json!({
+    let request: CreateAgentRequest = serde_json::from_value(json!({
         "title": title,
         "description": null,
         "system_prompt": "You coach the group.",
     }))
     .unwrap();
-    let coach = resources
+    let agent = resources
         .common
         .repos
-        .coaches
+        .agents
         .create(user_id, tenant_id, &request)
         .await
         .unwrap();
-    let coach_id = coach.id.to_string();
+    let agent_id = agent.id.to_string();
     resources
         .common
         .repos
         .tenants
-        .set_selected_coach(tenant_id, user_id, Some(&coach_id))
+        .set_selected_agent(tenant_id, user_id, Some(&agent_id))
         .await
         .unwrap();
-    coach_id
+    agent_id
 }
 
 async fn create_conversation(router: axum::Router, auth: &str) -> String {
@@ -289,17 +289,17 @@ fn rendered(resources: &Arc<ServerContext>, key: &str, args: &[&str]) -> String 
         .render(key, &locale, args)
 }
 
-/// The catalogue handle a published coach was assigned.
-async fn handle_of(resources: &Arc<ServerContext>, coach_id: Uuid) -> String {
+/// The catalogue handle a published agent was assigned.
+async fn handle_of(resources: &Arc<ServerContext>, agent_id: Uuid) -> String {
     resources
         .common
         .repos
         .store_listings
-        .get_published_coach(&coach_id.to_string())
+        .get_published_agent(&agent_id.to_string())
         .await
         .unwrap()
         .expect("published")
-        .coach
+        .agent
         .handle
         .expect("a published coach owns a handle")
 }
@@ -328,7 +328,7 @@ async fn discover_pages_the_catalogue_eight_at_a_time_with_install_buttons() {
 
     let mut published = Vec::new();
     for n in 1..=9 {
-        let id = publish_catalogue_coach(
+        let id = publish_catalogue_agent(
             &resources.common.repos,
             author_id,
             author_tenant,
@@ -376,7 +376,7 @@ async fn discover_pages_the_catalogue_eight_at_a_time_with_install_buttons() {
     );
     assert_eq!(actions(&page).len(), 9, "eight installs and one More");
 
-    // The More button sends the next page: the one coach left, and no More.
+    // The More button sends the next page: the one agent left, and no More.
     let next = send(router, &auth, &conv, &more.value).await;
     let second = install_postbacks(&next);
     assert_eq!(second.len(), 1, "one coach on the second page");
@@ -408,23 +408,23 @@ async fn discover_filters_one_category_case_insensitively() {
         seed_user_tenant(&resources, "category-list@test.com", "professional").await;
     let repos = &resources.common.repos;
     for title in ["Base Miles Coach", "Threshold Coach"] {
-        publish_catalogue_coach_in(
+        publish_catalogue_agent_in(
             repos,
             author_id,
             author_tenant,
             title,
             "You train.",
-            CoachCategory::Training,
+            AgentCategory::Training,
         )
         .await;
     }
-    let fuel = publish_catalogue_coach_in(
+    let fuel = publish_catalogue_agent_in(
         repos,
         author_id,
         author_tenant,
         "Fuel Coach",
         "You feed.",
-        CoachCategory::Nutrition,
+        AgentCategory::Nutrition,
     )
     .await;
     let fuel_handle = handle_of(&resources, fuel).await;
@@ -462,7 +462,7 @@ async fn discover_searches_when_the_words_are_not_a_category() {
     let (_user_id, _tenant_id, auth) =
         seed_user_tenant(&resources, "search-list@test.com", "professional").await;
     let repos = &resources.common.repos;
-    let taper = publish_catalogue_coach(
+    let taper = publish_catalogue_agent(
         repos,
         author_id,
         author_tenant,
@@ -470,7 +470,7 @@ async fn discover_searches_when_the_words_are_not_a_category() {
         "You taper.",
     )
     .await;
-    publish_catalogue_coach(
+    publish_catalogue_agent(
         repos,
         author_id,
         author_tenant,
@@ -509,13 +509,13 @@ async fn discover_searches_when_the_words_are_not_a_category() {
 // ============================================================================
 
 #[tokio::test]
-async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
+async fn discover_install_by_handle_installs_once_and_teaches_agent_add() {
     let resources = create_test_server_resources().await.unwrap();
     let (author_id, author_tenant, _) =
         seed_user_tenant(&resources, "install-author@test.com", "professional").await;
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "install-user@test.com", "professional").await;
-    let origin = publish_catalogue_coach(
+    let origin = publish_catalogue_agent(
         &resources.common.repos,
         author_id,
         author_tenant,
@@ -578,11 +578,11 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
         rendered(&resources, KEY_DISCOVER_ADD_LABEL, &[])
     );
 
-    let handle = CoachHandle::parse("recovery-coach").unwrap();
+    let handle = AgentHandle::parse("recovery-coach").unwrap();
     let copy = resources
         .common
         .repos
-        .coaches
+        .agents
         .find_installed_by_handle(&handle, user_id, tenant_id)
         .await
         .unwrap()
@@ -609,7 +609,7 @@ async fn discover_install_by_handle_installs_once_and_teaches_coach_add() {
         .common
         .repos
         .store_listings
-        .get_installed_coaches(user_id, tenant_id)
+        .get_installed_agents(user_id, tenant_id)
         .await
         .unwrap();
     assert_eq!(
@@ -629,7 +629,7 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "group-create@test.com", "professional").await;
-    let coach_id = seed_selected_coach(&resources, user_id, tenant_id, "Club Coach").await;
+    let agent_id = seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv = create_conversation(router.clone(), &auth).await;
     let (events, _guard) = capture_notify();
@@ -663,7 +663,7 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
         .group_id
         .clone()
         .expect("the empty thread became the group chat");
-    assert_eq!(thread.coach_id.as_deref(), Some(coach_id.as_str()));
+    assert_eq!(thread.agent_id.as_deref(), Some(agent_id.as_str()));
     assert_eq!(thread.title, "Sunday Runners");
     let group = repos
         .groups
@@ -671,7 +671,7 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(group.coach_id, coach_id);
+    assert_eq!(group.agent_id, agent_id);
     let owner = repos
         .groups
         .get_member(&group_id, user_id)
@@ -702,7 +702,7 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
         .unwrap()
         .unwrap();
     assert!(second_record.group_id.is_some_and(|g| g != group_id));
-    assert_eq!(second_record.coach_id.as_deref(), Some(coach_id.as_str()));
+    assert_eq!(second_record.agent_id.as_deref(), Some(agent_id.as_str()));
     let unchanged = repos
         .chat
         .get_conversation(&conv, &user_id.to_string(), tenant_id)
@@ -718,7 +718,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "group-history@test.com", "professional").await;
-    let coach_id = seed_selected_coach(&resources, user_id, tenant_id, "Evening Coach").await;
+    let agent_id = seed_selected_agent(&resources, user_id, tenant_id, "Evening Coach").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv = create_conversation(router.clone(), &auth).await;
     let repos = &resources.common.repos;
@@ -772,8 +772,8 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
         .unwrap()
         .unwrap();
     assert_eq!(group.name, "Evening Club");
-    assert_eq!(group.coach_id, coach_id);
-    assert_eq!(record.coach_id.as_deref(), Some(coach_id.as_str()));
+    assert_eq!(group.agent_id, agent_id);
+    assert_eq!(record.agent_id.as_deref(), Some(agent_id.as_str()));
     assert_eq!(
         record.model, MODEL,
         "the group conversation inherits the thread's model"
@@ -781,7 +781,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
 }
 
 #[tokio::test]
-async fn group_create_refuses_without_a_name_or_a_coach() {
+async fn group_create_refuses_without_a_name_or_an_agent() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _tenant_id, auth) =
         seed_user_tenant(&resources, "group-refuse@test.com", "professional").await;
@@ -817,7 +817,7 @@ async fn group_create_on_a_starter_tenant_applies_the_starter_cap_like_the_rest_
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "group-starter@test.com", "starter").await;
-    seed_selected_coach(&resources, user_id, tenant_id, "Starter Coach").await;
+    seed_selected_agent(&resources, user_id, tenant_id, "Starter Coach").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv = create_conversation(router.clone(), &auth).await;
 
@@ -851,7 +851,7 @@ async fn group_create_is_refused_by_the_policy_for_a_plain_member_until_the_tena
         seed_user_tenant(&resources, "policy-owner@test.com", "professional").await;
     let (member_id, member_auth) =
         seed_tenant_member(&resources, "policy-member@test.com", tenant_id, false).await;
-    seed_selected_coach(&resources, member_id, tenant_id, "Member Coach").await;
+    seed_selected_agent(&resources, member_id, tenant_id, "Member Coach").await;
     let router = ChatRoutes::routes(Arc::clone(&resources));
     let conv = create_conversation(router.clone(), &member_auth).await;
     let repos = &resources.common.repos;
@@ -881,7 +881,7 @@ async fn group_create_is_refused_by_the_policy_for_a_plain_member_until_the_tena
     let tenant = tenant_id.to_string();
     let owner = owner_id.to_string();
     let everyone = json!("everyone");
-    admin_config_repository(&resources.coach.database)
+    admin_config_repository(&resources.agent.database)
         .set_override(SetOverrideParams {
             category: GROUP_PERMISSIONS_CATEGORY,
             key: GROUP_CREATION_POLICY_KEY,
@@ -917,13 +917,13 @@ async fn seed_group_with_invite(
     resources: &Arc<ServerContext>,
     owner_id: Uuid,
     tenant_id: TenantId,
-    coach_id: &str,
+    agent_id: &str,
     kind: GroupInviteKind,
 ) -> (Uuid, String) {
     let request = CreateGroupRequest {
         name: "Trail Crew".to_owned(),
         description: None,
-        coach_id: coach_id.to_owned(),
+        agent_id: agent_id.to_owned(),
         max_members: None,
     };
     let group = resources
@@ -944,12 +944,12 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
     let resources = create_test_server_resources().await.unwrap();
     let (owner_id, owner_tenant, _owner_auth) =
         seed_user_tenant(&resources, "join-owner@test.com", "professional").await;
-    let coach_id = seed_selected_coach(&resources, owner_id, owner_tenant, "Trail Coach").await;
+    let agent_id = seed_selected_agent(&resources, owner_id, owner_tenant, "Trail Coach").await;
     let (group_id, code) = seed_group_with_invite(
         &resources,
         owner_id,
         owner_tenant,
-        &coach_id,
+        &agent_id,
         GroupInviteKind::Member,
     )
     .await;
@@ -1002,7 +1002,7 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
         record.group_id.as_deref(),
         Some(group_id.to_string().as_str())
     );
-    assert_eq!(record.coach_id.as_deref(), Some(coach_id.as_str()));
+    assert_eq!(record.agent_id.as_deref(), Some(agent_id.as_str()));
     assert_eq!(record.model, MODEL);
 
     // Joining twice names the group and files nothing more.
@@ -1042,12 +1042,12 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
     let resources = create_test_server_resources().await.unwrap();
     let (owner_id, owner_tenant, _owner_auth) =
         seed_user_tenant(&resources, "coachjoin-owner@test.com", "professional").await;
-    let coach_id = seed_selected_coach(&resources, owner_id, owner_tenant, "Trail Coach").await;
+    let agent_id = seed_selected_agent(&resources, owner_id, owner_tenant, "Trail Coach").await;
     let (group_id, code) = seed_group_with_invite(
         &resources,
         owner_id,
         owner_tenant,
-        &coach_id,
+        &agent_id,
         GroupInviteKind::Coach,
     )
     .await;
@@ -1078,7 +1078,7 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
         .unwrap();
     assert_eq!(untouched.coach_user_id, None);
 
-    // A roster-managing coach in the group's tenant is attached, not enrolled.
+    // A roster-managing agent in the group's tenant is attached, not enrolled.
     let (coach_user_id, coach_auth) =
         seed_tenant_member(&resources, "coachjoin-coach@test.com", owner_tenant, true).await;
     let coach_conv = create_conversation(router.clone(), &coach_auth).await;

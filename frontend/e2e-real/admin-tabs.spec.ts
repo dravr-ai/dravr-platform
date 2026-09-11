@@ -90,7 +90,7 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     expect(r.status()).toBe(200);
     const body = await r.json();
     expect(body).toHaveProperty('top_claims');
-    expect(body).toHaveProperty('top_coaches');
+    expect(body).toHaveProperty('top_agents');
     await ctx.dispose();
   });
 

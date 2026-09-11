@@ -6,11 +6,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+pub mod agent_fixtures;
 pub mod axum_test;
 pub mod chat_scenario;
 /// A local stand-in for the Cloud Tasks API that records every task it is handed.
 pub mod cloud_tasks_stub;
-pub mod coach_fixtures;
 #[cfg(feature = "client-messaging")]
 pub mod command_e2e;
 /// Providers that hang, a `WhatsApp` athlete and the outbound ledger, for the

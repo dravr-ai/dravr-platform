@@ -7,17 +7,17 @@
 //! # Plan calendar push
 //!
 //! A saved plan lives in Dravr's own tables; this module is what puts it on
-//! the athlete's calendar and keeps it there as the coach adjusts it.
+//! the athlete's calendar and keeps it there as the agent adjusts it.
 //!
 //! **Rendering.** Every non-rest [`PlannedDay`] on or after the push date
 //! becomes one [`PlannedSession`] keyed by [`CalendarKey::plan_day`]; a plan
 //! week with a focus becomes one week note keyed by
 //! [`CalendarKey::plan_week_note`]. The mapping is deterministic and holds no
-//! model in the loop: the coach's prose goes out verbatim, and the structure
-//! beside it is only what the coach stated — a day's `steps` when it has
+//! model in the loop: the agent's prose goes out verbatim, and the structure
+//! beside it is only what the agent stated — a day's `steps` when it has
 //! them, else a single step when its `intensity` is inside
-//! [`RelativeIntensity`]'s grammar, else a timed entry carrying the coach's
-//! words, never a step the coach did not state.
+//! [`RelativeIntensity`]'s grammar, else a timed entry carrying the agent's
+//! words, never a step the agent did not state.
 //!
 //! **Reconciling.** Desired sessions are diffed against the ledger's live rows
 //! for the same provider and against what the provider's calendar actually
@@ -109,7 +109,7 @@ fn truncate_chars(text: &str, max: usize) -> String {
     cut
 }
 
-/// The calendar title of a plan day: the first clause of the coach's
+/// The calendar title of a plan day: the first clause of the agent's
 /// prescription, or the sport when the prescription is empty.
 fn day_title(workout: &str, sport: &SportType) -> String {
     let clause = workout
@@ -130,7 +130,7 @@ fn day_title(workout: &str, sport: &SportType) -> String {
 /// A day with `steps` is the structured case: the steps go out as they are
 /// and the session lasts as long as they add up to, which is what lets the
 /// provider build the workout and compute its planned load. A day without
-/// them gets one structured step only when the coach stated an intensity
+/// them gets one structured step only when the agent stated an intensity
 /// Dravr can express as a target; the sport name is the cue because a cue
 /// drawn from the prose could carry a "2h" the provider's parser would read
 /// as a duration.
@@ -151,7 +151,7 @@ pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Opti
         notes.push_str(intensity);
     }
     // The fuelling line rides the note because that is the field every
-    // provider calendar renders. A protocol the coach prescribed and the
+    // provider calendar renders. A protocol the agent prescribed and the
     // athlete cannot see on the day is the same as no protocol at all.
     if let Some(fueling) = day.fueling.as_ref() {
         if !notes.is_empty() {
@@ -418,8 +418,8 @@ pub struct PushPlanParams<'a> {
     pub tenant: TenantId,
     /// Athlete whose plan is pushed.
     pub user_id: Uuid,
-    /// Coach persona whose plan to resolve; `None` for the coach-agnostic one.
-    pub coach_slug: Option<&'a str>,
+    /// Agent persona whose plan to resolve; `None` for the agent-agnostic one.
+    pub agent_slug: Option<&'a str>,
     /// Provider name the ledger rows are filed under.
     pub provider: &'a str,
     /// First date to consider — today in the athlete's calendar. Nothing
@@ -463,7 +463,7 @@ pub async fn push_active_plan(
         .get_active_plan(
             &tenant_str,
             &user_str,
-            PlanOwner::from_slug(params.coach_slug),
+            PlanOwner::from_slug(params.agent_slug),
         )
         .await?
         .ok_or_else(|| {
@@ -530,7 +530,7 @@ pub async fn push_active_plan(
         })
         .collect();
     let edit_slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
-    let coach = plan.coach_slug.as_deref();
+    let agent = plan.agent_slug.as_deref();
 
     let mut wanted: HashSet<String> = HashSet::new();
     for entry in &desired {
@@ -549,7 +549,7 @@ pub async fn push_active_plan(
         let write = LedgerWrite {
             repos,
             params,
-            coach,
+            agent,
             entry,
             hash: &hash,
         };
@@ -666,7 +666,7 @@ pub async fn push_active_plan(
 struct LedgerWrite<'a> {
     repos: &'a RepositoryRegistry,
     params: &'a PushPlanParams<'a>,
-    coach: Option<&'a str>,
+    agent: Option<&'a str>,
     entry: &'a DesiredEntry,
     hash: &'a str,
 }
@@ -805,7 +805,7 @@ impl LedgerWrite<'_> {
             id: Uuid::new_v4(),
             tenant_id: self.params.tenant.as_uuid(),
             user_id: self.params.user_id,
-            coach_id: self.coach.map(str::to_owned),
+            agent_id: self.agent.map(str::to_owned),
             template_slug: None,
             sport: self.entry.session.sport.clone(),
             prescribed_for_date: self.entry.session.date,

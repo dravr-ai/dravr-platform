@@ -6,7 +6,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import type { ProposedCoach } from '@pierre/shared-types';
+import type { ProposedAgent } from '@pierre/shared-types';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { defaultConversationTitle } from '@pierre/chat-utils';
 import { chatApi, coachesApi } from '../services/api';
@@ -55,11 +55,11 @@ export default function OnboardingCoachProposal({
     retry: 1,
   });
 
-  const handleStart = async (coachId: string, coachTitle: string) => {
-    setSelecting(coachId);
+  const handleStart = async (agentId: string, agentTitle: string) => {
+    setSelecting(agentId);
     try {
       // Mark the chosen agent as used so it surfaces first on the dashboard.
-      await coachesApi.recordUsage(coachId);
+      await coachesApi.recordUsage(agentId);
     } catch {
       // Non-fatal: the choice below still opens the agent's thread.
     }
@@ -68,8 +68,8 @@ export default function OnboardingCoachProposal({
       // it and land inside it. The dashboard reads `#chat/<id>` when it mounts,
       // so the hash is set before onboarding hands over to it.
       const conversation = await chatApi.createConversation({
-        coach_id: coachId,
-        title: coachTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
+        agent_id: agentId,
+        title: agentTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
       });
       window.location.hash = `#chat/${encodeURIComponent(conversation.id)}`;
     } catch {
@@ -108,7 +108,7 @@ export default function OnboardingCoachProposal({
     );
   }
 
-  const { profile, coaches } = data;
+  const { profile, agents } = data;
   const primary = profile.primary_sport;
 
   return (
@@ -154,13 +154,13 @@ export default function OnboardingCoachProposal({
 
       {/* Proposed coaches */}
       <div className="mt-6 space-y-3">
-        {coaches.map((proposed) => (
+        {agents.map((proposed) => (
           <CoachProposalCard
-            key={proposed.coach.id}
+            key={proposed.agent.id}
             proposed={proposed}
-            selecting={selecting === proposed.coach.id}
+            selecting={selecting === proposed.agent.id}
             disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.coach.id, proposed.coach.title)}
+            onStart={() => void handleStart(proposed.agent.id, proposed.agent.title)}
           />
         ))}
       </div>
@@ -181,22 +181,22 @@ function CoachProposalCard({
   disabled,
   onStart,
 }: {
-  proposed: ProposedCoach;
+  proposed: ProposedAgent;
   selecting: boolean;
   disabled: boolean;
   onStart: () => void;
 }) {
   const { t } = useTranslation();
-  const { coach, reason } = proposed;
+  const { agent, reason } = proposed;
   return (
     <div className="rounded-xl border border-outline-variant bg-surface-container-low px-5 py-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="font-display font-semibold text-base text-on-surface truncate">
-            {coach.title}
+            {agent.title}
           </h3>
           <p className="mt-0.5 text-xs text-on-surface-variant">
-            {t(coachCategoryLabelKey(coach.category))}
+            {t(coachCategoryLabelKey(agent.category))}
           </p>
         </div>
         <Button variant="primary" onClick={onStart} disabled={disabled}>

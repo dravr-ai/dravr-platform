@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
-import type { ProposedCoach } from '@pierre/shared-types';
+import type { ProposedAgent } from '@pierre/shared-types';
 import { Card, Button } from '../../components/ui';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -52,10 +52,10 @@ export function OnboardingCoachProposalScreen() {
     retry: 1,
   });
 
-  const handleStart = async (coachId: string, coachTitle: string) => {
-    setSelecting(coachId);
+  const handleStart = async (agentId: string, agentTitle: string) => {
+    setSelecting(agentId);
     try {
-      await coachesApi.recordUsage(coachId);
+      await coachesApi.recordUsage(agentId);
     } catch {
       // Non-fatal: the choice below still opens the coach's thread.
     }
@@ -65,9 +65,9 @@ export function OnboardingCoachProposalScreen() {
     await markSeen();
     try {
       const conversation = await createConversation({
-        coach_id: coachId,
+        agent_id: agentId,
         title:
-          coachTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
+          agentTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
       });
       router.push(threadHref(conversation.id));
     } catch {
@@ -106,7 +106,7 @@ export function OnboardingCoachProposalScreen() {
     );
   }
 
-  const { profile, coaches } = data;
+  const { profile, agents } = data;
 
   return (
     <Shell
@@ -161,13 +161,13 @@ export function OnboardingCoachProposalScreen() {
       </View>
 
       <View className="mt-5 gap-3">
-        {coaches.map((proposed) => (
+        {agents.map((proposed) => (
           <CoachProposalCard
-            key={proposed.coach.id}
+            key={proposed.agent.id}
             proposed={proposed}
-            selecting={selecting === proposed.coach.id}
+            selecting={selecting === proposed.agent.id}
             disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.coach.id, proposed.coach.title)}
+            onStart={() => void handleStart(proposed.agent.id, proposed.agent.title)}
           />
         ))}
       </View>
@@ -185,22 +185,22 @@ function CoachProposalCard({
   disabled,
   onStart,
 }: {
-  proposed: ProposedCoach;
+  proposed: ProposedAgent;
   selecting: boolean;
   disabled: boolean;
   onStart: () => void;
 }) {
   const { t } = useTranslation();
-  const { coach, reason } = proposed;
+  const { agent, reason } = proposed;
   return (
     <View className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-4">
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
           <Text className="text-base font-semibold text-on-surface" numberOfLines={1}>
-            {coach.title}
+            {agent.title}
           </Text>
           <Text className="mt-0.5 text-xs text-on-surface-variant">
-            {t(coachCategoryLabelKey(coach.category))}
+            {t(coachCategoryLabelKey(agent.category))}
           </Text>
         </View>
         <Button

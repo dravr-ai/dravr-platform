@@ -29,7 +29,7 @@ function verdictRow(overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
     id: 'v1',
     conversation_id: 'conv-1',
     message_id: 'msg-1',
-    coach_id: 'coach-1',
+    agent_id: 'coach-1',
     claim_text: 'Your VO2max is 82.',
     category: 'physiological',
     status: 'contradicted',

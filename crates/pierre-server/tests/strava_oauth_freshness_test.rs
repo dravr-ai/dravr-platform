@@ -1,5 +1,5 @@
 // ABOUTME: Pins that OAuth-connected Strava reports freshness from the activity cache, not health-sync last_sync
-// ABOUTME: Regression for the "Strava perpetually Fresh" bug that suppressed the coach's get_activities directive
+// ABOUTME: Regression for the "Strava perpetually Fresh" bug that suppressed the agent's get_activities directive
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,7 +15,7 @@
 //! nothing at all. Two live failure modes followed (2026-07-11):
 //!
 //! 1. Every no-op sync cycle stamped `oauth_tokens.last_sync`, so freshness
-//!    read from that column reported Strava perpetually Fresh. The coach
+//!    read from that column reported Strava perpetually Fresh. The agent
 //!    hint's "invoke `get_activities` before answering" directive therefore
 //!    never fired, and on messaging channels the model answered activity
 //!    questions from stale conversation history instead of re-fetching.
@@ -103,7 +103,7 @@ async fn owned_tenant(repos: &RepositoryRegistry, user_id: Uuid) -> TenantId {
 #[tokio::test]
 async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let repos = &resources.common.repos;
     let tenant_id = owned_tenant(repos, user_id).await;
 
@@ -156,7 +156,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
         "strava must not be reported Fresh off the health-sync last_sync stamp"
     );
 
-    let hint = RefreshService::build_coach_hint(&status.details)
+    let hint = RefreshService::build_agent_hint(&status.details)
         .expect("a stale strava must produce a coach hint");
     assert!(
         hint.contains("strava"),
@@ -171,7 +171,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
 #[tokio::test]
 async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let repos = &resources.common.repos;
     let tenant_id = owned_tenant(repos, user_id).await;
 
@@ -223,7 +223,7 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
         status.refreshing
     );
 
-    let hint = RefreshService::build_coach_hint(&status.details);
+    let hint = RefreshService::build_agent_hint(&status.details);
     assert!(
         hint.as_deref().is_none_or(|h| !h.contains("strava")),
         "a fresh strava must not appear in the staleness hint; got {hint:?}"
@@ -235,9 +235,9 @@ async fn scheduled_sync_roster_excludes_oauth_only_strava_users() {
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
 
-    let (oauth_user, _) = create_test_user(&resources.coach.database).await.unwrap();
+    let (oauth_user, _) = create_test_user(&resources.agent.database).await.unwrap();
     let (sciotte_user, _) =
-        create_test_user_with_email(&resources.coach.database, "sciotte-strava@example.com")
+        create_test_user_with_email(&resources.agent.database, "sciotte-strava@example.com")
             .await
             .unwrap();
     let oauth_tenant = owned_tenant(repos, oauth_user).await;

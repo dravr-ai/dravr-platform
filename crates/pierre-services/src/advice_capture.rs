@@ -1,4 +1,4 @@
-// ABOUTME: Advice capture — turns a coach's concrete recommendation into a PendingAdvice awaiting its outcome
+// ABOUTME: Advice capture — turns an agent's concrete recommendation into a PendingAdvice awaiting its outcome
 // ABOUTME: Strategy pattern (v1 = heuristic-gated LLM extraction); runs as a background task after a turn
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! # Advice capture (P3 of coaching playbook memory)
 //!
-//! When the coach makes a concrete, checkable recommendation, we record a
+//! When the agent makes a concrete, checkable recommendation, we record a
 //! [`PendingAdvice`] so the outcome evaluator can later label whether it worked
 //! and reinforce the matching playbook. Capture is a swappable
 //! [`AdviceCaptureStrategy`]; v1 ships [`HeuristicGatedLlmExtraction`] — a cheap
@@ -121,7 +121,7 @@ Rules:
 
 /// Owned, `Clone` snapshot of a finished turn for the background capture task.
 ///
-/// `coach_slug`/`tenant_id`/`user_id` scope the resulting playbook; the two
+/// `agent_slug`/`tenant_id`/`user_id` scope the resulting playbook; the two
 /// message texts feed the extractor.
 #[derive(Debug, Clone)]
 pub struct CapturedTurn {
@@ -129,8 +129,8 @@ pub struct CapturedTurn {
     pub tenant_id: String,
     /// User the advice was given to.
     pub user_id: String,
-    /// Coach persona slug, or `None` for a coach-agnostic playbook.
-    pub coach_slug: Option<String>,
+    /// Agent persona slug, or `None` for an agent-agnostic playbook.
+    pub agent_slug: Option<String>,
     /// The user message that started the turn.
     pub user_message: String,
     /// The assistant reply that completed the turn.
@@ -216,7 +216,7 @@ pub fn raw_to_pending(
         id: Uuid::new_v4().to_string(),
         tenant_id: turn.tenant_id.clone(),
         user_id: turn.user_id.clone(),
-        coach_slug: turn.coach_slug.clone(),
+        agent_slug: turn.agent_slug.clone(),
         playbook_id: None,
         trigger,
         intervention,

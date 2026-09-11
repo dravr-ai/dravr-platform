@@ -7,7 +7,7 @@
 //! Peer-mention grounding for group conversations.
 //!
 //! Live incident 2026-08-22 (Telegram group): challenged with « Une course?
-//! J'en doute », the coach defended itself with invented specifics about a
+//! J'en doute », the agent defended itself with invented specifics about a
 //! peer — "4h30", "pas de distance" — while the peer's true record (53 min,
 //! 6.1 km) sat one roster row away. The turn made zero peer tool calls; the
 //! model answered about a person whose detailed data was never in front of

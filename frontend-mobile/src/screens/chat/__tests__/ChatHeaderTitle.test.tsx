@@ -19,7 +19,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
     title: 'Tuesday intervals',
     group_id: null,
     group_name: null,
-    coach_handle: null,
+    agent_handle: null,
     ...overrides,
   } as Conversation;
 }
@@ -72,7 +72,7 @@ describe('ChatHeaderTitle subtitle', () => {
   });
 
   it('yields to the coach handle', () => {
-    renderHeader(conversation({ coach_handle: 'trail' }), 'No provider connected');
+    renderHeader(conversation({ agent_handle: 'trail' }), 'No provider connected');
 
     expect(screen.getByTestId('chat-header-handle')).toHaveTextContent('@trail');
     expect(screen.queryByTestId('chat-header-provider-status')).toBeNull();

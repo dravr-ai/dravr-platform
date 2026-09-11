@@ -1,4 +1,4 @@
-// ABOUTME: Tests the coach-proposal pillar-context prompt block built from a user's Dossier
+// ABOUTME: Tests the agent-proposal pillar-context prompt block built from a user's Dossier
 // ABOUTME: Covers the empty dossier, the north-star + covered-pillar render, and stale-fact exclusion
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::models::{Dossier, DossierFact, Pillar};
-use pierre_routes_coaches::coaches::proposal_profile::pillar_context_prompt;
+use pierre_routes_agents::agents::proposal_profile::pillar_context_prompt;
 use uuid::Uuid;
 
 fn fact(object: &str, stale: bool) -> DossierFact {

@@ -26,14 +26,25 @@ use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::activities_output::GetActivitiesResult;
 use pierre_tool_runtime::implementations::admin::{
-    AdminAssignCoachTool, AdminCreateSystemCoachTool, AdminDeleteSystemCoachTool,
-    AdminGetSystemCoachTool, AdminListCoachAssignmentsTool, AdminListSystemCoachesTool,
-    AdminUnassignCoachTool, AdminUpdateSystemCoachTool,
+    AdminAssignAgentTool, AdminCreateSystemAgentTool, AdminDeleteSystemAgentTool,
+    AdminGetSystemAgentTool, AdminListAgentAssignmentsTool, AdminListSystemAgentsTool,
+    AdminUnassignAgentTool, AdminUpdateSystemAgentTool,
 };
 use pierre_tool_runtime::implementations::admin_output::{
-    AdminAssignCoachResult, AdminCreateSystemCoachResult, AdminDeleteSystemCoachResult,
-    AdminGetSystemCoachResult, AdminListCoachAssignmentsResult, AdminListSystemCoachesResult,
-    AdminUnassignCoachResult, AdminUpdateSystemCoachResult, CoachAssignmentEntry, SystemCoachEntry,
+    AdminAssignAgentResult, AdminCreateSystemAgentResult, AdminDeleteSystemAgentResult,
+    AdminGetSystemAgentResult, AdminListAgentAssignmentsResult, AdminListSystemAgentsResult,
+    AdminUnassignAgentResult, AdminUpdateSystemAgentResult, AgentAssignmentEntry, SystemAgentEntry,
+};
+use pierre_tool_runtime::implementations::agents::{
+    ActivateAgentTool, CreateAgentTool, DeactivateAgentTool, DeleteAgentTool, GetActiveAgentTool,
+    GetAgentTool, HideAgentTool, ListAgentsTool, ListHiddenAgentsTool, SearchAgentsTool,
+    ShowAgentTool, ToggleAgentFavoriteTool, UpdateAgentTool,
+};
+use pierre_tool_runtime::implementations::agents_output::{
+    ActivateAgentResult, ActiveAgentDetail, AgentListEntry, AgentSearchEntry, CreateAgentResult,
+    DeactivateAgentResult, DeleteAgentResult, GetActiveAgentResult, GetAgentResult,
+    HiddenAgentEntry, HideAgentResult, ListAgentsResult, ListHiddenAgentsResult,
+    SearchAgentsResult, ShowAgentResult, ToggleAgentFavoriteResult, UpdateAgentResult,
 };
 use pierre_tool_runtime::implementations::analytics::output::{
     ActivityIntelligence, ActivityIntelligenceResult, ActivityMetricsResult,
@@ -54,17 +65,6 @@ use pierre_tool_runtime::implementations::analytics::{
 };
 use pierre_tool_runtime::implementations::athlete_stats::{
     GetAthleteResult, GetAthleteTool, GetStatsResult, GetStatsTool,
-};
-use pierre_tool_runtime::implementations::coaches::{
-    ActivateCoachTool, CreateCoachTool, DeactivateCoachTool, DeleteCoachTool, GetActiveCoachTool,
-    GetCoachTool, HideCoachTool, ListCoachesTool, ListHiddenCoachesTool, SearchCoachesTool,
-    ShowCoachTool, ToggleCoachFavoriteTool, UpdateCoachTool,
-};
-use pierre_tool_runtime::implementations::coaches_output::{
-    ActivateCoachResult, ActiveCoachDetail, CoachListEntry, CoachSearchEntry, CreateCoachResult,
-    DeactivateCoachResult, DeleteCoachResult, GetActiveCoachResult, GetCoachResult,
-    HiddenCoachEntry, HideCoachResult, ListCoachesResult, ListHiddenCoachesResult,
-    SearchCoachesResult, ShowCoachResult, ToggleCoachFavoriteResult, UpdateCoachResult,
 };
 use pierre_tool_runtime::implementations::commitments::{
     CommitmentCancelResult, CommitmentCancelTool, CommitmentCreateResult, CommitmentCreateTool,
@@ -106,7 +106,7 @@ use pierre_tool_runtime::implementations::lactate_thresholds_output::{
     DeterminedThreshold, LactateThresholdsResult, UndeterminedThreshold,
 };
 use pierre_tool_runtime::implementations::memory::{
-    CoachFollowupScheduleResult, CoachFollowupScheduleTool, CoachNoteAddResult, CoachNoteAddTool,
+    AgentFollowupScheduleResult, AgentFollowupScheduleTool, AgentNoteAddResult, AgentNoteAddTool,
     RecallUserMemoryResult, RecallUserMemoryTool, RecalledFact, RememberFactResult,
     RememberFactTool,
 };
@@ -149,8 +149,8 @@ use pierre_tool_runtime::implementations::sleep::{
     SuggestRestDayTool, TrackSleepTrendsTool,
 };
 use pierre_tool_runtime::implementations::store::{
-    BrowseCoachStoreResult, BrowseCoachStoreTool, InstallCoachFromStoreResult,
-    InstallCoachFromStoreTool, SearchCoachStoreResult, SearchCoachStoreTool, StoreCoachEntry,
+    BrowseAgentStoreResult, BrowseAgentStoreTool, InstallAgentFromStoreResult,
+    InstallAgentFromStoreTool, SearchAgentStoreResult, SearchAgentStoreTool, StoreAgentEntry,
 };
 use pierre_tool_runtime::implementations::stored_data::{
     DataSourcesResult, DateRange, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
@@ -484,34 +484,34 @@ fn analyze_goal_feasibility_declares_a_schema_that_accepts_its_payload() {
 }
 
 #[test]
-fn coach_note_add_declares_a_schema_that_accepts_its_payload() {
-    let sample = CoachNoteAddResult {
+fn agent_note_add_declares_a_schema_that_accepts_its_payload() {
+    let sample = AgentNoteAddResult {
         note_id: "note-1".to_owned(),
         created_at: "2026-09-05T09:00:00+00:00".to_owned(),
     };
     assert_declares_and_accepts(
-        <CoachNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&CoachNoteAddTool).output_schema,
-        &output_schema_for::<CoachNoteAddResult>(),
+        <AgentNoteAddTool as McpTool<dyn ToolRuntime>>::definition(&AgentNoteAddTool).output_schema,
+        &output_schema_for::<AgentNoteAddResult>(),
         &sample,
         "agent_note_add",
     );
 }
 
 #[test]
-fn coach_followup_schedule_accepts_a_followup_with_no_due_date() {
-    // due_at is None when the coach scheduled no date — the follow-up rides the
+fn agent_followup_schedule_accepts_a_followup_with_no_due_date() {
+    // due_at is None when the agent scheduled no date — the follow-up rides the
     // next conversation instead of a clock, and that is the common case.
-    let sample = CoachFollowupScheduleResult {
+    let sample = AgentFollowupScheduleResult {
         followup_id: "fu-1".to_owned(),
         status: "pending".to_owned(),
         due_at: None,
     };
     assert_declares_and_accepts(
-        <CoachFollowupScheduleTool as McpTool<dyn ToolRuntime>>::definition(
-            &CoachFollowupScheduleTool,
+        <AgentFollowupScheduleTool as McpTool<dyn ToolRuntime>>::definition(
+            &AgentFollowupScheduleTool,
         )
         .output_schema,
-        &output_schema_for::<CoachFollowupScheduleResult>(),
+        &output_schema_for::<AgentFollowupScheduleResult>(),
         &sample,
         "agent_followup_schedule",
     );
@@ -1203,10 +1203,10 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
 }
 
 // ============================================================================
-// coaches
+// agents
 // ============================================================================
 
-/// Every coach tool, paired with the type its `execute` actually serializes.
+/// Every agent tool, paired with the type its `execute` actually serializes.
 ///
 /// Five of the thirteen honour a `format` argument and so answer through the
 /// `Formatted` envelope; the other eight always send their own shape. Getting
@@ -1214,74 +1214,74 @@ fn search_recipes_declares_a_schema_that_accepts_no_matches() {
 /// to expect the envelope's `anyOf` and handed a bare object has been lied
 /// to.
 #[test]
-fn each_coach_schema_is_attached_to_the_tool_it_names() {
+fn each_agent_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
         (
             "list_agents",
-            <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool),
-            output_schema_for::<Formatted<ListCoachesResult>>(),
+            <ListAgentsTool as McpTool<dyn ToolRuntime>>::definition(&ListAgentsTool),
+            output_schema_for::<Formatted<ListAgentsResult>>(),
         ),
         (
             "create_agent",
-            <CreateCoachTool as McpTool<dyn ToolRuntime>>::definition(&CreateCoachTool),
-            output_schema_for::<CreateCoachResult>(),
+            <CreateAgentTool as McpTool<dyn ToolRuntime>>::definition(&CreateAgentTool),
+            output_schema_for::<CreateAgentResult>(),
         ),
         (
             "get_agent",
-            <GetCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetCoachTool),
-            output_schema_for::<Formatted<GetCoachResult>>(),
+            <GetAgentTool as McpTool<dyn ToolRuntime>>::definition(&GetAgentTool),
+            output_schema_for::<Formatted<GetAgentResult>>(),
         ),
         (
             "update_agent",
-            <UpdateCoachTool as McpTool<dyn ToolRuntime>>::definition(&UpdateCoachTool),
-            output_schema_for::<UpdateCoachResult>(),
+            <UpdateAgentTool as McpTool<dyn ToolRuntime>>::definition(&UpdateAgentTool),
+            output_schema_for::<UpdateAgentResult>(),
         ),
         (
             "delete_agent",
-            <DeleteCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeleteCoachTool),
-            output_schema_for::<DeleteCoachResult>(),
+            <DeleteAgentTool as McpTool<dyn ToolRuntime>>::definition(&DeleteAgentTool),
+            output_schema_for::<DeleteAgentResult>(),
         ),
         (
             "toggle_agent_favorite",
-            <ToggleCoachFavoriteTool as McpTool<dyn ToolRuntime>>::definition(
-                &ToggleCoachFavoriteTool,
+            <ToggleAgentFavoriteTool as McpTool<dyn ToolRuntime>>::definition(
+                &ToggleAgentFavoriteTool,
             ),
-            output_schema_for::<ToggleCoachFavoriteResult>(),
+            output_schema_for::<ToggleAgentFavoriteResult>(),
         ),
         (
             "search_agents",
-            <SearchCoachesTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachesTool),
-            output_schema_for::<Formatted<SearchCoachesResult>>(),
+            <SearchAgentsTool as McpTool<dyn ToolRuntime>>::definition(&SearchAgentsTool),
+            output_schema_for::<Formatted<SearchAgentsResult>>(),
         ),
         (
             "activate_agent",
-            <ActivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&ActivateCoachTool),
-            output_schema_for::<ActivateCoachResult>(),
+            <ActivateAgentTool as McpTool<dyn ToolRuntime>>::definition(&ActivateAgentTool),
+            output_schema_for::<ActivateAgentResult>(),
         ),
         (
             "deactivate_agent",
-            <DeactivateCoachTool as McpTool<dyn ToolRuntime>>::definition(&DeactivateCoachTool),
-            output_schema_for::<DeactivateCoachResult>(),
+            <DeactivateAgentTool as McpTool<dyn ToolRuntime>>::definition(&DeactivateAgentTool),
+            output_schema_for::<DeactivateAgentResult>(),
         ),
         (
             "get_active_agent",
-            <GetActiveCoachTool as McpTool<dyn ToolRuntime>>::definition(&GetActiveCoachTool),
-            output_schema_for::<Formatted<GetActiveCoachResult>>(),
+            <GetActiveAgentTool as McpTool<dyn ToolRuntime>>::definition(&GetActiveAgentTool),
+            output_schema_for::<Formatted<GetActiveAgentResult>>(),
         ),
         (
             "hide_agent",
-            <HideCoachTool as McpTool<dyn ToolRuntime>>::definition(&HideCoachTool),
-            output_schema_for::<HideCoachResult>(),
+            <HideAgentTool as McpTool<dyn ToolRuntime>>::definition(&HideAgentTool),
+            output_schema_for::<HideAgentResult>(),
         ),
         (
             "show_agent",
-            <ShowCoachTool as McpTool<dyn ToolRuntime>>::definition(&ShowCoachTool),
-            output_schema_for::<ShowCoachResult>(),
+            <ShowAgentTool as McpTool<dyn ToolRuntime>>::definition(&ShowAgentTool),
+            output_schema_for::<ShowAgentResult>(),
         ),
         (
             "list_hidden_agents",
-            <ListHiddenCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListHiddenCoachesTool),
-            output_schema_for::<Formatted<ListHiddenCoachesResult>>(),
+            <ListHiddenAgentsTool as McpTool<dyn ToolRuntime>>::definition(&ListHiddenAgentsTool),
+            output_schema_for::<Formatted<ListHiddenAgentsResult>>(),
         ),
     ] {
         assert_eq!(
@@ -1299,9 +1299,9 @@ fn each_coach_schema_is_attached_to_the_tool_it_names() {
 }
 
 #[test]
-fn list_coaches_declares_a_schema_that_accepts_its_payload() {
-    let sample = Formatted::Json(ListCoachesResult {
-        coaches: vec![CoachListEntry {
+fn list_agents_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(ListAgentsResult {
+        agents: vec![AgentListEntry {
             id: "6bd0b0f4-0000-4000-8000-000000000001".to_owned(),
             title: "Threshold Builder".to_owned(),
             description: Some("Six weeks of tempo work".to_owned()),
@@ -1323,19 +1323,19 @@ fn list_coaches_declares_a_schema_that_accepts_its_payload() {
     });
 
     assert_declares_and_accepts(
-        <ListCoachesTool as McpTool<dyn ToolRuntime>>::definition(&ListCoachesTool).output_schema,
-        &output_schema_for::<Formatted<ListCoachesResult>>(),
+        <ListAgentsTool as McpTool<dyn ToolRuntime>>::definition(&ListAgentsTool).output_schema,
+        &output_schema_for::<Formatted<ListAgentsResult>>(),
         &sample,
         "list_agents",
     );
 }
 
 #[test]
-fn a_coach_with_no_description_and_no_use_yet_still_validates() {
-    // A freshly created coach: no description was given, it has never been
+fn an_agent_with_no_description_and_no_use_yet_still_validates() {
+    // A freshly created agent: no description was given, it has never been
     // used, so the two optional fields are absent rather than zeroed.
-    let sample = Formatted::Json(ListCoachesResult {
-        coaches: vec![CoachListEntry {
+    let sample = Formatted::Json(ListAgentsResult {
+        agents: vec![AgentListEntry {
             id: "6bd0b0f4-0000-4000-8000-000000000002".to_owned(),
             title: "Untitled".to_owned(),
             description: None,
@@ -1355,7 +1355,7 @@ fn a_coach_with_no_description_and_no_use_yet_still_validates() {
         limit: 50,
         has_more: false,
     });
-    let validator = jsonschema::validator_for(&output_schema_for::<Formatted<ListCoachesResult>>())
+    let validator = jsonschema::validator_for(&output_schema_for::<Formatted<ListAgentsResult>>())
         .expect("compiles");
 
     assert!(
@@ -1365,16 +1365,16 @@ fn a_coach_with_no_description_and_no_use_yet_still_validates() {
 }
 
 #[test]
-fn get_active_coach_declares_one_schema_that_covers_both_of_its_answers() {
-    // The tool sends the same key set whether or not a coach is active. If the
+fn get_active_agent_declares_one_schema_that_covers_both_of_its_answers() {
+    // The tool sends the same key set whether or not an agent is active. If the
     // schema only ever described the active answer, every idle reply would be
     // a protocol violation — and idle is the common case.
-    let derived = output_schema_for::<Formatted<GetActiveCoachResult>>();
+    let derived = output_schema_for::<Formatted<GetActiveAgentResult>>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
 
-    let active = Formatted::Json(GetActiveCoachResult {
+    let active = Formatted::Json(GetActiveAgentResult {
         active: true,
-        coach: Some(ActiveCoachDetail {
+        agent: Some(ActiveAgentDetail {
             id: "6bd0b0f4-0000-4000-8000-000000000003".to_owned(),
             title: "Base Phase".to_owned(),
             description: None,
@@ -1384,9 +1384,9 @@ fn get_active_coach_declares_one_schema_that_covers_both_of_its_answers() {
             token_count: 640,
         }),
     });
-    let idle = Formatted::Json(GetActiveCoachResult {
+    let idle = Formatted::Json(GetActiveAgentResult {
         active: false,
-        coach: None,
+        agent: None,
     });
 
     for (label, payload) in [("active", &active), ("idle", &idle)] {
@@ -1399,13 +1399,13 @@ fn get_active_coach_declares_one_schema_that_covers_both_of_its_answers() {
 }
 
 #[test]
-fn get_coach_does_not_promise_usage_fields_it_cannot_fill() {
+fn get_agent_does_not_promise_usage_fields_it_cannot_fill() {
     // It used to send is_favorite false, use_count 0 and last_used_at null
-    // unconditionally — the single-coach read does not join the usage table,
+    // unconditionally — the single-agent read does not join the usage table,
     // so those were constants dressed as data. Declaring an outputSchema would
-    // have made them a promise. They are gone; list_coaches is where usage
+    // have made them a promise. They are gone; list_agents is where usage
     // signals actually come from.
-    let derived = output_schema_for::<GetCoachResult>();
+    let derived = output_schema_for::<GetAgentResult>();
     let properties = derived["properties"]
         .as_object()
         .expect("the result type is an object schema");
@@ -1413,21 +1413,21 @@ fn get_coach_does_not_promise_usage_fields_it_cannot_fill() {
     for absent in ["is_favorite", "use_count", "last_used_at"] {
         assert!(
             !properties.contains_key(absent),
-            "get_coach must not declare {absent}: it has no value to put there"
+            "get_agent must not declare {absent}: it has no value to put there"
         );
     }
     assert!(
         properties.contains_key("system_prompt"),
-        "get_coach exists to return the full coach, prompt included"
+        "get_agent exists to return the full coach, prompt included"
     );
 }
 
 #[test]
-fn the_coach_schemas_reject_payloads_missing_a_required_field() {
+fn the_agent_schemas_reject_payloads_missing_a_required_field() {
     // Without this the conformance tests above would pass just as happily
     // against a schema that describes nothing.
     let search =
-        jsonschema::validator_for(&output_schema_for::<SearchCoachesResult>()).expect("compiles");
+        jsonschema::validator_for(&output_schema_for::<SearchAgentsResult>()).expect("compiles");
     assert!(
         !search.is_valid(&json!({
             "query": "tempo",
@@ -1442,14 +1442,14 @@ fn the_coach_schemas_reject_payloads_missing_a_required_field() {
     );
 
     let delete =
-        jsonschema::validator_for(&output_schema_for::<DeleteCoachResult>()).expect("compiles");
+        jsonschema::validator_for(&output_schema_for::<DeleteAgentResult>()).expect("compiles");
     assert!(
         !delete.is_valid(&json!({ "deleted": true })),
-        "delete_coach must say WHICH coach it deleted"
+        "delete_agent must say WHICH coach it deleted"
     );
 
     let envelope =
-        jsonschema::validator_for(&output_schema_for::<Formatted<ListHiddenCoachesResult>>())
+        jsonschema::validator_for(&output_schema_for::<Formatted<ListHiddenAgentsResult>>())
             .expect("compiles");
     assert!(
         !envelope.is_valid(&json!({ "count": 0 })),
@@ -1458,14 +1458,14 @@ fn the_coach_schemas_reject_payloads_missing_a_required_field() {
 }
 
 #[test]
-fn the_narrow_coach_projections_accept_their_payloads() {
+fn the_narrow_agent_projections_accept_their_payloads() {
     for (tool, derived, payload) in [
         (
             "search_agents",
-            output_schema_for::<Formatted<SearchCoachesResult>>(),
-            serde_json::to_value(Formatted::Json(SearchCoachesResult {
+            output_schema_for::<Formatted<SearchAgentsResult>>(),
+            serde_json::to_value(Formatted::Json(SearchAgentsResult {
                 query: "tempo".to_owned(),
-                results: vec![CoachSearchEntry {
+                results: vec![AgentSearchEntry {
                     id: "6bd0b0f4-0000-4000-8000-000000000004".to_owned(),
                     title: "Threshold Builder".to_owned(),
                     description: None,
@@ -1482,9 +1482,9 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "list_hidden_agents",
-            output_schema_for::<Formatted<ListHiddenCoachesResult>>(),
-            serde_json::to_value(Formatted::Json(ListHiddenCoachesResult {
-                coaches: vec![HiddenCoachEntry {
+            output_schema_for::<Formatted<ListHiddenAgentsResult>>(),
+            serde_json::to_value(Formatted::Json(ListHiddenAgentsResult {
+                agents: vec![HiddenAgentEntry {
                     id: "6bd0b0f4-0000-4000-8000-000000000005".to_owned(),
                     title: "Nutrition Basics".to_owned(),
                     description: Some("Shipped with the platform".to_owned()),
@@ -1497,8 +1497,8 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "activate_agent",
-            output_schema_for::<ActivateCoachResult>(),
-            serde_json::to_value(ActivateCoachResult {
+            output_schema_for::<ActivateAgentResult>(),
+            serde_json::to_value(ActivateAgentResult {
                 id: "6bd0b0f4-0000-4000-8000-000000000006".to_owned(),
                 title: "Base Phase".to_owned(),
                 description: None,
@@ -1511,13 +1511,13 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "deactivate_agent",
-            output_schema_for::<DeactivateCoachResult>(),
-            serde_json::to_value(DeactivateCoachResult { deactivated: false }).expect("serializes"),
+            output_schema_for::<DeactivateAgentResult>(),
+            serde_json::to_value(DeactivateAgentResult { deactivated: false }).expect("serializes"),
         ),
         (
             "toggle_agent_favorite",
-            output_schema_for::<ToggleCoachFavoriteResult>(),
-            serde_json::to_value(ToggleCoachFavoriteResult {
+            output_schema_for::<ToggleAgentFavoriteResult>(),
+            serde_json::to_value(ToggleAgentFavoriteResult {
                 agent_id: "6bd0b0f4-0000-4000-8000-000000000007".to_owned(),
                 is_favorite: true,
             })
@@ -1525,8 +1525,8 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "hide_agent",
-            output_schema_for::<HideCoachResult>(),
-            serde_json::to_value(HideCoachResult {
+            output_schema_for::<HideAgentResult>(),
+            serde_json::to_value(HideAgentResult {
                 agent_id: "6bd0b0f4-0000-4000-8000-000000000008".to_owned(),
                 is_hidden: true,
             })
@@ -1534,8 +1534,8 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "show_agent",
-            output_schema_for::<ShowCoachResult>(),
-            serde_json::to_value(ShowCoachResult {
+            output_schema_for::<ShowAgentResult>(),
+            serde_json::to_value(ShowAgentResult {
                 agent_id: "6bd0b0f4-0000-4000-8000-000000000009".to_owned(),
                 is_hidden: false,
                 removed_preference: true,
@@ -1544,8 +1544,8 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "create_agent",
-            output_schema_for::<CreateCoachResult>(),
-            serde_json::to_value(CreateCoachResult {
+            output_schema_for::<CreateAgentResult>(),
+            serde_json::to_value(CreateAgentResult {
                 id: "6bd0b0f4-0000-4000-8000-00000000000a".to_owned(),
                 title: "Recovery Week".to_owned(),
                 description: Some("Deload guidance".to_owned()),
@@ -1558,8 +1558,8 @@ fn the_narrow_coach_projections_accept_their_payloads() {
         ),
         (
             "update_agent",
-            output_schema_for::<UpdateCoachResult>(),
-            serde_json::to_value(UpdateCoachResult {
+            output_schema_for::<UpdateAgentResult>(),
+            serde_json::to_value(UpdateAgentResult {
                 id: "6bd0b0f4-0000-4000-8000-00000000000b".to_owned(),
                 title: "Recovery Week".to_owned(),
                 description: None,
@@ -1775,7 +1775,7 @@ fn the_flavour_verdict_schema_lists_its_vocabularies() {
     }
 
     // Every flavour is named in the athlete's language as well as by id. The
-    // id is the coach's word and stable across locales; the label is what the
+    // id is the agent's word and stable across locales; the label is what the
     // athlete is actually told. Typing this reply nearly dropped the labels —
     // they were added on main while the typing was in flight — so both arms
     // require one.
@@ -2606,57 +2606,57 @@ fn each_admin_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
         (
             "admin_list_system_agents",
-            <AdminListSystemCoachesTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminListSystemCoachesTool,
+            <AdminListSystemAgentsTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminListSystemAgentsTool,
             ),
-            output_schema_for::<Formatted<AdminListSystemCoachesResult>>(),
+            output_schema_for::<Formatted<AdminListSystemAgentsResult>>(),
         ),
         (
             "admin_create_system_agent",
-            <AdminCreateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminCreateSystemCoachTool,
+            <AdminCreateSystemAgentTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminCreateSystemAgentTool,
             ),
-            output_schema_for::<AdminCreateSystemCoachResult>(),
+            output_schema_for::<AdminCreateSystemAgentResult>(),
         ),
         (
             "admin_get_system_agent",
-            <AdminGetSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminGetSystemCoachTool,
+            <AdminGetSystemAgentTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminGetSystemAgentTool,
             ),
-            output_schema_for::<Formatted<AdminGetSystemCoachResult>>(),
+            output_schema_for::<Formatted<AdminGetSystemAgentResult>>(),
         ),
         (
             "admin_update_system_agent",
-            <AdminUpdateSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminUpdateSystemCoachTool,
+            <AdminUpdateSystemAgentTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminUpdateSystemAgentTool,
             ),
-            output_schema_for::<AdminUpdateSystemCoachResult>(),
+            output_schema_for::<AdminUpdateSystemAgentResult>(),
         ),
         (
             "admin_delete_system_agent",
-            <AdminDeleteSystemCoachTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminDeleteSystemCoachTool,
+            <AdminDeleteSystemAgentTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminDeleteSystemAgentTool,
             ),
-            output_schema_for::<AdminDeleteSystemCoachResult>(),
+            output_schema_for::<AdminDeleteSystemAgentResult>(),
         ),
         (
             "admin_assign_agent",
-            <AdminAssignCoachTool as McpTool<dyn ToolRuntime>>::definition(&AdminAssignCoachTool),
-            output_schema_for::<AdminAssignCoachResult>(),
+            <AdminAssignAgentTool as McpTool<dyn ToolRuntime>>::definition(&AdminAssignAgentTool),
+            output_schema_for::<AdminAssignAgentResult>(),
         ),
         (
             "admin_unassign_agent",
-            <AdminUnassignCoachTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminUnassignCoachTool,
+            <AdminUnassignAgentTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminUnassignAgentTool,
             ),
-            output_schema_for::<AdminUnassignCoachResult>(),
+            output_schema_for::<AdminUnassignAgentResult>(),
         ),
         (
             "admin_list_agent_assignments",
-            <AdminListCoachAssignmentsTool as McpTool<dyn ToolRuntime>>::definition(
-                &AdminListCoachAssignmentsTool,
+            <AdminListAgentAssignmentsTool as McpTool<dyn ToolRuntime>>::definition(
+                &AdminListAgentAssignmentsTool,
             ),
-            output_schema_for::<AdminListCoachAssignmentsResult>(),
+            output_schema_for::<AdminListAgentAssignmentsResult>(),
         ),
     ] {
         assert_eq!(
@@ -2675,23 +2675,23 @@ fn each_admin_schema_is_attached_to_the_tool_it_names() {
 
 #[test]
 fn every_admin_projection_declares_the_visibility_an_operator_decides() {
-    // The operator-facing twins differ from the athlete-facing coach tools in
+    // The operator-facing twins differ from the athlete-facing agent tools in
     // exactly this: who a system agent is visible to is the operator's call,
     // so every admin projection reports it. An admin schema that dropped it
     // would be describing the athlete's view by mistake.
     for (name, schema) in [
-        ("SystemCoachEntry", output_schema_for::<SystemCoachEntry>()),
+        ("SystemCoachEntry", output_schema_for::<SystemAgentEntry>()),
         (
             "AdminCreateSystemCoachResult",
-            output_schema_for::<AdminCreateSystemCoachResult>(),
+            output_schema_for::<AdminCreateSystemAgentResult>(),
         ),
         (
             "AdminGetSystemCoachResult",
-            output_schema_for::<AdminGetSystemCoachResult>(),
+            output_schema_for::<AdminGetSystemAgentResult>(),
         ),
         (
             "AdminUpdateSystemCoachResult",
-            output_schema_for::<AdminUpdateSystemCoachResult>(),
+            output_schema_for::<AdminUpdateSystemAgentResult>(),
         ),
     ] {
         assert!(
@@ -2705,9 +2705,9 @@ fn every_admin_projection_declares_the_visibility_an_operator_decides() {
 }
 
 #[test]
-fn admin_list_system_coaches_declares_a_schema_that_accepts_its_payload() {
-    let sample = Formatted::Json(AdminListSystemCoachesResult {
-        coaches: vec![SystemCoachEntry {
+fn admin_list_system_agents_declares_a_schema_that_accepts_its_payload() {
+    let sample = Formatted::Json(AdminListSystemAgentsResult {
+        agents: vec![SystemAgentEntry {
             id: "b21f0f4e-0000-4000-8000-000000000001".to_owned(),
             title: "Nutrition Basics".to_owned(),
             description: Some("Shipped with the platform".to_owned()),
@@ -2724,11 +2724,11 @@ fn admin_list_system_coaches_declares_a_schema_that_accepts_its_payload() {
     });
 
     assert_declares_and_accepts(
-        <AdminListSystemCoachesTool as McpTool<dyn ToolRuntime>>::definition(
-            &AdminListSystemCoachesTool,
+        <AdminListSystemAgentsTool as McpTool<dyn ToolRuntime>>::definition(
+            &AdminListSystemAgentsTool,
         )
         .output_schema,
-        &output_schema_for::<Formatted<AdminListSystemCoachesResult>>(),
+        &output_schema_for::<Formatted<AdminListSystemAgentsResult>>(),
         &sample,
         "admin_list_system_agents",
     );
@@ -2740,16 +2740,16 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
     // account leaves the assignment row behind with no email to join to, and
     // rows predating the assigned_by column have no operator to name. A
     // schema demanding either would reject a listing the tool really sends.
-    let sample = AdminListCoachAssignmentsResult {
+    let sample = AdminListAgentAssignmentsResult {
         agent_id: "b21f0f4e-0000-4000-8000-000000000002".to_owned(),
         assignments: vec![
-            CoachAssignmentEntry {
+            AgentAssignmentEntry {
                 user_id: "u-1".to_owned(),
                 user_email: Some("alice@acme.test".to_owned()),
                 assigned_at: "2026-08-01T09:00:00+00:00".to_owned(),
                 assigned_by: Some("admin-1".to_owned()),
             },
-            CoachAssignmentEntry {
+            AgentAssignmentEntry {
                 user_id: "u-2".to_owned(),
                 user_email: None,
                 assigned_at: "2026-05-02T09:00:00+00:00".to_owned(),
@@ -2761,7 +2761,7 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
         truncated: true,
     };
     let validator =
-        jsonschema::validator_for(&output_schema_for::<AdminListCoachAssignmentsResult>())
+        jsonschema::validator_for(&output_schema_for::<AdminListAgentAssignmentsResult>())
             .expect("compiles");
     let value = serde_json::to_value(&sample).expect("serializes");
 
@@ -2778,32 +2778,32 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
 
 #[test]
 fn the_admin_schemas_reject_payloads_missing_a_required_field() {
-    let assign = jsonschema::validator_for(&output_schema_for::<AdminAssignCoachResult>())
+    let assign = jsonschema::validator_for(&output_schema_for::<AdminAssignAgentResult>())
         .expect("compiles");
     assert!(
         !assign.is_valid(&json!({
             "assigned": true,
-            "coach_id": "b21f0f4e-0000-4000-8000-000000000003",
-            "coach_title": "Nutrition Basics",
+            "agent_id": "b21f0f4e-0000-4000-8000-000000000003",
+            "agent_title": "Nutrition Basics",
             "user_id": "u-1",
         })),
         "an assignment reply with no assigned_by is not an audit record"
     );
 
-    let unassign = jsonschema::validator_for(&output_schema_for::<AdminUnassignCoachResult>())
+    let unassign = jsonschema::validator_for(&output_schema_for::<AdminUnassignAgentResult>())
         .expect("compiles");
     assert!(
         !unassign.is_valid(&json!({ "unassigned": true })),
-        "admin_unassign_coach must say which coach and which athlete"
+        "admin_unassign_agent must say which coach and which athlete"
     );
 }
 
 // ============================================================================
-// the coach_store tools — the module keeps the identifier (D6)
+// the agent_store tools — the module keeps the identifier (D6)
 // ============================================================================
 
-fn a_store_coach() -> StoreCoachEntry {
-    StoreCoachEntry {
+fn a_store_agent() -> StoreAgentEntry {
+    StoreAgentEntry {
         id: "9c3a77b1-0000-4000-8000-000000000001".to_owned(),
         title: "Marathon Build".to_owned(),
         description: Some("Sixteen weeks to a first marathon".to_owned()),
@@ -2820,20 +2820,20 @@ fn each_store_schema_is_attached_to_the_tool_it_names() {
     for (tool_name, declared, derived) in [
         (
             "browse_agent_store",
-            <BrowseCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&BrowseCoachStoreTool),
-            output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
+            <BrowseAgentStoreTool as McpTool<dyn ToolRuntime>>::definition(&BrowseAgentStoreTool),
+            output_schema_for::<Formatted<BrowseAgentStoreResult>>(),
         ),
         (
             "search_agent_store",
-            <SearchCoachStoreTool as McpTool<dyn ToolRuntime>>::definition(&SearchCoachStoreTool),
-            output_schema_for::<Formatted<SearchCoachStoreResult>>(),
+            <SearchAgentStoreTool as McpTool<dyn ToolRuntime>>::definition(&SearchAgentStoreTool),
+            output_schema_for::<Formatted<SearchAgentStoreResult>>(),
         ),
         (
             "install_agent_from_store",
-            <InstallCoachFromStoreTool as McpTool<dyn ToolRuntime>>::definition(
-                &InstallCoachFromStoreTool,
+            <InstallAgentFromStoreTool as McpTool<dyn ToolRuntime>>::definition(
+                &InstallAgentFromStoreTool,
             ),
-            output_schema_for::<Formatted<InstallCoachFromStoreResult>>(),
+            output_schema_for::<Formatted<InstallAgentFromStoreResult>>(),
         ),
     ] {
         assert_eq!(
@@ -2852,11 +2852,11 @@ fn each_store_schema_is_attached_to_the_tool_it_names() {
 
 #[test]
 fn no_store_schema_promises_a_system_prompt() {
-    // Browse and search return many coaches and the prompt is by far the
+    // Browse and search return many agents and the prompt is by far the
     // largest field on a store row; install echoes the same compact shape so
     // a client renders one card either way. A schema that declared the prompt
     // would be promising the tools send something they deliberately withhold.
-    let entry = output_schema_for::<StoreCoachEntry>();
+    let entry = output_schema_for::<StoreAgentEntry>();
     assert!(
         !entry["properties"]
             .as_object()
@@ -2865,7 +2865,7 @@ fn no_store_schema_promises_a_system_prompt() {
         "the store projection must not declare system_prompt"
     );
     assert!(
-        serde_json::to_value(a_store_coach())
+        serde_json::to_value(a_store_agent())
             .expect("serializes")
             .get("system_prompt")
             .is_none(),
@@ -2878,9 +2878,9 @@ fn the_store_schemas_accept_their_payloads() {
     for (tool, derived, payload) in [
         (
             "browse_agent_store",
-            output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
-            serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
-                coaches: vec![a_store_coach()],
+            output_schema_for::<Formatted<BrowseAgentStoreResult>>(),
+            serde_json::to_value(Formatted::Json(BrowseAgentStoreResult {
+                agents: vec![a_store_agent()],
                 count: 1,
                 has_more: true,
                 next_cursor: Some("eyJvIjoyMH0".to_owned()),
@@ -2888,15 +2888,15 @@ fn the_store_schemas_accept_their_payloads() {
             .expect("serializes"),
         ),
         (
-            "browse_coach_store (last page)",
-            output_schema_for::<Formatted<BrowseCoachStoreResult>>(),
+            "browse_agent_store (last page)",
+            output_schema_for::<Formatted<BrowseAgentStoreResult>>(),
             // The last page has no cursor to hand back, and an unpublished
-            // coach has no publication date. Both are ordinary.
-            serde_json::to_value(Formatted::Json(BrowseCoachStoreResult {
-                coaches: vec![StoreCoachEntry {
+            // agent has no publication date. Both are ordinary.
+            serde_json::to_value(Formatted::Json(BrowseAgentStoreResult {
+                agents: vec![StoreAgentEntry {
                     published_at: None,
                     description: None,
-                    ..a_store_coach()
+                    ..a_store_agent()
                 }],
                 count: 1,
                 has_more: false,
@@ -2906,20 +2906,20 @@ fn the_store_schemas_accept_their_payloads() {
         ),
         (
             "search_agent_store",
-            output_schema_for::<Formatted<SearchCoachStoreResult>>(),
-            serde_json::to_value(Formatted::Json(SearchCoachStoreResult {
+            output_schema_for::<Formatted<SearchAgentStoreResult>>(),
+            serde_json::to_value(Formatted::Json(SearchAgentStoreResult {
                 query: "marathon".to_owned(),
                 count: 1,
-                coaches: vec![a_store_coach()],
+                agents: vec![a_store_agent()],
             }))
             .expect("serializes"),
         ),
         (
             "install_agent_from_store",
-            output_schema_for::<Formatted<InstallCoachFromStoreResult>>(),
-            serde_json::to_value(Formatted::Json(InstallCoachFromStoreResult {
+            output_schema_for::<Formatted<InstallAgentFromStoreResult>>(),
+            serde_json::to_value(Formatted::Json(InstallAgentFromStoreResult {
                 installed: true,
-                coach: a_store_coach(),
+                agent: a_store_agent(),
                 message: "'Marathon Build' is now in your agent library.".to_owned(),
             }))
             .expect("serializes"),
@@ -3081,7 +3081,7 @@ fn each_commitment_schema_is_attached_to_the_tool_it_names() {
 #[test]
 fn a_duplicate_commitment_is_a_valid_answer_not_an_error() {
     // A second identical commitment is dropped rather than stacked, so the
-    // coach can say "already noted" instead of promising a second check. The
+    // agent can say "already noted" instead of promising a second check. The
     // schema has to accept recorded:false, or the honest answer to a repeat
     // becomes a protocol violation.
     let validator = jsonschema::validator_for(&output_schema_for::<CommitmentCreateResult>())
@@ -3903,7 +3903,7 @@ fn each_physiology_schema_is_attached_to_the_tool_it_names() {
 fn an_almost_empty_physiology_profile_still_validates() {
     // A profile is built up over time. An athlete who has given only a
     // resting heart rate has one field set, and every measurement is Option
-    // because of it — reporting an unknown as zero would let a coach reason
+    // because of it — reporting an unknown as zero would let an agent reason
     // off a fabricated number.
     let derived = output_schema_for::<SetPhysiologyResult>();
     let validator = jsonschema::validator_for(&derived).expect("compiles");
@@ -4615,7 +4615,7 @@ fn the_two_template_detail_levels_stay_distinguishable() {
 #[test]
 fn prescribing_reports_the_calendar_entry_it_created() {
     // The workout is on the athlete's real calendar by the time this returns.
-    // A coach told only "it worked" cannot undo it, so the ledger id and the
+    // An agent told only "it worked" cannot undo it, so the ledger id and the
     // provider's event id are both declared.
     let derived = output_schema_for::<PrescribeWorkoutResult>();
     let props = derived["properties"].as_object().expect("object schema");

@@ -1,4 +1,4 @@
-// ABOUTME: SQLite implementation of RosterRepository — coach-athlete junction CRUD
+// ABOUTME: SQLite implementation of RosterRepository — agent-athlete junction CRUD
 // ABOUTME: Active rows are revoked_at IS NULL; revoked rows stay for audit history
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -32,7 +32,7 @@ fn parse_optional_uuid_text(value: Option<String>, column: &str) -> AppResult<Op
 
 fn row_to_assignment(row: &SqliteRow) -> AppResult<CoachAthleteAssignment> {
     let id_str: String = row.get("id");
-    let coach_str: String = row.get("coach_user_id");
+    let agent_str: String = row.get("coach_user_id");
     let athlete_str: String = row.get("athlete_user_id");
     let tenant_str: String = row.get("tenant_id");
     let assigned_by: Option<String> = row.get("assigned_by");
@@ -42,7 +42,7 @@ fn row_to_assignment(row: &SqliteRow) -> AppResult<CoachAthleteAssignment> {
 
     Ok(CoachAthleteAssignment {
         id: parse_uuid_text(&id_str, "id")?,
-        coach_user_id: parse_uuid_text(&coach_str, "coach_user_id")?,
+        coach_user_id: parse_uuid_text(&agent_str, "coach_user_id")?,
         athlete_user_id: parse_uuid_text(&athlete_str, "athlete_user_id")?,
         tenant_id: TenantId::from_uuid(parse_uuid_text(&tenant_str, "tenant_id")?),
         assigned_by: parse_optional_uuid_text(assigned_by, "assigned_by")?,
@@ -128,7 +128,7 @@ impl RosterRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to assign athlete: {e}")))?;
 
         if result.rows_affected() == 0 {
-            // Active assignment for the same (coach, athlete, tenant) already exists.
+            // Active assignment for the same (agent, athlete, tenant) already exists.
             return Ok(None);
         }
         Ok(Some(assignment.clone()))

@@ -89,7 +89,7 @@ pub struct ToolLoopParams<'a> {
     /// that have no conversation to attach the rows to (e.g. one-shot
     /// non-conversational tool runs).
     pub tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>>,
-    /// Optional per-coach LLM sampling temperature. When `Some`, applied
+    /// Optional per-agent LLM sampling temperature. When `Some`, applied
     /// to every `ChatRequest` in the loop via `with_temperature`. When
     /// `None`, the provider/server default is used.
     pub temperature: Option<f32>,

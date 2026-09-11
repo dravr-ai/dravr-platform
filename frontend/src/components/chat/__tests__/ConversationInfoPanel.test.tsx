@@ -84,14 +84,14 @@ function renderPanel(conv: Conversation, extra: { openParticipants?: boolean } =
 describe('ConversationInfoPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    listCoaches.mockResolvedValue({ coaches: [COACH] });
+    listCoaches.mockResolvedValue({ agents: [COACH] });
     listParticipants.mockResolvedValue([
       { user_id: 'owner-1', role: 'owner', added_by: 'owner-1', added_at: '2026-08-01T00:00:00Z' },
     ]);
   });
 
   it('draws Group info for a group-scoped thread', async () => {
-    renderPanel(conversation({ group_id: 'group-7', group_name: 'Sunday Riders', coach_id: 'coach-1' }));
+    renderPanel(conversation({ group_id: 'group-7', group_name: 'Sunday Riders', agent_id: 'coach-1' }));
 
     expect(await screen.findByTestId('group-info-panel')).toHaveTextContent('group group-7');
     expect(screen.getByRole('dialog', { name: 'Group info' })).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe('ConversationInfoPanel', () => {
   });
 
   it('draws Agent info with the title, handle and mention hint for an agent thread', async () => {
-    renderPanel(conversation({ coach_id: 'coach-1' }));
+    renderPanel(conversation({ agent_id: 'coach-1' }));
 
     expect(await screen.findByTestId('coach-info-panel')).toBeInTheDocument();
     expect(screen.getByRole('dialog', { name: 'Agent info' })).toBeInTheDocument();
@@ -111,7 +111,7 @@ describe('ConversationInfoPanel', () => {
 
   it('sends /agent remove when the agent is removed from the chat', async () => {
     const user = userEvent.setup();
-    const handlers = renderPanel(conversation({ coach_id: 'coach-1' }));
+    const handlers = renderPanel(conversation({ agent_id: 'coach-1' }));
 
     await user.click(await screen.findByTestId('coach-info-remove'));
 
@@ -120,13 +120,13 @@ describe('ConversationInfoPanel', () => {
 
   it('routes Edit agent to the agent Discover detail, and hides it for a system agent', async () => {
     const user = userEvent.setup();
-    const handlers = renderPanel(conversation({ coach_id: 'coach-1' }));
+    const handlers = renderPanel(conversation({ agent_id: 'coach-1' }));
 
     await user.click(await screen.findByTestId('coach-info-edit'));
     expect(handlers.onEditCoach).toHaveBeenCalledWith('coach-1');
 
-    listCoaches.mockResolvedValue({ coaches: [{ ...COACH, is_system: true }] });
-    renderPanel(conversation({ id: 'conv-2', coach_id: 'coach-1' }));
+    listCoaches.mockResolvedValue({ agents: [{ ...COACH, is_system: true }] });
+    renderPanel(conversation({ id: 'conv-2', agent_id: 'coach-1' }));
     await waitFor(() => expect(screen.getAllByTestId('coach-info-panel')).toHaveLength(2));
     expect(screen.getAllByTestId('coach-info-edit')).toHaveLength(1);
   });

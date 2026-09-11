@@ -162,7 +162,7 @@ personas:
             Arc::clone(&registry),
         ));
 
-        let service = notification_service(&resources.coach.database).with_policy_gate(Arc::new(
+        let service = notification_service(&resources.agent.database).with_policy_gate(Arc::new(
             PersonaNotificationPolicyGate::new(Arc::clone(&repos), registry),
         ));
 
@@ -258,7 +258,7 @@ personas:
             Arc::clone(&repos),
             registry,
         ));
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources.agent.database);
 
         // Persist a row that carries the gated marker (as if written while
         // armed); the unarmed sweep must still skip the user.

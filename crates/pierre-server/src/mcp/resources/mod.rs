@@ -19,5 +19,5 @@ pub use builder::ServerContextBuilder;
 pub use context::ServerContext;
 pub use options::ServerContextOptions;
 pub use slices::{
-    A2ASlice, AuthSlice, BillingSlice, CoachSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
+    A2ASlice, AgentSlice, AuthSlice, BillingSlice, CommonSlice, FitnessSlice, McpSlice, SseSlice,
 };

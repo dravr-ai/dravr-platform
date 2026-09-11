@@ -13,8 +13,8 @@ const mockConversations = {
     {
       id: 'conv-1',
       title: 'Marathon Training Plan',
-      coach_id: 'coach-marathon',
-      coach_name: 'Marathon Coach',
+      agent_id: 'coach-marathon',
+      agent_name: 'Marathon Coach',
       created_at: '2024-06-01T10:00:00Z',
       updated_at: '2024-06-01T12:00:00Z',
       message_count: 5,
@@ -22,8 +22,8 @@ const mockConversations = {
     {
       id: 'conv-2',
       title: 'Nutrition Strategy',
-      coach_id: 'coach-nutrition',
-      coach_name: 'Nutrition Coach',
+      agent_id: 'coach-nutrition',
+      agent_name: 'Nutrition Coach',
       created_at: '2024-05-28T08:00:00Z',
       updated_at: '2024-05-30T09:00:00Z',
       message_count: 3,
@@ -31,8 +31,8 @@ const mockConversations = {
     {
       id: 'conv-3',
       title: 'Recovery Protocol',
-      coach_id: 'coach-recovery',
-      coach_name: 'Recovery Coach',
+      agent_id: 'coach-recovery',
+      agent_name: 'Recovery Coach',
       created_at: '2024-05-20T14:00:00Z',
       updated_at: '2024-05-25T16:00:00Z',
       message_count: 8,
@@ -180,8 +180,8 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
         body: JSON.stringify({
           id: 'conv-new',
           title: 'New Conversation',
-          coach_id: null,
-          coach_name: null,
+          agent_id: null,
+          agent_name: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           message_count: 0,
@@ -211,7 +211,7 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           {
             id: 'coach-training',
             title: 'Training Coach',
@@ -472,7 +472,7 @@ test.describe('Chat - Error Handling', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0 }),
+        body: JSON.stringify({ agents: [], total: 0 }),
       });
     });
 

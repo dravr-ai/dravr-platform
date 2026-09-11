@@ -1,5 +1,5 @@
 // ABOUTME: Pins the fuelling protocol end to end — formatting, persistence, the calendar note, the prompt
-// ABOUTME: The coaches emitted this payload for months while nothing rendered or stored it; these keep it landed
+// ABOUTME: The agents emitted this payload for months while nothing rendered or stored it; these keep it landed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,7 +20,7 @@ use pierre_core::models::FuelingProtocol;
 use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
-use pierre_services::coach_package::PackagedCatalogue;
+use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_calendar_push::plan_day_session;
 use pierre_services::training_plan_render::render_training_plan_block;
 use uuid::Uuid;
@@ -29,7 +29,7 @@ fn date(s: &str) -> NaiveDate {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
 }
 
-/// A ride the ultra coach would attach a full protocol to.
+/// A ride the ultra agent would attach a full protocol to.
 fn fuelled_day() -> PlannedDay {
     PlannedDay {
         date: "2026-09-05".to_owned(),
@@ -55,7 +55,7 @@ fn plan() -> TrainingPlan {
         id: "plan-1".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        coach_slug: None,
+        agent_slug: None,
         goal_fact_id: None,
         goal_race: GoalRace {
             name: "Harricana".to_owned(),
@@ -98,7 +98,7 @@ fn week_with(days: Vec<PlannedDay>) -> PlanWeek {
 /// Sodium is worded as a loss, and simply absent when nothing measured it.
 ///
 /// The wording is the assertion, not decoration. Hew-Butler 2008 — the source
-/// the coaches used to cite here — found hyponatremia is driven by fluid
+/// the agents used to cite here — found hyponatremia is driven by fluid
 /// intake above sweat rate and that sodium supplementation does not prevent
 /// it, so a prescribed mg/h target inverts the evidence.
 #[test]
@@ -128,7 +128,7 @@ fn summary_calls_sodium_a_loss_and_omits_it_when_unmeasured() {
 }
 
 /// A saved plan keeps the prescription. This is the half that had no field at
-/// all: the coach prescribed, the plan stored, and the fuelling vanished.
+/// all: the agent prescribed, the plan stored, and the fuelling vanished.
 #[test]
 fn a_planned_day_round_trips_its_fuelling_protocol() {
     let json = serde_json::to_string(&fuelled_day()).unwrap();
@@ -199,7 +199,7 @@ fn a_rest_day_produces_no_session_to_fuel() {
     assert!(plan_day_session(Uuid::new_v4(), &rest, 0).is_none());
 }
 
-/// The coach reads its own prescription back on the next turn.
+/// The agent reads its own prescription back on the next turn.
 ///
 /// Without this the model re-invents a rate every time it is asked, which is
 /// how three different carbohydrate ceilings came to ship at once.

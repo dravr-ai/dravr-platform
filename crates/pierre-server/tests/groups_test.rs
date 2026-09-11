@@ -13,7 +13,7 @@ mod helpers;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_coaches::build_coaches_router;
+use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
 use pierre_routes_groups::GroupRoutes;
 
@@ -34,7 +34,7 @@ use std::sync::Arc;
 // Test Helpers
 // ============================================================================
 
-async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
+async fn create_test_agent(router: &axum::Router, auth: &str) -> String {
     let resp = AxumTestRequest::post("/api/agents")
         .header("authorization", auth)
         .json(&json!({"title":"Test Coach","system_prompt":"Test.","category":"training","tags":["run"]}))
@@ -52,7 +52,7 @@ async fn setup_single_user() -> (axum::Router, String, String, String) {
 /// enforcement (group coaching availability + member cap) can be exercised.
 async fn setup_single_user_with(email: &str, plan: &str) -> (axum::Router, String, String, String) {
     let res = create_test_server_resources().await.unwrap();
-    let (uid, u, _tid) = create_test_user_with_plan(&res.coach.database, email, plan)
+    let (uid, u, _tid) = create_test_user_with_plan(&res.agent.database, email, plan)
         .await
         .unwrap();
     let auth = format!("Bearer {}", generate_test_token(&res, &u).await);
@@ -60,11 +60,11 @@ async fn setup_single_user_with(email: &str, plan: &str) -> (axum::Router, Strin
     // in production (multitenant.rs); tests must mirror the composition root or
     // those three endpoints 404. See group_analytics.rs:54 — needs ToolRuntime +
     // GroupsCtx + MiddlewareCtx (ServerContext satisfies all three).
-    let router = build_coaches_router::<ServerContext>()
+    let router = build_agents_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)))
         .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
-    let cid = create_test_coach(&router, &auth).await;
+    let cid = create_test_agent(&router, &auth).await;
     (router, auth, uid.to_string(), cid)
 }
 
@@ -89,13 +89,13 @@ async fn setup_two_users_with_res() -> (axum::Router, String, String, String, St
     let res = create_test_server_resources().await.unwrap();
     // Owner on Professional: the shared tenant must allow group coaching.
     let (u1id, u1, _t1) =
-        create_test_user_with_plan(&res.coach.database, "groupowner@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "groupowner@test.com", "professional")
             .await
             .unwrap();
     // Professional so user2's OWN tenant also enables group coaching (a starter
     // tenant would fail the tier gate on group creation, not the permission gate).
     let (u2id, u2, u2_own_tid) =
-        create_test_user_with_plan(&res.coach.database, "groupmember@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "groupmember@test.com", "professional")
             .await
             .unwrap();
 
@@ -104,7 +104,7 @@ async fn setup_two_users_with_res() -> (axum::Router, String, String, String, St
     let a1 = format!("Bearer {}", generate_test_token(&res, &u1).await);
 
     // For user2, generate a token with user1's tenant_id
-    let repos = res.coach.database.repositories();
+    let repos = res.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(u1id).await.unwrap();
     let shared_tid = tenants.first().unwrap().id;
     let a2 = format!(
@@ -126,11 +126,11 @@ async fn setup_two_users_with_res() -> (axum::Router, String, String, String, St
             .unwrap()
     );
 
-    let router = build_coaches_router::<ServerContext>()
+    let router = build_agents_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)))
         .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
-    let cid = create_test_coach(&router, &a1).await;
+    let cid = create_test_agent(&router, &a1).await;
     (
         router,
         a1,
@@ -146,14 +146,14 @@ async fn setup_two_users_with_res() -> (axum::Router, String, String, String, St
 async fn create_group_with_invite(
     router: &axum::Router,
     auth_token: &str,
-    coach_id: &str,
+    agent_id: &str,
 ) -> (String, String) {
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", auth_token)
         .json(&json!({
             "name": "Test Marathon Group",
             "description": "Training together",
-            "coach_id": coach_id,
+            "agent_id": agent_id,
             "max_members": 10
         }))
         .send(router.clone())
@@ -181,14 +181,14 @@ async fn create_group_with_invite(
 
 #[tokio::test]
 async fn test_create_group() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "My Running Club",
             "description": "Weekly runs together",
-            "coach_id": &coach_id,
+            "agent_id": &agent_id,
             "max_members": 15
         }))
         .send(router)
@@ -221,14 +221,14 @@ async fn test_starter_plan_clamps_max_members_to_tier_cap() {
     // Starter allows small groups (max_members_per_group == 5) so that adding
     // the bot to a Telegram group works on the plan every tenant is created
     // on. The tier still bites: a larger request is clamped down.
-    let (router, auth, _user_id, coach_id) =
+    let (router, auth, _user_id, agent_id) =
         Box::pin(setup_single_user_with("starteruser@test.com", "starter")).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Starter Club",
-            "coach_id": &coach_id,
+            "agent_id": &agent_id,
             "max_members": 30
         }))
         .send(router)
@@ -249,13 +249,13 @@ async fn test_starter_plan_clamps_max_members_to_tier_cap() {
 #[tokio::test]
 async fn test_professional_clamps_max_members_to_tier_cap() {
     // Professional tier caps members per group at 10.
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Big Club",
-            "coach_id": &coach_id,
+            "agent_id": &agent_id,
             "max_members": 50
         }))
         .send(router)
@@ -271,12 +271,12 @@ async fn test_professional_clamps_max_members_to_tier_cap() {
 
 #[tokio::test]
 async fn test_create_group_missing_name_fails() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router)
         .await;
@@ -290,7 +290,7 @@ async fn test_create_group_missing_name_fails() {
 
 #[tokio::test]
 async fn test_list_my_groups() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     // Create two groups
     for name in &["Group A", "Group B"] {
@@ -298,7 +298,7 @@ async fn test_list_my_groups() {
             .header("authorization", &auth)
             .json(&json!({
                 "name": name,
-                "coach_id": &coach_id
+                "agent_id": &agent_id
             }))
             .send(router.clone())
             .await;
@@ -317,13 +317,13 @@ async fn test_list_my_groups() {
 
 #[tokio::test]
 async fn test_get_group() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Detail Group",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -343,13 +343,13 @@ async fn test_get_group() {
 
 #[tokio::test]
 async fn test_update_group() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Old Name",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -372,13 +372,13 @@ async fn test_update_group() {
 
 #[tokio::test]
 async fn test_delete_group() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Delete Me",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -408,13 +408,13 @@ async fn test_delete_group() {
 
 #[tokio::test]
 async fn test_owner_auto_added_as_member() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Owner Test",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -435,9 +435,9 @@ async fn test_owner_auto_added_as_member() {
 
 #[tokio::test]
 async fn test_join_via_invite_code() {
-    let (router, auth1, auth2, _user1_id, _user2_id, coach_id) = Box::pin(setup_two_users()).await;
+    let (router, auth1, auth2, _user1_id, _user2_id, agent_id) = Box::pin(setup_two_users()).await;
 
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // User2 joins via invite
     let resp = AxumTestRequest::post("/api/groups/join")
@@ -460,8 +460,8 @@ async fn test_join_via_invite_code() {
 
 #[tokio::test]
 async fn test_cannot_join_twice() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (_group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (_group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // First join succeeds
     let resp = AxumTestRequest::post("/api/groups/join")
@@ -488,8 +488,8 @@ async fn test_cannot_join_twice() {
 
 #[tokio::test]
 async fn test_leave_group() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // Join
     AxumTestRequest::post("/api/groups/join")
@@ -517,8 +517,8 @@ async fn test_leave_group() {
 
 #[tokio::test]
 async fn test_remove_member_by_admin() {
-    let (router, auth1, auth2, _u1, user2_id, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, user2_id, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // User2 joins
     AxumTestRequest::post("/api/groups/join")
@@ -542,8 +542,8 @@ async fn test_remove_member_by_admin() {
 
 #[tokio::test]
 async fn test_member_cannot_update_group() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // User2 joins as member
     AxumTestRequest::post("/api/groups/join")
@@ -564,8 +564,8 @@ async fn test_member_cannot_update_group() {
 
 #[tokio::test]
 async fn test_member_cannot_remove_others() {
-    let (router, auth1, auth2, user1_id, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, user1_id, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // User2 joins
     AxumTestRequest::post("/api/groups/join")
@@ -589,8 +589,8 @@ async fn test_group_admin_cannot_demote_owner() {
     // able to change the OWNER's role. handle_remove_member already refuses to remove
     // the owner; handle_update_role skipped the same guard, so an admin could demote
     // the owner to member and seize effective control. This pins the guard.
-    let (router, auth1, auth2, user1_id, user2_id, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, user1_id, user2_id, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // User2 joins as a member...
     AxumTestRequest::post("/api/groups/join")
@@ -624,8 +624,8 @@ async fn test_group_admin_cannot_demote_owner() {
 async fn test_owner_can_demote_admin_to_member() {
     // The owner-protection guard must NOT block legitimate role management: the owner
     // can still demote a (non-owner) admin back to member.
-    let (router, auth1, auth2, _u1, user2_id, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, user2_id, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     AxumTestRequest::post("/api/groups/join")
         .header("authorization", &auth2)
@@ -662,13 +662,13 @@ async fn test_unauthenticated_request_fails() {
 
 #[tokio::test]
 async fn test_owner_cannot_leave_group() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Owner Leave Test",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -690,13 +690,13 @@ async fn test_owner_cannot_leave_group() {
 
 #[tokio::test]
 async fn test_create_invite() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Invite Test",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -720,13 +720,13 @@ async fn test_create_invite() {
 
 #[tokio::test]
 async fn test_list_invites() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Invite List Test",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -755,8 +755,8 @@ async fn test_list_invites() {
 
 #[tokio::test]
 async fn test_deactivate_invite() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
-    let (group_id, _invite_code) = create_group_with_invite(&router, &auth, &coach_id).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
+    let (group_id, _invite_code) = create_group_with_invite(&router, &auth, &agent_id).await;
 
     // Get invite ID
     let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}/invites"))
@@ -784,18 +784,18 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
     // belongs to group B, deactivating another group's invite. The repo now scopes
     // the update by group_id; a cross-group target must 404 (not found), and the
     // legitimate owner of the invite's group must still be able to deactivate it.
-    let (router, auth1, _auth2, _u1, _u2, coach_id, auth2_own) =
+    let (router, auth1, _auth2, _u1, _u2, agent_id, auth2_own) =
         Box::pin(setup_two_users_with_res()).await;
 
     // Group A owned/administered by user1 (in the shared tenant).
-    let (group_a, _code_a) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (group_a, _code_a) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // Group B owned/administered by user2. user2 is not a member of the shared
     // tenant, so it creates group B in its OWN tenant via `auth2_own` (owner ->
     // group creation always permitted). The invite endpoints below are group-
     // scoped with no tenant filter, so the cross-group IDOR check is unaffected
     // by group B living in a different tenant.
-    let coach_id_2 = create_test_coach(&router, &auth2_own).await;
+    let coach_id_2 = create_test_agent(&router, &auth2_own).await;
     let (group_b, _code_b) = create_group_with_invite(&router, &auth2_own, &coach_id_2).await;
     let resp = AxumTestRequest::get(&format!("/api/groups/{group_b}/invites"))
         .header("authorization", &auth2_own)
@@ -844,8 +844,8 @@ async fn test_join_with_invalid_code_fails() {
 
 #[tokio::test]
 async fn test_update_peer_sharing_consent() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     // User2 joins
     AxumTestRequest::post("/api/groups/join")
@@ -866,13 +866,13 @@ async fn test_update_peer_sharing_consent() {
 
 #[tokio::test]
 async fn test_toggle_group_peer_sharing() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Peer Sharing Test",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -893,13 +893,13 @@ async fn test_toggle_group_peer_sharing() {
 
 #[tokio::test]
 async fn test_update_group_respond_mode_round_trips() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Respond Mode Test",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -943,13 +943,13 @@ async fn test_update_group_respond_mode_round_trips() {
 
 #[tokio::test]
 async fn test_get_group_stats() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Stats Group",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -968,13 +968,13 @@ async fn test_get_group_stats() {
 
 #[tokio::test]
 async fn test_get_group_health_flags() {
-    let (router, auth, _user_id, coach_id) = Box::pin(setup_single_user()).await;
+    let (router, auth, _user_id, agent_id) = Box::pin(setup_single_user()).await;
 
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &auth)
         .json(&json!({
             "name": "Health Group",
-            "coach_id": &coach_id
+            "agent_id": &agent_id
         }))
         .send(router.clone())
         .await;
@@ -997,7 +997,7 @@ async fn test_get_group_health_flags() {
 
 #[tokio::test]
 async fn test_full_group_lifecycle() {
-    let (router, auth1, auth2, _u1, user2_id, coach_id) = Box::pin(setup_two_users()).await;
+    let (router, auth1, auth2, _u1, user2_id, agent_id) = Box::pin(setup_two_users()).await;
 
     // 1. Owner creates group
     let resp = AxumTestRequest::post("/api/groups")
@@ -1005,7 +1005,7 @@ async fn test_full_group_lifecycle() {
         .json(&json!({
             "name": "Full Lifecycle Group",
             "description": "E2E test group",
-            "coach_id": &coach_id,
+            "agent_id": &agent_id,
             "max_members": 20
         }))
         .send(router.clone())
@@ -1101,23 +1101,23 @@ async fn cross_tenant_group_entity_isolation() {
 
     // Owner in tenant A (professional so group coaching is available).
     let (_u1id, u1, _t1) =
-        create_test_user_with_plan(&res.coach.database, "ct-owner@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "ct-owner@test.com", "professional")
             .await
             .unwrap();
     // Outsider in a DISTINCT tenant B (its own professional tenant).
     let (_u2id, u2, _t2) =
-        create_test_user_with_plan(&res.coach.database, "ct-outsider@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "ct-outsider@test.com", "professional")
             .await
             .unwrap();
     let a1 = format!("Bearer {}", generate_test_token(&res, &u1).await);
     let a2 = format!("Bearer {}", generate_test_token(&res, &u2).await);
 
-    let router = build_coaches_router::<ServerContext>()
+    let router = build_agents_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)))
         .merge(GroupAnalyticsRoutes::routes(Arc::clone(&res)));
 
-    let cid = create_test_coach(&router, &a1).await;
+    let cid = create_test_agent(&router, &a1).await;
     let (group_id, invite_code) = create_group_with_invite(&router, &a1, &cid).await;
 
     // Tenant-scoped: an outsider in another tenant cannot UPDATE the group.
@@ -1176,8 +1176,8 @@ async fn cross_tenant_group_entity_isolation() {
 /// dialog promising the group is gone and its members with it.
 #[tokio::test]
 async fn test_deleted_group_invite_cannot_be_redeemed() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     let resp = AxumTestRequest::delete(&format!("/api/groups/{group_id}"))
         .header("authorization", &auth1)
@@ -1219,8 +1219,8 @@ async fn test_deleted_group_invite_cannot_be_redeemed() {
 /// archive and the group stayed readable to everyone already in it.
 #[tokio::test]
 async fn test_delete_group_releases_its_members() {
-    let (router, auth1, auth2, _u1, _u2, coach_id) = Box::pin(setup_two_users()).await;
-    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &coach_id).await;
+    let (router, auth1, auth2, _u1, _u2, agent_id) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &auth1, &agent_id).await;
 
     let resp = AxumTestRequest::post("/api/groups/join")
         .header("authorization", &auth2)

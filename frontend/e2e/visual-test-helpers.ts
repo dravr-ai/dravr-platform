@@ -194,7 +194,7 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           {
             id: 'system-coach-1',
             title: 'Training Coach',
@@ -253,13 +253,13 @@ async function setupAdditionalMocks(page: Page): Promise<void> {
  * Setup coach + store catalogue mocks for visual tests.
  */
 async function setupCatalogueMocks(page: Page): Promise<void> {
-  // Mock coaches list - matches ListCoachesResponse interface
+  // Mock coaches list - matches ListAgentsResponse interface
   await page.route('**/api/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           {
             id: 'coach-1',
             title: 'Training Coach',
@@ -284,13 +284,13 @@ async function setupCatalogueMocks(page: Page): Promise<void> {
     });
   });
 
-  // Mock store coaches - matches BrowseCoachesResponse interface
+  // Mock store coaches - matches BrowseAgentsResponse interface
   await page.route('**/api/store/agents**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coaches: [
+        agents: [
           {
             id: 'store-coach-1',
             title: 'Nutrition Expert',

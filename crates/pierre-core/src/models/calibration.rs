@@ -24,7 +24,7 @@ use super::Pillar;
 
 /// One question in the calibration interview.
 ///
-/// The variants are ordered as asked. Each carries a probe hint the coach
+/// The variants are ordered as asked. Each carries a probe hint the agent
 /// phrases naturally (never read verbatim — same contract as the pillars walk)
 /// and the fact kind its answer is stamped with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,7 +121,7 @@ impl CalibrationTopic {
         Self::ALL.into_iter().find(|t| t.as_str() == slug)
     }
 
-    /// What the coach should explore this turn, phrased naturally.
+    /// What the agent should explore this turn, phrased naturally.
     #[must_use]
     pub const fn probe_hint(self) -> &'static str {
         match self {
@@ -163,7 +163,7 @@ impl CalibrationTopic {
     /// The fact kind this topic's answer is stamped with.
     ///
     /// Availability is a schedule constraint; the injury question uses the
-    /// coach-visible `injury` kind (distinct from the redacted `medical`);
+    /// agent-visible `injury` kind (distinct from the redacted `medical`);
     /// event demand refines a goal; the rest are preferences.
     ///
     /// Recovery speed is `physiology` for two reasons that agree. "I need two

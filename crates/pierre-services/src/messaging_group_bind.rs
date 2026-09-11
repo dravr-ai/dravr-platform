@@ -10,7 +10,7 @@
 //! Slack channel, Discord channel), `resolve_or_create_channel_group`
 //! returns the `coaching_groups.id` to attach to the chat conversation.
 //!
-//! This module owns the *messaging-specific* decisions — which coach seeds
+//! This module owns the *messaging-specific* decisions — which agent seeds
 //! the group, which tenant plan applies — and delegates every group write to
 //! [`GroupService`], which owns the tier gate, the member clamp and the
 //! catalogued `group.created` / `group.joined` emissions. Reaching past the
@@ -34,15 +34,15 @@
 //! - DMs (`is_direct_message == true`) skip the helper entirely — the
 //!   caller doesn't invoke this path.
 //!
-//! Coach selection for the bootstrap row: prefers the user's
-//! selected coach; falls back to the first system agent in the
+//! Agent selection for the bootstrap row: prefers the user's
+//! selected agent; falls back to the first system agent in the
 //! tenant. If neither exists, returns `Ok(None)` — the chat operates
-//! without group context until a coach exists.
+//! without group context until an agent exists.
 
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_database::{AuthRepos, CoachRepos};
+use pierre_database::{AgentRepos, AuthRepos};
 use pierre_groups::service::ChannelGroupSpec;
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_groups::GroupService;
@@ -72,7 +72,7 @@ pub struct ChannelChatBinding<'a> {
 ///
 /// Returns `Ok(Some(group_id_string))` when a binding exists or was
 /// created and the sender is enrolled in it; `Ok(None)` when the chat must
-/// stay ungrouped — no coach available to bootstrap, the tenant's plan does
+/// stay ungrouped — no agent available to bootstrap, the tenant's plan does
 /// not include group coaching, or the group is already at its member cap.
 ///
 /// The `Ok(None)` on a failed enrolment is a privacy requirement, not a
@@ -82,15 +82,15 @@ pub struct ChannelChatBinding<'a> {
 /// consenting peers' snapshots to someone outside the group.
 ///
 /// Takes narrow `AuthRepos` (for the `users`/`tenants` lookups of the
-/// bootstrapping sender's selected coach and plan) plus `CoachRepos` (for the
-/// fallback system-coach lookup) instead of the full `RepositoryRegistry`.
+/// bootstrapping sender's selected agent and plan) plus `AgentRepos` (for the
+/// fallback system-agent lookup) instead of the full `RepositoryRegistry`.
 ///
 /// # Errors
 ///
-/// Returns database errors from group / member / coach / user lookups.
+/// Returns database errors from group / member / agent / user lookups.
 pub async fn resolve_or_create_channel_group(
     auth: &AuthRepos,
-    coach: &CoachRepos,
+    agent: &AgentRepos,
     groups: &GroupService,
     binding: &ChannelChatBinding<'_>,
 ) -> AppResult<Option<String>> {
@@ -117,21 +117,21 @@ pub async fn resolve_or_create_channel_group(
         return Ok(None);
     }
 
-    // 2. No binding — first sender bootstraps. Pick a coach.
-    let mut coach_id_choice = auth
+    // 2. No binding — first sender bootstraps. Pick an agent.
+    let mut agent_id_choice = auth
         .tenants
-        .get_selected_coach(binding.tenant_id, user_uuid)
+        .get_selected_agent(binding.tenant_id, user_uuid)
         .await?;
-    if coach_id_choice.is_none() {
-        let system_coaches = coach
-            .coaches
-            .list_system_coaches(binding.tenant_id)
+    if agent_id_choice.is_none() {
+        let system_agents = agent
+            .agents
+            .list_system_agents(binding.tenant_id)
             .await
             .unwrap_or_default();
-        coach_id_choice = system_coaches.first().map(|c| c.id.to_string());
+        agent_id_choice = system_agents.first().map(|c| c.id.to_string());
     }
-    let Some(coach_id) = coach_id_choice else {
-        // No coach available — skip group binding. The conversation runs
+    let Some(agent_id) = agent_id_choice else {
+        // No agent available — skip group binding. The conversation runs
         // with the default Pierre prompt; the LLM still answers using
         // only the requesting user's data (no peer leakage risk).
         return Ok(None);
@@ -143,7 +143,7 @@ pub async fn resolve_or_create_channel_group(
     // can transfer ownership via REST PUT /api/groups/{id}/members/{user}/role.)
     let spec = ChannelGroupSpec {
         name: binding.chat_title_hint,
-        coach_id: &coach_id,
+        agent_id: &agent_id,
         channel_type: binding.channel_type,
         channel_chat_id: binding.channel_chat_id,
     };

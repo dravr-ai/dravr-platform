@@ -313,7 +313,7 @@ tools-config = []
 tools-nutrition = []
 tools-sleep = []
 tools-recipes = []
-tools-coaches = []
+tools-agents = []
 tools-admin = []
 
 # All tools
@@ -326,7 +326,7 @@ tools-all = [
     "tools-nutrition",
     "tools-sleep",
     "tools-recipes",
-    "tools-coaches",
+    "tools-agents",
     "tools-admin",
 ]
 ```

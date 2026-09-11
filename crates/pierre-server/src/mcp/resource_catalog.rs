@@ -1,39 +1,39 @@
-// ABOUTME: MCP resources/list + resources/read backed by the global coach marketplace catalog
-// ABOUTME: Exposes only published (public marketplace) coaches as dravr://coaches/{id} text/markdown resources
+// ABOUTME: MCP resources/list + resources/read backed by the global agent marketplace catalog
+// ABOUTME: Exposes only published (public marketplace) agents as dravr://agents/{id} text/markdown resources
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::coaches::Coach;
-use pierre_database::database::store_listings::CoachWithListing;
+use pierre_core::models::agents::Agent;
+use pierre_database::database::store_listings::AgentWithListing;
 use serde_json::{json, Value};
 use std::fmt::Write;
 
-/// URI scheme prefix for coach catalog resources.
-const COACH_URI_PREFIX: &str = "dravr://coaches/";
+/// URI scheme prefix for agent catalog resources.
+const AGENT_URI_PREFIX: &str = "dravr://coaches/";
 
-/// MIME type advertised for coach markdown resources.
-const COACH_MIME_TYPE: &str = "text/markdown";
+/// MIME type advertised for agent markdown resources.
+const AGENT_MIME_TYPE: &str = "text/markdown";
 
-/// Maximum number of marketplace coaches surfaced in a single `resources/list`.
-const COACH_LIST_LIMIT: u32 = 100;
+/// Maximum number of marketplace agents surfaced in a single `resources/list`.
+const AGENT_LIST_LIMIT: u32 = 100;
 
-/// Build the `resources/list` payload from the published marketplace coaches.
+/// Build the `resources/list` payload from the published marketplace agents.
 ///
-/// Only globally published coaches are exposed — there is no tenant or auth
-/// threading. Each coach becomes a `dravr://coaches/{id}` resource.
+/// Only globally published agents are exposed — there is no tenant or auth
+/// threading. Each agent becomes a `dravr://agents/{id}` resource.
 #[must_use]
-pub fn list_resources(published: &[CoachWithListing]) -> Value {
+pub fn list_resources(published: &[AgentWithListing]) -> Value {
     let resources: Vec<Value> = published
         .iter()
         .map(|item| {
-            let coach = &item.coach;
+            let agent = &item.agent;
             json!({
-                "uri": coach_uri(coach),
-                "name": coach.title,
-                "description": coach.description.clone().unwrap_or_default(),
-                "mimeType": COACH_MIME_TYPE,
+                "uri": agent_uri(agent),
+                "name": agent.title,
+                "description": agent.description.clone().unwrap_or_default(),
+                "mimeType": AGENT_MIME_TYPE,
             })
         })
         .collect();
@@ -41,99 +41,99 @@ pub fn list_resources(published: &[CoachWithListing]) -> Value {
     json!({ "resources": resources })
 }
 
-/// Limit applied when fetching published coaches for `resources/list`.
+/// Limit applied when fetching published agents for `resources/list`.
 #[must_use]
 pub const fn list_limit() -> u32 {
-    COACH_LIST_LIMIT
+    AGENT_LIST_LIMIT
 }
 
-/// Extract the coach id from a `dravr://coaches/{id}` URI.
+/// Extract the agent id from a `dravr://agents/{id}` URI.
 ///
-/// Returns `None` when the URI does not use the coach scheme.
+/// Returns `None` when the URI does not use the agent scheme.
 #[must_use]
-pub fn coach_id_from_uri(uri: &str) -> Option<&str> {
-    uri.strip_prefix(COACH_URI_PREFIX)
+pub fn agent_id_from_uri(uri: &str) -> Option<&str> {
+    uri.strip_prefix(AGENT_URI_PREFIX)
         .filter(|id| !id.is_empty())
 }
 
-/// Build the `resources/read` payload for a single published coach.
+/// Build the `resources/read` payload for a single published agent.
 ///
-/// The coach markdown is reconstructed from the coach's structured sections so
+/// The agent markdown is reconstructed from the agent's structured sections so
 /// MCP clients receive the same document an operator authored.
 ///
 /// # Errors
 ///
 /// Returns an error only if the JSON payload cannot be constructed; the caller
 /// is responsible for handling the not-found case before invoking this.
-pub fn read_resource(coach: &Coach) -> AppResult<Value> {
+pub fn read_resource(agent: &Agent) -> AppResult<Value> {
     Ok(json!({
         "contents": [
             {
-                "uri": coach_uri(coach),
-                "mimeType": COACH_MIME_TYPE,
-                "text": render_coach_markdown(coach),
+                "uri": agent_uri(agent),
+                "mimeType": AGENT_MIME_TYPE,
+                "text": render_agent_markdown(agent),
             }
         ]
     }))
 }
 
-/// Build the canonical resource URI for a coach.
-fn coach_uri(coach: &Coach) -> String {
-    format!("{COACH_URI_PREFIX}{}", coach.id)
+/// Build the canonical resource URI for an agent.
+fn agent_uri(agent: &Agent) -> String {
+    format!("{AGENT_URI_PREFIX}{}", agent.id)
 }
 
-/// Reconstruct a coach markdown document from its structured fields.
+/// Reconstruct an agent markdown document from its structured fields.
 ///
-/// Mirrors the authored coach format: YAML-style frontmatter followed by the
+/// Mirrors the authored agent format: YAML-style frontmatter followed by the
 /// section headings the catalog populates. Empty optional sections are
-/// omitted so the document only carries content the coach actually provides.
-fn render_coach_markdown(coach: &Coach) -> String {
+/// omitted so the document only carries content the agent actually provides.
+fn render_agent_markdown(agent: &Agent) -> String {
     let mut out = String::new();
 
     out.push_str("---\n");
-    let _ = writeln!(out, "title: {}", coach.title);
-    let _ = writeln!(out, "category: {}", coach.category.as_str());
-    if !coach.tags.is_empty() {
-        let _ = writeln!(out, "tags: [{}]", coach.tags.join(", "));
+    let _ = writeln!(out, "title: {}", agent.title);
+    let _ = writeln!(out, "category: {}", agent.category.as_str());
+    if !agent.tags.is_empty() {
+        let _ = writeln!(out, "tags: [{}]", agent.tags.join(", "));
     }
     out.push_str("---\n\n");
 
-    let _ = writeln!(out, "# {}\n", coach.title);
+    let _ = writeln!(out, "# {}\n", agent.title);
 
-    if let Some(description) = non_empty(coach.description.as_deref()) {
+    if let Some(description) = non_empty(agent.description.as_deref()) {
         out.push_str(description);
         out.push_str("\n\n");
     }
 
-    push_section(&mut out, "Purpose", coach.purpose.as_deref());
-    push_section(&mut out, "When to Use", coach.when_to_use.as_deref());
-    push_section(&mut out, "Instructions", coach.instructions.as_deref());
-    push_section(&mut out, "Example Inputs", coach.example_inputs.as_deref());
+    push_section(&mut out, "Purpose", agent.purpose.as_deref());
+    push_section(&mut out, "When to Use", agent.when_to_use.as_deref());
+    push_section(&mut out, "Instructions", agent.instructions.as_deref());
+    push_section(&mut out, "Example Inputs", agent.example_inputs.as_deref());
     push_section(
         &mut out,
         "Example Outputs",
-        coach.example_outputs.as_deref(),
+        agent.example_outputs.as_deref(),
     );
     push_section(
         &mut out,
         "Success Criteria",
-        coach.success_criteria.as_deref(),
+        agent.success_criteria.as_deref(),
     );
 
-    if !coach.sample_prompts.is_empty() {
+    if !agent.sample_prompts.is_empty() {
         out.push_str("## Sample Prompts\n\n");
-        for prompt in &coach.sample_prompts {
+        for prompt in &agent.sample_prompts {
             let _ = writeln!(out, "- {prompt}");
         }
         out.push('\n');
     }
 
-    // Structured user coaches carry their full body in `instructions`; coaches
+    // Structured user agents carry their full body in `instructions`; agents
     // without extracted sections fall back to the raw system prompt so the
     // document is never empty.
-    if coach.purpose.is_none() && coach.instructions.is_none() {
+    if agent.purpose.is_none() && agent.instructions.is_none() {
         out.push_str("## Instructions\n\n");
-        out.push_str(coach.system_prompt.trim());
+        out.push_str(agent.system_prompt.trim());
         out.push('\n');
     }
 

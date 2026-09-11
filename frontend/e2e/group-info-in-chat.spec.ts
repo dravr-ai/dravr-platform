@@ -16,7 +16,7 @@ const GROUP_ID = 'group-1';
 const CONVERSATION_ID = 'conv-group-1';
 
 const mockCoaches = {
-  coaches: [
+  agents: [
     {
       id: 'coach-marathon',
       title: 'Marathon Coach',
@@ -43,9 +43,9 @@ const mockCoaches = {
 const groupConversation = {
   id: CONVERSATION_ID,
   title: 'Marathon Training 2026',
-  coach_id: 'coach-marathon',
-  coach_title: 'Marathon Coach',
-  coach_handle: 'marathon-coach',
+  agent_id: 'coach-marathon',
+  agent_title: 'Marathon Coach',
+  agent_handle: 'marathon-coach',
   group_id: GROUP_ID,
   group_name: 'Marathon Training 2026',
   message_count: 4,
@@ -64,7 +64,7 @@ const mockGroupDetail = {
   tenant_id: 'tenant-1',
   name: 'Marathon Training 2026',
   description: 'Preparing for the fall marathon',
-  coach_id: 'coach-marathon',
+  agent_id: 'coach-marathon',
   coach_user_id: null,
   owner_id: 'user-123',
   peer_data_sharing: false,

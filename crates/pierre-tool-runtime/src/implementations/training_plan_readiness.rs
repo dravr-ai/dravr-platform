@@ -32,7 +32,7 @@ use pierre_core::models::periodization::{
 use pierre_core::models::{FormReading, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -81,7 +81,7 @@ pub(super) async fn read_ladder(
 ) -> Option<ReadinessReading> {
     let selection = plan.flavour.as_ref()?;
 
-    let package = match load_coach_package(repos, tenant, user_id, plan.coach_slug.as_deref()).await
+    let package = match load_agent_package(repos, tenant, user_id, plan.agent_slug.as_deref()).await
     {
         Ok(package) => package,
         Err(e) => {

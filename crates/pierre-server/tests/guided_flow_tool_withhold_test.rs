@@ -112,7 +112,7 @@ fn only_the_withheld_tools_are_dropped() {
 /// characters beside embacle's 16,127-character catalogue of the same ~58
 /// tools. Worse than the size, it was built from `user_visible_schemas()` while
 /// the declarations came from `chat_callable_schemas()`, so it advertised
-/// categories the coach could not call on any path.
+/// categories the agent could not call on any path.
 ///
 /// A names-only index generated from the declarations' own source is back
 /// alongside the boundary — see
@@ -141,9 +141,9 @@ fn the_prompt_carries_no_second_tool_list() {
 
 /// The surviving advertisement surface must be populated.
 ///
-/// `TOOL_BOUNDARY` tells the coach to look its tools up before claiming it has
+/// `TOOL_BOUNDARY` tells the agent to look its tools up before claiming it has
 /// none. Deleting the prose list made the declarations the only place there is
-/// to look: if they ever come back empty, the coach is told to check a surface
+/// to look: if they ever come back empty, the agent is told to check a surface
 /// that holds nothing, and every capability question resolves to a denial. The
 /// duplication used to mask that; it does not any more.
 ///
@@ -157,7 +157,7 @@ fn the_prompt_carries_no_second_tool_list() {
 /// platform must not list tools, this says something else must.
 /// The boundary must not put the athlete's own connected platforms outside it.
 ///
-/// Live incident 2026-08-26 (Telegram, two athletes): the coach answered «je
+/// Live incident 2026-08-26 (Telegram, two athletes): the agent answered «je
 /// n'ai pas d'outil qui écrit vers intervals.icu» with zero tool calls, about
 /// `prescribe_workout` — shipped the day before, chat-callable, and doing
 /// exactly that. It was not hallucinating. `TOOL_BOUNDARY` said it could not
@@ -201,7 +201,7 @@ fn the_boundary_does_not_disown_the_athletes_connected_platforms() {
 ///
 /// That is the same defect as the 2026-08-26 denial, pointing the other way:
 /// there the prompt promised a description it did not carry, here it denied one
-/// it did. Both teach the coach that the prompt's account of its own tools
+/// it did. Both teach the agent that the prompt's account of its own tools
 /// cannot be trusted. The boundary may say the prompt withholds what a tool
 /// *does* — the index says so itself — but not that it withholds the names.
 #[test]
@@ -266,7 +266,7 @@ fn the_surviving_advertisement_surface_is_populated() {
 /// So the index is generated from the declarations' own source, and this
 /// asserts the consequence: every declared tool appears, and the block carries
 /// names only. A capability question is then answered by reading the prompt
-/// rather than guessing — which is what the coach failed to do on 2026-08-26,
+/// rather than guessing — which is what the agent failed to do on 2026-08-26,
 /// telling two athletes it had no tool to write to Intervals.icu, with zero
 /// tool calls, about a tool it had.
 ///

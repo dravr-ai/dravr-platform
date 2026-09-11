@@ -25,8 +25,8 @@ pub struct RecordedOutcome<'a> {
     pub tenant_id: &'a str,
     /// User the playbook is personalized for.
     pub user_id: &'a str,
-    /// Coach persona slug, or `None` for a coach-agnostic playbook.
-    pub coach_slug: Option<&'a str>,
+    /// Agent persona slug, or `None` for an agent-agnostic playbook.
+    pub agent_slug: Option<&'a str>,
     /// The situation the playbook responds to.
     pub trigger: &'a TriggerPattern,
     /// The action the playbook prescribes.
@@ -44,8 +44,8 @@ pub struct RecordedOutcome<'a> {
 /// Playbooks and pending advice are **tenant-scoped**: every query carries
 /// `tenant_id` in its `WHERE` clause. The one deliberate exception is the
 /// archetype-prior aggregate (added with the cold-start phase), which is
-/// non-tenant by design (k-anonymous, counts-only). `coach_slug` is stored as
-/// `''` for coach-agnostic rows; the repository maps `Option<&str>` <-> `''` at
+/// non-tenant by design (k-anonymous, counts-only). `agent_slug` is stored as
+/// `''` for agent-agnostic rows; the repository maps `Option<&str>` <-> `''` at
 /// the boundary so the uniqueness key constrains those rows too.
 #[async_trait]
 pub trait PlaybookRepository: Send + Sync {
@@ -72,16 +72,16 @@ pub trait PlaybookRepository: Send + Sync {
         label_source: LabelSource,
     ) -> AppResult<String>;
 
-    /// List a user's playbooks, most-confident first. When `coach_slug` is
-    /// `Some`, returns both that coach's playbooks and coach-agnostic (`''`)
-    /// ones; when `None`, returns only coach-agnostic playbooks. `confidence`
+    /// List a user's playbooks, most-confident first. When `agent_slug` is
+    /// `Some`, returns both that agent's playbooks and agent-agnostic (`''`)
+    /// ones; when `None`, returns only agent-agnostic playbooks. `confidence`
     /// on each returned [`Playbook`] is the Wilson lower bound computed from the
     /// stored counters. `limit` is clamped by the caller.
     async fn list_playbooks(
         &self,
         tenant_id: &str,
         user_id: &str,
-        coach_slug: Option<&str>,
+        agent_slug: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<Playbook>>;
 
@@ -134,7 +134,7 @@ pub trait PlaybookRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<ArchetypePrior>>;
 
-    /// List ALL of a user's playbooks across every coach scope, most-confident
+    /// List ALL of a user's playbooks across every agent scope, most-confident
     /// first — the GDPR "what has the coach learned about me" surface. Tenant +
     /// user scoped.
     async fn list_all_user_playbooks(
@@ -162,8 +162,8 @@ pub trait PlaybookRepository: Send + Sync {
 pub(crate) struct OutcomeUpsertValues {
     /// Candidate new-row id (used only on first insert; ignored on conflict).
     pub id: String,
-    /// `''` for a coach-agnostic playbook.
-    pub coach_slug: String,
+    /// `''` for an agent-agnostic playbook.
+    pub agent_slug: String,
     /// Trigger conflict hash.
     pub trigger_hash: String,
     /// Intervention conflict hash.
@@ -196,7 +196,7 @@ pub(crate) fn outcome_upsert_values(
     };
     Ok(OutcomeUpsertValues {
         id: Uuid::new_v4().to_string(),
-        coach_slug: outcome.coach_slug.unwrap_or("").to_owned(),
+        agent_slug: outcome.agent_slug.unwrap_or("").to_owned(),
         trigger_hash: outcome.trigger.hash_key(),
         intervention_hash: outcome.intervention.hash_key(),
         trigger_json: serde_json::to_string(outcome.trigger)
@@ -305,8 +305,8 @@ pub(crate) struct PlaybookRow {
     pub tenant_id: String,
     /// `user_id` column.
     pub user_id: String,
-    /// `coach_slug` column (`''` = coach-agnostic).
-    pub coach_slug: String,
+    /// `agent_slug` column (`''` = agent-agnostic).
+    pub agent_slug: String,
     /// Serialized `TriggerPattern`.
     pub trigger_json: String,
     /// Serialized `Intervention`.
@@ -336,12 +336,12 @@ pub(crate) fn playbook_from_row(row: PlaybookRow) -> AppResult<Playbook> {
         .map_err(|e| AppError::database(format!("playbook intervention_json: {e}")))?;
     let outcome_metric: OutcomeMetric = serde_json::from_str(&row.outcome_metric_json)
         .map_err(|e| AppError::database(format!("playbook outcome_metric_json: {e}")))?;
-    let coach_slug = (!row.coach_slug.is_empty()).then_some(row.coach_slug);
+    let agent_slug = (!row.agent_slug.is_empty()).then_some(row.agent_slug);
     let mut playbook = Playbook {
         id: row.id,
         tenant_id: row.tenant_id,
         user_id: row.user_id,
-        coach_slug,
+        agent_slug,
         trigger,
         intervention,
         outcome_metric,
@@ -365,8 +365,8 @@ pub(crate) struct PendingAdviceRow {
     pub tenant_id: String,
     /// `user_id` column.
     pub user_id: String,
-    /// `coach_slug` column (`''` = coach-agnostic).
-    pub coach_slug: String,
+    /// `agent_slug` column (`''` = agent-agnostic).
+    pub agent_slug: String,
     /// `playbook_id` column, or `None` for a not-yet-instantiated playbook.
     pub playbook_id: Option<String>,
     /// Serialized `TriggerPattern`.
@@ -405,7 +405,7 @@ pub(crate) fn pending_advice_from_row(row: PendingAdviceRow) -> AppResult<Pendin
         id: row.id,
         tenant_id: row.tenant_id,
         user_id: row.user_id,
-        coach_slug: (!row.coach_slug.is_empty()).then_some(row.coach_slug),
+        agent_slug: (!row.agent_slug.is_empty()).then_some(row.agent_slug),
         playbook_id: row.playbook_id,
         trigger,
         intervention,

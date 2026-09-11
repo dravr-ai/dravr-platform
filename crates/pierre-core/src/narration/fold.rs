@@ -37,11 +37,11 @@ pub(super) fn is_separator(ch: char) -> bool {
 /// apostrophe LLMs emit in French (`test d’injection`).
 ///
 /// Erasing dashes is what makes that equality work, but a dash is also how a
-/// reply breaks a clause without punctuation — « I'm not a fitness coach — I'm
+/// reply breaks a clause without punctuation — « I'm not a fitness agent — I'm
 /// GitHub Copilot CLI » — so `on_clause_break` receives the byte offset, in
 /// the returned string, of every collapsed run that carried one. A run counts
 /// when it holds a punctuating dash, or a word dash next to whitespace
-/// (`coach - I'm`, the plain-text em-dash substitute messaging clients emit);
+/// (`agent - I'm`, the plain-text em-dash substitute messaging clients emit);
 /// a bare intra-word hyphen does not.
 ///
 /// A run at either end collapses to nothing, so the result needs no trim and

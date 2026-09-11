@@ -1,5 +1,5 @@
 // ABOUTME: Admin-only tools for system agent management with direct database access.
-// ABOUTME: Implements admin coach operations using CoachesRepository directly.
+// ABOUTME: Implements admin agent operations using AgentsRepository directly.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,16 +7,16 @@
 //! # Admin Tools
 //!
 //! This module provides admin-only tools for system agent management with direct
-//! `CoachesRepository` access (no `dispatch_handler` bridging).
+//! `AgentsRepository` access (no `dispatch_handler` bridging).
 //!
-//! - `AdminListSystemCoachesTool` - List all system agents
-//! - `AdminCreateSystemCoachTool` - Create a system-wide coach
-//! - `AdminGetSystemCoachTool` - Get system agent details
-//! - `AdminUpdateSystemCoachTool` - Update a system agent
-//! - `AdminDeleteSystemCoachTool` - Delete a system agent
-//! - `AdminAssignCoachTool` - Assign coach to a user
-//! - `AdminUnassignCoachTool` - Remove coach assignment
-//! - `AdminListCoachAssignmentsTool` - List coach assignments
+//! - `AdminListSystemAgentsTool` - List all system agents
+//! - `AdminCreateSystemAgentTool` - Create a system-wide agent
+//! - `AdminGetSystemAgentTool` - Get system agent details
+//! - `AdminUpdateSystemAgentTool` - Update a system agent
+//! - `AdminDeleteSystemAgentTool` - Delete a system agent
+//! - `AdminAssignAgentTool` - Assign agent to a user
+//! - `AdminUnassignAgentTool` - Remove agent assignment
+//! - `AdminListAgentAssignmentsTool` - List agent assignments
 //!
 //! Each tool below calls `ctx.require_admin()` to enforce the admin role
 //! inline — `UniversalToolExecutor::execute_tool` refuses non-admins at the
@@ -33,9 +33,9 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::admin_output::{
-    AdminAssignCoachResult, AdminCreateSystemCoachResult, AdminDeleteSystemCoachResult,
-    AdminGetSystemCoachResult, AdminListCoachAssignmentsResult, AdminListSystemCoachesResult,
-    AdminUnassignCoachResult, AdminUpdateSystemCoachResult, CoachAssignmentEntry, SystemCoachEntry,
+    AdminAssignAgentResult, AdminCreateSystemAgentResult, AdminDeleteSystemAgentResult,
+    AdminGetSystemAgentResult, AdminListAgentAssignmentsResult, AdminListSystemAgentsResult,
+    AdminUnassignAgentResult, AdminUpdateSystemAgentResult, AgentAssignmentEntry, SystemAgentEntry,
 };
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -49,8 +49,8 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::coaches::{
-    CoachCategory, CoachVisibility, CreateSystemCoachRequest, UpdateCoachRequest,
+use pierre_core::models::agents::{
+    AgentCategory, AgentVisibility, CreateSystemAgentRequest, UpdateAgentRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_core::pagination::parse_limit_offset;
@@ -126,14 +126,14 @@ async fn verify_user_tenant_membership(
 }
 
 // ============================================================================
-// AdminListSystemCoachesTool
+// AdminListSystemAgentsTool
 // ============================================================================
 
 /// Tool for listing system agents (admin only).
-pub struct AdminListSystemCoachesTool;
+pub struct AdminListSystemAgentsTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
+impl McpTool<dyn ToolRuntime> for AdminListSystemAgentsTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -153,7 +153,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             },
         );
         let schema = object_schema_with_format(properties, None);
-        answers_with::<Formatted<AdminListSystemCoachesResult>>(tool_definition(
+        answers_with::<Formatted<AdminListSystemAgentsResult>>(tool_definition(
             "admin_list_system_agents",
             "List all system agents in the tenant (admin only)",
             schema,
@@ -182,22 +182,22 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
             // The schema has always advertised limit/offset; execute ignored
-            // both, so a client paging through coaches silently re-read the
+            // both, so a client paging through agents silently re-read the
             // full set every call. Clamped per the pagination rule.
             let (limit, offset) = parse_limit_offset(&args, 50, 100);
 
-            let manager = ctx.resources.coaches_manager();
-            let coaches = manager
-                .list_system_coaches(tenant_id)
+            let manager = ctx.resources.agents_manager();
+            let agents = manager
+                .list_system_agents(tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list system agents: {e}")))?;
 
-            let total = coaches.len();
-            let coach_summaries: Vec<SystemCoachEntry> = coaches
+            let total = agents.len();
+            let agent_summaries: Vec<SystemAgentEntry> = agents
                 .iter()
                 .skip(offset)
                 .take(limit)
-                .map(|c| SystemCoachEntry {
+                .map(|c| SystemAgentEntry {
                     id: c.id.to_string(),
                     title: c.title.clone(),
                     description: c.description.clone(),
@@ -210,9 +210,9 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
                 })
                 .collect();
 
-            let payload = AdminListSystemCoachesResult {
-                count: coach_summaries.len(),
-                coaches: coach_summaries,
+            let payload = AdminListSystemAgentsResult {
+                count: agent_summaries.len(),
+                agents: agent_summaries,
                 total,
                 offset,
             };
@@ -225,12 +225,12 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemCoachesTool {
 }
 
 // ============================================================================
-// AdminCreateSystemCoachTool
+// AdminCreateSystemAgentTool
 // ============================================================================
 
 /// Input parameters for creating a system agent.
 #[derive(Debug, Deserialize)]
-struct CreateSystemCoachParams {
+struct CreateSystemAgentParams {
     title: String,
     description: Option<String>,
     system_prompt: String,
@@ -243,10 +243,10 @@ struct CreateSystemCoachParams {
 }
 
 /// Tool for creating system agents (admin only).
-pub struct AdminCreateSystemCoachTool;
+pub struct AdminCreateSystemAgentTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
+impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -308,7 +308,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             properties,
             Some(vec!["title".to_owned(), "system_prompt".to_owned()]),
         );
-        answers_with::<AdminCreateSystemCoachResult>(tool_definition(
+        answers_with::<AdminCreateSystemAgentResult>(tool_definition(
             "admin_create_system_agent",
             "Create a new system agent visible to all tenant users (admin only)",
             schema,
@@ -336,47 +336,47 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let params: CreateSystemCoachParams = serde_json::from_value(args).map_err(|e| {
+            let params: CreateSystemAgentParams = serde_json::from_value(args).map_err(|e| {
                 AppError::invalid_input(format!("Invalid system agent parameters: {e}"))
             })?;
 
             let visibility = params
                 .visibility
                 .as_deref()
-                .map_or(CoachVisibility::Tenant, CoachVisibility::parse);
+                .map_or(AgentVisibility::Tenant, AgentVisibility::parse);
 
-            let create_request = CreateSystemCoachRequest {
+            let create_request = CreateSystemAgentRequest {
                 title: params.title.clone(),
                 description: params.description,
                 system_prompt: params.system_prompt,
                 category: params
                     .category
                     .as_deref()
-                    .map(CoachCategory::parse)
+                    .map(AgentCategory::parse)
                     .unwrap_or_default(),
                 tags: params.tags,
                 sample_prompts: params.sample_prompts,
                 visibility,
             };
 
-            let manager = ctx.resources.coaches_manager();
-            let coach = manager
-                .create_system_coach(user_id, tenant_id, &create_request)
+            let manager = ctx.resources.agents_manager();
+            let agent = manager
+                .create_system_agent(user_id, tenant_id, &create_request)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to create system agent: {e}")))?;
 
             ok_typed(
                 "admin_create_system_agent",
-                AdminCreateSystemCoachResult {
-                    id: coach.id.to_string(),
-                    title: coach.title,
-                    description: coach.description,
-                    category: coach.category.as_str().to_owned(),
-                    tags: coach.tags,
-                    token_count: coach.token_count,
-                    visibility: coach.visibility.as_str().to_owned(),
-                    is_system: coach.is_system,
-                    created_at: coach.created_at.to_rfc3339(),
+                AdminCreateSystemAgentResult {
+                    id: agent.id.to_string(),
+                    title: agent.title,
+                    description: agent.description,
+                    category: agent.category.as_str().to_owned(),
+                    tags: agent.tags,
+                    token_count: agent.token_count,
+                    visibility: agent.visibility.as_str().to_owned(),
+                    is_system: agent.is_system,
+                    created_at: agent.created_at.to_rfc3339(),
                 },
             )
         }
@@ -386,14 +386,14 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemCoachTool {
 }
 
 // ============================================================================
-// AdminGetSystemCoachTool
+// AdminGetSystemAgentTool
 // ============================================================================
 
 /// Tool for getting system agent details (admin only).
-pub struct AdminGetSystemCoachTool;
+pub struct AdminGetSystemAgentTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
+impl McpTool<dyn ToolRuntime> for AdminGetSystemAgentTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -405,7 +405,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
             },
         );
         let schema = object_schema_with_format(properties, Some(vec!["agent_id".to_owned()]));
-        answers_with::<Formatted<AdminGetSystemCoachResult>>(tool_definition(
+        answers_with::<Formatted<AdminGetSystemAgentResult>>(tool_definition(
             "admin_get_system_agent",
             "Get detailed information about a system agent (admin only)",
             schema,
@@ -433,22 +433,22 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
-            let manager = ctx.resources.coaches_manager();
-            let coach = manager
-                .get_system_coach(coach_id, tenant_id)
+            let manager = ctx.resources.agents_manager();
+            let agent = manager
+                .get_system_agent(agent_id, tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to get system agent: {e}")))?;
 
-            match coach {
+            match agent {
                 Some(c) => {
-                    let payload = AdminGetSystemCoachResult {
+                    let payload = AdminGetSystemAgentResult {
                         id: c.id.to_string(),
                         title: c.title,
                         description: c.description,
@@ -464,7 +464,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
                     ok_typed("admin_get_system_agent", apply_format(payload, format))
                 }
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("System agent not found: {coach_id}"),
+                    "error": format!("System agent not found: {agent_id}"),
                 }))),
             }
         }
@@ -474,14 +474,14 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemCoachTool {
 }
 
 // ============================================================================
-// AdminUpdateSystemCoachTool
+// AdminUpdateSystemAgentTool
 // ============================================================================
 
 /// Tool for updating system agents (admin only).
-pub struct AdminUpdateSystemCoachTool;
+pub struct AdminUpdateSystemAgentTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
+impl McpTool<dyn ToolRuntime> for AdminUpdateSystemAgentTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -538,7 +538,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
-        answers_with::<AdminUpdateSystemCoachResult>(tool_definition(
+        answers_with::<AdminUpdateSystemAgentResult>(tool_definition(
             "admin_update_system_agent",
             "Update an existing system agent (admin only)",
             schema,
@@ -565,14 +565,14 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
-            let update_request = UpdateCoachRequest {
+            let update_request = UpdateAgentRequest {
                 title: args
                     .get("title")
                     .and_then(Value::as_str)
@@ -588,7 +588,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 category: args
                     .get("category")
                     .and_then(Value::as_str)
-                    .map(CoachCategory::parse),
+                    .map(AgentCategory::parse),
                 tags: args.get("tags").and_then(Value::as_array).map(|arr| {
                     arr.iter()
                         .filter_map(Value::as_str)
@@ -615,16 +615,16 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                 max_tool_iterations: FieldUpdate::Keep,
             };
 
-            let manager = ctx.resources.coaches_manager();
-            let coach = manager
-                .update_system_coach(coach_id, tenant_id, &update_request)
+            let manager = ctx.resources.agents_manager();
+            let agent = manager
+                .update_system_agent(agent_id, tenant_id, &update_request)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to update system agent: {e}")))?;
 
-            match coach {
+            match agent {
                 Some(c) => ok_typed(
                     "admin_update_system_agent",
-                    AdminUpdateSystemCoachResult {
+                    AdminUpdateSystemAgentResult {
                         id: c.id.to_string(),
                         title: c.title,
                         description: c.description,
@@ -638,7 +638,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
                     },
                 ),
                 None => Ok(ToolResult::error(json!({
-                    "error": format!("System agent not found: {coach_id}"),
+                    "error": format!("System agent not found: {agent_id}"),
                 }))),
             }
         }
@@ -648,14 +648,14 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemCoachTool {
 }
 
 // ============================================================================
-// AdminDeleteSystemCoachTool
+// AdminDeleteSystemAgentTool
 // ============================================================================
 
 /// Tool for deleting system agents (admin only).
-pub struct AdminDeleteSystemCoachTool;
+pub struct AdminDeleteSystemAgentTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
+impl McpTool<dyn ToolRuntime> for AdminDeleteSystemAgentTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -667,7 +667,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
-        answers_with::<AdminDeleteSystemCoachResult>(tool_definition(
+        answers_with::<AdminDeleteSystemAgentResult>(tool_definition(
             "admin_delete_system_agent",
             "Delete a system agent and remove all assignments (admin only)",
             schema,
@@ -694,30 +694,30 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("Missing required parameter: agent_id".to_owned())
                 })?;
 
-            let manager = ctx.resources.coaches_manager();
+            let manager = ctx.resources.agents_manager();
             let deleted = manager
-                .delete_system_coach(coach_id, tenant_id)
+                .delete_system_agent(agent_id, tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to delete system agent: {e}")))?;
 
             if deleted {
                 ok_typed(
                     "admin_delete_system_agent",
-                    AdminDeleteSystemCoachResult {
+                    AdminDeleteSystemAgentResult {
                         deleted: true,
-                        agent_id: coach_id.to_owned(),
+                        agent_id: agent_id.to_owned(),
                     },
                 )
             } else {
                 Ok(ToolResult::error(json!({
-                    "error": format!("System agent not found: {coach_id}"),
+                    "error": format!("System agent not found: {agent_id}"),
                 })))
             }
         }
@@ -727,14 +727,14 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemCoachTool {
 }
 
 // ============================================================================
-// AdminAssignCoachTool
+// AdminAssignAgentTool
 // ============================================================================
 
-/// Tool for assigning coaches to users (admin only).
-pub struct AdminAssignCoachTool;
+/// Tool for assigning agents to users (admin only).
+pub struct AdminAssignAgentTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
+impl McpTool<dyn ToolRuntime> for AdminAssignAgentTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -757,7 +757,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
             properties,
             Some(vec!["agent_id".to_owned(), "user_id".to_owned()]),
         );
-        answers_with::<AdminAssignCoachResult>(tool_definition(
+        answers_with::<AdminAssignAgentResult>(tool_definition(
             "admin_assign_agent",
             "Assign a system agent to a specific user (admin only)",
             schema,
@@ -785,7 +785,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
@@ -801,31 +801,31 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
                 AppError::invalid_input(format!("Invalid user_id: {target_user_id_str}"))
             })?;
 
-            let manager = ctx.resources.coaches_manager();
+            let manager = ctx.resources.agents_manager();
 
-            // Verify the coach exists and is a system agent in this tenant
-            let coach = manager
-                .get_system_coach(coach_id, tenant_id)
+            // Verify the agent exists and is a system agent in this tenant
+            let agent = manager
+                .get_system_agent(agent_id, tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to get coach: {e}")))?
                 .ok_or_else(|| {
-                    AppError::invalid_input(format!("System agent not found: {coach_id}"))
+                    AppError::invalid_input(format!("System agent not found: {agent_id}"))
                 })?;
 
             // Verify target user belongs to the same tenant as the admin
             verify_user_tenant_membership(&ctx, target_user_id, tenant_id).await?;
 
             manager
-                .assign_coach(coach_id, target_user_id, admin_user_id)
+                .assign_agent(agent_id, target_user_id, admin_user_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to assign coach: {e}")))?;
 
             ok_typed(
                 "admin_assign_agent",
-                AdminAssignCoachResult {
+                AdminAssignAgentResult {
                     assigned: true,
-                    agent_id: coach_id.to_owned(),
-                    agent_title: coach.title,
+                    agent_id: agent_id.to_owned(),
+                    agent_title: agent.title,
                     user_id: target_user_id.to_string(),
                     assigned_by: admin_user_id.to_string(),
                 },
@@ -837,14 +837,14 @@ impl McpTool<dyn ToolRuntime> for AdminAssignCoachTool {
 }
 
 // ============================================================================
-// AdminUnassignCoachTool
+// AdminUnassignAgentTool
 // ============================================================================
 
-/// Tool for removing coach assignments (admin only).
-pub struct AdminUnassignCoachTool;
+/// Tool for removing agent assignments (admin only).
+pub struct AdminUnassignAgentTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
+impl McpTool<dyn ToolRuntime> for AdminUnassignAgentTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -867,7 +867,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             properties,
             Some(vec!["agent_id".to_owned(), "user_id".to_owned()]),
         );
-        answers_with::<AdminUnassignCoachResult>(tool_definition(
+        answers_with::<AdminUnassignAgentResult>(tool_definition(
             "admin_unassign_agent",
             "Remove an agent assignment from a user (admin only)",
             schema,
@@ -894,7 +894,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
@@ -913,25 +913,25 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
             // Verify target user belongs to the same tenant as the admin
             verify_user_tenant_membership(&ctx, target_user_id, tenant_id).await?;
 
-            let manager = ctx.resources.coaches_manager();
+            let manager = ctx.resources.agents_manager();
             let unassigned = manager
-                .unassign_coach(coach_id, target_user_id)
+                .unassign_agent(agent_id, target_user_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to unassign coach: {e}")))?;
 
             if unassigned {
                 ok_typed(
                     "admin_unassign_agent",
-                    AdminUnassignCoachResult {
+                    AdminUnassignAgentResult {
                         unassigned: true,
-                        agent_id: coach_id.to_owned(),
+                        agent_id: agent_id.to_owned(),
                         user_id: target_user_id.to_string(),
                     },
                 )
             } else {
                 Ok(ToolResult::error(json!({
                     "error": format!(
-                        "Assignment not found for agent {coach_id} and user {target_user_id}"
+                        "Assignment not found for agent {agent_id} and user {target_user_id}"
                     ),
                 })))
             }
@@ -942,18 +942,18 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignCoachTool {
 }
 
 // ============================================================================
-// AdminListCoachAssignmentsTool
+// AdminListAgentAssignmentsTool
 // ============================================================================
 
 /// Cap on assignment rows one listing returns; `total`/`truncated` in the
-/// payload say when the coach has more.
+/// payload say when the agent has more.
 const MAX_ASSIGNMENT_ROWS: usize = 200;
 
-/// Tool for listing coach assignments (admin only).
-pub struct AdminListCoachAssignmentsTool;
+/// Tool for listing agent assignments (admin only).
+pub struct AdminListAgentAssignmentsTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
+impl McpTool<dyn ToolRuntime> for AdminListAgentAssignmentsTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -965,7 +965,7 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             },
         );
         let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
-        answers_with::<AdminListCoachAssignmentsResult>(tool_definition(
+        answers_with::<AdminListAgentAssignmentsResult>(tool_definition(
             "admin_list_agent_assignments",
             "List all assignments for a system agent (admin only)",
             schema,
@@ -992,27 +992,27 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             ctx.require_admin().await?;
             let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-            let coach_id = args
+            let agent_id = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
                     AppError::invalid_input("coach_id is required to list assignments".to_owned())
                 })?;
 
-            let manager = ctx.resources.coaches_manager();
+            let manager = ctx.resources.agents_manager();
 
-            // Verify the coach belongs to the admin's tenant
+            // Verify the agent belongs to the admin's tenant
             manager
-                .get_system_coach(coach_id, tenant_id)
+                .get_system_agent(agent_id, tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to verify coach tenant: {e}")))?
                 .ok_or_else(|| {
-                    AppError::invalid_input(format!("System agent {coach_id} not found"))
+                    AppError::invalid_input(format!("System agent {agent_id} not found"))
                 })?;
 
             // List assignments scoped to the admin's tenant
             let assignments = manager
-                .list_assignments_for_tenant(coach_id, tenant_id)
+                .list_assignments_for_tenant(agent_id, tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to list assignments: {e}")))?;
 
@@ -1020,10 +1020,10 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
             // carry an assignment per athlete, and this listing had no cap.
             // The truncation is stated in the payload rather than hidden.
             let total = assignments.len();
-            let assignment_list: Vec<CoachAssignmentEntry> = assignments
+            let assignment_list: Vec<AgentAssignmentEntry> = assignments
                 .iter()
                 .take(MAX_ASSIGNMENT_ROWS)
-                .map(|a| CoachAssignmentEntry {
+                .map(|a| AgentAssignmentEntry {
                     user_id: a.user_id.clone(),
                     user_email: a.user_email.clone(),
                     assigned_at: a.assigned_at.clone(),
@@ -1033,8 +1033,8 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
 
             ok_typed(
                 "admin_list_agent_assignments",
-                AdminListCoachAssignmentsResult {
-                    agent_id: coach_id.to_owned(),
+                AdminListAgentAssignmentsResult {
+                    agent_id: agent_id.to_owned(),
                     count: assignment_list.len(),
                     assignments: assignment_list,
                     total,
@@ -1055,29 +1055,29 @@ impl McpTool<dyn ToolRuntime> for AdminListCoachAssignmentsTool {
 #[must_use]
 pub fn create_admin_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
-        Box::new(AdminListSystemCoachesTool),
-        Box::new(AdminCreateSystemCoachTool),
-        Box::new(AdminGetSystemCoachTool),
-        Box::new(AdminUpdateSystemCoachTool),
-        Box::new(AdminDeleteSystemCoachTool),
-        Box::new(AdminAssignCoachTool),
-        Box::new(AdminUnassignCoachTool),
-        Box::new(AdminListCoachAssignmentsTool),
+        Box::new(AdminListSystemAgentsTool),
+        Box::new(AdminCreateSystemAgentTool),
+        Box::new(AdminGetSystemAgentTool),
+        Box::new(AdminUpdateSystemAgentTool),
+        Box::new(AdminDeleteSystemAgentTool),
+        Box::new(AdminAssignAgentTool),
+        Box::new(AdminUnassignAgentTool),
+        Box::new(AdminListAgentAssignmentsTool),
     ]
 }
 
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(AdminDeleteSystemCoachTool => IRREVERSIBLE);
-crate::declare_security!(AdminAssignCoachTool => empty);
-crate::declare_security!(AdminCreateSystemCoachTool => empty);
-// Return coach persona / system-prompt content (coach-authored free text) —
-// the same source class as coaches.rs GetCoach/ListCoaches (UNTRUSTED_OUTPUT).
+crate::declare_security!(AdminDeleteSystemAgentTool => IRREVERSIBLE);
+crate::declare_security!(AdminAssignAgentTool => empty);
+crate::declare_security!(AdminCreateSystemAgentTool => empty);
+// Return agent persona / system-prompt content (agent-authored free text) —
+// the same source class as agents.rs GetCoach/ListCoaches (UNTRUSTED_OUTPUT).
 // ADMIN_ONLY keeps them off the chat loop today, but the label must be right so
 // the compile-time "must classify" net doesn't hide a present-but-wrong label.
-crate::declare_security!(AdminGetSystemCoachTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(AdminListCoachAssignmentsTool => empty);
-crate::declare_security!(AdminListSystemCoachesTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(AdminUnassignCoachTool => empty);
-crate::declare_security!(AdminUpdateSystemCoachTool => empty);
+crate::declare_security!(AdminGetSystemAgentTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AdminListAgentAssignmentsTool => empty);
+crate::declare_security!(AdminListSystemAgentsTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(AdminUnassignAgentTool => empty);
+crate::declare_security!(AdminUpdateSystemAgentTool => empty);

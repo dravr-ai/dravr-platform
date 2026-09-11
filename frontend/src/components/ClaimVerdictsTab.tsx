@@ -87,7 +87,7 @@ export default function ClaimVerdictsTab() {
         tenant_id: tenantId,
         status: statusFilter || undefined,
         category: categoryFilter || undefined,
-        coach_id: coachFilter || undefined,
+        agent_id: coachFilter || undefined,
         limit,
       }),
     enabled: Boolean(tenantId),

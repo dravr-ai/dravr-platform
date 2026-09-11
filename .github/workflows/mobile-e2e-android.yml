@@ -214,10 +214,10 @@ jobs:
           token: ${{ secrets.DRAVR_CONTREMAITRE_WRITE_TOKEN }}
           path: contremaitre
 
-      - name: Seed system coaches for Maestro tests
+      - name: Seed system agents for Maestro tests
         run: |
-          ./target/release/pierre-cli seed coaches \
-            --coaches-dir "${{ github.workspace }}/contremaitre/prompts/coaches"
+          ./target/release/pierre-cli seed agents \
+            --agents-dir "${{ github.workspace }}/contremaitre/prompts/coaches"
         env:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-android-test.db"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -486,4 +486,5 @@ jobs:
             /tmp/android-crash.txt
             /tmp/pierre-server.log
             /tmp/android-summary.txt
+            /home/runner/.maestro/tests/
           retention-days: 1

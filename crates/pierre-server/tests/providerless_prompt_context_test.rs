@@ -21,7 +21,7 @@
 //! turning on the light.
 //!
 //! These tests assert the light is on: the providerless prompt names the
-//! absence, forbids specifics, and still says what the coach *can* do. They
+//! absence, forbids specifics, and still says what the agent *can* do. They
 //! assert content rather than non-emptiness, because a section that merely
 //! exists would satisfy the second and still leave the model guessing.
 
@@ -71,7 +71,7 @@ async fn a_providerless_user_is_named_as_such_in_the_prompt() {
 
 /// A connected user's prompt is unchanged, and must not carry the denial.
 ///
-/// The risk of stating absence is stating it to the wrong person: a coach that
+/// The risk of stating absence is stating it to the wrong person: an agent that
 /// tells a connected athlete it cannot see their data is a worse bug than the
 /// one being fixed, and it would pass a test that only checked the empty case.
 #[tokio::test]

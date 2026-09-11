@@ -13,7 +13,7 @@ pub const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 300; // 5 minutes
 /// Athlete profile cache TTL (24 hours) - profiles change infrequently
 pub const TTL_PROFILE_SECS: u64 = 86_400; // 24 hours
 
-/// Activity list cache TTL (1 hour) - warm enough to survive between coach
+/// Activity list cache TTL (1 hour) - warm enough to survive between agent
 /// turns and provider blips, while a sync still refreshes it on new activities.
 pub const TTL_ACTIVITY_LIST_SECS: u64 = 3_600; // 1 hour
 
@@ -29,7 +29,7 @@ pub const TTL_STATS_SECS: u64 = 21_600; // 6 hours
 /// worker after each activity sync, but the read path can serve a
 /// slightly-stale window from cache without affecting correctness for
 /// long-window queries. A one-hour window keeps the data warm across
-/// consecutive coach turns and short provider outages.
+/// consecutive agent turns and short provider outages.
 pub const TTL_TRAINING_HISTORY_SECS: u64 = 3_600;
 
 /// Redis connection pool minimum size

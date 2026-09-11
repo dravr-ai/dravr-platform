@@ -409,7 +409,7 @@ pub(super) fn outline_schema() -> PropertySchema {
     );
     // `phases` is deliberately absent from the required list: a two-week
     // "hold form then taper" plan has no mesocycle structure, and demanding
-    // one forced the coach to invent kind/start/weeks/intent before any plan
+    // one forced the agent to invent kind/start/weeks/intent before any plan
     // could be saved at all. The outline still needs a race to aim at and a
     // stated strategy.
     object_prop(

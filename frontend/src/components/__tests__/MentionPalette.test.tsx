@@ -68,7 +68,7 @@ describe('@handle mention palette (web composer)', () => {
     listCommands.mockReset();
     listCoaches.mockReset();
     onSend.mockReset();
-    listCoaches.mockResolvedValue({ coaches: COACHES });
+    listCoaches.mockResolvedValue({ agents: COACHES });
     listCommands.mockResolvedValue([]);
   });
 

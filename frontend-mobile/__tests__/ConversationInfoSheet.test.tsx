@@ -38,7 +38,7 @@ import { ConversationInfoSheet } from '../src/screens/chat/ConversationInfoSheet
 function conversation(overrides: Partial<Conversation> & { id: string }): Conversation {
   return {
     title: 'Tempo Tuesday',
-    coach_id: null,
+    agent_id: null,
     message_count: 3,
     unread_count: 0,
     created_at: '2026-08-20T10:00:00Z',
@@ -85,7 +85,7 @@ describe('ConversationInfoSheet', () => {
 
   it('shows Agent info for an agent-bound thread', () => {
     const { getByTestId, queryByTestId } = renderSheet(
-      conversation({ id: 'c2', coach_id: 'coach-1', coach_title: 'Coach Tempo' }),
+      conversation({ id: 'c2', agent_id: 'coach-1', agent_title: 'Coach Tempo' }),
     );
 
     expect(getByTestId('coach-info-sheet')).toBeTruthy();
@@ -97,7 +97,7 @@ describe('ConversationInfoSheet', () => {
   // info: the group is what the thread is about.
   it('shows Group info for a group thread even when an agent is attached', async () => {
     const { findByTestId, queryByTestId } = renderSheet(
-      conversation({ id: 'c3', group_id: 'group-1', group_name: 'Harricana', coach_id: 'coach-1' }),
+      conversation({ id: 'c3', group_id: 'group-1', group_name: 'Harricana', agent_id: 'coach-1' }),
     );
 
     expect(await findByTestId('group-info-name')).toHaveTextContent('Harricana');

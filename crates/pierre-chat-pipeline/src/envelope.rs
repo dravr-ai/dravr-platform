@@ -68,7 +68,7 @@ pub struct TurnEnvelope {
     /// than the fallback the caller handed in. An egress that renders a
     /// platform string beside the reply — a chart axis, an empty-reply
     /// fallback, a split-message footer — reads it here so its language cannot
-    /// disagree with the sentences the coach wrote.
+    /// disagree with the sentences the agent wrote.
     pub locale: String,
 }
 
@@ -547,7 +547,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
 
     // Prose first, with everything the surface cannot render as its own block
     // folded in ahead of the coaching text. The list goes first because it is
-    // what the coach's analysis refers to.
+    // what the agent's analysis refers to.
     let mut prose = String::new();
     if let (Some(list), false) = (
         activity_list.as_deref(),
@@ -624,7 +624,7 @@ pub fn build_envelope(profile: &SurfaceProfile, state: TurnState) -> TurnEnvelop
 ///
 /// A surface never gets both: an inline Scene and a fetched image are the same
 /// chart twice, and the pixels exist precisely because the surface cannot draw
-/// the spec. A surface that can do neither keeps the sentences the coach wrote
+/// the spec. A surface that can do neither keeps the sentences the agent wrote
 /// around the chart, which is the contract the visual-blocks prompt sets — so
 /// nothing is substituted in and nothing says "chart unavailable".
 fn push_scene_blocks(

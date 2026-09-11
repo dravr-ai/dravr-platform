@@ -26,7 +26,7 @@ use pierre_core::models::{ConversationTurnId, TenantId};
 /// Implemented in `pierre-server`, where the tool registry and the executor
 /// live. Returns `None` when native tool calling is disabled or a session
 /// cannot be opened, in which case the turn proceeds with no tools rather than
-/// failing — a coach that cannot reach data should say so, not error.
+/// failing — an agent that cannot reach data should say so, not error.
 #[async_trait::async_trait]
 pub trait McpBridgeProvider: Send + Sync {
     /// Open a session exposing this turn's tools to the agent.

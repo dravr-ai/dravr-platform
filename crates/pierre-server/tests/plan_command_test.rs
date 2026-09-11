@@ -19,7 +19,7 @@ use pierre_chat_pipeline::{dispatch_slash, CommandPersistence, SlashRequest};
 use pierre_commands::plan::{PlanShareHandler, PlanShowHandler};
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::chunking::chunk_reply;
-use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
     CoachingGroup, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
 };
@@ -30,7 +30,7 @@ use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBun
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -110,19 +110,19 @@ async fn seed_plan(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tenant
     seed_plan_with(resources, user_id, tenant, None, &[], &[]).await
 }
 
-/// The same plan, filed under a specific coach persona slug.
+/// The same plan, filed under a specific agent persona slug.
 ///
-/// A coach-agnostic plan renders under ANY coach lookup (`get_active_plan`
+/// An agent-agnostic plan renders under ANY agent lookup (`get_active_plan`
 /// falls back to the agnostic row), so it cannot tell whether the handler
-/// resolved the right coach. A plan under a slug only the athlete's selected
-/// coach (or the conversation's) resolves can.
+/// resolved the right agent. A plan under a slug only the athlete's selected
+/// agent (or the conversation's) resolves can.
 async fn seed_plan_under_coach(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
-    coach_slug: &str,
+    agent_slug: &str,
 ) -> Result<()> {
-    seed_plan_with(resources, user_id, tenant, Some(coach_slug), &[], &[]).await
+    seed_plan_with(resources, user_id, tenant, Some(agent_slug), &[], &[]).await
 }
 
 /// Seed the same plan behind extra outline blocks and alongside extra stored
@@ -134,7 +134,7 @@ async fn seed_plan_with(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
-    coach_slug: Option<&str>,
+    agent_slug: Option<&str>,
     leading_blocks: &[PlanPhase],
     extra_weeks: &[(String, Vec<PlannedDay>)],
 ) -> Result<()> {
@@ -201,7 +201,7 @@ async fn seed_plan_with(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            owner: PlanOwner::from_slug(coach_slug),
+            owner: PlanOwner::from_slug(agent_slug),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
@@ -220,7 +220,7 @@ async fn seed_plan_with(
 }
 
 /// Where the command was typed: which tenant owns the conversation row,
-/// whether the athlete is alone with the coach, and whether a messaging
+/// whether the athlete is alone with the agent, and whether a messaging
 /// channel (a sender id) carried it — the three signals the plan handlers
 /// branch on.
 struct Surface<'a> {
@@ -282,15 +282,15 @@ fn ctx(
 /// lookup under the athlete's own tenant never finds it.
 ///
 /// The bot tenant is another user's tenant; the room conversation is created
-/// there for the athlete, bound to `coach_id`, exactly as the messaging
+/// there for the athlete, bound to `agent_id`, exactly as the messaging
 /// session opener does for a group chat.
 async fn room_conversation(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
 ) -> Result<(TenantId, String)> {
     let bot_tenant = bot_tenant(resources).await?;
-    let conversation = room_conversation_in(resources, user_id, bot_tenant, coach_id, None).await?;
+    let conversation = room_conversation_in(resources, user_id, bot_tenant, agent_id, None).await?;
     Ok((bot_tenant, conversation))
 }
 
@@ -316,7 +316,7 @@ async fn room_conversation_in(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     bot_tenant: TenantId,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     group_id: Option<&str>,
 ) -> Result<String> {
     let conversation = resources
@@ -328,7 +328,7 @@ async fn room_conversation_in(
             bot_tenant,
             "room",
             "gemini-2.0-flash",
-            coach_id,
+            agent_id,
             group_id,
         )
         .await?;
@@ -357,7 +357,7 @@ async fn bound_room_group(
                 tenant_id: bot_tenant.to_string(),
                 name: "Room Squad".to_owned(),
                 description: None,
-                coach_id: persona,
+                agent_id: persona,
                 owner_id: user_id,
                 coach_user_id: None,
                 peer_data_sharing: true,
@@ -394,8 +394,8 @@ async fn bound_room_group(
 const ROOM_SENDER: &str = "telegram-user-42";
 const SHARED_MARKER: &str = "shared with the room";
 
-/// A coach persona in the athlete's tenant. The selected-coach pointer is a
-/// foreign key onto `coaches`, so a plan's coach slug has to be a real
+/// An agent persona in the athlete's tenant. The selected-agent pointer is a
+/// foreign key onto `agents`, so a plan's agent slug has to be a real
 /// persona id, not a made-up string.
 async fn seed_persona(
     resources: &Arc<ServerContext>,
@@ -403,28 +403,28 @@ async fn seed_persona(
     tenant: TenantId,
     title: &str,
 ) -> Result<String> {
-    let coach = resources
+    let agent = resources
         .common
         .repos
-        .coaches
-        .create_system_coach(
+        .agents
+        .create_system_agent(
             user_id,
             tenant,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: title.to_owned(),
                 description: None,
                 system_prompt: "Test prompt".to_owned(),
-                category: CoachCategory::Training,
+                category: AgentCategory::Training,
                 tags: vec![],
                 sample_prompts: vec![],
-                visibility: CoachVisibility::Global,
+                visibility: AgentVisibility::Global,
             },
         )
         .await?;
-    Ok(coach.id.to_string())
+    Ok(agent.id.to_string())
 }
 
-/// An athlete whose plan was built in their DM under their selected coach —
+/// An athlete whose plan was built in their DM under their selected agent —
 /// the row a bare tenant/None lookup never finds.
 async fn athlete_with_a_coached_plan(
     resources: &Arc<ServerContext>,
@@ -443,7 +443,7 @@ async fn athlete_with_a_coached_plan(
         .common
         .repos
         .tenants
-        .set_selected_coach(tenant, user_id, Some(&selected))
+        .set_selected_agent(tenant, user_id, Some(&selected))
         .await?;
     seed_plan_under_coach(resources, user_id, tenant, &selected).await
 }
@@ -652,7 +652,7 @@ async fn plan_survives_a_stored_date_at_the_calendar_edge() -> Result<()> {
 /// Seed a plan whose stored weeks all begin after today, with the outline's
 /// first block starting alongside them.
 ///
-/// This is the shape a plan takes when nothing covers the present — the coach
+/// This is the shape a plan takes when nothing covers the present — the agent
 /// left a stretch unstructured, or the weeks that covered it were lost. `/plan`
 /// must name the gap rather than render it as an ordinary empty day.
 ///
@@ -1220,8 +1220,8 @@ async fn the_whole_plan_is_rendered_and_the_surface_ceiling_only_splits_it() -> 
 
 /// `/plan share` in a messaging room opens with the athlete's name and says
 /// the plan is shared, then renders the plan their DM built under their
-/// selected coach — read from a room conversation the athlete's own tenant
-/// cannot resolve, with no coach bound to it.
+/// selected agent — read from a room conversation the athlete's own tenant
+/// cannot resolve, with no agent bound to it.
 #[tokio::test]
 async fn plan_share_in_a_messaging_room_posts_the_header_and_the_week() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
@@ -1312,8 +1312,8 @@ async fn plan_share_in_a_dm_renders_exactly_like_plan() -> Result<()> {
 
 /// Regression: `/plan` in a room looked the conversation up under the
 /// caller's tenant, missed the bot-tenant row, and fell back to the
-/// coach-agnostic plan — an athlete whose plan lived under their selected
-/// coach read "No plan saved yet" in the room.
+/// agent-agnostic plan — an athlete whose plan lived under their selected
+/// agent read "No plan saved yet" in the room.
 #[tokio::test]
 async fn plan_in_a_room_finds_the_plan_built_under_the_selected_coach() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
@@ -1347,21 +1347,21 @@ async fn plan_in_a_room_finds_the_plan_built_under_the_selected_coach() -> Resul
     Ok(())
 }
 
-/// A room conversation that DOES bind a coach — read under the tenant that
+/// A room conversation that DOES bind an agent — read under the tenant that
 /// owns the row — wins over the athlete's selection, matching how the plan
-/// injection keys on the conversation's coach.
+/// injection keys on the conversation's agent.
 #[tokio::test]
 async fn a_room_conversation_bound_to_a_coach_reads_that_coachs_plan() -> Result<()> {
     let (resources, user_id, tenant, _dm) = setup().await?;
-    // The selection points at a coach with no plan; only the conversation's
-    // coach has one, so a ladder in the wrong order renders the empty state.
+    // The selection points at an agent with no plan; only the conversation's
+    // agent has one, so a ladder in the wrong order renders the empty state.
     let other_coach = seed_persona(&resources, user_id, tenant, "Other Coach").await?;
     let room_coach = seed_persona(&resources, user_id, tenant, "Room Coach").await?;
     resources
         .common
         .repos
         .tenants
-        .set_selected_coach(tenant, user_id, Some(&other_coach))
+        .set_selected_agent(tenant, user_id, Some(&other_coach))
         .await?;
     seed_plan_under_coach(&resources, user_id, tenant, &room_coach).await?;
     let (bot_tenant, room) = room_conversation(&resources, user_id, Some(&room_coach)).await?;
@@ -1507,7 +1507,7 @@ async fn plan_share_with_no_plan_in_a_room_skips_the_shared_header() -> Result<(
 
 /// A `/plan share` typed in a shared room is the room's history too: both
 /// rows fan out to the group transcript — what the ambient block a later
-/// room turn reads is built from — so a coach can discuss the plan the
+/// room turn reads is built from — so an agent can discuss the plan the
 /// athlete just shared. Bare `/plan` in the same room is answered privately
 /// and leaves no trace there.
 #[tokio::test]

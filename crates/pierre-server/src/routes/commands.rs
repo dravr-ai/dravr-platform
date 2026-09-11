@@ -87,7 +87,7 @@ pub struct CommandEntry {
     /// One-line description in the caller's locale, the same text `/help`
     /// prints.
     pub description: String,
-    /// Domain grouping (`general`, `group`, `coach`, `data`, ...).
+    /// Domain grouping (`general`, `group`, `agent`, `data`, ...).
     pub domain: String,
 }
 

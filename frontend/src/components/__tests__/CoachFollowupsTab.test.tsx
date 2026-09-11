@@ -38,7 +38,7 @@ function sampleFollowup(overrides: Partial<FollowupRow> = {}): FollowupRow {
     id: 'f1',
     tenant_id: 'tenant-a',
     user_id: 'user-42',
-    coach_id: 'coach-strength',
+    agent_id: 'coach-strength',
     conversation_id: 'conv-7',
     content: 'Check on Achilles pain tomorrow',
     due_at: '2026-04-14T08:00:00Z',
@@ -84,7 +84,7 @@ describe('CoachFollowupsTab', () => {
         sampleFollowup({
           id: 'f2',
           content: 'Ask about taper week',
-          coach_id: 'coach-endurance',
+          agent_id: 'coach-endurance',
           user_id: 'user-7',
         }),
       ],
@@ -121,11 +121,11 @@ describe('CoachFollowupsTab', () => {
   it('filters rows by coach id', async () => {
     vi.mocked(adminApi.listPendingFollowups).mockResolvedValueOnce({
       followups: [
-        sampleFollowup({ id: 'f1', coach_id: 'coach-strength' }),
+        sampleFollowup({ id: 'f1', agent_id: 'coach-strength' }),
         sampleFollowup({
           id: 'f2',
           content: 'Taper week reminder',
-          coach_id: 'coach-endurance',
+          agent_id: 'coach-endurance',
         }),
       ],
       total: 2,

@@ -23,7 +23,7 @@ mod respond_mode_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::factory::Database;
@@ -255,23 +255,23 @@ mod respond_mode_tests {
         .await
         .unwrap();
 
-        // Coach row (FK for the group). `create_test_server_resources` does
-        // not auto-seed coaches.
-        let coach = resources
+        // Agent row (FK for the group). `create_test_server_resources` does
+        // not auto-seed agents.
+        let agent = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 owner_user_id,
                 bot_tenant,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Respond Mode Coach".to_owned(),
                     description: None,
                     system_prompt: "You are a concise test coach.".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -279,7 +279,7 @@ mod respond_mode_tests {
 
         // Coaching group pre-bound to the fixture chat, under the BOT tenant
         // (group sessions live there). Direct row creation keeps the test
-        // independent of the auto-bind coach-selection path.
+        // independent of the auto-bind agent-selection path.
         let group_id = Uuid::new_v4();
         let now = Utc::now();
         let group = CoachingGroup {
@@ -287,7 +287,7 @@ mod respond_mode_tests {
             tenant_id: bot_tenant.to_string(),
             name: "Respond Mode Test Group".to_owned(),
             description: None,
-            coach_id: coach.id.to_string(),
+            agent_id: agent.id.to_string(),
             owner_id: owner_user_id,
             coach_user_id: None,
             peer_data_sharing: true,
@@ -411,7 +411,7 @@ mod respond_mode_tests {
             "mentions mode must not dispatch an unaddressed group message to the LLM"
         );
 
-        let db = scenario.resources.coach.database.as_ref();
+        let db = scenario.resources.agent.database.as_ref();
         assert_eq!(
             count_inbound_with_body(db, ambient_text).await,
             1,

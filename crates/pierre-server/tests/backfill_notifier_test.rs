@@ -331,7 +331,7 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
     );
 }
 
-/// Fake re-entry that returns a canned coach answer and records the prompt it
+/// Fake re-entry that returns a canned agent answer and records the prompt it
 /// was handed, so the test can assert the notifier (a) re-asked the user's own
 /// question and (b) delivered the synthesized reply rather than the list.
 struct FakeReentry {
@@ -459,10 +459,10 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
 }
 
 /// When the re-entry produces an activity list (the user asked to see/sort their
-/// activities), the push PREPENDS that list to the coach analysis — exactly like
+/// activities), the push PREPENDS that list to the agent analysis — exactly like
 /// a live messaging turn — so the user SEES the list, not only a summary.
 #[tokio::test]
-async fn push_prepends_activity_list_to_coach_reply() {
+async fn push_prepends_activity_list_to_agent_reply() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
     let (user_uuid, tenant_id) = seed_user(&db).await;
@@ -541,7 +541,7 @@ async fn push_prepends_activity_list_to_coach_reply() {
     let MessageContent::Text { body } = &sent[0].content else {
         panic!("expected a text notice");
     };
-    // The list (longest race first) AND the coach analysis both appear, with the
+    // The list (longest race first) AND the agent analysis both appear, with the
     // list BEFORE the analysis — the user sees the activities, not just a summary.
     let list_pos = body
         .find("Ultra X")
@@ -920,7 +920,7 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
 ///
 /// `tool_dispatch` injects `get_activities` into `tools_called` when the
 /// platform warms the prompt with activities on the model's behalf. If the
-/// trust predicate scanned that list, a coach that refused the question would
+/// trust predicate scanned that list, an agent that refused the question would
 /// still read as "fetched activities", and the completion push would deliver
 /// the refusal in place of the history the athlete asked for.
 #[test]

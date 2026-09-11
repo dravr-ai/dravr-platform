@@ -60,7 +60,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
   const queryClient = useQueryClient();
 
   const approveMutation = useMutation({
-    mutationFn: (coachId: string) => adminApi.approveStoreCoach(coachId),
+    mutationFn: (agentId: string) => adminApi.approveStoreCoach(agentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminStore.reviewQueue() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminStore.stats() });

@@ -17,14 +17,14 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { spacing, useCardStyle, categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import type { StoreCoach, CoachCategory } from '../../types';
+import type { StoreAgent, AgentCategory } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 // Category filter options. `key` is the value sent to the API and must stay
 // English; `labelKey` is what the chip shows and is resolved at render, since
 // module scope cannot hold a hook. The chips and the card badges read the same
 // shared table, so one screen never shows a category in two languages.
-const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; labelKey: string }> = [
+const CATEGORY_FILTERS: Array<{ key: AgentCategory | 'all'; labelKey: string }> = [
   { key: 'all', labelKey: 'app.filterAll' },
   { key: 'training', labelKey: COACH_CATEGORY_LABEL_KEY.training },
   { key: 'nutrition', labelKey: COACH_CATEGORY_LABEL_KEY.nutrition },
@@ -48,8 +48,8 @@ export function StoreScreen() {
   const cardStyle = useCardStyle();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
-  const [coaches, setCoaches] = useState<StoreCoach[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<CoachCategory | 'all'>('all');
+  const [coaches, setCoaches] = useState<StoreAgent[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<AgentCategory | 'all'>('all');
   const [selectedSort, setSelectedSort] = useState<SortOption>('popular');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -85,7 +85,7 @@ export function StoreScreen() {
         sort_by: selectedSort,
         limit: 20,
       });
-      setCoaches(response.coaches);
+      setCoaches(response.agents);
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
@@ -109,7 +109,7 @@ export function StoreScreen() {
         limit: 20,
         cursor: nextCursor,
       });
-      setCoaches(prev => [...prev, ...response.coaches]);
+      setCoaches(prev => [...prev, ...response.agents]);
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
@@ -130,7 +130,7 @@ export function StoreScreen() {
     try {
       setError(null);
       const response = await storeApi.search(query.trim(), 50);
-      setCoaches(response.coaches);
+      setCoaches(response.agents);
       setNextCursor(null);
       setHasMore(false);
     } catch (err) {
@@ -167,11 +167,11 @@ export function StoreScreen() {
     }
   };
 
-  const navigateToCoachDetail = (coach: StoreCoach) => {
-    router.push({ pathname: '/(app)/(tabs)/(discover)/[coachId]', params: { coachId: coach.id } });
+  const navigateToCoachDetail = (coach: StoreAgent) => {
+    router.push({ pathname: '/(app)/(tabs)/(discover)/[agentId]', params: { agentId: coach.id } });
   };
 
-  const renderCategoryChip = ({ key, labelKey }: { key: CoachCategory | 'all'; labelKey: string }) => (
+  const renderCategoryChip = ({ key, labelKey }: { key: AgentCategory | 'all'; labelKey: string }) => (
     <TouchableOpacity
       key={key}
       className={`px-3 py-1 rounded-full mr-1 border ${
@@ -213,7 +213,7 @@ export function StoreScreen() {
     </TouchableOpacity>
   );
 
-  const renderCoachCard = ({ item, index }: { item: StoreCoach; index: number }) => (
+  const renderCoachCard = ({ item, index }: { item: StoreAgent; index: number }) => (
     <TouchableOpacity
       testID={`coach-card-${index}`}
       className="rounded-lg p-3 mb-3"

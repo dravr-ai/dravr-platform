@@ -72,7 +72,7 @@ impl DataFreshness {
         })
     }
 
-    /// Human-readable label for injection into coach system prompts.
+    /// Human-readable label for injection into agent system prompts.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
@@ -131,10 +131,10 @@ pub struct RefreshConfig {
     pub wait_for_refresh: bool,
     /// Per-provider timeout for the blocking refresh path (seconds).
     /// On timeout the chat falls back to the existing cache and the
-    /// coach-hint flags the provider as stale.
+    /// agent-hint flags the provider as stale.
     pub wait_for_refresh_timeout_secs: u64,
-    /// Inject a hint into the coach's context about data freshness.
-    pub inject_coach_hint: bool,
+    /// Inject a hint into the agent's context about data freshness.
+    pub inject_agent_hint: bool,
     /// Providers eligible for refresh. Empty means all connected providers.
     pub providers: Vec<String>,
 }
@@ -223,7 +223,7 @@ impl Default for RefreshConfig {
             on_chat_max_age_secs: DEFAULT_ON_CHAT_MAX_AGE_SECS,
             wait_for_refresh: true,
             wait_for_refresh_timeout_secs: DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS,
-            inject_coach_hint: true,
+            inject_agent_hint: true,
             providers: Vec::new(),
         }
     }
@@ -315,7 +315,7 @@ mod tests {
             "default must be blocking so coaches don't read stale activity caches"
         );
         assert_eq!(cfg.wait_for_refresh_timeout_secs, 15);
-        assert!(cfg.inject_coach_hint);
+        assert!(cfg.inject_agent_hint);
         assert!(cfg.providers.is_empty());
     }
 

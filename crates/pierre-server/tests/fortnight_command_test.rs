@@ -14,14 +14,14 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use helpers::coach_fixtures::publish_catalogue_coach;
+use helpers::agent_fixtures::publish_catalogue_agent;
 use pierre_chat_pipeline::stages::onboarding::just_completed_interview;
 use pierre_commands::fortnight::FortnightHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -49,7 +49,7 @@ async fn setup() -> Result<(Arc<ServerContext>, Uuid, TenantId, String, String)>
         .find(|t| t.owner_user_id == user_id)
         .map(|t| t.id)
         .expect("user should own a tenant");
-    let agent = publish_catalogue_coach(
+    let agent = publish_catalogue_agent(
         &resources.common.repos,
         user_id,
         tenant,
@@ -133,7 +133,7 @@ async fn save_plan(
 ///
 /// Anchored on a Monday rather than on today, because a stored week is seven
 /// days long and every day it holds must fall inside it — a week starting on
-/// a Wednesday is a shape the save tool would take and no coach would write.
+/// a Wednesday is a shape the save tool would take and no agent would write.
 fn week_start(offset_weeks: i64) -> chrono::NaiveDate {
     let today = chrono::Utc::now().date_naive();
     let monday = today
@@ -181,7 +181,7 @@ fn phase(offset_weeks: i64, weeks: u32) -> Value {
 
 fn plan(agent: &str, phases: &Value, weeks: &Value) -> Value {
     json!({
-        // `agent_id`, not `coach_id`: an unknown key is dropped silently, and
+        // `agent_id`, not `agent_id`: an unknown key is dropped silently, and
         // a plan saved against no agent is not the plan the command reads.
         "agent_id": agent,
         "outline": {
@@ -460,7 +460,7 @@ async fn a_turn_that_cannot_be_armed_does_not_claim_the_athlete_is_mid_walk() ->
         .common
         .repos
         .tenants
-        .set_selected_coach(tenant, user_id, Some(&agent))
+        .set_selected_agent(tenant, user_id, Some(&agent))
         .await?;
 
     let mut no_conversation = ctx(&resources, user_id, tenant, "unused", "en");
@@ -546,7 +546,7 @@ async fn the_newest_thing_asked_for_owns_the_next_turn() -> Result<()> {
 
 #[tokio::test]
 async fn a_save_names_the_argument_keys_it_ignored() -> Result<()> {
-    // The bug this closes, reproduced: `coach_id` is not a field
+    // The bug this closes, reproduced: `agent_id` is not a field
     // save_training_plan has, serde drops it in silence, and the plan saves
     // against no agent. The athlete then hears "no active plan to extend yet"
     // on a later turn with nothing naming the cause — which is exactly how it

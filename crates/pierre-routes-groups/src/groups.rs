@@ -62,15 +62,15 @@ pub struct GroupResponse {
     pub name: String,
     /// Optional description
     pub description: Option<String>,
-    /// Coach persona ID (the AI coach that answers chats)
-    pub coach_id: String,
+    /// Agent persona ID (the AI agent that answers chats)
+    pub agent_id: String,
     /// Owner user ID
     pub owner_id: String,
     /// Human coach user ID, if one is attached (`None` otherwise)
     pub coach_user_id: Option<String>,
     /// Whether peer data sharing is enabled
     pub peer_data_sharing: bool,
-    /// When the AI coach replies in the bound channel chat
+    /// When the AI agent replies in the bound channel chat
     pub respond_mode: GroupRespondMode,
     /// Maximum members allowed
     pub max_members: i32,
@@ -89,7 +89,7 @@ impl From<CoachingGroup> for GroupResponse {
             tenant_id: g.tenant_id,
             name: g.name,
             description: g.description,
-            coach_id: g.coach_id,
+            agent_id: g.agent_id,
             owner_id: g.owner_id.to_string(),
             coach_user_id: g.coach_user_id.map(|u| u.to_string()),
             peer_data_sharing: g.peer_data_sharing,
@@ -116,7 +116,7 @@ pub struct ListGroupsResponse {
 /// Response for listing the groups a user is the human coach of
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoachedGroupsResponse {
-    /// Groups the user coaches
+    /// Groups the user agents
     pub groups: Vec<GroupResponse>,
     /// Total count
     pub total: usize,
@@ -288,7 +288,7 @@ pub struct CreateInviteBody {
     pub expires_in_days: Option<i64>,
     /// Maximum number of uses (None = unlimited)
     pub max_uses: Option<i32>,
-    /// What the invite grants: athlete membership (default) or coach
+    /// What the invite grants: athlete membership (default) or agent
     /// attachment. Omitted → `member`.
     #[serde(default)]
     pub kind: GroupInviteKind,
@@ -1010,7 +1010,7 @@ impl GroupRoutes {
         let group_tenant_id = TenantId::parse_str(&invite.tenant_id)
             .map_err(|e| AppError::internal(format!("Invalid invite tenant: {e}")))?;
 
-        // Coach invites attach the redeemer as the group's human coach; member
+        // Agent invites attach the redeemer as the group's human coach; member
         // invites add an athlete. Dispatch on the invite kind.
         match invite.kind {
             GroupInviteKind::Member => {
@@ -1031,8 +1031,8 @@ impl GroupRoutes {
                 Ok((StatusCode::CREATED, Json(response)).into_response())
             }
             GroupInviteKind::Coach => {
-                // Coach eligibility: the redeemer must be a roster-managing
-                // coach (`manages_roster`) or a platform admin — the same gate
+                // Agent eligibility: the redeemer must be a roster-managing
+                // agent (`manages_roster`) or a platform admin — the same gate
                 // the `/api/roster` endpoints use.
                 let user = resources
                     .repos()
@@ -1049,8 +1049,8 @@ impl GroupRoutes {
 
                 // Cross-tenant rule (v1): a human coach must belong to the
                 // group's tenant. Athlete membership is cross-tenant by design,
-                // but coach attachment is tenant-scoped to match the
-                // tenant-scoped roster/coach model.
+                // but agent attachment is tenant-scoped to match the
+                // tenant-scoped roster/agent model.
                 let caller_tenant = Self::get_tenant_id(&auth)?;
                 if caller_tenant != group_tenant_id {
                     return Err(AppError::new(

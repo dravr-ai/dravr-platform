@@ -10,7 +10,7 @@ import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 const CONVERSATION = {
   id: 'conv-mobile-1',
   title: 'Tempo intervals',
-  coach_id: null,
+  agent_id: null,
   created_at: '2026-08-20T10:00:00Z',
   updated_at: '2026-08-20T10:00:00Z',
   message_count: 0,

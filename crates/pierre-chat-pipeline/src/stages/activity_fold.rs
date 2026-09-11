@@ -8,7 +8,7 @@
 //!
 //! `get_activities` returns a pre-formatted prose block, and a surface with
 //! [`crate::BlockSupport::activity_list_card`] draws it as its own "Your
-//! Activities" panel above the coach's analysis. A surface without one has the
+//! Activities" panel above the agent's analysis. A surface without one has the
 //! list folded into the reply prose instead — and a raw 186-row history folded
 //! into a chat bubble is unreadable, so it is shaped first.
 //!

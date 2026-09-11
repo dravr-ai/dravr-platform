@@ -97,7 +97,7 @@ fn away_from_the_sentinel_the_two_agree() {
 /// UTC "vanishingly rare". That holds for provider rows. It does not hold for
 /// the anchor, which floors `now` onto a five-minute quantum for prompt-cache
 /// stability and therefore lands on this instant once a day, every day. For
-/// those five minutes the coach was handed the UTC weekday.
+/// those five minutes the agent was handed the UTC weekday.
 #[test]
 fn at_midnight_utc_the_clock_stamp_converts_and_a_provider_row_stamp_does_not() {
     let midnight = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();

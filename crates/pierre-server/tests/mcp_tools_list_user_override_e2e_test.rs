@@ -43,7 +43,7 @@ async fn add_user_to_tenant_as_member(
                           VALUES ($1, $2, $3, 'member', $4, $5)";
     let row_id = Uuid::new_v4();
     let now = chrono::Utc::now();
-    match &*resources.coach.database {
+    match &*resources.agent.database {
         Database::SQLite(db) => {
             sqlx::query(INSERT)
                 .bind(row_id.to_string())
@@ -114,7 +114,7 @@ async fn test_user_disabled_tool_absent_from_wire_tools_list_and_reset_restores(
     let (member_b, _b_token) =
         common::create_test_tenant(&resources, "override-wire-b@example.com").await?;
 
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(owner.id)

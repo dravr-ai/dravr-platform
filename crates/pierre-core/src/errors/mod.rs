@@ -72,7 +72,7 @@ pub enum ErrorCode {
     /// User has not connected any fitness provider yet. Distinct from
     /// `ProviderAuthRequired` (which is "a specific provider's session lapsed");
     /// this means zero rows in `provider_connections` for the user. Used by the
-    /// onboarding gate on chat/coach/MCP-tool entry points so the LLM never sees
+    /// onboarding gate on chat/agent/MCP-tool entry points so the LLM never sees
     /// empty provider data and hallucinates.
     NoProviderConnected,
     /// User lacks permission for the requested operation

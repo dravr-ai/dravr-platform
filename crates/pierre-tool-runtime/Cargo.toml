@@ -25,8 +25,8 @@ client-chat = []
 # Tool implementation feature flags (mirror the pierre-server side; the
 # pierre-server features forward to these so `cargo check -p pierre-tool-runtime`
 # with --features tools-admin compiles the same set as pierre-server does).
-tools-coaches = []
-tools-admin = ["tools-coaches"]  # admin tools depend on coach tools
+tools-agents = []
+tools-admin = ["tools-agents"]  # admin tools depend on coach tools
 tools-analytics = []       # discover_routes (Overpass + OSM piste data)
 tools-mobility = []
 tools-config = []          # fitness config tools, user configuration
@@ -140,7 +140,7 @@ name = "format_parameter_declared_test"
 required-features = [
     "tools-admin",
     "tools-analytics",
-    "tools-coaches",
+    "tools-agents",
     "tools-data",
     "tools-recipes",
     "tools-sleep",
@@ -167,7 +167,7 @@ name = "tool_output_schema_test"
 required-features = [
     "tools-admin",
     "tools-analytics",
-    "tools-coaches",
+    "tools-agents",
     "tools-config",
     "tools-connection",
     "tools-data",

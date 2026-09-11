@@ -1,5 +1,5 @@
 // ABOUTME: Provider data refresh MCP tool for agent-initiated data sync
-// ABOUTME: Allows the coach to trigger on-demand provider refresh with optional blocking
+// ABOUTME: Allows the agent to trigger on-demand provider refresh with optional blocking
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -56,7 +56,7 @@ fn freshness_annotations() -> ToolAnnotations {
 
 /// Tool for triggering a data refresh from a connected fitness provider.
 ///
-/// The coach uses this when it detects the user's data might be stale
+/// The agent uses this when it detects the user's data might be stale
 /// (e.g., "last activity was 5 days ago" for a daily runner) or when
 /// the user explicitly asks to refresh.
 pub struct RefreshProviderDataTool;
@@ -224,7 +224,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
                     wait_for_refresh: wait,
                     wait_for_refresh_timeout_secs: RefreshConfig::default()
                         .wait_for_refresh_timeout_secs,
-                    inject_coach_hint: false,
+                    inject_agent_hint: false,
                     providers: Vec::new(),
                 };
                 let status = refresh_service
@@ -267,7 +267,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
 
 /// Tool for checking data freshness across all connected providers.
 ///
-/// Returns per-provider sync status so the coach can decide whether to
+/// Returns per-provider sync status so the agent can decide whether to
 /// suggest a refresh or note data staleness to the user.
 pub struct GetDataFreshnessTool;
 

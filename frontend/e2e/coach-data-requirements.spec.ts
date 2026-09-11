@@ -74,7 +74,7 @@ async function setupCoachMocks(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
+      body: JSON.stringify({ agents: [storeListing], has_more: false, next_cursor: null, metadata: metadata() }),
     });
   });
   await page.route(`**/api/store/agents/${STORE_ID}`, async (route) => {
@@ -97,7 +97,7 @@ async function setupCoachMocks(page: Page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: [coachWithDataReqs],
+          agents: [coachWithDataReqs],
           total: 1,
           metadata: metadata(),
         }),

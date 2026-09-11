@@ -1,4 +1,4 @@
-// ABOUTME: Pins the peer-access-denial register — the coach denying it can read ANOTHER athlete's data
+// ABOUTME: Pins the peer-access-denial register — the agent denying it can read ANOTHER athlete's data
 // ABOUTME: Positive pins are the 2026-08-30 Telegram incident sentences; negatives are honest DM coaching
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -65,7 +65,7 @@ fn peer_denials_are_detected_in_all_five_locales() {
 #[test]
 fn honest_coaching_about_someone_elses_credentials_or_gear_is_not_a_denial() {
     for reply in [
-        // Credentials and privacy reassurance — subject is the coach, the
+        // Credentials and privacy reassurance — subject is the agent, the
         // object is not fitness data.
         "I don't have access to his Strava password — he logs in on Strava's own page.",
         // The athlete's own missing data point: first-person, but the object is
@@ -93,7 +93,7 @@ fn a_missing_stream_on_the_athletes_own_activity_is_not_an_own_access_claim() {
     // The one FR peer form that a DM reply can also produce: «aux données de»
     // followed by a stream name instead of a person. It must never start a
     // verification fetch — the pipeline gates the peer register on a roster
-    // AND a named roster member — and it is not the coach's own tools failing.
+    // AND a named roster member — and it is not the agent's own tools failing.
     let reply = "Je n'ai pas accès aux données de fréquence cardiaque de cette sortie.";
     assert!(!contains_capability_failure(reply));
 }

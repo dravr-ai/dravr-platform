@@ -66,25 +66,25 @@ async fn setup() -> Fixture {
     // Boxed: the factory's `PostgreSQL` path makes this future large enough
     // that inlining it pushes every `setup().await` over clippy's size limit.
     let res = Box::pin(create_test_server_resources()).await.unwrap();
-    let repos = res.coach.database.repositories();
+    let repos = res.agent.database.repositories();
 
     let (owner_id, owner, _) =
-        create_test_user_with_plan(&res.coach.database, "part-owner@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "part-owner@test.com", "professional")
             .await
             .unwrap();
     let (member_id, member, _) =
-        create_test_user_with_plan(&res.coach.database, "part-member@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "part-member@test.com", "professional")
             .await
             .unwrap();
     let (stranger_id, stranger, _) = create_test_user_with_plan(
-        &res.coach.database,
+        &res.agent.database,
         "part-stranger@test.com",
         "professional",
     )
     .await
     .unwrap();
     let (foreigner_id, _, _) = create_test_user_with_plan(
-        &res.coach.database,
+        &res.agent.database,
         "part-foreigner@test.com",
         "professional",
     )

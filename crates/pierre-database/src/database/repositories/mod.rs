@@ -6,12 +6,12 @@
 
 pub use crate::repositories::*;
 
-/// Coach version history — snapshot, list, revert
-mod coach_translations;
-mod coaches_assignments;
-/// Direct `CoachesRepository` impl on `Database` (SQLite coaches catalogue)
-mod coaches_impl;
-mod coaches_versions;
+/// Agent version history — snapshot, list, revert
+mod agent_translations;
+mod agents_assignments;
+/// Direct `AgentsRepository` impl on `Database` (SQLite agents catalogue)
+mod agents_impl;
+mod agents_versions;
 /// Direct `MobilityRepository` impl on `Database` (SQLite stretching + yoga)
 mod mobility_impl;
 /// Direct `RecipeRepository` impl on `Database` (SQLite recipe persistence)

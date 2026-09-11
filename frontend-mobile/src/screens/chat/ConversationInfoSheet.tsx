@@ -80,10 +80,10 @@ export function ConversationInfoSheet({
               onClose={onClose}
               onLeft={onLeaveThread}
             />
-          ) : conversation.coach_id ? (
+          ) : conversation.agent_id ? (
             <CoachInfoSheet
-              coachId={conversation.coach_id}
-              fallbackTitle={conversation.coach_title ?? null}
+              agentId={conversation.agent_id}
+              fallbackTitle={conversation.agent_title ?? null}
               onSendCommand={onSendCommand}
               onClose={onClose}
             />

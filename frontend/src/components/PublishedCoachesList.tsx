@@ -60,7 +60,7 @@ export default function PublishedCoachesList() {
 
   // Unpublish mutation
   const unpublishMutation = useMutation({
-    mutationFn: (coachId: string) => adminApi.unpublishStoreCoach(coachId),
+    mutationFn: (agentId: string) => adminApi.unpublishStoreCoach(agentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminStore.published() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminStore.stats() });
@@ -94,7 +94,7 @@ export default function PublishedCoachesList() {
     );
   }
 
-  const coaches = data?.coaches || [];
+  const coaches = data?.agents || [];
 
   if (coaches.length === 0) {
     return (

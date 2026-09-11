@@ -57,7 +57,7 @@ export interface PlanView {
   daily_messages: number;
   daily_tokens: number;
   monthly_tokens: number;
-  max_active_coaches: number;
+  max_active_agents: number;
   daily_tool_calls: number;
   included_usd: number | null;
 }

@@ -69,7 +69,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0 }),
+        body: JSON.stringify({ agents: [], total: 0 }),
       });
     });
 
@@ -82,7 +82,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: emptyState ? [] : mockCoaches,
+          agents: emptyState ? [] : mockCoaches,
           total: emptyState ? 0 : mockCoaches.length,
           metadata: {
             timestamp: new Date().toISOString(),
@@ -162,7 +162,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coach_id: 'coach-1',
+          agent_id: 'coach-1',
           assigned_count: body.user_ids.length,
           total_requested: body.user_ids.length,
         }),
@@ -172,7 +172,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coach_id: 'coach-1',
+          agent_id: 'coach-1',
           removed_count: 1,
           total_requested: 1,
         }),
@@ -188,7 +188,7 @@ async function setupCoachesMocks(page: Page, options: { isAdmin?: boolean; empty
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        coach_id: 'coach-1',
+        agent_id: 'coach-1',
         assignments: mockAssignments,
       }),
     });
@@ -356,7 +356,7 @@ test.describe('Create Agent Form', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ coaches: mockCoaches, total: mockCoaches.length }),
+          body: JSON.stringify({ agents: mockCoaches, total: mockCoaches.length }),
         });
       }
     });
@@ -685,7 +685,7 @@ test.describe('User Assignments', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            coach_id: 'coach-1',
+            agent_id: 'coach-1',
             assigned_count: body.user_ids.length,
             total_requested: body.user_ids.length,
           }),
@@ -727,7 +727,7 @@ test.describe('User Assignments', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: mockCoaches, total: mockCoaches.length }),
+        body: JSON.stringify({ agents: mockCoaches, total: mockCoaches.length }),
       });
     });
 
@@ -737,7 +737,7 @@ test.describe('User Assignments', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ coach_id: 'coach-1', assignments: [] }),
+          body: JSON.stringify({ agent_id: 'coach-1', assignments: [] }),
         });
       } else if (!url.includes('/assign')) {
         await route.fulfill({
@@ -797,7 +797,7 @@ test.describe('Error Handling', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ coaches: mockCoaches, total: mockCoaches.length }),
+          body: JSON.stringify({ agents: mockCoaches, total: mockCoaches.length }),
         });
       }
     });

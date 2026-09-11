@@ -248,7 +248,7 @@ Control which route groups are compiled:
 client-dashboard = ["protocol-rest"]
 client-settings = ["protocol-rest"]
 client-chat = ["protocol-rest"]
-client-coaches = ["protocol-rest", "tools-coaches"]
+client-coaches = ["protocol-rest", "tools-agents"]
 client-oauth-apps = ["protocol-rest", "oauth"]
 client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps"]
 
@@ -281,8 +281,8 @@ tools-config = []                # fitness config, user settings
 tools-nutrition = []             # daily_nutrition, food search
 tools-sleep = []                 # sleep_quality, recovery_score
 tools-recipes = []               # validate_recipe, save_recipe
-tools-coaches = []               # agent CRUD, favorites
-tools-admin = ["tools-coaches"]  # admin tools
+tools-agents = []               # agent CRUD, favorites
+tools-admin = ["tools-agents"]  # admin tools
 tools-mobility = []              # stretching, yoga poses
 tools-all = ["tools-connection", "tools-data", ...]
 

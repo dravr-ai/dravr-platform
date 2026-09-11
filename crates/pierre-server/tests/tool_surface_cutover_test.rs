@@ -16,7 +16,7 @@
 //! The withholding test is the one that matters. A `/pillars` walk withholds
 //! plan-writing for its duration, and that state can change between the
 //! agent's `tools/list` and its `tools/call`. Answering from a snapshot taken
-//! when the session opened would let a coach mid-interview reach a tool it was
+//! when the session opened would let an agent mid-interview reach a tool it was
 //! meant to be denied — the same defect as an advertisement filter that
 //! silently no-ops on the path nobody exercises.
 
@@ -71,7 +71,7 @@ fn surface_with_budget(
 #[tokio::test]
 async fn the_surface_publishes_the_chat_callable_tools() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -98,7 +98,7 @@ async fn the_surface_publishes_the_chat_callable_tools() {
 #[tokio::test]
 async fn a_successful_call_carries_its_payload() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -121,7 +121,7 @@ async fn a_successful_call_carries_its_payload() {
 #[tokio::test]
 async fn an_unknown_tool_is_refused_not_faked() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -140,7 +140,7 @@ async fn an_unknown_tool_is_refused_not_faked() {
 #[tokio::test]
 async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -204,7 +204,7 @@ async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
 #[tokio::test]
 async fn a_turn_stops_serving_tools_once_its_budget_is_spent() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());
@@ -249,7 +249,7 @@ async fn a_turn_stops_serving_tools_once_its_budget_is_spent() {
 #[tokio::test]
 async fn a_zero_budget_serves_no_tool_call_at_all() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenant = TenantId::from_uuid(Uuid::new_v4());

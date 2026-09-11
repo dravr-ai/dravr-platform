@@ -344,8 +344,14 @@ fi
 # else: a push touching none pays zero. common.rs / helpers/ changes fan into
 # every target and stay CI-covered on purpose — recompiling 300+ binaries
 # locally is the cost this script exists to avoid.
-if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-filter=AM "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null)" ]]; then
-    CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AM "$BASE_REF"...HEAD -- 'crates/pierre-server/tests/*.rs' 2>/dev/null \
+#
+# The filter takes R as well as A and M. git pairs a renamed file with its
+# source and reports it as R, so AM alone skipped every test file a rename
+# touched — 31 of them on the coach→agent branch, including the one whose
+# expect() the full-workspace clippy then caught in CI. A renamed test is a
+# changed test: its body moved with it.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null)" ]]; then
+    CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests/*.rs' 2>/dev/null \
         | grep -E '^crates/pierre-server/tests/[^/]+\.rs$' \
         | grep -v '/common\.rs$' || true)"
     if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
@@ -394,7 +400,7 @@ fi
 #   pierre-server itself — its unit is the whole graph, which is the cost this
 #     script exists to avoid. CI owns it.
 NO_DEFAULT_PROBE_CRATES="pierre-tool-runtime pierre-services pierre-routes-admin \
-pierre-routes-coaches pierre-runtime-context pierre-auth pierre-formatters"
+pierre-routes-agents pierre-runtime-context pierre-auth pierre-formatters"
 
 if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     TIER1F_CRATES=""

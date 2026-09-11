@@ -21,8 +21,8 @@ interface ConversationInfoPanelProps {
   onClose: () => void;
   /** Send a turn in this conversation — how the agent commands are issued. */
   onSendCommand: (text: string) => void;
-  /** Open an agent's Discover edit sheet, `discover/<coachId>`. */
-  onEditCoach: (coachId: string) => void;
+  /** Open an agent's Discover edit sheet, `discover/<agentId>`. */
+  onEditCoach: (agentId: string) => void;
   /** Rename this conversation. */
   onRename: (title: string) => void;
   /** Delete this conversation. */
@@ -39,7 +39,7 @@ interface ConversationInfoPanelProps {
 /** What the open conversation makes this drawer about. */
 function shapeOf(conversation: Conversation): 'group' | 'coach' | 'plain' {
   if (conversation.group_id) return 'group';
-  if (conversation.coach_id) return 'coach';
+  if (conversation.agent_id) return 'coach';
   return 'plain';
 }
 
@@ -72,7 +72,7 @@ export default function ConversationInfoPanel({
 }: ConversationInfoPanelProps) {
   const { t } = useTranslation();
   const shape = shapeOf(conversation);
-  const { coach } = useCoachInfo(shape === 'coach' ? conversation.coach_id : null);
+  const { coach } = useCoachInfo(shape === 'coach' ? conversation.agent_id : null);
   const [title, setTitle] = useState(conversation.title ?? '');
   const [participantsOpen, setParticipantsOpen] = useState(openParticipants);
 

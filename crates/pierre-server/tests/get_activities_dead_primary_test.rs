@@ -37,11 +37,11 @@ use crate::common::{create_test_server_resources, create_test_user};
 #[tokio::test]
 async fn a_dead_primary_serves_the_window_its_healthy_sibling_holds() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -171,11 +171,11 @@ async fn a_dead_primary_serves_the_window_its_healthy_sibling_holds() {
 #[tokio::test]
 async fn a_pinned_dead_provider_is_never_substituted_by_a_sibling() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -250,11 +250,11 @@ async fn a_pinned_dead_provider_is_never_substituted_by_a_sibling() {
 #[tokio::test]
 async fn a_dead_only_connection_still_surfaces_the_reconnect_signal() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

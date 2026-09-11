@@ -18,14 +18,14 @@ const REJECTION_REASONS = [
   { value: 'other', label: 'Other' },
 ];
 
-interface Coach {
+interface Agent {
   id: string;
   title: string;
   author_email?: string;
 }
 
 interface CoachRejectionModalProps {
-  coach: Coach | null;
+  coach: Agent | null;
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
@@ -42,11 +42,11 @@ export default function CoachRejectionModal({
   const queryClient = useQueryClient();
 
   const rejectMutation = useMutation({
-    mutationFn: ({ coachId, rejectionReason, rejectionNotes }: {
-      coachId: string;
+    mutationFn: ({ agentId, rejectionReason, rejectionNotes }: {
+      agentId: string;
       rejectionReason: string;
       rejectionNotes?: string;
-    }) => adminApi.rejectStoreCoach(coachId, rejectionReason, rejectionNotes),
+    }) => adminApi.rejectStoreCoach(agentId, rejectionReason, rejectionNotes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminStore.reviewQueue() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminStore.stats() });
@@ -60,7 +60,7 @@ export default function CoachRejectionModal({
   const handleSubmit = () => {
     if (coach && reason) {
       rejectMutation.mutate({
-        coachId: coach.id,
+        agentId: coach.id,
         rejectionReason: reason,
         rejectionNotes: notes.trim() || undefined,
       });

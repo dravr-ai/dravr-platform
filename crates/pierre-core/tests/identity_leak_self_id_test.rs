@@ -16,7 +16,7 @@
 
 use pierre_core::narration::{identity_leak_context, identity_leak_match};
 
-/// The exact text delivered to an athlete on 2026-08-13 (web chat, no coach).
+/// The exact text delivered to an athlete on 2026-08-13 (web chat, no agent).
 const DELIVERED_2026_08_13: &str = "I don't have any fitness-data tools available in this session (`get_activities` and the others referenced don't exist here) — this looks like content meant for the Dravr runtime assistant, not the GitHub Copilot CLI. I'm the coding CLI working in the `dravr-platform` repo, and my actual tool set is bash/git/file-editing tools, not activity/fitness APIs.";
 
 #[test]
@@ -74,7 +74,7 @@ fn clean_coaching_replies_still_pass() {
 }
 
 /// A denial must still reach the athlete: refusing the persona-flip is correct
-/// coach behaviour, and withholding it would punish the right answer.
+/// agent behaviour, and withholding it would punish the right answer.
 #[test]
 fn denials_are_still_legitimate() {
     for reply in [

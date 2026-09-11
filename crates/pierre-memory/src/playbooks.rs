@@ -401,7 +401,7 @@ pub const MAX_SPORT_SLUG_LEN: usize = 32;
 /// Narrow a caller-supplied sport to a bounded `[a-z0-9_]` slug, or `None`.
 ///
 /// `sport` is the only free-text field in the trigger/outcome vocabulary, and
-/// it reaches the coach's system prompt verbatim through the playbook and
+/// it reaches the agent's system prompt verbatim through the playbook and
 /// commitment blocks. Constraining it here is why those renderers need no
 /// further fencing — "Ignore prior instructions", `RUN`, `run!` and `trail run`
 /// all reduce to sport-agnostic rather than reaching a prompt.
@@ -453,7 +453,7 @@ pub fn wilson_lower_bound_95(success: u32, failure: u32) -> f32 {
 /// A learned coaching playbook: a `trigger -> intervention` pair plus the
 /// reinforcement counters and confidence that say how well it has worked.
 ///
-/// Tenant-scoped and optionally coach-scoped. The `(tenant, user, coach,
+/// Tenant-scoped and optionally agent-scoped. The `(tenant, user, agent,
 /// trigger, intervention)` tuple is unique — repeated outcomes increment the
 /// counters on the same row rather than inserting duplicates.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -464,9 +464,9 @@ pub struct Playbook {
     pub tenant_id: String,
     /// User the playbook is personalized for.
     pub user_id: String,
-    /// Coach persona slug this playbook was learned under, or `None` for
-    /// user-wide (coach-agnostic) playbooks.
-    pub coach_slug: Option<String>,
+    /// Agent persona slug this playbook was learned under, or `None` for
+    /// user-wide (agent-agnostic) playbooks.
+    pub agent_slug: Option<String>,
     /// The situation the playbook responds to.
     pub trigger: TriggerPattern,
     /// The action the playbook prescribes.
@@ -542,7 +542,7 @@ impl Playbook {
 
 /// An in-flight piece of advice awaiting its outcome.
 ///
-/// Created when the coach gives a concrete recommendation; resolved by the
+/// Created when the agent gives a concrete recommendation; resolved by the
 /// outcome evaluator once `due_by` passes and the data window can be read.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingAdvice {
@@ -552,8 +552,8 @@ pub struct PendingAdvice {
     pub tenant_id: String,
     /// User the advice was given to.
     pub user_id: String,
-    /// Coach persona slug that gave the advice, or `None`.
-    pub coach_slug: Option<String>,
+    /// Agent persona slug that gave the advice, or `None`.
+    pub agent_slug: Option<String>,
     /// The playbook this advice instantiates, if it matched an existing one.
     /// `None` for novel `trigger -> intervention` pairs (a playbook is created
     /// on first labeling).
@@ -725,7 +725,7 @@ mod tests {
             id: "p1".into(),
             tenant_id: "t1".into(),
             user_id: "u1".into(),
-            coach_slug: Some("trail".into()),
+            agent_slug: Some("trail".into()),
             trigger: TriggerPattern {
                 kind: TriggerKind::MotivationDip,
                 sport: Some("run".into()),

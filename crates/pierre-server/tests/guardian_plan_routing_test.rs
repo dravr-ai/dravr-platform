@@ -140,7 +140,7 @@ async fn harness(caps: LlmCapabilities, responses: &[&str], turn: &str) -> Harne
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let scripted = Arc::new(ScriptedProvider::new(caps, responses));

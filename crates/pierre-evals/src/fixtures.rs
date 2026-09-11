@@ -10,18 +10,18 @@ use std::path::Path;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 
-/// One coaching exchange — a user message paired with the coach's reply.
+/// One coaching exchange — a user message paired with the agent's reply.
 ///
 /// Fixtures store both the user side (which the test harness replays) and
-/// the expected coach reply (which the LLM judge scores against).
+/// the expected agent reply (which the LLM judge scores against).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Turn {
     /// Message the user sends.
     pub user: String,
-    /// Reply the coach is expected to produce. Used as the rubric ground
+    /// Reply the agent is expected to produce. Used as the rubric ground
     /// truth for the LLM judge.
     pub expected_coach: String,
-    /// Optional substring that MUST appear in the coach's reply for the
+    /// Optional substring that MUST appear in the agent's reply for the
     /// deterministic layer to pass (e.g., "disclaimer" in injury triage).
     #[serde(default)]
     pub must_contain: Vec<String>,
@@ -38,7 +38,7 @@ pub struct GoldenCase {
     pub id: String,
     /// Short human-readable label.
     pub label: String,
-    /// Coach persona this case targets (`marathon_coach`, `nutrition_coach`, ...).
+    /// Agent persona this case targets (`marathon_coach`, `nutrition_coach`, ...).
     pub persona: String,
     /// Turn-by-turn dialogue.
     pub turns: Vec<Turn>,

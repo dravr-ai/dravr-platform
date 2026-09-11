@@ -30,7 +30,7 @@ fn pg_commitment_row(r: &PgRow) -> AppResult<CommitmentRow> {
         id: r.try_get("id").map_err(|e| col("id", e))?,
         tenant_id: r.try_get("tenant_id").map_err(|e| col("tenant_id", e))?,
         user_id: r.try_get("user_id").map_err(|e| col("user_id", e))?,
-        coach_id: r.try_get("coach_id").map_err(|e| col("coach_id", e))?,
+        agent_id: r.try_get("agent_id").map_err(|e| col("agent_id", e))?,
         conversation_id: r
             .try_get("conversation_id")
             .map_err(|e| col("conversation_id", e))?,
@@ -78,7 +78,7 @@ impl CommitmentRepository for PostgresDatabase {
             .bind(&commitment.id)
             .bind(&commitment.tenant_id)
             .bind(&commitment.user_id)
-            .bind(commitment.coach_id.as_deref().unwrap_or(""))
+            .bind(commitment.agent_id.as_deref().unwrap_or(""))
             .bind(commitment.conversation_id.as_deref().unwrap_or(""))
             .bind(&commitment.statement)
             .bind(commitment.sport.as_deref().unwrap_or(""))

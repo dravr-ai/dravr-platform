@@ -61,7 +61,7 @@ pub struct OnboardingStatusResponse {
 /// A single onboarding step's persisted status, for the client progress model.
 #[derive(Debug, Serialize)]
 pub struct OnboardingStepState {
-    /// Step id (`profile_type`, `connect_provider`, `coach_proposal`,
+    /// Step id (`profile_type`, `connect_provider`, `agent_proposal`,
     /// `messaging_channel`, `messaging_configure`).
     pub step_id: String,
     /// `complete` or `skipped`.
@@ -257,7 +257,7 @@ pub async fn handle_parq_get(
     Ok((StatusCode::OK, Json(ParqQuestionsResponse { questions })).into_response())
 }
 
-/// `POST /api/me/parq` — submit PAR-Q answers; each "yes" raises a coach-visible
+/// `POST /api/me/parq` — submit PAR-Q answers; each "yes" raises an agent-visible
 /// medical flag. A "yes" never blocks sign-up.
 ///
 /// # Errors
@@ -312,8 +312,8 @@ pub struct AboutYouResponse {
 
 /// `POST /api/me/about-you` — persist the about-you answers as onboarding facts.
 ///
-/// These are the inputs `build_coach_proposal` already reads and currently never
-/// finds: without them the coach proposal falls back to sport-mix, and on a
+/// These are the inputs `build_agent_proposal` already reads and currently never
+/// finds: without them the agent proposal falls back to sport-mix, and on a
 /// first-run connection there is no sport-mix either.
 ///
 /// # Errors

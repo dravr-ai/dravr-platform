@@ -173,7 +173,7 @@ use common::*;
 async fn create_test_multitenant_server(
 ) -> Result<(ProviderToolRouter, Arc<Database>, Arc<AuthManager>)> {
     let resources = create_test_server_resources().await?;
-    let database = resources.coach.database.clone();
+    let database = resources.agent.database.clone();
     let auth_manager = resources.auth.auth_manager.clone();
 
     let server = ProviderToolRouter::new(resources);

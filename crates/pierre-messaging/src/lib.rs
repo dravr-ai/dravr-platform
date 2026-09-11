@@ -16,7 +16,7 @@
 // "Phantom Capability Surface Detection" keys on these marker lines; each
 // names its unconsumed item so the marker and the check stay in lockstep):
 // LIMITATION(registre#3): `MessageContent::Location` is never constructed in production.
-// Media publishing shipped with coach charts: `supports_media` is the fidelity
+// Media publishing shipped with agent charts: `supports_media` is the fidelity
 // negotiator's predicate in `messaging_ingress::viz_delivery` and
 // `MessageContent::Media` carries the pressed PNG, so both markers are
 // exhausted and gone. Location has no producer yet.

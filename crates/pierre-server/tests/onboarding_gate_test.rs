@@ -11,7 +11,7 @@
 //!
 //! These guard the contract that a freshly registered user — one with zero
 //! rows in `provider_connections` — gets a structured `NoProviderConnected`
-//! refusal everywhere the LLM coach is reachable, and an unblock the moment
+//! refusal everywhere the LLM agent is reachable, and an unblock the moment
 //! they register their first connection. Without this gate the model
 //! hallucinates specifics from the user's message (`feedback_group_card_renders_only_what_llm_sees`).
 
@@ -26,7 +26,7 @@ mod common;
 /// The onboarding-redirect contract: `user_has_real_provider` excludes
 /// `Synthetic` connections. A user whose only connection is synthetic still
 /// needs to connect a real provider, so the first-login connect redirect must
-/// fire for them — distinct from the coach-access gate, which counts synthetic.
+/// fire for them — distinct from the agent-access gate, which counts synthetic.
 #[tokio::test]
 async fn user_has_real_provider_excludes_synthetic() {
     let database = common::create_test_database().await.unwrap();

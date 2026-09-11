@@ -12,7 +12,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_JOIN_INVALID_CODE,
 };
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::coaches::Coach;
+use pierre_core::models::agents::Agent;
 use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInviteKind};
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_groups::creation_policy::{check_create_group_permission, GROUP_CREATION_POLICY_KEY};
@@ -44,8 +44,8 @@ async fn typed_in_thread(
 
 /// Handler for `/group create <name>`.
 ///
-/// Creates a coaching group around the coach of the chat it is typed in
-/// (else the caller's selected coach), behind the same gates as the web and
+/// Creates a coaching group around the agent of the chat it is typed in
+/// (else the caller's selected agent), behind the same gates as the web and
 /// mobile create flows: the tenant plan must include group coaching and the
 /// tenant's `group_creation_policy` decides whether a non-admin may create.
 /// The creator then gets a conversation that is the group's chat — see
@@ -53,30 +53,30 @@ async fn typed_in_thread(
 pub struct GroupCreateHandler;
 
 impl GroupCreateHandler {
-    /// The coach the new group answers with: the thread's own coach, else the
-    /// caller's selected coach. Verified visible to the caller, so a stale
-    /// pointer at a deleted coach reads as "no coach" rather than creating a
+    /// The agent the new group answers with: the thread's own agent, else the
+    /// caller's selected agent. Verified visible to the caller, so a stale
+    /// pointer at a deleted agent reads as "no coach" rather than creating a
     /// group nobody can talk to.
-    async fn resolve_group_coach(
+    async fn resolve_group_agent(
         ctx: &PlatformCommandContext,
         thread: Option<&ConversationRecord>,
-    ) -> Result<Option<Coach>, AppError> {
+    ) -> Result<Option<Agent>, AppError> {
         let repos = ctx.ctx.repos();
-        let coach_id = match thread.and_then(|t| t.coach_id.clone()) {
+        let agent_id = match thread.and_then(|t| t.agent_id.clone()) {
             Some(id) => Some(id),
             None => {
                 repos
                     .tenants
-                    .get_selected_coach(ctx.tenant_id, ctx.user_id)
+                    .get_selected_agent(ctx.tenant_id, ctx.user_id)
                     .await?
             }
         };
-        let Some(coach_id) = coach_id else {
+        let Some(agent_id) = agent_id else {
             return Ok(None);
         };
         repos
-            .coaches
-            .get_by_id(&coach_id, ctx.user_id, ctx.tenant_id)
+            .agents
+            .get_by_id(&agent_id, ctx.user_id, ctx.tenant_id)
             .await
     }
 
@@ -101,7 +101,7 @@ impl GroupCreateHandler {
     ///
     /// An in-app thread with no group and no coaching turn yet — the one the
     /// apps open for "New group chat" before sending this command — becomes
-    /// it: bound to the group, pointed at its coach and renamed after it. A
+    /// it: bound to the group, pointed at its agent and renamed after it. A
     /// slash command's own rows (stamped
     /// [`COMMAND_FINISH_REASON`](pierre_core::models::COMMAND_FINISH_REASON),
     /// this command's line included) do not count as history: a thread whose
@@ -139,10 +139,10 @@ impl GroupCreateHandler {
                     ctx.conversation_tenant_id,
                 )
                 .await?;
-                if thread.coach_id.is_none() {
-                    chat.set_conversation_coach_id(
+                if thread.agent_id.is_none() {
+                    chat.set_conversation_agent_id(
                         &thread.id,
-                        Some(&group.coach_id),
+                        Some(&group.agent_id),
                         ctx.conversation_tenant_id,
                     )
                     .await?;
@@ -163,7 +163,7 @@ impl GroupCreateHandler {
             ctx.tenant_id,
             &group.name,
             &thread.model,
-            Some(&group.coach_id),
+            Some(&group.agent_id),
             Some(&group_id),
         )
         .await?;
@@ -189,7 +189,7 @@ impl CommandHandler for GroupCreateHandler {
         }
 
         let thread = typed_in_thread(ctx).await?;
-        let Some(coach) = Self::resolve_group_coach(ctx, thread.as_ref()).await? else {
+        let Some(agent) = Self::resolve_group_agent(ctx, thread.as_ref()).await? else {
             return Ok(CommandResponse::text(reg.render(
                 KEY_GROUP_CREATE_NO_AGENT,
                 locale,
@@ -234,7 +234,7 @@ impl CommandHandler for GroupCreateHandler {
         let request = CreateGroupRequest {
             name: name.to_owned(),
             description: None,
-            coach_id: coach.id.to_string(),
+            agent_id: agent.id.to_string(),
             max_members: None,
         };
         // `group.created` is emitted by the service, once for every surface.
@@ -249,14 +249,14 @@ impl CommandHandler for GroupCreateHandler {
         info!(
             user_id = %ctx.user_id,
             group_id = %group.id,
-            coach_id = %coach.id,
+            agent_id = %agent.id,
             channel = %ctx.channel_type,
             "Coaching group created via /group create"
         );
 
         Ok(CommandResponse::card(
             group.name.clone(),
-            reg.render(KEY_GROUP_CREATED, locale, &[&group.name, &coach.title]),
+            reg.render(KEY_GROUP_CREATED, locale, &[&group.name, &agent.title]),
             vec![CommandAction {
                 label: reg.render(KEY_GROUP_INVITE_LABEL, locale, &[]),
                 action_type: "postback".to_owned(),
@@ -320,7 +320,7 @@ impl GroupJoinHandler {
                 ctx.tenant_id,
                 &group.name,
                 &thread.model,
-                Some(&group.coach_id),
+                Some(&group.agent_id),
                 Some(&group.id.to_string()),
             )
             .await?;
@@ -393,9 +393,9 @@ impl GroupJoinHandler {
         code: &str,
         group_tenant: TenantId,
     ) -> Result<CommandResponse, AppError> {
-        // Eligibility as the REST route checks it: a roster-managing coach
+        // Eligibility as the REST route checks it: a roster-managing agent
         // (or a platform admin) who belongs to the group's tenant — athlete
-        // membership is cross-tenant, coach attachment is not.
+        // membership is cross-tenant, agent attachment is not.
         let Some(user) = ctx.ctx.repos().users.get_global(ctx.user_id).await? else {
             return Ok(Self::invalid_code(ctx));
         };

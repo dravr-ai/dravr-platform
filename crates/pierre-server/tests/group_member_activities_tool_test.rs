@@ -22,7 +22,7 @@ mod peer_fetch_tests {
     use chrono::{Duration, Utc};
     use dravr_tronc::mcp::schema::ToolResponse;
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
@@ -74,22 +74,22 @@ mod peer_fetch_tests {
         tenant_id
     }
 
-    async fn seed_coach(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) -> Uuid {
+    async fn seed_agent(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) -> Uuid {
         resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 tenant_id,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Peer Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -100,7 +100,7 @@ mod peer_fetch_tests {
     async fn create_group(
         resources: &ServerContext,
         tenant_id: TenantId,
-        coach_id: Uuid,
+        agent_id: Uuid,
         owner_id: Uuid,
         peer_data_sharing: bool,
     ) -> Uuid {
@@ -111,7 +111,7 @@ mod peer_fetch_tests {
             tenant_id: tenant_id.to_string(),
             name: "Tempo Squad".to_owned(),
             description: None,
-            coach_id: coach_id.to_string(),
+            agent_id: agent_id.to_string(),
             owner_id,
             coach_user_id: None,
             peer_data_sharing,
@@ -197,7 +197,7 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
@@ -216,7 +216,7 @@ mod peer_fetch_tests {
             .await
             .unwrap();
 
-        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             gid,
@@ -261,7 +261,7 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
@@ -280,7 +280,7 @@ mod peer_fetch_tests {
             .await
             .unwrap();
 
-        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             gid,
@@ -318,13 +318,13 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
 
         // peer_data_sharing = false, but the member consented.
-        let gid = create_group(&resources, host_tenant, coach, requester, false).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, false).await;
         add_member(
             &resources,
             gid,
@@ -360,9 +360,9 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
-        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             gid,
@@ -400,9 +400,9 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
-        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             gid,
@@ -433,14 +433,14 @@ mod peer_fetch_tests {
 
     /// A consenting peer whose every provider fetch fails (no token, empty
     /// cache) is an OUTAGE, not an empty week. The old unconditional
-    /// `ok(count: 0)` taught the coach the peer had not trained; the reply
+    /// `ok(count: 0)` taught the agent the peer had not trained; the reply
     /// must now be an error naming the fetch failure.
     #[tokio::test]
     async fn peer_fetch_outage_is_an_error_not_an_empty_week() {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
@@ -455,7 +455,7 @@ mod peer_fetch_tests {
             .await
             .unwrap();
 
-        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             gid,
@@ -497,11 +497,11 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
 
-        let gid = create_group(&resources, host_tenant, coach, requester, true).await;
+        let gid = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             gid,
@@ -541,7 +541,7 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let requester = seed_user(&resources, "philtool").await;
         let host_tenant = create_tenant_owned_by(&resources, requester).await;
-        let coach = seed_coach(&resources, requester, host_tenant).await;
+        let agent = seed_agent(&resources, requester, host_tenant).await;
 
         let peer = seed_user(&resources, "raphtool").await;
         let peer_tenant = create_tenant_owned_by(&resources, peer).await;
@@ -561,7 +561,7 @@ mod peer_fetch_tests {
             .unwrap();
 
         // The room: peer has NOT consented here.
-        let room = create_group(&resources, host_tenant, coach, requester, true).await;
+        let room = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             room,
@@ -581,7 +581,7 @@ mod peer_fetch_tests {
         )
         .await;
         // Another shared group where the peer DID consent.
-        let elsewhere = create_group(&resources, host_tenant, coach, requester, true).await;
+        let elsewhere = create_group(&resources, host_tenant, agent, requester, true).await;
         add_member(
             &resources,
             elsewhere,
@@ -643,7 +643,7 @@ mod peer_fetch_tests {
         let resources = create_test_server_resources().await.unwrap();
         let owner = seed_user(&resources, "ownertool").await;
         let host_tenant = create_tenant_owned_by(&resources, owner).await;
-        let coach_persona = seed_coach(&resources, owner, host_tenant).await;
+        let agent_persona = seed_agent(&resources, owner, host_tenant).await;
 
         let human_coach = seed_user(&resources, "coachtool").await;
         let coach_tenant = create_tenant_owned_by(&resources, human_coach).await;
@@ -665,7 +665,7 @@ mod peer_fetch_tests {
             .await
             .unwrap();
 
-        let gid = create_group(&resources, host_tenant, coach_persona, owner, true).await;
+        let gid = create_group(&resources, host_tenant, agent_persona, owner, true).await;
         add_member(&resources, gid, owner, host_tenant, GroupRole::Owner, false).await;
         add_member(&resources, gid, peer, peer_tenant, GroupRole::Member, true).await;
         assert!(resources
@@ -694,7 +694,7 @@ mod peer_fetch_tests {
             "the attached coach reads the consenting member's ride: {payload}"
         );
 
-        // The same gate still holds for the coach: consent withdrawn, no data.
+        // The same gate still holds for the agent: consent withdrawn, no data.
         assert!(resources
             .common
             .repos

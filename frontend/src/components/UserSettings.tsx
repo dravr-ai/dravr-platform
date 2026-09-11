@@ -1436,7 +1436,7 @@ Authorization: Bearer <your-token-here>`}
                                 <div>
                                   <p className="text-xs text-outline mb-1">{t('settingsUi.agents')}</p>
                                   <p className="text-sm font-medium text-on-surface">
-                                    {usageData.resources.coaches} / {usageData.resources.max_coaches}
+                                    {usageData.resources.agents} / {usageData.resources.max_agents}
                                   </p>
                                 </div>
                                 <div>

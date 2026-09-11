@@ -218,7 +218,7 @@ impl DossierRepository for PostgresDatabase {
         // that window — group_facts dedupes the overlap.
         //
         // By kind: Medical and NorthStar, whichever source wrote them (a
-        // coach-authored medical flag is not `source=onboarding`).
+        // agent-authored medical flag is not `source=onboarding`).
         //
         // By source: everything a guided interview captured. Kind cannot
         // protect these — a calibration answer about recovery speed is a
@@ -230,8 +230,8 @@ impl DossierRepository for PostgresDatabase {
         //
         // A read that fails degrades to an empty set so the dossier still
         // renders, but it warns first: a bind or decode fault on these queries
-        // strips medical flags and every interview answer from the coach's
-        // context, and the coach keeps prescribing either way.
+        // strips medical flags and every interview answer from the agent's
+        // context, and the agent keeps prescribing either way.
         let user = user_id.to_string();
         let mut facts = match self
             .list_user_facts(tenant_id, &user, None, None, FACT_BUNDLE_LIMIT)

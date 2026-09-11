@@ -83,7 +83,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { removeCoach } = useRemoveCoach(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
-  const { coach: aiCoach } = useCoachInfo(group?.coach_id ?? null);
+  const { coach: aiCoach } = useCoachInfo(group?.agent_id ?? null);
 
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);

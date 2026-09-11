@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import type { Coach, User } from '../types/api';
+import type { Agent, User } from '../types/api';
 import { Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -31,7 +31,7 @@ function getCategoryColorClass(category: string): string {
   return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
 }
 
-interface CoachFormData {
+interface AgentFormData {
   title: string;
   description: string;
   system_prompt: string;
@@ -46,7 +46,7 @@ interface CoachFormData {
   success_criteria: string;
 }
 
-const defaultFormData: CoachFormData = {
+const defaultFormData: AgentFormData = {
   title: '',
   description: '',
   system_prompt: '',
@@ -63,10 +63,10 @@ const defaultFormData: CoachFormData = {
 
 export default function SystemCoachesTab() {
   const queryClient = useQueryClient();
-  const [selectedCoach, setSelectedCoach] = useState<Coach | null>(null);
+  const [selectedCoach, setSelectedCoach] = useState<Agent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [formData, setFormData] = useState<CoachFormData>(defaultFormData);
+  const [formData, setFormData] = useState<AgentFormData>(defaultFormData);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
@@ -148,8 +148,8 @@ export default function SystemCoachesTab() {
 
   // Assign mutation
   const assignMutation = useMutation({
-    mutationFn: ({ coachId, userIds }: { coachId: string; userIds: string[] }) =>
-      adminApi.assignCoachToUsers(coachId, userIds),
+    mutationFn: ({ agentId, userIds }: { agentId: string; userIds: string[] }) =>
+      adminApi.assignCoachToUsers(agentId, userIds),
     onSuccess: () => {
       refetchAssignments();
       setShowAssignModal(false);
@@ -159,8 +159,8 @@ export default function SystemCoachesTab() {
 
   // Unassign mutation
   const unassignMutation = useMutation({
-    mutationFn: ({ coachId, userIds }: { coachId: string; userIds: string[] }) =>
-      adminApi.unassignCoachFromUsers(coachId, userIds),
+    mutationFn: ({ agentId, userIds }: { agentId: string; userIds: string[] }) =>
+      adminApi.unassignCoachFromUsers(agentId, userIds),
     onSuccess: () => {
       refetchAssignments();
     },
@@ -203,17 +203,17 @@ export default function SystemCoachesTab() {
 
   const handleAssign = () => {
     if (selectedCoach && selectedUserIds.length > 0) {
-      assignMutation.mutate({ coachId: selectedCoach.id, userIds: selectedUserIds });
+      assignMutation.mutate({ agentId: selectedCoach.id, userIds: selectedUserIds });
     }
   };
 
   const handleUnassign = (userId: string) => {
     if (selectedCoach && confirm('Remove this user\'s access to the agent?')) {
-      unassignMutation.mutate({ coachId: selectedCoach.id, userIds: [userId] });
+      unassignMutation.mutate({ agentId: selectedCoach.id, userIds: [userId] });
     }
   };
 
-  const coaches = coachesData?.coaches || [];
+  const coaches = coachesData?.agents || [];
   const users = usersData || [];
   const assignments = assignmentsData?.assignments || [];
   const assignedUserIds = new Set(assignments.map(a => a.user_id));

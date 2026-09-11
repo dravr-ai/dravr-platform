@@ -133,7 +133,7 @@ pub async fn send_message(
     // states the absence outright (`build_provider_context`), the athlete-data
     // verifier contradicts any specific figure asserted without a source, and
     // the dispatch chokepoint refuses every REQUIRES_PROVIDER tool. A
-    // providerless athlete gets a coach that says what it cannot see instead of
+    // providerless athlete gets an agent that says what it cannot see instead of
     // a door.
     // Populate the parent span so downstream pipeline log lines (already
     // instrumented to read `turn_id`/`channel`/`conversation_id`) carry the
@@ -271,9 +271,9 @@ impl TurnEgress {
             ambient_context: None,
             channel_type: &self.channel_type,
             // A thread bound to a coaching group is a group thread, whichever
-            // surface it is read on: `/coach add` binds the group's coach there
+            // surface it is read on: `/agent add` binds the group's agent there
             // and `/group …` acts on that group. Unbound, the athlete is alone
-            // with the coach.
+            // with the agent.
             is_direct_message: self.conversation.group_id.is_none(),
             // A solo thread is exactly that. The group commands resolve no
             // group here and are refused, instead of being aimed at whichever
@@ -303,7 +303,7 @@ impl TurnEgress {
         match served {
             ServedTurn::Pipeline(envelope) => {
                 #[cfg(feature = "client-notifications")]
-                notify_coach_response(
+                notify_agent_response(
                     &self.resources,
                     &envelope.conversation,
                     self.user_id,
@@ -514,26 +514,26 @@ fn terminal_events(outcome: Result<TurnResponse, AppError>) -> Vec<pipeline::Tur
     events
 }
 
-/// Fire-and-forget notification when a coach conversation produces a
-/// response. Only sends if the conversation has a `coach_id`
-/// (indicates coach persona).
+/// Fire-and-forget notification when an agent conversation produces a
+/// response. Only sends if the conversation has a `agent_id`
+/// (indicates agent persona).
 #[cfg(feature = "client-notifications")]
-fn notify_coach_response(
+fn notify_agent_response(
     resources: &Arc<ServerContext>,
     conv: &ConversationRecord,
     user_id: Uuid,
     tenant_id: TenantId,
     conversation_id: &str,
 ) {
-    if conv.coach_id.is_some() {
+    if conv.agent_id.is_some() {
         if let Some(service) = &resources.common.notification_service {
-            let coach_title = conv.title.clone();
-            notification_triggers::trigger_coach_message(
+            let agent_title = conv.title.clone();
+            notification_triggers::trigger_agent_message(
                 service,
                 user_id,
                 pierre_notifications::TenantId(tenant_id.as_uuid()),
                 conversation_id,
-                &coach_title,
+                &agent_title,
             );
         }
     }

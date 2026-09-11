@@ -428,7 +428,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Detail is NOT dropped on expensive providers: it carries HR
             // streams, laps and the real UTC start time the date-only list
             // page lacks. It is rationed instead. The list is newest-first, so
-            // the budget spends itself on the activities a coach reasons
+            // the budget spends itself on the activities an agent reasons
             // about ("hier", "ma dernière sortie") and leaves the tail as
             // summaries, which already carry HR, elevation, cadence and power.
             let detail_is_cheap = context
@@ -1000,7 +1000,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Name the connections the rows came from. Normally that is the
             // elected provider; when it is auth-dead and its siblings answered,
             // it is those siblings — attributing their sessions to the provider
-            // that could not answer is what would let the coach describe a
+            // that could not answer is what would let the agent describe a
             // Strava ride as a WHOOP record.
             let source_label = if served_by.is_empty() {
                 display_provider.clone()

@@ -8,7 +8,7 @@
 //!
 //! Surfaces the rows written by the detector pipeline
 //! (`services::claim_verification::apply_claim_verification`) so tenant
-//! admins can review flagged claims, see which coach emitted them, and
+//! admins can review flagged claims, see which agent emitted them, and
 //! drill into the supporting evidence.
 
 use std::sync::Arc;
@@ -39,8 +39,8 @@ pub struct ListVerdictsQuery {
     pub status: Option<String>,
     /// Optional filter by claim category.
     pub category: Option<String>,
-    /// Optional filter by the coach that emitted the claim.
-    pub coach_id: Option<String>,
+    /// Optional filter by the agent that emitted the claim.
+    pub agent_id: Option<String>,
     /// Maximum number of rows to return, clamped to `1..=200`. Defaults to 50.
     pub limit: Option<i64>,
 }
@@ -64,13 +64,13 @@ pub struct VerdictRow {
     pub tenant_id: String,
     /// User the verdict was issued for.
     pub user_id: String,
-    /// Coach that produced the claim, when known.
-    pub coach_id: Option<String>,
+    /// Agent that produced the claim, when known.
+    pub agent_id: Option<String>,
     /// Conversation the claim came from, when known.
     pub conversation_id: Option<String>,
     /// Message within the conversation the claim came from, when known.
     pub message_id: Option<String>,
-    /// Raw claim text extracted from the coach response.
+    /// Raw claim text extracted from the agent response.
     pub claim_text: String,
     /// Domain category of the claim (training, nutrition, recovery, ...).
     pub category: String,
@@ -96,7 +96,7 @@ impl From<ClaimVerdict> for VerdictRow {
             id: v.id,
             tenant_id: v.tenant_id,
             user_id: v.user_id,
-            coach_id: v.coach_id,
+            agent_id: v.agent_id,
             conversation_id: v.conversation_id,
             message_id: v.message_id,
             claim_text: v.claim_text,
@@ -124,7 +124,7 @@ pub struct VerdictListResponse {
 /// Handle `GET /admin/claim-verdicts`.
 ///
 /// Returns the most recent verdicts for the caller's tenant with optional
-/// filters by status, category, and coach. Results are clamped to 200 and
+/// filters by status, category, and agent. Results are clamped to 200 and
 /// the server does all filtering in memory — the Phase A
 /// `list_recent_verdicts` repository call returns the full recent set,
 /// which is fine for the low volumes expected in Phase A. When volume
@@ -141,11 +141,11 @@ pub(crate) async fn handle_list_claim_verdicts(
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
 
-    // The `coach_id` filter is purely client-supplied — validate the format
+    // The `agent_id` filter is purely client-supplied — validate the format
     // before scanning so the admin sees a 400 on a typo instead of a
     // silently-empty result. We accept the canonical UUID encoding only.
-    let coach_filter = params
-        .coach_id
+    let agent_filter = params
+        .agent_id
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -181,9 +181,9 @@ pub(crate) async fn handle_list_claim_verdicts(
                 .is_none_or(|c| v.category.as_str() == c)
         })
         .filter(|v| {
-            coach_filter
+            agent_filter
                 .as_deref()
-                .is_none_or(|cid| v.coach_id.as_deref() == Some(cid))
+                .is_none_or(|cid| v.agent_id.as_deref() == Some(cid))
         })
         .map(Into::into)
         .collect();

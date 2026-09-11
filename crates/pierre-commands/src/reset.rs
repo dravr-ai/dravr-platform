@@ -12,9 +12,9 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::models::OnboardingState;
 use pierre_messaging::commands::CommandResponse;
-use pierre_services::coach_selection::CoachSelectionSource;
+use pierre_services::agent_selection::AgentSelectionSource;
 use pierre_services::conversation_forge::{
-    forge_conversation, in_app_title, messaging_title, repoint_messaging_session, ForgeCoach,
+    forge_conversation, in_app_title, messaging_title, repoint_messaging_session, ForgeAgent,
     ForgeParams,
 };
 use tracing::{info, warn};
@@ -83,16 +83,16 @@ impl CommandHandler for ResetHandler {
                 tenant_id: ctx.conversation_tenant_id,
                 title: &title,
                 model: Some(&previous.model),
-                // The thread being replaced already names the coach the
+                // The thread being replaced already names the agent the
                 // athlete was talking to; a reset changes the thread, not who
                 // they train with.
-                coach: ForgeCoach::Explicit(previous.coach_id.as_deref()),
+                agent: ForgeAgent::Explicit(previous.agent_id.as_deref()),
                 group_id: previous.group_id.as_deref(),
                 channel_type: &ctx.channel_type,
                 selection_source: if in_app {
-                    CoachSelectionSource::ChatConversation
+                    AgentSelectionSource::ChatConversation
                 } else {
-                    CoachSelectionSource::MessagingSession
+                    AgentSelectionSource::MessagingSession
                 },
                 guided_flow: ctx.is_direct_message,
             },

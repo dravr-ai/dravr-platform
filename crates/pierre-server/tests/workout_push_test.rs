@@ -589,7 +589,7 @@ fn rest_day(date: NaiveDate) -> PlannedDay {
     planned(date, "rest", "", None, "")
 }
 
-/// The steps of a threshold session as a coach states them: 15 min warm-up,
+/// The steps of a threshold session as an agent states them: 15 min warm-up,
 /// 3 × (8 min on / 4 min off), 10 min cool-down — 61 minutes.
 fn threshold_steps() -> Vec<WorkoutStep> {
     let step = |label: &str, seconds: u32, zone: &str, repeat: u32| WorkoutStep {
@@ -743,7 +743,7 @@ async fn an_inline_session_is_stored_and_pushed_with_its_coaching_cue() -> Resul
     assert!(!stored.is_compiled_in);
     assert_eq!(stored.tenant_id, Some(fixture.tenant.as_uuid()));
 
-    // The coach's cue reaches the athlete's calendar as prose, and the step
+    // The agent's cue reaches the athlete's calendar as prose, and the step
     // reaches it as structure: 3300 s is 55 m in the DSL.
     let request = stub.only_request().await;
     assert!(
@@ -802,7 +802,7 @@ async fn replacing_a_prescription_changes_the_same_calendar_event_in_place() -> 
         .await?;
     let first_id = first["prescription_id"].as_str().expect("id").to_owned();
 
-    // The coach changes their mind: same slot, different session.
+    // The agent changes their mind: same slot, different session.
     let second = fixture
         .ok(
             "prescribe_workout",
@@ -1170,7 +1170,7 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     assert_eq!(intervals.body["moving_time"].as_u64(), Some(3600));
 
     // Prose that looks like DSL is escaped, so Intervals.icu cannot turn the
-    // coach's bullet list into two mystery steps.
+    // agent's bullet list into two mystery steps.
     let strength = stub
         .event_by_key(&CalendarKey::plan_day(user, d(3), 0))
         .await
@@ -1229,7 +1229,7 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
         "no new ledger rows for an unchanged push"
     );
 
-    // ── The coach adjusts week one through the tool ────────────────────
+    // ── The agent adjusts week one through the tool ────────────────────
     // Wednesday becomes rest, Saturday gets longer; the save reports that
     // the calendar is now behind, without touching it.
     let saved = fixture
@@ -1288,7 +1288,7 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     );
 
     // Meanwhile the athlete edited next week's tempo ride on Intervals.icu,
-    // and the coach also re-saved that week with a longer version.
+    // and the agent also re-saved that week with a longer version.
     let tempo_key = CalendarKey::plan_day(user, d(7), 0);
     let tempo = stub.event_by_key(&tempo_key).await.expect("tempo ride");
     stub.touch(tempo.id, Utc::now() + Duration::hours(1)).await;
@@ -1501,7 +1501,7 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
         "the workout-builder DSL with the repeats as one block; got: {text}"
     );
 
-    // The coach re-saves the day without its steps: the calendar follows,
+    // The agent re-saves the day without its steps: the calendar follows,
     // visibly — one update, a prose-only entry — rather than keeping a
     // structure the plan no longer states.
     fixture

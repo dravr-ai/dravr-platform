@@ -7,7 +7,7 @@
 //! Playbook → prompt rendering (P5 of coaching playbook memory).
 //!
 //! Turns the most-confident learned [`Playbook`]s for an athlete into a compact
-//! markdown block the coach can reason over. Every rendered field is either a
+//! markdown block the agent can reason over. Every rendered field is either a
 //! system-derived enum, a counter, or the `sport` slug — and `sport` is
 //! constrained to a bounded `[a-z0-9_]` slug at capture
 //! (`pierre_memory::sanitize_sport_slug`), not free text. So (unlike the OKF

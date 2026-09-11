@@ -20,17 +20,17 @@ vi.mock('../../services/api', () => ({
       rejection_rate: 0.2,
     }),
     getStoreReviewQueue: vi.fn().mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
     getPublishedStoreCoaches: vi.fn().mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),
     getRejectedStoreCoaches: vi.fn().mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     }),

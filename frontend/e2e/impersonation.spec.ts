@@ -270,7 +270,7 @@ test.describe('Impersonation - Super Admin Access', () => {
           user_id: 'user-1',
           coaching_persona: 'casual',
           default_coach_id: null,
-          installed_coaches: [],
+          installed_agents: [],
           joined_groups: [],
         }),
       });
@@ -463,7 +463,7 @@ test.describe('Impersonation - Start and End Flow', () => {
           user_id: 'user-1',
           coaching_persona: 'casual',
           default_coach_id: null,
-          installed_coaches: [],
+          installed_agents: [],
           joined_groups: [],
         }),
       });
@@ -686,7 +686,7 @@ test.describe('Impersonation - Regular Admin Cannot Impersonate', () => {
           user_id: 'user-1',
           coaching_persona: 'casual',
           default_coach_id: null,
-          installed_coaches: [],
+          installed_agents: [],
           joined_groups: [],
         }),
       });
@@ -791,7 +791,7 @@ test.describe('Impersonation - Error Handling', () => {
           user_id: 'user-1',
           coaching_persona: 'casual',
           default_coach_id: null,
-          installed_coaches: [],
+          installed_agents: [],
           joined_groups: [],
         }),
       });

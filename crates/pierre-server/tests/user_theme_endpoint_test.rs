@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 async fn setup() -> (Router, String, Uuid, Arc<ServerContext>) {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = resources
         .auth
         .auth_manager

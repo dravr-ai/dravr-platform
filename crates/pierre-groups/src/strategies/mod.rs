@@ -10,7 +10,7 @@ pub mod summarization;
 /// Group statistics computation with caching strategies
 pub mod aggregation;
 
-/// Coach system prompt extension builders for group context
+/// Agent system prompt extension builders for group context
 pub mod context;
 
 /// Pricing tier-based strategy composition and feature gating

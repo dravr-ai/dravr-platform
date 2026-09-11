@@ -56,7 +56,7 @@ pub struct StoredFile {
 /// Both backends operate on the same logical layout — `manifest.json` at
 /// the root, plus per-asset files under `prompts/`, `tools/`, `evidence/`,
 /// `strings/`, and `config/`. The trait intentionally does *not* expose
-/// write operations; admin coach-promotion still goes through GitHub
+/// write operations; admin agent-promotion still goes through GitHub
 /// directly via [`super::github::GitHubContentsClient`] because writes
 /// are low-volume and require a real PAT for commit attribution anyway.
 #[async_trait]

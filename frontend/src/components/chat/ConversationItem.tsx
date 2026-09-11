@@ -274,7 +274,7 @@ const ConversationItem = memo(function ConversationItem({
               )}
               data-testid="conversation-preview"
             >
-              {row.preview || (row.coachHandle ? `@${row.coachHandle}` : ' ')}
+              {row.preview || (row.agentHandle ? `@${row.agentHandle}` : ' ')}
             </p>
             {unread && (
               <span

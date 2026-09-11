@@ -141,7 +141,7 @@ mod snapshot_tenant_tests {
 
     /// A dead connection must surface in `needs_reauth_providers` even when it
     /// lives in a tenant other than the fallback. The old tenant-scoped re-query
-    /// against the fallback tenant returned nothing, so the coach never learned
+    /// against the fallback tenant returned nothing, so the agent never learned
     /// the member needed to reconnect.
     #[tokio::test]
     async fn needs_reauth_surfaces_across_tenants() {

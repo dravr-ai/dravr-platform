@@ -57,7 +57,7 @@ fn test_client_checks_with_default_features() {
     assert!(FeatureConfig::client_dashboard());
     assert!(FeatureConfig::client_settings());
     assert!(FeatureConfig::client_chat());
-    assert!(FeatureConfig::client_coaches());
+    assert!(FeatureConfig::client_agents());
     assert!(FeatureConfig::has_any_client());
 }
 

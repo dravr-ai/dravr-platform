@@ -20,7 +20,7 @@
 //! **Group analytics** (`/stats`, `/report`, `/health`) live in
 //! [`mod@group_analytics`], which builds member snapshots via the
 //! canonical [`pierre_tool_runtime::group_fitness::fetch_member_snapshots`]
-//! so REST analytics and the chat coach share one all-providers +
+//! so REST analytics and the chat agent share one all-providers +
 //! deduplicated snapshot source. Routes are generic over
 //! `C: ToolRuntime + MiddlewareCtx + GroupsCtx` so they can construct
 //! OAuth-authenticated fitness providers per member from the same

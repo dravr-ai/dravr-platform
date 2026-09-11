@@ -14,7 +14,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::Utc;
-use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{
     AddMessageParams, CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier,
@@ -57,8 +57,8 @@ async fn seed_pg_user(db: &Database) -> Uuid {
     user_id
 }
 
-/// Create a real tenants row — `coaches.tenant_id` is a foreign key to
-/// `tenants(id)` on both backends, so any tenant that owns a coach must exist.
+/// Create a real tenants row — `agents.tenant_id` is a foreign key to
+/// `tenants(id)` on both backends, so any tenant that owns an agent must exist.
 async fn seed_pg_tenant(db: &Database, owner_id: Uuid) -> TenantId {
     let tenant = Tenant::new(
         "Conversation List Tenant".to_owned(),
@@ -72,33 +72,33 @@ async fn seed_pg_tenant(db: &Database, owner_id: Uuid) -> TenantId {
     id
 }
 
-/// Publish a catalogue coach (which assigns its `@handle`) and install it for
+/// Publish a catalogue agent (which assigns its `@handle`) and install it for
 /// `athlete_id`, returning the installed copy's id.
-async fn install_published_coach(
+async fn install_published_agent(
     repos: &RepositoryRegistry,
     author_id: Uuid,
     author_tenant: TenantId,
     athlete_id: Uuid,
     athlete_tenant: TenantId,
 ) -> String {
-    let coach = repos
-        .coaches
-        .create_system_coach(
+    let agent = repos
+        .agents
+        .create_system_agent(
             author_id,
             author_tenant,
-            &CreateSystemCoachRequest {
+            &CreateSystemAgentRequest {
                 title: "Recovery Coach".to_owned(),
                 description: Some("Rest-day specialist.".to_owned()),
                 system_prompt: "You are the recovery coach.".to_owned(),
-                category: CoachCategory::Training,
+                category: AgentCategory::Training,
                 tags: vec!["test".to_owned()],
-                visibility: CoachVisibility::Tenant,
+                visibility: AgentVisibility::Tenant,
                 sample_prompts: vec![],
             },
         )
         .await
         .unwrap();
-    let id = coach.id.to_string();
+    let id = agent.id.to_string();
     repos
         .store_listings
         .submit_for_review(&id, author_id, author_tenant)
@@ -106,7 +106,7 @@ async fn install_published_coach(
         .unwrap();
     repos
         .store_listings
-        .approve_coach(&id, author_tenant, Some(author_id))
+        .approve_agent(&id, author_tenant, Some(author_id))
         .await
         .unwrap();
     repos
@@ -178,8 +178,8 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     let athlete = athlete_id.to_string();
     let member = member_id.to_string();
 
-    let coach_id =
-        install_published_coach(&repos, author_id, author_tenant, athlete_id, tenant).await;
+    let agent_id =
+        install_published_agent(&repos, author_id, author_tenant, athlete_id, tenant).await;
 
     let now = Utc::now();
     let group_id = Uuid::new_v4();
@@ -192,7 +192,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
                 tenant_id: tenant.to_string(),
                 name: "Marathon Squad".to_owned(),
                 description: None,
-                coach_id: coach_id.clone(),
+                agent_id: agent_id.clone(),
                 owner_id: athlete_id,
                 coach_user_id: None,
                 peer_data_sharing: false,
@@ -249,7 +249,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         .unwrap();
     let coached = repos
         .chat
-        .create_conversation(&athlete, tenant, "Recovery", "gpt-4", Some(&coach_id), None)
+        .create_conversation(&athlete, tenant, "Recovery", "gpt-4", Some(&agent_id), None)
         .await
         .unwrap();
     let first = add_row(
@@ -298,13 +298,13 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         ]
     );
 
-    let coach_row = &page.items[0];
-    assert_eq!(coach_row.coach_id.as_deref(), Some(coach_id.as_str()));
-    assert_eq!(coach_row.coach_handle.as_deref(), Some("recovery-coach"));
-    assert_eq!(coach_row.coach_title.as_deref(), Some("Recovery Coach"));
-    assert_eq!(coach_row.message_count, 2, "tool rows are not turns");
-    assert_eq!(coach_row.unread_count, 2);
-    let newest = coach_row.last_message.as_ref().expect("the newest row");
+    let agent_row = &page.items[0];
+    assert_eq!(agent_row.agent_id.as_deref(), Some(agent_id.as_str()));
+    assert_eq!(agent_row.agent_handle.as_deref(), Some("recovery-coach"));
+    assert_eq!(agent_row.agent_title.as_deref(), Some("Recovery Coach"));
+    assert_eq!(agent_row.message_count, 2, "tool rows are not turns");
+    assert_eq!(agent_row.unread_count, 2);
+    let newest = agent_row.last_message.as_ref().expect("the newest row");
     assert_eq!(newest.role, "assistant");
     assert_eq!(
         newest.content_head, reply,
@@ -315,7 +315,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
         "RFC 3339: {}",
         newest.created_at
     );
-    assert!(coach_row.created_at.contains('T'));
+    assert!(agent_row.created_at.contains('T'));
 
     let group_row = &page.items[1];
     assert_eq!(

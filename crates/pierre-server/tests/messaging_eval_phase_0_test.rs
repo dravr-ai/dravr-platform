@@ -62,7 +62,7 @@ fn citation_grounded_for_reply_matching_seeded_fixture() {
     let activities = seed_ten_identical_runs();
     let fixture = CitationFixture::from_activities(&activities);
 
-    // Simulates a coach reply that correctly cites the seeded data.
+    // Simulates an agent reply that correctly cites the seeded data.
     let reply = "Over the past block you logged 10 runs totaling 50 km. \
                  Solid base for building 5 K speed.";
 
@@ -77,7 +77,7 @@ fn citation_catches_hallucinated_distance_in_seeded_tenant() {
     let activities = seed_ten_identical_runs();
     let fixture = CitationFixture::from_activities(&activities);
 
-    // Simulates a hallucinating coach: right run count, invented volume.
+    // Simulates a hallucinating agent: right run count, invented volume.
     let reply = "Over the past block you logged 10 runs totaling 120 km.";
 
     let err = assert_citation_grounded(reply, &fixture, Tolerances::strict())

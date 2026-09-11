@@ -12,7 +12,7 @@ import { coachAddDraft, coachMention } from './coachDraft';
 import { useTranslation } from '@pierre/i18n';
 
 export interface PostInstallHintProps {
-  coachTitle: string;
+  agentTitle: string;
   /** The catalogue handle the copy inherited from its listing. */
   handle: string | undefined;
   /**
@@ -23,7 +23,7 @@ export interface PostInstallHintProps {
   onDismiss: () => void;
 }
 
-export function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
+export function PostInstallHint({ agentTitle, handle, onOpenChat, onDismiss }: PostInstallHintProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const draft = coachAddDraft(handle);
@@ -32,7 +32,7 @@ export function PostInstallHint({ coachTitle, handle, onOpenChat, onDismiss }: P
     <View testID="post-install-hint" accessibilityRole="summary" accessibilityLiveRegion="polite">
       <Card variant="elevated">
         <Text className="text-base font-semibold text-text-primary mb-1" testID="post-install-title">
-          {'“'}{coachTitle}{'”'} is in your agents
+          {'“'}{agentTitle}{'”'} is in your agents
         </Text>
         <Text className="text-sm text-text-secondary leading-5" testID="post-install-body">
           {t('app.useItInAnyChat')}{' '}

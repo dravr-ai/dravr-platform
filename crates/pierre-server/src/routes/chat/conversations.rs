@@ -22,7 +22,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
-use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::locale::resolve_user_locale;
 
 use super::common::{get_tenant_id, verify_group_membership};
@@ -33,27 +33,27 @@ use super::dto::{
     MessageResponse, MessagesListResponse, UpdateConversationRequest,
 };
 
-/// Best-effort `coach_assignments.use_count++` for REST-created conversations,
+/// Best-effort `agent_assignments.use_count++` for REST-created conversations,
 /// via the shared selection recorder that also emits `agent.selected`.
 /// Logs and swallows errors so a transient DB hiccup doesn't fail the user-
-/// visible conversation create. `record_coach_selection` logs the
-/// coach-not-visible case itself and emits nothing for it.
-async fn record_coach_usage_best_effort(
+/// visible conversation create. `record_agent_selection` logs the
+/// agent-not-visible case itself and emits nothing for it.
+async fn record_agent_usage_best_effort(
     resources: &ServerContext,
-    coach_id: &str,
+    agent_id: &str,
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
-    if let Err(e) = record_coach_selection(
-        resources.coaches_manager(),
-        coach_id,
+    if let Err(e) = record_agent_selection(
+        resources.agents_manager(),
+        agent_id,
         user_id,
         tenant_id,
-        CoachSelectionSource::ChatConversation,
+        AgentSelectionSource::ChatConversation,
     )
     .await
     {
-        tracing::warn!(coach_id, error = %e, "failed to record coach usage");
+        tracing::warn!(agent_id, error = %e, "failed to record coach usage");
     }
 }
 
@@ -70,7 +70,7 @@ pub async fn create_conversation(
     // Enforce max_active_conversations. Degrade to the registered
     // default when admin config is unavailable rather than skipping the
     // limit entirely.
-    let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+    let admin_config: &dyn AdminConfigLookup = match resources.agent.admin_config.as_deref() {
         Some(c) => c,
         None => default_admin_config(),
     };
@@ -113,17 +113,17 @@ pub async fn create_conversation(
         tenant_id,
         &request.title,
         request.model.as_deref(),
-        request.coach_id.as_deref(),
+        request.agent_id.as_deref(),
         request.group_id.as_deref(),
     )
     .await?;
 
-    // Bump the per-coach use_count + last_used_at when a conversation is
-    // opened with a coach attached. Audit (2026-05-07) showed every coach
+    // Bump the per-agent use_count + last_used_at when a conversation is
+    // opened with an agent attached. Audit (2026-05-07) showed every agent
     // stuck at "0 uses" because nothing on the chat path called
     // record_usage even though the field is shown in the Coaches UI.
-    if let Some(coach_id) = request.coach_id.as_deref() {
-        record_coach_usage_best_effort(&resources, coach_id, auth.user_id, tenant_id).await;
+    if let Some(agent_id) = request.agent_id.as_deref() {
+        record_agent_usage_best_effort(&resources, agent_id, auth.user_id, tenant_id).await;
     }
 
     let conv = result.conversation;
@@ -131,7 +131,7 @@ pub async fn create_conversation(
         id: conv.id,
         title: conv.title,
         model: conv.model,
-        coach_id: conv.coach_id,
+        agent_id: conv.agent_id,
         group_id: conv.group_id,
         total_tokens: conv.total_tokens,
         created_at: conv.created_at,
@@ -173,9 +173,9 @@ pub async fn list_conversations(
                 model: c.model,
                 message_count: c.message_count,
                 total_tokens: c.total_tokens,
-                coach_id: c.coach_id,
-                coach_handle: c.coach_handle,
-                coach_title: c.coach_title,
+                agent_id: c.agent_id,
+                agent_handle: c.agent_handle,
+                agent_title: c.agent_title,
                 group_id: c.group_id,
                 group_name: c.group_name,
                 channel_type: c.channel_type,
@@ -216,7 +216,7 @@ pub async fn get_conversation(
         id: conv.id,
         title: conv.title,
         model: conv.model,
-        coach_id: conv.coach_id,
+        agent_id: conv.agent_id,
         group_id: conv.group_id,
         total_tokens: conv.total_tokens,
         created_at: conv.created_at,
@@ -265,7 +265,7 @@ pub async fn update_conversation(
         id: conv.id,
         title: conv.title,
         model: conv.model,
-        coach_id: conv.coach_id,
+        agent_id: conv.agent_id,
         group_id: conv.group_id,
         total_tokens: conv.total_tokens,
         created_at: conv.created_at,

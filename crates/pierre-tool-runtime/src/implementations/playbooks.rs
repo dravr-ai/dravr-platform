@@ -1,5 +1,5 @@
 // ABOUTME: GDPR/transparency MCP tools for coaching playbook memory — list_coaching_playbooks + forget_playbook
-// ABOUTME: list is chat-callable (coach can surface what it learned); forget is auth-gated, not chat-callable
+// ABOUTME: list is chat-callable (agent can surface what it learned); forget is auth-gated, not chat-callable
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,8 @@
 //!
 //! Two MCP tools over the learned-playbook store:
 //!
-//! - [`ListCoachingPlaybooksTool`] — read-only; lets the coach (or an MCP
-//!   client) surface "what works for this athlete". Chat-callable, so the coach
+//! - [`ListCoachingPlaybooksTool`] — read-only; lets the agent (or an MCP
+//!   client) surface "what works for this athlete". Chat-callable, so the agent
 //!   can answer the athlete conversationally.
 //! - [`ForgetPlaybookTool`] — deletes one of the athlete's playbooks by id (GDPR
 //!   "forget this"). Tenant + user scoped, and registered under a non-chat
@@ -59,7 +59,7 @@ fn forget_annotations() -> ToolAnnotations {
 /// One learned playbook, as `list_coaching_playbooks` reports it.
 ///
 /// Distinct from `pierre_memory::playbooks::Playbook`: that is the stored row,
-/// carrying tenant, user and coach identifiers the athlete's own client has no
+/// carrying tenant, user and agent identifiers the athlete's own client has no
 /// business reading. This is the projection the tool actually sends.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PlaybookEntry {
@@ -123,7 +123,7 @@ pub struct ForgetPlaybookResult {
 }
 
 // ============================================================================
-// ListCoachingPlaybooksTool — read what the coach has learned about the athlete
+// ListCoachingPlaybooksTool — read what the agent has learned about the athlete
 // ============================================================================
 
 /// Read-only tool surfacing the athlete's learned coaching playbooks.
@@ -147,7 +147,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
         // pattern about the ACTIVITY of coaching — a trigger, an intervention and
         // its success record — not the AI persona and not a human, which is the
         // sense ADR-026 D2 reserves the word for. It also reads the
-        // `coaching_playbooks` table and its `coach_slug` column, so renaming the
+        // `coaching_playbooks` table and its `agent_slug` column, so renaming the
         // tool alone would split the tool and its storage across two vocabularies.
         answers_with::<ListCoachingPlaybooksResult>(tool_definition(
             "list_coaching_playbooks",

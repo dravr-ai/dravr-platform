@@ -33,9 +33,9 @@ pub struct UsageIncrementScope<'a> {
     /// counter the pre-turn check enforces against
     /// `max_messages_per_conversation`.
     pub conversation_id: Option<&'a str>,
-    /// `coaches.id` — drives the daily per-coach message counter the pre-turn
-    /// check enforces against `max_messages_per_coach_per_day`.
-    pub coach_id: Option<&'a str>,
+    /// `agents.id` — drives the daily per-agent message counter the pre-turn
+    /// check enforces against `max_messages_per_agent_per_day`.
+    pub agent_id: Option<&'a str>,
 }
 
 /// Resolve prompt/completion token counts from a completed turn.
@@ -54,11 +54,11 @@ pub fn tokens_from_envelope(envelope: &TurnEnvelope, user_content: &str) -> (u32
 }
 
 /// Increment the daily/weekly message and token counters for one served turn,
-/// plus the per-conversation and per-coach counters when their ids are present
+/// plus the per-conversation and per-agent counters when their ids are present
 /// in [`UsageIncrementScope`].
 ///
 /// The same dimension keys the pre-turn check reads
-/// (`conversation_messages:<conv>`, `daily_coach_messages:<coach>`) are
+/// (`conversation_messages:<conv>`, `daily_coach_messages:<agent>`) are
 /// written here. Failures are logged rather than propagated: the athlete
 /// already has their reply, and losing a counter must not turn a delivered
 /// turn into an error.
@@ -106,7 +106,7 @@ async fn increment_base_counters(
     }
 }
 
-/// Bump the per-conversation and per-coach dimensioned counters.
+/// Bump the per-conversation and per-agent dimensioned counters.
 async fn increment_scoped_counters(
     usage_svc: &UsageCounterService<'_>,
     tenant_id: &str,
@@ -122,12 +122,12 @@ async fn increment_scoped_counters(
         }
     }
 
-    if let Some(coach_id) = scope.coach_id {
+    if let Some(agent_id) = scope.agent_id {
         if let Err(e) = usage_svc
-            .increment_with_dimension(tenant_id, user_id, "daily_coach_messages", coach_id, 1)
+            .increment_with_dimension(tenant_id, user_id, "daily_coach_messages", agent_id, 1)
             .await
         {
-            warn!("Failed to increment daily_coach_messages:{coach_id} counter: {e}");
+            warn!("Failed to increment daily_coach_messages:{agent_id} counter: {e}");
         }
     }
 }

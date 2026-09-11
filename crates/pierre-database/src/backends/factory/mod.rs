@@ -128,7 +128,7 @@ impl Database {
     /// Get a reference to the underlying `SQLite` database if this is a `SQLite` backend.
     ///
     /// Returns `None` for `PostgreSQL` databases. The returned reference implements
-    /// domain-specific repository traits (`RecipeRepository`, `CoachesRepository`,
+    /// domain-specific repository traits (`RecipeRepository`, `AgentsRepository`,
     /// `MobilityRepository`).
     #[must_use]
     pub const fn sqlite_database(&self) -> Option<&SqliteDatabase> {

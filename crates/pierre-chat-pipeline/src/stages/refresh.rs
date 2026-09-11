@@ -1,4 +1,4 @@
-// ABOUTME: Provider data freshness stage — triggers background refresh and injects coach hint
+// ABOUTME: Provider data freshness stage — triggers background refresh and injects agent hint
 // ABOUTME: Provides inject_refresh_context — augments the system prompt with refresh status
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 //!
 //! Checks whether connected fitness providers have recent data, triggers a
 //! non-blocking background refresh for stale ones, and optionally appends a
-//! "some data may be stale" hint to the system prompt so the coach can
+//! "some data may be stale" hint to the system prompt so the agent can
 //! acknowledge the limitation to the user rather than silently analyzing
 //! outdated data.
 //!
@@ -57,12 +57,12 @@ pub struct RefreshDeps<'a> {
 
 /// Trigger a background provider refresh and append a freshness hint.
 ///
-/// The refresh runs non-blocking; the appended hint makes the coach
+/// The refresh runs non-blocking; the appended hint makes the agent
 /// aware that some data may be stale so it can acknowledge the
 /// limitation to the user rather than silently analyzing outdated data.
 ///
 /// When [`RefreshConfig::on_chat_enabled`] is false the stage is a no-op
-/// and returns `base_prompt` unchanged. When the coach hint is disabled
+/// and returns `base_prompt` unchanged. When the agent hint is disabled
 /// the refresh still fires but nothing is appended to the prompt.
 pub async fn inject_refresh_context(
     deps: RefreshDeps<'_>,
@@ -102,11 +102,11 @@ pub async fn inject_refresh_context(
         .check_and_refresh(user_uuid, tenant_id, &config)
         .await;
 
-    if !config.inject_coach_hint {
+    if !config.inject_agent_hint {
         return base_prompt;
     }
 
-    match RefreshService::build_coach_hint(&status.details) {
+    match RefreshService::build_agent_hint(&status.details) {
         Some(hint) => format!("{base_prompt}\n\n{hint}"),
         None => base_prompt,
     }

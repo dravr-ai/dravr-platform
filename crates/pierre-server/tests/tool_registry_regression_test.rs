@@ -68,8 +68,8 @@ fn test_all_transports_return_consistent_tool_list() {
 }
 
 #[test]
-fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
-    // Coach prompts in dravr-contremaitre `prompts/coaches/training/` reference
+fn test_chat_callable_surface_includes_agent_prompt_dependencies() {
+    // Agent prompts in dravr-contremaitre `prompts/agents/training/` reference
     // these tool names. They must all be in chat_callable_schemas(), otherwise
     // the LLM gets the prose name advertised in "Available Tools" but no
     // matching function declaration — producing truthful "no callable tool"
@@ -83,8 +83,8 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
         .map(|t| t.name)
         .collect();
 
-    // These names appear in coach prompts and must be callable at chat time.
-    // The list is conservative — add new names as coaches reference new tools.
+    // These names appear in agent prompts and must be callable at chat time.
+    // The list is conservative — add new names as agents reference new tools.
     let required = [
         // Endurance dossier/history (drove the regression that motivated this test)
         "export_dossier",
@@ -128,7 +128,7 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
         missing.is_empty(),
         "chat_callable_schemas() is missing {} tool(s) referenced by coach prompts: {:?}\n\
          If a tool was intentionally moved off the chat surface, audit the \
-         dravr-contremaitre `prompts/coaches/` for prose that still says \
+         dravr-contremaitre `prompts/agents/` for prose that still says \
          `call \\`{{name}}\\`` and update those prompts in the same commit.",
         missing.len(),
         missing
@@ -145,10 +145,10 @@ fn test_chat_callable_surface_includes_coach_prompt_dependencies() {
 #[test]
 fn test_chat_callable_surface_includes_group_peer_fetch() {
     // get_group_member_activities is the ONLY path that reads a group peer's
-    // data, and the group coach prompt (write_peer_fetch_instructions) steers
+    // data, and the group agent prompt (write_peer_fetch_instructions) steers
     // the LLM to call it. It registers under the "groups" category, so it is
     // chat-callable only if "groups" is in CHAT_CALLABLE_CATEGORIES. When it was
-    // not, the coach was steered toward a tool the LLM could never see and
+    // not, the agent was steered toward a tool the LLM could never see and
     // silently fell back to get_activities (the requester's own data) — the
     // exact "no callable tool" failure this surface is meant to prevent.
     let mut registry = ToolRegistry::new();
@@ -171,7 +171,7 @@ fn test_chat_callable_surface_includes_group_peer_fetch() {
 
 #[test]
 fn test_chat_callable_surface_excludes_admin_and_management_tools() {
-    // Tools that should NOT be callable from chat: coach create/delete/assign
+    // Tools that should NOT be callable from chat: agent create/delete/assign
     // (UI actions), store install/uninstall (UI actions), admin_* (operator),
     // config write/delete (admin-ish), verify_claim (debug). The LLM should
     // not fire these on natural-language input.
@@ -209,7 +209,7 @@ fn test_chat_callable_surface_excludes_admin_and_management_tools() {
 
 #[test]
 fn test_chat_callable_surface_grounds_fr_dinner_incident() {
-    // Regression (2026-07-24): a training-coach turn asking "recommande quoi
+    // Regression (2026-07-24): a training-agent turn asking "recommande quoi
     // comme dîner" fabricated a meal from memory because the (now-deleted)
     // per-turn keyword prefilter dropped the recipe/nutrition tools when the
     // FR-CA meal word matched no keyword rule. The fix removed the prefilter

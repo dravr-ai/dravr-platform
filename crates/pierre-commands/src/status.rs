@@ -1,5 +1,5 @@
 // ABOUTME: Handlers for /status and /me commands showing account overview
-// ABOUTME: Returns connected providers, active coach, and group membership
+// ABOUTME: Returns connected providers, active agent, and group membership
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

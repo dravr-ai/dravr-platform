@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the coach-athlete roster persistence domain
+// ABOUTME: Repository trait definitions for the agent-athlete roster persistence domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,11 +11,11 @@ use pierre_core::models::CoachAthleteAssignment;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
-/// 1:N coach → athlete roster assignment repository.
+/// 1:N agent → athlete roster assignment repository.
 ///
 /// Backed by the `coach_athlete_assignments` table. All queries are
 /// tenant-scoped — the route layer is responsible for verifying both
-/// the coach and the athlete belong to the same tenant before calling
+/// the agent and the athlete belong to the same tenant before calling
 /// `assign_athlete`. Active assignments have `revoked_at IS NULL`.
 #[async_trait]
 pub trait RosterRepository: Send + Sync {
@@ -38,7 +38,7 @@ pub trait RosterRepository: Send + Sync {
     ) -> AppResult<Vec<CoachAthleteAssignment>>;
 
     /// Insert a new assignment row. Returns `Ok(None)` when an active
-    /// assignment for the same `(coach, athlete, tenant)` already exists
+    /// assignment for the same `(agent, athlete, tenant)` already exists
     /// (the unique partial index guards against duplicates). Caller
     /// MUST verify both users belong to `tenant_id` before invoking.
     async fn assign_athlete(
@@ -46,7 +46,7 @@ pub trait RosterRepository: Send + Sync {
         assignment: &CoachAthleteAssignment,
     ) -> AppResult<Option<CoachAthleteAssignment>>;
 
-    /// Mark the active assignment for `(coach, athlete, tenant)` as
+    /// Mark the active assignment for `(agent, athlete, tenant)` as
     /// revoked. Returns `true` when a row was updated, `false` when no
     /// active assignment matched. The audit row stays.
     async fn revoke_assignment(

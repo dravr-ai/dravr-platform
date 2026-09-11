@@ -28,7 +28,7 @@ use pierre_database::repositories::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{ArchetypePrior, Playbook};
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
@@ -37,11 +37,11 @@ use pierre_services::training_plan_render::render_training_plan_block;
 use crate::ChatPipelineContext;
 use pierre_database::repositories::training_plans::PlanOwner;
 
-/// What the plan block is rendered from: the stored plan, the coach's
+/// What the plan block is rendered from: the stored plan, the agent's
 /// package, and the catalogue whose templates the phase header names.
 #[derive(Clone, Copy)]
 pub struct PlanPromptSources<'a> {
-    /// The athlete's stored plans, and the coach rows and artefacts the
+    /// The athlete's stored plans, and the agent rows and artefacts the
     /// package is read from.
     pub repos: &'a RepositoryRegistry,
     /// The live training catalogue.
@@ -95,14 +95,14 @@ pub async fn inject_okf_bundle(
 /// `onboarding_active` suppresses the section entirely: the guided pillar
 /// walk's directive says "do not deliver a full coaching plan yet", and a
 /// trailing plan block overrides it — observed live 2026-07-12 (a plan saved
-/// mid-walk pivoted the coach to plan talk every turn and the remaining
+/// mid-walk pivoted the agent to plan talk every turn and the remaining
 /// pillars were never probed). The block returns once coverage completes and
 /// onboarding mode clears.
 pub async fn inject_training_plan(
     sources: PlanPromptSources<'_>,
     tenant_id: &str,
     user_id: &str,
-    coach_slug: Option<&str>,
+    agent_slug: Option<&str>,
     today: chrono::NaiveDate,
     onboarding_active: bool,
     base_prompt: String,
@@ -113,7 +113,7 @@ pub async fn inject_training_plan(
     let PlanPromptSources { repos, catalogue } = sources;
     let plans = repos.training_plans.as_ref();
     let plan = match plans
-        .get_active_plan(tenant_id, user_id, PlanOwner::from_slug(coach_slug))
+        .get_active_plan(tenant_id, user_id, PlanOwner::from_slug(agent_slug))
         .await
     {
         Ok(Some(plan)) => plan,
@@ -133,11 +133,11 @@ pub async fn inject_training_plan(
             return base_prompt;
         }
     };
-    // The coach's package over the catalogue, so the phase header names the
+    // The agent's package over the catalogue, so the phase header names the
     // package's templates beside the catalogue's. An unreadable package
     // renders the catalogue alone rather than dropping the plan.
     let package = match (TenantId::parse_str(tenant_id), Uuid::parse_str(user_id)) {
-        (Ok(tenant), Ok(user)) => load_coach_package(repos, tenant, user, coach_slug)
+        (Ok(tenant), Ok(user)) => load_agent_package(repos, tenant, user, agent_slug)
             .await
             .unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "coach package read failed; rendering the catalogue alone");
@@ -154,8 +154,8 @@ pub async fn inject_training_plan(
 
 /// Append the athlete's proven coaching playbooks to the system prompt.
 ///
-/// Lists the most-confident learned playbooks for `(tenant, user, coach)` and
-/// renders the well-evidenced ones so the coach prefers what has worked for this
+/// Lists the most-confident learned playbooks for `(tenant, user, agent)` and
+/// renders the well-evidenced ones so the agent prefers what has worked for this
 /// athlete. Best-effort: errors and "no qualifying playbooks" both pass through
 /// silently, like the OKF bundle. `tenant_id`/`user_id` are the stringified TOOL
 /// tenant + user (where the activity data and playbooks live).
@@ -164,12 +164,12 @@ pub async fn inject_playbooks(
     activity_cache: &dyn ActivityCacheRepository,
     tenant_id: &str,
     user_id: &str,
-    coach_slug: Option<&str>,
+    agent_slug: Option<&str>,
     base_prompt: String,
 ) -> String {
     let started = Instant::now();
     let playbooks = match playbook_repo
-        .list_playbooks(tenant_id, user_id, coach_slug, PLAYBOOK_INJECT_LIMIT)
+        .list_playbooks(tenant_id, user_id, agent_slug, PLAYBOOK_INJECT_LIMIT)
         .await
     {
         Ok(p) => p,

@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn an_empty_window_yields_no_baseline_rather_than_zeroes() {
-        // A zeroed snapshot would have the coach tell an athlete with no
+        // A zeroed snapshot would have the agent tell an athlete with no
         // connected provider that they train zero hours a week.
         assert!(snapshot_from_durations(&[], SNAPSHOT_WEEKS).is_none());
     }

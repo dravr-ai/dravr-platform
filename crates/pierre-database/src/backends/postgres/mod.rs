@@ -14,6 +14,15 @@ pub mod a2a;
 pub mod activity_cache_persistence;
 /// Admin, impersonation, and MCP token repository implementations
 pub mod admin;
+/// Agent package artefacts — flavour, skeleton, workouts stored per agent (Postgres)
+pub mod agent_artefacts;
+mod agent_translations;
+/// Coaches repository implementation
+pub mod agents;
+mod agents_assignments;
+mod agents_copies;
+/// `PostgreSQL` row → agent mappers and the agent content/request hashes.
+mod agents_rows;
 /// API key repository implementation
 pub mod api_key;
 /// Chat repository implementation
@@ -22,15 +31,6 @@ mod chat_listing;
 mod chat_read_markers;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
-/// Coach package artefacts — flavour, skeleton, workouts stored per coach (Postgres)
-pub mod coach_artefacts;
-mod coach_translations;
-/// Coaches repository implementation
-pub mod coaches;
-mod coaches_assignments;
-mod coaches_copies;
-/// `PostgreSQL` row → coach mappers and the coach content/request hashes.
-mod coaches_rows;
 /// Coaching group repository implementation (group CRUD, membership, invites)
 pub mod coaching_groups;
 /// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
@@ -73,7 +73,7 @@ pub mod prescribed_workouts;
 pub mod recipes;
 /// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
 pub mod resumable_turns;
-/// Coach-athlete roster assignments (Postgres) backing `RosterRepository`.
+/// Agent-athlete roster assignments (Postgres) backing `RosterRepository`.
 pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (Postgres)
 pub mod route_summaries;

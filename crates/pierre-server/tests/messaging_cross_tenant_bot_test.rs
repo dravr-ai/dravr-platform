@@ -32,7 +32,7 @@ mod cross_tenant_bot_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::factory::Database;
@@ -385,7 +385,7 @@ mod cross_tenant_bot_tests {
         );
 
         // Assert the whole DM unit lives under the USER tenant, not the bot tenant.
-        let db = resources.coach.database.as_ref();
+        let db = resources.agent.database.as_ref();
         let user_tenant_str = user_tenant.to_string();
         let bot_tenant_str = bot_tenant.to_string();
         let user_id_str = user_id.to_string();
@@ -487,18 +487,18 @@ mod cross_tenant_bot_tests {
         resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 bot_owner,
                 bot_tenant,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Group Slash Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -510,18 +510,18 @@ mod cross_tenant_bot_tests {
         let decoy_coach = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 user_tenant,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Decoy Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -539,7 +539,7 @@ mod cross_tenant_bot_tests {
                     tenant_id: user_tenant.to_string(),
                     name: "Decoy group".to_owned(),
                     description: None,
-                    coach_id: decoy_coach.id.to_string(),
+                    agent_id: decoy_coach.id.to_string(),
                     owner_id: user_id,
                     coach_user_id: None,
                     peer_data_sharing: true,
@@ -621,7 +621,7 @@ mod cross_tenant_bot_tests {
             .await;
         assert_eq!(resp.status_code(), StatusCode::OK);
 
-        let db = resources.coach.database.as_ref();
+        let db = resources.agent.database.as_ref();
 
         // The chat's coaching group is created during session resolution; poll
         // until it exists, then until the consent write lands.

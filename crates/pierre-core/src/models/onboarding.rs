@@ -106,12 +106,12 @@ impl GuidedFlow {
 /// Declared per topic, never inferred, and the default is [`Self::DmOnly`]:
 /// a topic that does not explicitly claim room safety is excluded from room
 /// walks. The fixed flows declare theirs in code ([`Pillar::visibility`],
-/// [`super::CalibrationTopic::visibility`]); a coach-authored questionnaire
+/// [`super::CalibrationTopic::visibility`]); an agent-authored questionnaire
 /// will supply one per topic in its package, reviewed before publication.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TopicVisibility {
-    /// Probed only where the athlete is alone with the coach.
+    /// Probed only where the athlete is alone with the agent.
     #[default]
     DmOnly,
     /// May also be probed in a shared room whose walk the athlete started
@@ -139,7 +139,7 @@ pub enum WalkAudience {
 ///
 /// Held in the flow state rather than refetched per turn: the baseline-confirm
 /// topic quotes it back for confirmation, and a figure that drifted mid-walk
-/// would make the coach contradict itself.
+/// would make the agent contradict itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LoadSnapshot {
     /// Mean training hours per week over the window.
@@ -261,7 +261,7 @@ impl OnboardingState {
     /// the most forcefully worded block in the prompt — it "overrides every
     /// other instruction" and ends with "do not build, propose, or save a
     /// training plan" — and the athlete's transcript keeps its shape after the
-    /// block itself disappears. On 2026-07-28 a coach spent the turn after a
+    /// block itself disappears. On 2026-07-28 an agent spent the turn after a
     /// completed calibration telling the athlete it could not save his plan,
     /// having never called the tool, which was callable on that turn.
     #[must_use]
@@ -286,7 +286,7 @@ impl OnboardingState {
     }
 
     /// The flow a retired marker belonged to — the release directive names
-    /// what the coach may now do, and that depends on which walk ended.
+    /// what the agent may now do, and that depends on which walk ended.
     /// `None` for an active flow, an absent or unparseable column, or a
     /// marker with no completion stamp.
     #[must_use]

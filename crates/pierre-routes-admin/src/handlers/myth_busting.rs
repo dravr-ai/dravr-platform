@@ -74,7 +74,7 @@ pub(crate) async fn handle_get_summary(
         .unwrap_or(DEFAULT_VERDICT_LIMIT)
         .clamp(1, MAX_VERDICTS_SCANNED);
 
-    let summary = compute_summary(&context.repos.coach_repos(), tenant, limit)
+    let summary = compute_summary(&context.repos.agent_repos(), tenant, limit)
         .await
         .map_err(|e| {
             error!(error = %e, "failed to compute myth-busting summary");

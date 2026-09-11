@@ -6,7 +6,7 @@
 
 //! Route geometry for inline visual blocks.
 //!
-//! A `chart` or `table` block carries its own numbers, because a coach can
+//! A `chart` or `table` block carries its own numbers, because an agent can
 //! write a dozen points into a reply. A `route` cannot: a recorded track runs
 //! to thousands of coordinates, so the block names an activity and the
 //! platform reads that activity's geometry here. Coordinates a model produced
@@ -36,7 +36,7 @@ use super::viz_blocks::{next_fence, validated_block, FENCE_INFO};
 use super::viz_schema::SchemaTexts;
 use crate::{ChatPipelineContext, TurnInput};
 
-/// The block kind whose geometry the platform reads on the coach's behalf.
+/// The block kind whose geometry the platform reads on the agent's behalf.
 const ROUTE_KIND: &str = "route";
 
 /// The `highlight` value that asks for the climbs to be marked.
@@ -370,7 +370,7 @@ pub async fn read_route_tracks(
 
 /// Activity ids named by the route blocks this reply would actually render.
 ///
-/// Runs every gate extraction runs — the schema, the coach's grant, the
+/// Runs every gate extraction runs — the schema, the agent's grant, the
 /// attribution check — so a block that is going to be refused never costs a
 /// provider read. In reply order, deduplicated: two blocks drawing the same
 /// activity are one read.

@@ -6,12 +6,12 @@
 
 import type { AxiosInstance } from 'axios';
 import type {
-  BrowseCoachesResponse,
-  SearchCoachesResponse,
-  InstallCoachResponse,
-  UninstallCoachResponse,
+  BrowseAgentsResponse,
+  SearchAgentsResponse,
+  InstallAgentResponse,
+  UninstallAgentResponse,
   InstallationsResponse,
-  StoreCoachDetail,
+  StoreAgentDetail,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -30,7 +30,7 @@ export function createStoreApi(axios: AxiosInstance) {
     /**
      * Browse store coaches with optional filters.
      */
-    async browse(options?: BrowseOptions): Promise<BrowseCoachesResponse> {
+    async browse(options?: BrowseOptions): Promise<BrowseAgentsResponse> {
       const params = new URLSearchParams();
       if (options?.category) params.append('category', options.category);
       if (options?.sort_by) params.append('sort_by', options.sort_by);
@@ -40,19 +40,19 @@ export function createStoreApi(axios: AxiosInstance) {
       const queryString = params.toString();
       const url = queryString ? `${ENDPOINTS.STORE.COACHES}?${queryString}` : ENDPOINTS.STORE.COACHES;
 
-      const response = await axios.get<BrowseCoachesResponse>(url);
+      const response = await axios.get<BrowseAgentsResponse>(url);
       return response.data;
     },
 
     /**
      * Search store coaches.
      */
-    async search(query: string, limit?: number): Promise<SearchCoachesResponse> {
+    async search(query: string, limit?: number): Promise<SearchAgentsResponse> {
       const params = new URLSearchParams();
       params.append('q', query);
       if (limit) params.append('limit', limit.toString());
 
-      const response = await axios.get<SearchCoachesResponse>(
+      const response = await axios.get<SearchAgentsResponse>(
         `${ENDPOINTS.STORE.SEARCH}?${params}`
       );
       return response.data;
@@ -61,24 +61,24 @@ export function createStoreApi(axios: AxiosInstance) {
     /**
      * Get a specific store coach by ID.
      */
-    async get(coachId: string): Promise<StoreCoachDetail> {
-      const response = await axios.get<StoreCoachDetail>(ENDPOINTS.STORE.COACH(coachId));
+    async get(agentId: string): Promise<StoreAgentDetail> {
+      const response = await axios.get<StoreAgentDetail>(ENDPOINTS.STORE.COACH(agentId));
       return response.data;
     },
 
     /**
      * Install a coach from the store.
      */
-    async install(coachId: string): Promise<InstallCoachResponse> {
-      const response = await axios.post<InstallCoachResponse>(ENDPOINTS.STORE.INSTALL(coachId));
+    async install(agentId: string): Promise<InstallAgentResponse> {
+      const response = await axios.post<InstallAgentResponse>(ENDPOINTS.STORE.INSTALL(agentId));
       return response.data;
     },
 
     /**
      * Uninstall a previously installed coach.
      */
-    async uninstall(coachId: string): Promise<UninstallCoachResponse> {
-      const response = await axios.delete<UninstallCoachResponse>(ENDPOINTS.STORE.INSTALL(coachId));
+    async uninstall(agentId: string): Promise<UninstallAgentResponse> {
+      const response = await axios.delete<UninstallAgentResponse>(ENDPOINTS.STORE.INSTALL(agentId));
       return response.data;
     },
 

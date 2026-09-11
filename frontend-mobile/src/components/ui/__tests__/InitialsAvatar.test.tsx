@@ -160,7 +160,7 @@ describe('InitialsAvatar draws the slot it is given', () => {
   }
 
   it('renders the initials on the slot the shared hash picked', async () => {
-    const slot = avatarSlot({ id: 'conv-1', coach_id: null, group_id: null });
+    const slot = avatarSlot({ id: 'conv-1', agent_id: null, group_id: null });
     const { colors, fill } = await renderAvatar('dark', slot);
 
     expect(slot).toBeGreaterThanOrEqual(0);

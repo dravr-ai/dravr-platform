@@ -111,7 +111,7 @@ impl SanitizationOutcome {
 /// Curated case-insensitive pattern set. Each entry is a short prefix that
 /// must appear verbatim in the input for the signature to fire. The list
 /// is intentionally short — every pattern here was vetted for low false
-/// positive rate against the existing coach-conversation corpus.
+/// positive rate against the existing agent-conversation corpus.
 const INSTRUCTION_OVERRIDE_PHRASES: &[&str] = &[
     "ignore previous instructions",
     "ignore the previous instructions",

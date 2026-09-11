@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Tests the LLM-facing coverage framing that stops the coach from anchoring on
+//! Tests the LLM-facing coverage framing that stops the agent from anchoring on
 //! the oldest activity in a truncated slice ("depuis le 21 août") instead of the
 //! true window total + span ("552 en 2024, voici les 200 récentes").
 

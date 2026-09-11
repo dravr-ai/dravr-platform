@@ -6,13 +6,13 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { adminApi, type CoachNoteAuditRow } from '../services/api/admin';
+import { adminApi, type AgentNoteAuditRow } from '../services/api/admin';
 import { Card, Button, Badge, Select , Input } from './ui';
 import { useAuth } from '../hooks/useAuth';
 
 const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
 
-type ScopeKey = CoachNoteAuditRow['scope'];
+type ScopeKey = AgentNoteAuditRow['scope'];
 type BadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'secondary';
 
 const SCOPE_VARIANT: Record<ScopeKey, BadgeVariant> = {
@@ -72,7 +72,7 @@ export default function CoachNotesAuditTab() {
     const userNeedle = userFilter.trim();
     const textNeedle = searchText.trim().toLowerCase();
     return notes.filter((n) => {
-      if (coachNeedle && !n.coach_id.includes(coachNeedle)) return false;
+      if (coachNeedle && !n.agent_id.includes(coachNeedle)) return false;
       if (userNeedle && !n.user_id.includes(userNeedle)) return false;
       if (scopeFilter && n.scope !== scopeFilter) return false;
       if (textNeedle && !n.content.toLowerCase().includes(textNeedle)) return false;
@@ -208,7 +208,7 @@ export default function CoachNotesAuditTab() {
                         Suppressed
                       </Badge>
                     ) : null}
-                    <span className="font-mono">agent {note.coach_id}</span>
+                    <span className="font-mono">agent {note.agent_id}</span>
                     <span className="text-outline">·</span>
                     <span className="font-mono">user {note.user_id}</span>
                     {note.conversation_id ? (

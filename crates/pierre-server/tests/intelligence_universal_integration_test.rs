@@ -446,7 +446,7 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
     common::init_test_http_clients();
 
     let resources = common::create_test_server_resources().await?;
-    let database = resources.coach.database.clone();
+    let database = resources.agent.database.clone();
     let (user_id, _user, tenant_id) =
         common::create_test_user_with_plan(&database, "goal-tracker@example.com", "starter")
             .await?;

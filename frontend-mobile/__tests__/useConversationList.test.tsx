@@ -29,7 +29,7 @@ import { useConversationList, useConversationRows } from '../src/screens/convers
 type Conv = {
   id: string;
   title: string;
-  coach_id: string | null;
+  agent_id: string | null;
   message_count: number;
   unread_count: number;
   created_at: string;
@@ -40,7 +40,7 @@ function makeConv(id: string, overrides: Partial<Conv> = {}): Conv {
   return {
     id,
     title: `Chat ${id}`,
-    coach_id: null,
+    agent_id: null,
     message_count: 3,
     unread_count: 0,
     created_at: '2026-04-10T10:00:00Z',

@@ -1,4 +1,4 @@
-// ABOUTME: Forges a fresh chat conversation for an athlete — coach binding, channel stamp, guided flow
+// ABOUTME: Forges a fresh chat conversation for an athlete — agent binding, channel stamp, guided flow
 // ABOUTME: One ceremony for every caller: the messaging self-heal, and the /reset command on any surface
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,7 @@
 //! Two callers need the same five steps and must not drift apart: the
 //! messaging ingress, when a session's `pierre_conversation_id` cannot be
 //! reused, and `/reset`, when the athlete asks for a clean thread. Both want a
-//! row bound to the right coach, stamped with the surface it was opened from,
+//! row bound to the right agent, stamped with the surface it was opened from,
 //! and — for an athlete who has told us nothing yet — carrying the guided walk
 //! that stands in for the web signup form.
 //!
@@ -25,19 +25,19 @@ use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::coach_selection::{record_coach_selection, CoachSelectionSource};
+use crate::agent_selection::{record_agent_selection, AgentSelectionSource};
 use crate::intake::is_outstanding;
 
-/// Which coach the fresh conversation binds to.
+/// Which agent the fresh conversation binds to.
 #[derive(Debug, Clone, Copy)]
-pub enum ForgeCoach<'a> {
-    /// The athlete's tenant-level selected coach, or none when they have not
-    /// picked one. What a messaging thread uses: the session carries no coach
+pub enum ForgeAgent<'a> {
+    /// The athlete's tenant-level selected agent, or none when they have not
+    /// picked one. What a messaging thread uses: the session carries no agent
     /// of its own, so the selection is the only answer available.
     Selected,
-    /// The coach named here, carried from the thread being replaced. What
+    /// The agent named here, carried from the thread being replaced. What
     /// `/reset` uses in the app, so an athlete resetting a conversation with
-    /// one coach does not silently land on another.
+    /// one agent does not silently land on another.
     Explicit(Option<&'a str>),
 }
 
@@ -55,19 +55,19 @@ pub struct ForgeParams<'a> {
     pub title: &'a str,
     /// Model to run the thread on. `None` falls back to `PIERRE_LLM_MODEL`.
     pub model: Option<&'a str>,
-    /// Which coach to bind.
-    pub coach: ForgeCoach<'a>,
+    /// Which agent to bind.
+    pub agent: ForgeAgent<'a>,
     /// Group the thread belongs to, when it is a group thread.
     pub group_id: Option<&'a str>,
     /// Surface the conversation was opened from (`telegram`, `web`, …). The
     /// column defaults to `web`, so a thread forged from anywhere else must
     /// say so or it is badged wrong for the rest of its life.
     pub channel_type: &'a str,
-    /// What to attribute the coach-usage bump to. `MessagingSession` for a
+    /// What to attribute the agent-usage bump to. `MessagingSession` for a
     /// channel thread, `ChatConversation` for one opened in the app — the
     /// counter measures conversations, not choices, so every forge records
     /// one.
-    pub selection_source: CoachSelectionSource,
+    pub selection_source: AgentSelectionSource,
     /// Whether to offer the guided walk on the fresh row.
     ///
     /// True for a 1:1 thread, where the walk is how an athlete who never saw
@@ -78,7 +78,7 @@ pub struct ForgeParams<'a> {
 
 /// Create the conversation and return its id.
 ///
-/// Best-effort for everything after the row exists: a coach-usage write, a
+/// Best-effort for everything after the row exists: an agent-usage write, a
 /// channel stamp or a guided-flow start that fails costs a nicety, never the
 /// conversation the athlete is about to be dropped into.
 ///
@@ -95,16 +95,16 @@ pub async fn forge_conversation(
         tenant_id,
         title,
         model,
-        coach,
+        agent,
         group_id,
         channel_type,
         selection_source,
         guided_flow,
     } = params;
 
-    let coach_id = match coach {
-        ForgeCoach::Selected => selected_coach_id(repos, tenant_id, user_id).await,
-        ForgeCoach::Explicit(id) => id.map(str::to_owned),
+    let agent_id = match agent {
+        ForgeAgent::Selected => selected_agent_id(repos, tenant_id, user_id).await,
+        ForgeAgent::Explicit(id) => id.map(str::to_owned),
     };
 
     let model = match model {
@@ -121,14 +121,14 @@ pub async fn forge_conversation(
             tenant_id,
             title,
             &model,
-            coach_id.as_deref(),
+            agent_id.as_deref(),
             group_id,
         )
         .await?;
     let conversation_id = conversation.id;
 
-    if let Some(coach_id) = coach_id.as_deref() {
-        record_coach_usage(repos, coach_id, user_id, tenant_id, selection_source).await;
+    if let Some(agent_id) = agent_id.as_deref() {
+        record_agent_usage(repos, agent_id, user_id, tenant_id, selection_source).await;
     }
     if guided_flow {
         start_guided_flow(repos, tenant_id, user_id, &conversation_id).await;
@@ -145,11 +145,11 @@ pub async fn forge_conversation(
     Ok(conversation_id)
 }
 
-/// The athlete's tenant-level selected coach, or `None`.
+/// The athlete's tenant-level selected agent, or `None`.
 ///
 /// A lookup failure reads as "no coach": the thread is still usable, the
 /// attribution panels simply skip it.
-pub async fn selected_coach_id(
+pub async fn selected_agent_id(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: &str,
@@ -157,33 +157,33 @@ pub async fn selected_coach_id(
     let parsed = Uuid::parse_str(user_id).ok()?;
     repos
         .tenants
-        .get_selected_coach(tenant_id, parsed)
+        .get_selected_agent(tenant_id, parsed)
         .await
         .ok()?
 }
 
-/// Best-effort `coach_assignments.use_count++` through the shared recorder,
+/// Best-effort `agent_assignments.use_count++` through the shared recorder,
 /// which also emits `agent.selected`.
-async fn record_coach_usage(
+async fn record_agent_usage(
     repos: &RepositoryRegistry,
-    coach_id: &str,
+    agent_id: &str,
     user_id: &str,
     tenant_id: TenantId,
-    source: CoachSelectionSource,
+    source: AgentSelectionSource,
 ) {
     let Ok(user_uuid) = Uuid::parse_str(user_id) else {
         return;
     };
-    if let Err(e) = record_coach_selection(
-        repos.coaches.as_ref(),
-        coach_id,
+    if let Err(e) = record_agent_selection(
+        repos.agents.as_ref(),
+        agent_id,
         user_uuid,
         tenant_id,
         source,
     )
     .await
     {
-        warn!(error = %e, coach_id, "Failed to record coach usage on a forged conversation");
+        warn!(error = %e, agent_id, "Failed to record coach usage on a forged conversation");
     }
 }
 

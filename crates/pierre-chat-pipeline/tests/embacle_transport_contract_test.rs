@@ -13,7 +13,7 @@
 //! `copilot_headless` keeps only the FIRST `System` message and filters every
 //! other one out of history. The platform emitted five for months and four were
 //! discarded on every turn, silently — no error, no warning, and no visible
-//! symptom, because the coach could still call `get_activities` itself and
+//! symptom, because the agent could still call `get_activities` itself and
 //! produce the same observable outcome.
 //!
 //! Nothing caught it, and nothing *could* have:
@@ -76,7 +76,7 @@ fn message_role_is_a_closed_four_variant_enum() {
 
 #[test]
 fn a_request_the_platform_builds_carries_exactly_one_leading_system() {
-    // The shape `run_cli_tool_loop` hands to the provider on a grounded coach
+    // The shape `run_cli_tool_loop` hands to the provider on a grounded agent
     // turn: system prompt, then the activity block and the athlete's ask as User
     // messages. Verified live on 2026-08-04 against copilot_headless as
     // system_message_count=1, user_message_count=3.

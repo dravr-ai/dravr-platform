@@ -38,7 +38,7 @@ use pierre_tools_core::ToolResult;
 /// One day of training state, with its form reading attached.
 ///
 /// The stored row is flattened in rather than nested: this is what
-/// `get_training_history` has always sent, and a coach reading `ctl` should
+/// `get_training_history` has always sent, and an agent reading `ctl` should
 /// not have to know whether it sits under a `state` key.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct TrainingHistoryDay {
@@ -56,7 +56,7 @@ pub struct TrainingHistoryDay {
 /// What `get_training_history` answers with.
 ///
 /// Every row carries its own form reading, and the payload carries the method
-/// that produced it. This is the tool the endurance coach prompt calls first;
+/// that produced it. This is the tool the endurance agent prompt calls first;
 /// shipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a
 /// diagnosis nobody could explain (registre#199).
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -75,14 +75,14 @@ pub struct TrainingHistoryResult {
 ///
 /// A write tool that reports its own scope. The window is echoed because the
 /// caller may have passed none and taken the default, and `rows_upserted` is
-/// how a coach knows whether the recompute actually had days to work with —
+/// how an agent knows whether the recompute actually had days to work with —
 /// zero is a valid answer for a window the athlete did not train in.
 ///
 /// `from` is the window actually computed, which is later than `requested_from`
 /// when stored history could not warm the whole ask. Both are reported because
 /// `ctl`/`atl`/`tsb` are plain floats seeded at zero: a day computed without its
 /// CTL warm-up behind it carries a chronic load that is wrong low and looks
-/// exactly like a real one, so the coach has to be told which days exist rather
+/// exactly like a real one, so the agent has to be told which days exist rather
 /// than inferring it from a row count.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ComputeTrainingHistoryResult {
@@ -97,7 +97,7 @@ pub struct ComputeTrainingHistoryResult {
     pub requested_from: String,
     /// Whether every requested day was backed by enough stored history.
     pub complete: bool,
-    /// What the coach may and may not claim when coverage fell short. `None`
+    /// What the agent may and may not claim when coverage fell short. `None`
     /// when the whole window was computed.
     pub coverage_note: Option<String>,
     /// Whether a background capture of the missing history was started.
@@ -118,7 +118,7 @@ impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
     }
 }
 
-/// The instruction a coach needs when the stored history could not cover the ask.
+/// The instruction an agent needs when the stored history could not cover the ask.
 ///
 /// Says what is missing and forbids estimating it. A fitness number the athlete
 /// cannot trace to their own training is worse than an admission that it is
@@ -351,7 +351,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 fetch_history_rows(&context.resources.data(), tenant_id, user_id, from, to).await?;
 
             // Every row carries its own form reading, and the payload carries
-            // the method that produced it. This is the tool the endurance coach
+            // the method that produced it. This is the tool the endurance agent
             // prompt says to call first; shipping bare ctl/atl/tsb floats is how
             // a raw `-77` reached an athlete as a diagnosis nobody could explain
             // (registre#199).

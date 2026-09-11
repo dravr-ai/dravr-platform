@@ -47,7 +47,7 @@ fn verify_reply_heuristic_finds_nutrition_claim() {
     ));
 }
 
-// --- Per-coach VerificationConfig path -------------------------------------
+// --- Per-agent VerificationConfig path -------------------------------------
 
 const REPLY_WITH_MIXED_CLAIMS: &str =
     "Aim for 1.6 grams per kg of protein daily. Take 5 g of creatine per day. \

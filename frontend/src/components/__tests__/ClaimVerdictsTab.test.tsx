@@ -40,7 +40,7 @@ function sampleVerdict(overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
     id: 'v1',
     tenant_id: 'tenant-a',
     user_id: 'user-1',
-    coach_id: 'coach-1',
+    agent_id: 'coach-1',
     conversation_id: 'conv-1',
     message_id: null,
     claim_text: 'Take 5 g of creatine per day for high-intensity performance.',

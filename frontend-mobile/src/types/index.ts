@@ -30,19 +30,19 @@ export type {
 
 // Coach types
 export type {
-  CoachCategory,
-  CoachVisibility,
+  AgentCategory,
+  AgentVisibility,
   PublishStatus,
-  Coach,
-  UpdateCoachRequest,
-  ListCoachesResponse,
-  StoreCoach,
-  StoreCoachDetail,
+  Agent,
+  UpdateAgentRequest,
+  ListAgentsResponse,
+  StoreAgent,
+  StoreAgentDetail,
   StoreMetadata,
-  BrowseCoachesResponse,
-  SearchCoachesResponse,
-  InstallCoachResponse,
-  UninstallCoachResponse,
+  BrowseAgentsResponse,
+  SearchAgentsResponse,
+  InstallAgentResponse,
+  UninstallAgentResponse,
   InstallationsResponse,
 } from '@pierre/shared-types';
 

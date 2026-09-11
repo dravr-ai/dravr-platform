@@ -40,7 +40,7 @@ bitflags! {
     pub struct SecurityLabels: u8 {
         /// The tool echoes third-party / external text back into the LLM
         /// context (provider scrapes, peer data, external API bodies,
-        /// coach-authored notes). This is the prompt-injection *source*: its
+        /// agent-authored notes). This is the prompt-injection *source*: its
         /// output is untrusted data that re-enters the instruction channel.
         const UNTRUSTED_OUTPUT = 0b0000_0001;
         /// The tool sends data outbound to a third party (messaging / email /
@@ -125,7 +125,7 @@ pub fn delegated_security_class(inner: &Arc<dyn RuntimeTool>) -> SecurityLabels 
 ///
 /// ```ignore
 /// declare_security!(GetActivitiesTool => UNTRUSTED_OUTPUT);
-/// declare_security!(DeleteCoachTool   => IRREVERSIBLE);
+/// declare_security!(DeleteAgentTool   => IRREVERSIBLE);
 /// declare_security!(SetGoalTool       => empty);
 /// ```
 ///

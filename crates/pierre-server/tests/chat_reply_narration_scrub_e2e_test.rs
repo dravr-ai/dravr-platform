@@ -1,11 +1,11 @@
-// ABOUTME: Full-pipeline e2e guard — the coach's internal narration about hidden blocks / raw XML
+// ABOUTME: Full-pipeline e2e guard — the agent's internal narration about hidden blocks / raw XML
 // ABOUTME: must never reach the user or the durable reply; the real coaching content must survive
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Regression guard for the production "meta-narration leak" (2026-07-10):
-//! a live Telegram coach opened replies with the model narrating its
+//! a live Telegram agent opened replies with the model narrating its
 //! compliance with the system prompt's hidden contracts —
 //! « Je continue d'ignorer le bloc caché — pas de XML brut » — instead of
 //! just coaching. The narration is plain prose, so the `<tool_call>`
@@ -149,7 +149,7 @@ mod reply_narration_scrub {
         }
     }
 
-    /// Deterministic provider that simulates a jailbroken coach: it reads the
+    /// Deterministic provider that simulates a jailbroken agent: it reads the
     /// per-turn canary marker out of the system prompt it was handed and
     /// echoes it back verbatim — the exact exfiltration the canary detector
     /// exists to catch. The reply must be withheld at the response boundary,
@@ -220,7 +220,7 @@ mod reply_narration_scrub {
     }
 
     /// Deterministic provider that reproduces the 2026-07-22 identity flip: the
-    /// coach answers as GitHub Copilot CLI instead of staying in persona. The
+    /// agent answers as GitHub Copilot CLI instead of staying in persona. The
     /// whole reply must be withheld at the response boundary and never
     /// persisted, so a poisoned turn can't replay into later prompts.
     struct IdentityFlipMockProvider;
@@ -273,7 +273,7 @@ mod reply_narration_scrub {
         }
     }
 
-    /// Deterministic provider that emits a CORRECT denial — the coach stating it
+    /// Deterministic provider that emits a CORRECT denial — the agent stating it
     /// is Dravr and not the underlying product.
     ///
     /// This direction had no e2e coverage, and its absence was expensive: across
@@ -443,7 +443,7 @@ mod reply_narration_scrub {
 
         for _ in 0..150 {
             if let Some(content) =
-                latest_assistant_content(&resources.coach.database, &tenant_str).await
+                latest_assistant_content(&resources.agent.database, &tenant_str).await
             {
                 return Some(content);
             }
@@ -775,7 +775,7 @@ mod reply_narration_scrub {
             .expect("pipeline did not persist an assistant chat_messages row within 30s");
 
         // The inverse of `identity_flip_reply_is_withheld_and_not_persisted`:
-        // this reply names the product only to REJECT it, which is correct coach
+        // this reply names the product only to REJECT it, which is correct agent
         // behaviour and must reach the athlete intact.
         assert!(
             reply.contains("Dravr"),
@@ -798,7 +798,7 @@ mod reply_narration_scrub {
     const REASK_COACHING: &str = "Pour tes descentes, on vise 900 m de dénivelé négatif \
                                   une fois par semaine, plus des step-downs excentriques.";
 
-    /// Heading of the assembled coach system prompt (`pierre_system.md`), which
+    /// Heading of the assembled agent system prompt (`pierre_system.md`), which
     /// only the turn's own completions carry.
     const ASSEMBLED_PROMPT_MARKER: &str = "# Dravr Fitness Intelligence Assistant";
 
@@ -809,7 +809,7 @@ mod reply_narration_scrub {
     /// whether that meant one retry or three. Matching on the question text does
     /// NOT separate them — both extractors quote the athlete's turn back. What
     /// separates them is the system prompt: the turn carries the full assembled
-    /// coach prompt, each extractor carries its own small task prompt ("You are
+    /// agent prompt, each extractor carries its own small task prompt ("You are
     /// a memory extractor…", "You analyze a fitness coaching exchange…").
     fn turn_completion(request: &ChatRequest) -> bool {
         request

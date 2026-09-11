@@ -14,7 +14,7 @@ use pierre_core::models::CoachingPersona;
 use super::messaging_strings::DEFAULT_LOCALE;
 use pierre_llm::prompts::{
     get_coaching_persona_prompt, ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
-    CASUAL_PERSONA_PROMPT, COACH_GENERATION_PROMPT, COACH_PERSONA_PROMPT,
+    AGENT_GENERATION_PROMPT, CASUAL_PERSONA_PROMPT, COACH_PERSONA_PROMPT,
     ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
     MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
     PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
@@ -49,8 +49,8 @@ pub struct PromptEntry {
 pub struct RegistryStats {
     /// Number of system prompts
     pub system_count: usize,
-    /// Number of coach prompts
-    pub coach_count: usize,
+    /// Number of agent prompts
+    pub agent_count: usize,
     /// Number of coaching-persona output-format blocks
     pub persona_count: usize,
     /// Number loaded from compiled-in constants
@@ -65,7 +65,7 @@ impl fmt::Display for RegistryStats {
             f,
             "{} system + {} coaches + {} personas ({} compiled-in, {} contremaitre)",
             self.system_count,
-            self.coach_count,
+            self.agent_count,
             self.persona_count,
             self.compiled_in_count,
             self.contremaitre_count
@@ -73,20 +73,20 @@ impl fmt::Display for RegistryStats {
     }
 }
 
-/// Thread-safe in-memory registry for system prompts and coach personas.
+/// Thread-safe in-memory registry for system prompts and agent personas.
 ///
 /// Initialized with compiled-in defaults from `pierre-llm`. Entries are
 /// replaced when the contremaitre sync loads newer versions from GitHub.
 /// All getter methods return owned `String` values cloned from the registry.
 pub struct PromptRegistry {
     system: RwLock<HashMap<String, PromptEntry>>,
-    /// Coach prompts keyed by slug → locale → entry. The outer map is keyed
-    /// by canonical coach slug; the inner map by BCP-47 locale (e.g., `en`,
+    /// Agent prompts keyed by slug → locale → entry. The outer map is keyed
+    /// by canonical agent slug; the inner map by BCP-47 locale (e.g., `en`,
     /// `fr`). Each locale carries its own SHA-256 so the sync layer can hot
     /// reload a single translation without touching its siblings.
-    coaches: RwLock<HashMap<String, HashMap<String, PromptEntry>>>,
+    agents: RwLock<HashMap<String, HashMap<String, PromptEntry>>>,
     /// Coaching-persona output-format blocks keyed by `snake_case` enum
-    /// slug (`casual`, `enthusiast`, `power_athlete`, `coach`).
+    /// slug (`casual`, `enthusiast`, `power_athlete`, `agent`).
     /// Substituted into `pierre_system.md` at chat-pipeline assembly time
     /// via `{{COACHING_PERSONA_RULES}}`. Initialized with the compiled-in
     /// `include_str!()` blocks from `pierre-llm` so chat works before the
@@ -112,7 +112,7 @@ impl PromptRegistry {
         let compiled_in_prompts: &[(&str, &str)] = &[
             ("pierre_system", PIERRE_SYSTEM_PROMPT),
             ("platform_contract", PLATFORM_CONTRACT_PROMPT),
-            ("coach_generation", COACH_GENERATION_PROMPT),
+            ("coach_generation", AGENT_GENERATION_PROMPT),
             ("messaging_context", MESSAGING_CONTEXT_PROMPT),
             ("recommendation_analysis", RECOMMENDATION_ANALYSIS_PROMPT),
             ("recommendation_system", RECOMMENDATION_SYSTEM_PROMPT),
@@ -166,7 +166,7 @@ impl PromptRegistry {
 
         Self {
             system: RwLock::new(system),
-            coaches: RwLock::new(HashMap::new()),
+            agents: RwLock::new(HashMap::new()),
             personas: RwLock::new(personas),
         }
     }
@@ -178,14 +178,14 @@ impl PromptRegistry {
         self.get_system_prompt("pierre_system")
     }
 
-    /// Get the platform contract — injected on EVERY turn, coach-bound or
-    /// not, because a bound coach replaces the Pierre system prompt.
+    /// Get the platform contract — injected on EVERY turn, agent-bound or
+    /// not, because a bound agent replaces the Pierre system prompt.
     pub fn platform_contract_prompt(&self) -> String {
         self.get_system_prompt("platform_contract")
     }
 
-    /// Get the coach generation prompt.
-    pub fn coach_generation_prompt(&self) -> String {
+    /// Get the agent generation prompt.
+    pub fn agent_generation_prompt(&self) -> String {
         self.get_system_prompt("coach_generation")
     }
 
@@ -258,12 +258,12 @@ impl PromptRegistry {
     }
 
     /// Get the load-progression guardrails appended for load-prescribing
-    /// coaches.
+    /// agents.
     pub fn progression_guardrails_prompt(&self) -> String {
         self.get_system_prompt("progression_guardrails")
     }
 
-    /// Get the inline-visual contract appended for coaches with a `visuals:`
+    /// Get the inline-visual contract appended for agents with a `visuals:`
     /// grant on a channel that can render a block.
     ///
     /// This is the prose half only. The caller appends the bounds generated
@@ -289,24 +289,24 @@ impl PromptRegistry {
         )
     }
 
-    /// Get a coach prompt by slug and locale. Returns `None` if the coach or
+    /// Get an agent prompt by slug and locale. Returns `None` if the agent or
     /// the requested locale is not present in the registry. Callers wanting
     /// fallback behavior (e.g. fall back to `en`) must layer it on top.
-    pub fn get_coach_prompt(&self, slug: &str, locale: &str) -> Option<String> {
-        let guard = self.read_coaches();
+    pub fn get_agent_prompt(&self, slug: &str, locale: &str) -> Option<String> {
+        let guard = self.read_agents();
         guard
             .get(slug)
             .and_then(|locales| locales.get(locale))
             .map(|e| e.content.clone())
     }
 
-    /// Get a coach prompt for `locale`, falling back to [`DEFAULT_LOCALE`].
+    /// Get an agent prompt for `locale`, falling back to [`DEFAULT_LOCALE`].
     ///
-    /// [`Self::get_coach_prompt`] is the raw accessor and stays exact; this is
+    /// [`Self::get_agent_prompt`] is the raw accessor and stays exact; this is
     /// the layered one its doc invites a caller to build, and it exists because
-    /// the corpus ships each coach in `en` and `fr` while `SUPPORTED_LOCALES`
+    /// the corpus ships each agent in `en` and `fr` while `SUPPORTED_LOCALES`
     /// is five. Without the second lookup an `es`, `de` or `pt` athlete missed
-    /// the registry and fell through to the `coaches.system_prompt` column —
+    /// the registry and fell through to the `agents.system_prompt` column —
     /// which the seeder fills with the `## Instructions` section alone, so the
     /// domain knowledge, alert taxonomy and success criteria all disappeared
     /// for three of five supported locales behind a single `warn!`
@@ -315,14 +315,14 @@ impl PromptRegistry {
     /// Serving the default locale's full markdown does not decide the reply's
     /// language: the turn-language block states that independently of which
     /// locale authored the persona text.
-    pub fn coach_prompt_for_locale(&self, slug: &str, locale: &str) -> Option<String> {
-        if let Some(content) = self.get_coach_prompt(slug, locale) {
+    pub fn agent_prompt_for_locale(&self, slug: &str, locale: &str) -> Option<String> {
+        if let Some(content) = self.get_agent_prompt(slug, locale) {
             return Some(content);
         }
         if locale == DEFAULT_LOCALE {
             return None;
         }
-        self.get_coach_prompt(slug, DEFAULT_LOCALE)
+        self.get_agent_prompt(slug, DEFAULT_LOCALE)
     }
 
     /// Get the coaching-persona output-format block for `persona`.
@@ -368,9 +368,9 @@ impl PromptRegistry {
         );
     }
 
-    /// Update or insert a single coach-locale prompt in the registry.
-    pub fn update_coach_prompt(&self, slug: &str, locale: &str, content: String, sha256: String) {
-        let mut guard = self.write_coaches();
+    /// Update or insert a single agent-locale prompt in the registry.
+    pub fn update_agent_prompt(&self, slug: &str, locale: &str, content: String, sha256: String) {
+        let mut guard = self.write_agents();
         guard.entry(slug.to_owned()).or_default().insert(
             locale.to_owned(),
             PromptEntry {
@@ -398,11 +398,11 @@ impl PromptRegistry {
         );
     }
 
-    /// Remove a single coach-locale prompt from the registry. Drops the
+    /// Remove a single agent-locale prompt from the registry. Drops the
     /// entire slug entry once its last locale is gone so the registry never
     /// holds an empty per-slug map.
-    pub fn remove_coach_prompt(&self, slug: &str, locale: &str) -> bool {
-        let mut guard = self.write_coaches();
+    pub fn remove_agent_prompt(&self, slug: &str, locale: &str) -> bool {
+        let mut guard = self.write_agents();
         let Some(locales) = guard.get_mut(slug) else {
             return false;
         };
@@ -421,10 +421,10 @@ impl PromptRegistry {
         guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
-    /// List every coach-locale entry with its metadata. The returned tuple is
+    /// List every agent-locale entry with its metadata. The returned tuple is
     /// `(slug, locale, entry)`; iterate or filter on the caller side.
-    pub fn list_coaches(&self) -> Vec<(String, String, PromptEntry)> {
-        let guard = self.read_coaches();
+    pub fn list_agents(&self) -> Vec<(String, String, PromptEntry)> {
+        let guard = self.read_agents();
         guard
             .iter()
             .flat_map(|(slug, locales)| {
@@ -441,9 +441,9 @@ impl PromptRegistry {
         guard.get(key).map(|e| e.sha256.clone())
     }
 
-    /// Get the current SHA-256 hash for a coach prompt at the given locale.
-    pub fn coach_prompt_sha256(&self, slug: &str, locale: &str) -> Option<String> {
-        let guard = self.read_coaches();
+    /// Get the current SHA-256 hash for an agent prompt at the given locale.
+    pub fn agent_prompt_sha256(&self, slug: &str, locale: &str) -> Option<String> {
+        let guard = self.read_agents();
         guard
             .get(slug)
             .and_then(|locales| locales.get(locale))
@@ -458,24 +458,21 @@ impl PromptRegistry {
         guard.get(slug).map(|entry| entry.sha256.clone())
     }
 
-    /// Get registry statistics for diagnostics. `coach_count` counts every
-    /// per-locale entry (so a coach with both `en` and `fr` contributes 2).
+    /// Get registry statistics for diagnostics. `agent_count` counts every
+    /// per-locale entry (so an agent with both `en` and `fr` contributes 2).
     pub fn stats(&self) -> RegistryStats {
         let system = self.read_system();
-        let coaches = self.read_coaches();
+        let agents = self.read_agents();
         let personas = self.read_personas();
 
-        let coach_entries: Vec<PromptEntry> = coaches
-            .values()
-            .flat_map(HashMap::values)
-            .cloned()
-            .collect();
+        let agent_entries: Vec<PromptEntry> =
+            agents.values().flat_map(HashMap::values).cloned().collect();
 
         let compiled_in = system
             .values()
             .filter(|e| e.source == PromptSource::CompiledIn)
             .count()
-            + coach_entries
+            + agent_entries
                 .iter()
                 .filter(|e| e.source == PromptSource::CompiledIn)
                 .count()
@@ -488,7 +485,7 @@ impl PromptRegistry {
             .values()
             .filter(|e| e.source == PromptSource::Contremaitre)
             .count()
-            + coach_entries
+            + agent_entries
                 .iter()
                 .filter(|e| e.source == PromptSource::Contremaitre)
                 .count()
@@ -497,11 +494,11 @@ impl PromptRegistry {
                 .filter(|e| e.source == PromptSource::Contremaitre)
                 .count();
 
-        let coach_count: usize = coaches.values().map(HashMap::len).sum();
+        let agent_count: usize = agents.values().map(HashMap::len).sum();
 
         RegistryStats {
             system_count: system.len(),
-            coach_count,
+            agent_count,
             persona_count: personas.len(),
             compiled_in_count: compiled_in,
             contremaitre_count: contremaitre,
@@ -518,14 +515,14 @@ impl PromptRegistry {
         self.system.write().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Acquire a read lock on coach prompts, recovering from poison.
-    fn read_coaches(&self) -> RwLockReadGuard<'_, HashMap<String, HashMap<String, PromptEntry>>> {
-        self.coaches.read().unwrap_or_else(PoisonError::into_inner)
+    /// Acquire a read lock on agent prompts, recovering from poison.
+    fn read_agents(&self) -> RwLockReadGuard<'_, HashMap<String, HashMap<String, PromptEntry>>> {
+        self.agents.read().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Acquire a write lock on coach prompts, recovering from poison.
-    fn write_coaches(&self) -> RwLockWriteGuard<'_, HashMap<String, HashMap<String, PromptEntry>>> {
-        self.coaches.write().unwrap_or_else(PoisonError::into_inner)
+    /// Acquire a write lock on agent prompts, recovering from poison.
+    fn write_agents(&self) -> RwLockWriteGuard<'_, HashMap<String, HashMap<String, PromptEntry>>> {
+        self.agents.write().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Acquire a read lock on persona prompts, recovering from poison.
@@ -544,7 +541,7 @@ impl PromptRegistry {
     fn compiled_in_fallback(key: &str) -> &'static str {
         match key {
             "pierre_system" => PIERRE_SYSTEM_PROMPT,
-            "coach_generation" => COACH_GENERATION_PROMPT,
+            "coach_generation" => AGENT_GENERATION_PROMPT,
             "messaging_context" => MESSAGING_CONTEXT_PROMPT,
             "recommendation_analysis" => RECOMMENDATION_ANALYSIS_PROMPT,
             "recommendation_system" => RECOMMENDATION_SYSTEM_PROMPT,

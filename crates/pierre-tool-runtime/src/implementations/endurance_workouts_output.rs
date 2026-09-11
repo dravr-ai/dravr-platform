@@ -35,10 +35,10 @@ pub struct TemplateFit {
     pub min_spacing_hours: u16,
 }
 
-/// The fields a coach picks a session by, without its steps.
+/// The fields an agent picks a session by, without its steps.
 ///
 /// The default `detail` mode. A full template carries the whole step list,
-/// which is long, and a coach choosing between sessions does not need it.
+/// which is long, and an agent choosing between sessions does not need it.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct WorkoutTemplateSummary {
     /// Stable identifier `prescribe_workout` takes.
@@ -128,7 +128,7 @@ pub struct WorkoutTemplatesResult {
 /// What `prescribe_workout` answers with.
 ///
 /// Carries the provider's event id because the workout is on the athlete's
-/// real calendar by the time this returns. A coach told only "it worked"
+/// real calendar by the time this returns. An agent told only "it worked"
 /// cannot undo it; `withdraw_prescribed_workout` takes the prescription id.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PrescribeWorkoutResult {

@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! An emoji on a coach reply is the messaging surface's thumb. These tests
+//! An emoji on an agent reply is the messaging surface's thumb. These tests
 //! drive the real ingress — repository lookup, ownership rule, feedback write —
 //! and assert the row the web and mobile thumbs would have written.
 
@@ -32,7 +32,7 @@ use pierre_messaging::channels::whatsapp::WhatsAppChannel;
 use serde_json::json;
 use uuid::Uuid;
 
-/// One athlete, their conversation, the assistant message the coach wrote, and
+/// One athlete, their conversation, the assistant message the agent wrote, and
 /// the channel message that delivered it.
 struct Delivered {
     resources: Arc<ServerContext>,
@@ -49,11 +49,11 @@ struct Delivered {
     channel_conversation_id: String,
 }
 
-/// Build an athlete whose coach reply has been delivered over Telegram, with
+/// Build an athlete whose agent reply has been delivered over Telegram, with
 /// the outbound row stamped the way `persist_outbound_message` stamps it.
 async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_uuid, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_uuid, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = resources
         .common
         .repos
@@ -333,7 +333,7 @@ async fn an_emoji_that_is_not_a_rating_records_nothing() {
 async fn a_group_member_who_is_not_the_athlete_cannot_rate_as_the_athlete() {
     let delivered = deliver_a_reply("-100783", "athlete-48").await;
 
-    // Same room, same coach reply, a different member's thumb.
+    // Same room, same agent reply, a different member's thumb.
     apply_reactions(
         &delivered.resources,
         &[reaction(

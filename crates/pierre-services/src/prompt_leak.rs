@@ -45,7 +45,7 @@ pub struct PromptGuard {
     /// the base prompt plus the inert canary comment marker.
     pub hardened_prompt: String,
     /// The canary token embedded in the prompt. If this string
-    /// appears verbatim in the response, the coach was jailbroken.
+    /// appears verbatim in the response, the agent was jailbroken.
     pub canary: String,
     /// Fingerprint of the hardened prompt, used for the shingle
     /// detector path.
@@ -60,7 +60,7 @@ pub struct ReplyLeakReport {
     /// `true` when the canary token appeared verbatim in the reply.
     pub canary_hit: bool,
     /// `Some` when the reply identifies as the underlying model/provider
-    /// (« I'm GitHub Copilot CLI ») instead of the coach persona — a
+    /// (« I'm GitHub Copilot CLI ») instead of the agent persona — a
     /// conclusive persona break withheld wholesale at the response
     /// boundary. Live leak 2026-07-22 (Telegram). Carries the matched
     /// pattern's class/locale labels for leak telemetry.
@@ -77,21 +77,21 @@ pub struct ReplyLeakReport {
 /// by instructing the model.
 pub fn harden_system_prompt(
     tenant_id: TenantId,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     base_prompt: &str,
 ) -> PromptGuard {
-    // Salt the canary with tenant + coach so the entropy source is
+    // Salt the canary with tenant + agent so the entropy source is
     // visibly tied to the caller's context. SystemTime nanoseconds
     // do the heavy lifting for uniqueness; the salt is belt and
     // braces.
-    let salt = format!("{tenant_id}:{}", coach_id.unwrap_or("default-coach"));
+    let salt = format!("{tenant_id}:{}", agent_id.unwrap_or("default-coach"));
     let canary = generate_canary(&salt);
     let hardened_prompt = inject_canary_marker(base_prompt, &canary);
     let fingerprint = fingerprint_prompt(&hardened_prompt);
 
     info!(
         tenant_id = %tenant_id,
-        coach_id = %coach_id.unwrap_or("<none>"),
+        agent_id = %agent_id.unwrap_or("<none>"),
         sha256 = %fingerprint.sha256_hex,
         normalized_len = fingerprint.normalized_len,
         original_len = fingerprint.original_len,
@@ -117,7 +117,7 @@ pub fn scan_assistant_reply(
     guard: &PromptGuard,
     reply_body: &str,
     tenant_id: TenantId,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
 ) -> ReplyLeakReport {
     let shingle_verdict =
         scan_response_for_leaks(&guard.fingerprint, reply_body, DEFAULT_LEAK_THRESHOLD);
@@ -127,7 +127,7 @@ pub fn scan_assistant_reply(
     if canary_hit {
         error!(
             tenant_id = %tenant_id,
-            coach_id = %coach_id.unwrap_or("<none>"),
+            agent_id = %agent_id.unwrap_or("<none>"),
             sha256 = %guard.fingerprint.sha256_hex,
             reply_len = reply_body.len(),
             "canary_leak_confirmed: assistant reply contains the canary token — \
@@ -144,7 +144,7 @@ pub fn scan_assistant_reply(
         // rate of ordinary traffic.
         warn!(
             tenant_id = %tenant_id,
-            coach_id = %coach_id.unwrap_or("<none>"),
+            agent_id = %agent_id.unwrap_or("<none>"),
             sha256 = %guard.fingerprint.sha256_hex,
             overlap = overlap,
             threshold = threshold,
@@ -160,7 +160,7 @@ pub fn scan_assistant_reply(
     if let Some(leak) = identity_leak {
         log_identity_leak(
             tenant_id,
-            coach_id,
+            agent_id,
             &guard.fingerprint.sha256_hex,
             reply_body,
             leak,
@@ -192,13 +192,13 @@ pub fn scan_assistant_reply(
 /// reply text.
 fn log_identity_leak(
     tenant_id: TenantId,
-    coach_id: Option<&str>,
+    agent_id: Option<&str>,
     sha256: &str,
     reply_body: &str,
     leak: IdentityLeakMatch,
 ) {
     // `pattern_index` alone cannot separate a genuine persona break from the
-    // coach CORRECTLY denying one — both match the same table entry. The
+    // agent CORRECTLY denying one — both match the same table entry. The
     // 2026-07-25 A/B found all five live matches were denials, which means every
     // leak count before this field is an upper bound, not a measurement. The
     // window is bounded and separator-folded so the withheld text stays
@@ -206,7 +206,7 @@ fn log_identity_leak(
     let matched_context = narration::identity_leak_context(reply_body, LEAK_CONTEXT_WINDOW);
     warn!(
         tenant_id = %tenant_id,
-        coach_id = %coach_id.unwrap_or("<none>"),
+        agent_id = %agent_id.unwrap_or("<none>"),
         sha256 = %sha256,
         reply_len = reply_body.len(),
         matched_context = matched_context.as_deref().unwrap_or("<none>"),

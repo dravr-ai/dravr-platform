@@ -135,7 +135,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     let params = InsertClaimVerdictParams {
         tenant_id,
         user_id: &user_id.to_string(),
-        coach_id: None,
+        agent_id: None,
         conversation_id: None,
         message_id: None,
         claim_text: &claim.text,

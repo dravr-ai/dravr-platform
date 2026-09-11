@@ -335,23 +335,23 @@ impl ToolRegistry {
     /// List schemas for tools the LLM is allowed to call during chat-mode
     /// function calling.
     ///
-    /// Chat-callable categories cover what coaches genuinely need mid-turn:
+    /// Chat-callable categories cover what agents genuinely need mid-turn:
     /// activity/athlete/stats reads, analytics, recovery, nutrition, sleep,
-    /// recipes, mobility, goals, and coach-authored memory writes. Provider
+    /// recipes, mobility, goals, and agent-authored memory writes. Provider
     /// connection toggles are included so the LLM can offer to reconnect a
-    /// dropped provider rather than refusing the turn, and the Coach Store
+    /// dropped provider rather than refusing the turn, and the Agent Store
     /// browse / search / install tools so "what coaches are there?" has an
     /// answer on every surface instead of only in the web UI.
     ///
     /// Excluded categories are UI surfaces or operator workflows that should
-    /// not fire on natural-language inputs: coach create/delete/assign, store
+    /// not fire on natural-language inputs: agent create/delete/assign, store
     /// uninstall, config write/delete, claim verification, and admin
     /// operations.
     ///
     /// The set replaces a hand-curated 15-tool list that drifted from the
     /// registry — endurance dossier/history tools registered after the list
     /// was written ended up advertised in the prose "Available Tools" section
-    /// but missing from the function-calling surface, so coach prompts that
+    /// but missing from the function-calling surface, so agent prompts that
     /// referenced them got truthful "no callable tool" refusals.
     #[must_use]
     pub fn chat_callable_schemas(&self) -> Vec<ToolSchema> {
@@ -366,20 +366,20 @@ impl ToolRegistry {
             "mobility",
             "memory",
             // Athlete self-report (set_physiology). Physiology arrives mid-
-            // conversation — "my FTP is 285" — so the coach must be able to
+            // conversation — "my FTP is 285" — so the agent must be able to
             // save it on the turn it is said. That is the opposite case from
             // `configuration` / `fitness_config`, which are operator config
             // writes and stay off the natural-language surface.
             "physiology",
             // Consent-gated peer activity fetch (get_group_member_activities) —
             // the only path that reads a group peer's data. Must be chat-callable
-            // or the coach is steered (by the group prompt) toward a tool the LLM
+            // or the agent is steered (by the group prompt) toward a tool the LLM
             // can never see, and silently falls back to the requester's own data.
             "groups",
-            // Coach Store browse / search / install. The store answers "what
+            // Agent Store browse / search / install. The store answers "what
             // coaches exist?", a question every chat surface gets asked and
             // none could answer: the category was absent here, so web, mobile
-            // and messaging alike refused. `coaches` stays out — that category
+            // and messaging alike refused. `agents` stays out — that category
             // holds create/delete/assign, which are UI and operator gestures.
             // Uninstall is registered outside `store` for the same reason.
             "store",
@@ -461,7 +461,7 @@ impl ToolRegistry {
 
     /// List schemas for non-admin tools NOT present in the given catalog name set
     ///
-    /// Returns tools registered via feature flags (coaches, mobility, etc.) that
+    /// Returns tools registered via feature flags (agents, mobility, etc.) that
     /// are not tracked by `tool_catalog`. This prevents feature-flag tools from
     /// disappearing for authenticated users when `ToolSelectionService` is used.
     /// Uses `HashSet` for O(1) lookup instead of O(n) linear scan.

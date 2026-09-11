@@ -164,7 +164,7 @@ pub enum PaginationDirection {
     Backward,
 }
 
-/// Sort order for Coach Store pagination
+/// Sort order for Agent Store pagination
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StoreSortOrder {
@@ -202,7 +202,7 @@ impl StoreSortOrder {
     }
 }
 
-/// Sort-aware cursor for Coach Store pagination
+/// Sort-aware cursor for Agent Store pagination
 ///
 /// This cursor encodes the sort order along with the cursor position values,
 /// ensuring that pagination works correctly even when sort order changes.

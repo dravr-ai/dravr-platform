@@ -69,7 +69,7 @@ pub struct AdminApiContext {
     /// `PUT /admin/settings/guardian` handler so subsequent tool dispatches
     /// enforce the new policy without a server restart.
     pub guardian_config_registry: Arc<GuardianConfigRegistry>,
-    /// Hot-reloadable system + coach prompt registry consumed by
+    /// Hot-reloadable system + agent prompt registry consumed by
     /// `/api/admin/contremaitre/prompts*` and the manual sync endpoint.
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry (MCP tool schema rewrites).
@@ -113,7 +113,7 @@ pub struct AdminApiContextInit {
     pub harness_config_registry: Arc<HarnessConfigRegistry>,
     /// Guardian policy registry behind `PUT /admin/settings/guardian`
     pub guardian_config_registry: Arc<GuardianConfigRegistry>,
-    /// Hot-reloadable system + coach prompt registry
+    /// Hot-reloadable system + agent prompt registry
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description overlay registry
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,

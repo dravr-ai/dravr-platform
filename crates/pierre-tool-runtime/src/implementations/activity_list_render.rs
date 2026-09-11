@@ -1,12 +1,12 @@
-// ABOUTME: Renders the activity window as the numbered prose list the coach reads
+// ABOUTME: Renders the activity window as the numbered prose list the agent reads
 // ABOUTME: Owns the athlete's civil clock for that block — the one surface that quotes dates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The activity list the coach actually reads.
+//! The activity list the agent actually reads.
 //!
-//! This block is the coach's only view of the athlete's training on a grounded
+//! This block is the agent's only view of the athlete's training on a grounded
 //! turn: [`super::super::implementations::fitness_support`] hands it the window
 //! and the prefetch injects it verbatim. It is also athlete-visible — the
 //! messaging envelope ships it as the `ActivityList` reply block — so it is
@@ -24,7 +24,7 @@
 //! calendars in one prompt. On 2026-08-28 an athlete in `America/Toronto` was
 //! told "today is 2026-08-27 22:59 (America/Toronto)" and handed a row stamped
 //! `2026-08-28` for a hike he had started 22:59 the previous evening — Strava had
-//! named it "Night Hike". The coach reconciled the contradiction the only way it
+//! named it "Night Hike". The agent reconciled the contradiction the only way it
 //! could: it read the row's date as local and invented a time of day to match,
 //! reporting the night hike as "ce matin". Every activity after ~20:00 local was
 //! attributed to the following day, so day-counting and rest-day reasoning drifted
@@ -154,7 +154,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
             (None, None) => {}
         }
         if let Some(elevation) = activity.elevation_gain() {
-            // Round to whole meters — the coach reasoning doesn't need
+            // Round to whole meters — the agent reasoning doesn't need
             // decimals and the Strava field comes as Option<f32> which
             // sometimes carries spurious fractional noise.
             #[allow(clippy::cast_possible_truncation)]
@@ -172,7 +172,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
             .or_else(|| backfill_temps.get(activity.id()).copied());
         if let Some(temp) = temp {
             // Round to whole degrees — sub-degree precision is meaningless to
-            // the coach reasoning loop and the providers report 1-decimal at
+            // the agent reasoning loop and the providers report 1-decimal at
             // best. The leading sign survives `{:.0}` for sub-zero readings.
             let _ = write!(extras, " - {temp:.0}°C");
         }

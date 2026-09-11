@@ -253,7 +253,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         .await
         {
             Ok(Some(tenant_ctx)) => {
-                // System-admin tools (e.g. system-coach management) gate on the
+                // System-admin tools (e.g. system-agent management) gate on the
                 // global `User.is_admin` flag, not the per-tenant role: a tenant
                 // owner is admin *of their tenant*, which must not grant
                 // system-wide admin powers. Mirrors the executor's
@@ -491,7 +491,7 @@ impl PierreToolDispatcher {
     /// Resolve the tenant-filtered schemas for a non-admin caller.
     ///
     /// Combines the `ToolSelectionService` catalog (enabled, non-admin tools)
-    /// with feature-flag tools not tracked by the catalog (coaches, mobility).
+    /// with feature-flag tools not tracked by the catalog (agents, mobility).
     /// When `user_id` is present, per-user tool overrides are overlaid on top of
     /// the tenant computation so a tool disabled for this user is hidden from
     /// discovery (and a user-enabled tool becomes visible).
@@ -745,14 +745,14 @@ impl MethodHandler<dyn ToolRuntime> for PierreMethodHandler {
 }
 
 impl PierreMethodHandler {
-    /// Serve `resources/list` — the global, publicly-published coach catalog.
+    /// Serve `resources/list` — the global, publicly-published agent catalog.
     async fn handle_resources_list(&self, id: Option<Value>) -> JsonRpcResponse {
         debug!("Handling resources/list request");
 
         match self
             .resources
             .store_listings_repository()
-            .get_published_coaches(None, None, Some(resource_catalog::list_limit()), Some(0))
+            .get_published_agents(None, None, Some(resource_catalog::list_limit()), Some(0))
             .await
         {
             Ok(published) => {
@@ -765,7 +765,7 @@ impl PierreMethodHandler {
         }
     }
 
-    /// Serve `resources/read` — a single published coach by `dravr://coaches/{id}` URI.
+    /// Serve `resources/read` — a single published agent by `dravr://agents/{id}` URI.
     async fn handle_resources_read(
         &self,
         id: Option<Value>,
@@ -780,7 +780,7 @@ impl PierreMethodHandler {
             return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Missing 'uri' parameter");
         };
 
-        let Some(coach_id) = resource_catalog::coach_id_from_uri(uri) else {
+        let Some(agent_id) = resource_catalog::agent_id_from_uri(uri) else {
             return JsonRpcResponse::error(
                 id,
                 ERROR_INVALID_PARAMS,
@@ -791,10 +791,10 @@ impl PierreMethodHandler {
         let published = match self
             .resources
             .store_listings_repository()
-            .get_published_coach(coach_id)
+            .get_published_agent(agent_id)
             .await
         {
-            Ok(Some(coach_with_listing)) => coach_with_listing,
+            Ok(Some(agent_with_listing)) => agent_with_listing,
             Ok(None) => {
                 return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Resource not found");
             }
@@ -804,7 +804,7 @@ impl PierreMethodHandler {
             }
         };
 
-        match resource_catalog::read_resource(&published.coach) {
+        match resource_catalog::read_resource(&published.agent) {
             Ok(result) => JsonRpcResponse::success(id, result),
             Err(e) => {
                 error!("resources/read: failed to render coach markdown: {e}");

@@ -48,7 +48,7 @@ const ROW: ClaimVerdict = {
   id: 'verdict-1',
   conversation_id: 'conv-1',
   message_id: MESSAGE_ID,
-  coach_id: 'coach-tempo',
+  agent_id: 'coach-tempo',
   claim_text: 'Your VO2max is 82.',
   category: 'physiological',
   status: 'contradicted',

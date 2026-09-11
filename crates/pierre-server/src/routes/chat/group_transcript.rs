@@ -66,7 +66,7 @@ pub struct TranscriptEntryResponse {
     pub author_user_id: String,
     /// Author display name (email-derived)
     pub author_display_name: Option<String>,
-    /// `member` or `coach`
+    /// `member` or `agent`
     pub speaker: String,
     /// The utterance text
     pub content: String,

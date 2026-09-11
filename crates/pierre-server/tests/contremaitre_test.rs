@@ -63,19 +63,54 @@ fn test_parse_manifest_valid() {
     let manifest = parse_manifest(json).expect("valid manifest");
     assert_eq!(manifest.version, 5);
     assert_eq!(manifest.prompts.system.len(), 1);
-    assert_eq!(manifest.prompts.coaches.len(), 1);
+    assert_eq!(manifest.prompts.agents.len(), 1);
 
     let pierre = &manifest.prompts.system["pierre_system"];
     assert_eq!(pierre.path, "prompts/system/pierre_system.md");
     assert_eq!(pierre.sha256, "abc123");
 
-    let marathon_locales = &manifest.prompts.coaches["marathon-coach"];
+    let marathon_locales = &manifest.prompts.agents["marathon-coach"];
     assert_eq!(marathon_locales.len(), 2);
     assert_eq!(
         marathon_locales["en"].path,
         "prompts/coaches/training/marathon-coach/en.md"
     );
     assert_eq!(marathon_locales["fr"].sha256, "789aaa");
+}
+
+/// The two repositories deploy independently, so during the personas-key
+/// rename a manifest may arrive spelling it either way. The old spelling is
+/// covered by `test_parse_manifest_valid`, which still feeds `coaches`; this
+/// is the other half. Both must parse, or whichever side deploys first breaks
+/// the other's sync outright — the field has no `serde(default)`, so a key
+/// the parser does not recognise is a missing field, not an empty map.
+#[test]
+fn manifest_parses_the_personas_key_under_its_new_name() {
+    let json = r#"{
+        "version": 5,
+        "prompts": {
+            "system": {},
+            "agents": {
+                "marathon-agent": {
+                    "en": {
+                        "path": "prompts/agents/training/marathon-agent/en.md",
+                        "sha256": "def456"
+                    }
+                }
+            }
+        }
+    }"#;
+
+    let manifest = parse_manifest(json).expect("the new personas key parses");
+    assert_eq!(
+        manifest.prompts.agents.len(),
+        1,
+        "the personas map is populated, not defaulted away"
+    );
+    assert_eq!(
+        manifest.prompts.agents["marathon-agent"]["en"].path,
+        "prompts/agents/training/marathon-agent/en.md"
+    );
 }
 
 #[test]
@@ -135,7 +170,7 @@ fn test_manifest_round_trip() {
                 );
                 m
             },
-            coaches: HashMap::new(),
+            agents: HashMap::new(),
             personas: HashMap::new(),
         },
         tools: ManifestTools::default(),
@@ -245,7 +280,7 @@ fn test_new_registry_all_compiled_in() {
     let registry = PromptRegistry::new();
     let stats = registry.stats();
     assert_eq!(stats.system_count, 16);
-    assert_eq!(stats.coach_count, 0);
+    assert_eq!(stats.agent_count, 0);
     assert_eq!(stats.persona_count, 4);
     assert_eq!(stats.compiled_in_count, 20);
     assert_eq!(stats.contremaitre_count, 0);
@@ -289,68 +324,68 @@ fn test_update_system_prompt() {
 fn test_coach_prompt_crud() {
     let registry = PromptRegistry::new();
 
-    assert!(registry.get_coach_prompt("marathon-coach", "en").is_none());
+    assert!(registry.get_agent_prompt("marathon-coach", "en").is_none());
 
-    registry.update_coach_prompt(
+    registry.update_agent_prompt(
         "marathon-coach",
         "en",
         "Marathon coaching instructions".to_owned(),
         "sha123".to_owned(),
     );
     assert_eq!(
-        registry.get_coach_prompt("marathon-coach", "en").as_deref(),
+        registry.get_agent_prompt("marathon-coach", "en").as_deref(),
         Some("Marathon coaching instructions")
     );
 
     // Adding a second locale leaves the first one intact.
-    registry.update_coach_prompt(
+    registry.update_agent_prompt(
         "marathon-coach",
         "fr",
         "Instructions de coaching marathon".to_owned(),
         "sha789".to_owned(),
     );
     assert_eq!(
-        registry.get_coach_prompt("marathon-coach", "fr").as_deref(),
+        registry.get_agent_prompt("marathon-coach", "fr").as_deref(),
         Some("Instructions de coaching marathon")
     );
     assert_eq!(
-        registry.get_coach_prompt("marathon-coach", "en").as_deref(),
+        registry.get_agent_prompt("marathon-coach", "en").as_deref(),
         Some("Marathon coaching instructions")
     );
 
     // Updating a locale replaces only that locale's entry.
-    registry.update_coach_prompt(
+    registry.update_agent_prompt(
         "marathon-coach",
         "en",
         "Updated marathon instructions".to_owned(),
         "sha456".to_owned(),
     );
     assert_eq!(
-        registry.get_coach_prompt("marathon-coach", "en").as_deref(),
+        registry.get_agent_prompt("marathon-coach", "en").as_deref(),
         Some("Updated marathon instructions")
     );
 
     // Removing one locale keeps siblings; removing the last clears the slug.
-    assert!(registry.remove_coach_prompt("marathon-coach", "fr"));
-    assert!(registry.get_coach_prompt("marathon-coach", "fr").is_none());
-    assert!(registry.get_coach_prompt("marathon-coach", "en").is_some());
-    assert!(registry.remove_coach_prompt("marathon-coach", "en"));
-    assert!(registry.get_coach_prompt("marathon-coach", "en").is_none());
-    assert!(!registry.remove_coach_prompt("marathon-coach", "en"));
-    assert!(!registry.remove_coach_prompt("nonexistent", "en"));
+    assert!(registry.remove_agent_prompt("marathon-coach", "fr"));
+    assert!(registry.get_agent_prompt("marathon-coach", "fr").is_none());
+    assert!(registry.get_agent_prompt("marathon-coach", "en").is_some());
+    assert!(registry.remove_agent_prompt("marathon-coach", "en"));
+    assert!(registry.get_agent_prompt("marathon-coach", "en").is_none());
+    assert!(!registry.remove_agent_prompt("marathon-coach", "en"));
+    assert!(!registry.remove_agent_prompt("nonexistent", "en"));
 }
 
 #[test]
 fn test_stats_counts() {
     let registry = PromptRegistry::new();
-    registry.update_coach_prompt("coach-a", "en", "A".to_owned(), "sha_a".to_owned());
-    registry.update_coach_prompt("coach-a", "fr", "A-fr".to_owned(), "sha_a_fr".to_owned());
-    registry.update_coach_prompt("coach-b", "en", "B".to_owned(), "sha_b".to_owned());
+    registry.update_agent_prompt("coach-a", "en", "A".to_owned(), "sha_a".to_owned());
+    registry.update_agent_prompt("coach-a", "fr", "A-fr".to_owned(), "sha_a_fr".to_owned());
+    registry.update_agent_prompt("coach-b", "en", "B".to_owned(), "sha_b".to_owned());
     registry.update_system_prompt("pierre_system", "override".to_owned(), "sha_o".to_owned());
 
     let stats = registry.stats();
     assert_eq!(stats.system_count, 16);
-    assert_eq!(stats.coach_count, 3, "3 per-locale coach entries");
+    assert_eq!(stats.agent_count, 3, "3 per-locale coach entries");
     assert_eq!(stats.persona_count, 4);
     assert_eq!(stats.compiled_in_count, 19);
     assert_eq!(stats.contremaitre_count, 4);
@@ -365,9 +400,9 @@ fn test_sha256_tracking() {
     assert!(!sha.unwrap().is_empty());
 
     assert!(registry
-        .coach_prompt_sha256("marathon-coach", "en")
+        .agent_prompt_sha256("marathon-coach", "en")
         .is_none());
-    registry.update_coach_prompt(
+    registry.update_agent_prompt(
         "marathon-coach",
         "en",
         "content".to_owned(),
@@ -375,12 +410,12 @@ fn test_sha256_tracking() {
     );
     assert_eq!(
         registry
-            .coach_prompt_sha256("marathon-coach", "en")
+            .agent_prompt_sha256("marathon-coach", "en")
             .as_deref(),
         Some("abc")
     );
     assert!(registry
-        .coach_prompt_sha256("marathon-coach", "fr")
+        .agent_prompt_sha256("marathon-coach", "fr")
         .is_none());
 }
 
@@ -847,7 +882,7 @@ fn test_expected_tools_matches_rust_source() {
     //   - A tool was removed: delete from EXPECTED_TOOLS and from dravr-contremaitre
     // Tool impls live in two places post-#8/#13 reorganization:
     //   1. `pierre-tool-runtime/src/implementations/` — the bulk (analytics,
-    //      data, sleep, recipes, coaches, mobility, goals, nutrition,
+    //      data, sleep, recipes, agents, mobility, goals, nutrition,
     //      configuration, admin, memory, fitness_config, store, sync, etc.)
     //   2. `pierre-server/src/tools/implementations/` — endurance_*.rs tools
     //      that stayed in pierre-server because of cross-crate coupling
@@ -1110,8 +1145,8 @@ fn test_validator_accepts_pierre_system_with_all_placeholders() {
 #[test]
 fn test_validator_accepts_pierre_system_without_persona_placeholder() {
     // The persona slot moved to platform_contract (2026-09-01): a bound
-    // coach replaces the pierre_system voice layer wholesale, so requiring
-    // the slot here is what silently dropped persona steering on coach
+    // agent replaces the pierre_system voice layer wholesale, so requiring
+    // the slot here is what silently dropped persona steering on agent
     // turns. pierre_system carries no required placeholders anymore.
     let content = "preamble {{SCOPE_REFUSAL}} body {{CAPABILITY_REFUSAL}} \
                    carve {{COACH_SCOPE_CARVE_OUT}} no-persona-section end";
@@ -1139,7 +1174,7 @@ fn test_validator_rejects_platform_contract_missing_persona_placeholder() {
 #[test]
 fn test_validator_accepts_unknown_keys_without_requirements() {
     // Keys absent from the placeholder schema have no requirements —
-    // their content is acceptable as-is. coach_generation has no
+    // their content is acceptable as-is. agent_generation has no
     // declared placeholders.
     assert!(system_prompt_content_is_valid(
         "coach_generation",

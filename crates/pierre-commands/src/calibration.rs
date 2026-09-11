@@ -20,7 +20,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// A short guided interview whose answers land as facts that steer later plan
 /// generation. Bare `/calibrate` is the only form: an athlete typing `/harder`
 /// expects an adjustment to today's plan, not a six-question interview, so that
-/// alias is deliberately absent and discovery runs through the coach instead.
+/// alias is deliberately absent and discovery runs through the agent instead.
 ///
 /// The start sequence — supersession, window, load snapshot, activation,
 /// opener — is [`start_walk`], shared with `/season`; what is calibration's

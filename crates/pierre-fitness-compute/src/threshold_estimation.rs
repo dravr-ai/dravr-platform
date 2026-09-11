@@ -7,7 +7,7 @@
 //! # Threshold estimation (Endurance Phase 3)
 //!
 //! Lightweight estimators for the two ventilatory / lactate thresholds
-//! coaches need:
+//! agents need:
 //!
 //! - **LT1** (aerobic threshold) — boundary between Zone 1 and Zone 2 on
 //!   the polarized 3-zone model. We estimate it as 75 % of `lthr` when

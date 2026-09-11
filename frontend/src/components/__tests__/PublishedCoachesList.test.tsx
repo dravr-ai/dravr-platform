@@ -76,14 +76,14 @@ describe('PublishedCoachesList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(adminApi.getPublishedStoreCoaches).mockResolvedValue({
-      coaches: mockCoaches,
+      agents: mockCoaches,
       total: 2,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
     vi.mocked(adminApi.unpublishStoreCoach).mockResolvedValue({
       success: true,
       message: 'Coach unpublished',
-      coach_id: 'coach-1',
+      agent_id: 'coach-1',
     });
   });
 
@@ -173,7 +173,7 @@ describe('PublishedCoachesList', () => {
 
   it('shows empty state when no agents', async () => {
     vi.mocked(adminApi.getPublishedStoreCoaches).mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });

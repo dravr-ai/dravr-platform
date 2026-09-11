@@ -400,7 +400,7 @@ impl ToolHandlers {
         let inputs = QuotaPolicyInputs {
             repos: resources.common.repos.as_ref(),
             admin_config: resources
-                .coach
+                .agent
                 .admin_config
                 .as_deref()
                 .map(|c| c as &dyn AdminConfigLookup),
@@ -538,7 +538,7 @@ impl ToolHandlers {
         let tier = Self::resolve_user_tier(resources, user_id).await;
         // Degrade to tier defaults when admin config is unavailable
         // rather than skipping enforcement.
-        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        let admin_config: &dyn AdminConfigLookup = match resources.agent.admin_config.as_deref() {
             Some(c) => c,
             None => default_admin_config(),
         };
@@ -581,7 +581,7 @@ impl ToolHandlers {
         args: &Value,
     ) {
         // Record against tier defaults even when admin config is absent.
-        let admin_config: &dyn AdminConfigLookup = match resources.coach.admin_config.as_deref() {
+        let admin_config: &dyn AdminConfigLookup = match resources.agent.admin_config.as_deref() {
             Some(c) => c,
             None => default_admin_config(),
         };

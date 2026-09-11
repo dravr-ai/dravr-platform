@@ -21,7 +21,7 @@ export {
 
 // Category utilities
 export {
-  type CoachCategory,
+  type AgentCategory,
   type CategoryConfig,
   COACH_CATEGORIES,
   CATEGORY_CONFIG,

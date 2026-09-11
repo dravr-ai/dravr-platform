@@ -36,7 +36,7 @@ import TabsLayout from '../../app/(app)/(tabs)/_layout';
 function conversation(overrides: Partial<Conversation> & { id: string }): Conversation {
   return {
     title: 'Tempo Tuesday',
-    coach_id: null,
+    agent_id: null,
     message_count: 4,
     unread_count: 0,
     created_at: '2026-08-20T10:00:00Z',
@@ -77,9 +77,9 @@ describe('the unified conversation list and its read marker', () => {
       conversation({
         id: 'conv-coach',
         title: 'Training plan',
-        coach_id: 'coach-1',
-        coach_handle: 'coach-tempo',
-        coach_title: 'Coach Tempo',
+        agent_id: 'coach-1',
+        agent_handle: 'coach-tempo',
+        agent_title: 'Coach Tempo',
         unread_count: 3,
         message_count: 9,
         last_message: { preview: 'Easy Thursday', role: 'assistant', created_at: '2026-08-26T08:00:00Z' },
@@ -89,7 +89,7 @@ describe('the unified conversation list and its read marker', () => {
         title: 'Harricana',
         group_id: 'group-1',
         group_name: 'Harricana',
-        coach_title: 'Coach Tempo',
+        agent_title: 'Coach Tempo',
         unread_count: 0,
         message_count: 12,
         last_message: { preview: 'Bloc 3 starts Monday', role: 'assistant', created_at: '2026-08-25T18:00:00Z' },

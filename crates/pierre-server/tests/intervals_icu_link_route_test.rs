@@ -72,7 +72,7 @@ async fn stub_once(status_line: &'static str, body: &'static str) -> (String, Jo
 /// Stand up the auth router with the Intervals.icu provider pointed at `base_url`.
 async fn setup(base_url: String) -> (Router, String) {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     // The handler resolves the active tenant from the token; a tenant-less token
     // fails earlier, on "No active tenant", and would never reach the provider.
     let tenant_id = resources

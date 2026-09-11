@@ -20,7 +20,7 @@ use std::mem;
 use std::sync::Arc;
 
 use pierre_core::errors::AppError;
-use pierre_core::models::{CoachRuntimeContext, MemberFitnessSnapshot};
+use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
 use pierre_core::narration;
 use pierre_database::database::ConversationRecord;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse};
@@ -35,7 +35,7 @@ use crate::turn::TurnInput;
 use crate::{chat_provider_from_resources_arc, ChatPipelineContext};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
-/// One bounded re-ask when the model answered as the provider instead of the coach.
+/// One bounded re-ask when the model answered as the provider instead of the agent.
 ///
 /// The identity break is a whole-persona failure, so the reply is unusable and
 /// the response boundary withholds it — correctly, but the athlete then loses
@@ -150,7 +150,7 @@ pub struct RecoveryAndPostProcessInputs<'a> {
     pub input: &'a TurnInput,
     pub profile: &'a SurfaceProfile,
     pub conv: &'a ConversationRecord,
-    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    pub agent_ctx: Option<&'a AgentRuntimeContext>,
     pub prompt_guard: &'a prompt_leak::PromptGuard,
     /// The turn's assembled messages, replayed verbatim by the identity re-ask.
     pub llm_messages: &'a [ChatMessage],
@@ -179,7 +179,7 @@ pub async fn run_recovery_and_post_process(
         input,
         profile,
         conv,
-        coach_ctx,
+        agent_ctx,
         prompt_guard,
         llm_messages,
         active_model,
@@ -223,7 +223,7 @@ pub async fn run_recovery_and_post_process(
     // and lands on the same reconnect re-challenge a failed in-loop tool call
     // does, while a fabricated claim is disproven and re-asked away with the
     // fetched data attached (live incidents 2026-07-24/2026-08-11, where the
-    // coach claimed «problème de connexion de mon côté» on turns with zero
+    // agent claimed «problème de connexion de mon côté» on turns with zero
     // tool calls against a healthy provider).
     //
     // Cloned so the stamp net below can tell whether the stage replaced the
@@ -305,7 +305,7 @@ pub async fn run_recovery_and_post_process(
             ctx,
             input,
             conv,
-            coach_ctx,
+            agent_ctx,
             prompt_guard,
             profile,
             tools_called: &tools_called,

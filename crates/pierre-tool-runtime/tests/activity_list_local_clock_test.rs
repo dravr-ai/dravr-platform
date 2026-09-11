@@ -1,4 +1,4 @@
-// ABOUTME: Pins that the coach's activity list renders the athlete's civil clock
+// ABOUTME: Pins that the agent's activity list renders the athlete's civil clock
 // ABOUTME: A night activity must not be attributed to the following morning
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,13 +7,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The list block is the coach's only view of the athlete's training on a
+//! The list block is the agent's only view of the athlete's training on a
 //! grounded turn, and the only place it quotes dates back to them.
 //!
 //! Production Telegram, 2026-08-28: an athlete in `America/Toronto` started a
 //! hike at 22:59 on the 27th — Strava named it "Night Hike". Rendered in UTC it
 //! became `2026-08-28`, while the prompt's own `{{CURRENT_DATE}}` anchor said
-//! `2026-08-27 22:59 (America/Toronto)`. Two calendars in one prompt. The coach
+//! `2026-08-27 22:59 (America/Toronto)`. Two calendars in one prompt. The agent
 //! read the row's date as local, invented a time of day to fit, and told him it
 //! was "ce matin". Every activity after ~20:00 local moved to the next day, and
 //! day-counting drifted with it.
@@ -88,7 +88,7 @@ fn an_unparseable_timezone_falls_back_rather_than_failing() {
 }
 
 /// The clock reaches the row, not just the date: a 06:00 run and a 22:59 hike
-/// must be distinguishable, which is what lets a coach say "this morning" at all.
+/// must be distinguishable, which is what lets an agent say "this morning" at all.
 #[test]
 fn the_row_carries_the_time_of_day() {
     let temps = HashMap::new();

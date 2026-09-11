@@ -24,8 +24,8 @@
 //!
 //! ```text
 //! gs://{bucket}/manifest.json
-//! gs://{bucket}/prompts/system/coach.md
-//! gs://{bucket}/prompts/coaches/{slug}/{locale}.md
+//! gs://{bucket}/prompts/system/agent.md
+//! gs://{bucket}/prompts/agents/{slug}/{locale}.md
 //! gs://{bucket}/strings/{key}/{locale}.md
 //! gs://{bucket}/tools/{tool_name}.yaml
 //! gs://{bucket}/evidence/{domain}/{category}/{slug}.md

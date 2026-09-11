@@ -173,13 +173,13 @@ pub struct PersonaContract {
     pub require_p0_p3_ladder: bool,
 
     /// When `true`, replies referencing a specific athlete must prefix
-    /// the data block with `<display_name> · <last4uuid>` so the coach
+    /// the data block with `<display_name> · <last4uuid>` so the agent
     /// can keep multiple athletes straight in scrollback.
     #[serde(default)]
     pub require_athlete_id_prefix: bool,
 
     /// When `true`, the conformance stage refuses to surface data
-    /// outside the coach's roster (treat as tenant-isolation violation).
+    /// outside the agent's roster (treat as tenant-isolation violation).
     #[serde(default)]
     pub require_tenant_isolation: bool,
 
@@ -377,7 +377,7 @@ impl PersonaContractRegistry {
 /// parent's; a child leaving an Option/Vec at default keeps the
 /// parent's value. This is what lets the YAML express
 /// "Coach inherits Power-athlete plus roster framing" without copying
-/// every Power-athlete rule into Coach's block.
+/// every Power-athlete rule into Agent's block.
 fn resolve_inheritance(
     mut raw: HashMap<String, PersonaContract>,
 ) -> AppResult<HashMap<String, PersonaContract>> {

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `inject_group_context` is the single function that makes a coach prompt
+//! `inject_group_context` is the single function that makes an agent prompt
 //! group-aware. The per-member consent filter, the `peer_data_sharing` kill
 //! switch, the multi-group disambiguation branch, and the no-group / unknown-
 //! group early returns all live here and decide which peers' fitness data
@@ -21,7 +21,7 @@ mod common;
 mod inject_tests {
     use crate::common::create_test_server_resources;
     use chrono::Utc;
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachingGroup, GroupMember, GroupRespondMode, GroupRole, MemberFitnessSnapshot,
         OvertrainingRiskLevel,
@@ -93,22 +93,22 @@ mod inject_tests {
         user_id
     }
 
-    async fn seed_coach(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) -> Uuid {
+    async fn seed_agent(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) -> Uuid {
         resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 tenant_id,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Inject Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -119,7 +119,7 @@ mod inject_tests {
     async fn create_group(
         resources: &ServerContext,
         tenant_id: TenantId,
-        coach_id: Uuid,
+        agent_id: Uuid,
         owner_id: Uuid,
         name: &str,
         peer_data_sharing: bool,
@@ -131,7 +131,7 @@ mod inject_tests {
             tenant_id: tenant_id.to_string(),
             name: name.to_owned(),
             description: None,
-            coach_id: coach_id.to_string(),
+            agent_id: agent_id.to_string(),
             owner_id,
             coach_user_id: None,
             peer_data_sharing,
@@ -206,19 +206,19 @@ mod inject_tests {
         }
     }
 
-    /// No conversation group + the user belongs to no group with this coach →
+    /// No conversation group + the user belongs to no group with this agent →
     /// the base prompt is returned verbatim (fast early return, no injection).
     #[tokio::test]
     async fn inject_returns_base_prompt_when_user_in_no_group() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = seed_user(&resources, "solo").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id).await;
 
         let out = resources
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 user_id,
                 tenant_id,
                 None,
@@ -240,14 +240,14 @@ mod inject_tests {
     async fn inject_returns_base_when_conversation_group_not_found() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = seed_user(&resources, "ghost").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id).await;
         let unknown_group = Uuid::new_v4().to_string();
 
         let out = resources
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 user_id,
                 tenant_id,
                 Some(&unknown_group),
@@ -259,17 +259,17 @@ mod inject_tests {
         assert_eq!(out, BASE_PROMPT);
     }
 
-    /// User in two groups with the same coach (no conversation group selected)
+    /// User in two groups with the same agent (no conversation group selected)
     /// → the prompt is augmented with a disambiguation note naming both groups
     /// instead of guessing.
     #[tokio::test]
     async fn inject_appends_disambiguation_for_multiple_groups() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = seed_user(&resources, "multi").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id).await;
 
-        let g1 = create_group(&resources, tenant_id, coach_id, user_id, "Trail Crew", true).await;
-        let g2 = create_group(&resources, tenant_id, coach_id, user_id, "Track Club", true).await;
+        let g1 = create_group(&resources, tenant_id, agent_id, user_id, "Trail Crew", true).await;
+        let g2 = create_group(&resources, tenant_id, agent_id, user_id, "Track Club", true).await;
         add_member(&resources, g1, user_id, tenant_id, GroupRole::Member, true).await;
         add_member(&resources, g2, user_id, tenant_id, GroupRole::Member, true).await;
 
@@ -277,7 +277,7 @@ mod inject_tests {
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 user_id,
                 tenant_id,
                 None,
@@ -304,7 +304,7 @@ mod inject_tests {
     async fn inject_consenting_peer_visible_non_consenting_hidden() {
         let resources = create_test_server_resources().await.unwrap();
         let (requester, tenant_id) = seed_user(&resources, "req").await;
-        let coach_id = seed_coach(&resources, requester, tenant_id).await;
+        let agent_id = seed_agent(&resources, requester, tenant_id).await;
         // The requester owns the group row but joins as a plain Member so they
         // get the individual-focus context view (which renders peer cards).
         // Peers are real users (members.user_id is a FK to users).
@@ -314,7 +314,7 @@ mod inject_tests {
         let gid = create_group(
             &resources,
             tenant_id,
-            coach_id,
+            agent_id,
             requester,
             "Tempo Squad",
             true,
@@ -358,7 +358,7 @@ mod inject_tests {
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
@@ -379,19 +379,19 @@ mod inject_tests {
     }
 
     /// A visible member whose provider connection died surfaces a "Connection alerts"
-    /// section naming the dead provider, so the coach reports it instead of fabricating
+    /// section naming the dead provider, so the agent reports it instead of fabricating
     /// data for a disconnected source.
     #[tokio::test]
     async fn inject_surfaces_needs_reauth_for_visible_member() {
         let resources = create_test_server_resources().await.unwrap();
         let (requester, tenant_id) = seed_user(&resources, "reauthreq").await;
-        let coach_id = seed_coach(&resources, requester, tenant_id).await;
+        let agent_id = seed_agent(&resources, requester, tenant_id).await;
         let peer = seed_bare_user(&resources, "reauthpeer").await;
 
         let gid = create_group(
             &resources,
             tenant_id,
-            coach_id,
+            agent_id,
             requester,
             "Recovery Squad",
             true,
@@ -416,7 +416,7 @@ mod inject_tests {
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
@@ -446,13 +446,13 @@ mod inject_tests {
     async fn inject_surfaces_stale_snapshot_directive_for_visible_member() {
         let resources = create_test_server_resources().await.unwrap();
         let (requester, tenant_id) = seed_user(&resources, "stalereq").await;
-        let coach_id = seed_coach(&resources, requester, tenant_id).await;
+        let agent_id = seed_agent(&resources, requester, tenant_id).await;
         let peer = seed_bare_user(&resources, "stalepeer").await;
 
         let gid = create_group(
             &resources,
             tenant_id,
-            coach_id,
+            agent_id,
             requester,
             "Stale Squad",
             true,
@@ -477,7 +477,7 @@ mod inject_tests {
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
@@ -514,14 +514,14 @@ mod inject_tests {
     async fn inject_kill_switch_hides_all_peers_despite_consent() {
         let resources = create_test_server_resources().await.unwrap();
         let (requester, tenant_id) = seed_user(&resources, "kill").await;
-        let coach_id = seed_coach(&resources, requester, tenant_id).await;
+        let agent_id = seed_agent(&resources, requester, tenant_id).await;
         let peer_yes = seed_bare_user(&resources, "peeryes").await;
 
         // Kill switch OFF (peer_data_sharing = false) despite the peer consenting.
         let gid = create_group(
             &resources,
             tenant_id,
-            coach_id,
+            agent_id,
             requester,
             "Locked Group",
             false,
@@ -555,7 +555,7 @@ mod inject_tests {
             .group_service()
             .inject_group_context(
                 BASE_PROMPT,
-                &coach_id.to_string(),
+                &agent_id.to_string(),
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),

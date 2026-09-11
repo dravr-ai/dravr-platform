@@ -21,7 +21,7 @@ struct PromptArgument {
 /// A curated analysis prompt template exposed via the MCP `prompts` capability.
 ///
 /// These are user-invokable templates (clients surface them like slash
-/// commands), not the server's internal persona/coach system prompts. Each
+/// commands), not the server's internal persona/agent system prompts. Each
 /// template declares typed arguments and assembles a single user-role prompt
 /// message when invoked through `prompts/get`.
 struct PromptTemplate {

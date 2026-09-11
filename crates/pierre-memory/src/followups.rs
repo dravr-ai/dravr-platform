@@ -1,4 +1,4 @@
-// ABOUTME: CoachFollowup — a promised future check-in the coach committed to
+// ABOUTME: AgentFollowup — a promised future check-in the agent committed to
 // ABOUTME: Injected into the next session's system prompt as a reminder
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,15 +7,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Lifecycle state of a [`CoachFollowup`].
+/// Lifecycle state of a [`AgentFollowup`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FollowupStatus {
-    /// The followup has been scheduled but not yet delivered to the coach.
+    /// The followup has been scheduled but not yet delivered to the agent.
     Pending,
-    /// The followup was injected into a prompt and the coach acted on it.
+    /// The followup was injected into a prompt and the agent acted on it.
     Delivered,
-    /// The followup was explicitly cancelled by the coach or user.
+    /// The followup was explicitly cancelled by the agent or user.
     Cancelled,
 }
 
@@ -43,21 +43,21 @@ impl FollowupStatus {
     }
 }
 
-/// A promised future check-in the coach committed to during a turn.
+/// A promised future check-in the agent committed to during a turn.
 ///
-/// The coach writes followups via a tool call ("I'll check back on your
+/// The agent writes followups via a tool call ("I'll check back on your
 /// Achilles pain tomorrow"). The harness injects the pending followups into
-/// the next conversation's system prompt so the coach remembers its promise.
+/// the next conversation's system prompt so the agent remembers its promise.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoachFollowup {
+pub struct AgentFollowup {
     /// Stable identifier.
     pub id: String,
     /// Tenant that owns the followup.
     pub tenant_id: String,
     /// User the followup targets.
     pub user_id: String,
-    /// Coach that owns the promise.
-    pub coach_id: String,
+    /// Agent that owns the promise.
+    pub agent_id: String,
     /// Conversation in which the promise was made, if applicable.
     pub conversation_id: Option<String>,
     /// Free-form reminder text ("check on Achilles pain", "ask about taper week").
@@ -70,7 +70,7 @@ pub struct CoachFollowup {
     pub created_at: DateTime<Utc>,
     /// When the followup was last touched (status change, content edit).
     pub updated_at: DateTime<Utc>,
-    /// When the followup was actually delivered to the coach (if ever).
+    /// When the followup was actually delivered to the agent (if ever).
     pub delivered_at: Option<DateTime<Utc>>,
 }
 

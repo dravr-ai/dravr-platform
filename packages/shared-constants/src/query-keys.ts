@@ -71,7 +71,7 @@ export const QUERY_KEYS = {
     lists: () => ['coaches', 'user-coaches'] as const,
     list: (category?: string, favoritesOnly?: boolean, personalize?: boolean) =>
       ['coaches', 'user-coaches', category, favoritesOnly, personalize] as const,
-    assignments: (coachId?: string) => ['coaches', 'coach-assignments', coachId] as const,
+    assignments: (agentId?: string) => ['coaches', 'coach-assignments', agentId] as const,
   },
 
   // ==================== PERSONAS ====================
@@ -91,8 +91,8 @@ export const QUERY_KEYS = {
     coaches: (category?: string, sort?: string) =>
       ['store-coaches', category, sort] as const,
     search: (query: string) => ['store-search', query] as const,
-    coach: (coachId: string) => ['store-coach', coachId] as const,
-    coachDetail: (coachId?: string) => ['store-coach', coachId] as const,
+    coach: (agentId: string) => ['store-coach', agentId] as const,
+    coachDetail: (agentId?: string) => ['store-coach', agentId] as const,
     installations: () => ['store-installations'] as const,
   },
 

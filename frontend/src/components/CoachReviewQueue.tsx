@@ -99,7 +99,7 @@ export default function CoachReviewQueue() {
     );
   }
 
-  const coaches = data?.coaches || [];
+  const coaches = data?.agents || [];
 
   if (coaches.length === 0) {
     return (

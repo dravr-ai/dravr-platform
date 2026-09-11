@@ -51,7 +51,7 @@ fn make_prescribed(
         id,
         tenant_id: tenant_id.as_uuid(),
         user_id,
-        coach_id: Some("endurance-coach".to_owned()),
+        agent_id: Some("endurance-coach".to_owned()),
         template_slug: Some(template_slug.to_owned()),
         sport: SportType::Run,
         prescribed_for_date: date,
@@ -93,14 +93,14 @@ async fn upsert_and_list_round_trips() {
         rows[0].provider_event_id.as_deref(),
         Some("intervals-evt-1")
     );
-    assert_eq!(rows[0].coach_id.as_deref(), Some("endurance-coach"));
+    assert_eq!(rows[0].agent_id.as_deref(), Some("endurance-coach"));
 }
 
 #[tokio::test]
 async fn a_refused_push_round_trips_as_a_failed_row() {
     // The other terminal outcome: the provider refused, so there is no event id
     // and the status says so. Both must survive a round trip, because the audit
-    // trail is what tells a coach whether the athlete actually got the workout.
+    // trail is what tells an agent whether the athlete actually got the workout.
     let db = make_test_db().await;
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
@@ -135,7 +135,7 @@ async fn an_absent_event_id_reads_back_as_absent_not_as_an_empty_string() {
     let user_id = Uuid::new_v4();
     let mut prescribed = make_prescribed(tenant_id, user_id, "recovery_30min", anchor_date());
     prescribed.provider_event_id = None;
-    prescribed.coach_id = None;
+    prescribed.agent_id = None;
     db.repositories()
         .prescribed_workouts
         .upsert_prescribed_workout(&prescribed)
@@ -153,7 +153,7 @@ async fn an_absent_event_id_reads_back_as_absent_not_as_an_empty_string() {
         "a NULL event id must read back as None, never as Some(\"\")"
     );
     assert_eq!(
-        rows[0].coach_id, None,
+        rows[0].agent_id, None,
         "a NULL coach id must read back as None, never as Some(\"\")"
     );
 }

@@ -71,7 +71,7 @@ fn the_turn_directive_states_a_task() {
 ///
 /// Each phrase below appeared in a refusal or in the framing that triggered
 /// one. A future edit that "strengthens" this block by re-asserting who the
-/// coach is fails here rather than in production.
+/// agent is fails here rather than in production.
 #[test]
 fn the_turn_directive_asserts_no_identity() {
     let lower = TURN_DIRECTIVE.to_lowercase();
@@ -101,7 +101,7 @@ fn the_turn_directive_asserts_no_identity() {
 ///
 /// Those belong to the Stage 7g channel constraints and the Stage 7g.2b
 /// visual contract. A length rule here would contradict one of them depending
-/// on channel, and the contradiction would be invisible until a coach emitted
+/// on channel, and the contradiction would be invisible until an agent emitted
 /// prose where a block was expected.
 #[test]
 fn the_turn_directive_owns_no_formatting_rule() {

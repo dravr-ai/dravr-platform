@@ -94,15 +94,15 @@ fn the_guardrails_helper_is_gated_on_the_guided_flow() {
 fn the_call_site_wires_the_real_guided_flow_flag() {
     let source = prompt_assembly_source();
     assert!(
-        source.contains("progression_guardrails(ctx, coach_ctx, interview_owns_turn)"),
-        "the guardrails call site must pass coach context and the live flag — a \
+        source.contains("progression_guardrails(ctx, agent_ctx, interview_owns_turn)"),
+        "the guardrails call site must pass agent context and the live flag — a \
          constant here would suppress the guardrails for every turn or for none"
     );
 }
 
-/// A coach with no category match, or no coach at all, receives nothing.
+/// An agent with no category match, or no agent at all, receives nothing.
 ///
-/// Asserted at the source level because `CoachRuntimeContext` cannot be
+/// Asserted at the source level because `AgentRuntimeContext` cannot be
 /// constructed here without the database; the predicate itself is exercised by
 /// the exhaustive match in `category_prescribes_load`, which the compiler
 /// forces to stay total.

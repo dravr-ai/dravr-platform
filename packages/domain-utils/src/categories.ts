@@ -1,10 +1,10 @@
-// ABOUTME: Coach category utilities for styling and display
+// ABOUTME: Agent category utilities for styling and display
 // ABOUTME: Shared between web and mobile for consistent category presentation
 
 /**
  * Coach category types
  */
-export type CoachCategory =
+export type AgentCategory =
   | 'training'
   | 'nutrition'
   | 'recovery'
@@ -16,7 +16,7 @@ export type CoachCategory =
 /**
  * All available coach categories
  */
-export const COACH_CATEGORIES: readonly CoachCategory[] = [
+export const COACH_CATEGORIES: readonly AgentCategory[] = [
   'training',
   'nutrition',
   'recovery',
@@ -44,7 +44,7 @@ export interface CategoryConfig {
 /**
  * Category configurations for consistent styling across platforms
  */
-export const CATEGORY_CONFIG: Record<CoachCategory, CategoryConfig> = {
+export const CATEGORY_CONFIG: Record<AgentCategory, CategoryConfig> = {
   training: {
     label: 'Training',
     icon: '🏃',
@@ -114,7 +114,7 @@ export const CATEGORY_CONFIG: Record<CoachCategory, CategoryConfig> = {
  * Get category configuration by name (case-insensitive)
  */
 export function getCategoryConfig(category: string): CategoryConfig {
-  const normalized = category.toLowerCase() as CoachCategory;
+  const normalized = category.toLowerCase() as AgentCategory;
   return CATEGORY_CONFIG[normalized] || CATEGORY_CONFIG.custom;
 }
 

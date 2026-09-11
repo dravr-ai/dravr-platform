@@ -35,7 +35,7 @@ const CONFIG: DedupConfig = DedupConfig {
 /// reader, and history has no extractor left to ask, so they survive as their
 /// own rows rather than being folded on a guess.
 async fn seed_the_reported_pile(resources: &Arc<ServerContext>, tenant_id: TenantId, user: &str) {
-    let memory = resources.coach.database.repositories().memory.clone();
+    let memory = resources.agent.database.repositories().memory.clone();
     let rows = [
         (
             PredicateCode::WorkingToward,
@@ -67,7 +67,7 @@ async fn seed_the_reported_pile(resources: &Arc<ServerContext>, tenant_id: Tenan
             .upsert_user_fact(&UpsertUserFactParams {
                 tenant_id,
                 user_id: user,
-                coach_id: None,
+                agent_id: None,
                 scope: MemoryScope::User,
                 kind: FactKind::Goal,
                 pillar: None,
@@ -91,10 +91,10 @@ async fn a_dry_run_reports_the_merges_and_changes_nothing() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -139,10 +139,10 @@ async fn applying_leaves_one_goal_in_the_athletes_own_words() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -200,10 +200,10 @@ async fn two_real_goals_are_left_alone() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -223,7 +223,7 @@ async fn two_real_goals_are_left_alone() {
             .upsert_user_fact(&UpsertUserFactParams {
                 tenant_id,
                 user_id: &user,
-                coach_id: None,
+                agent_id: None,
                 scope: MemoryScope::User,
                 kind: FactKind::Goal,
                 pillar: None,

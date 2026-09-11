@@ -15,7 +15,7 @@
 //!
 //! These tests pin the sidecar's two readers, end to end minus the model. The
 //! tool stamps the dead BACKEND key into its result; `tool_results`' projection
-//! carries the sidecar into the prompt, so the coach learns the window is short
+//! carries the sidecar into the prompt, so the agent learns the window is short
 //! a source before it writes a word; and the tool loop reads the same result as
 //! the soft `served_without_provider` signal, which `auth_recovery` turns into a
 //! real minted URL appended to the answer instead of replacing it. One test
@@ -81,19 +81,19 @@ use crate::common::{
     create_test_server_resources, create_test_server_resources_with_chat_provider, create_test_user,
 };
 
-/// The coach's own answer over the sibling's data. Every assertion about what
+/// The agent's own answer over the sibling's data. Every assertion about what
 /// survives compares against this exact string.
-const COACH_ANSWER: &str =
+const AGENT_ANSWER: &str =
     "Ta sortie longue de 200 km domine ta semaine. On garde le tempo pour jeudi.";
 
 /// The base URL the minted reconnect link must be built on.
 const TEST_BASE_URL: &str = "https://api.test.dravr.ai";
 
 /// A `ToolLoopResult` shaped the way a tool loop hands one to the recovery
-/// stages: the coach's text, and whichever re-auth signal the turn raised.
+/// stages: the agent's text, and whichever re-auth signal the turn raised.
 fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoopResult {
     ToolLoopResult {
-        content: COACH_ANSWER.to_owned(),
+        content: AGENT_ANSWER.to_owned(),
         usage: None,
         finish_reason: None,
         activity_list: None,
@@ -114,7 +114,7 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         user_id: user_id.to_string(),
         conversation_tenant_id: tenant,
         tool_tenant_id: tenant,
-        // The athlete alone with the coach — the standing every mint-path
+        // The athlete alone with the agent — the standing every mint-path
         // assertion in this file describes; a shared room gets the linkless
         // sentence instead (capability_recovery_e2e_test pins that).
         is_direct_message: true,
@@ -122,7 +122,7 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
         quota: QuotaState::Ok,
-        mentioned_coach: None,
+        mentioned_agent: None,
     }
 }
 
@@ -139,11 +139,11 @@ fn web_profile() -> SurfaceProfile {
 /// cache, then a Garmin connection with no session at all — elected last, so it
 /// is the primary the turn tries and fails to authenticate.
 async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -328,10 +328,10 @@ async fn a_served_turn_yields_the_siblings_data_and_a_clickable_reconnect_prompt
     );
 }
 
-/// The coach's answer is the athlete's data. It survives underneath the offer —
+/// The agent's answer is the athlete's data. It survives underneath the offer —
 /// appending is the whole difference from the blank path.
 #[tokio::test]
-async fn the_coach_answer_survives_the_reconnect_offer_on_a_served_turn() {
+async fn the_agent_answer_survives_the_reconnect_offer_on_a_served_turn() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
@@ -339,7 +339,7 @@ async fn the_coach_answer_survives_the_reconnect_offer_on_a_served_turn() {
     let recovery = recover(&resources, user_id, tenant, &mut result).await;
 
     assert!(
-        result.content.starts_with(COACH_ANSWER),
+        result.content.starts_with(AGENT_ANSWER),
         "the delivered reply must still open with the coach's answer over the \
          sibling's data, got: {}",
         result.content
@@ -404,7 +404,7 @@ async fn a_failed_mint_on_a_served_turn_keeps_the_answer_and_drops_the_control()
         "a served turn's reply still belongs to the coach when the mint fails"
     );
     assert!(
-        result.content.starts_with(COACH_ANSWER),
+        result.content.starts_with(AGENT_ANSWER),
         "the answer must survive a failed mint, got: {}",
         result.content
     );
@@ -454,7 +454,7 @@ async fn a_sole_dead_connection_still_blanks_to_the_reconnect_message() {
         "the blanked reply must be the locale-resolved reconnect message alone"
     );
     assert!(
-        !result.content.contains(COACH_ANSWER),
+        !result.content.contains(AGENT_ANSWER),
         "nothing answered the ask, so no model text may survive: {}",
         result.content
     );
@@ -477,7 +477,7 @@ async fn a_turn_carrying_both_signals_takes_the_blank_path() {
         "the provider that blanked the turn is the one to reconnect"
     );
     assert!(
-        !result.content.contains(COACH_ANSWER),
+        !result.content.contains(AGENT_ANSWER),
         "the blanked reply replaces the model's words: {}",
         result.content
     );
@@ -521,7 +521,7 @@ async fn a_failed_mint_on_a_blank_turn_falls_through_to_post_processing() {
         "the blanked reply is the locale-resolved link-less copy alone"
     );
     assert!(
-        !result.content.contains(COACH_ANSWER),
+        !result.content.contains(AGENT_ANSWER),
         "nothing answered the ask, so no model text may survive: {}",
         result.content
     );
@@ -531,7 +531,7 @@ async fn a_failed_mint_on_a_blank_turn_falls_through_to_post_processing() {
 // The other reader: the model's own prompt
 // ============================================================================
 
-/// The coach has to LEARN that the window it is answering from is short a
+/// The agent has to LEARN that the window it is answering from is short a
 /// source, or it presents a partial history as a complete one.
 ///
 /// `render_tool_payload_for_prompt` is the projection every prompt-facing seam
@@ -652,7 +652,7 @@ impl LlmProvider for ActivitiesThenAnswer {
         let content = if tool_calls.is_some() {
             String::new()
         } else {
-            format!("{LEAKED_NARRATION}\n\n{COACH_ANSWER}")
+            format!("{LEAKED_NARRATION}\n\n{AGENT_ANSWER}")
         };
         Ok(ChatResponse {
             content,
@@ -684,7 +684,7 @@ impl LlmProvider for ActivitiesThenAnswer {
 /// `apply_auth_recovery` returning a prompt is worth nothing if the pipeline
 /// drops it on the floor after post-processing, and that tail is one line with
 /// one caller. Driving `pierre_chat_pipeline::run` is what pins it: the athlete
-/// gets the coach's answer AND a reconnect control carrying a link this server
+/// gets the agent's answer AND a reconnect control carrying a link this server
 /// really minted.
 #[tokio::test]
 async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
@@ -765,7 +765,7 @@ async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
         "the short link must resolve to the hosted-login mint, got: {target}"
     );
 
-    // And the answer underneath it is the coach's own, post-processed rather
+    // And the answer underneath it is the agent's own, post-processed rather
     // than handed out verbatim by the blank path's short circuit.
     let prose = envelope
         .assistant
@@ -811,7 +811,7 @@ async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
 /// answer, not about what an answer says.
 fn acp_reply() -> HeadlessToolResponse {
     HeadlessToolResponse {
-        content: COACH_ANSWER.to_owned(),
+        content: AGENT_ANSWER.to_owned(),
         model: HEADLESS_MODEL.to_owned(),
         tool_calls: vec![ObservedToolCall {
             id: "acp-tool-1".to_owned(),
@@ -866,7 +866,7 @@ async fn loopback_get_activities(
 ///
 /// `finalize_headless_turn` is what every ACP turn returns through, and the ACP
 /// runner it takes is only reached when the reply is degenerate — this one is
-/// the coach's own answer, so nothing is spawned.
+/// the agent's own answer, so nothing is spawned.
 async fn finish_headless_turn(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -934,7 +934,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
             tenant_id: "tenant-headless".to_owned(),
             title: "Semaine".to_owned(),
             model: HEADLESS_MODEL.to_owned(),
-            coach_id: None,
+            agent_id: None,
             session_id: None,
             total_tokens: 0,
             created_at: "2026-08-29T00:00:00Z".to_owned(),
@@ -967,7 +967,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
 /// The payoff, on the path production actually runs.
 ///
 /// A Copilot ACP turn whose loopback served the window without Garmin must hand
-/// the athlete a real reconnect control, not just whatever sentence the coach
+/// the athlete a real reconnect control, not just whatever sentence the agent
 /// chose to write — and must still hand them the sibling's numbers underneath it.
 #[tokio::test]
 async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
@@ -1008,7 +1008,7 @@ async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
         "a headless turn must carry the soft signal its loopback raised"
     );
     assert_eq!(
-        result.content, COACH_ANSWER,
+        result.content, AGENT_ANSWER,
         "the ACP answer is delivered as written"
     );
     assert!(
@@ -1055,7 +1055,7 @@ async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
         "the field and the sentence must carry the same link: {text}"
     );
 
-    // And the coach's answer over the sibling's data survives underneath it.
+    // And the agent's answer over the sibling's data survives underneath it.
     let prose = envelope
         .assistant
         .blocks
@@ -1066,7 +1066,7 @@ async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
         })
         .expect("the coach's answer must still be delivered");
     assert!(
-        prose.starts_with(COACH_ANSWER),
+        prose.starts_with(AGENT_ANSWER),
         "the offer is added to the answer, not substituted for it: {prose}"
     );
     assert!(
@@ -1106,7 +1106,7 @@ async fn a_headless_turn_drains_the_offer_it_consumed() {
         "a turn that served no window must offer nothing to reconnect"
     );
     assert_eq!(
-        second.content, COACH_ANSWER,
+        second.content, AGENT_ANSWER,
         "and answers exactly as it was written"
     );
 }

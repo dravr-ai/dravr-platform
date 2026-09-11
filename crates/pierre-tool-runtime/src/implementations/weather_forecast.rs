@@ -1,5 +1,5 @@
 // ABOUTME: MCP tool exposing Open-Meteo forecast weather for a planned activity location + date
-// ABOUTME: Lets the coach ground recommendations in real temperature instead of guessing
+// ABOUTME: Lets the agent ground recommendations in real temperature instead of guessing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -31,7 +31,7 @@ use pierre_tools_core::ToolResult;
 /// What `get_weather_forecast` answers with.
 ///
 /// A single sample at the requested hour, not a series: the tool answers
-/// "what will it be like then", and a coach reasoning about one session does
+/// "what will it be like then", and an agent reasoning about one session does
 /// not need the rest of the day.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct WeatherForecastResult {
@@ -75,7 +75,7 @@ fn forecast_annotations() -> ToolAnnotations {
 
 /// Tool returning the weather forecast for a location and date.
 ///
-/// The coach calls this when a user asks for a session "based on the
+/// The agent calls this when a user asks for a session "based on the
 /// temperature" or for a future/today activity at a place. The platform's
 /// other weather path (`get_weather_for_activity`) only resolves weather for
 /// an already-recorded activity; this one forecasts a planned one.
@@ -164,7 +164,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        // Auth-gated read tool: it's a coach feature used in authenticated chat,
+        // Auth-gated read tool: it's an agent feature used in authenticated chat,
         // so it requires a valid bearer token to both discover and call.
         capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA)
     }

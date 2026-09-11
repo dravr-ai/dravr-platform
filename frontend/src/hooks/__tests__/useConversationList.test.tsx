@@ -91,7 +91,7 @@ describe('useConversationList', () => {
     getConversations.mockResolvedValue(
       page([
         conversation({ id: 'c1', title: 'Marathon plan' }),
-        conversation({ id: 'c2', title: 'Deadlift form', coach_handle: 'strength-coach' }),
+        conversation({ id: 'c2', title: 'Deadlift form', agent_handle: 'strength-coach' }),
       ]),
     );
 

@@ -6,14 +6,14 @@
 
 /// Channel reply-recipient addressing: the shared conversation-id-with-user-id-fallback rule.
 pub mod addressing;
+/// In-chat provider-connect: in-process link-token mint + tappable connect Card.
+mod agent_choice;
+/// The one-time onboarding agent proposal sent ahead of a first coached reply.
+mod agent_proposal;
 /// AG-UI run wiring + per-channel status-bridge setup for messaging dispatch.
 mod agui;
 /// The consent-gated group transcript a room turn's prompt carries.
 mod ambient_context;
-/// In-chat provider-connect: in-process link-token mint + tappable connect Card.
-mod coach_choice;
-/// The one-time onboarding coach proposal sent ahead of a first coached reply.
-mod coach_proposal;
 mod connect;
 /// Platform-asked intake: profile type then the PAR-Q+, verbatim and strictly parsed.
 mod intake;
@@ -23,7 +23,7 @@ pub mod surface;
 pub mod viz_delivery;
 
 /// Re-exported so the integration suite can pin the strict numeric parse.
-pub use coach_choice::parse_choice;
+pub use agent_choice::parse_choice;
 // Re-exported so the emitters keep importing from one place; the negotiator
 // itself lives beside the media one because they are the same decision.
 pub use viz_delivery::card_or_rich_text;
@@ -214,7 +214,7 @@ pub(crate) struct PendingDispatch {
     /// `true` when the turn originated in a shared group chat (not a DM).
     /// Group turns get the room's recent ambient transcript injected into
     /// the prompt, since each member's conversation history holds only
-    /// their own exchanges with the coach.
+    /// their own exchanges with the agent.
     pub(super) is_group_chat: bool,
     /// The athlete's stored BCP-47 locale for this channel, resolved via
     /// [`resolve_messaging_locale`] when the dispatch is enqueued.
@@ -667,7 +667,7 @@ async fn persist_single_message(
 
     // The athlete's stored locale for this channel, resolved once and shared by
     // every reply this turn can produce — the reset confirmation, an intake or
-    // coach-choice answer, and every downstream stage of a dispatched turn
+    // agent-choice answer, and every downstream stage of a dispatched turn
     // (guardrails, verification, empty-reply). Channel-link override first,
     // then the user profile, then the registry default.
     let locale = match Uuid::parse_str(&session.user_id) {
@@ -679,9 +679,9 @@ async fn persist_single_message(
     };
 
     // An answer to a question the platform asked: profile type, or one of the
-    // seven PAR-Q+ questions. Sits ahead of the coach-proposal reply because an
+    // seven PAR-Q+ questions. Sits ahead of the agent-proposal reply because an
     // intake is outstanding before a proposal ever goes out, so a bare "1" here
-    // is answering the intake, not choosing a coach.
+    // is answering the intake, not choosing an agent.
     //
     // Only a message that PARSES as an answer is handled here — see [`intake::IntakeOutcome`].
     let intake_outcome = intake::try_handle_intake(intake::IntakeParams {
@@ -711,15 +711,15 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     }
 
-    // A bare number answering the coach proposal. Sits here — after auth, before
+    // A bare number answering the agent proposal. Sits here — after auth, before
     // the model — because it is a selection, not conversation: the proposal told
-    // the user to reply with a number, so that reply must bind a coach rather
-    // than becoming the first thing they ever say to their coach.
+    // the user to reply with a number, so that reply must bind an agent rather
+    // than becoming the first thing they ever say to their agent.
     //
     // Returns None for anything that is not a bare in-range number against an
     // outstanding proposal, so ordinary messages fall through untouched.
     if let Some(mut choice_reply) =
-        coach_choice::try_handle_coach_choice(coach_choice::CoachChoiceParams {
+        agent_choice::try_handle_agent_choice(agent_choice::AgentChoiceParams {
             resources,
             tenant_id,
             channel,
@@ -820,7 +820,7 @@ async fn persist_single_message(
 ///
 /// No chat id, no group binding, or a lookup failure all resolve to
 /// [`GroupRespondMode::All`] — the pre-feature behavior — so a transient DB
-/// error can only ever make the coach chattier, never mute it.
+/// error can only ever make the agent chattier, never mute it.
 async fn channel_group_respond_mode(
     resources: &ServerContext,
     tenant_id: TenantId,
@@ -850,7 +850,7 @@ async fn channel_group_respond_mode(
     }
 }
 
-/// `true` when this inbound is ambient room conversation the coach must not
+/// `true` when this inbound is ambient room conversation the agent must not
 /// answer: a group-chat message in a mentions-mode group that neither
 /// addresses the bot nor invokes a slash command.
 async fn is_ambient_group_message(
@@ -880,7 +880,7 @@ async fn is_ambient_group_message(
     {
         return false;
     }
-    // A member mid guided walk answers the coach's question unaddressed — an
+    // A member mid guided walk answers the agent's question unaddressed — an
     // interview that demanded an @-mention per answer would shed its athlete
     // by question two. Only the walker is exempted: the lookup resolves the
     // SENDER's own room session (rooms are per-member), so everyone else's

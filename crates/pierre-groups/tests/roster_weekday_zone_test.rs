@@ -1,12 +1,12 @@
 // ABOUTME: Pins that the group roster's Recent: rows name the member's own weekday, not the UTC one
-// ABOUTME: Regression for 2026-09-02 — the coach reassigned five activities to wrong weekdays three times
+// ABOUTME: Regression for 2026-09-02 — the agent reassigned five activities to wrong weekdays three times
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! The `Recent:` rows exist so the coach can answer sub-week questions
+//! The `Recent:` rows exist so the agent can answer sub-week questions
 //! ("Saturday vs Sunday", "longest ride this week") **without inventing
 //! per-day numbers** — the comment above them says exactly that.
 //!
@@ -16,7 +16,7 @@
 //! name. The one question the block was built to answer was the one it got
 //! wrong.
 //!
-//! Production Telegram, 2026-09-02: the coach placed a Tuesday ride on Sunday,
+//! Production Telegram, 2026-09-02: the agent placed a Tuesday ride on Sunday,
 //! then rebuilt the week twice more and moved it again each time. The athlete
 //! corrected it three times — *"road 2 aus etait hier, mardi. T'es melé big"*,
 //! *"date ride etait lundi. Ca va pas les dates"* — and left the conversation

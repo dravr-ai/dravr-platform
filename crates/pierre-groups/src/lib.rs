@@ -12,7 +12,7 @@
 //!
 //! - **Strategy traits** for summarization, aggregation, context building, and tier gating
 //! - **`GroupService`** — the central coordinator wiring strategies to repository access
-//! - **Context injection** — augments coach system prompts with group-aware information
+//! - **Context injection** — augments agent system prompts with group-aware information
 //! - **Digest computation** — weekly group reports for notifications
 
 // Re-export pierre-core modules for path compatibility within this crate

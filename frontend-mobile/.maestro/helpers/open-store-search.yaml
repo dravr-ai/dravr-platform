@@ -13,10 +13,21 @@ appId: ai.dravr.app
     when:
       platform: Android
     commands:
-      # The appcompat SearchView: its magnifier expands the field.
-      - tapOn:
-          id: ".*:id/search_button"
+      # Three runs have ended with Expo Go's developer menu on screen and no
+      # app view in the tree, each time with the tap before it reported
+      # COMPLETED -- first on :id/search_button, then on the magnifier's
+      # contentDescription. What none of them established is whether the menu
+      # is a consequence of the tap or was already there: Maestro dumps the
+      # hierarchy only on failure, and the failure came after.
+      #
+      # This screenshot and this assertion answer that. The assertion is one
+      # the flow wants anyway -- you cannot search a screen that is not in
+      # front of you -- and when the sheet is up the app views are absent
+      # from the tree, so it fails there and dumps the tree at that moment.
+      - takeScreenshot: before-store-search
+      - assertVisible:
+          id: "store-screen"
+      - tapOn: "Search|Rechercher"
       - extendedWaitUntil:
-          visible:
-            id: ".*:id/search_src_text"
-          timeout: 5000
+          visible: "Search agents...|Rechercher des agents…"
+          timeout: 10000

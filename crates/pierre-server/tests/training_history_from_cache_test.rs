@@ -71,11 +71,11 @@ struct Fixture {
 /// reached for the provider.
 async fn fixture() -> Fixture {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -267,7 +267,7 @@ async fn a_shallow_cache_writes_no_row_it_cannot_warm() {
 }
 
 /// No stored activities means no rollup — never a zero-seeded series that would
-/// read to a coach as a real, very low chronic load.
+/// read to an agent as a real, very low chronic load.
 #[tokio::test]
 async fn an_empty_cache_computes_nothing_rather_than_a_zero_curve() {
     let fx = fixture().await;

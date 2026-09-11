@@ -334,7 +334,7 @@ pub async fn create_test_user_with_plan(
 /// user's tenant. This helper looks up the user's tenant from the database and
 /// includes it in the generated token.
 pub async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) -> String {
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
     resources
@@ -579,7 +579,7 @@ pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
     chat_provider: Arc<dyn LlmProvider + 'static>,
     turn_runner: Option<Arc<TurnRunner>>,
 ) -> Result<Arc<ServerContext>> {
-    let database = (*sibling_of.coach.database).clone();
+    let database = (*sibling_of.agent.database).clone();
     create_test_server_resources_over(
         database,
         None,
@@ -679,8 +679,8 @@ async fn create_test_server_resources_over(
 pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerContext>, Uuid, String)>
 {
     let resources = create_test_server_resources().await?;
-    let (user_id, _user) = create_test_user(&resources.coach.database).await?;
-    let api_key = create_test_api_key(&resources.coach.database, user_id, "test-key")?;
+    let (user_id, _user) = create_test_user(&resources.agent.database).await?;
+    let api_key = create_test_api_key(&resources.agent.database, user_id, "test-key")?;
 
     Ok((resources, user_id, api_key))
 }
@@ -1096,11 +1096,11 @@ pub async fn send_http_mcp_request(
 /// Returns error if user creation or token generation fails
 pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Result<(User, String)> {
     // Create test user with specified email
-    let (_user_id, user) = create_test_user_with_email(&resources.coach.database, email).await?;
+    let (_user_id, user) = create_test_user_with_email(&resources.agent.database, email).await?;
 
     // Look up user's tenant to include active_tenant_id in the JWT.
     // Route handlers require active_tenant_id in JWT claims.
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenants = repos
         .tenants
         .list_for_user(user.id)
@@ -1120,7 +1120,7 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
 /// Test tenant + user pre-registered with a `Synthetic` provider connection.
 ///
 /// Same shape as [`create_test_tenant`] but also registers a `Synthetic`
-/// provider connection so the user can reach chat / coach / messaging
+/// provider connection so the user can reach chat / agent / messaging
 /// endpoints past the onboarding gate
 /// (see `pierre_services::onboarding_gate`).
 ///
@@ -1137,7 +1137,7 @@ pub async fn create_test_tenant_with_provider(
     email: &str,
 ) -> Result<(User, String)> {
     let (user, token) = create_test_tenant(resources, email).await?;
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenants = repos
         .tenants
         .list_for_user(user.id)

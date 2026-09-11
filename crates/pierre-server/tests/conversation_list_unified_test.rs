@@ -22,8 +22,8 @@ use common::{
     create_test_server_resources, create_test_server_resources_with_llm,
     create_test_user_with_plan, generate_test_token,
 };
+use helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 use helpers::axum_test::AxumTestRequest;
-use helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
 use pierre_chat_pipeline::{
@@ -107,23 +107,23 @@ struct Fixture {
 /// An owner, a member and a stranger in one tenant, each with a token scoped
 /// to it, so every refusal under test is a membership decision.
 async fn setup_on(resources: Arc<ServerContext>) -> Fixture {
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let (owner_id, owner, _) = create_test_user_with_plan(
-        &resources.coach.database,
+        &resources.agent.database,
         "list-owner@test.com",
         "professional",
     )
     .await
     .unwrap();
     let (member_id, member, _) = create_test_user_with_plan(
-        &resources.coach.database,
+        &resources.agent.database,
         "list-member@test.com",
         "professional",
     )
     .await
     .unwrap();
     let (stranger_id, stranger, _) = create_test_user_with_plan(
-        &resources.coach.database,
+        &resources.agent.database,
         "list-stranger@test.com",
         "professional",
     )
@@ -268,7 +268,7 @@ async fn mark_unread(fx: &Fixture, auth: &str, conversation_id: &str) -> StatusC
         .status_code()
 }
 
-/// A long markdown reply carrying a chart marker, the shape a coach's
+/// A long markdown reply carrying a chart marker, the shape an agent's
 /// persisted row has after the visual was lifted out of it.
 const LONG_REPLY: &str =
     "Ta charge grimpe depuis trois semaines.\n\n⟦viz:0⟧\n\nC'est pourquoi on coupe jeudi:   \
@@ -280,8 +280,8 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
     let fx = setup().await;
     let repos = &fx.resources.common.repos;
 
-    // A catalogue coach, installed for the owner: the row shows its @handle.
-    let origin = publish_catalogue_coach(
+    // A catalogue agent, installed for the owner: the row shows its @handle.
+    let origin = publish_catalogue_agent(
         repos,
         fx.owner_id,
         fx.tenant_id,
@@ -289,7 +289,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
         "You are the recovery coach.",
     )
     .await;
-    let installed = install_catalogue_coach(repos, origin, fx.owner_id, fx.tenant_id).await;
+    let installed = install_catalogue_agent(repos, origin, fx.owner_id, fx.tenant_id).await;
 
     // A coaching group the owner belongs to: the row shows its name.
     let now = chrono::Utc::now();
@@ -303,7 +303,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
                 tenant_id: fx.tenant_id.to_string(),
                 name: "Marathon Squad".to_owned(),
                 description: None,
-                coach_id: installed.id.to_string(),
+                agent_id: installed.id.to_string(),
                 owner_id: fx.owner_id,
                 coach_user_id: None,
                 peer_data_sharing: false,
@@ -354,7 +354,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
     .await;
     let coached = create_conversation(
         &fx,
-        json!({ "title": "Recovery", "coach_id": installed.id.to_string() }),
+        json!({ "title": "Recovery", "agent_id": installed.id.to_string() }),
     )
     .await;
     add_row(
@@ -388,20 +388,20 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
         "newest activity first"
     );
 
-    let coach_row = &page.conversations[0];
+    let agent_row = &page.conversations[0];
     assert_eq!(
-        coach_row.coach_id.as_deref(),
+        agent_row.agent_id.as_deref(),
         Some(installed.id.to_string().as_str())
     );
-    assert_eq!(coach_row.coach_handle.as_deref(), Some("recovery-coach"));
-    assert_eq!(coach_row.coach_title.as_deref(), Some("Recovery Coach"));
-    assert_eq!(coach_row.message_count, 2, "the tool row is not a turn");
+    assert_eq!(agent_row.agent_handle.as_deref(), Some("recovery-coach"));
+    assert_eq!(agent_row.agent_title.as_deref(), Some("Recovery Coach"));
+    assert_eq!(agent_row.message_count, 2, "the tool row is not a turn");
     assert_eq!(
-        coach_row.unread_count, 2,
+        agent_row.unread_count, 2,
         "rows written behind the marker are unread"
     );
-    assert_eq!(coach_row.channel_type.as_deref(), Some("web"));
-    let preview = coach_row.last_message.as_ref().expect("the newest row");
+    assert_eq!(agent_row.channel_type.as_deref(), Some("web"));
+    let preview = agent_row.last_message.as_ref().expect("the newest row");
     assert_eq!(preview.role, "assistant");
     assert!(
         !preview.preview.contains('⟦'),
@@ -438,7 +438,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
         Some(group_id.to_string().as_str())
     );
     assert_eq!(group_row.group_name.as_deref(), Some("Marathon Squad"));
-    assert!(group_row.coach_handle.is_none());
+    assert!(group_row.agent_handle.is_none());
     assert!(group_row.last_message.is_none());
     assert_eq!(group_row.unread_count, 0);
 

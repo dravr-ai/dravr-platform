@@ -31,7 +31,7 @@ fn fact_params<'a>(
     UpsertUserFactParams {
         tenant_id,
         user_id,
-        coach_id: None,
+        agent_id: None,
         scope: MemoryScope::User,
         kind,
         pillar: None,

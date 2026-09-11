@@ -1,5 +1,5 @@
-// ABOUTME: CoachSession — a long-lived container above chat_conversation for cross-channel continuity
-// ABOUTME: One session per (user, coach) pair; spans channels (Telegram, mobile, web)
+// ABOUTME: AgentSession — a long-lived container above chat_conversation for cross-channel continuity
+// ABOUTME: One session per (user, agent) pair; spans channels (Telegram, mobile, web)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,14 +7,14 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Lifecycle state of a [`CoachSession`].
+/// Lifecycle state of a [`AgentSession`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
     /// Session is active; new conversations should attach to it.
     Active,
-    /// Session was explicitly archived (user unassigned the coach, or the
-    /// coach was retired) and new conversations will create a fresh session.
+    /// Session was explicitly archived (user unassigned the agent, or the
+    /// agent was retired) and new conversations will create a fresh session.
     Archived,
 }
 
@@ -39,23 +39,23 @@ impl SessionStatus {
     }
 }
 
-/// A long-lived coaching session that binds a `(user, coach)` pair across
+/// A long-lived coaching session that binds a `(user, agent)` pair across
 /// conversations and channels.
 ///
 /// Introduced in Tier 4 of the coaching harness so that a user who talks to
-/// a coach on Telegram today and opens the mobile app tomorrow lands back in
+/// an agent on Telegram today and opens the mobile app tomorrow lands back in
 /// the same session rather than starting from scratch. Conversations attach
 /// to a session via `chat_conversations.session_id`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoachSession {
+pub struct AgentSession {
     /// Stable session identifier.
     pub id: String,
     /// Tenant that owns the session.
     pub tenant_id: String,
     /// User the session belongs to.
     pub user_id: String,
-    /// Coach the session is bound to.
-    pub coach_id: String,
+    /// Agent the session is bound to.
+    pub agent_id: String,
     /// Current lifecycle status.
     pub status: SessionStatus,
     /// When the session first opened.

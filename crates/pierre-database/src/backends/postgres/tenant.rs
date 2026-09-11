@@ -23,13 +23,13 @@ use uuid::Uuid;
 
 #[async_trait]
 impl TenantRepository for PostgresDatabase {
-    async fn get_selected_coach(
+    async fn get_selected_agent(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
     ) -> AppResult<Option<String>> {
         let row = sqlx::query(
-            "SELECT selected_coach_id FROM tenant_users WHERE tenant_id = $1::uuid AND user_id = $2",
+            "SELECT selected_agent_id FROM tenant_users WHERE tenant_id = $1::uuid AND user_id = $2",
         )
         .bind(tenant_id.to_string())
         .bind(user_id)
@@ -37,21 +37,21 @@ impl TenantRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to read selected coach: {e}")))?;
 
-        Ok(row.and_then(|r| r.get::<Option<String>, _>("selected_coach_id")))
+        Ok(row.and_then(|r| r.get::<Option<String>, _>("selected_agent_id")))
     }
 
-    async fn set_selected_coach(
+    async fn set_selected_agent(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
     ) -> AppResult<()> {
         sqlx::query(
-            "UPDATE tenant_users SET selected_coach_id = $3 WHERE tenant_id = $1::uuid AND user_id = $2",
+            "UPDATE tenant_users SET selected_agent_id = $3 WHERE tenant_id = $1::uuid AND user_id = $2",
         )
         .bind(tenant_id.to_string())
         .bind(user_id)
-        .bind(coach_id)
+        .bind(agent_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to set selected coach: {e}")))?;

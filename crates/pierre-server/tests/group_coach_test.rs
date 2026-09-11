@@ -1,5 +1,5 @@
-// ABOUTME: Integration tests for human-coach attachment to coaching groups
-// ABOUTME: Covers coach-invite redemption, eligibility + cross-tenant gates, detach, and listing
+// ABOUTME: Integration tests for human-agent attachment to coaching groups
+// ABOUTME: Covers agent-invite redemption, eligibility + cross-tenant gates, detach, and listing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 //! `coach_user_id` instead of adding an athlete member. These tests exercise
 //! the REST surface end to end against the real `GroupRoutes` router:
 //! the happy-path redemption, the `manages_roster` eligibility gate, the v1
-//! same-tenant rule, the single-coach guard, detach, and the "groups I coach"
+//! same-tenant rule, the single-agent guard, detach, and the "groups I coach"
 //! listing.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -25,7 +25,7 @@ use common::{
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_coaches::build_coaches_router;
+use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::GroupRoutes;
 
 use axum::http::StatusCode;
@@ -33,8 +33,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// Create an AI coach persona via the REST API and return its id.
-async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
+/// Create an AI agent persona via the REST API and return its id.
+async fn create_test_agent(router: &axum::Router, auth: &str) -> String {
     let resp = AxumTestRequest::post("/api/agents")
         .header("authorization", auth)
         .json(
@@ -48,16 +48,16 @@ async fn create_test_coach(router: &axum::Router, auth: &str) -> String {
 
 /// Owner on Professional plus the wired router. Returns the shared resources
 /// (for DB-level setup like `set_manages_roster`), the router, the owner's
-/// auth header, the owner's tenant, and an AI coach persona id.
+/// auth header, the owner's tenant, and an AI agent persona id.
 async fn setup() -> (Arc<ServerContext>, axum::Router, String, TenantId, String) {
     let res = create_test_server_resources().await.unwrap();
     let (owner_id, owner, _t) =
-        create_test_user_with_plan(&res.coach.database, "coachowner@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "coachowner@test.com", "professional")
             .await
             .unwrap();
     let owner_auth = format!("Bearer {}", generate_test_token(&res, &owner).await);
     let shared_tid = res
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -67,25 +67,25 @@ async fn setup() -> (Arc<ServerContext>, axum::Router, String, TenantId, String)
         .first()
         .unwrap()
         .id;
-    let router = build_coaches_router::<ServerContext>()
+    let router = build_agents_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)));
-    let coach_persona = create_test_coach(&router, &owner_auth).await;
-    (res, router, owner_auth, shared_tid, coach_persona)
+    let agent_persona = create_test_agent(&router, &owner_auth).await;
+    (res, router, owner_auth, shared_tid, agent_persona)
 }
 
-/// Create a roster-managing coach user and return (`user_id`, auth header).
+/// Create a roster-managing agent user and return (`user_id`, auth header).
 /// `tenant` pins the token's active tenant (use the group's tenant for an
-/// in-tenant coach, `None` falls back to the user's own tenant).
+/// in-tenant agent, `None` falls back to the user's own tenant).
 async fn make_coach_user(
     res: &Arc<ServerContext>,
     email: &str,
     tenant: Option<TenantId>,
 ) -> (Uuid, String) {
-    let (uid, user) = create_test_user_with_email(&res.coach.database, email)
+    let (uid, user) = create_test_user_with_email(&res.agent.database, email)
         .await
         .unwrap();
-    res.coach
+    res.agent
         .database
         .repositories()
         .users
@@ -104,12 +104,12 @@ async fn make_coach_user(
 }
 
 /// Create a group owned by `owner_auth` and return its id.
-async fn create_group(router: &axum::Router, owner_auth: &str, coach_persona: &str) -> String {
+async fn create_group(router: &axum::Router, owner_auth: &str, agent_persona: &str) -> String {
     let resp = AxumTestRequest::post("/api/groups")
         .header("authorization", owner_auth)
         .json(&json!({
             "name": "Coached Group",
-            "coach_id": coach_persona,
+            "agent_id": agent_persona,
             "max_members": 10
         }))
         .send(router.clone())
@@ -157,7 +157,7 @@ async fn test_coach_invite_redemption_attaches_coach() {
     let (coach_uid, coach_auth) =
         make_coach_user(&res, "humancoach@test.com", Some(shared_tid)).await;
 
-    // Redeem attaches the coach and returns the group (not a member record).
+    // Redeem attaches the agent and returns the group (not a member record).
     let resp = redeem(&router, &coach_auth, &code).await;
     assert_eq!(resp.status_code(), StatusCode::CREATED);
     let body: Value = resp.json();
@@ -171,7 +171,7 @@ async fn test_coach_invite_redemption_attaches_coach() {
     assert_eq!(resp.status_code(), StatusCode::OK);
     assert_eq!(resp.json::<Value>()["coach_user_id"], coach_uid.to_string());
 
-    // The coach sees the group in their "groups I coach" list.
+    // The agent sees the group in their "groups I coach" list.
     let resp = AxumTestRequest::get("/api/groups/coached")
         .header("authorization", &coach_auth)
         .send(router.clone())
@@ -181,7 +181,7 @@ async fn test_coach_invite_redemption_attaches_coach() {
     assert_eq!(body["total"], 1);
     assert_eq!(body["groups"][0]["id"], group_id);
 
-    // The coach is NOT counted as an athlete member.
+    // The agent is NOT counted as an athlete member.
     let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}/members"))
         .header("authorization", &owner_auth)
         .send(router.clone())
@@ -201,7 +201,7 @@ async fn test_non_coach_cannot_redeem_coach_invite() {
     let code = create_invite(&router, &owner_auth, &group_id, "coach").await;
 
     // A regular (non-roster) user in the same tenant.
-    let (_uid, user) = create_test_user_with_email(&res.coach.database, "notacoach@test.com")
+    let (_uid, user) = create_test_user_with_email(&res.agent.database, "notacoach@test.com")
         .await
         .unwrap();
     let token = res
@@ -225,12 +225,12 @@ async fn test_cross_tenant_coach_rejected() {
     let group_id = create_group(&router, &owner_auth, &persona).await;
     let code = create_invite(&router, &owner_auth, &group_id, "coach").await;
 
-    // A roster-managing coach in a DIFFERENT tenant (own professional tenant).
+    // A roster-managing agent in a DIFFERENT tenant (own professional tenant).
     let (other_uid, other_user, _other_tenant) =
-        create_test_user_with_plan(&res.coach.database, "othercoach@test.com", "professional")
+        create_test_user_with_plan(&res.agent.database, "othercoach@test.com", "professional")
             .await
             .unwrap();
-    res.coach
+    res.agent
         .database
         .repositories()
         .users
@@ -259,7 +259,7 @@ async fn test_remove_coach_detaches() {
         StatusCode::CREATED
     );
 
-    // Owner detaches the coach.
+    // Owner detaches the agent.
     let resp = AxumTestRequest::delete(&format!("/api/groups/{group_id}/coach"))
         .header("authorization", &owner_auth)
         .send(router.clone())
@@ -287,7 +287,7 @@ async fn test_single_coach_guard() {
         StatusCode::CREATED
     );
 
-    // A second, different coach cannot attach while one is present.
+    // A second, different agent cannot attach while one is present.
     let (_c2, coach2) = make_coach_user(&res, "coach2@test.com", Some(shared_tid)).await;
     let code2 = create_invite(&router, &owner_auth, &group_id, "coach").await;
     let resp = redeem(&router, &coach2, &code2).await;
@@ -309,7 +309,7 @@ async fn test_member_invite_does_not_attach_coach() {
     let resp = redeem(&router, &coach_auth, &code).await;
     assert_eq!(resp.status_code(), StatusCode::CREATED);
 
-    // Redeeming a member invite makes them a member, NOT the coach.
+    // Redeeming a member invite makes them a member, NOT the agent.
     let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}"))
         .header("authorization", &owner_auth)
         .send(router.clone())

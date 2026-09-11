@@ -966,7 +966,7 @@ fn tenant_disabled_response(tool_name: &str) -> UniversalResponse {
 /// cached admin status inside each tool, so admin-gated tools see the same
 /// decision regardless of which dispatch path surfaced the request.
 ///
-/// System-admin tools (e.g. system-coach management) gate on the global
+/// System-admin tools (e.g. system-agent management) gate on the global
 /// `is_admin` flag, not the per-tenant role: being a tenant owner makes a user
 /// admin *of their tenant*, which must not grant system-wide admin powers. A
 /// global-lookup failure defaults to non-admin (deny-by-default).

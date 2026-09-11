@@ -225,7 +225,7 @@ async fn test_list_api_keys_success() {
 
     // Create an API key first
     let _key = common::create_and_store_test_api_key(
-        setup.resources.coach.database.as_ref(),
+        setup.resources.agent.database.as_ref(),
         setup.user_id,
         "Test Key for Listing",
     )
@@ -304,7 +304,7 @@ async fn test_deactivate_api_key_success() {
 
     // Create an API key first
     let key = common::create_and_store_test_api_key(
-        setup.resources.coach.database.as_ref(),
+        setup.resources.agent.database.as_ref(),
         setup.user_id,
         "Key to Deactivate",
     )
@@ -540,7 +540,7 @@ async fn test_user_isolation() {
 
     // User 1 creates a key
     let _key1 = common::create_and_store_test_api_key(
-        setup1.resources.coach.database.as_ref(),
+        setup1.resources.agent.database.as_ref(),
         setup1.user_id,
         "User 1 Key",
     )

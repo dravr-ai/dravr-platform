@@ -15,8 +15,8 @@
 //!
 //! - Human admin cookie-auth routes mounted at `/api/admin/...`
 //!   ([`AdminRoutes::cookie_admin_routes`]) — claim verdicts, memory worker
-//!   metrics, coach followup triage, coach notes audit, myth-busting,
-//!   coach grading, harness configuration. Powers the admin web UI tabs.
+//!   metrics, agent followup triage, agent notes audit, myth-busting,
+//!   agent grading, harness configuration. Powers the admin web UI tabs.
 //!
 //! The cookie-auth surface gates on
 //! [`pierre_middleware::cookie_admin_middleware`], itself generic over

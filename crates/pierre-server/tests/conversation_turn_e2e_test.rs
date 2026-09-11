@@ -235,7 +235,7 @@ mod conversation_turn_e2e_tests {
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..50 {
-            let row: Option<(String,)> = match resources.coach.database.as_ref() {
+            let row: Option<(String,)> = match resources.agent.database.as_ref() {
                 Database::SQLite(db) => sqlx::query_as(SQL)
                     .bind(&tenant_str)
                     .fetch_optional(db.pool())

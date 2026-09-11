@@ -17,7 +17,7 @@ use std::time::Duration;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_core::models::{
-    AddMessageParams, CoachCategory, CreateCoachRequest, Tenant, TenantId, User,
+    AddMessageParams, AgentCategory, CreateAgentRequest, Tenant, TenantId, User,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
@@ -30,7 +30,7 @@ async fn open_test_db() -> Result<Database> {
     Ok(create_test_db_with_key(generate_encryption_key().to_vec()).await?)
 }
 
-/// Seed a synthetic tenant + user + coach + conversation + assistant
+/// Seed a synthetic tenant + user + agent + conversation + assistant
 /// message through the repositories, so the rows are whatever the backend
 /// writes. Each call makes its own tenant, which is what keeps the scans in
 /// the tests below independent of one another. Returns `(tenant_id,
@@ -61,16 +61,16 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
         })
         .await?;
 
-    let coach = repos
-        .coaches
+    let agent = repos
+        .agents
         .create(
             user_id,
             tenant_id,
-            &CreateCoachRequest {
+            &CreateAgentRequest {
                 title: "Test Coach".to_owned(),
                 description: None,
                 system_prompt: "You are a helpful coach.".to_owned(),
-                category: CoachCategory::Custom,
+                category: AgentCategory::Custom,
                 tags: vec![],
                 sample_prompts: vec![],
                 startup_query: None,
@@ -85,7 +85,7 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
             },
         )
         .await?;
-    let coach_id = coach.id.to_string();
+    let agent_id = agent.id.to_string();
 
     let user_id_str = user_id.to_string();
     let conversation = repos
@@ -95,7 +95,7 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
             tenant_id,
             "Test chat",
             "gemini-pro",
-            Some(&coach_id),
+            Some(&agent_id),
             None,
         )
         .await?;

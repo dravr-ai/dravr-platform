@@ -24,7 +24,7 @@ mod group_transcript_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_core::models::coaches::{CoachCategory, CoachVisibility, CreateSystemCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachingGroup, GroupMember, GroupRespondMode, GroupRole, GroupTranscriptEntry,
         TranscriptSpeaker,
@@ -57,8 +57,8 @@ mod group_transcript_tests {
 
     /// What Alice types from Telegram; must surface verbatim to a web member.
     const ALICE_MESSAGE: &str = "Je prépare le marathon de Montréal en mai";
-    /// The mock coach reply; must surface as a `coach` transcript entry.
-    const COACH_REPLY: &str = "Bonne base Alice, on structure le plan ensemble.";
+    /// The mock agent reply; must surface as a `agent` transcript entry.
+    const AGENT_REPLY: &str = "Bonne base Alice, on structure le plan ensemble.";
     /// What Bob types from the web; must reach a Telegram member's prompt.
     const BOB_MESSAGE: &str = "Semaine chargée: 60 km de course au total";
     /// Carol has not consented — this content must never fan out to others.
@@ -283,22 +283,22 @@ mod group_transcript_tests {
             .unwrap();
         }
 
-        // Coach row (FK for the group).
-        let coach = resources
+        // Agent row (FK for the group).
+        let agent = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 alice_id,
                 bot_tenant,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Transcript Coach".to_owned(),
                     description: None,
                     system_prompt: "You are a concise test coach.".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -314,7 +314,7 @@ mod group_transcript_tests {
             tenant_id: bot_tenant.to_string(),
             name: "Transcript Test Group".to_owned(),
             description: None,
-            coach_id: coach.id.to_string(),
+            agent_id: agent.id.to_string(),
             owner_id: alice_id,
             coach_user_id: None,
             peer_data_sharing: true,
@@ -517,7 +517,7 @@ mod group_transcript_tests {
     async fn messaging_turn_is_readable_by_web_member_and_consent_withholds_content() {
         env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
 
-        let mock = Arc::new(CapturingLlm::new(COACH_REPLY));
+        let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
         let scenario = build_scenario(Arc::clone(&resources)).await;
@@ -562,7 +562,7 @@ mod group_transcript_tests {
         assert_eq!(entries[0]["content"], ALICE_MESSAGE);
         assert_eq!(entries[0]["author_user_id"], scenario.alice_id.to_string());
         assert_eq!(entries[1]["speaker"], "coach");
-        assert_eq!(entries[1]["content"], COACH_REPLY);
+        assert_eq!(entries[1]["content"], AGENT_REPLY);
         assert_eq!(
             entries[1]["author_user_id"],
             scenario.alice_id.to_string(),
@@ -614,7 +614,7 @@ mod group_transcript_tests {
     async fn web_turn_reaches_the_room_and_a_messaging_member_prompt() {
         env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
 
-        let mock = Arc::new(CapturingLlm::new(COACH_REPLY));
+        let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();
         let requests = mock.request_log();
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
@@ -666,7 +666,7 @@ mod group_transcript_tests {
         );
         // The call counter alone can be satisfied by auxiliary LLM calls
         // (memory extraction shares the provider); the turn is only done once
-        // alice's own member + coach rows join bob's two in the room.
+        // alice's own member + agent rows join bob's two in the room.
         wait_for_entries(&scenario, scenario.alice_id, 4).await;
         let captured = requests.lock().unwrap().join("\n");
         assert!(
@@ -693,7 +693,7 @@ mod group_transcript_tests {
     async fn a_room_reaches_a_member_whose_own_tenant_is_not_the_rooms() {
         env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
 
-        let mock = Arc::new(CapturingLlm::new(COACH_REPLY));
+        let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
         let calls = mock.call_counter();
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
         let scenario = build_scenario(Arc::clone(&resources)).await;

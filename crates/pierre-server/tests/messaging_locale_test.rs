@@ -119,13 +119,13 @@ fn registry_exposes_refusal_strings_for_every_locale() {
         .contains("fitness assistant"));
 }
 
-/// Per-coach scope carve-outs exist in every locale for the two categories
+/// Per-agent scope carve-outs exist in every locale for the two categories
 /// whose core purpose (answering meal/dinner/snack/recipe questions) would
 /// otherwise collide with the generic "food/meal finders" out-of-scope rule
-/// in `pierre_system.md`. Drift here means Nutrition or Recipes coaches
+/// in `pierre_system.md`. Drift here means Nutrition or Recipes agents
 /// start refusing core questions again.
 #[test]
-fn registry_exposes_coach_scope_carve_outs_for_every_locale() {
+fn registry_exposes_agent_scope_carve_outs_for_every_locale() {
     let reg = MessagingStringsRegistry::new();
     for locale in ["fr", "en", "es", "de", "pt"] {
         let nutrition = reg.get(KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION, locale);

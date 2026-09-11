@@ -1,14 +1,14 @@
-// ABOUTME: ActivitySummary — the scalar per-activity shape the coach model reads
+// ABOUTME: ActivitySummary — the scalar per-activity shape the agent model reads
 // ABOUTME: Split out of fitness_support.rs so that file stays within its size budget
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The coach-facing activity DTO.
+//! The agent-facing activity DTO.
 //
 // `mode=summary` renders a list of these. The shape is the contract the model
 // reasons over, so a sensor the provider reports but this struct omits is
-// invisible to the coach no matter how faithfully it was fetched.
+// invisible to the agent no matter how faithfully it was fetched.
 
 use pierre_core::models::{Activity, SportType, ZoneDistribution};
 use serde::Serialize;
@@ -16,10 +16,10 @@ use serde::Serialize;
 /// Activity summary with scalar sensor fields for efficient list queries.
 ///
 /// Used when `mode=summary`. Carries the full set of scalar fields every
-/// coach persona needs for basic reasoning (HR zones, elevation load,
+/// agent persona needs for basic reasoning (HR zones, elevation load,
 /// calorie estimate, cadence, power) without the arrays (splits, laps,
 /// segments, HR zones, power zones, time-series data) that only a deep
-/// per-activity analysis coach needs. All sensor fields are `Option<T>`
+/// per-activity analysis agent needs. All sensor fields are `Option<T>`
 /// and `#[serde(skip_serializing_if = "Option::is_none")]` so activities
 /// recorded without an HRM or on indoor trainers render cleanly without
 /// null noise.

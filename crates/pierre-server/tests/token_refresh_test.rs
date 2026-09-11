@@ -25,7 +25,7 @@ async fn test_token_refresh_endpoint() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
     // Create test user
-    let (user_id, user) = common::create_test_user(&resources.coach.database).await?;
+    let (user_id, user) = common::create_test_user(&resources.agent.database).await?;
 
     // Generate initial JWT token
     let initial_token = resources
@@ -112,7 +112,7 @@ async fn test_jwt_token_parsing() -> Result<()> {
     println!("🔍 Testing JWT token parsing logic");
 
     let resources = common::create_test_server_resources().await?;
-    let (user_id, user) = common::create_test_user(&resources.coach.database).await?;
+    let (user_id, user) = common::create_test_user(&resources.agent.database).await?;
 
     // Generate a JWT token
     let token = resources

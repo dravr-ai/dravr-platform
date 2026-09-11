@@ -48,7 +48,7 @@ const DEFAULT_SEARCH_RADIUS_METERS: u32 = 10_000;
 /// OSM route data is public and identical for every tenant, so one cache
 /// serves them all. It lives outside [`RouteDiscoveryService`] because each
 /// `discover_routes` tool call constructs a fresh service — a cache owned by
-/// the service could never register a hit, and every coach turn would open a
+/// the service could never register a hit, and every agent turn would open a
 /// new round of requests against a shared free API that answers 502 under
 /// load.
 static ROUTE_CACHE: LazyLock<RwLock<HashMap<String, CachedRoutes>>> =
@@ -100,7 +100,7 @@ pub struct DiscoveredRoute {
     pub latitude: f64,
     /// Longitude of the route start or center
     pub longitude: f64,
-    /// Straight-line distance from the search center, in metres. The coach
+    /// Straight-line distance from the search center, in metres. The agent
     /// quotes this to the athlete ("about 8 km from your door"), so it is
     /// measured rather than inferred from the coordinates by the model.
     pub distance_from_center_meters: f64,
@@ -210,7 +210,7 @@ impl RouteDiscoveryService {
     /// A mirror that answers 200 with an HTML error page counts as a failure
     /// and falls through to the next one — free Overpass instances do exactly
     /// that under load. If every mirror fails, the accumulated reasons come
-    /// back as one error so the coach can say "retry" instead of fabricating.
+    /// back as one error so the agent can say "retry" instead of fabricating.
     async fn fetch_ranked(
         &self,
         query: &str,
@@ -308,7 +308,7 @@ impl RouteDiscoveryService {
 /// Build the Overpass query for a sport, or `None` when the sport has no
 /// land or snow route surface to search.
 ///
-/// Public so an operator can paste the exact query the coach ran into
+/// Public so an operator can paste the exact query the agent ran into
 /// overpass-turbo and see the same elements come back.
 #[must_use]
 pub fn build_overpass_query(
@@ -359,7 +359,7 @@ fn around(latitude: f64, longitude: f64, radius: u32) -> String {
 /// Build the running/trail-running Overpass query.
 ///
 /// Every clause carries `["name"]`. That is not cosmetic: the tool's contract
-/// is to hand the coach routes it can name to the athlete, and Overpass
+/// is to hand the agent routes it can name to the athlete, and Overpass
 /// truncates in element-id order, so admitting unnamed ways lets a city's
 /// sidewalk mesh consume the whole response budget before a single named
 /// trail is reached. `footway=sidewalk` and `footway=crossing` are excluded
@@ -547,7 +547,7 @@ fn rank_elements(
             let tags = el.tags?;
             // `ref` carries the trail number when a route has no name — a
             // usable label. An element with neither is not something the
-            // coach can point an athlete at, so it is dropped rather than
+            // agent can point an athlete at, so it is dropped rather than
             // padded out with an "Unnamed ..." placeholder.
             let name = tags.get("name").or_else(|| tags.get("ref"))?.clone();
             let (lat, lon) = el

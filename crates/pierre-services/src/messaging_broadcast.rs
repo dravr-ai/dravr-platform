@@ -64,8 +64,8 @@ pub fn proactive_text(
 /// Separate from [`proactive_text`] rather than replacing it, because the two
 /// make opposite promises about the body. A `Text` body is escaped on the way
 /// out — Telegram's renderer runs `encode_text` over it — which is what keeps
-/// coach prose like "HR <100 bpm" from mangling the parse, and what makes
-/// interpolated values (coach titles, provider names) inert. A `RichText` body
+/// agent prose like "HR <100 bpm" from mangling the parse, and what makes
+/// interpolated values (agent titles, provider names) inert. A `RichText` body
 /// is parsed, so markup in it becomes formatting. Routing every proactive push
 /// through this one would turn a stored value that happens to contain a marker
 /// into live formatting.

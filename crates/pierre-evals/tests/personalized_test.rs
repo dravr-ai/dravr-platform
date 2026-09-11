@@ -10,7 +10,7 @@
 use pierre_evals::personalized::check as personalized_check;
 use pierre_evals::{
     check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus, ActionMode,
-    AthleteMetrics, AuditOnlyPolicy, CoachConfiguredStrategy, ConservativeStrategy,
+    AgentConfiguredStrategy, AthleteMetrics, AuditOnlyPolicy, ConservativeStrategy,
     ContradictionPolicy, InheritConfigPolicy, PersonalizedContext, ResolvedAction, TightStrategy,
     ToleranceCall, ToleranceMode, ToleranceStrategy, UserWarnPolicy, VerdictOutcome,
     VerificationConfig, VerificationFallback,
@@ -101,14 +101,14 @@ fn tight_contradicts_any_value_outside_range() {
 }
 
 #[test]
-fn coach_configured_honors_its_margin() {
-    let zero = CoachConfiguredStrategy { margin_frac: 0.0 };
+fn agent_configured_honors_its_margin() {
+    let zero = AgentConfiguredStrategy { margin_frac: 0.0 };
     assert_eq!(
         zero.assess(316.0, (300.0, 315.0)),
         ToleranceCall::Contradicted
     );
 
-    let wide = CoachConfiguredStrategy { margin_frac: 0.10 };
+    let wide = AgentConfiguredStrategy { margin_frac: 0.10 };
     // 325 is outside [300,315] but within the 10% buffer (270..346.5).
     assert_eq!(
         wide.assess(325.0, (300.0, 315.0)),
@@ -121,7 +121,7 @@ fn strategy_labels_are_stable() {
     assert_eq!(ConservativeStrategy::default().label(), "conservative");
     assert_eq!(TightStrategy.label(), "tight");
     assert_eq!(
-        CoachConfiguredStrategy::default().label(),
+        AgentConfiguredStrategy::default().label(),
         "coach_configured"
     );
 }
@@ -329,10 +329,10 @@ fn check_claim_without_snapshot_is_unchanged() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn default_personalized_config_reads_coach_yaml() {
+fn default_personalized_config_reads_agent_yaml() {
     let cfg = VerificationConfig::default().personalized;
     assert!(cfg.enabled);
-    assert_eq!(cfg.tolerance, ToleranceMode::CoachConfigured);
+    assert_eq!(cfg.tolerance, ToleranceMode::AgentConfigured);
     assert_eq!(cfg.action, ActionMode::Inherit);
 }
 
@@ -340,7 +340,7 @@ fn default_personalized_config_reads_coach_yaml() {
 fn tolerance_factory_selects_the_strategy() {
     let mut cfg = VerificationConfig::default().personalized;
 
-    cfg.tolerance = ToleranceMode::CoachConfigured;
+    cfg.tolerance = ToleranceMode::AgentConfigured;
     assert_eq!(cfg.tolerance_strategy().label(), "coach_configured");
 
     cfg.tolerance = ToleranceMode::Conservative;
@@ -410,7 +410,7 @@ fn audit_only_and_user_warn_policies_differ() {
 }
 
 #[test]
-fn personalized_config_parses_from_coach_yaml() {
+fn personalized_config_parses_from_agent_yaml() {
     let prompt = "---\nverification_config:\n  personalized:\n    tolerance: tight\n    action: audit_only\n    margin_frac: 0.15\n---\nYou are a running coach.";
     let cfg = VerificationConfig::parse_from_system_prompt(prompt);
     assert_eq!(cfg.personalized.tolerance, ToleranceMode::Tight);

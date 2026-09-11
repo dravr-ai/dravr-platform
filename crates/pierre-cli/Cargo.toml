@@ -24,7 +24,7 @@ tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", 
 [dependencies]
 # Workspace crates
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
-pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }

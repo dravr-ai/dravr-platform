@@ -6,7 +6,7 @@
 
 //! Reactions as message feedback.
 //!
-//! The web app and the mobile app both rate a coach reply with a thumb, and
+//! The web app and the mobile app both rate an agent reply with a thumb, and
 //! both write `chat_message_feedback`. A messaging channel has no thumb — it
 //! has an emoji on the bubble — so this module maps that emoji onto the same
 //! write. There is one feedback system with three surfaces, not three.

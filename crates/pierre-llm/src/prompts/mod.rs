@@ -24,18 +24,18 @@ pub const PIERRE_SYSTEM_PROMPT: &str = system::PIERRE;
 /// Platform contract — the rules that hold on every turn.
 ///
 /// Tool framing, the current-date/epoch table, scope, capability discipline,
-/// ground-truth and anti-hallucination rules, regardless of which coach is
+/// ground-truth and anti-hallucination rules, regardless of which agent is
 /// bound.
 ///
-/// Separate from [`PIERRE_SYSTEM_PROMPT`] because a bound coach REPLACES that
+/// Separate from [`PIERRE_SYSTEM_PROMPT`] because a bound agent REPLACES that
 /// prompt, which silently stripped all of these rules from all 52 personas.
 pub const PLATFORM_CONTRACT_PROMPT: &str = system::PLATFORM_CONTRACT;
 
-/// Coach generation system prompt
+/// Agent generation system prompt
 ///
 /// Contains instructions for the LLM to analyze a conversation and generate
 /// a specialized persona profile with title, description, system prompt, and tags.
-pub const COACH_GENERATION_PROMPT: &str = system::COACH_GENERATION;
+pub const AGENT_GENERATION_PROMPT: &str = system::COACH_GENERATION;
 
 /// Messaging channel context prompt
 ///
@@ -70,10 +70,10 @@ pub const TOOL_DISCIPLINE_SHARED_PROMPT: &str = system::TOOL_DISCIPLINE_SHARED;
 
 /// Load-progression guardrails.
 ///
-/// Bounds how fast a coach may ramp an athlete's training load — volume,
+/// Bounds how fast an agent may ramp an athlete's training load — volume,
 /// intensity distribution, deload cadence — plus the framing rules that keep
 /// load talk from becoming injury-probability talk. Appended by prompt assembly
-/// for coaches whose category can prescribe load, and suppressed while a guided
+/// for agents whose category can prescribe load, and suppressed while a guided
 /// flow owns the turn.
 pub const PROGRESSION_GUARDRAILS_PROMPT: &str = system::PROGRESSION_GUARDRAILS;
 
@@ -86,7 +86,7 @@ pub const RECOMMENDATION_ANALYSIS_PROMPT: &str = system::RECOMMENDATION_ANALYSIS
 /// Recommendation analysis system prompt
 ///
 /// System prompt for the LLM when generating training recommendations.
-/// Instructs the model to respond as an expert fitness coach with valid JSON.
+/// Instructs the model to respond as an expert fitness agent with valid JSON.
 pub const RECOMMENDATION_SYSTEM_PROMPT: &str = system::RECOMMENDATION_SYSTEM;
 
 /// Activity analysis user prompt template
@@ -98,7 +98,7 @@ pub const ACTIVITY_ANALYSIS_PROMPT: &str = system::ACTIVITY_ANALYSIS;
 /// Activity analysis system prompt
 ///
 /// System prompt for the LLM when analyzing individual activities.
-/// Instructs the model to respond as an expert fitness coach with valid JSON.
+/// Instructs the model to respond as an expert fitness agent with valid JSON.
 pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = system::ACTIVITY_ANALYSIS_SYSTEM;
 
 /// Memory extraction system prompt (Tier 2 semantic user memory)
@@ -112,7 +112,7 @@ pub const MEMORY_EXTRACTION_PROMPT: &str = system::MEMORY_EXTRACTION;
 /// rules the platform enforces on one (verified `source_tool`, closed field
 /// set, v1 chart kinds, size caps).
 ///
-/// Appended when the active coach has a non-empty `visuals:` grant and the
+/// Appended when the active agent has a non-empty `visuals:` grant and the
 /// channel can render a block.
 pub const VISUAL_BLOCKS_PROMPT: &str = system::VISUAL_BLOCKS;
 
@@ -134,7 +134,7 @@ pub const ENTHUSIAST_PERSONA_PROMPT: &str = personas::ENTHUSIAST;
 /// per-activity reports, framework citations on every numeric claim, P0–P3 ladder.
 pub const POWER_ATHLETE_PERSONA_PROMPT: &str = personas::POWER_ATHLETE;
 
-/// Coach coaching persona block — inherits Power-athlete plus roster framing
+/// Agent coaching persona block — inherits Power-athlete plus roster framing
 /// and tenant-scoped athlete reports.
 pub const COACH_PERSONA_PROMPT: &str = personas::COACH;
 
@@ -147,13 +147,13 @@ pub const fn get_pierre_system_prompt() -> &'static str {
     PIERRE_SYSTEM_PROMPT
 }
 
-/// Get the system prompt for coach generation from conversations
+/// Get the system prompt for agent generation from conversations
 ///
 /// This prompt instructs the LLM to analyze a conversation and generate
-/// a structured coach profile in JSON format.
+/// a structured agent profile in JSON format.
 #[must_use]
-pub const fn get_coach_generation_prompt() -> &'static str {
-    COACH_GENERATION_PROMPT
+pub const fn get_agent_generation_prompt() -> &'static str {
+    AGENT_GENERATION_PROMPT
 }
 
 /// Get the messaging channel context prompt
@@ -222,7 +222,7 @@ pub const fn get_memory_extraction_prompt() -> &'static str {
 /// Get the persona-specific block to substitute for `{{COACHING_PERSONA_RULES}}`
 /// in [`PIERRE_SYSTEM_PROMPT`].
 ///
-/// Persona is orthogonal to the chosen coach personality — it controls output
+/// Persona is orthogonal to the chosen agent personality — it controls output
 /// format (structure, citation density, length) and notification cadence, not
 /// voice or domain.
 #[must_use]
@@ -254,10 +254,10 @@ pub const fn get_coaching_persona_prompt(persona: CoachingPersona) -> &'static s
 /// every future sync of a correctly-split prompt (live alert 2026-08-11,
 /// caught by this very gate keeping the prior content).
 pub const REQUIRED_SYSTEM_PROMPT_PLACEHOLDERS: &[(&str, &[&str])] = &[
-    // Platform contract — injected on every turn, coach-bound or not. The
-    // persona-rules slot lives HERE, not in pierre_system: a bound coach
+    // Platform contract — injected on every turn, agent-bound or not. The
+    // persona-rules slot lives HERE, not in pierre_system: a bound agent
     // replaces the pierre_system voice layer wholesale, and while the slot
-    // lived there (until 2026-09-01) coach-bound turns silently lost persona
+    // lived there (until 2026-09-01) agent-bound turns silently lost persona
     // steering. pierre_system carries no required placeholders anymore.
     (
         "platform_contract",

@@ -496,7 +496,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources.agent.database);
 
         // Create 3 notifications for user A
         for i in 0..3 {
@@ -581,7 +581,7 @@ mod notification_routes_tests {
             .unwrap()[0]
             .id;
 
-        let service = notification_service(&resources.coach.database);
+        let service = notification_service(&resources.agent.database);
 
         // Create 2 unread notifications
         for i in 0..2 {

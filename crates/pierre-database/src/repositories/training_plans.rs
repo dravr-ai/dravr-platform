@@ -1,4 +1,4 @@
-// ABOUTME: TrainingPlanRepository trait — persistence for coach-authored training plans
+// ABOUTME: TrainingPlanRepository trait — persistence for agent-authored training plans
 // ABOUTME: Dual SQLite/Postgres impls live in database/ and backends/postgres/. Tenant-scoped throughout.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,7 @@ use pierre_memory::training_plans::{
 };
 
 /// A new plan outline to persist. Saving supersedes the athlete's current
-/// active outline for the same coach (whole-row supersession, never
+/// active outline for the same agent (whole-row supersession, never
 /// mutation), so there is no separate "update" call.
 pub struct SaveTrainingPlanParams<'a> {
     /// Owning tenant.
@@ -34,7 +34,7 @@ pub struct SaveTrainingPlanParams<'a> {
     /// which is how a cancelled race is expressed; `None` is what an
     /// adjustment that says nothing about racing means.
     pub races: Option<&'a [GoalRace]>,
-    /// The coach's strategy in prose.
+    /// The agent's strategy in prose.
     pub strategy: &'a str,
     /// The flavour the season runs on, when one was chosen.
     pub flavour: Option<&'a FlavourSelection>,
@@ -51,7 +51,7 @@ pub struct SaveTrainingPlanParams<'a> {
 /// The outline half of a [`SavePlanBundleParams`].
 ///
 /// Mirrors [`SaveTrainingPlanParams`] minus the identity fields the bundle
-/// already carries — the bundle applies one tenant/user/coach to outline and
+/// already carries — the bundle applies one tenant/user/agent to outline and
 /// weeks alike.
 pub struct PlanOutlineInput<'a> {
     /// Snapshot of the goal race at plan time.
@@ -64,7 +64,7 @@ pub struct PlanOutlineInput<'a> {
     /// which is how a cancelled race is expressed; `None` is what an
     /// adjustment that says nothing about racing means.
     pub races: Option<&'a [GoalRace]>,
-    /// The coach's strategy in prose.
+    /// The agent's strategy in prose.
     pub strategy: &'a str,
     /// The flavour the season runs on, when one was chosen.
     pub flavour: Option<&'a FlavourSelection>,
@@ -88,11 +88,11 @@ pub struct PlanOutlineInput<'a> {
 pub struct PlanWeekInput<'a> {
     /// Civil date of the week's first day, `YYYY-MM-DD`.
     pub week_start: &'a str,
-    /// The week's intent in coach voice.
+    /// The week's intent in agent voice.
     pub focus: &'a str,
     /// The day rows, in date order (at most seven).
     pub days: &'a [PlannedDay],
-    /// Why the coach re-saved this week; empty on first save.
+    /// Why the agent re-saved this week; empty on first save.
     pub adjustment_reason: &'a str,
     /// Index of the outline phase this week instantiates, when stated.
     pub phase_index: Option<u32>,
@@ -130,26 +130,26 @@ pub struct SavedPlanBundle {
     pub superseded_plan_id: Option<String>,
 }
 
-/// The stored `coach_slug` of a plan that belongs to no coach.
+/// The stored `agent_slug` of a plan that belongs to no agent.
 ///
 /// One place, deliberately. This value is load-bearing in a way nothing about
-/// `""` announces: it is what the one-active-per-coach uniqueness key
+/// `""` announces: it is what the one-active-per-agent uniqueness key
 /// constrains agnostic rows by, and it is what [`PlanOwner`]'s fallback reads.
 /// Spelling it into a second query is how the two halves stop agreeing.
 pub const AGNOSTIC_PLAN_SLUG: &str = "";
 
-/// Whose plan a read or write is for: the coach this athlete has selected, if
+/// Whose plan a read or write is for: the agent this athlete has selected, if
 /// they have selected one.
 ///
 /// **One question, not two.** Every caller asks the same thing — "this
 /// athlete's coach, if any" — which is why this is a newtype rather than an
 /// enum with an `AgnosticOnly` variant. All ten production call sites pass a
 /// resolved `Option`; none asks for the agnostic plan *in preference to* a
-/// coach's own, so that variant would have no caller outside its own tests.
+/// agent's own, so that variant would have no caller outside its own tests.
 ///
-/// What it is NOT is "any plan". A read for coach A never returns coach B's:
+/// What it is NOT is "any plan". A read for agent A never returns agent B's:
 /// the fallback reaches only [`AGNOSTIC_PLAN_SLUG`] rows, which is where an
-/// athlete with no selected coach has their plan stored.
+/// athlete with no selected agent has their plan stored.
 ///
 /// This type exists because `Option<&str>` said none of that. `Some(slug)`
 /// meant "that coach's plan, else the agnostic one" and `None` meant "the
@@ -162,14 +162,14 @@ pub const AGNOSTIC_PLAN_SLUG: &str = "";
 pub struct PlanOwner<'a>(Option<&'a str>);
 
 impl<'a> PlanOwner<'a> {
-    /// The plan this coach owns, falling back to the agnostic plan when they
+    /// The plan this agent owns, falling back to the agnostic plan when they
     /// own none.
     #[must_use]
-    pub const fn coach(slug: &'a str) -> Self {
+    pub const fn agent(slug: &'a str) -> Self {
         Self(Some(slug))
     }
 
-    /// An athlete with no selected coach: only the agnostic plan.
+    /// An athlete with no selected agent: only the agnostic plan.
     #[must_use]
     pub const fn agnostic() -> Self {
         Self(None)
@@ -181,7 +181,7 @@ impl<'a> PlanOwner<'a> {
         Self(slug)
     }
 
-    /// The value to bind: the coach's slug, or the agnostic sentinel.
+    /// The value to bind: the agent's slug, or the agnostic sentinel.
     ///
     /// The only place either half of the mapping is spelled.
     #[must_use]
@@ -192,24 +192,24 @@ impl<'a> PlanOwner<'a> {
         }
     }
 
-    /// The coach's own slug, or `None` for an athlete with no selected coach.
+    /// The agent's own slug, or `None` for an athlete with no selected agent.
     #[must_use]
-    pub const fn coach_slug(self) -> Option<&'a str> {
+    pub const fn agent_slug(self) -> Option<&'a str> {
         self.0
     }
 }
 
-/// Persistence for coach-authored training plans.
+/// Persistence for agent-authored training plans.
 ///
 /// Plans are **tenant-scoped**: every query carries `tenant_id` in its
 /// `WHERE` clause. Who a plan belongs to is [`PlanOwner`], and
 /// [`AGNOSTIC_PLAN_SLUG`] is the stored value for a plan that belongs to no
-/// coach — so the one-active-per-coach uniqueness key constrains those rows
+/// agent — so the one-active-per-agent uniqueness key constrains those rows
 /// too (mirrors [`super::playbooks::PlaybookRepository`]).
 #[async_trait]
 pub trait TrainingPlanRepository: Send + Sync {
     /// Persist a new plan outline, superseding the athlete's current active
-    /// outline for the same coach in the same transaction. The new row's
+    /// outline for the same agent in the same transaction. The new row's
     /// `supersedes_id` points at the replaced outline (audit chain), and the
     /// replaced outline's still-active weeks are carried onto the new plan id
     /// so the athlete's day-by-day schedule follows it. Returns the stored plan.
@@ -238,7 +238,7 @@ pub trait TrainingPlanRepository: Send + Sync {
     /// they have no active plan.
     ///
     /// [`PlanOwner`] states the preference the old `Option<&str>` left to a
-    /// sort direction: a coach's own plan wins over the agnostic fallback.
+    /// sort direction: an agent's own plan wins over the agnostic fallback.
     async fn get_active_plan(
         &self,
         tenant_id: &str,
@@ -270,8 +270,8 @@ pub struct TrainingPlanRow {
     pub tenant_id: String,
     /// `user_id` column.
     pub user_id: String,
-    /// `coach_slug` column (`''` = coach-agnostic).
-    pub coach_slug: String,
+    /// `agent_slug` column (`''` = agent-agnostic).
+    pub agent_slug: String,
     /// `goal_fact_id` column.
     pub goal_fact_id: Option<String>,
     /// `goal_race_json` column.
@@ -360,7 +360,7 @@ pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<Training
         id: row.id,
         tenant_id: row.tenant_id,
         user_id: row.user_id,
-        coach_slug: (!row.coach_slug.is_empty()).then_some(row.coach_slug),
+        agent_slug: (!row.agent_slug.is_empty()).then_some(row.agent_slug),
         goal_fact_id: row.goal_fact_id,
         goal_race,
         races,
@@ -415,8 +415,8 @@ pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
 pub(crate) struct PlanInsertValues {
     /// New row id.
     pub id: String,
-    /// `''`-normalized coach slug.
-    pub coach_slug: String,
+    /// `''`-normalized agent slug.
+    pub agent_slug: String,
     /// Serialized goal-race snapshot.
     pub goal_race_json: String,
     /// Serialized race calendar, or `None` to carry the superseded row's
@@ -450,7 +450,7 @@ pub(crate) fn plan_insert_values(
         .map_err(|e| AppError::internal(format!("serialize flavour: {e}")))?;
     Ok(PlanInsertValues {
         id: uuid::Uuid::new_v4().to_string(),
-        coach_slug: params.owner.stored_slug().to_owned(),
+        agent_slug: params.owner.stored_slug().to_owned(),
         goal_race_json,
         races_json,
         phases_json,
@@ -489,8 +489,8 @@ pub(crate) struct BuiltPlan<'a> {
     pub tenant_id: &'a str,
     /// Athlete the plan is for.
     pub user_id: &'a str,
-    /// Coach slug (`None` = coach-agnostic).
-    pub coach_slug: Option<&'a str>,
+    /// Agent slug (`None` = agent-agnostic).
+    pub agent_slug: Option<&'a str>,
     /// Linked pillar Goal fact, if any.
     pub goal_fact_id: Option<&'a str>,
     /// Goal-race snapshot.
@@ -523,7 +523,7 @@ pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
         id: b.id,
         tenant_id: b.tenant_id.to_owned(),
         user_id: b.user_id.to_owned(),
-        coach_slug: b.coach_slug.map(str::to_owned),
+        agent_slug: b.agent_slug.map(str::to_owned),
         goal_fact_id: b.goal_fact_id.map(str::to_owned),
         goal_race: b.goal_race.clone(),
         races: b.races.to_vec(),

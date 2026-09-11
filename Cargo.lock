@@ -3586,6 +3586,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-agent-parser"
+version = "0.3.0"
+dependencies = [
+ "pierre-core",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
 name = "pierre-agui"
 version = "0.3.0"
 dependencies = [
@@ -3701,8 +3710,8 @@ dependencies = [
  "dirs 5.0.1",
  "glob",
  "open",
+ "pierre-agent-parser",
  "pierre-auth",
- "pierre-coach-parser",
  "pierre-core",
  "pierre-database",
  "pierre-evals",
@@ -3717,15 +3726,6 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "uuid",
-]
-
-[[package]]
-name = "pierre-coach-parser"
-version = "0.3.0"
-dependencies = [
- "pierre-core",
- "serde",
- "serde_yaml",
 ]
 
 [[package]]
@@ -4208,6 +4208,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-routes-agents"
+version = "0.3.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "pierre-agent-parser",
+ "pierre-auth",
+ "pierre-cache",
+ "pierre-config",
+ "pierre-core",
+ "pierre-database",
+ "pierre-llm",
+ "pierre-middleware",
+ "pierre-notifications",
+ "pierre-runtime-context",
+ "pierre-services",
+ "pierre-tool-runtime",
+ "serde",
+ "serde_json",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-routes-auth"
 version = "0.3.0"
 dependencies = [
@@ -4253,30 +4277,6 @@ dependencies = [
  "pierre-middleware",
  "pierre-runtime-context",
  "serde",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "pierre-routes-coaches"
-version = "0.3.0"
-dependencies = [
- "axum",
- "chrono",
- "pierre-auth",
- "pierre-cache",
- "pierre-coach-parser",
- "pierre-config",
- "pierre-core",
- "pierre-database",
- "pierre-llm",
- "pierre-middleware",
- "pierre-notifications",
- "pierre-runtime-context",
- "pierre-services",
- "pierre-tool-runtime",
- "serde",
- "serde_json",
  "tracing",
  "uuid",
 ]
@@ -4392,7 +4392,7 @@ dependencies = [
  "chrono",
  "clap",
  "glob",
- "pierre-coach-parser",
+ "pierre-agent-parser",
  "pierre-core",
  "pierre-database",
  "rand 0.9.4",
@@ -4415,10 +4415,10 @@ dependencies = [
  "dravr-tronc",
  "futures-util",
  "hex",
+ "pierre-agent-parser",
  "pierre-agui",
  "pierre-auth",
  "pierre-cache",
- "pierre-coach-parser",
  "pierre-config",
  "pierre-contremaitre",
  "pierre-core",
@@ -4580,11 +4580,11 @@ dependencies = [
  "num-traits",
  "photograveur",
  "pierre-a2a",
+ "pierre-agent-parser",
  "pierre-agui",
  "pierre-auth",
  "pierre-cache",
  "pierre-chat-pipeline",
- "pierre-coach-parser",
  "pierre-commands",
  "pierre-config",
  "pierre-contremaitre",
@@ -4610,9 +4610,9 @@ dependencies = [
  "pierre-providers",
  "pierre-routes-a2a",
  "pierre-routes-admin",
+ "pierre-routes-agents",
  "pierre-routes-auth",
  "pierre-routes-billing",
- "pierre-routes-coaches",
  "pierre-routes-dashboard",
  "pierre-routes-groups",
  "pierre-routes-identity",

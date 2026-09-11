@@ -72,7 +72,7 @@ async fn drive(resources: &Arc<ServerContext>, ctx: &ToolContext, request: Value
 async fn seeded_context(resources: &Arc<ServerContext>, email: &str) -> Result<ToolContext> {
     let (user, token) = common::create_test_tenant(resources, email).await?;
     drop(token);
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await?;
     let tenant_id = tenants.first().expect("seeded user owns a tenant").id;
     Ok(ToolContext::new()

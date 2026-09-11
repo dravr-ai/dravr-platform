@@ -177,7 +177,7 @@ impl<'a> UsageCounterService<'a> {
     }
 
     /// Tier-aware limit check scoped to a sub-dimension (per
-    /// conversation, per coach, per tool).
+    /// conversation, per agent, per tool).
     ///
     /// The counter is stored under a synthetic `counter_type` of the
     /// form `<base>:<dimension>` so each scope is tracked
@@ -251,7 +251,7 @@ impl<'a> UsageCounterService<'a> {
         })
     }
 
-    /// Increment a scoped counter (per conversation / coach / tool)
+    /// Increment a scoped counter (per conversation / agent / tool)
     /// using the same `<base>:<dimension>` synthetic `counter_type` the
     /// dimensioned limit check inspects.
     ///
@@ -405,8 +405,8 @@ fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
         "daily_tool_calls" => q.daily_tool_calls,
         "daily_conversations" => q.max_conversations_per_day,
         "conversation_messages" => q.max_messages_per_conversation,
-        "daily_coach_messages" => q.max_messages_per_coach_per_day,
-        "active_coaches" => q.max_active_coaches,
+        "daily_coach_messages" => q.max_messages_per_agent_per_day,
+        "active_coaches" => q.max_active_agents,
         // Counter types we have not yet keyed to tier fall back to the
         // historical defaults; admins can override via admin_config.
         "weekly_messages" => 250,

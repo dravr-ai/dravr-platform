@@ -105,7 +105,7 @@ impl ServerContextBuilder {
     }
 
     /// Set the pre-built [`ChatProvider`] singleton (used by the production
-    /// binary so chat / coach / social / memory / health-probe consumers
+    /// binary so chat / agent / social / memory / health-probe consumers
     /// share one warm provider instance instead of rebuilding per call).
     #[must_use]
     pub fn with_chat_provider(mut self, chat_provider: Arc<ChatProvider>) -> Self {

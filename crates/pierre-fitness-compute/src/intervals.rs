@@ -16,7 +16,7 @@
 //! laps before it.
 //!
 //! When the activity has no laps, the output is a single synthetic interval
-//! covering the whole activity so coaches can still compare apples to
+//! covering the whole activity so agents can still compare apples to
 //! apples against multi-lap sessions.
 
 use chrono::{DateTime, TimeDelta, Utc};

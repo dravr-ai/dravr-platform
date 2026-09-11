@@ -50,7 +50,7 @@ pub(super) async fn plan_block_for_turn(
         &ctx.repos,
         input.tool_tenant_id,
         user_id,
-        input.turn_coach_id(conv),
+        input.turn_agent_id(conv),
         today,
         &ctx.messaging_strings_registry,
         &profile.locale,

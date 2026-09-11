@@ -124,7 +124,7 @@ import { ChatScreen } from '../src/screens/chat/ChatScreen';
 describe('ChatScreen new-thread title', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCreateConversation.mockResolvedValue({ id: 'conv-1', title: 'Chat', coach_id: null });
+    mockCreateConversation.mockResolvedValue({ id: 'conv-1', title: 'Chat', agent_id: null });
     mockSendTurn.mockResolvedValue(null);
   });
 

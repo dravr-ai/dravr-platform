@@ -14,14 +14,14 @@ use common::{create_test_server_resources, create_test_user};
 use pierre_core::models::UserOAuthToken;
 use uuid::Uuid;
 
-/// The personalized coach recommender's provider gate reads
+/// The personalized agent recommender's provider gate reads
 /// `oauth_tokens.get_tokens`. This asserts a token seeded via `upsert_token`
 /// (the path a seeder would use) is decryptable and surfaced by `get_tokens`,
 /// so the gate sees the provider name.
 #[tokio::test]
 async fn seeded_oauth_token_roundtrips_through_get_tokens() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
 
     let tenant = resources
         .common
@@ -87,7 +87,7 @@ async fn seeded_oauth_token_roundtrips_through_get_tokens() {
 #[tokio::test]
 async fn intervals_icu_token_roundtrips_provider_user_id() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
 
     let tenant = resources
         .common

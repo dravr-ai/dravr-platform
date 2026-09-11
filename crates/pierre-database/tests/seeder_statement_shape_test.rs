@@ -1,4 +1,4 @@
-// ABOUTME: Parses the coach seeder SQL and checks columns/values/placeholders/binds agree
+// ABOUTME: Parses the agent seeder SQL and checks columns/values/placeholders/binds agree
 // ABOUTME: A column added to one clause but not another is invisible until a live seed run
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,7 @@
 
 //! Why this reads source text instead of exercising the seeder.
 //!
-//! `seed_insert_coach` / `seed_update_coach` have no test callers and need a
+//! `seed_insert_agent` / `seed_update_agent` have no test callers and need a
 //! live database to run, so a widened column list can disagree with its VALUES
 //! clause and nothing notices until a real seed against `PostgreSQL` — which
 //! gates the deploy. That happened on 2026-08-14: `visuals` was added to the PG
@@ -84,12 +84,12 @@ fn source(rel: &str) -> String {
 }
 
 #[test]
-fn coach_insert_statements_are_internally_consistent() {
+fn agent_insert_statements_are_internally_consistent() {
     for rel in ["src/database/seeder.rs", "src/backends/postgres/seeder.rs"] {
         let src = source(rel);
-        let stmt = statement(&src, "INSERT INTO coaches");
+        let stmt = statement(&src, "INSERT INTO agents");
 
-        let columns = count_group(&stmt, "INSERT INTO coaches");
+        let columns = count_group(&stmt, "INSERT INTO agents");
         // `Values` in one backend, `VALUES` in the other — the casing difference
         // is exactly what let a search-and-replace miss one of them.
         let marker = if stmt.contains("VALUES (") {
@@ -99,7 +99,7 @@ fn coach_insert_statements_are_internally_consistent() {
         };
         let values = count_group(&stmt, marker);
         let (max_param, contiguous) = placeholders(&stmt);
-        let binds = binds_after(&src, "INSERT INTO coaches");
+        let binds = binds_after(&src, "INSERT INTO agents");
 
         assert_eq!(
             columns, values,
@@ -114,13 +114,13 @@ fn coach_insert_statements_are_internally_consistent() {
 }
 
 #[test]
-fn coach_update_statements_are_internally_consistent() {
+fn agent_update_statements_are_internally_consistent() {
     for rel in ["src/database/seeder.rs", "src/backends/postgres/seeder.rs"] {
         let src = source(rel);
-        // The coach update is the statement whose SET list starts on the next
+        // The agent update is the statement whose SET list starts on the next
         // source line; `seed_take_catalogue_ownership` also opens with
-        // `UPDATE coaches SET`, on one line, and is not the one under test.
-        let needle = "UPDATE coaches SET \\";
+        // `UPDATE agents SET`, on one line, and is not the one under test.
+        let needle = "UPDATE agents SET \\";
         let stmt = statement(&src, needle);
         let (max_param, contiguous) = placeholders(&stmt);
         let binds = binds_after(&src, needle);
@@ -141,15 +141,15 @@ fn coach_update_statements_are_internally_consistent() {
 }
 
 #[test]
-fn both_backends_write_the_same_coach_columns() {
-    let sqlite = statement(&source("src/database/seeder.rs"), "INSERT INTO coaches");
+fn both_backends_write_the_same_agent_columns() {
+    let sqlite = statement(&source("src/database/seeder.rs"), "INSERT INTO agents");
     let postgres = statement(
         &source("src/backends/postgres/seeder.rs"),
-        "INSERT INTO coaches",
+        "INSERT INTO agents",
     );
 
     let cols = |stmt: &str| -> Vec<String> {
-        let tail = &stmt[stmt.find("INSERT INTO coaches").unwrap() + 19..];
+        let tail = &stmt[stmt.find("INSERT INTO agents").unwrap() + 19..];
         let open = tail.find('(').unwrap();
         let close = tail.find(')').unwrap();
         tail[open + 1..close]

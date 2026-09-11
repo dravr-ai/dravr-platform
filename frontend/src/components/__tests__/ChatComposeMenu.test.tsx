@@ -77,13 +77,13 @@ describe('chat "+" menu', () => {
     ]);
     getConversations.mockResolvedValue({
       conversations: [
-        { id: CONVERSATION_ID, title: 'Sunday long run', coach_id: null, unread_count: 0 },
+        { id: CONVERSATION_ID, title: 'Sunday long run', agent_id: null, unread_count: 0 },
       ],
       total: 1,
     });
     getConversationMessages.mockResolvedValue({ messages: [] });
     markConversationRead.mockResolvedValue(undefined);
-    listCoaches.mockResolvedValue({ coaches: [] });
+    listCoaches.mockResolvedValue({ agents: [] });
     createConversation.mockResolvedValue({ id: 'conv-new', title: 'Chat' });
     sendTurn.mockResolvedValue(undefined);
   });

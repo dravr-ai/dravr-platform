@@ -118,13 +118,13 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
             >
               {row.title}
             </Text>
-            {row.coachHandle && (
+            {row.agentHandle && (
               <Text
                 className="text-xs text-text-tertiary ml-1.5 flex-shrink"
                 numberOfLines={1}
                 testID={`conversation-handle-${row.id}`}
               >
-                {MENTION_PREFIX}{row.coachHandle}
+                {MENTION_PREFIX}{row.agentHandle}
               </Text>
             )}
             <Text

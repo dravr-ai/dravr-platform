@@ -1,5 +1,5 @@
 // ABOUTME: pierre_runtime_context::*Ctx trait impls projecting ServerContext onto narrow per-subsystem facades
-// ABOUTME: Each impl exposes only the Arc handles a downstream route/service crate needs (auth, billing, identity, dashboard, mcp-dispatch, a2a, sse, coaches, social, command)
+// ABOUTME: Each impl exposes only the Arc handles a downstream route/service crate needs (auth, billing, identity, dashboard, mcp-dispatch, a2a, sse, agents, social, command)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -152,13 +152,13 @@ impl pierre_runtime_context::AdminConfigLookup for AdminConfigService {
     }
 }
 
-impl pierre_runtime_context::CoachesCtx for ServerContext {
+impl pierre_runtime_context::AgentsCtx for ServerContext {
     fn database(&self) -> &Arc<Database> {
-        &self.coach.database
+        &self.agent.database
     }
 
     fn admin_config(&self) -> Option<Arc<dyn pierre_runtime_context::AdminConfigLookup>> {
-        self.coach
+        self.agent
             .admin_config
             .as_ref()
             .map(|svc| Arc::clone(svc) as Arc<dyn pierre_runtime_context::AdminConfigLookup>)
@@ -207,7 +207,7 @@ mod groups_ctx_impl {
             key: &str,
             tenant_id: Option<&str>,
         ) -> Option<serde_json::Value> {
-            let service = self.coach.admin_config.as_ref()?;
+            let service = self.agent.admin_config.as_ref()?;
             let scope = pierre_runtime_context::ConfigLookupScope {
                 user_id: None,
                 tenant_id,
@@ -245,7 +245,7 @@ mod command_ctx_impl {
         }
 
         fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>> {
-            self.coach
+            self.agent
                 .admin_config
                 .as_ref()
                 .map(|svc| Arc::clone(svc) as Arc<dyn AdminConfigLookup>)
@@ -259,8 +259,8 @@ mod command_ctx_impl {
             self.common.llm_provider.as_ref()
         }
 
-        fn coach_generation_prompt(&self) -> String {
-            Self::coach_generation_prompt(self)
+        fn agent_generation_prompt(&self) -> String {
+            Self::agent_generation_prompt(self)
         }
     }
 }

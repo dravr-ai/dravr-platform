@@ -42,7 +42,7 @@ pub struct FixtureCaseSummary {
     pub id: String,
     /// Human-readable label.
     pub label: String,
-    /// Coach persona the case targets.
+    /// Agent persona the case targets.
     pub persona: String,
     /// Number of turns in the case.
     pub turn_count: usize,

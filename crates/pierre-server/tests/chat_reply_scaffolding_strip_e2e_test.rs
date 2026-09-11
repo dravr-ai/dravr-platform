@@ -332,7 +332,7 @@ mod reply_scaffolding_strip {
 
         for _ in 0..150 {
             if let Some(content) =
-                latest_assistant_content(&resources.coach.database, &tenant_str).await
+                latest_assistant_content(&resources.agent.database, &tenant_str).await
             {
                 return Some(content);
             }

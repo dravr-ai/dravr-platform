@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
+use pierre_core::models::{AgentRuntimeContext, CoachingPersona};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
 use tracing::{info, warn};
@@ -80,7 +80,7 @@ pub(crate) struct PostProcessInputs<'a> {
     pub ctx: &'a ChatPipelineContext,
     pub input: &'a TurnInput,
     pub conv: &'a ConversationRecord,
-    pub coach_ctx: Option<&'a CoachRuntimeContext>,
+    pub agent_ctx: Option<&'a AgentRuntimeContext>,
     pub prompt_guard: &'a prompt_leak::PromptGuard,
     /// What the turn's surface can render, plus its resolved locale. Read for
     /// the plan-card capability that gates the plan block, the transport
@@ -95,7 +95,7 @@ pub(crate) struct PostProcessInputs<'a> {
     /// the prefetch injected an activity block.
     ///
     /// `false` means the reply was produced from conversation history alone, and
-    /// the appeal scrub applies: the coach may still answer, it just cannot cite
+    /// the appeal scrub applies: the agent may still answer, it just cannot cite
     /// a lookup it did not perform (registre#202).
     pub turn_was_grounded: bool,
     /// The model this turn actually ran on.
@@ -108,7 +108,7 @@ pub(crate) struct PostProcessInputs<'a> {
     pub active_model: &'a str,
 }
 
-/// Resolve the coach's roster so the conformance stage can tell a cited athlete
+/// Resolve the agent's roster so the conformance stage can tell a cited athlete
 /// apart from a stranger.
 ///
 /// Queried only when the persona's contract sets `require_tenant_isolation` —
@@ -127,11 +127,11 @@ async fn resolve_roster_scope(
     {
         return None;
     }
-    let coach_id = Uuid::parse_str(&input.user_id).ok()?;
+    let agent_id = Uuid::parse_str(&input.user_id).ok()?;
     match ctx
         .repos
         .roster
-        .list_athletes_for_coach(coach_id, input.conversation_tenant_id)
+        .list_athletes_for_coach(agent_id, input.conversation_tenant_id)
         .await
     {
         Ok(assignments) => Some(RosterScope::from_athlete_ids(
@@ -158,7 +158,7 @@ async fn resolve_roster_scope(
 ///
 /// Skipped on messaging — there is no block renderer there, and stripping the
 /// fences would leave markers pointing at nothing. The matching prompt
-/// permission is withheld there too, so a messaging coach never emits one.
+/// permission is withheld there too, so a messaging agent never emits one.
 /// Stage 16a then 16b: gloss first-use acronyms, then enforce the persona's
 /// output-format contract.
 ///
@@ -282,7 +282,7 @@ async fn repaired_extraction(
 async fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
-    coach_ctx: Option<&CoachRuntimeContext>,
+    agent_ctx: Option<&AgentRuntimeContext>,
     tools_called: &[String],
     raw_content: String,
     active_model: &str,
@@ -292,21 +292,21 @@ async fn lift_viz_blocks(
     // inline; it has somewhere now, because the egress mints a signed image URL
     // per block and sends it as media. Which channels get pixels rather than
     // the prose fallback is the egress's decision, not this stage's.
-    // A coach with no `visuals:` grant is never shown the contract, so a fence
+    // An agent with no `visuals:` grant is never shown the contract, so a fence
     // in its reply is not something we asked for. Extracting it anyway would
     // make the grant advisory; refusing keeps it a permission. The fence stays
     // in the text, visible, rather than being silently swallowed.
     // Same rule the prompt-assembly stage used to decide whether to teach the
-    // contract. If the two ever disagree, a coach is told it may draw and then
+    // contract. If the two ever disagree, an agent is told it may draw and then
     // has its block refused — which is precisely the raw-JSON reply this stage
     // exists to prevent.
-    let granted = viz_blocks::granted_visuals(coach_ctx.map(|c| c.visuals.as_slice()));
+    let granted = viz_blocks::granted_visuals(agent_ctx.map(|c| c.visuals.as_slice()));
     if granted.is_empty() {
         return (raw_content, None, 0);
     }
     let granted = granted.as_slice();
     // A route block names an activity and the platform reads its recorded
-    // track: the geometry is thousands of points, so the coach cites it and
+    // track: the geometry is thousands of points, so the agent cites it and
     // never writes it. Reads happen before extraction because a block without
     // its track has no map to render and is refused like any other faulty one.
     let mut tracks = viz_route::RouteTracks::new();
@@ -366,7 +366,7 @@ async fn lift_viz_blocks(
 ///
 /// Live 2026-09-02, on a zero-tool turn and immediately after the athlete had
 /// corrected it for the third time: «Roster data confirme: Date ride était bien
-/// lundi». The coach turned the athlete's own correction into evidence against
+/// lundi». The agent turned the athlete's own correction into evidence against
 /// him. On a grounded turn the same sentence is true, so this returns the reply
 /// untouched (registre#202).
 ///
@@ -411,7 +411,7 @@ pub(crate) async fn post_process_assistant_reply(
         ctx,
         input,
         conv,
-        coach_ctx,
+        agent_ctx,
         prompt_guard,
         profile,
         tools_called,
@@ -425,13 +425,13 @@ pub(crate) async fn post_process_assistant_reply(
     // legitimate refusal reproduces prompt shingles by construction and
     // blocking on them would eat every refusal.
     let locale = profile.locale.as_str();
-    // Keyed on the coach that answered this turn, the same salt the canary was
+    // Keyed on the agent that answered this turn, the same salt the canary was
     // minted with in prompt assembly.
     let leak_report = prompt_leak::scan_assistant_reply(
         prompt_guard,
         &raw_content,
         input.conversation_tenant_id,
-        input.turn_coach_id(conv),
+        input.turn_agent_id(conv),
     );
     if leak_report.canary_hit {
         return PostProcessedReply {
@@ -447,14 +447,14 @@ pub(crate) async fn post_process_assistant_reply(
         };
     }
 
-    // Stage 15.4: Model-identity leak. Production messaging runs the coach
+    // Stage 15.4: Model-identity leak. Production messaging runs the agent
     // through GitHub Copilot CLI, which owns the true system slot, so the model
     // periodically answers as itself (« I'm GitHub Copilot CLI, a terminal-based
     // coding assistant » reached a live Telegram user on 2026-07-22). That is a
     // whole persona break, not salvageable sentence-by-sentence — withhold the
     // entire reply like a canary hit. `leak_replaced = true` gates Tier-2
     // learning and stamps the persisted row with `WITHHELD_REPLY_FINISH_REASON`,
-    // which is what keeps the apology out of the coach turn's replayed history
+    // which is what keeps the apology out of the agent turn's replayed history
     // — the row itself IS persisted (the athlete saw it), contrary to what this
     // comment claimed before 2026-08-02: WITHHELD_REPLY_TRANSCRIPT_MARKER only
     // ever reaches the fact-extraction prompt, never the database. The
@@ -477,7 +477,7 @@ pub(crate) async fn post_process_assistant_reply(
     let (raw_content, content_blocks, block_count) = lift_viz_blocks(
         ctx,
         input,
-        coach_ctx,
+        agent_ctx,
         tools_called,
         raw_content,
         active_model,
@@ -538,7 +538,7 @@ pub(crate) async fn post_process_assistant_reply(
     let verdict_chips: Vec<VerdictChip> = Vec::new();
     #[cfg(feature = "tools-verification")]
     let (pending_verdicts, verdict_chips) = {
-        let verification_config = coach_ctx
+        let verification_config = agent_ctx
             .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
             .unwrap_or_default();
         let ClaimVerificationOutcome {

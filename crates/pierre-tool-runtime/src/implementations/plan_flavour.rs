@@ -6,7 +6,7 @@
 
 //! # `recommend_plan_flavour`
 //!
-//! The one chat-callable surface over the periodization kernel. The coach
+//! The one chat-callable surface over the periodization kernel. The agent
 //! calls it after `/season` and `/calibrate` have run, passes what the athlete
 //! answered, and receives a ranked verdict — what they can run, what they
 //! cannot and why, and how sure the rule is — plus the season laid backward
@@ -15,9 +15,9 @@
 //! Three things are read from storage rather than asked again: the profile,
 //! for the devices the athlete already has thresholds for and the training
 //! age they stated; the active plan, for the goal race the season is aimed
-//! at; and the coach's package, for the house flavour it pins and the
+//! at; and the agent's package, for the house flavour it pins and the
 //! flavours and skeleton it lays over the catalogue. Everything the tool
-//! resolved and where it came from is echoed back as `inputs`, so the coach
+//! resolved and where it came from is echoed back as `inputs`, so the agent
 //! can confirm before saving the outcome through `save_training_plan`.
 
 use std::collections::{BTreeSet, HashMap};
@@ -57,8 +57,8 @@ use pierre_core::models::{SportFamily, SportType, TenantId, UserPhysiologicalPro
 use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::{parse_plan_date, RacePriority, TrainingPlan};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_clock::athlete_today;
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::plan_card::flavour_label;
 use pierre_tools_core::ToolResult;
@@ -71,7 +71,7 @@ const MAX_SESSIONS_PER_WEEK: u8 = 21;
 /// The tool.
 pub struct RecommendPlanFlavourTool;
 
-/// What the coach passes: the questionnaire's answers, each optional where
+/// What the agent passes: the questionnaire's answers, each optional where
 /// storage can fill it in.
 #[derive(Deserialize)]
 struct Payload {
@@ -99,7 +99,7 @@ struct Payload {
     athlete: Option<String>,
 }
 
-/// Where each resolved input came from, so the coach can confirm it.
+/// Where each resolved input came from, so the agent can confirm it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
     Argument,
@@ -336,7 +336,7 @@ impl RecommendPlanFlavourTool {
         };
         // The catalogue gates on years as a number and on the band as a word,
         // and both must agree. A stored count wins; otherwise the band stands
-        // in, at the fewest years that band means — so a coach who says
+        // in, at the fewest years that band means — so an agent who says
         // "trained" is not refused every flavour for an unstated zero.
         let training_age_years = profile
             .and_then(|p| p.training_experience_years)
@@ -432,7 +432,7 @@ impl RecommendPlanFlavourTool {
         let injury_load = or_default!(injury_load, InjuryLoad::None);
         // None is the safe reading for an athlete about whom nothing is known:
         // it refuses every flavour that needs interval history, which is the
-        // error a coach can recover from in one question.
+        // error an agent can recover from in one question.
         let interval_experience = or_default!(interval_experience, IntervalExperience::None);
         if payload.season_phase.is_some() {
             take("season_phase", Source::Argument);
@@ -459,7 +459,7 @@ impl RecommendPlanFlavourTool {
         }
     }
 
-    /// Pin the house flavour of the coach's package, when the package ships
+    /// Pin the house flavour of the agent's package, when the package ships
     /// one: the kernel ranks it first whenever the athlete can run it. Never
     /// an argument — a pin the model could write would be an override
     /// wearing the package's name.
@@ -486,9 +486,9 @@ impl RecommendPlanFlavourTool {
     /// The verdict, with every ranked and excluded flavour also named in the
     /// athlete's own words and locale.
     ///
-    /// The label is what the coach says out loud while the id stays the
-    /// coach's name for it. Every other field is the kernel's own, and an
-    /// unknown field is ignored on the way back in, so the coach can still
+    /// The label is what the agent says out loud while the id stays the
+    /// agent's name for it. Every other field is the kernel's own, and an
+    /// unknown field is ignored on the way back in, so the agent can still
     /// pass this to `save_training_plan.flavour.verdict` verbatim and have
     /// the stored snapshot deserialize into `FlavourVerdict`.
     fn verdict_json(
@@ -755,7 +755,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 context: &context,
                 requester_tenant,
                 conversation: conversation.as_ref(),
-                arg_coach: None,
+                arg_agent: None,
                 athlete: payload.athlete.as_deref(),
                 tool_name: "recommend_plan_flavour",
             })
@@ -766,7 +766,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             };
             let tenant_id = scope.tenant;
             let user_id = scope.user_id;
-            let coach = scope.coach_slug.as_deref();
+            let agent = scope.agent_slug.as_deref();
 
             let profile = repos
                 .user_physiological_profile
@@ -777,7 +777,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 .get_active_plan(
                     &tenant_id.to_string(),
                     &user_id.to_string(),
-                    PlanOwner::from_slug(coach),
+                    PlanOwner::from_slug(agent),
                 )
                 .await?;
             let goal = plan.as_ref().and_then(|p| {
@@ -789,9 +789,9 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             let today = athlete_today(repos, user_id).await;
             let mut resolved = Self::resolve(&payload, profile.as_ref(), goal, today);
 
-            // The coach's package over the catalogue: its house flavour is
+            // The agent's package over the catalogue: its house flavour is
             // pinned, its flavours and skeleton offered beside the catalogue's.
-            let package = load_coach_package(repos, tenant_id, user_id, coach).await?;
+            let package = load_agent_package(repos, tenant_id, user_id, agent).await?;
             let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
             Self::pin_house_flavour(&mut resolved, catalogue.house_flavour());
             let table = catalogue.selection().ok_or_else(|| {
@@ -818,7 +818,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             };
 
             // The verdict speaks the athlete's language: the labels are what
-            // the coach says, resolved the way the memory tool resolves them.
+            // the agent says, resolved the way the memory tool resolves them.
             let locale = resolve_user_locale(repos.users.as_ref(), user_id).await;
             let strings = context.resources.messaging_strings_registry();
 

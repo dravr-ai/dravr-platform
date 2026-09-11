@@ -13,7 +13,7 @@ mod helpers;
 use axum::http::StatusCode;
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
+use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -91,12 +91,12 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     (user_id, tenant_id, format!("Bearer {token}"))
 }
 
-async fn seed_coach(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
-    let request = CreateCoachRequest {
+async fn seed_agent(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
+    let request = CreateAgentRequest {
         title: "Catalogue Coach".to_owned(),
         description: Some("Coach for the catalogue tests".to_owned()),
         system_prompt: "You are a test coach.".to_owned(),
-        category: CoachCategory::Training,
+        category: AgentCategory::Training,
         tags: vec![],
         sample_prompts: vec![],
         startup_query: None,
@@ -109,14 +109,14 @@ async fn seed_coach(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: Te
         success_criteria: None,
         max_tool_iterations: None,
     };
-    let coach = resources
+    let agent = resources
         .common
         .repos
-        .coaches
+        .agents
         .create(user_id, tenant_id, &request)
         .await
         .unwrap();
-    coach.id.to_string()
+    agent.id.to_string()
 }
 
 /// Put `user_id` in a coaching group with `role` and return the group id.
@@ -124,7 +124,7 @@ async fn seed_group_membership(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
-    coach_id: &str,
+    agent_id: &str,
     role: GroupRole,
 ) -> Uuid {
     let now = chrono::Utc::now();
@@ -134,7 +134,7 @@ async fn seed_group_membership(
         tenant_id: tenant_id.to_string(),
         name: "Catalogue Group".to_owned(),
         description: None,
-        coach_id: coach_id.to_owned(),
+        agent_id: agent_id.to_owned(),
         owner_id: user_id,
         coach_user_id: None,
         peer_data_sharing: false,
@@ -286,8 +286,8 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "catalogue-solo-owner@test.com").await;
-    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
-    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
+    seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources))
         .merge(CommandRoutes::routes(Arc::clone(&resources)));
@@ -322,9 +322,9 @@ async fn member_in_a_bound_conversation_is_listed_per_role() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "catalogue-bound-member@test.com").await;
-    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Member).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources))
         .merge(CommandRoutes::routes(Arc::clone(&resources)));
@@ -390,8 +390,8 @@ async fn plain_member_sees_the_membership_command_but_not_the_manage_one() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "catalogue-member@test.com").await;
-    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
-    seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
+    seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Member).await;
     let router = CommandRoutes::routes(Arc::clone(&resources));
 
     let entries = fetch_catalogue(router, &auth, None).await;
@@ -414,9 +414,9 @@ async fn plain_member_sees_the_membership_command_but_not_the_manage_one() {
 async fn owner_sees_the_manage_command_in_the_bound_conversation() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "catalogue-owner@test.com").await;
-    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Owner).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Owner).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources))
         .merge(CommandRoutes::routes(Arc::clone(&resources)));
@@ -493,9 +493,9 @@ async fn plan_share_is_listed_only_where_a_room_exists() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "catalogue-plan-share@test.com").await;
-    let coach_id = seed_coach(&resources, user_id, tenant_id).await;
+    let agent_id = seed_agent(&resources, user_id, tenant_id).await;
     let group_id =
-        seed_group_membership(&resources, user_id, tenant_id, &coach_id, GroupRole::Member).await;
+        seed_group_membership(&resources, user_id, tenant_id, &agent_id, GroupRole::Member).await;
 
     let router = ChatRoutes::routes(Arc::clone(&resources))
         .merge(CommandRoutes::routes(Arc::clone(&resources)));

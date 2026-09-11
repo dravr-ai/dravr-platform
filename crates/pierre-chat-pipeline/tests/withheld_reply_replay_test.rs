@@ -80,7 +80,7 @@ fn a_withheld_row_is_dropped_from_the_replayed_prompt() {
 
 #[test]
 fn an_ordinary_assistant_row_with_the_same_text_shape_is_kept() {
-    // The drop is keyed on the stamp, not on prose — a coach legitimately
+    // The drop is keyed on the stamp, not on prose — an agent legitimately
     // saying something similar is still replayed. This is why the fix does not
     // add a sixth pattern table.
     let history = vec![

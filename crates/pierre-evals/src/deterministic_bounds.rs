@@ -9,7 +9,7 @@
 //! Implausibility filter. For each category, extracts numeric values and
 //! their units from the claim text and compares them against conservative
 //! physiological / training / nutrition bounds. If any value is clearly
-//! outside the range a competent coach would give, the pipeline
+//! outside the range a competent agent would give, the pipeline
 //! short-circuits with `ClaimStatus::Contradicted` and a `Deterministic`
 //! layer attribution.
 //!
@@ -121,7 +121,7 @@ fn extract_number_near_lowercased(lower: &str, keyword: &str) -> Option<f64> {
     // The window bounds are byte arithmetic with no relationship to character
     // boundaries, so both are snapped outward to the nearest one. Without the
     // snap any accented reply can put a bound inside a multi-byte character
-    // and slicing there panics — on 2026-07-28 a French coach reply did
+    // and slicing there panics — on 2026-07-28 a French agent reply did
     // exactly that at `window_start`, taking down a turn that had already
     // saved a training plan.
     let window_start = floor_char_boundary(lower, idx.saturating_sub(WINDOW_BYTES));
@@ -143,9 +143,9 @@ fn extract_number_near_lowercased(lower: &str, keyword: &str) -> Option<f64> {
     for (offset, ch) in window.char_indices() {
         // A leading sign, and only a leading one. TSB is the metric that is
         // routinely negative, and without this the scanner read «ton TSB est à
-        // -77» as a claim of +77 — so a coach stating the athlete's true form
+        // -77» as a claim of +77 — so an agent stating the athlete's true form
         // was scored Contradicted and earned a warning banner on a correct
-        // sentence, while a coach stating +77 scored identically.
+        // sentence, while an agent stating +77 scored identically.
         //
         // `buf.is_empty()` is also what keeps a range a range: in "5-15", "zone
         // 2-3" and "5:00-5:15/km" the hyphen arrives with digits already

@@ -1,4 +1,4 @@
-// ABOUTME: The claim-extraction stage of the bullshit detector — decomposes a coach reply into atomic claims
+// ABOUTME: The claim-extraction stage of the bullshit detector — decomposes an agent reply into atomic claims
 // ABOUTME: Uses pierre_llm::judge::ask_for_json when an LLM is available; static rules otherwise
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! # Claim Extractor
 //!
-//! Given a raw coach response, returns a list of atomic propositions, each
+//! Given a raw agent response, returns a list of atomic propositions, each
 //! tagged with a [`ClaimCategory`]. The extractor has two modes:
 //!
 //! - **LLM-based** (`extract_with_llm`) — invokes `ask_for_json` on the
@@ -22,7 +22,7 @@ use pierre_llm::LlmProvider;
 use pierre_memory::ClaimCategory;
 use serde::{Deserialize, Serialize};
 
-/// A single claim extracted from a coach reply.
+/// A single claim extracted from an agent reply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedClaim {
     /// The raw claim text.
@@ -65,7 +65,7 @@ imperatives without factual predicates. Return strict JSON of the form:
 
 If no claims are factual, return {"claims":[]}."#;
 
-/// Extract atomic claims from a coach reply using an LLM provider.
+/// Extract atomic claims from an agent reply using an LLM provider.
 ///
 /// # Errors
 ///
@@ -73,10 +73,10 @@ If no claims are factual, return {"claims":[]}."#;
 /// graceful degradation should fall back to [`extract_heuristic`].
 pub async fn extract_with_llm(
     provider: &dyn LlmProvider,
-    coach_reply: &str,
+    agent_reply: &str,
 ) -> AppResult<Vec<ExtractedClaim>> {
     let response: ExtractionResponse =
-        ask_for_json(provider, EXTRACTION_SYSTEM_PROMPT, coach_reply, 0.0).await?;
+        ask_for_json(provider, EXTRACTION_SYSTEM_PROMPT, agent_reply, 0.0).await?;
 
     Ok(response
         .claims
@@ -106,9 +106,9 @@ const MIN_CLAIM_WORDS: usize = 5;
 /// category based on keyword counts. Claims that score zero on every
 /// category, or that fall under [`MIN_CLAIM_WORDS`], are dropped.
 #[must_use]
-pub fn extract_heuristic(coach_reply: &str) -> Vec<ExtractedClaim> {
+pub fn extract_heuristic(agent_reply: &str) -> Vec<ExtractedClaim> {
     let mut out = Vec::new();
-    for sentence in split_sentences(coach_reply) {
+    for sentence in split_sentences(agent_reply) {
         let trimmed = sentence.trim();
         if trimmed.is_empty() {
             continue;
@@ -130,7 +130,7 @@ fn word_count(s: &str) -> usize {
     s.split_whitespace().filter(|w| !w.is_empty()).count()
 }
 
-/// Split a coach reply into sentences on `.`/`!`/`?` boundaries.
+/// Split an agent reply into sentences on `.`/`!`/`?` boundaries.
 ///
 /// Used by [`extract_heuristic`]; exposed so the heuristic building blocks
 /// can be exercised directly.
@@ -433,10 +433,10 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
 /// - A **false positive** un-routes a genuine history claim from the only layer
 ///   that can check it — the failure this workstream exists to prevent.
 /// - A **false negative** is worse than it looks for the athlete Phase 5 serves.
-///   A providerless athlete's coach prescribes in figures ("easy 5 km tomorrow"),
+///   A providerless athlete's agent prescribes in figures ("easy 5 km tomorrow"),
 ///   and an unrecognised prescription reaches the athlete-data layer, where
 ///   "no provider" licenses `Contradicted` at 0.95 — telling the athlete their
-///   coach invented a number that was never a claim about the past at all.
+///   agent invented a number that was never a claim about the past at all.
 ///
 /// Matching goes through [`keyword_hits`], the same token-boundary test every
 /// category bucket in this file uses. A raw `contains` fired `"should"` inside

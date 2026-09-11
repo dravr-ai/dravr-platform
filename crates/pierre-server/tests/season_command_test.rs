@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! Content-asserting on real rows: the conversation state the walk opened,
-//! the opener persisted as the coach's message, the profile window, and the
+//! the opener persisted as the agent's message, the profile window, and the
 //! `valid_until` stamps a re-run leaves on the facts of the *other* walk.
 
 use anyhow::Result;
@@ -20,7 +20,7 @@ use pierre_core::models::{GuidedFlow, GuidedWindow, OnboardingState, Pillar, Ten
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use pierre_runtime_context::CoachesCtx;
+use pierre_runtime_context::AgentsCtx;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -99,7 +99,7 @@ async fn land(
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind,
             pillar: Some(Pillar::TrainingAndMovement),
@@ -169,7 +169,7 @@ async fn the_walk_opens_on_the_conversation_and_records_its_window() -> Result<(
         "the walk binds to the athlete who typed the command"
     );
 
-    // The opener is the coach's message, so the first answer has a question
+    // The opener is the agent's message, so the first answer has a question
     // attached and is not message #1.
     let history = resources
         .common

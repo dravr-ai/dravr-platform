@@ -9,7 +9,7 @@
 
 //! # The barrier that replaces the conversation gate
 //!
-//! Phase 5 opens the coach conversation to providerless users. Before it can,
+//! Phase 5 opens the agent conversation to providerless users. Before it can,
 //! something must still stand between them and the data tools, because the old
 //! barrier was the conversation gate itself: `onboarding_gate.rs` claimed an
 //! "MCP tool execution gate" in its ABOUTME, but no such call site existed —
@@ -68,7 +68,7 @@ async fn a_providerless_dispatch_is_refused_with_recovery_metadata() {
         .await
         .unwrap();
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -119,7 +119,7 @@ async fn a_connected_dispatch_reaches_the_tool_body() {
             .await
             .unwrap();
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -164,7 +164,7 @@ async fn a_token_without_a_connection_row_is_not_refused() {
     let (user, _token) = create_test_tenant(&resources, "chokepoint-drift@test.local")
         .await
         .unwrap();
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().unwrap().id;
 
@@ -227,7 +227,7 @@ async fn a_named_non_oauth_provider_is_not_refused() {
         .await
         .unwrap();
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -271,7 +271,7 @@ async fn an_unregistered_provider_name_does_not_bypass_the_refusal() {
         .await
         .unwrap();
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -312,7 +312,7 @@ async fn the_default_provider_override_bypasses_the_chokepoint() {
         .await
         .unwrap();
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

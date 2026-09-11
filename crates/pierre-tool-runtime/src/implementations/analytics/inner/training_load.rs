@@ -202,7 +202,7 @@ pub fn analyze_detailed_training_load(
     };
 
     // The configured EMA windows travel into the interpretation key so the
-    // coach can answer "how do you calculate this" from the payload.
+    // agent can answer "how do you calculate this" from the payload.
     let ctl_days = algorithm_config.params.training_load_ctl_days;
     let atl_days = algorithm_config.params.training_load_atl_days;
 

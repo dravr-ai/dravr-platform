@@ -34,7 +34,7 @@ const SLACK_CHANNEL: &str = "slack";
 /// Handle Slack interactive action payloads (button clicks)
 ///
 /// Routes two kinds of actions:
-/// - **Command postbacks**: `action_id` starts with `/` (e.g. `/coach add @handle`).
+/// - **Command postbacks**: `action_id` starts with `/` (e.g. `/agent add @handle`).
 ///   These come from messaging card buttons and are routed through the command system.
 /// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
 ///   notifications. Requires Pierre admin role.

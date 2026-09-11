@@ -37,8 +37,8 @@ pub struct UpsertUserFactParams<'a> {
     pub tenant_id: TenantId,
     /// User the fact is about.
     pub user_id: &'a str,
-    /// Coach the fact belongs to, or `None` for a user-wide fact.
-    pub coach_id: Option<&'a str>,
+    /// Agent the fact belongs to, or `None` for a user-wide fact.
+    pub agent_id: Option<&'a str>,
     /// Scope bucket.
     pub scope: pierre_memory::MemoryScope,
     /// Semantic kind.
@@ -51,7 +51,7 @@ pub struct UpsertUserFactParams<'a> {
     pub object: &'a str,
     /// Confidence in `[0.0, 1.0]`.
     pub confidence: f32,
-    /// Provenance (onboarding / conversation / device / coach).
+    /// Provenance (onboarding / conversation / device / agent).
     pub source: pierre_memory::FactSource,
     /// Freshness horizon after which the fact is stale, or `None` for no expiry.
     pub valid_until: Option<chrono::DateTime<chrono::Utc>>,
@@ -77,14 +77,14 @@ pub struct InsertCompactionBlockParams<'a> {
     pub last_message_id: &'a str,
 }
 
-/// Parameters for creating a coach note via the harness memory tools.
-pub struct InsertCoachNoteParams<'a> {
+/// Parameters for creating an agent note via the harness memory tools.
+pub struct InsertAgentNoteParams<'a> {
     /// Tenant that owns the note.
     pub tenant_id: TenantId,
     /// User the note is about.
     pub user_id: &'a str,
-    /// Coach that authored the note.
-    pub coach_id: &'a str,
+    /// Agent that authored the note.
+    pub agent_id: &'a str,
     /// Conversation the note originated in, if any.
     pub conversation_id: Option<&'a str>,
     /// Scope bucket.
@@ -93,14 +93,14 @@ pub struct InsertCoachNoteParams<'a> {
     pub content: &'a str,
 }
 
-/// Parameters for scheduling a coach followup.
-pub struct InsertCoachFollowupParams<'a> {
+/// Parameters for scheduling an agent followup.
+pub struct InsertAgentFollowupParams<'a> {
     /// Tenant that owns the followup.
     pub tenant_id: TenantId,
     /// User the followup targets.
     pub user_id: &'a str,
-    /// Coach that made the promise.
-    pub coach_id: &'a str,
+    /// Agent that made the promise.
+    pub agent_id: &'a str,
     /// Conversation the promise was made in, if any.
     pub conversation_id: Option<&'a str>,
     /// Reminder content.
@@ -157,13 +157,13 @@ pub trait HarnessMemoryRepository: Send + Sync {
         params: &MergeUserFactParams<'_>,
     ) -> AppResult<Option<pierre_memory::UserFact>>;
 
-    /// List user facts for recall. Filters by user, optional coach, and
+    /// List user facts for recall. Filters by user, optional agent, and
     /// optional kind.
     async fn list_user_facts(
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         kind: Option<pierre_memory::FactKind>,
         limit: i64,
     ) -> AppResult<Vec<pierre_memory::UserFact>>;
@@ -249,41 +249,41 @@ pub trait HarnessMemoryRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<pierre_memory::UserFactMetrics>;
 
-    // --- coach notes ---
+    // --- agent notes ---
 
-    /// Persist a coach-authored note.
-    async fn insert_coach_note(
+    /// Persist an agent-authored note.
+    async fn insert_agent_note(
         &self,
-        params: &InsertCoachNoteParams<'_>,
-    ) -> AppResult<pierre_memory::CoachNote>;
+        params: &InsertAgentNoteParams<'_>,
+    ) -> AppResult<pierre_memory::AgentNote>;
 
-    /// List coach notes for a user, newest first.
-    async fn list_coach_notes(
+    /// List agent notes for a user, newest first.
+    async fn list_agent_notes(
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: &str,
+        agent_id: &str,
         limit: i64,
-    ) -> AppResult<Vec<pierre_memory::CoachNote>>;
+    ) -> AppResult<Vec<pierre_memory::AgentNote>>;
 
-    /// Tenant-wide coach-note audit log for the admin compliance tab.
+    /// Tenant-wide agent-note audit log for the admin compliance tab.
     ///
     /// Returns notes newest-first, clamped to `limit`, spanning all
-    /// users and coaches. The admin UI uses this for a flat audit trail
-    /// so compliance reviewers can see every note a coach wrote about a
-    /// user without having to pick a (user, coach) pair first.
-    async fn list_coach_notes_for_tenant(
+    /// users and agents. The admin UI uses this for a flat audit trail
+    /// so compliance reviewers can see every note an agent wrote about a
+    /// user without having to pick a (user, agent) pair first.
+    async fn list_agent_notes_for_tenant(
         &self,
         tenant_id: TenantId,
         limit: i64,
-    ) -> AppResult<Vec<pierre_memory::CoachNote>>;
+    ) -> AppResult<Vec<pierre_memory::AgentNote>>;
 
     /// Flip the `suppressed` flag on a single note.
     ///
-    /// When `suppressed=true`, the chat pipeline's [`Self::list_coach_notes`]
-    /// recall query filters the row out, so the coach never re-injects it
+    /// When `suppressed=true`, the chat pipeline's [`Self::list_agent_notes`]
+    /// recall query filters the row out, so the agent never re-injects it
     /// into a user prompt. The audit panel still shows the row (via
-    /// [`Self::list_coach_notes_for_tenant`]) so an admin can un-suppress
+    /// [`Self::list_agent_notes_for_tenant`]) so an admin can un-suppress
     /// later if they change their mind.
     ///
     /// Returns `true` when the row's flag actually changed,
@@ -292,7 +292,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
     ///
     /// `actor` is the admin service name attempting the change — written
     /// to `suppressed_by` for the audit trail.
-    async fn set_coach_note_suppressed(
+    async fn set_agent_note_suppressed(
         &self,
         note_id: &str,
         tenant_id: TenantId,
@@ -300,36 +300,36 @@ pub trait HarnessMemoryRepository: Send + Sync {
         actor: &str,
     ) -> AppResult<bool>;
 
-    // --- coach followups ---
+    // --- agent followups ---
 
-    /// Schedule a coach followup.
-    async fn insert_coach_followup(
+    /// Schedule an agent followup.
+    async fn insert_agent_followup(
         &self,
-        params: &InsertCoachFollowupParams<'_>,
-    ) -> AppResult<pierre_memory::CoachFollowup>;
+        params: &InsertAgentFollowupParams<'_>,
+    ) -> AppResult<pierre_memory::AgentFollowup>;
 
-    /// List pending followups for a user/coach pair. Caller decides how to
+    /// List pending followups for a user/agent pair. Caller decides how to
     /// render them in the next prompt.
     async fn list_pending_followups(
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: &str,
-    ) -> AppResult<Vec<pierre_memory::CoachFollowup>>;
+        agent_id: &str,
+    ) -> AppResult<Vec<pierre_memory::AgentFollowup>>;
 
     /// Tenant-wide pending followup queue for the admin triage tab.
     ///
     /// Returns rows ordered by due date ascending (nulls last), then
     /// creation order, clamped to `limit`. Unlike
     /// [`Self::list_pending_followups`], this call spans all users and
-    /// coaches so the admin can see stale promises across the platform.
+    /// agents so the admin can see stale promises across the platform.
     async fn list_pending_followups_for_tenant(
         &self,
         tenant_id: TenantId,
         limit: i64,
-    ) -> AppResult<Vec<pierre_memory::CoachFollowup>>;
+    ) -> AppResult<Vec<pierre_memory::AgentFollowup>>;
 
-    /// Mark a followup as delivered after the coach has acted on it.
+    /// Mark a followup as delivered after the agent has acted on it.
     async fn mark_followup_delivered(
         &self,
         followup_id: &str,
@@ -338,7 +338,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
 
     /// Globally list followups whose `due_at` has elapsed and that are
     /// still in `pending`. Used by the followup scheduler to dispatch
-    /// notifications when a coach commitment becomes overdue.
+    /// notifications when an agent commitment becomes overdue.
     ///
     /// Spans every tenant — the scheduler runs in a single background
     /// task per server, not per-tenant, so per-tenant queries would be
@@ -351,30 +351,30 @@ pub trait HarnessMemoryRepository: Send + Sync {
         &self,
         now: chrono::DateTime<chrono::Utc>,
         limit: i64,
-    ) -> AppResult<Vec<pierre_memory::CoachFollowup>>;
+    ) -> AppResult<Vec<pierre_memory::AgentFollowup>>;
 
     /// Cancel a pending followup — admin clears a stale promise that
-    /// should never reach the coach. Returns `false` if the followup was
+    /// should never reach the agent. Returns `false` if the followup was
     /// already delivered or cancelled, `true` on a successful transition.
     async fn cancel_followup(&self, followup_id: &str, tenant_id: TenantId) -> AppResult<bool>;
 
-    // --- coach sessions ---
+    // --- agent sessions ---
 
     /// Open a new coaching session. Returns the existing active session if
-    /// one already exists for the `(user, coach)` pair so callers can call
+    /// one already exists for the `(user, agent)` pair so callers can call
     /// this idempotently.
-    async fn get_or_open_coach_session(
+    async fn get_or_open_agent_session(
         &self,
         tenant_id: TenantId,
         user_id: &str,
-        coach_id: &str,
-    ) -> AppResult<pierre_memory::CoachSession>;
+        agent_id: &str,
+    ) -> AppResult<pierre_memory::AgentSession>;
 
     /// Mark the most recent activity on a session to feed "continue where
     /// you left off" UI.
-    async fn touch_coach_session(&self, session_id: &str, tenant_id: TenantId) -> AppResult<()>;
+    async fn touch_agent_session(&self, session_id: &str, tenant_id: TenantId) -> AppResult<()>;
 
-    /// Archive a session (coach unassigned or retired).
-    async fn archive_coach_session(&self, session_id: &str, tenant_id: TenantId)
+    /// Archive a session (agent unassigned or retired).
+    async fn archive_agent_session(&self, session_id: &str, tenant_id: TenantId)
         -> AppResult<bool>;
 }

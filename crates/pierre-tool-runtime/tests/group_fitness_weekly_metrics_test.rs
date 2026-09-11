@@ -10,7 +10,7 @@
 
 //! Tests for [`pierre_tool_runtime::group_fitness::compute_weekly_metrics`].
 //!
-//! The REST group analytics path and the chat coach path both build member
+//! The REST group analytics path and the chat agent path both build member
 //! fitness snapshots from this single function, so its `previous_week_volume_km`
 //! window (7-to-14 days back) must be populated for the group weekly trend to
 //! work. Before consolidation only the (now-deleted) REST builder computed it;

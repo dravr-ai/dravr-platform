@@ -11,7 +11,7 @@
 //! re-uploads the same `.fit` file twice, or a watch + bike computer both push
 //! the same ride to Strava. Without deduplication, downstream consumers count
 //! these as distinct training sessions — inflating TSS, weekly volume, activity
-//! counts, and confusing LLM coaches that report literal row counts.
+//! counts, and confusing LLM agents that report literal row counts.
 //!
 //! This module groups activities by **temporal overlap within the same sport
 //! type**: two activities are considered fragments of the same workout when

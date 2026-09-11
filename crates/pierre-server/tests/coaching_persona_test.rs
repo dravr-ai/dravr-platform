@@ -48,7 +48,7 @@ fn each_persona_variant_resolves_to_discriminating_block() {
 
 /// Default persona must be `Casual` so an unmigrated user (NULL → DEFAULT)
 /// or a lookup failure inside `resolve_user_persona` collapses to the
-/// least-restrictive output style — never to `PowerAthlete` or `Coach`,
+/// least-restrictive output style — never to `PowerAthlete` or `Agent`,
 /// which carry stricter discipline appropriate only for opted-in users.
 #[test]
 fn default_persona_is_casual() {
@@ -96,8 +96,8 @@ fn power_athlete_carries_endurance_anchors() {
 }
 
 /// `platform_contract.md` must carry the `{{COACHING_PERSONA_RULES}}`
-/// placeholder — the contract leads every assembled prompt, coach-bound or
-/// not, which is what makes persona steering reach bound coaches. If a
+/// placeholder — the contract leads every assembled prompt, agent-bound or
+/// not, which is what makes persona steering reach bound agents. If a
 /// future prompt edit removes it, persona substitution silently no-ops and
 /// every user gets the un-personalized default — this test fails loudly.
 /// (`pierre_system` may transitionally carry a duplicate copy for deployed

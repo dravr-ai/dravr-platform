@@ -282,7 +282,7 @@ impl StravaProvider {
         // over the deprecated `type` (which flattens every bike to `Ride`), and
         // resolve it through the canonical sport-type alias map so VTT/gravel/
         // e-bike rides classify distinctly. Unknown values fall back to
-        // `Other(raw)` so the exact label is still preserved for the coach.
+        // `Other(raw)` so the exact label is still preserved for the agent.
         let effective_type = activity
             .sport_type
             .as_deref()
@@ -345,7 +345,7 @@ impl StravaProvider {
         let laps = Self::convert_strava_laps(detailed.laps.as_deref());
 
         // Kudos, comment, athlete, photo, and achievement counts are surfaced
-        // only to the Strava UI — not to coach reasoning — so we drop them
+        // only to the Strava UI — not to agent reasoning — so we drop them
         // rather than growing cageux's [`Activity`] for purely social data.
         Ok(Self::strava_activity_builder(detailed.summary)?
             .splits_opt(splits)

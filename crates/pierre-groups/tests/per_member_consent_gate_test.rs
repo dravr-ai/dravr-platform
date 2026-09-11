@@ -22,7 +22,7 @@ fn group(peer_data_sharing: bool) -> CoachingGroup {
         tenant_id: "test-tenant".to_owned(),
         name: "Tortues Course".to_owned(),
         description: None,
-        coach_id: "coach-test".to_owned(),
+        agent_id: "coach-test".to_owned(),
         owner_id: Uuid::nil(),
         coach_user_id: None,
         peer_data_sharing,

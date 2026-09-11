@@ -228,7 +228,7 @@ const SESSION_AUTH_ERROR_MARKERS: &[&str] = &["session_not_found", "session_expi
 /// A session-shaped `401` means the athlete must re-login, so it surfaces
 /// as [`ErrorCode::ProviderAuthRequired`] — the chat pipeline's
 /// auth-recovery stage turns that into a hosted-login reconnect link, where
-/// an `internal` error would have left the coach apologising with nothing
+/// an `internal` error would have left the agent apologising with nothing
 /// actionable (live gap behind the 2026-08-11 "problème de connexion"
 /// incident). The provider slug here is the generic `sciotte`; the provider
 /// layer re-tags it with the owning backend name so a `sciotte_garmin`

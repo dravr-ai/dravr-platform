@@ -4,9 +4,9 @@
 // ABOUTME: The agent editor's form state and its conversions to and from the coaches API
 // ABOUTME: One source of truth for the update payload, shared by every mount of CoachFormModal
 
-import type { Coach, UpdateCoachRequest } from '@pierre/shared-types';
+import type { Agent, UpdateAgentRequest } from '@pierre/shared-types';
 
-export interface CoachFormData {
+export interface AgentFormData {
   title: string;
   description: string;
   system_prompt: string;
@@ -37,11 +37,11 @@ export interface CoachFormData {
   max_tool_iterations?: number | null;
 }
 
-export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
+export const DEFAULT_COACH_FORM_DATA: AgentFormData = {
   title: '',
   description: '',
   system_prompt: '',
-  // The wire's `CoachCategory` union is lowercase. `'Training'` matched no
+  // The wire's `AgentCategory` union is lowercase. `'Training'` matched no
   // entry in `COACH_CATEGORY_LABEL_KEY`, so an agent created from this form
   // fell through to `custom` and its badge read "Personnalisé".
   category: 'training',
@@ -63,7 +63,7 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
 };
 
 /** Hydrate the agent editor's form state from a stored agent. */
-export function coachToFormData(coach: Coach): CoachFormData {
+export function coachToFormData(coach: Agent): AgentFormData {
   const dr = coach.data_requirements;
   return {
     title: coach.title,
@@ -89,8 +89,8 @@ export function coachToFormData(coach: Coach): CoachFormData {
 }
 
 /** Convert UI form data to API update request */
-export function formDataToUpdateRequest(data: CoachFormData): UpdateCoachRequest {
-  const request: UpdateCoachRequest = {
+export function formDataToUpdateRequest(data: AgentFormData): UpdateAgentRequest {
+  const request: UpdateAgentRequest = {
     title: data.title,
     description: data.description || undefined,
     system_prompt: data.system_prompt,

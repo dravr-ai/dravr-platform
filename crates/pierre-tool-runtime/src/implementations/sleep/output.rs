@@ -167,7 +167,7 @@ pub struct SleepHighlights {
 pub struct SleepTrendsResult {
     /// The averages and their direction.
     pub trends: SleepTrendSummary,
-    /// The extremes, for a coach to ask about.
+    /// The extremes, for an agent to ask about.
     pub highlights: SleepHighlights,
     /// Plain-language readings of the window.
     pub insights: Vec<String>,
@@ -212,7 +212,7 @@ pub struct SleepScheduleResult {
 //
 // The nested projections live here beside the types they build rather than in
 // `inner.rs`, which is past the size ceiling and frozen — the same split as
-// `goals_output` and `coaches_output`.
+// `goals_output` and `agents_output`.
 
 /// Assemble the `suggest_rest_day` answer from the call and its evidence.
 #[must_use]

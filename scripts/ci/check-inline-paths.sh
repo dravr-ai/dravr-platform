@@ -39,6 +39,10 @@ CHANGED=$(git diff --name-only "$BASE_REF" HEAD -- '*.rs' 2>/dev/null \
 HITS=$(
     for f in $CHANGED; do
         [ -f "$f" ] || continue
+        # A file that opts out at the top opts out here too. clippy is the
+        # authority this check stands in for, and it honours the attribute, so
+        # reporting the file anyway is the false positive the header warns about.
+        grep -q '^#!\[allow(clippy::absolute_paths)\]' "$f" && continue
         awk '
             /^[[:space:]]*(\/\/|\/\*|\*)/            { next }   # comments and doc comments
             # Use declarations, including the continuation lines of a
@@ -79,6 +83,11 @@ HITS=$(
             }
             {
                 line = $0
+                # `$crate::` is macro hygiene, not a style choice: inside
+                # macro_rules! it is the only way to name the defining crate,
+                # and no `use` can replace it. Blank it before matching so the
+                # bare `crate::` inside is not read as an inline path.
+                gsub(/\$crate::/, "MACRO_CRATE_", line)
                 while (match(line, /(std|core|alloc|crate)(::[A-Za-z_][A-Za-z0-9_]*){2,}/)) {
                     print FILENAME ":" FNR ": " substr(line, RSTART, RLENGTH)
                     line = substr(line, RSTART + RLENGTH)

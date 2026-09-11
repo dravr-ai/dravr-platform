@@ -242,15 +242,15 @@ fn deferred_span_field_recorded_later_propagates() {
     let subscriber = make_subscriber(buf.clone(), false);
 
     with_default(subscriber, || {
-        // coach_id/group_id are declared Empty at span creation and recorded
+        // agent_id/group_id are declared Empty at span creation and recorded
         // mid-turn once the conversation record resolves.
-        let span = info_span!("turn", user_id = "user-2", coach_id = Empty);
-        span.record("coach_id", "marathon-coach");
+        let span = info_span!("turn", user_id = "user-2", agent_id = Empty);
+        span.record("agent_id", "marathon-coach");
         let _guard = span.enter();
         warn!("something happened mid-turn");
     });
 
     let entry = &buf.lines()[0];
     assert_eq!(entry["user_id"], "user-2");
-    assert_eq!(entry["coach_id"], "marathon-coach");
+    assert_eq!(entry["agent_id"], "marathon-coach");
 }

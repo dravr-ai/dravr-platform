@@ -25,10 +25,10 @@ pub struct TierQuotaConfig {
     pub max_conversations_per_day: i64,
     /// Cap on messages within a single conversation (lifetime).
     pub max_messages_per_conversation: i64,
-    /// Cap on messages with a given coach per day.
-    pub max_messages_per_coach_per_day: i64,
-    /// Cap on `coach_sessions` rows with `archived_at IS NULL`.
-    pub max_active_coaches: i64,
+    /// Cap on messages with a given agent per day.
+    pub max_messages_per_agent_per_day: i64,
+    /// Cap on `agent_sessions` rows with `archived_at IS NULL`.
+    pub max_active_agents: i64,
     /// Cap on data-only MCP tool calls per day (Strava fetches, etc.).
     /// These count toward `daily_tool_calls` but not toward `daily_tokens`.
     pub daily_tool_calls: i64,
@@ -58,8 +58,8 @@ pub const STARTER: TierQuotaConfig = TierQuotaConfig {
     monthly_tokens: 8_000_000,
     max_conversations_per_day: 10,
     max_messages_per_conversation: 100,
-    max_messages_per_coach_per_day: 25,
-    max_active_coaches: 3,
+    max_messages_per_agent_per_day: 25,
+    max_active_agents: 3,
     daily_tool_calls: 200,
     // Starter is opt-in to upgrade — no overage billing.
     monthly_cost_cap_usd: f64::INFINITY,
@@ -73,8 +73,8 @@ pub const PROFESSIONAL: TierQuotaConfig = TierQuotaConfig {
     monthly_tokens: 100_000_000,
     max_conversations_per_day: 100,
     max_messages_per_conversation: 1_000,
-    max_messages_per_coach_per_day: 200,
-    max_active_coaches: 20,
+    max_messages_per_agent_per_day: 200,
+    max_active_agents: 20,
     daily_tool_calls: 2_000,
     // $50/month included; spillover billed via Stripe Meters.
     monthly_cost_cap_usd: 50.0,
@@ -90,8 +90,8 @@ pub const ENTERPRISE: TierQuotaConfig = TierQuotaConfig {
     monthly_tokens: i64::MAX,
     max_conversations_per_day: i64::MAX,
     max_messages_per_conversation: i64::MAX,
-    max_messages_per_coach_per_day: i64::MAX,
-    max_active_coaches: i64::MAX,
+    max_messages_per_agent_per_day: i64::MAX,
+    max_active_agents: i64::MAX,
     daily_tool_calls: i64::MAX,
     // Enterprise contracts negotiate seat-based pricing; no auto-overage.
     monthly_cost_cap_usd: f64::INFINITY,

@@ -19,11 +19,11 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationResponse};
-use pierre_routes_coaches::build_coaches_router;
+use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::GroupRoutes;
 
-/// One router carrying the three surfaces this flow crosses: coaches (a group
-/// needs a coach persona), groups (create + membership), and chat (the
+/// One router carrying the three surfaces this flow crosses: agents (a group
+/// needs an agent persona), groups (create + membership), and chat (the
 /// conversation that carries `group_id`). Production mounts all three on the
 /// same app; a test that mounts only chat cannot create the group it scopes to.
 struct Fixture {
@@ -39,14 +39,14 @@ async fn setup() -> Fixture {
     let res = create_test_server_resources().await.unwrap();
 
     let (owner_id, owner, _owner_tid) = create_test_user_with_plan(
-        &res.coach.database,
+        &res.agent.database,
         "groupchatowner@test.com",
         "professional",
     )
     .await
     .unwrap();
     let (outsider_id, outsider, _outsider_tid) = create_test_user_with_plan(
-        &res.coach.database,
+        &res.agent.database,
         "groupchatoutsider@test.com",
         "professional",
     )
@@ -60,7 +60,7 @@ async fn setup() -> Fixture {
     // `tenant_users` row: a token that merely claims the tenant is rejected at
     // authentication with a 401, which would pass a status assertion for the
     // wrong reason.
-    let repos = res.coach.database.repositories();
+    let repos = res.agent.database.repositories();
     let shared_tid = repos
         .tenants
         .list_for_user(owner_id)
@@ -86,7 +86,7 @@ async fn setup() -> Fixture {
             .unwrap()
     );
 
-    let router = build_coaches_router::<ServerContext>()
+    let router = build_agents_router::<ServerContext>()
         .with_state(Arc::clone(&res))
         .merge(GroupRoutes::routes(Arc::clone(&res)))
         .merge(ChatRoutes::routes(Arc::clone(&res)));
@@ -102,14 +102,14 @@ async fn setup() -> Fixture {
         .send(router.clone())
         .await;
     assert_eq!(coach_resp.status_code(), StatusCode::CREATED);
-    let coach_id = coach_resp.json::<Value>()["id"]
+    let agent_id = coach_resp.json::<Value>()["id"]
         .as_str()
         .unwrap()
         .to_owned();
 
     let group_resp = AxumTestRequest::post("/api/groups")
         .header("authorization", &owner_auth)
-        .json(&json!({ "name": "Marathon Squad", "coach_id": &coach_id }))
+        .json(&json!({ "name": "Marathon Squad", "agent_id": &agent_id }))
         .send(router.clone())
         .await;
     assert_eq!(group_resp.status_code(), StatusCode::CREATED);

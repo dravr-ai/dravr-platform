@@ -1,5 +1,5 @@
 // ABOUTME: Pins that the {{CURRENT_DATE}} anchor carries the literal current Unix epoch
-// ABOUTME: Regression for 2026-07-24: a coach miscomputed before=<unix-now> a year early
+// ABOUTME: Regression for 2026-07-24: an agent miscomputed before=<unix-now> a year early
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,7 +10,7 @@
 //! The `{{CURRENT_DATE}}` prompt anchor must carry the current Unix timestamp
 //! as a literal integer.
 //!
-//! 2026-07-24 live incident: the coach had the human-readable date
+//! 2026-07-24 live incident: the agent had the human-readable date
 //! (`2026-07-24`) in its prompt but converted it to `before=1753362000`
 //! (2025-07-24, a year early) — human-date→epoch is exactly the arithmetic
 //! LLMs botch — so the scrape returned year-old activities. The fix carries
@@ -70,7 +70,7 @@ fn anchor_carries_the_common_window_boundaries_ordered() {
     let week0 = epoch_for(&rendered, "start of this week");
     let month0 = epoch_for(&rendered, "start of this month");
 
-    // Ordering the coach relies on: week/month start ≤ today start ≤ now, and
+    // Ordering the agent relies on: week/month start ≤ today start ≤ now, and
     // yesterday is exactly one day before today's local midnight.
     assert!(today0 <= now, "today0 {today0} must be ≤ now {now}");
     assert!(week0 <= today0, "week0 {week0} must be ≤ today0 {today0}");
@@ -202,7 +202,7 @@ fn the_anchor_names_the_weekday() {
     );
 }
 
-/// The weekday follows the chat locale, like every other word the coach reads.
+/// The weekday follows the chat locale, like every other word the agent reads.
 #[test]
 fn the_anchor_weekday_is_localized() {
     use chrono::Datelike;

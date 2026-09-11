@@ -133,7 +133,7 @@ export function SettingsScreen() {
         <View className="h-14 flex-row items-center my-2" testID="settings-profile-section">
           <InitialsAvatar
             initials={initialsFor(displayName)}
-            slot={avatarSlot({ id: user?.id ?? displayName, coach_id: null, group_id: null })}
+            slot={avatarSlot({ id: user?.id ?? displayName, agent_id: null, group_id: null })}
           />
           <View className="flex-1 ml-3">
             <Text className="text-base font-semibold text-text-primary" numberOfLines={1}>

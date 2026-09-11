@@ -50,7 +50,7 @@ pub async fn get_verdicts_handler(
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let response = list_for_conversation(
-        &resources.data().repos().coach_repos(),
+        &resources.data().repos().agent_repos(),
         &conversation_id,
         &auth.user_id.to_string(),
         tenant_id,

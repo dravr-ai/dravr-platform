@@ -1,4 +1,4 @@
-// ABOUTME: Prompt-assembly stage that renders the athlete's open commitments into the coach's system prompt
+// ABOUTME: Prompt-assembly stage that renders the athlete's open commitments into the agent's system prompt
 // ABOUTME: State only — the discipline for recording a new one lives in the commitment_create tool description
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,11 +7,11 @@
 //! Open-commitment prompt block.
 //!
 //! Renders the promises the athlete has made and not yet been held to, so the
-//! coach can reference them, and so it has the ids it needs to retract one.
+//! agent can reference them, and so it has the ids it needs to retract one.
 //!
 //! The block carries *state* and nothing else. The rule for when a new
 //! commitment may be recorded — the athlete named a count and a deadline in
-//! their own words, not a bare "ok" to the coach's suggestion — lives in
+//! their own words, not a bare "ok" to the agent's suggestion — lives in
 //! `commitment_create`'s tool description, which is already in the prompt for
 //! every turn the tool is offered. Repeating it here would spend tokens on
 //! every turn to say something the model has already been told, and prompt
@@ -44,7 +44,7 @@ const MAX_RENDERED_STATEMENT: usize = 120;
 /// Collapse a stored statement into a single safe prompt line.
 ///
 /// Newlines and control characters go first — a statement containing `\n##` or
-/// a fake instruction line is the only way this field could act on the coach —
+/// a fake instruction line is the only way this field could act on the agent —
 /// then the result is truncated on a character boundary.
 fn fence_statement(raw: &str) -> String {
     let flattened: String = raw

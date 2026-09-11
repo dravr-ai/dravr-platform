@@ -1,12 +1,12 @@
-// ABOUTME: Training-plan tools — get_training_plan / save_training_plan (explicit coach persistence)
-// ABOUTME: The durable home for coach prescriptions; replaces extraction minting plans as user_facts
+// ABOUTME: Training-plan tools — get_training_plan / save_training_plan (explicit agent persistence)
+// ABOUTME: The durable home for agent prescriptions; replaces extraction minting plans as user_facts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Training-Plan Tools
 //!
-//! The coach persona persists plans it agrees with the athlete via
+//! The agent persona persists plans it agrees with the athlete via
 //! `save_training_plan` — an explicit tool call in the same turn the plan is
 //! stated — and re-reads them next conversation via `get_training_plan`.
 //! Explicit writes (not post-hoc extraction) are the durable-state pattern:
@@ -34,8 +34,8 @@ use pierre_memory::training_plans::{
     MAX_DAYS_PER_WEEK,
 };
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_clock::athlete_today;
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
 use pierre_services::ramp_check::RampVerdict;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
@@ -141,10 +141,10 @@ struct OutlinePayload {
     strategy: String,
     /// Optional: a short plan ("hold form for two weeks, then taper") has no
     /// mesocycle structure to describe, and requiring one made every such plan
-    /// unsaveable until the coach invented phase/start/weeks/intent for it.
+    /// unsaveable until the agent invented phase/start/weeks/intent for it.
     #[serde(default)]
     phases: Vec<PlanPhase>,
-    /// The flavour the season runs on, when the coach states one.
+    /// The flavour the season runs on, when the agent states one.
     #[serde(default)]
     flavour: Option<FlavourPayload>,
     #[serde(default)]
@@ -169,7 +169,7 @@ pub(super) struct WeekPayload {
 /// Upper bounds on free-text and collection sizes in a save payload. A plan is
 /// rendered verbatim into every future system prompt, so an unbounded (or
 /// adversarial) save would inflate token cost on every turn; these caps keep a
-/// single degenerate save from doing that. Generous enough that no real coach
+/// single degenerate save from doing that. Generous enough that no real agent
 /// plan hits them.
 const MAX_STRATEGY_LEN: usize = 4_000;
 pub(super) const MAX_TEXT_LEN: usize = 1_000;
@@ -258,7 +258,7 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
     bounded("outline.strategy", &outline.strategy, MAX_STRATEGY_LEN)?;
     // No minimum on phases: a plan can legitimately have no mesocycle
     // structure ("hold form for two weeks, then taper"), and the previous
-    // at-least-one rule made such a plan unsaveable until the coach invented
+    // at-least-one rule made such a plan unsaveable until the agent invented
     // one. The upper bound stays — it is the token-cost guard, not a demand.
     if outline.phases.len() > MAX_PHASES {
         return Err(AppError::invalid_input(format!(
@@ -281,7 +281,7 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
 
 /// Validate one week payload (dates, day count, day dates inside the week,
 /// step bounds), and complete a structured day's `duration_min` from its
-/// steps when the coach left it out — the stored day never contradicts its
+/// steps when the agent left it out — the stored day never contradicts its
 /// own structure, and a stated duration that does is refused.
 fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     let start = plan_date("week_start", &week.week_start)?;
@@ -413,7 +413,7 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     Ok(())
 }
 
-/// Predicate code the coach-agnostic goal `user_fact` is written under. The
+/// Predicate code the agent-agnostic goal `user_fact` is written under. The
 /// save converges every outline on a single fact with this identity so
 /// `/pillars` and conversational goal-stating never fork into duplicates.
 const GOAL_CODE: PredicateCode = PredicateCode::TargetRace;
@@ -437,9 +437,9 @@ fn goal_object(race: &GoalRace) -> String {
     )
 }
 
-/// Resolve the coach the plan is bound to. The conversation's coach is
+/// Resolve the agent the plan is bound to. The conversation's agent is
 /// authoritative when the call originates in a Pierre conversation — the plan
-/// injection (Stage 7f.2) keys on it, so trusting an LLM-supplied `coach_id`
+/// injection (Stage 7f.2) keys on it, so trusting an LLM-supplied `agent_id`
 /// instead would save a plan under a slug the injection never reads (a plan
 /// "saved but not showing"). Only MCP-direct / A2A calls with no conversation
 /// fall back to the argument.
@@ -455,17 +455,17 @@ pub(super) async fn load_conversation(
     }
 }
 
-/// The coach slug this plan is saved under.
+/// The agent slug this plan is saved under.
 ///
-/// The conversation's coach is authoritative, so save and the Stage 7f.2 plan
-/// injection agree on the slug; a conversation with no coach yields `None`
+/// The conversation's agent is authoritative, so save and the Stage 7f.2 plan
+/// injection agree on the slug; a conversation with no agent yields `None`
 /// rather than falling back. The LLM-supplied argument is used only when there
 /// is no conversation at all (a direct MCP call).
-pub(super) fn resolve_coach_slug(
+pub(super) fn resolve_agent_slug(
     conv: Option<&ConversationRecord>,
-    arg_coach: Option<String>,
+    arg_agent: Option<String>,
 ) -> Option<String> {
-    conv.map_or(arg_coach, |conv| conv.coach_id.clone())
+    conv.map_or(arg_agent, |conv| conv.agent_id.clone())
 }
 
 /// `true` when `fact_id` is a real `Goal` fact of this tenant + user. Guards
@@ -490,7 +490,7 @@ async fn fact_belongs_to_user(
         .is_some_and(|fact| fact.kind == FactKind::Goal))
 }
 
-/// The goal fact a plan links to, together with the coach-agnostic goal facts
+/// The goal fact a plan links to, together with the agent-agnostic goal facts
 /// it replaces.
 ///
 /// Two halves because they belong on opposite sides of the plan write: the id
@@ -501,13 +501,13 @@ async fn fact_belongs_to_user(
 struct GoalFactConvergence {
     /// The fact the plan links to.
     fact_id: String,
-    /// Prior coach-agnostic goal facts, to retire once the plan is stored.
+    /// Prior agent-agnostic goal facts, to retire once the plan is stored.
     superseded: Vec<String>,
 }
 
-/// Converge the athlete's coach-agnostic goal `user_fact` on the outline's goal
+/// Converge the athlete's agent-agnostic goal `user_fact` on the outline's goal
 /// race: reuse an identical stored goal (no churn on a re-save), otherwise write
-/// the new one. Every *other* coach-agnostic goal fact is reported as
+/// the new one. Every *other* agent-agnostic goal fact is reported as
 /// superseded, in both cases, so the pillar view converges on one row even after
 /// a save that failed between the write and the retirement.
 async fn converge_goal_fact(
@@ -523,7 +523,7 @@ async fn converge_goal_fact(
         .await?;
     let agnostic_targets: Vec<&_> = facts
         .iter()
-        .filter(|f| f.coach_id.is_none() && f.predicate_code == GOAL_CODE)
+        .filter(|f| f.agent_id.is_none() && f.predicate_code == GOAL_CODE)
         .collect();
     let fact_id = match agnostic_targets.iter().find(|f| f.object == object) {
         Some(existing) => existing.id.clone(),
@@ -533,7 +533,7 @@ async fn converge_goal_fact(
                 .upsert_user_fact(&UpsertUserFactParams {
                     tenant_id: tenant,
                     user_id,
-                    coach_id: None,
+                    agent_id: None,
                     scope: MemoryScope::User,
                     kind: FactKind::Goal,
                     pillar: Some(Pillar::TrainingAndMovement),
@@ -568,7 +568,7 @@ async fn converge_goal_fact(
 /// on behalf of a plan that may never be stored.
 ///
 /// A failure here is logged rather than returned: the plan IS saved, and
-/// answering the coach with an error would have it tell the athlete a save
+/// answering the agent with an error would have it tell the athlete a save
 /// failed that did not. The leftover fact is retired by the next save, which
 /// reports every non-linked agnostic goal fact as superseded.
 async fn retire_superseded_goal_facts(
@@ -656,7 +656,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let result: AppResult<ToolResult> = async move {
             let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
             let requester = ctx_user_id(&context);
-            let arg_coach = optional_string_field(&args, "agent_id");
+            let arg_agent = optional_string_field(&args, "agent_id");
             let athlete = optional_string_field(&args, "athlete");
             let include_history = args
                 .get("include_history")
@@ -686,7 +686,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 context: &context,
                 requester_tenant,
                 conversation: conv.as_ref(),
-                arg_coach,
+                arg_agent,
                 athlete: athlete.as_deref(),
                 tool_name: "get_training_plan",
             })
@@ -698,11 +698,11 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let tenant = scope.tenant;
             let tenant_id = tenant.to_string();
             let user_id = scope.user_id.to_string();
-            let coach = scope.coach_slug.clone();
+            let agent = scope.agent_slug.clone();
             let today = athlete_today(repos, scope.user_id).await;
             let Some(plan) = repos
                 .training_plans
-                .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(coach.as_deref()))
+                .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(agent.as_deref()))
                 .await?
             else {
                 // No plan, but the calendar may still hold single prescriptions
@@ -727,7 +727,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 .list_plan_weeks(&tenant_id, &user_id, &plan.id, include_history)
                 .await?;
             // The plan snapshots the goal at save time; flag it stale if the
-            // living goal fact has since expired so the coach re-confirms.
+            // living goal fact has since expired so the agent re-confirms.
             let goal_stale = match plan.goal_fact_id.as_deref() {
                 Some(fid) => plan_goal_is_stale(repos, tenant, &user_id, fid).await?,
                 None => false,
@@ -829,7 +829,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let result: AppResult<ToolResult> = async move {
             let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
             let requester = ctx_user_id(&context);
-            let arg_coach = optional_string_field(&args, "agent_id");
+            let arg_agent = optional_string_field(&args, "agent_id");
             let athlete = optional_string_field(&args, "athlete");
             let conversation_id = optional_string_field(&args, "conversation_id");
             let mut goal_fact_id = optional_string_field(&args, "goal_fact_id");
@@ -894,7 +894,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 context: &context,
                 requester_tenant,
                 conversation: conv.as_ref(),
-                arg_coach,
+                arg_agent,
                 athlete: athlete.as_deref(),
                 tool_name: "save_training_plan",
             })
@@ -914,7 +914,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // `tools/list` straight off the `/mcp` endpoint. That path carries
             // no conversation, so the walk is resolved from the athlete there
             // (see `active_guided_flow`) and the withhold holds on every
-            // surface, including a direct MCP call. Self scope only: a coach
+            // surface, including a direct MCP call. Self scope only: an agent
             // saving for an athlete is not inside that athlete's profile walk.
             // Asks the walk, not merely whether one is running: an interview
             // must not write a plan, and a walk whose purpose is to write one
@@ -934,18 +934,18 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 ));
             }
 
-            let coach = scope.coach_slug.clone();
+            let agent = scope.agent_slug.clone();
 
             // The vision's catalogue references are checked through the
-            // coach's package over the live registry before anything is
+            // agent's package over the live registry before anything is
             // written: a flavour id names a flavour the package or the
             // catalogue carries (its family, sequencing and modifiers are
             // copied from it — provenance, never trusted from the payload), a
             // week's phase_index names a phase the plan will have, and a day's
-            // template_slug names a template the coach can actually see; the
+            // template_slug names a template the agent can actually see; the
             // tier that answered is stamped on the day.
             let package =
-                load_coach_package(repos, tenant, scope.user_id, coach.as_deref()).await?;
+                load_agent_package(repos, tenant, scope.user_id, agent.as_deref()).await?;
             let catalogue = PackagedCatalogue::new(state.training_catalogue(), package);
             let flavour_selection = match outline.as_ref().and_then(|o| o.flavour.as_ref()) {
                 Some(payload) => Some(resolve_flavour(&catalogue, payload)?),
@@ -955,7 +955,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 Some(o) => o.phases.len(),
                 None => repos
                     .training_plans
-                    .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(coach.as_deref()))
+                    .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(agent.as_deref()))
                     .await?
                     .map_or(0, |plan| plan.phases.len()),
             };
@@ -972,8 +972,8 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             }
 
             // Close the pillar loop: an outline whose goal race has no linked
-            // Goal fact converges on one coach-agnostic Goal fact (the athlete's
-            // truth, shared across coaches and the /pillars walk) — idempotent
+            // Goal fact converges on one agent-agnostic Goal fact (the athlete's
+            // truth, shared across agents and the /pillars walk) — idempotent
             // so a re-save never mints a duplicate. The plan row stores the id,
             // so the fact is written here; the facts it replaces are erased only
             // once the plan is safely stored.
@@ -1023,7 +1023,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .save_plan_bundle(&SavePlanBundleParams {
                     tenant_id: &tenant_id,
                     user_id: &user_id,
-                    owner: PlanOwner::from_slug(coach.as_deref()),
+                    owner: PlanOwner::from_slug(agent.as_deref()),
                     goal_fact_id: goal_fact_id.as_deref(),
                     outline: outline_input,
                     weeks: &week_inputs,
@@ -1035,7 +1035,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             // The one enforced rail on plan difficulty: does the plan's opening
             // week sit far above what this athlete actually does? A warning,
-            // never a block — the coach may have good reason, and refusing a
+            // never a block — the agent may have good reason, and refusing a
             // save would strand a plan the athlete already agreed to. The event
             // also reports when the comparison could not be made, so a quiet
             // log means "measured and fine" rather than "never looked".
@@ -1181,7 +1181,7 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
     ]
 }
 
-// A stored plan is conversation-derived text (coach/LLM-authored strategy,
+// A stored plan is conversation-derived text (agent/LLM-authored strategy,
 // block intents, day workouts) re-entering the LLM context — the same
 // untrusted-content class as recalled memory, so a read taints the turn.
 crate::declare_security!(GetTrainingPlanTool => UNTRUSTED_OUTPUT);

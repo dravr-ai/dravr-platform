@@ -121,7 +121,7 @@ describe('useMessages', () => {
     it('should support the coach conversation pattern: set then update', () => {
       const { result } = renderHook(() => useMessages());
 
-      // Step 1: Coach sets initial user message (direct value)
+      // Step 1: Agent sets initial user message (direct value)
       const tempUserMsg = createMockMessage({
         id: 'temp-123',
         role: 'user',
@@ -134,7 +134,7 @@ describe('useMessages', () => {
       expect(result.current.messages).toHaveLength(1);
       expect(result.current.messages[0].role).toBe('user');
 
-      // Step 2: Coach replaces temp message with API response (function updater)
+      // Step 2: Agent replaces temp message with API response (function updater)
       const realUserMsg = createMockMessage({
         id: 'user-456',
         role: 'user',

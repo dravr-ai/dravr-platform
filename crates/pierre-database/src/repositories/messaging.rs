@@ -418,40 +418,40 @@ pub trait MessagingRepository: Send + Sync {
         locale: Option<&str>,
     ) -> AppResult<()>;
 
-    /// Whether the one-time onboarding coach proposal has already been
+    /// Whether the one-time onboarding agent proposal has already been
     /// auto-sent for this channel link.
     ///
     /// Backs the messaging ingress idempotency check: returns `true` once
-    /// [`Self::mark_coach_proposal_sent`] has stamped the link. A missing link
+    /// [`Self::mark_agent_proposal_sent`] has stamped the link. A missing link
     /// returns `false` (nothing has been sent yet).
-    async fn coach_proposal_sent(
+    async fn agent_proposal_sent(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
     ) -> AppResult<bool>;
 
-    /// Stamp the channel link as having received the onboarding coach proposal,
+    /// Stamp the channel link as having received the onboarding agent proposal,
     /// so the ingress never re-sends it. Idempotent — re-stamping is harmless.
     ///
-    /// `proposed_coach_ids` records what was offered, in the order the user sees
-    /// it, so a bare numeric reply can resolve to the right coach. It cannot be
+    /// `proposed_agent_ids` records what was offered, in the order the user sees
+    /// it, so a bare numeric reply can resolve to the right agent. It cannot be
     /// re-derived later: the proposal is LLM-re-ranked and could come back in a
-    /// different order, which would bind the wrong coach.
-    async fn mark_coach_proposal_sent(
+    /// different order, which would bind the wrong agent.
+    async fn mark_agent_proposal_sent(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
-        proposed_coach_ids: &[String],
+        proposed_agent_ids: &[String],
     ) -> AppResult<()>;
 
-    /// The coach ids offered by the last proposal, in display order.
+    /// The agent ids offered by the last proposal, in display order.
     ///
     /// Empty when no proposal has been sent, or when the link predates the
     /// column — in which case a numeric reply is simply not a selection and
     /// falls through to the model as ordinary conversation.
-    async fn proposed_coach_ids(
+    async fn proposed_agent_ids(
         &self,
         tenant_id: TenantId,
         channel_type: &str,

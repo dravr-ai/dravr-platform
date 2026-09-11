@@ -497,7 +497,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
 /// Recompute the athlete's daily training-state rollup now that deeper rows
 /// have landed.
 ///
-/// `compute_and_persist_history` was the rollup's only writer, and the coach
+/// `compute_and_persist_history` was the rollup's only writer, and the agent
 /// only ever called it on demand — so `training_history` was as fresh as the
 /// last time someone happened to ask, which in production was twice in sixty
 /// days. It sits here because this is the moment the durable cache changes, and
@@ -505,7 +505,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
 /// compute does no provider I/O of its own.
 ///
 /// Warms the default window on every capture that persisted rows, rather than
-/// only deep ones: the rollup a coach reads is that window, and a shallow
+/// only deep ones: the rollup an agent reads is that window, and a shallow
 /// capture still moves its most recent days.
 ///
 /// Best-effort — the capture already succeeded, and a rollup that fails to warm

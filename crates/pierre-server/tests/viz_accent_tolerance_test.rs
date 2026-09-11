@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Live incident 2026-08-23 (Telegram group): the coach emitted a valid
+//! Live incident 2026-08-23 (Telegram group): the agent emitted a valid
 //! two-series comparison chart but pinned `"accent": "neutral"` — a
 //! plausible word, not a schema value — and the whole block failed schema
 //! validation and was stripped; the athlete asked for a graph and got prose.

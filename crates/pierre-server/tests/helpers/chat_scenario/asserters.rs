@@ -68,8 +68,8 @@ fn evaluate(
         AssertionSpec::ToolCalled { name, min_calls } => {
             assert_tool_called(ctx, name, *min_calls, spec)
         }
-        AssertionSpec::VocabularyContract { coach_id } => {
-            assert_vocabulary_contract(ctx, coach_id, vocab, spec)
+        AssertionSpec::VocabularyContract { agent_id } => {
+            assert_vocabulary_contract(ctx, agent_id, vocab, spec)
         }
         AssertionSpec::AnyOf { values } => assert_any_of(ctx, values, spec),
         AssertionSpec::ReplyLanguage { locale } => {
@@ -353,15 +353,15 @@ fn assert_tool_called(
 
 fn assert_vocabulary_contract(
     ctx: &TurnContext<'_>,
-    coach_id: &str,
+    agent_id: &str,
     vocab: &VocabularyContractRegistry,
     spec: &AssertionSpec,
 ) -> Result<(), AssertionFailure> {
-    let Some(contract) = vocab.contract_for(coach_id) else {
+    let Some(contract) = vocab.contract_for(agent_id) else {
         return Err(AssertionFailure {
             spec: spec.clone(),
             reason: format!(
-                "no vocabulary contract registered for coach {coach_id:?} — declare one in contremaitre"
+                "no vocabulary contract registered for coach {agent_id:?} — declare one in contremaitre"
             ),
         });
     };
@@ -376,7 +376,7 @@ fn assert_vocabulary_contract(
         Err(AssertionFailure {
             spec: spec.clone(),
             reason: format!(
-                "reply for coach {coach_id:?} contains none of the declared vocabulary terms ({:?})",
+                "reply for coach {agent_id:?} contains none of the declared vocabulary terms ({:?})",
                 contract.terms
             ),
         })
@@ -596,7 +596,7 @@ mod tests {
             },
         );
         let spec = AssertionSpec::VocabularyContract {
-            coach_id: "strength".to_owned(),
+            agent_id: "strength".to_owned(),
         };
         assert!(evaluate(
             &spec,
@@ -616,7 +616,7 @@ mod tests {
     fn vocabulary_contract_missing_registry_entry_fails_loudly() {
         let vocab = VocabularyContractRegistry::empty();
         let spec = AssertionSpec::VocabularyContract {
-            coach_id: "strength".to_owned(),
+            agent_id: "strength".to_owned(),
         };
         let err = evaluate(&spec, &ctx("anything"), &vocab).unwrap_err();
         assert!(err.reason.contains("no vocabulary contract"));

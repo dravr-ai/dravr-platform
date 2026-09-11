@@ -186,11 +186,11 @@ fn a_mixed_population_reports_honest_counts() {
 #[tokio::test]
 async fn the_snapshot_pairs_a_connection_with_its_fetch_mark() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants
@@ -278,11 +278,11 @@ async fn the_snapshot_pairs_a_connection_with_its_fetch_mark() {
 #[tokio::test]
 async fn a_connection_needing_reauth_is_excluded_from_the_snapshot() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

@@ -80,7 +80,7 @@ export function useMentionPalette({
   // it is the discriminator, not `is_system`: the resolver admits a system
   // coach (`OR c.is_system = 1`) once the athlete has been assigned it.
   const mentionable = useMemo(
-    () => (data?.coaches ?? []).filter(coach => coach.is_assigned === true),
+    () => (data?.agents ?? []).filter(coach => coach.is_assigned === true),
     [data],
   );
 

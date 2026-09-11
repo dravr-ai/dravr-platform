@@ -9,7 +9,7 @@ import { render, waitFor } from '@testing-library/react-native';
 import { fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -24,7 +24,7 @@ jest.mock('../src/services/api', () => ({
 import { CoachInfoSheet } from '../src/screens/chat/CoachInfoSheet';
 import { COACH_EDIT_ROUTE } from '../src/navigation/routes';
 
-function coach(overrides: Partial<Coach>): Coach {
+function coach(overrides: Partial<Agent>): Agent {
   return {
     id: 'coach-1',
     title: 'Coach Tempo',
@@ -41,15 +41,15 @@ function coach(overrides: Partial<Coach>): Coach {
     is_system: false,
     handle: 'coach-tempo',
     ...overrides,
-  } as Coach;
+  } as Agent;
 }
 
-function renderSheet(coachId = 'coach-1') {
+function renderSheet(agentId = 'coach-1') {
   const handlers = { onSendCommand: jest.fn(), onClose: jest.fn() };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={client}>
-      <CoachInfoSheet coachId={coachId} fallbackTitle="Coach Tempo" {...handlers} />
+      <CoachInfoSheet agentId={agentId} fallbackTitle="Coach Tempo" {...handlers} />
     </QueryClientProvider>,
   );
   return { ...view, handlers };
@@ -58,7 +58,7 @@ function renderSheet(coachId = 'coach-1') {
 describe('CoachInfoSheet', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockListCoaches.mockResolvedValue({ coaches: [coach({})] });
+    mockListCoaches.mockResolvedValue({ agents: [coach({})] });
   });
 
   it('names the agent and teaches the handle a mention would use', async () => {
@@ -86,14 +86,14 @@ describe('CoachInfoSheet', () => {
 
     expect(mockPush).toHaveBeenCalledWith({
       pathname: COACH_EDIT_ROUTE,
-      params: { coachId: 'coach-1' },
+      params: { agentId: 'coach-1' },
     });
   });
 
   // A system agent is shared by every tenant and the server refuses the write,
   // so offering Edit would advertise a 403.
   it('offers no Edit agent for a system agent', async () => {
-    mockListCoaches.mockResolvedValue({ coaches: [coach({ is_system: true })] });
+    mockListCoaches.mockResolvedValue({ agents: [coach({ is_system: true })] });
     const { findByTestId, queryByTestId } = renderSheet();
 
     await findByTestId('coach-info-handle');

@@ -15,7 +15,7 @@
 #      Cloud Run automatically writes an ERROR log line when a job's task
 #      exits with a non-zero status code, so this metric trips on:
 #        * pierre-cli seed-* failures (the c6630e46 class of bug)
-#        * pierre-cli check-drift coaches failures (the contremaitre-vs-DB
+#        * pierre-cli check-drift agents failures (the contremaitre-vs-DB
 #          drift signal, see drift_check.tf)
 #        * any future *-cron / *-job we add following the same naming
 #   2. google_monitoring_notification_channel — Slack channel pointing at

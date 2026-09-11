@@ -30,11 +30,11 @@ export interface Conversation {
   model?: string;
   /** Coach ID if conversation uses an agent; resolves to the agent's
    *  system_prompt at runtime via the coaches table. */
-  coach_id?: string | null;
+  agent_id?: string | null;
   /** The attached agent's catalogue `@handle`, when it has one. List rows only. */
-  coach_handle?: string | null;
+  agent_handle?: string | null;
   /** The attached agent's title, when the agent still exists. List rows only. */
-  coach_title?: string | null;
+  agent_title?: string | null;
   /** Coaching group ID if the conversation is group-scoped. When set,
    *  prompt assembly injects group context (members, peer training data
    *  subject to per-member consent). NULL for personal 1:1 chats. */
@@ -179,7 +179,7 @@ export interface MessageFeedbackEntry {
 /**
  * The canonical six fitness-adapted health pillars — the single source of truth
  * for per-user context, pillar-tagged facts, and prompt categorization. Mirrors
- * the Rust `Pillar` enum. Distinct from the coach-marketplace `CoachCategory`.
+ * the Rust `Pillar` enum. Distinct from the coach-marketplace `AgentCategory`.
  */
 export type ActivityPillar =
   | 'training_and_movement'

@@ -21,4 +21,4 @@ turns:
   - user: "How should I improve recovery this week?"
     assertions:
       - kind: vocabulary_contract
-        coach_id: strength
+        agent_id: strength

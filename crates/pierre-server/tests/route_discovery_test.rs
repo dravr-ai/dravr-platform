@@ -78,7 +78,7 @@ async fn test_discover_running_routes_around_prevost() {
             "invalid longitude: {}",
             route.longitude
         );
-        // A route the coach cannot name is a route it cannot recommend.
+        // A route the agent cannot name is a route it cannot recommend.
         assert!(
             !route.name.trim().is_empty() && !route.name.starts_with("Unnamed"),
             "unnamed placeholder leaked into results: {}",
@@ -250,7 +250,7 @@ async fn test_forward_geocode_empty_query_rejected() {
 // The Shawinigan fixture is a real capture: the twenty unnamed sidewalks the
 // shipped query actually returned for an athlete's address on 2026-08-26,
 // merged with the named trails a name-filtered query finds around the same
-// point. The coach could not name a single trail from the first set, which is
+// point. The agent could not name a single trail from the first set, which is
 // the failure these tests exist to keep out.
 // ============================================================================
 

@@ -36,7 +36,7 @@ function seedList(client: QueryClient, unread: number) {
           {
             id: 'c1',
             title: 'Training plan',
-            coach_id: null,
+            agent_id: null,
             message_count: 6,
             unread_count: unread,
             created_at: '2026-08-20T10:00:00Z',

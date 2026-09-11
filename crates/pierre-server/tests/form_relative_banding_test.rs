@@ -91,7 +91,7 @@ fn roster_card_renders_form_pct_next_to_tsb() {
 /// The band's own wording travels with the number, on both cards.
 ///
 /// The percentage alone was not enough. On 2026-09-02 the roster handed the
-/// coach `TSB: -77` and a `[DEEP FATIGUE]` flag, and the coach supplied its own
+/// agent `TSB: -77` and a `[DEEP FATIGUE]` flag, and the agent supplied its own
 /// reading — *"zone de surentraînement profond"*, a diagnosis — then anchored
 /// fifteen turns of advice on it for an athlete who was deliberately peaking.
 /// `FormBand::label` is written to be quotable: it describes fatigue relative to
@@ -261,7 +261,7 @@ fn training_tool_descriptions_carry_no_injury_risk_framing() {
 }
 
 // ============================================================================
-// Group health flags — the coach-facing surface, banded on the same edges
+// Group health flags — the agent-facing surface, banded on the same edges
 // ============================================================================
 
 #[test]
@@ -299,7 +299,7 @@ fn health_flags_band_form_on_ctl_not_absolute_tsb() {
 
 #[test]
 fn health_flags_stay_silent_through_the_productive_zone() {
-    // -15% form is ordinary training. No flag reaches the coach, because a
+    // -15% form is ordinary training. No flag reaches the agent, because a
     // normal block is not news.
     let flags = GroupService::compute_health_flags(&[snapshot(100.0, 115.0, -15.0)]);
     assert!(
@@ -333,7 +333,7 @@ fn health_flags_raise_no_form_flag_without_a_chronic_base() {
 fn training_load_payload_reports_form_pct_and_band() {
     // Serialized, because the subject of this test is the payload the model
     // reads rather than the struct behind it — the untagged enum puts the
-    // analysed arm on the wire bare, so these are the keys a coach sees.
+    // analysed arm on the wire bare, so these are the keys an agent sees.
     // No period argument: the tool takes none. Its `days` was advertised and
     // never read, and its `timeframe` was read and never advertised — it
     // windowed nothing either way, and windowing a zero-seeded EMA's input

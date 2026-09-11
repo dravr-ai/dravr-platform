@@ -27,7 +27,7 @@ export interface ConversationsState {
  */
 export interface CreateConversationParams {
   title: string;
-  coach_id?: string;
+  agent_id?: string;
   group_id?: string;
 }
 

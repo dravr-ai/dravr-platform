@@ -26,7 +26,7 @@ pub struct StoredBlocks {
 /// Resolve a stored `content_blocks` column into what a client renders.
 ///
 /// `stored` is the JSON array persisted on `chat_messages.content_blocks`. It
-/// holds two kinds of entry: the visual specs the coach wrote, resolved by
+/// holds two kinds of entry: the visual specs the agent wrote, resolved by
 /// photograveur on every read (so a geometry improvement reaches charts already
 /// sitting in history without a migration), and the controls a slash-command
 /// reply carried, which are partitioned out first — photograveur must never be
@@ -150,10 +150,10 @@ pub struct CreateConversationRequest {
     /// LLM model to use (optional, defaults to provider's default model)
     #[serde(default)]
     pub model: Option<String>,
-    /// Coach ID to attach to this conversation (optional). The coach's
-    /// system prompt is resolved at runtime from the `coaches` table.
+    /// Agent ID to attach to this conversation (optional). The agent's
+    /// system prompt is resolved at runtime from the `agents` table.
     #[serde(default)]
-    pub coach_id: Option<String>,
+    pub agent_id: Option<String>,
     /// Coaching group ID to scope this conversation to (optional). When
     /// set, the server-side prompt assembly stage injects group context
     /// (member roster, peer training data with consent, role-aware
@@ -171,8 +171,8 @@ pub struct ConversationResponse {
     pub title: String,
     /// Model used
     pub model: String,
-    /// Coach attached to this conversation, if any
-    pub coach_id: Option<String>,
+    /// Agent attached to this conversation, if any
+    pub agent_id: Option<String>,
     /// Coaching group attached to this conversation, if any
     #[serde(default)]
     pub group_id: Option<String>,
@@ -207,14 +207,14 @@ pub struct ConversationSummaryResponse {
     pub message_count: i64,
     /// Total tokens used
     pub total_tokens: i64,
-    /// Coach attached to the conversation, if any.
-    pub coach_id: Option<String>,
-    /// The attached coach's catalogue `@handle`, when it has one.
+    /// Agent attached to the conversation, if any.
+    pub agent_id: Option<String>,
+    /// The attached agent's catalogue `@handle`, when it has one.
     #[serde(default)]
-    pub coach_handle: Option<String>,
-    /// The attached coach's title, when the coach still exists.
+    pub agent_handle: Option<String>,
+    /// The attached agent's title, when the agent still exists.
     #[serde(default)]
-    pub coach_title: Option<String>,
+    pub agent_title: Option<String>,
     /// Coaching group the conversation is scoped to, if any.
     #[serde(default)]
     pub group_id: Option<String>,
@@ -319,7 +319,7 @@ pub struct MessageResponse {
     /// photograveur `RenderBlock`. The content carries a `⟦viz:N⟧` marker where
     /// each block sat; clients split on the markers and interleave rendering.
     ///
-    /// This is the *resolved* form, not the spec the coach wrote. The spec stays
+    /// This is the *resolved* form, not the spec the agent wrote. The spec stays
     /// on the message row and the scene is recomputed here on every read, so a
     /// geometry improvement reaches charts already sitting in history without a
     /// migration. Clients therefore never see chart maths — a scene is a flat
@@ -365,7 +365,7 @@ pub struct ChatMessageAction {
     /// frontends.
     pub action_type: String,
     /// For `postback`: the text to send as the next user message (e.g.
-    /// `/coach add @handle`). For `url`: the absolute URL to open.
+    /// `/agent add @handle`). For `url`: the absolute URL to open.
     pub value: String,
 }
 

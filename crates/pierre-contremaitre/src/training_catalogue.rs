@@ -15,7 +15,7 @@
 //! The registry is seeded at construction from the generated
 //! [`super::training_catalogue_embedded`] tables — the byte-for-byte mirror
 //! of the tree at the platform root — with [`PromptSource::CompiledIn`], so
-//! the coach has a full bank before the first contremaitre sync lands and
+//! the agent has a full bank before the first contremaitre sync lands and
 //! whenever the store is unreachable. A sync overlays entries with
 //! [`PromptSource::Contremaitre`]; removing an overlaid entry reverts it to
 //! the compiled-in one rather than leaving a hole.
@@ -169,7 +169,7 @@ type EntryMap = HashMap<(CatalogueKind, String), CatalogueEntry>;
 /// Seeded with the compiled-in mirror; entries are overlaid by the
 /// contremaitre sync and revert to the seed when the overlay is removed.
 pub struct TrainingCatalogueRegistry {
-    /// The live set the coach reads.
+    /// The live set the agent reads.
     entries: RwLock<EntryMap>,
     /// The seed, kept so a removed overlay falls back to it.
     compiled_in: EntryMap,

@@ -281,12 +281,12 @@ impl Display for UserStatus {
 }
 
 /// Coaching persona controlling the format, cadence, and data-density of
-/// coach output for this user.
+/// agent output for this user.
 ///
-/// Persona is **orthogonal** to coach choice: a user with persona
-/// [`CoachingPersona::Casual`] talking to the marathon-coach gets the same
-/// coach voice as a [`CoachingPersona::PowerAthlete`] talking to the
-/// marathon-coach — only the level of structure, citation, and proactive
+/// Persona is **orthogonal** to agent choice: a user with persona
+/// [`CoachingPersona::Casual`] talking to the marathon-agent gets the same
+/// agent voice as a [`CoachingPersona::PowerAthlete`] talking to the
+/// marathon-agent — only the level of structure, citation, and proactive
 /// notification cadence changes.
 ///
 /// - [`Self::Casual`] — friendly prose, no framework citations, weekly digest
@@ -469,19 +469,19 @@ pub struct User {
     /// `users.locale` → `DEFAULT_LOCALE`.
     #[serde(default = "default_locale")]
     pub locale: String,
-    /// Coach output persona controlling format / citation density /
+    /// Agent output persona controlling format / citation density /
     /// notification cadence. Defaults to [`CoachingPersona::Casual`] for
     /// new users; users opt up via the post-auth onboarding prompt or
     /// the Settings UI. Persisted serde-side as `snake_case` (`"casual"`,
     /// `"enthusiast"`, `"power_athlete"`, `"coach"`).
     #[serde(default)]
     pub coaching_persona: CoachingPersona,
-    /// Whether this user has access to the Coach-tier roster UI (manage
+    /// Whether this user has access to the Agent-tier roster UI (manage
     /// other athletes). Independent from [`Self::coaching_persona`]:
     /// a user can pick the [`CoachingPersona::Coach`] voice without
     /// `manages_roster=true` (they get the voice but not the tools), and
     /// vice versa (admin-granted roster access without picking the
-    /// Coach persona).
+    /// Agent persona).
     #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,
@@ -493,7 +493,7 @@ pub struct User {
     /// one write per genuine TZ change. `None` means no client has
     /// reported yet — readers fall back to UTC. Used by the chat
     /// prompt-assembly stage to resolve `{{CURRENT_DATE}}` to the
-    /// user's local calendar day so the coach interprets "today"
+    /// user's local calendar day so the agent interprets "today"
     /// correctly.
     #[serde(default)]
     pub timezone: Option<String>,

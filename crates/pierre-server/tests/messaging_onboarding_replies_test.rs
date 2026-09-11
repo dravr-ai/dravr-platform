@@ -13,7 +13,7 @@
 //! payloads for all five channels. What was missing was any way to assert what
 //! the bot **said back** — and the onboarding funnel lives entirely in those
 //! replies: the unlinked prompt, the register-or-not answer, the connect card,
-//! the coach proposal.
+//! the agent proposal.
 //!
 //! Outbound adapters post to hardcoded hosts (`api.telegram.org` and friends),
 //! so the last point a test can read the text without a network stub is the
@@ -55,7 +55,7 @@ fn reply_text(content: &MessageContent) -> String {
 async fn context_with_tenant() -> anyhow::Result<(Arc<ServerContext>, TenantId)> {
     let resources = context().await?;
     let (_, _, tenant) = common::create_test_user_with_plan(
-        &resources.coach.database,
+        &resources.agent.database,
         "stranger-harness@example.com",
         "starter",
     )
@@ -299,10 +299,10 @@ async fn messenger_is_a_deep_link_channel_not_an_oauth_one() {
 ///
 /// This strictness is the whole safety property of numeric selection. The
 /// proposal says "Reply with a number to start", so "2" must bind — but someone
-/// answering "I run 3 times a week" must never silently have their coach
+/// answering "I run 3 times a week" must never silently have their agent
 /// rebound. A loose parse would hijack ordinary conversation.
 #[test]
-fn numeric_coach_selection_only_matches_a_bare_number() {
+fn numeric_agent_selection_only_matches_a_bare_number() {
     use pierre_mcp_server::services::messaging_ingress::parse_choice;
 
     assert_eq!(parse_choice("1"), Some(1), "a bare number selects");
@@ -324,11 +324,11 @@ fn numeric_coach_selection_only_matches_a_bare_number() {
     }
 }
 
-/// The selection pointer cannot name a coach that does not exist, and clearing
+/// The selection pointer cannot name an agent that does not exist, and clearing
 /// is a real state rather than an absence of writes.
 ///
 /// The swap itself (selecting twice replaces rather than accumulates) is covered
-/// against real coaches in `coaches_database_test::test_activate_coach_deactivates_others`;
+/// against real agents in `agents_database_test::test_activate_agent_deactivates_others`;
 /// what this adds is the referential guarantee. The retired
 /// `coach_assignments.is_active` maintained "at most one" with two
 /// non-transactional `UPDATEs` that could leave zero or two; a single FK column on
@@ -338,7 +338,7 @@ fn numeric_coach_selection_only_matches_a_bare_number() {
 async fn the_selection_pointer_is_referentially_sound() {
     let resources = context().await.expect("setup failed");
     let (user_id, _, tenant) = common::create_test_user_with_plan(
-        &resources.coach.database,
+        &resources.agent.database,
         "selection-integrity@example.com",
         "starter",
     )
@@ -348,16 +348,16 @@ async fn the_selection_pointer_is_referentially_sound() {
     let tenants = &resources.common.repos.tenants;
 
     assert_eq!(
-        tenants.get_selected_coach(tenant, user_id).await.unwrap(),
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
         None,
         "a fresh membership must hold no selection"
     );
 
-    // A coach id that does not exist must be refused rather than stored, or the
-    // pointer could dangle at a deleted coach and every read would 404.
+    // An agent id that does not exist must be refused rather than stored, or the
+    // pointer could dangle at a deleted agent and every read would 404.
     assert!(
         tenants
-            .set_selected_coach(tenant, user_id, Some("no-such-coach"))
+            .set_selected_agent(tenant, user_id, Some("no-such-coach"))
             .await
             .is_err(),
         "selecting a nonexistent coach must be refused by the foreign key"
@@ -365,11 +365,11 @@ async fn the_selection_pointer_is_referentially_sound() {
 
     // Clearing is always legal and leaves no selection.
     tenants
-        .set_selected_coach(tenant, user_id, None)
+        .set_selected_agent(tenant, user_id, None)
         .await
         .expect("clearing must be allowed");
     assert_eq!(
-        tenants.get_selected_coach(tenant, user_id).await.unwrap(),
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
         None
     );
 }

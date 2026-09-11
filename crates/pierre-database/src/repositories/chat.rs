@@ -26,9 +26,9 @@ use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 pub trait ChatRepository: Send + Sync {
     /// Create a new chat conversation.
     ///
-    /// `coach_id` references a coach in the `coaches` table; the coach's
+    /// `agent_id` references an agent in the `agents` table; the agent's
     /// `system_prompt` is the canonical persona source and is resolved at
-    /// runtime via [`CoachesRepository::get_coach_runtime_context`].
+    /// runtime via [`AgentsRepository::get_agent_runtime_context`].
     ///
     /// The creator is written as the conversation's `owner` participant in
     /// the same call, so the row is readable through the membership
@@ -39,7 +39,7 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         group_id: Option<&str>,
     ) -> AppResult<ConversationRecord>;
     /// Get a conversation by ID, when `user_id` is a participant in this tenant.
@@ -57,7 +57,7 @@ pub trait ChatRepository: Send + Sync {
     /// surface opened them — newest activity first, with the participant's
     /// total alongside so a client pages against the real count.
     ///
-    /// Each row carries what a list row shows: the coach's title and
+    /// Each row carries what a list row shows: the agent's title and
     /// `@handle`, the group's name, the newest `user`/`assistant` row and the
     /// count of such rows written after the caller's read marker. Tool rows
     /// count nowhere. `limit`/`offset` are applied as given; the route clamps
@@ -210,7 +210,7 @@ pub trait ChatRepository: Send + Sync {
     /// Count conversations updated since a given timestamp (admin view, cross-tenant)
     async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64>;
 
-    /// Attach a coach session id to an existing conversation row (Tier 4
+    /// Attach an agent session id to an existing conversation row (Tier 4
     /// cross-channel continuity). Tenant-scoped; returns `false` if the
     /// conversation does not exist.
     async fn set_conversation_session_id(
@@ -286,19 +286,19 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
-    /// Point an existing conversation at a different coach.
+    /// Point an existing conversation at a different agent.
     ///
     /// A messaging channel holds one long-lived conversation per athlete, so
-    /// the coach they pick has to reach the thread they are already in.
+    /// the agent they pick has to reach the thread they are already in.
     /// Rebinding the row does that while keeping the history; forging a fresh
     /// conversation is what `/reset` does, and losing the thread was the price
-    /// of every coach change before this existed.
+    /// of every agent change before this existed.
     ///
     /// Tenant-scoped; returns `false` if the conversation does not exist.
-    async fn set_conversation_coach_id(
+    async fn set_conversation_agent_id(
         &self,
         conversation_id: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 

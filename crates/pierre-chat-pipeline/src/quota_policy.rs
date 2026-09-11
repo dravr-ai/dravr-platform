@@ -43,7 +43,7 @@ use crate::ChatPipelineContext;
 /// Delegates to [`pierre_services::quota_policy::check_quotas`] with
 /// [`QuotaSurface::ChatTurn`], which enforces the shared account ladder
 /// (daily messages with burst, weekly tokens as a hard cap, daily tokens with
-/// burst) plus the per-conversation and per-coach caps when the relevant ids
+/// burst) plus the per-conversation and per-agent caps when the relevant ids
 /// are present in [`PreChatScope`].
 ///
 /// `tenant_id` is the athlete's own tenant. On a shared messaging bot that is
@@ -153,7 +153,7 @@ pub async fn settle_quota_notice(
 /// Once per level per budget window. Without it the notice rode under every
 /// reply for as long as the athlete stayed over the threshold: five consecutive
 /// turns on 2026-09-02, four of them already past the cap, and they landed
-/// under the replies where he was disputing the coach's facts about his own
+/// under the replies where he was disputing the agent's facts about his own
 /// training (registre#251).
 ///
 /// `increment_counter` is an atomic upsert returning the new value, so the turn

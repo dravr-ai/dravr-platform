@@ -142,7 +142,7 @@ pub(super) fn coverage_gaps(
     // A week that has already ended is proof the plan was under way.
     let plan_has_started = block_spans_today || spans.iter().any(|(_, e)| *e < today);
     // Not covering today only means something once the plan claims to be
-    // running. A coach who lays out next week's schedule on a Wednesday, or
+    // running. An agent who lays out next week's schedule on a Wednesday, or
     // saves an outline before its weeks, has written a perfectly good plan that
     // simply has not started — reporting those as gaps would bury the case this
     // exists to catch, a plan that was covering the athlete and stopped.

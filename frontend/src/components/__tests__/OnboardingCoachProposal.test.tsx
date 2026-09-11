@@ -35,9 +35,9 @@ const PROPOSAL = {
       { sport: 'Kayaking V2', share: 0.4 },
     ],
   },
-  coaches: [
+  agents: [
     {
-      coach: { id: 'coach-trail', title: 'Trail Coach', category: 'training' },
+      agent: { id: 'coach-trail', title: 'Trail Coach', category: 'training' },
       reason: 'You run hills.',
     },
   ],
@@ -68,7 +68,7 @@ describe('OnboardingCoachProposal', () => {
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(recordUsage).toHaveBeenCalledWith('coach-trail');
-    expect(createConversation).toHaveBeenCalledWith({ coach_id: 'coach-trail', title: 'Trail Coach' });
+    expect(createConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail', title: 'Trail Coach' });
     expect(window.location.hash).toBe('#chat/conv-9');
   });
 

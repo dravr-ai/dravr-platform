@@ -73,7 +73,7 @@ pub struct ChannelDelivery<'a> {
 impl ChannelDelivery<'_> {
     /// Hand the notice to the originating channel's adapter.
     ///
-    /// A warmed history can be long — a coach answer over a deep window, or the
+    /// A warmed history can be long — an agent answer over a deep window, or the
     /// templated list itself. The channel accepts a bounded message and rejects
     /// anything past it, so the notice goes out as ordered parts, each inside
     /// the ceiling, rather than being dropped whole. Every part is a fresh

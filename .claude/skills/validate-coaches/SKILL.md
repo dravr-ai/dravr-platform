@@ -6,13 +6,13 @@ user-invocable: true
 
 # Validate Coaches Skill
 
-**CLAUDE: When this skill is invoked with `/validate-coaches`, validate every agent definition file in the catalogue directory — `../dravr-contremaitre/prompts/coaches` by default, or `$PIERRE_COACHES_DIR` when set.**
+**CLAUDE: When this skill is invoked with `/validate-coaches`, validate every agent definition file in the catalogue directory — `../dravr-contremaitre/prompts/coaches` by default, or `$PIERRE_AGENTS_DIR` when set.**
 
 ## Purpose
 
-Validates the agent definition files — the markdown-with-frontmatter documents that seed the `coaches` table — for schema compliance, required fields, section structure, locale layout and naming conventions, using exactly the rules `pierre-coach-parser` and the seeder enforce.
+Validates the agent definition files — the markdown-with-frontmatter documents that seed the `coaches` table — for schema compliance, required fields, section structure, locale layout and naming conventions, using exactly the rules `pierre-agent-parser` and the seeder enforce.
 
-Vocabulary: the athlete-facing word for one of these personas is **agent** (decided 2026-09-05, ADR-026). The files, the `prompts/coaches/**` directory, the parser crate, the `coaches` table, the `## Related Coaches` heading and the `pierre-cli seed coaches` command keep the word *coach* — those are identifiers, and this skill names them as written.
+Vocabulary: the word for one of these personas is **agent** (ADR-026), and the identifiers now say so too — the table is `agents`, the command is `pierre-cli seed agents --agents-dir`. What still reads *coach* lives in dravr-contremaitre and moves with that repo, not this one: the `prompts/coaches/**` directory these files are read from and the `## Related Coaches` heading inside them. The parser crate is `pierre-agent-parser`. This skill names each as written.
 
 ## Usage
 
@@ -30,7 +30,7 @@ prompts/coaches/<category>/<slug>/<locale>.md
 
 - `<category>` — one of the `CoachCategory` wire names (`crates/pierre-core/src/models/coaches.rs`): `training`, `nutrition`, `recovery`, `recipes`, `mobility`, `analysis`, `custom`. The catalogue ships `training`, `nutrition`, `recovery` and `mobility` today.
 - `<slug>` — the agent's kebab-case slug, e.g. `training/marathon-coach/`. It is the `@handle` the athlete types and the `coaches.slug` column; it never changes.
-- `<locale>.md` — `en.md` is the canonical file; `fr.md`, `es.md`, `de.md`, `pt.md` are translations. `is_locale_code` in `crates/pierre-coach-parser/src/lib.rs` is the only list of recognised stems; the seeder globs `<category>/<slug>/*.md` and ignores any other filename.
+- `<locale>.md` — `en.md` is the canonical file; `fr.md`, `es.md`, `de.md`, `pt.md` are translations. `is_locale_code` in `crates/pierre-agent-parser/src/lib.rs` is the only list of recognised stems; the seeder globs `<category>/<slug>/*.md` and ignores any other filename.
 
 Every catalogue directory today carries `en.md` and `fr.md`.
 
@@ -39,7 +39,7 @@ Every catalogue directory today carries `en.md` and `fr.md`.
 ### Step 1: Find every agent definition
 
 ```bash
-COACHES_DIR=${PIERRE_COACHES_DIR:-../dravr-contremaitre/prompts/coaches}
+COACHES_DIR=${PIERRE_AGENTS_DIR:-../dravr-contremaitre/prompts/coaches}
 find "$COACHES_DIR" -mindepth 3 -maxdepth 3 -name '*.md' -type f | sort
 ```
 
@@ -47,7 +47,7 @@ Anything at depth 1 or 2, or a file whose stem is not a locale code, is not seed
 
 ### Step 2: For each file, validate
 
-**CLAUDE: Read each file and verify against the parser (`crates/pierre-coach-parser/src/lib.rs`):**
+**CLAUDE: Read each file and verify against the parser (`crates/pierre-agent-parser/src/lib.rs`):**
 
 #### Frontmatter (required)
 
@@ -104,7 +104,7 @@ done
 The seeder parses every file the same way the daily Cloud Run job does; `--dry-run` writes nothing.
 
 ```bash
-PIERRE_COACHES_DIR="$COACHES_DIR" cargo run --bin pierre-cli -- seed coaches --dry-run
+PIERRE_AGENTS_DIR="$COACHES_DIR" cargo run --bin pierre-cli -- seed agents --dry-run
 ```
 
 It fails on the first malformed file and names it. Without `--dry-run` it upserts the rows, prunes catalogue-owned system agents whose directory is gone, and honours `replaces`.
@@ -112,10 +112,10 @@ It fails on the first malformed file and names it. Without `--dry-run` it upsert
 The contremaitre ↔ database drift gate is the same parser:
 
 ```bash
-PIERRE_COACHES_DIR="$COACHES_DIR" cargo run --bin pierre-cli -- check-drift coaches
+PIERRE_AGENTS_DIR="$COACHES_DIR" cargo run --bin pierre-cli -- check-drift agents
 ```
 
-Parser tests live in `crates/pierre-server/tests/` (`rg "pierre_coach_parser" crates/pierre-server/tests --files-with-matches`); run one with `cargo test --test <file> -- --nocapture` and confirm `running N tests` with N > 0.
+Parser tests live in `crates/pierre-server/tests/` (`rg "pierre_agent_parser" crates/pierre-server/tests --files-with-matches`); run one with `cargo test --test <file> -- --nocapture` and confirm `running N tests` with N > 0.
 
 ## Validation Checklist
 
@@ -132,9 +132,9 @@ For each agent definition file:
 
 ## Success Criteria
 
-- Every file parses under `pierre-cli seed coaches --dry-run`
+- Every file parses under `pierre-cli seed agents --dry-run`
 - No file sits outside the `<category>/<slug>/<locale>.md` layout
-- `check-drift coaches` reports no drift after a seed
+- `check-drift agents` reports no drift after a seed
 - No orphaned directory (a slug directory without an `en.md`)
 
 ## Example Valid Agent Definition

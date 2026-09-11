@@ -142,7 +142,7 @@ fn verification_config_default_allows_everything_at_mixed() {
 }
 
 #[test]
-fn verification_config_parses_coach_frontmatter() {
+fn verification_config_parses_agent_frontmatter() {
     let prompt = "---
 verification_config:
   enabled: true

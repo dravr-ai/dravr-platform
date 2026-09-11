@@ -8,7 +8,7 @@
 //!
 //! When a conversation carries an active `onboarding_state`, the turn runs in
 //! guided mode: a next-topic policy decides what to probe, prompt assembly
-//! injects a directive steering the coach to explore it conversationally, and
+//! injects a directive steering the agent to explore it conversationally, and
 //! the extraction worker stamps the captured facts with that topic's pillar and
 //! kind + `source=onboarding`.
 //!
@@ -126,7 +126,7 @@ pub(super) fn season_conditions(snapshot: Option<&LoadSnapshot>) -> SeasonCondit
 
 /// How a turn relates to a guided flow.
 pub enum GuidedResolution {
-    /// A topic to probe this turn; the coach asks it.
+    /// A topic to probe this turn; the agent asks it.
     Probe(Box<OnboardingTurn>),
     /// A fixed-list walk — calibration or season — just finished. The turn
     /// answers with platform-rendered text instead of dispatching to the LLM —
@@ -179,7 +179,7 @@ pub async fn resolve(
         return GuidedResolution::Inactive;
     }
     // The subject gate: a walk bound to a member advances only on that
-    // member's own turns. Everyone else in the thread — a coach watching, a
+    // member's own turns. Everyone else in the thread — an agent watching, a
     // participant on a shared in-app thread — gets an ordinary coaching turn:
     // no probe, no directive, no interview stamp on their extraction, and no
     // write-tool withhold, all of which follow from returning Inactive here.
@@ -390,7 +390,7 @@ async fn finish_fortnight(
         ctx,
         facts_tenant,
         &subject,
-        conv.coach_id.as_deref(),
+        conv.agent_id.as_deref(),
         locale,
     )
     .await;
@@ -539,7 +539,7 @@ async fn close_walk_window(
 /// the answer with it mis-files every guided answer by one. On the calibration
 /// walk, where every topic forces a kind, that stored the availability answer
 /// as [`FactKind::Injury`] and the injury answer as [`FactKind::Preference`]:
-/// the dossier then hands the coach an "injury" fact reading "8 h/week,
+/// the dossier then hands the agent an "injury" fact reading "8 h/week,
 /// Tuesdays protected", and `completion::assess` — which detects a missing
 /// safety answer by its kind — reports a full house and names no gap.
 ///
@@ -651,7 +651,7 @@ pub fn just_completed_interview(raw: Option<&str>, now: DateTime<Utc>) -> bool {
 /// build, propose, or save a training plan on this turn". On 2026-07-28 an
 /// athlete finished a calibration interview that had carried that block on
 /// eight consecutive turns; 48 seconds later, with the block gone and
-/// `save_training_plan` back in the catalogue, the coach told him it could not
+/// `save_training_plan` back in the catalogue, the agent told him it could not
 /// save his plan "cette fois-ci" — and the logs show it never called the tool.
 /// Removing a prohibition does not retract it from the transcript that
 /// prohibition already shaped, so it is retracted explicitly.
@@ -667,7 +667,7 @@ pub fn release_directive(retired_column: Option<&str>) -> String {
         // this turn is answered by the rule, not by the model's own
         // periodization: the tool reads the profile and the plan, takes the
         // walk's answers as arguments, and returns the ranked verdict the
-        // coach then presents.
+        // agent then presents.
         Some(GuidedFlow::Season) => format!("{INTERVIEW_RELEASE}{SEASON_RELEASE_TAIL}"),
         _ => INTERVIEW_RELEASE.to_owned(),
     }
@@ -759,11 +759,11 @@ pub async fn clear_completed_marker(
     }
 }
 
-/// The system-prompt directive steering the coach to probe the current topic
+/// The system-prompt directive steering the agent to probe the current topic
 /// conversationally.
 ///
 /// Appended at the very tail of the assembled prompt — after the channel
-/// response constraints and the tool-discipline block — because a coach persona
+/// response constraints and the tool-discipline block — because an agent persona
 /// may carry its own first-turn protocol ("your first reply in any conversation
 /// MUST emit a plan"), and the model resolves that conflict by recency. The
 /// wording therefore states the override explicitly rather than relying on
@@ -839,7 +839,7 @@ fn room_audience_line(turn: &OnboardingTurn) -> &'static str {
     }
 }
 
-/// What the coach is asking about, for a calibration topic.
+/// What the agent is asking about, for a calibration topic.
 const fn calibration_topic_label(topic: CalibrationTopic) -> &'static str {
     match topic {
         CalibrationTopic::ProgressionIntent => "how they want their training to get harder",
@@ -853,7 +853,7 @@ const fn calibration_topic_label(topic: CalibrationTopic) -> &'static str {
     }
 }
 
-/// What the coach is asking about, for a season topic.
+/// What the agent is asking about, for a season topic.
 const fn season_topic_label(topic: SeasonTopic) -> &'static str {
     match topic {
         SeasonTopic::RaceCalendar => "the events on their calendar and which one matters",
@@ -870,9 +870,9 @@ const fn season_topic_label(topic: SeasonTopic) -> &'static str {
 /// confirm it.
 ///
 /// Only that topic gets it: quoting the figures on every turn would have the
-/// coach reciting the athlete's training history back at them repeatedly, and
+/// agent reciting the athlete's training history back at them repeatedly, and
 /// the numbers are only load-bearing for the confirmation question. Empty when
-/// there is no snapshot — no provider connected — so the coach asks cold
+/// there is no snapshot — no provider connected — so the agent asks cold
 /// instead of inventing figures.
 fn calibration_baseline_line(turn: &OnboardingTurn) -> String {
     if turn.target != Some(GuidedTarget::Calibration(CalibrationTopic::BaselineConfirm)) {

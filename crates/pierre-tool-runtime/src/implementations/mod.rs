@@ -14,12 +14,12 @@
 //! Modules here are feature-gated by the same Cargo feature flags used at
 //! the pierre-server boundary so consumers can compile a subset.
 //!
-//! - `admin` — admin-only coach + assignment management (`tools-admin`)
-//! - `coaches` — coach CRUD / activate / favorites (`tools-coaches`)
+//! - `admin` — admin-only agent + assignment management (`tools-admin`)
+//! - `agents` — agent CRUD / activate / favorites (`tools-agents`)
 //! - `endurance_workouts` — list the workout bank by purpose / phase / sport, prescribe one
 //!   (`tools-data`)
 //! - `fitness_config` — get / set / list / delete fitness config (`tools-config`)
-//! - `memory` — coach-authored memory: notes, followups, fact recall
+//! - `memory` — agent-authored memory: notes, followups, fact recall
 //!   (`tools-memory`)
 //! - `physiology` — `set_physiology`, the athlete's typed measurements, and
 //!   `estimate_vo2max`, a field-test estimate for it (`tools-config`)
@@ -32,7 +32,7 @@
 //!   (`tools-recipes`)
 //! - `routes` — `discover_routes` OSM + Overpass route discovery
 //!   (`tools-analytics`)
-//! - `store` — Coach Store browse / search / install (`tools-coaches`)
+//! - `store` — Agent Store browse / search / install (`tools-agents`)
 //! - `sync` — `refresh_provider_data`, `get_data_freshness` (`tools-connection`)
 //! - `verification` — `verify_claim` tool (`tools-verification`)
 
@@ -50,7 +50,7 @@ pub(crate) mod handler_bridge;
 #[cfg(feature = "tools-admin")]
 pub mod admin;
 
-/// Answer shapes for the admin coach tools, and their derived schemas.
+/// Answer shapes for the admin agent tools, and their derived schemas.
 pub mod admin_output;
 
 /// Analytics tools: `analyze_activity`, `calculate_metrics`,
@@ -58,17 +58,17 @@ pub mod admin_output;
 #[cfg(feature = "tools-analytics")]
 pub mod analytics;
 
-/// Coach CRUD tools (`tools-coaches` feature).
-#[cfg(feature = "tools-coaches")]
-pub mod coaches;
+/// Agent CRUD tools (`tools-agents` feature).
+#[cfg(feature = "tools-agents")]
+pub mod agents;
 
-/// Answer shapes for the coach tools, split out because `coaches` is at its
+/// Answer shapes for the agent tools, split out because `agents` is at its
 /// size ceiling.
-pub mod coaches_output;
+pub mod agents_output;
 
-/// Result envelope and annotation sets shared by the coach tools (`tools-coaches` feature).
-#[cfg(feature = "tools-coaches")]
-mod coaches_tool_shape;
+/// Result envelope and annotation sets shared by the agent tools (`tools-agents` feature).
+#[cfg(feature = "tools-agents")]
+mod agents_tool_shape;
 
 /// User configuration tools: `get_configuration_catalog`, `get_user_configuration`,
 /// etc. (`tools-config` feature).
@@ -129,14 +129,14 @@ pub mod lactate_thresholds;
 /// What `estimate_lactate_thresholds` answers with
 pub mod lactate_thresholds_output;
 
-/// The coach-facing per-activity DTO rendered by `mode=summary`.
+/// The agent-facing per-activity DTO rendered by `mode=summary`.
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 /// What `get_activities` answers with — its own envelope, not a `Formatted<T>`.
 pub mod activities_output;
 pub mod activity_summary;
 
 /// Shared support for the fitness-provider API tools.
-/// Renders the activity window as the prose list the coach reads and cites
+/// Renders the activity window as the prose list the agent reads and cites
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub mod activity_list_render;
 
@@ -164,7 +164,7 @@ pub mod calendar;
 pub mod commitments;
 /// Training-plan persistence tools (get/save).
 pub mod guided_flow;
-/// Memory tools: coach-authored notes, followups, fact recall (`tools-memory` feature).
+/// Memory tools: agent-authored notes, followups, fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
@@ -228,8 +228,8 @@ pub mod weather_forecast;
 pub mod sleep;
 
 /// Agent Store tools: `browse_agent_store`, `search_agent_store`,
-/// `install_agent_from_store` (`tools-coaches` feature).
-#[cfg(feature = "tools-coaches")]
+/// `install_agent_from_store` (`tools-agents` feature).
+#[cfg(feature = "tools-agents")]
 pub mod store;
 
 /// Sync / refresh tools: `refresh_provider_data`, `get_data_freshness`

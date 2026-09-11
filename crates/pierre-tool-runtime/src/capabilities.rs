@@ -39,8 +39,8 @@ bitflags! {
         const CONFIGURATION = 0b0000_1000_0000;
         /// Tool manages recipes
         const RECIPES = 0b0001_0000_0000;
-        /// Tool manages coaches
-        const COACHES = 0b0010_0000_0000;
+        /// Tool manages agents
+        const AGENTS = 0b0010_0000_0000;
         /// Tool requires admin privileges
         const ADMIN_ONLY = 0b0100_0000_0000;
         /// Tool handles sleep/recovery data
@@ -150,7 +150,7 @@ impl ToolCapabilities {
         if self.contains(Self::RECIPES) {
             parts.push("recipes");
         }
-        if self.contains(Self::COACHES) {
+        if self.contains(Self::AGENTS) {
             parts.push("coaches");
         }
         if self.contains(Self::ADMIN_ONLY) {

@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for playbook prompt rendering — evidence/confidence filtering + human-readable format
-// ABOUTME: Proves only well-evidenced, confident playbooks reach the coach's prompt (P5)
+// ABOUTME: Proves only well-evidenced, confident playbooks reach the agent's prompt (P5)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,7 +22,7 @@ fn playbook(success: u32, failure: u32, confidence: f32) -> Playbook {
         id: "p".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        coach_slug: None,
+        agent_slug: None,
         trigger: TriggerPattern {
             kind: TriggerKind::MotivationDip,
             sport: Some("run".to_owned()),

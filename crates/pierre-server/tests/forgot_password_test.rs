@@ -96,14 +96,14 @@ impl ForgotPasswordTestSetup {
 
     /// Create a test user and return their UUID and email
     async fn create_user(&self) -> anyhow::Result<(uuid::Uuid, String)> {
-        let (_, user) = common::create_test_user(&self.resources.coach.database).await?;
+        let (_, user) = common::create_test_user(&self.resources.agent.database).await?;
         Ok((user.id, user.email))
     }
 
     /// Create a test user with a specific email
     async fn create_user_with_email(&self, email: &str) -> anyhow::Result<(uuid::Uuid, String)> {
         let (_, user) =
-            common::create_test_user_with_email(&self.resources.coach.database, email).await?;
+            common::create_test_user_with_email(&self.resources.agent.database, email).await?;
         Ok((user.id, user.email))
     }
 }

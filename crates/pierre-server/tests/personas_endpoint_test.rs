@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for GET /api/personas — persona cards from the live contract registry
-// ABOUTME: Covers FR rendering, strict-mode inheritance for coach, locale fallback, and the empty registry
+// ABOUTME: Covers FR rendering, strict-mode inheritance for agent, locale fallback, and the empty registry
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -83,7 +83,7 @@ async fn setup_with_shipped_contracts() -> (Router, String, Arc<ServerContext>) 
         .persona_contract_registry
         .apply_overlay(&shipped_persona_contracts_yaml())
         .expect("apply shipped persona contracts");
-    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = resources
         .auth
         .auth_manager
@@ -179,14 +179,14 @@ async fn enforcement_follows_strict_mode_including_coach_inheritance() {
         enforcement_of("power_athlete")["enforcement_label"],
         "Vérifié à chaque réponse"
     );
-    // Coach declares strict_mode: false in the YAML but inherits strict
+    // Agent declares strict_mode: false in the YAML but inherits strict
     // from power_athlete through the registry's overlay (child || parent).
     // Reading the flattened snapshot — never re-deriving — is what this
     // asserts.
     assert_eq!(enforcement_of("coach")["enforcement"], "verified");
 
-    // The inherited Power-athlete rules surface on the coach card too,
-    // alongside coach-only roster framing.
+    // The inherited Power-athlete rules surface on the agent card too,
+    // alongside agent-only roster framing.
     let coach_keys: Vec<&str> = enforcement_of("coach")["rules"]
         .as_array()
         .expect("coach rules")
@@ -251,7 +251,7 @@ async fn unknown_locale_falls_back_to_stored_locale_then_english() {
 async fn empty_registry_serves_cards_without_rules_never_500() {
     // No apply_overlay: this is the pre-first-sync boot state.
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = resources
         .auth
         .auth_manager

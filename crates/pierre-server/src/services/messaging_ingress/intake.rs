@@ -6,10 +6,10 @@
 
 //! The intake turn handler.
 //!
-//! Sits in the same band as [`super::coach_choice`] — after auth, before the
+//! Sits in the same band as [`super::agent_choice`] — after auth, before the
 //! model — and for the same reason: an answer to a question the platform asked
-//! is a selection, not conversation. Handing "2" to the coach as the first
-//! thing an athlete ever says to it is how the coach proposal used to behave,
+//! is a selection, not conversation. Handing "2" to the agent as the first
+//! thing an athlete ever says to it is how the agent proposal used to behave,
 //! and it taught people the bot does not listen.
 //!
 //! The intake is DM-only. Its answers are medical, and in a shared room they
@@ -30,7 +30,7 @@
 //! ## Standing aside
 //!
 //! Every question is asked at most [`MAX_ANSWER_ATTEMPTS`] times. Past that the
-//! intake retires itself silently and the athlete's message goes to the coach
+//! intake retires itself silently and the athlete's message goes to the agent
 //! as ordinary conversation: someone who answers a yes/no question with a
 //! sentence is trying to talk, and a third repetition of a medical form is a
 //! worse outcome than an unscreened athlete. The steps are recorded as skipped
@@ -66,7 +66,7 @@ const FACT_SCAN_LIMIT: i64 = 200;
 /// Everything [`try_handle_intake`] needs to run one intake turn.
 ///
 /// A struct rather than positional parameters, for the reason
-/// [`super::coach_choice::CoachChoiceParams`] gives: the `&str`-ish fields are
+/// [`super::agent_choice::AgentChoiceParams`] gives: the `&str`-ish fields are
 /// trivially swappable at a call site, and this one writes medical facts.
 pub(super) struct IntakeParams<'a> {
     /// Server context: repositories and the strings registry.
@@ -93,14 +93,14 @@ pub(super) struct IntakeParams<'a> {
 ///
 /// Distinguishes "nothing to do here" from "a question is outstanding and this
 /// was not its answer", because the two fall through to different amounts of the
-/// ingress pipeline: an outstanding question suppresses the coach-choice band,
-/// where a bare digit would otherwise be read as picking a coach.
+/// ingress pipeline: an outstanding question suppresses the agent-choice band,
+/// where a bare digit would otherwise be read as picking an agent.
 #[derive(Debug)]
 pub(super) enum IntakeOutcome {
     /// No intake is awaiting an answer — no flow, a group, or not yet opened.
     Idle,
     /// A question is outstanding and this message did not answer it. The turn
-    /// belongs to the coach; the re-ask rides behind its reply.
+    /// belongs to the agent; the re-ask rides behind its reply.
     Unanswered,
     /// The message answered the outstanding question, and this is the reply it
     /// earned — the next question, or the completion notice.
@@ -129,7 +129,7 @@ impl IntakeOutcome {
 /// mid-form is no reason to refuse to answer it. On 2026-08-28 an athlete asked
 /// whether tomorrow's climb suited his week and got "Désolé — j'ai besoin du
 /// chiffre seul" instead; the question was swallowed and never answered. The
-/// re-ask now rides behind the coach's reply, the way the opener already does.
+/// re-ask now rides behind the agent's reply, the way the opener already does.
 ///
 /// Deliberately no test of what the message says. A keyword gate for "is this a
 /// coaching question" is the 61-term list 71dd378de deleted, and it failed the
@@ -171,14 +171,14 @@ pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> IntakeOutcome
 
     // The question this message answers is the last one delivered. An empty
     // ledger means the first question has not gone out yet, and this message is
-    // not answering anything — the coach takes the turn, and
+    // not answering anything — the agent takes the turn, and
     // [`try_build_pending_question`] appends the opener behind its reply.
     let Some(awaiting) = IntakeTopic::awaiting(&state.probed) else {
         return IntakeOutcome::Idle;
     };
 
     let Some(answer) = interpret(awaiting, text) else {
-        // Not an answer. The coach takes the turn; the bottom-of-turn hook
+        // Not an answer. The agent takes the turn; the bottom-of-turn hook
         // re-derives the outstanding question from the ledger and re-asks
         // behind the reply, or retires the walk once the budget is spent.
         return IntakeOutcome::Unanswered;
@@ -225,7 +225,7 @@ pub(super) async fn try_handle_intake(params: IntakeParams<'_>) -> IntakeOutcome
 /// What an athlete's reply resolved to, in whichever question asked it.
 #[derive(Debug, Clone, Copy)]
 enum Answer {
-    /// Profile type: `true` when they coach other people.
+    /// Profile type: `true` when they agent other people.
     Coaches(bool),
     /// PAR-Q+: `true` for a "yes", which raises a flag.
     Parq(bool),
@@ -262,7 +262,7 @@ async fn persist_answer(
     }
 }
 
-/// Mark the athlete as someone who coaches other people.
+/// Mark the athlete as someone who agents other people.
 ///
 /// The one profile-type answer with a user-row write, mirroring the web step.
 async fn persist_coach_persona(resources: &ServerContext, user_id: &str) {
@@ -283,7 +283,7 @@ async fn persist_coach_persona(resources: &ServerContext, user_id: &str) {
     }
 }
 
-/// Raise the coach-visible medical flag for one "yes".
+/// Raise the agent-visible medical flag for one "yes".
 async fn persist_parq_flag(
     resources: &ServerContext,
     tenant_id: TenantId,
@@ -444,7 +444,7 @@ async fn complete(args: CompleteArgs<'_>) -> Option<OutgoingMessage> {
 /// How many medical flags this athlete's onboarding has raised.
 ///
 /// Read back from the facts rather than counted in flow state: the facts are
-/// what the coach will actually see, so a wrap-up that disagrees with them
+/// what the agent will actually see, so a wrap-up that disagrees with them
 /// would be reporting on a write that did not land.
 async fn count_medical_flags(
     resources: &ServerContext,
@@ -590,7 +590,7 @@ pub(super) struct PendingQuestionParams<'a> {
 /// Ask whatever intake question is outstanding, behind the turn just served.
 ///
 /// Rides *behind* a served turn rather than replacing it, the way the connect
-/// card and the coach proposal already do. An athlete who said "hey, can you
+/// card and the agent proposal already do. An athlete who said "hey, can you
 /// help me train for a marathon?" should be answered before being handed a
 /// form; hijacking that message to ask about heart conditions is how a helpful
 /// bot becomes an intake desk.

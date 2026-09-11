@@ -14,7 +14,7 @@
 //! tools that actually succeeded.
 //!
 //! That last one is a security surface, not bookkeeping. It is the evidence
-//! the anti-fabrication gate on coach visuals checks a cited `source_tool`
+//! the anti-fabrication gate on agent visuals checks a cited `source_tool`
 //! against, so it must contain nothing a tool did not actually produce.
 
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ pub struct ExecutedFunctionCalls {
     /// Names of the tools that actually ran and succeeded, in call order.
     ///
     /// NOT the requested `function_calls`: a denial, a refusal, an error and a
-    /// hallucinated name all appear there. The anti-fabrication gate on coach
+    /// hallucinated name all appear there. The anti-fabrication gate on agent
     /// visuals checks a cited `source_tool` against this, and a citation met by
     /// a merely-attempted call is not evidence.
     pub executed: Vec<String>,

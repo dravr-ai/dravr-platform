@@ -39,10 +39,10 @@
 //! # Show token statistics
 //! pierre-cli token stats
 //!
-//! # Seed reference data (admin/demo users, coaches, mobility, etc.)
+//! # Seed reference data (admin/demo users, agents, mobility, etc.)
 //! ADMIN_PASSWORD=secret pierre-cli seed bootstrap
 //! pierre-cli seed demo-data
-//! pierre-cli seed coaches
+//! pierre-cli seed agents
 //! pierre-cli seed mobility
 //! pierre-cli seed synthetic-activities --email alice@example.com --count 200
 //! pierre-cli seed llm-usage --days 60
@@ -114,9 +114,9 @@ enum Command {
 
     /// Drift detection between contremaitre source files and the prod DB
     ///
-    /// Background: the seed-coaches Cloud Run job silently exit-1'd for 3.5
+    /// Background: the seed-agents Cloud Run job silently exit-1'd for 3.5
     /// weeks after c6630e46 (2026-05-01) and nothing caught it. This command
-    /// is the daily drift gate — Cloud Run runs `check-drift coaches`,
+    /// is the daily drift gate — Cloud Run runs `check-drift agents`,
     /// non-zero exit triggers the `dravr-mcp-server-job-failures` alert.
     CheckDrift {
         #[command(subcommand)]
@@ -829,7 +829,7 @@ async fn main() -> Result<()> {
         return commands::seed::dispatch(action, &database_url).await;
     }
 
-    // Drift check shares the same posture: only reads the coaches table,
+    // Drift check shares the same posture: only reads the agents table,
     // never touches encrypted columns. Skip the KeyManager bootstrap so the
     // Cloud Run drift-check Job stays minimal.
     if let Command::CheckDrift { action } = cli.command {

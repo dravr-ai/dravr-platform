@@ -40,7 +40,7 @@ pub const KEY_COMMAND_DESC_AGENT_CREATE: &str = "commands.agent-create.descripti
 pub const KEY_COMMAND_DESC_AGENT_LIST: &str = "commands.agent-list.description";
 /// Key: one-line description of the `agent-remove` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_AGENT_REMOVE: &str = "commands.agent-remove.description";
-/// Key: one-line description of the `coach-invite` catalogue command — `/help`, the command palette and the Telegram menu.
+/// Key: one-line description of the `agent-invite` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_COACH_INVITE: &str = "commands.coach-invite.description";
 /// Key: one-line description of the `discover-install` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_DISCOVER_INSTALL: &str = "commands.discover-install.description";
@@ -54,7 +54,7 @@ pub const KEY_COMMAND_DESC_DENY: &str = "commands.deny.description";
 pub const KEY_COMMAND_DESC_HELP: &str = "commands.help.description";
 /// Key: one-line description of the `status` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_STATUS: &str = "commands.status.description";
-/// Key: one-line description of the `group-coach` catalogue command — `/help`, the command palette and the Telegram menu.
+/// Key: one-line description of the `group-agent` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_GROUP_COACH: &str = "commands.group-coach.description";
 /// Key: one-line description of the `group-consent` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_GROUP_CONSENT: &str = "commands.group-consent.description";

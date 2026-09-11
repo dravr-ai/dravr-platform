@@ -65,7 +65,7 @@ pub struct ScenePublishRequest<'a> {
 /// so there is nothing to publish before the row exists.
 pub trait ScenePublisher: Send + Sync {
     /// Publish every spec in the request, in order. An empty result means the
-    /// reply keeps the sentences the coach wrote around the chart.
+    /// reply keeps the sentences the agent wrote around the chart.
     fn publish(&self, request: &ScenePublishRequest<'_>) -> Vec<SceneImage>;
 }
 

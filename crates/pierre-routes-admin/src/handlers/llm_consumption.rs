@@ -354,7 +354,7 @@ impl LlmConsumptionRoutes {
 
     /// `GET /admin/tool-usage` — per-tool invocation breakdown for the caller's
     /// tenant over the last `days` (default 30). Aggregates the persisted
-    /// `llm_usage.tools_called` so operators see which coach tools actually run
+    /// `llm_usage.tools_called` so operators see which agent tools actually run
     /// and how often, complementing the per-turn structured logs.
     async fn get_admin_tool_usage<C: MiddlewareCtx>(
         State(resources): State<Arc<C>>,

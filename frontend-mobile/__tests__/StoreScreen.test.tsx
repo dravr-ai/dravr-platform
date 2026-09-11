@@ -35,13 +35,13 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { StoreScreen } from '../src/screens/store/StoreScreen';
-import type { StoreCoach, CoachCategory } from '../src/types';
+import type { StoreAgent, AgentCategory } from '../src/types';
 
-const createMockStoreCoach = (overrides: Partial<StoreCoach> = {}): StoreCoach => ({
+const createMockStoreCoach = (overrides: Partial<StoreAgent> = {}): StoreAgent => ({
   id: 'store-coach-1',
   title: 'Test Store Coach',
   description: 'A published coach for the store',
-  category: 'training' as CoachCategory,
+  category: 'training' as AgentCategory,
   tags: ['running', 'marathon'],
   sample_prompts: ['How do I improve my pace?'],
   token_count: 800,
@@ -59,8 +59,8 @@ describe('StoreScreen', () => {
     mockRouter.replace.mockClear();
     mockRouter.back.mockClear();
     mockRouter.navigate.mockClear();
-    mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
-    mockListCoaches.mockResolvedValue({ coaches: [] });
+    mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
+    mockListCoaches.mockResolvedValue({ agents: [] });
   });
 
   describe('rendering', () => {
@@ -107,7 +107,7 @@ describe('StoreScreen', () => {
     });
 
     it('should render empty state when no agents', async () => {
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
       const { getByText } = render(
         <StoreScreen />
       );
@@ -119,11 +119,11 @@ describe('StoreScreen', () => {
 
   describe('agent list', () => {
     it('should render agent cards', async () => {
-      const coaches = [
+      const agents = [
         createMockStoreCoach({ id: '1', title: 'Marathon Training Agent' }),
-        createMockStoreCoach({ id: '2', title: 'Nutrition Guide', category: 'nutrition' as CoachCategory }),
+        createMockStoreCoach({ id: '2', title: 'Nutrition Guide', category: 'nutrition' as AgentCategory }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 2 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 2 });
 
       const { getByText } = render(
         <StoreScreen />
@@ -136,10 +136,10 @@ describe('StoreScreen', () => {
     });
 
     it('should show install count on agent cards', async () => {
-      const coaches = [
+      const agents = [
         createMockStoreCoach({ id: '1', title: 'Popular Coach', install_count: 150 }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { getByText } = render(
         <StoreScreen />
@@ -151,10 +151,10 @@ describe('StoreScreen', () => {
     });
 
     it('should show category badge on agent cards', async () => {
-      const coaches = [
-        createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as CoachCategory }),
+      const agents = [
+        createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as AgentCategory }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { getByText, getAllByText } = render(
         <StoreScreen />
@@ -166,10 +166,10 @@ describe('StoreScreen', () => {
     });
 
     it('should show tags on agent cards', async () => {
-      const coaches = [
+      const agents = [
         createMockStoreCoach({ id: '1', title: 'Tagged Coach', tags: ['beginner', 'cardio'] }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { getByText } = render(
         <StoreScreen />
@@ -184,10 +184,10 @@ describe('StoreScreen', () => {
 
   describe('filtering', () => {
     it('should filter by category when chip is pressed', async () => {
-      const coaches = [
-        createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as CoachCategory }),
+      const agents = [
+        createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as AgentCategory }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { getByText, getAllByText } = render(
         <StoreScreen />
@@ -210,7 +210,7 @@ describe('StoreScreen', () => {
     });
 
     it('should clear category filter when All is pressed', async () => {
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
 
       const { getByText, getAllByText } = render(
         <StoreScreen />
@@ -244,7 +244,7 @@ describe('StoreScreen', () => {
 
   describe('sorting', () => {
     it('should sort by popular by default', async () => {
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
 
       render(<StoreScreen />);
 
@@ -256,7 +256,7 @@ describe('StoreScreen', () => {
     });
 
     it('should change sort when option is pressed', async () => {
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
 
       const { getByText } = render(
         <StoreScreen />
@@ -279,8 +279,8 @@ describe('StoreScreen', () => {
 
   describe('search', () => {
     it('should search agents when text is entered', async () => {
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
-      mockSearchStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
+      mockSearchStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
 
       const { getByPlaceholderText } = render(
         <StoreScreen />
@@ -304,11 +304,11 @@ describe('StoreScreen', () => {
   });
 
   describe('navigation', () => {
-    it('should navigate to StoreCoachDetail when coach is pressed', async () => {
-      const coaches = [
+    it('should navigate to StoreAgentDetail when coach is pressed', async () => {
+      const agents = [
         createMockStoreCoach({ id: 'coach-123', title: 'Clickable Coach' }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { getByText } = render(
         <StoreScreen />
@@ -320,7 +320,7 @@ describe('StoreScreen', () => {
 
       fireEvent.press(getByText('Clickable Coach'));
 
-      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(discover)/[coachId]', params: { coachId: 'coach-123' } });
+      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(discover)/[agentId]', params: { agentId: 'coach-123' } });
     });
 
   });
@@ -342,7 +342,7 @@ describe('StoreScreen', () => {
       expect(getByTestId('loading-indicator')).toBeTruthy();
 
       // Resolve the promise
-      resolvePromise!({ coaches: [], total: 0 });
+      resolvePromise!({ agents: [], total: 0 });
 
       await waitFor(() => {
         // Loading should be done
@@ -352,10 +352,10 @@ describe('StoreScreen', () => {
 
   describe('pull to refresh', () => {
     it('should refresh agents on pull down', async () => {
-      const coaches = [
+      const agents = [
         createMockStoreCoach({ id: '1', title: 'Initial Coach' }),
       ];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { getByTestId } = render(
         <StoreScreen />
@@ -386,8 +386,8 @@ describe('StoreScreen', () => {
     // (`/agent list`, `@handle`), and editing lives on the store detail of an
     // installed listing — no strip, no library, no create button here.
     it('renders the catalogue with no pinned agents, library link or create button', async () => {
-      const coaches = [createMockStoreCoach({ id: '1', title: 'Marathon Training Agent' })];
-      mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
+      const agents = [createMockStoreCoach({ id: '1', title: 'Marathon Training Agent' })];
+      mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
       const { findByText, queryByTestId } = render(<StoreScreen />);
 

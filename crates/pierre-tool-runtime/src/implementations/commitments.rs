@@ -10,12 +10,12 @@
 //! and the sweep in `pierre_services::commitment_sweep` counts it against what
 //! they actually recorded.
 //!
-//! The coach writes it through [`CommitmentCreateTool`] and nothing else does.
+//! The agent writes it through [`CommitmentCreateTool`] and nothing else does.
 //! That is deliberate. Post-hoc extraction from a turn is how the sibling
 //! advice-capture path works, and it cannot tell "I'll run three times this
-//! week" from a bare "ok" to the coach's suggestion — but the difference is the
+//! week" from a bare "ok" to the agent's suggestion — but the difference is the
 //! whole entity, because only the first is something the athlete would recognize
-//! as a promise. Requiring the coach to have asked and been answered puts the
+//! as a promise. Requiring the agent to have asked and been answered puts the
 //! count and the window in the athlete's own words before anything is recorded,
 //! which is also what makes the sweep's later message welcome rather than
 //! presumptuous.
@@ -57,7 +57,7 @@ use pierre_tools_core::ToolResult;
 /// What `commitment_create` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct CommitmentCreateResult {
-    /// The commitment the coach can later cancel or check against.
+    /// The commitment the agent can later cancel or check against.
     pub commitment_id: String,
     /// Whether this call created it. False when an identical open commitment
     /// already existed, which is a success — see
@@ -70,7 +70,7 @@ pub struct CommitmentCreateResult {
     /// RFC 3339 timestamp the window closes at.
     pub window_end: String,
     /// Whether an open commitment already covered this. A duplicate is
-    /// dropped rather than stacked, so the coach can say "already noted"
+    /// dropped rather than stacked, so the agent can say "already noted"
     /// instead of promising a second check. Always the inverse of `recorded`;
     /// both are on the wire because they answer different questions.
     pub duplicate_of_open_commitment: bool,
@@ -301,14 +301,14 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
                 )));
             }
 
-            let coach_id = require_string_field(&args, "agent_id")?;
+            let agent_id = require_string_field(&args, "agent_id")?;
             let sport = sanitize_sport_slug(args.get("sport").and_then(Value::as_str));
 
             let commitment = Commitment {
                 id: Uuid::new_v4().to_string(),
                 tenant_id: tenant_id.to_string(),
                 user_id: user_id.to_string(),
-                coach_id: Some(coach_id),
+                agent_id: Some(agent_id),
                 conversation_id: context.conversation_id.clone(),
                 statement: statement.to_owned(),
                 sport,

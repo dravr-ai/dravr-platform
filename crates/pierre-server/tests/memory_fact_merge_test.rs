@@ -20,10 +20,10 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -40,7 +40,7 @@ async fn a_restatement_merges_into_the_athletes_own_words() {
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id: &user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: None,
@@ -96,10 +96,10 @@ async fn a_merge_raises_the_confidence_of_the_anchor() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -116,7 +116,7 @@ async fn a_merge_raises_the_confidence_of_the_anchor() {
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id: &user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Preference,
             pillar: None,
@@ -153,10 +153,10 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _user) = create_test_user(&resources.coach.database)
+    let (user_id, _user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -172,7 +172,7 @@ async fn a_merge_cannot_reach_another_tenants_fact() {
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id: &user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: None,

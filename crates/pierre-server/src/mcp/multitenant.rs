@@ -212,7 +212,7 @@ impl ProviderToolRouter {
     /// Get database reference for admin API
     #[must_use]
     pub fn database(&self) -> &Database {
-        &self.resources.coach.database
+        &self.resources.agent.database
     }
 
     /// Get auth manager reference for admin API
@@ -750,7 +750,7 @@ impl ProviderToolRouter {
                 .admin_provisioned_api_key_monthly_limit;
             let admin_token_cache_ttl = resources.common.config.auth.admin_token_cache_ttl_secs;
             let mut admin_context = AdminApiContext::new(AdminApiContextInit {
-                database: resources.coach.database.clone(),
+                database: resources.agent.database.clone(),
                 repos: resources.common.repos.clone(),
                 jwt_secret: resources.auth.admin_jwt_secret.to_string(),
                 auth_manager: resources.auth.auth_manager.clone(),
@@ -800,7 +800,7 @@ impl ProviderToolRouter {
                 AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context.clone(), resources);
             let admin_routes = AdminRoutes::routes(admin_context);
 
-            let admin_config_routes = resources.coach.admin_config.as_ref().map_or_else(
+            let admin_config_routes = resources.agent.admin_config.as_ref().map_or_else(
                 || {
                     tracing::warn!(
                         "Admin config service not available - admin config API disabled"
@@ -833,7 +833,7 @@ impl ProviderToolRouter {
         #[cfg(feature = "oauth")]
         let app = {
             let oauth2_context = OAuth2Context {
-                database: resources.coach.database.clone(),
+                database: resources.agent.database.clone(),
                 oauth2_server: resources.common.repos.oauth2_server.clone(),
                 tenants: resources.common.repos.tenants.clone(),
                 users: resources.common.repos.users.clone(),
@@ -958,21 +958,21 @@ impl ProviderToolRouter {
         let app = app.merge(OnboardingRoutes::routes(Arc::clone(resources)));
         let app = app.merge(VizRoutes::routes(Arc::clone(resources)));
 
-        #[cfg(feature = "client-coaches")]
+        #[cfg(feature = "client-agents")]
         let app = app
             .merge(
-                pierre_routes_coaches::build_coaches_router::<ServerContext>()
+                pierre_routes_agents::build_agents_router::<ServerContext>()
                     .with_state(Arc::clone(resources)),
             )
             .nest(
                 "/api/admin",
-                pierre_routes_coaches::build_coaches_admin_router::<ServerContext>()
+                pierre_routes_agents::build_agents_admin_router::<ServerContext>()
                     .with_state(Arc::clone(resources)),
             );
 
         #[cfg(feature = "client-store")]
         let app = app.merge(
-            pierre_routes_coaches::build_store_router::<ServerContext>()
+            pierre_routes_agents::build_store_router::<ServerContext>()
                 .with_state(Arc::clone(resources)),
         );
 
@@ -1009,12 +1009,12 @@ impl ProviderToolRouter {
             resources,
         )));
 
-        // Coach-athlete roster routes — gated by users.manages_roster=true
+        // Agent-athlete roster routes — gated by users.manages_roster=true
         // (or is_admin=true). Always mounted; the permission check lives
         // inside the handler so a user without the bit gets a 403 here
         // rather than a 404 from a missing route.
         let app = app.merge(
-            pierre_routes_coaches::build_roster_router::<ServerContext>()
+            pierre_routes_agents::build_roster_router::<ServerContext>()
                 .with_state(Arc::clone(resources)),
         );
 

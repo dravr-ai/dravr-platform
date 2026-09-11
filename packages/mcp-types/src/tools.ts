@@ -705,7 +705,7 @@ export interface EstimateVo2maxParams {
 
 
 /**
- * Export the Endurance 'dossier.json' aggregate for the authenticated user — physiological profile (VO2max, FTP, threshold pace, fitness level), HR + power zones, goals, nutrition, and equipment slots — composed at read time from the underlying tables. Empty slots come back as `null` rather than 404, so coaches can rely on the shape. Mirrors `GET /api/v1/endurance/dossier`.
+ * Export the Endurance 'dossier.json' aggregate for the authenticated user — physiological profile (VO2max, FTP, threshold pace, fitness level), HR + power zones, goals, nutrition, and equipment slots — composed at read time from the underlying tables. Empty slots come back as `null` rather than 404, so agents can rely on the shape. Mirrors `GET /api/v1/endurance/dossier`.
  */
 export interface ExportDossierParams {}
 
@@ -1144,11 +1144,11 @@ export interface HideAgentParams {
 
 
 /**
- * Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, `activate_agent` makes it the agent that answers.
+ * Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, `activate_agent` makes it the agent that answers.
  */
 export interface InstallAgentFromStoreParams {
 
-  /** UUID of the published agent to install, as returned by `browse_coach_store` or `search_coach_store`. Required. */
+  /** UUID of the published agent to install, as returned by `browse_agent_store` or `search_agent_store`. Required. */
   agent_id: string;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
@@ -1339,7 +1339,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts ledger. Requires a connected Intervals.icu account. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional coach_id, optional replaces. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
+ * Write one workout onto the athlete's Intervals.icu calendar for a given date, and record it in the prescribed_workouts ledger. Requires a connected Intervals.icu account. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional agent_id, optional replaces. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1396,7 +1396,7 @@ export interface PrescribeWorkoutParams {
 
 
 /**
- * Put the athlete's active training plan on their Intervals.icu calendar, or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on Intervals.icu. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected Intervals.icu account. Args: optional coach_id, optional from_date.
+ * Put the athlete's active training plan on their Intervals.icu calendar, or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on Intervals.icu. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected Intervals.icu account. Args: optional agent_id, optional from_date.
  */
 export interface PushTrainingPlanParams {
 
@@ -1803,7 +1803,7 @@ export interface SaveTrainingPlanParams {
 
 
 /**
- * Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_agents`, which searches only the athlete's own library. Install a result with `install_coach_from_store`.
+ * Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or 'vegetarian nutrition'. Searches the whole marketplace, unlike `search_agents`, which searches only the athlete's own library. Install a result with `install_agent_from_store`.
  */
 export interface SearchAgentStoreParams {
 

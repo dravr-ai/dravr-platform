@@ -20,7 +20,7 @@
 //! compiled-in [`pierre_core::models::TierQuotaConfig`] defaults when the admin
 //! config service is unavailable, and honour the same bypass allow-list. The
 //! surface decides only which *extra* counters it adds: per-conversation and
-//! per-coach caps for a chat turn, the tool-call ladder for an `/mcp` call.
+//! per-agent caps for a chat turn, the tool-call ladder for an `/mcp` call.
 //!
 //! That is the whole point of the module. Messaging spent four months
 //! bypassing every message and token cap because enforcement lived in the web
@@ -58,7 +58,7 @@ use crate::usage_counter::{LimitCheckResult, UsageCounterService};
 /// it knocked on.
 const QUOTA_BYPASS_USER_IDS_ENV: &str = "QUOTA_BYPASS_USER_IDS";
 
-/// Optional scope hint passed through so conversation- and coach-keyed caps
+/// Optional scope hint passed through so conversation- and agent-keyed caps
 /// fire in the same call as the global daily/weekly caps.
 #[derive(Debug, Default, Clone)]
 pub struct PreChatScope<'a> {
@@ -66,9 +66,9 @@ pub struct PreChatScope<'a> {
     /// `conversation_messages` per-conversation cap from
     /// [`pierre_core::models::TierQuotaConfig`] is enforced.
     pub conversation_id: Option<&'a str>,
-    /// Coach id (`coaches.id`). When present, the `daily_coach_messages` cap
+    /// Agent id (`agents.id`). When present, the `daily_coach_messages` cap
     /// from [`pierre_core::models::TierQuotaConfig`] is enforced.
-    pub coach_id: Option<&'a str>,
+    pub agent_id: Option<&'a str>,
 }
 
 /// Which surface is asking, and therefore which counters the shared account
@@ -80,14 +80,14 @@ pub struct PreChatScope<'a> {
 #[derive(Debug, Clone)]
 pub enum QuotaSurface<'a> {
     /// A chat turn on any chat surface (web, mobile, messaging). Adds the
-    /// per-conversation and per-coach daily message caps when the relevant
+    /// per-conversation and per-agent daily message caps when the relevant
     /// ids are present.
     ChatTurn(PreChatScope<'a>),
     /// A direct `POST /mcp` tool call. Adds the daily and weekly tool-call
     /// ladder, the counters that path increments after a tool executes.
     ///
     /// Not a chat-turn ingress: it has its own entry point, its own
-    /// `call_type = "mcp_tool"` usage row, and no conversation or coach to
+    /// `call_type = "mcp_tool"` usage row, and no conversation or agent to
     /// scope by. Only the policy is shared.
     McpToolCall,
 }
@@ -231,7 +231,7 @@ pub async fn check_quotas(
     ))
 }
 
-/// The per-conversation and per-coach daily message caps a chat turn adds on
+/// The per-conversation and per-agent daily message caps a chat turn adds on
 /// top of the account ladder.
 async fn check_chat_turn_scope(
     usage_svc: &UsageCounterService<'_>,
@@ -254,19 +254,19 @@ async fn check_chat_turn_scope(
         refuse_if_at_limit("conversation_messages", &conv_check)?;
     }
 
-    // Per-coach daily message cap (allows 1.5x burst — coaches are already
+    // Per-agent daily message cap (allows 1.5x burst — agents are already
     // individually rate-limited at the model layer).
-    if let Some(coach_id) = scope.coach_id {
-        let coach_check = usage_svc
+    if let Some(agent_id) = scope.agent_id {
+        let agent_check = usage_svc
             .check_limit_with_dimension_for_tier(
                 tenant_str,
                 user_str,
                 "daily_coach_messages",
-                coach_id,
+                agent_id,
                 tier,
             )
             .await?;
-        refuse_if_over_burst("daily_coach_messages", &coach_check)?;
+        refuse_if_over_burst("daily_coach_messages", &agent_check)?;
     }
 
     Ok(())

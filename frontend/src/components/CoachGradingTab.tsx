@@ -7,8 +7,8 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   adminApi,
-  type CoachGrade,
-  type CoachGradingSummary,
+  type AgentGrade,
+  type AgentGradingSummary,
   type LetterGrade,
 } from '../services/api/admin';
 import { Card, Button, Badge } from './ui';
@@ -34,7 +34,7 @@ export default function CoachGradingTab() {
   const tenantId = user?.tenant_id ?? '';
 
   const { data, isLoading, isError, error, refetch, isFetching } =
-    useQuery<CoachGradingSummary>({
+    useQuery<AgentGradingSummary>({
       queryKey: ['admin', 'coach-grading', tenantId] as const,
       queryFn: () => adminApi.getCoachGradingSummary(tenantId, 500),
       enabled: Boolean(tenantId),
@@ -151,13 +151,13 @@ export default function CoachGradingTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant bg-white">
-                {data.grades.map((g: CoachGrade) => (
-                  <tr key={g.coach_id}>
+                {data.grades.map((g: AgentGrade) => (
+                  <tr key={g.agent_id}>
                     <td className="px-4 py-3">
                       <Badge variant={GRADE_VARIANT[g.grade]}>{g.grade}</Badge>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-on-surface">
-                      {g.coach_id}
+                      {g.agent_id}
                     </td>
                     <td className="px-4 py-3 text-right text-sm font-semibold text-on-surface">
                       {formatScore(g.score)}

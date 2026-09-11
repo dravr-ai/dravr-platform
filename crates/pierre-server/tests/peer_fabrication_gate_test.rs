@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Deterministic halves of the peer fabrication gate (live incident
-//! 2026-08-22: the coach invented «4h30» and «pas de distance» about a peer
+//! 2026-08-22: the agent invented «4h30» and «pas de distance» about a peer
 //! whose true record — 53 min, 6.1 km — sat in its own context).
 //!
 //! `mentioned_peers` decides which turns get platform-side peer grounding

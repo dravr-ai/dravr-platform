@@ -6,7 +6,7 @@
 
 //! The persona-break alert.
 //!
-//! A coach reply that identifies as the underlying model or provider is a
+//! An agent reply that identifies as the underlying model or provider is a
 //! whole persona break, and the chat pipeline withholds it at the response
 //! boundary — the athlete receives the canned withheld string, never the leak.
 //! The withhold itself is therefore invisible: the turn looks ordinary from

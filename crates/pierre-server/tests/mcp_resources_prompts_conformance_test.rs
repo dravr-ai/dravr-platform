@@ -11,9 +11,7 @@ mod common;
 
 use common::{create_test_server_resources, create_test_user};
 use pierre_core::models::TenantId;
-use pierre_database::database::coaches::{
-    CoachCategory, CoachVisibility, CreateSystemCoachRequest,
-};
+use pierre_database::database::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_mcp_schema::{McpRequest, McpResponse};
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -35,32 +33,32 @@ fn request(id: i64, method: &str, params: Option<Value>) -> McpRequest {
     }
 }
 
-/// Publish a coach into the global marketplace so resources/list has content.
-async fn publish_coach(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId, title: &str) {
-    let coaches_manager = &resources.common.repos.coaches;
+/// Publish an agent into the global marketplace so resources/list has content.
+async fn publish_agent(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId, title: &str) {
+    let agents_manager = &resources.common.repos.agents;
     let store_listings_manager = &resources.common.repos.store_listings;
 
-    let system_request = CreateSystemCoachRequest {
+    let system_request = CreateSystemAgentRequest {
         title: title.to_owned(),
         description: Some(format!("Description for {title}")),
         system_prompt: format!("You are a {title} coach. Provide expert guidance."),
-        category: CoachCategory::Training,
+        category: AgentCategory::Training,
         tags: vec!["test".to_owned(), "training".to_owned()],
-        visibility: CoachVisibility::Tenant,
+        visibility: AgentVisibility::Tenant,
         sample_prompts: vec!["How should I train this week?".to_owned()],
     };
 
-    let coach = coaches_manager
-        .create_system_coach(user_id, tenant_id, &system_request)
+    let agent = agents_manager
+        .create_system_agent(user_id, tenant_id, &system_request)
         .await
         .unwrap();
 
     store_listings_manager
-        .submit_for_review(&coach.id.to_string(), user_id, tenant_id)
+        .submit_for_review(&agent.id.to_string(), user_id, tenant_id)
         .await
         .unwrap();
     store_listings_manager
-        .approve_coach(&coach.id.to_string(), tenant_id, Some(user_id))
+        .approve_agent(&agent.id.to_string(), tenant_id, Some(user_id))
         .await
         .unwrap();
 }
@@ -92,10 +90,10 @@ fn ok_result(response: McpResponse) -> Value {
 #[tokio::test]
 async fn test_advertised_resources_and_prompts_return_real_content() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = tenant_for_user(&resources, user_id).await;
 
-    publish_coach(&resources, user_id, tenant_id, "Marathon Agent").await;
+    publish_agent(&resources, user_id, tenant_id, "Marathon Agent").await;
 
     let server = build_mcp_server(Arc::clone(&resources));
 
@@ -154,7 +152,7 @@ async fn test_advertised_resources_and_prompts_return_real_content() {
     );
     assert_eq!(listed[0]["mimeType"], json!("text/markdown"));
 
-    // resources/read returns the coach markdown for that uri.
+    // resources/read returns the agent markdown for that uri.
     let read = ok_result(
         server
             .handle_request(request(

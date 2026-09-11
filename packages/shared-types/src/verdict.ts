@@ -51,7 +51,7 @@ export interface ClaimVerdict {
   /** Message the claim was made in, when it came from chat. */
   message_id: string | null;
   /** Agent whose reply carried the claim. */
-  coach_id: string | null;
+  agent_id: string | null;
   /** The claim's own sentence, verbatim. */
   claim_text: string;
   /** The domain the claim belongs to. */

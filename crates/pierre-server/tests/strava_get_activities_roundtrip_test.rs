@@ -219,12 +219,12 @@ async fn get_activities_round_trips_seeded_data_with_granular_sport_type() {
 
 /// Strava reports Normalized Power under the name "weighted average power".
 /// The provider must map it onto the canonical `Activity::normalized_power`,
-/// and the coach-facing `ActivitySummary` must carry it — an athlete asking
+/// and the agent-facing `ActivitySummary` must carry it — an athlete asking
 /// "what was my NP?" reads that JSON, and a summary without the field forces
-/// the coach to answer with the average or to claim NP is unavailable.
+/// the agent to answer with the average or to claim NP is unavailable.
 #[cfg(feature = "tools-data")]
 #[tokio::test]
-async fn strava_weighted_average_power_reaches_the_coach_as_normalized_power() {
+async fn strava_weighted_average_power_reaches_the_agent_as_normalized_power() {
     use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 
     ensure_http_clients_initialized();
@@ -265,7 +265,7 @@ async fn strava_weighted_average_power_reaches_the_coach_as_normalized_power() {
         "a ride Strava reported no weighted average for gets no fabricated NP"
     );
 
-    // The coach reads ActivitySummary, not Activity: assert the field survives
+    // The agent reads ActivitySummary, not Activity: assert the field survives
     // that boundary too, and that it is omitted rather than nulled when absent.
     let metered_summary =
         serde_json::to_value(ActivitySummary::from(metered)).expect("serialize metered summary");

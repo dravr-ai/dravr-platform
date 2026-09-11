@@ -60,9 +60,9 @@ export type { ClaimVerdict, ChatVerdictsResponse } from './domains/chat';
 
 export { createCoachesApi } from './domains/coaches';
 export type {
-  CoachesApi,
-  Coach,
-  ListCoachesOptions,
+  AgentsApi,
+  Agent,
+  ListAgentsOptions,
 } from './domains/coaches';
 
 export { createOAuthApi } from './domains/oauth';

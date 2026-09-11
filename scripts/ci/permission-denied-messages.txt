@@ -44,9 +44,9 @@ crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endp
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
 crates/pierre-routes-admin/src/tool_selection.rs:Tenant-scoped tool operations require super-admin privileges
+crates/pierre-routes-agents/src/roster.rs:Athlete does not belong to the caller's active tenant
+crates/pierre-routes-agents/src/roster.rs:Roster management is not enabled for your account
 crates/pierre-routes-auth/src/oauth.rs:Cannot initiate OAuth flow for a different user
-crates/pierre-routes-coaches/src/roster.rs:Athlete does not belong to the caller's active tenant
-crates/pierre-routes-coaches/src/roster.rs:Roster management is not enabled for your account
 crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/groups.rs:A coach must belong to the group's tenant to join it
 crates/pierre-routes-groups/src/groups.rs:Admin or owner role required for this operation

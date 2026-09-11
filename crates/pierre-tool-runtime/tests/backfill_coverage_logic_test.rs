@@ -33,7 +33,7 @@ fn open_before_with_clip_below_now_appends_the_head_slice() {
     // "Everything since Jan 2022" asked in Jan 2024: the coverage read is
     // clipped at Jan 2023, so the head slice (Jan 2023, now] must be read too
     // — the 2026-07-20 regression served a list topping out a year above
-    // `after` and the coach reported "nothing newer" against fresh cache rows.
+    // `after` and the agent reported "nothing newer" against fresh cache rows.
     let clip = JAN_2022 + 365 * 24 * 60 * 60;
     assert_eq!(
         historical_head_slice(None, Some(clip), JAN_2024),

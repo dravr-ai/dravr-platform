@@ -1,4 +1,4 @@
-// ABOUTME: PostgreSQL implementation of RosterRepository — coach-athlete junction CRUD
+// ABOUTME: PostgreSQL implementation of RosterRepository — agent-athlete junction CRUD
 // ABOUTME: Mirrors the SQLite path; uses native UUID and TIMESTAMPTZ types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

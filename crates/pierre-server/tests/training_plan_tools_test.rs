@@ -179,7 +179,7 @@ fn full_plan_payload() -> Value {
     })
 }
 
-/// A threshold session as a coach states it in steps: 15 min warm-up,
+/// A threshold session as an agent states it in steps: 15 min warm-up,
 /// 3 × (8 min at 88-93 % / 4 min easy), 10 min cool-down — 61 minutes.
 fn structured_day(date: &str) -> Value {
     json!({
@@ -318,7 +318,7 @@ async fn a_day_whose_duration_contradicts_its_steps_is_rejected() -> Result<()> 
     assert_no_plan(&executor, user_id, &tenant_id).await
 }
 
-/// The schema bounds what a coach may emit; nothing bounded what a plan could
+/// The schema bounds what an agent may emit; nothing bounded what a plan could
 /// store, so a rate no gut can absorb reached the athlete's calendar unchecked.
 #[tokio::test]
 async fn a_fuelling_rate_past_absorption_is_rejected() -> Result<()> {
@@ -459,7 +459,7 @@ async fn float_shaped_step_numbers_from_the_llm_are_accepted() -> Result<()> {
 
 #[tokio::test]
 async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
-    // The plan is re-injected into every turn, and the coach re-saves a week
+    // The plan is re-injected into every turn, and the agent re-saves a week
     // from what it sees there. Without the structure in the prompt, the
     // re-save would carry the prose and drop the steps — and the next push
     // would put the calendar back to a timed entry with no planned load.
@@ -820,7 +820,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
     Ok(())
 }
 
-/// Count the athlete's coach-agnostic `target race` Goal facts — the row the
+/// Count the athlete's agent-agnostic `target race` Goal facts — the row the
 /// pillar loop is supposed to converge on exactly one of.
 async fn agnostic_goal_facts(
     executor: &UniversalToolExecutor,
@@ -842,7 +842,7 @@ async fn agnostic_goal_facts(
         .await?;
     Ok(facts
         .into_iter()
-        .filter(|f| f.coach_id.is_none() && f.predicate_code == PredicateCode::TargetRace)
+        .filter(|f| f.agent_id.is_none() && f.predicate_code == PredicateCode::TargetRace)
         .map(|f| (f.id, f.object))
         .collect())
 }
@@ -1018,7 +1018,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: &user_id.to_string(),
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Schedule,
             pillar: Some(Pillar::TrainingAndMovement),
@@ -1071,7 +1071,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
 #[tokio::test]
 async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
     // F7: the plan snapshots the goal; when the living goal fact disappears
-    // the read flags the snapshot stale so the coach re-confirms.
+    // the read flags the snapshot stale so the agent re-confirms.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
@@ -1146,8 +1146,8 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
             tenant,
             "profile walk",
             "gemini-2.0-flash",
-            // No coach row is seeded in this fixture; the walk gate keys on the
-            // conversation's onboarding_state, not on which coach is bound.
+            // No agent row is seeded in this fixture; the walk gate keys on the
+            // conversation's onboarding_state, not on which agent is bound.
             None,
             None,
         )
@@ -1218,7 +1218,7 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
     Ok(())
 }
 
-/// The exact payload the coach emitted on 2026-07-28 (conversation
+/// The exact payload the agent emitted on 2026-07-28 (conversation
 /// 043fdd88…): `goal_race` as free text, no `blocks`, and weeks keyed by
 /// `week_label` / `day` / `session`. Every field name is invented, because the
 /// text tool catalog rendered only `outline (object)` / `weeks (array)` and
@@ -1307,7 +1307,7 @@ async fn outcome_text(executor: &UniversalToolExecutor, request: UniversalReques
 async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
     // Phil's real case: "two weeks to Big Red, hold form then taper" has no
     // mesocycle structure. Requiring at least one block made such a plan
-    // unsaveable until the coach invented one.
+    // unsaveable until the agent invented one.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
@@ -1369,7 +1369,7 @@ async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
     Ok(())
 }
 
-/// Write one coach-agnostic `target race` Goal fact directly, the way an
+/// Write one agent-agnostic `target race` Goal fact directly, the way an
 /// earlier save (or a `/pillars` walk) leaves one behind.
 async fn seed_agnostic_goal_fact(
     executor: &UniversalToolExecutor,
@@ -1384,7 +1384,7 @@ async fn seed_agnostic_goal_fact(
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id: tenant,
             user_id: &user_id.to_string(),
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: Some(Pillar::TrainingAndMovement),
@@ -1484,7 +1484,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
             .upsert_user_fact(&UpsertUserFactParams {
                 tenant_id: tenant,
                 user_id: &user_id.to_string(),
-                coach_id: None,
+                agent_id: None,
                 scope: MemoryScope::User,
                 kind: FactKind::Goal,
                 pillar: Some(Pillar::TrainingAndMovement),
@@ -1879,7 +1879,7 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
         error.contains("profile walk"),
         "refusal must tell the model why, got: {error}"
     );
-    // The payload names its coach, and with no conversation in scope that
+    // The payload names its agent, and with no conversation in scope that
     // argument is the slug the plan would be saved under — so that is the slug
     // the "nothing was written" check has to look at.
     assert!(
@@ -1888,7 +1888,7 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
             .get_active_plan(
                 &tenant_id,
                 &user_id.to_string(),
-                PlanOwner::coach("endurance-coach"),
+                PlanOwner::agent("endurance-coach"),
             )
             .await?
             .is_none(),
@@ -2233,7 +2233,7 @@ async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> 
     Ok(())
 }
 
-/// A plan written before it starts is not a gap. A coach who lays out next
+/// A plan written before it starts is not a gap. An agent who lays out next
 /// week's schedule on a Wednesday, or saves an outline ahead of its weeks, has
 /// produced a perfectly good plan — reporting those would fire the signal on
 /// ordinary coaching and bury the case above.
@@ -2346,7 +2346,7 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
 // week and day references that make template use measurable.
 // ---------------------------------------------------------------------------
 
-/// The full plan payload with the vision stated: a coach-chosen flavour, a
+/// The full plan payload with the vision stated: an agent-chosen flavour, a
 /// season window, a build phase carrying its targets, the first week naming
 /// that phase, and a day built from a catalogue template with its values.
 fn vision_payload() -> Value {
@@ -2611,7 +2611,7 @@ async fn stored_race_names(
         .get_active_plan(
             tenant_id,
             &user_id.to_string(),
-            PlanOwner::coach("endurance-coach"),
+            PlanOwner::agent("endurance-coach"),
         )
         .await?
         .expect("an active plan");

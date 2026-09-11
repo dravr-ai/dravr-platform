@@ -35,7 +35,7 @@ impl MobilityMcpHandler {
     /// Create new handler with test resources
     async fn new() -> Result<Self> {
         let resources = common::create_test_server_resources().await?;
-        let (user_id, _user) = common::create_test_user(&resources.coach.database).await?;
+        let (user_id, _user) = common::create_test_user(&resources.agent.database).await?;
         let tenants = resources.common.repos.tenants.get_all().await?;
         let tenant = tenants
             .iter()

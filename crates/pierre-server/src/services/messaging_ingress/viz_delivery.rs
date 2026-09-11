@@ -18,7 +18,7 @@
 //!
 //! # The fallback is prose, not a placeholder
 //!
-//! A coach writes the interpretation in the sentences around a chart — that is
+//! An agent writes the interpretation in the sentences around a chart — that is
 //! the contract the visual-blocks prompt sets. So a channel that cannot show an
 //! image loses the picture and keeps the point, which is why the degraded path
 //! simply strips the markers and sends the text. Nothing is substituted in, and

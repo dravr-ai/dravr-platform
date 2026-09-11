@@ -1,4 +1,4 @@
-// ABOUTME: Handlers for /confirm and /deny — resolve a Guardian-parked tool call or a parked coach draft
+// ABOUTME: Handlers for /confirm and /deny — resolve a Guardian-parked tool call or a parked agent draft
 // ABOUTME: Single-use owner-checked claim; a confirmed tool call re-dispatches through the executor chokepoint
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,10 +21,10 @@
 //! confirmed executions greppable in the Guardian's structured logs. The
 //! pending row itself is the audit record (status + resolved_at).
 //!
-//! The same store parks the draft `/coach create` proposes, under
-//! [`COACH_PROPOSAL_ACTION`]. The claim path is shared — one token grammar,
+//! The same store parks the draft `/agent create` proposes, under
+//! [`AGENT_PROPOSAL_ACTION`]. The claim path is shared — one token grammar,
 //! one single-use rule, one expiry — and routes on the parked action's kind
-//! after the claim: a confirmed draft becomes a coach, a confirmed tool call
+//! after the claim: a confirmed draft becomes an agent, a confirmed tool call
 //! is re-dispatched.
 
 use pierre_core::permissions::scopes::OAuthScope;
@@ -42,7 +42,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_database::repositories::{ClaimOutcome, PendingGuardianAction};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 
-use crate::coach_create::{create_from_claimed_proposal, COACH_PROPOSAL_ACTION};
+use crate::agent_create::{create_from_claimed_proposal, AGENT_PROPOSAL_ACTION};
 use crate::{CommandHandler, PlatformCommandContext};
 
 /// Handler for `/confirm <id>` — approve and execute a parked action.
@@ -72,7 +72,7 @@ impl CommandHandler for DenyHandler {
 
 /// Claim the pending action `id` for the calling user and act on the outcome.
 ///
-/// The one claim behind `/confirm`, `/deny` and `/coach create confirm`.
+/// The one claim behind `/confirm`, `/deny` and `/agent create confirm`.
 /// A missing/garbled id deliberately gets the same reply as an unknown one:
 /// distinguishing them would let claim tokens be probed for existence.
 pub(crate) async fn resolve_pending(
@@ -123,7 +123,7 @@ pub(crate) async fn resolve_pending(
         ClaimOutcome::Claimed(action) => action,
     };
 
-    let is_coach_draft = action.tool_name == COACH_PROPOSAL_ACTION;
+    let is_agent_draft = action.tool_name == AGENT_PROPOSAL_ACTION;
     if resolution == "denied" {
         info!(
             user_id = %ctx.user_id,
@@ -131,7 +131,7 @@ pub(crate) async fn resolve_pending(
             tool_name = %action.tool_name,
             "guardian pending action denied by user"
         );
-        let key = if is_coach_draft {
+        let key = if is_agent_draft {
             KEY_AGENT_CREATE_DISCARDED
         } else {
             KEY_GUARDIAN_CONFIRM_DENIED
@@ -139,7 +139,7 @@ pub(crate) async fn resolve_pending(
         return Ok(CommandResponse::rich_text(reg.render(key, locale, &[])));
     }
 
-    if is_coach_draft {
+    if is_agent_draft {
         return create_from_claimed_proposal(ctx, &action).await;
     }
 

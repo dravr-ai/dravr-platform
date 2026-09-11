@@ -21,7 +21,7 @@ use pierre_memory::training_plans::{
 use pierre_messaging::commands::CommandResponse;
 use pierre_messaging::rich_text::escape_markdown;
 use pierre_services::training_plan_render::{
-    plan_goal_is_stale, resolve_plan_coach_slug, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
+    plan_goal_is_stale, resolve_plan_agent_slug, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
 use std::fmt::Write as _;
 
@@ -53,7 +53,7 @@ impl PlanView {
 ///
 /// Deterministic and read-only: no LLM round-trip, per [[ADR-003]]'s rule that a
 /// slash command answers from data. Plan *generation* stays conversational, so
-/// this command never writes and never asks a coach to build anything.
+/// this command never writes and never asks an agent to build anything.
 pub struct PlanShowHandler;
 
 /// Handler for `/plan share` — the same read as `/plan`, posted to the room.
@@ -329,13 +329,13 @@ fn caller_display_name(user: Option<&User>) -> String {
 /// nothing is saved. Shared by `/plan` and `/plan share`: one body, two
 /// deliveries.
 ///
-/// The coach the plan is read under follows the same ladder on every
-/// surface: the conversation's coach, read under the tenant that owns the
+/// The agent the plan is read under follows the same ladder on every
+/// surface: the conversation's agent, read under the tenant that owns the
 /// conversation row (a shared room files it under the bot tenant, where the
-/// caller's own tenant never finds it); else the coach the athlete selected in
-/// their own tenant, which is what their DM binds; else the coach-agnostic
+/// caller's own tenant never finds it); else the agent the athlete selected in
+/// their own tenant, which is what their DM binds; else the agent-agnostic
 /// plan. Without the second rung, an athlete whose plan was built in their DM
-/// under coach X read "no plan saved yet" in the room.
+/// under agent X read "no plan saved yet" in the room.
 async fn render_plan_reply(
     ctx: &PlatformCommandContext,
     view: PlanView,
@@ -346,20 +346,20 @@ async fn render_plan_reply(
     let user = ctx.user_id.to_string();
     let tenant = ctx.tenant_id.to_string();
 
-    let conversation_coach = match ctx.conversation_id.as_deref() {
+    let conversation_agent = match ctx.conversation_id.as_deref() {
         Some(cid) => repos
             .chat
             .get_conversation(cid, &user, ctx.conversation_tenant_id)
             .await?
-            .and_then(|c| c.coach_id),
+            .and_then(|c| c.agent_id),
         None => None,
     };
-    let coach =
-        resolve_plan_coach_slug(repos, conversation_coach, ctx.tenant_id, ctx.user_id).await?;
+    let agent =
+        resolve_plan_agent_slug(repos, conversation_agent, ctx.tenant_id, ctx.user_id).await?;
 
     let Some(plan) = repos
         .training_plans
-        .get_active_plan(&tenant, &user, PlanOwner::from_slug(coach.as_deref()))
+        .get_active_plan(&tenant, &user, PlanOwner::from_slug(agent.as_deref()))
         .await?
     else {
         return Ok(None);

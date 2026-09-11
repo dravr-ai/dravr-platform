@@ -1,5 +1,5 @@
 // ABOUTME: Pins that on-demand providers (sciotte) report honest freshness from the activity cache
-// ABOUTME: Regression for the "sciotte always Fresh" bug that made the coach claim stale data was current
+// ABOUTME: Regression for the "sciotte always Fresh" bug that made the agent claim stale data was current
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,13 +12,13 @@
 //! sciotte is scraped per chat request and never background-synced, so its
 //! `oauth_tokens.last_sync` is stamped once at login and never moves. The
 //! refresh service used to short-circuit on-demand providers to `Fresh`, so the
-//! coach believed sciotte data was current even when the scraped cache was
+//! agent believed sciotte data was current even when the scraped cache was
 //! hours old (the user-visible "tu parles à travers ton chapeau" bug).
 //!
 //! The freshness now derives from the activity cache's `synced_at` — the real
 //! timestamp of the last successful scrape. These tests pin that contract:
 //!  1. No cached activities -> sciotte is reported stale (in `refreshing`), and
-//!     the coach hint warns about it.
+//!     the agent hint warns about it.
 //!  2. Freshly cached activities -> sciotte is reported `fresh`, and the hint is
 //!     suppressed.
 
@@ -79,7 +79,7 @@ async fn seed_sciotte_token(
 #[tokio::test]
 async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let repos = &resources.common.repos;
 
     let tenant = repos
@@ -118,13 +118,13 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
         "sciotte must not be reported Fresh without cached data"
     );
 
-    let hint = RefreshService::build_coach_hint(&status.details);
+    let hint = RefreshService::build_agent_hint(&status.details);
     assert!(
         hint.as_deref().is_some_and(|h| h.contains("sciotte")),
         "the coach hint must warn that sciotte data is stale; got {hint:?}"
     );
     // Regression (2026-07-24): the freshness fetch must NOT ask the model to
-    // compute `before=<unix-now>` — a coach passed a year-old epoch and served
+    // compute `before=<unix-now>` — an agent passed a year-old epoch and served
     // 2025 data. The hint now tells it to omit dates and let the server return
     // newest-first.
     let h = hint.as_deref().unwrap();
@@ -141,7 +141,7 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
 #[tokio::test]
 async fn sciotte_with_fresh_cache_is_reported_fresh() {
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, _user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let repos = &resources.common.repos;
 
     let tenant = repos
@@ -192,7 +192,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
         status.refreshing
     );
 
-    let hint = RefreshService::build_coach_hint(&status.details);
+    let hint = RefreshService::build_agent_hint(&status.details);
     assert!(
         hint.as_deref().is_none_or(|h| !h.contains("sciotte")),
         "a fresh sciotte must not appear in the staleness hint; got {hint:?}"

@@ -43,7 +43,7 @@ function usageStatus(current: number) {
   return {
     daily: { messages: counter, tokens: idle, tool_calls: idle },
     weekly: { messages: idle, tokens: idle, tool_calls: idle },
-    resources: { conversations: 3, max_conversations: 50, coaches: 2, max_coaches: 10 },
+    resources: { conversations: 3, max_conversations: 50, agents: 2, max_agents: 10 },
   };
 }
 

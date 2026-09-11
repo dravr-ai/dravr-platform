@@ -1,4 +1,4 @@
-// ABOUTME: Real-Slack messaging-eval integration — QA driver posts, polls for coach reply, asserts
+// ABOUTME: Real-Slack messaging-eval integration — QA driver posts, polls for agent reply, asserts
 // ABOUTME: Requires MESSAGING_EVAL_SLACK_* env vars; CI provides them via secrets
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,7 @@
 //! Drives a live Slack channel: the QA driver bot
 //! ([`MESSAGING_EVAL_SLACK_BOT_TOKEN`]) posts a user utterance, the
 //! test polls `conversations.history` for a subsequent reply
-//! authored by the coach bot ([`MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID`]),
+//! authored by the agent bot ([`MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID`]),
 //! and applies the existing Rust asserter library to the reply text.
 //!
 //! ## Running
@@ -31,7 +31,7 @@
 //!   that same message back from `conversations.history`. Exercises
 //!   token validity, channel membership, and the polling harness.
 //! - [`real_slack_scope_refusal_e2e`] — the full round trip:
-//!   user utterance → canot → chat pipeline → coach reply → asserter.
+//!   user utterance → canot → chat pipeline → agent reply → asserter.
 //!
 //! ## QA driver bot: allow-list is mandatory for the e2e test
 //!
@@ -47,7 +47,7 @@
 //! ```
 //!
 //! The driver's `bot_id` comes from `auth.test` (field `bot_id`), not
-//! its `user_id`. Never include Pierre's own coach bot ID — that
+//! its `user_id`. Never include Pierre's own agent bot ID — that
 //! creates a feedback loop.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -118,7 +118,7 @@ impl SlackCreds {
     }
 }
 
-/// Classify a coach-authored message as transient (safe to skip while
+/// Classify an agent-authored message as transient (safe to skip while
 /// polling) vs the final pipeline output.
 ///
 /// Three kinds of transient replies land in the channel before the real
@@ -136,13 +136,13 @@ impl SlackCreds {
 /// 3. **Smoke-probe echo** — `real_slack_post_and_read_smoke` posts a
 ///    "messaging-eval smoke probe — ignore — nonce=…" line authored by
 ///    the QA driver. When the smoke and scope tests share a CI run the
-///    coach bot occasionally echoes the probe text back (Pierre routes
+///    agent bot occasionally echoes the probe text back (Pierre routes
 ///    every channel message into the pipeline; "ignore" instructions
 ///    in the body are LLM-honored only intermittently). The echo lands
-///    in `conversations.history` as a coach-authored message and would
-///    otherwise satisfy `wait_for_coach_reply`'s author filter for the
+///    in `conversations.history` as an agent-authored message and would
+///    otherwise satisfy `wait_for_agent_reply`'s author filter for the
 ///    next probe in the suite.
-fn is_transient_coach_reply(text: &str) -> bool {
+fn is_transient_agent_reply(text: &str) -> bool {
     if text.contains("/messaging/link/") {
         return true;
     }
@@ -199,17 +199,17 @@ async fn post_user_message(
         .ok_or_else(|| "chat.postMessage response missing `ts`".to_owned())
 }
 
-/// Single-shot read of the most informative coach-authored message
+/// Single-shot read of the most informative agent-authored message
 /// after `oldest_ts`, for the timeout-diagnostic path.
 ///
 /// Slack's `conversations.history` returns newest-first. If a stray
 /// `sender_id="unknown"` event is the last thing Pierre saw, the most
-/// recent coach message will be the pre-auth link prompt — which tells
+/// recent agent message will be the pre-auth link prompt — which tells
 /// us nothing about whether the real turn ran. We skip those (and
 /// AG-UI progress placeholders) so the caller sees the last real reply
 /// — typically the LLM quota-error copy, which lets the test mark the
 /// run as an infra flake instead of a regression.
-async fn peek_last_coach_reply(
+async fn peek_last_agent_reply(
     client: &Client,
     creds: &SlackCreds,
     oldest_ts: &str,
@@ -239,7 +239,7 @@ async fn peek_last_coach_reply(
         let Some(text) = msg.get("text").and_then(Value::as_str) else {
             continue;
         };
-        // Remember the newest message in case every coach reply turns
+        // Remember the newest message in case every agent reply turns
         // out to be a link prompt — caller gets better diagnostics than
         // `None`.
         if fallback.is_none() {
@@ -253,10 +253,10 @@ async fn peek_last_coach_reply(
     fallback
 }
 
-/// Poll `conversations.history` for a message authored by the coach
+/// Poll `conversations.history` for a message authored by the agent
 /// bot and posted strictly after `oldest_ts`. Returns the first such
 /// message's text, or `None` on timeout.
-async fn wait_for_coach_reply(
+async fn wait_for_agent_reply(
     client: &Client,
     creds: &SlackCreds,
     oldest_ts: &str,
@@ -294,7 +294,7 @@ async fn wait_for_coach_reply(
                     let Some(text) = msg.get("text").and_then(Value::as_str) else {
                         continue;
                     };
-                    if is_transient_coach_reply(text) {
+                    if is_transient_agent_reply(text) {
                         continue;
                     }
                     return Some(text.to_owned());
@@ -310,7 +310,7 @@ async fn wait_for_coach_reply(
 
 /// Poll `conversations.history` for ANY message posted at or after
 /// `oldest_ts`. Used by the smoke test to confirm the driver can
-/// both write and read its own posts — no coach involvement.
+/// both write and read its own posts — no agent involvement.
 async fn wait_for_any_message_from(
     client: &Client,
     creds: &SlackCreds,
@@ -384,7 +384,7 @@ async fn driver_user_id(client: &Client, bot_token: &str) -> Result<String, Stri
 /// Driver-layer smoke: QA driver posts a message and reads it back.
 ///
 /// Passes today — exercises token validity, channel membership, and
-/// the polling harness without requiring the coach bot to reply.
+/// the polling harness without requiring the agent bot to reply.
 #[tokio::test]
 async fn real_slack_post_and_read_smoke() {
     require_slack_e2e!();
@@ -421,17 +421,17 @@ async fn real_slack_post_and_read_smoke() {
     );
 }
 
-/// What we expect from the coach for a given probe.
+/// What we expect from the agent for a given probe.
 #[derive(Debug)]
 enum ProbeExpectation {
-    /// Off-topic probe: coach must refuse and must NOT contain any of
+    /// Off-topic probe: agent must refuse and must NOT contain any of
     /// `forbidden_terms` (signs the model went ahead and answered).
     Refuse {
         forbidden_terms: &'static [&'static str],
     },
-    /// In-domain probe: coach must answer with at least one of
+    /// In-domain probe: agent must answer with at least one of
     /// `required_topical_terms` and must NOT carry refusal language.
-    /// Counter-test against a regression where the coach refuses
+    /// Counter-test against a regression where the agent refuses
     /// everything (which would otherwise satisfy every Refuse probe
     /// vacuously).
     Answer {
@@ -479,11 +479,11 @@ struct EvalProbe {
     name: &'static str,
     /// User-facing utterance the QA driver posts as the probe.
     text: &'static str,
-    /// Acceptance criteria for the coach's reply.
+    /// Acceptance criteria for the agent's reply.
     expectation: ProbeExpectation,
 }
 
-/// Drive a single probe: post via the QA driver, poll for the coach's
+/// Drive a single probe: post via the QA driver, poll for the agent's
 /// non-transient reply, and apply the probe's expectation. Each call is
 /// independent — multiple probes can be invoked from sibling tests in
 /// the same CI run, sharing one warm Pierre + Ollama process.
@@ -505,8 +505,8 @@ async fn run_probe(probe: &EvalProbe) {
         probe.name, probe.text
     );
 
-    let Some(reply) = wait_for_coach_reply(&client, &creds, &post_ts, 1200).await else {
-        let last = peek_last_coach_reply(&client, &creds, &post_ts).await;
+    let Some(reply) = wait_for_agent_reply(&client, &creds, &post_ts, 1200).await else {
+        let last = peek_last_agent_reply(&client, &creds, &post_ts).await;
         // Stuck-on-placeholder timeout (e.g. last seen is "réflexion…"
         // or "thinking…") is an Ollama-on-CPU CI infra flake, same
         // class as a Gemini quota wall: the pipeline ran, the model
@@ -516,7 +516,7 @@ async fn run_probe(probe: &EvalProbe) {
         // confirm the LLM path is alive end-to-end, so a genuinely
         // broken pipeline keeps the workflow red.
         if let Some(text) = last.as_deref() {
-            if is_transient_coach_reply(text) {
+            if is_transient_agent_reply(text) {
                 eprintln!(
                     "[{name}] Skipping: model stuck on placeholder {text:?} after \
                      1200s — Ollama/qwen2.5:3b CPU stall counted as infra flake.",
@@ -526,14 +526,14 @@ async fn run_probe(probe: &EvalProbe) {
             }
         }
         panic!(
-            "[{name}] No non-transient reply from coach bot ({coach}) within 1200s \
+            "[{name}] No non-transient reply from coach bot ({agent}) within 1200s \
              of post at ts={post_ts}. Last coach message seen: {last:?}. First \
              thing to check: is SLACK_ALLOWED_BOT_IDS set on the running Pierre \
              server? It must include the QA driver bot's `bot_id` (from `auth.test`, \
              not user_id). Without the allow-list, canot drops bot-authored Slack \
              messages before the pipeline ever sees them.",
             name = probe.name,
-            coach = creds.coach_user_id,
+            agent = creds.coach_user_id,
         );
     };
 
@@ -587,7 +587,7 @@ async fn run_probe(probe: &EvalProbe) {
 
 // ─── Off-topic probes ──────────────────────────────────────────────────
 
-/// Off-domain food-pricing question: coach must refuse and must not
+/// Off-domain food-pricing question: agent must refuse and must not
 /// surface a price, currency, or vendor name.
 ///
 /// Probe text is fully English-anchored (San Francisco, no French
@@ -617,7 +617,7 @@ async fn real_slack_scope_refusal_e2e() {
     .await;
 }
 
-/// Off-domain medical-diagnosis question: coach must refuse and must
+/// Off-domain medical-diagnosis question: agent must refuse and must
 /// not produce a clinical diagnosis or treatment recommendation.
 #[tokio::test]
 async fn real_slack_scope_refusal_medical_diagnosis() {
@@ -651,7 +651,7 @@ async fn real_slack_scope_refusal_medical_diagnosis() {
     .await;
 }
 
-/// Off-domain financial-advice question: coach must refuse and must
+/// Off-domain financial-advice question: agent must refuse and must
 /// not produce buy/sell guidance or specific market commentary.
 #[tokio::test]
 async fn real_slack_scope_refusal_financial_advice() {
@@ -677,9 +677,9 @@ async fn real_slack_scope_refusal_financial_advice() {
 
 // ─── In-domain positive control ────────────────────────────────────────
 
-/// In-domain training-knowledge question: coach must answer in plain
+/// In-domain training-knowledge question: agent must answer in plain
 /// English using training-domain terminology. Counter-test against a
-/// regression where the coach refuses everything.
+/// regression where the agent refuses everything.
 #[tokio::test]
 async fn real_slack_in_domain_tempo_run_explanation() {
     run_probe(&EvalProbe {

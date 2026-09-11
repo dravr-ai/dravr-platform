@@ -26,7 +26,7 @@ mod command_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use chrono::Utc;
-    use pierre_core::models::coaches::Coach;
+    use pierre_core::models::agents::Agent;
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
@@ -407,7 +407,7 @@ mod command_tests {
 
         // Per commit 4602505, a `/slash` prefix with no matching handler
         // is replied to inline with KEY_UNKNOWN_COMMAND so typos like
-        // `/.coach` don't eat LLM quota or spin up a "thinking…"
+        // `/.agent` don't eat LLM quota or spin up a "thinking…"
         // placeholder. The webhook still returns OK; the message is
         // handled synchronously (not stored for dispatch).
         let (status, body) = send_command(&router, "/unknown_command", 12).await;
@@ -590,30 +590,30 @@ mod command_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // /coach DM coverage
+    // /agent DM coverage
     //
-    // These tests pin the personal-thread branch of `/coach add`:
-    //   - DM: /coach add <id> writes tenant_users.selected_coach_id, never
+    // These tests pin the personal-thread branch of `/agent add`:
+    //   - DM: /agent add <id> writes tenant_users.selected_agent_id, never
     //     touches a group, and the confirmation copy omits "group"/"groupe".
-    //   - /coach rendering: card body is plain text with no literal
-    //     asterisks, even when the coach description contains CommonMark
+    //   - /agent rendering: card body is plain text with no literal
+    //     asterisks, even when the agent description contains CommonMark
     //     emphasis (`*not*`).
     // ════════════════════════════════════════════════════════════════
 
-    async fn seed_coach(
+    async fn seed_agent(
         resources: &ServerContext,
         user_id: Uuid,
         tenant_id: TenantId,
         title: &str,
         description: &str,
     ) -> String {
-        use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
+        use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 
-        let request = CreateCoachRequest {
+        let request = CreateAgentRequest {
             title: title.to_owned(),
             description: Some(description.to_owned()),
             system_prompt: "You are a test coach.".to_owned(),
-            category: CoachCategory::Training,
+            category: AgentCategory::Training,
             tags: vec![],
             sample_prompts: vec![],
             startup_query: None,
@@ -626,24 +626,24 @@ mod command_tests {
             success_criteria: None,
             max_tool_iterations: None,
         };
-        let coach = resources
+        let agent = resources
             .common
             .repos
-            .coaches
+            .agents
             .create(user_id, tenant_id, &request)
             .await
             .unwrap();
-        coach.id.to_string()
+        agent.id.to_string()
     }
 
     #[tokio::test]
-    async fn coach_add_in_dm_sets_users_default_coach() {
-        use pierre_commands::coach::CoachAddHandler;
+    async fn agent_add_in_dm_sets_users_default_agent() {
+        use pierre_commands::agent::AgentAddHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let coach_id = seed_coach(
+        let agent_id = seed_agent(
             &resources,
             user_id,
             tenant_id,
@@ -652,12 +652,12 @@ mod command_tests {
         )
         .await;
 
-        // Pre-condition: user has no default coach
+        // Pre-condition: user has no default agent
         let before = resources
             .common
             .repos
             .tenants
-            .get_selected_coach(tenant_id, user_id)
+            .get_selected_agent(tenant_id, user_id)
             .await
             .unwrap();
         assert!(before.is_none(), "nothing selected before the command");
@@ -666,8 +666,8 @@ mod command_tests {
             user_id,
             tenant_id,
             channel_type: "telegram".to_owned(),
-            args: vec![coach_id.clone()],
-            raw_text: format!("/coach add {coach_id}"),
+            args: vec![agent_id.clone()],
+            raw_text: format!("/coach add {agent_id}"),
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "fr".to_owned(),
             is_direct_message: true,
@@ -679,9 +679,9 @@ mod command_tests {
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
-        let response = CoachAddHandler.execute(&ctx).await.unwrap();
+        let response = AgentAddHandler.execute(&ctx).await.unwrap();
 
-        // Confirmation mentions coach title but NEVER "groupe"/"group".
+        // Confirmation mentions agent title but NEVER "groupe"/"group".
         assert!(
             response.text.contains("Activity Analysis Agent"),
             "expected coach title in response, got: {}",
@@ -704,28 +704,28 @@ mod command_tests {
             .common
             .repos
             .tenants
-            .get_selected_coach(tenant_id, user_id)
+            .get_selected_agent(tenant_id, user_id)
             .await
             .unwrap();
-        assert_eq!(selected.as_deref(), Some(coach_id.as_str()));
+        assert_eq!(selected.as_deref(), Some(agent_id.as_str()));
     }
 
     #[tokio::test]
-    async fn coach_add_in_dm_twice_swaps_the_selected_coach() {
-        use pierre_commands::coach::CoachAddHandler;
+    async fn agent_add_in_dm_twice_swaps_the_selected_agent() {
+        use pierre_commands::agent::AgentAddHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let coach_a = seed_coach(&resources, user_id, tenant_id, "Coach A", "First.").await;
-        let coach_b = seed_coach(&resources, user_id, tenant_id, "Coach B", "Second.").await;
+        let coach_a = seed_agent(&resources, user_id, tenant_id, "Coach A", "First.").await;
+        let coach_b = seed_agent(&resources, user_id, tenant_id, "Coach B", "Second.").await;
 
-        let mk_ctx = |coach: &str| PlatformCommandContext {
+        let mk_ctx = |agent: &str| PlatformCommandContext {
             user_id,
             tenant_id,
             channel_type: "telegram".to_owned(),
-            args: vec![coach.to_owned()],
-            raw_text: format!("/coach add {coach}"),
+            args: vec![agent.to_owned()],
+            raw_text: format!("/coach add {agent}"),
             ctx: Arc::<ServerContext>::clone(&resources),
             locale: "en".to_owned(),
             is_direct_message: true,
@@ -737,7 +737,7 @@ mod command_tests {
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
-        CoachAddHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
+        AgentAddHandler.execute(&mk_ctx(&coach_a)).await.unwrap();
         // Reselecting must SWAP, not accumulate — the property the old
         // clear-all-then-set pair maintained non-atomically and a single pointer
         // gets structurally.
@@ -745,32 +745,32 @@ mod command_tests {
             .common
             .repos
             .tenants
-            .get_selected_coach(tenant_id, user_id)
+            .get_selected_agent(tenant_id, user_id)
             .await
             .unwrap();
         assert_eq!(after_a.as_deref(), Some(coach_a.as_str()));
 
-        CoachAddHandler.execute(&mk_ctx(&coach_b)).await.unwrap();
+        AgentAddHandler.execute(&mk_ctx(&coach_b)).await.unwrap();
         let after_b = resources
             .common
             .repos
             .tenants
-            .get_selected_coach(tenant_id, user_id)
+            .get_selected_agent(tenant_id, user_id)
             .await
             .unwrap();
         assert_eq!(after_b.as_deref(), Some(coach_b.as_str()));
     }
 
     #[tokio::test]
-    async fn coach_list_renders_without_markdown_asterisks() {
-        use pierre_commands::coach::CoachListHandler;
+    async fn agent_list_renders_without_markdown_asterisks() {
+        use pierre_commands::agent::AgentListHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        // Seed with a description that mimics the real coach markdown that
+        // Seed with a description that mimics the real agent markdown that
         // leaked literal asterisks to Telegram.
-        let _coach = seed_coach(
+        let _coach = seed_agent(
             &resources,
             user_id,
             tenant_id,
@@ -796,7 +796,7 @@ mod command_tests {
             tool_runtime: Arc::<ServerContext>::clone(&resources),
         };
 
-        let response = CoachListHandler.execute(&ctx).await.unwrap();
+        let response = AgentListHandler.execute(&ctx).await.unwrap();
 
         // Card body must not carry literal markdown emphasis — assert on the
         // merged text (title + body) because both flow to every channel.
@@ -823,8 +823,8 @@ mod command_tests {
         use chrono::Utc;
         use pierre_commands::group::GroupConsentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
-        use pierre_core::models::coaches::{
-            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        use pierre_core::models::agents::{
+            AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
             CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
@@ -835,29 +835,29 @@ mod command_tests {
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
         let user_id_str = user_id.to_string();
 
-        // Coach (required as FK for both groups). Seed a minimal system
-        // coach directly via the repo — `create_test_server_resources`
-        // does not auto-seed coaches.
-        let coach = resources
+        // Agent (required as FK for both groups). Seed a minimal system
+        // agent directly via the repo — `create_test_server_resources`
+        // does not auto-seed agents.
+        let agent = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 tenant_id,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Test Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
             .unwrap();
-        let coach_id = coach.id;
+        let agent_id = agent.id;
 
         // Two groups, both with this user as Owner+Member. Pre-fix,
         // `groups.first()` (ORDER BY updated_at DESC) flipped consent
@@ -872,7 +872,7 @@ mod command_tests {
             tenant_id: tenant_id.to_string(),
             name: name.to_owned(),
             description: None,
-            coach_id: coach_id.to_string(),
+            agent_id: agent_id.to_string(),
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: true,
@@ -1127,8 +1127,8 @@ mod command_tests {
     /// group in A that is more recently updated (so `list_groups_for_user`
     /// ordered by `updated_at DESC` would pick it).
     async fn cross_tenant_group_fixture(resources: &ServerContext) -> CrossTenantGroupFixture {
-        use pierre_core::models::coaches::{
-            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        use pierre_core::models::agents::{
+            AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
             CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
@@ -1155,21 +1155,21 @@ mod command_tests {
             .await
             .unwrap();
 
-        let coach = resources
+        let agent = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 member_tenant_id,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Cross Tenant Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
@@ -1183,7 +1183,7 @@ mod command_tests {
             tenant_id: owner_tenant.to_string(),
             name: name.to_owned(),
             description: None,
-            coach_id: coach.id.to_string(),
+            agent_id: agent.id.to_string(),
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: true,
@@ -1296,8 +1296,8 @@ mod command_tests {
     async fn group_coach_command_sets_group_ai_coach() {
         use pierre_commands::group::GroupCoachHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
-        use pierre_core::models::coaches::{
-            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        use pierre_core::models::agents::{
+            AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
             CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
@@ -1308,27 +1308,27 @@ mod command_tests {
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
         let now = chrono::Utc::now();
 
-        let mk_system = |title: &str| CreateSystemCoachRequest {
+        let mk_system = |title: &str| CreateSystemAgentRequest {
             title: title.to_owned(),
             description: None,
             system_prompt: "Test prompt".to_owned(),
-            category: CoachCategory::Training,
+            category: AgentCategory::Training,
             tags: vec![],
             sample_prompts: vec![],
-            visibility: CoachVisibility::Global,
+            visibility: AgentVisibility::Global,
         };
         let initial = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(user_id, tenant_id, &mk_system("Starter Coach"))
+            .agents
+            .create_system_agent(user_id, tenant_id, &mk_system("Starter Coach"))
             .await
             .unwrap();
         let target = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(user_id, tenant_id, &mk_system("5K Marathon"))
+            .agents
+            .create_system_agent(user_id, tenant_id, &mk_system("5K Marathon"))
             .await
             .unwrap();
 
@@ -1338,7 +1338,7 @@ mod command_tests {
             tenant_id: tenant_id.to_string(),
             name: "Run Club".to_owned(),
             description: None,
-            coach_id: initial.id.to_string(),
+            agent_id: initial.id.to_string(),
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: true,
@@ -1376,7 +1376,7 @@ mod command_tests {
             .await
             .unwrap();
 
-        // `/group coach 5k marathon` — args arrive split; match is case-insensitive.
+        // `/group agent 5k marathon` — args arrive split; match is case-insensitive.
         let ctx = PlatformCommandContext {
             user_id,
             tenant_id,
@@ -1409,12 +1409,12 @@ mod command_tests {
             .unwrap()
             .expect("group exists");
         assert_eq!(
-            updated.coach_id,
+            updated.agent_id,
             target.id.to_string(),
             "group coach_id should now point at the 5K Marathon coach"
         );
 
-        // Unknown name leaves the coach unchanged.
+        // Unknown name leaves the agent unchanged.
         let ctx_miss = PlatformCommandContext {
             args: vec!["Nonexistent".to_owned()],
             raw_text: "/group coach Nonexistent".to_owned(),
@@ -1435,13 +1435,13 @@ mod command_tests {
             .unwrap()
             .expect("group exists");
         assert_eq!(
-            after.coach_id,
+            after.agent_id,
             target.id.to_string(),
             "coach_id must be unchanged after an unmatched name"
         );
     }
 
-    /// carnet#70: `/group invite coach` could attach a human coach and nothing
+    /// carnet#70: `/group invite agent` could attach a human coach and nothing
     /// could detach one. `GroupService::set_group_coach` existed with `None`
     /// documented as "detach" and zero production callers — the capability was
     /// built and never reachable.
@@ -1449,8 +1449,8 @@ mod command_tests {
     async fn group_coach_detach_clears_the_human_coach() {
         use pierre_commands::group::GroupCoachHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
-        use pierre_core::models::coaches::{
-            CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+        use pierre_core::models::agents::{
+            AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
             CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
@@ -1464,25 +1464,25 @@ mod command_tests {
         let persona = resources
             .common
             .repos
-            .coaches
-            .create_system_coach(
+            .agents
+            .create_system_agent(
                 user_id,
                 tenant_id,
-                &CreateSystemCoachRequest {
+                &CreateSystemAgentRequest {
                     title: "Starter Coach".to_owned(),
                     description: None,
                     system_prompt: "Test prompt".to_owned(),
-                    category: CoachCategory::Training,
+                    category: AgentCategory::Training,
                     tags: vec![],
                     sample_prompts: vec![],
-                    visibility: CoachVisibility::Global,
+                    visibility: AgentVisibility::Global,
                 },
             )
             .await
             .unwrap();
 
         // A group that already has a human coach attached — the state
-        // `/group invite coach` leaves behind.
+        // `/group invite agent` leaves behind.
         let human_coach = Uuid::new_v4();
         let group_id = Uuid::new_v4();
         resources
@@ -1496,7 +1496,7 @@ mod command_tests {
                     tenant_id: tenant_id.to_string(),
                     name: "Run Club".to_owned(),
                     description: None,
-                    coach_id: persona.id.to_string(),
+                    agent_id: persona.id.to_string(),
                     owner_id: user_id,
                     coach_user_id: Some(human_coach),
                     peer_data_sharing: true,
@@ -1565,7 +1565,7 @@ mod command_tests {
             "detach must clear coach_user_id"
         );
         assert_eq!(
-            updated.coach_id,
+            updated.agent_id,
             persona.id.to_string(),
             "detach touches only the human coach; the AI persona is unchanged"
         );
@@ -1738,7 +1738,7 @@ mod command_tests {
     async fn create_group_row(
         resources: &ServerContext,
         tenant_id: TenantId,
-        coach_id: &str,
+        agent_id: &str,
         owner_id: Uuid,
         name: &str,
         peer_data_sharing: bool,
@@ -1750,7 +1750,7 @@ mod command_tests {
             tenant_id: tenant_id.to_string(),
             name: name.to_owned(),
             description: None,
-            coach_id: coach_id.to_owned(),
+            agent_id: agent_id.to_owned(),
             owner_id,
             coach_user_id: None,
             peer_data_sharing,
@@ -1834,12 +1834,12 @@ mod command_tests {
     async fn group_list_handler_renders_populated_group() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "grouplist@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let bob = seed_member_user(&resources, "bob-list@test.com").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Morning Milers",
             true,
@@ -1893,12 +1893,12 @@ mod command_tests {
     async fn group_status_handler_renders_summary() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "groupstatus@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let bob = seed_member_user(&resources, "bob-status@test.com").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Morning Milers",
             true,
@@ -1955,12 +1955,12 @@ mod command_tests {
     async fn group_members_handler_lists_members_with_roles() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "groupmembers@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let bob = seed_member_user(&resources, "bob-members@test.com").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Morning Milers",
             true,
@@ -2026,11 +2026,11 @@ mod command_tests {
     async fn group_members_handler_renders_account_email_as_name() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "groupunknown@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Quiet Group",
             true,
@@ -2071,11 +2071,11 @@ mod command_tests {
     async fn group_invite_handler_forbids_non_admin_member() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "groupinviteno@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         // owner_id references a real user (FK); the requester joins as a plain
         // Member so the admin check (which reads the membership role, not
         // owner_id) refuses them.
-        let gid = create_group_row(&resources, tenant_id, &coach_id, user_id, "Squad", true).await;
+        let gid = create_group_row(&resources, tenant_id, &agent_id, user_id, "Squad", true).await;
         add_group_member(
             &resources,
             gid,
@@ -2112,11 +2112,11 @@ mod command_tests {
     async fn group_invite_handler_generates_link_for_admin() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "groupinviteok@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Morning Milers",
             true,
@@ -2186,11 +2186,11 @@ mod command_tests {
     async fn group_consent_handler_falls_back_to_first_group_without_conversation() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "consentfb@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Solo Group",
             true,
@@ -2248,12 +2248,12 @@ mod command_tests {
     async fn group_consent_handler_errors_when_not_a_member_of_bound_group() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "consent0@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         // The group exists (owner_id references a real user for the FK), but
         // the requester is never added as a member — so the consent update
         // matches zero rows.
         let gid =
-            create_group_row(&resources, tenant_id, &coach_id, user_id, "Strangers", true).await;
+            create_group_row(&resources, tenant_id, &agent_id, user_id, "Strangers", true).await;
 
         // Conversation owned by the requester, bound to that group.
         let conversation = resources
@@ -2357,9 +2357,9 @@ mod command_tests {
 
         // Regression (reported live 2026-08-11): `/group respond mentions` in a
         // Telegram group answered the caller privately, so the other members
-        // watched the coach go silent with no idea why. A group-wide setting
+        // watched the agent go silent with no idea why. A group-wide setting
         // change belongs in the room — for both the respond mode and the
-        // group's AI coach persona.
+        // group's AI agent persona.
         //
         // The names are read from the real `commands/` catalog rather than
         // written as literals: the value that reaches the visibility rule is
@@ -2415,8 +2415,8 @@ mod command_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // /coach invite — one invite path behind two triggers, and the
-    // alias-aware matcher that lets `/coaches <subcommand>` reach it
+    // /agent invite — one invite path behind two triggers, and the
+    // alias-aware matcher that lets `/agents <subcommand>` reach it
     // ════════════════════════════════════════════════════════════════
 
     /// The real `commands/` catalogue loaded into a registry, the way the
@@ -2446,14 +2446,14 @@ mod command_tests {
     }
 
     /// `commands/agent/agent-list.md` takes the bare `/agent` as its command
-    /// and aliases `/agent list`, `/coach`, `/coaches` and `/coach list` onto
+    /// and aliases `/agent list`, `/agent`, `/agents` and `/agent list` onto
     /// it. The matcher used to greedy-match over commands and aliases alike, so
-    /// `/coaches invite` matched the shorter `/coaches`, ran the list handler
+    /// `/agents invite` matched the shorter `/agents`, ran the list handler
     /// and silently dropped `invite`. Every subcommand must be reachable
     /// through every alias, with its arguments intact — which is also why the
     /// bare `/agent` is the canonical spelling and `/agent list` an alias:
     /// canot canonicalises an alias by rewriting it to the definition's command
-    /// string, and a spaced canonical would turn `/coaches add @tempo` into
+    /// string, and a spaced canonical would turn `/agents add @tempo` into
     /// `/agent list add @tempo`.
     #[test]
     fn coaches_alias_reaches_every_coach_subcommand() {
@@ -2501,9 +2501,9 @@ mod command_tests {
         group_name: &str,
     ) -> (Uuid, TenantId, Uuid) {
         let (user_id, tenant_id) = create_test_user(resources, email).await;
-        let coach_id = seed_coach(resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(resources, user_id, tenant_id, "Coach", "desc").await;
         let gid =
-            create_group_row(resources, tenant_id, &coach_id, user_id, group_name, true).await;
+            create_group_row(resources, tenant_id, &agent_id, user_id, group_name, true).await;
         add_group_member(
             resources,
             gid,
@@ -2526,13 +2526,13 @@ mod command_tests {
             .to_owned()
     }
 
-    /// `/coach invite` issued by an owner files a *coach*-kind invite for the
+    /// `/agent invite` issued by an owner files a *agent*-kind invite for the
     /// conversation's group through `GroupService` — the invite row carries
-    /// `kind = coach`, so whoever redeems it is attached as the human coach.
+    /// `kind = agent`, so whoever redeems it is attached as the human coach.
     #[cfg(feature = "tools-groups")]
     #[tokio::test]
     async fn coach_invite_handler_files_a_coach_invite_for_admin() {
-        use pierre_commands::coach::CoachInviteHandler;
+        use pierre_commands::agent::CoachInviteHandler;
         use pierre_core::models::groups::GroupInviteKind;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -2574,12 +2574,12 @@ mod command_tests {
         assert_eq!(invite.created_by, user_id);
     }
 
-    /// `/group invite coach` and `/coach invite` are one implementation: both
+    /// `/group invite agent` and `/agent invite` are one implementation: both
     /// produce a coach-kind invite for the same group with the same body.
     #[cfg(feature = "tools-groups")]
     #[tokio::test]
     async fn group_invite_coach_and_coach_invite_share_one_path() {
-        use pierre_commands::coach::CoachInviteHandler;
+        use pierre_commands::agent::CoachInviteHandler;
         use pierre_core::models::groups::GroupInviteKind;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -2626,8 +2626,8 @@ mod command_tests {
             assert_eq!(invite.group_id, gid);
         }
 
-        // A plain `/group invite` still issues an athlete invite — the coach
-        // wording is reserved for the coach kind.
+        // A plain `/group invite` still issues an athlete invite — the agent
+        // wording is reserved for the agent kind.
         let member_invite = GroupInviteHandler
             .execute(&group_ctx(
                 &resources,
@@ -2655,19 +2655,19 @@ mod command_tests {
         assert_eq!(invite.kind, GroupInviteKind::Member);
     }
 
-    /// `/coach invite` is admin-only, exactly like `/group invite`: a plain
+    /// `/agent invite` is admin-only, exactly like `/group invite`: a plain
     /// member is refused before any invite is generated.
     #[tokio::test]
     async fn coach_invite_handler_forbids_non_admin_member() {
-        use pierre_commands::coach::CoachInviteHandler;
+        use pierre_commands::agent::CoachInviteHandler;
 
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "coachinviteno@test.com").await;
-        let coach_id = seed_coach(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
         let gid = create_group_row(
             &resources,
             tenant_id,
-            &coach_id,
+            &agent_id,
             user_id,
             "Morning Milers",
             true,
@@ -2704,14 +2704,14 @@ mod command_tests {
         );
     }
 
-    /// End to end through the dispatcher every chat surface uses: `/coaches
-    /// invite` typed with the alias reaches the `coach-invite` handler and
+    /// End to end through the dispatcher every chat surface uses: `/agents
+    /// invite` typed with the alias reaches the `agent-invite` handler and
     /// files a coach invite — not the list handler with `invite` as an
     /// argument.
     #[cfg(feature = "tools-groups")]
     #[tokio::test]
     async fn dispatching_coaches_invite_runs_the_invite_handler() {
-        use pierre_commands::coach::{CoachInviteHandler, CoachListHandler};
+        use pierre_commands::agent::{AgentListHandler, CoachInviteHandler};
         use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
         use pierre_commands::CommandHandlerRegistry;
         use pierre_core::models::groups::GroupInviteKind;
@@ -2725,7 +2725,7 @@ mod command_tests {
 
         let command_registry = Arc::new(real_command_registry());
         let mut handlers = CommandHandlerRegistry::new();
-        handlers.register("agent-list", Arc::new(CoachListHandler));
+        handlers.register("agent-list", Arc::new(AgentListHandler));
         handlers.register("coach-invite", Arc::new(CoachInviteHandler));
         let handlers = Arc::new(handlers);
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
@@ -2777,21 +2777,21 @@ mod command_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // /coach add @handle — the installed coach, by its catalogue handle
+    // /agent add @handle — the installed agent, by its catalogue handle
     // ════════════════════════════════════════════════════════════════
 
-    /// Publish a catalogue coach under a fresh author and install it for
+    /// Publish a catalogue agent under a fresh author and install it for
     /// `user_id`; returns the athlete's installed copy.
-    async fn install_recovery_coach(
+    async fn install_recovery_agent(
         resources: &ServerContext,
         user_id: Uuid,
         tenant_id: TenantId,
-    ) -> Coach {
-        use crate::helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
+    ) -> Agent {
+        use crate::helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 
         let (author_id, author_tenant) =
             create_test_user(resources, &format!("author-{user_id}@test.com")).await;
-        let origin = publish_catalogue_coach(
+        let origin = publish_catalogue_agent(
             &resources.common.repos,
             author_id,
             author_tenant,
@@ -2799,7 +2799,7 @@ mod command_tests {
             "You are the recovery coach.",
         )
         .await;
-        install_catalogue_coach(&resources.common.repos, origin, user_id, tenant_id).await
+        install_catalogue_agent(&resources.common.repos, origin, user_id, tenant_id).await
     }
 
     /// A DM conversation for the caller, so the handler has a row to bind.
@@ -2825,8 +2825,8 @@ mod command_tests {
             .id
     }
 
-    /// The coach the conversation row is bound to, read back from the store.
-    async fn conversation_coach(
+    /// The agent the conversation row is bound to, read back from the store.
+    async fn conversation_agent(
         resources: &ServerContext,
         conversation_id: &str,
         user_id: Uuid,
@@ -2840,24 +2840,24 @@ mod command_tests {
             .await
             .unwrap()
             .expect("the conversation exists")
-            .coach_id
+            .agent_id
     }
 
-    /// `/coach add @handle` resolves the caller's installed coach and
-    /// attaches it exactly as `/coach add <id>` does: the selection pointer
+    /// `/agent add @handle` resolves the caller's installed agent and
+    /// attaches it exactly as `/agent add <id>` does: the selection pointer
     /// moves and the conversation the command was typed in is rebound.
     #[tokio::test]
-    async fn coach_add_handle_selects_the_installed_coach_and_binds_the_conversation() {
-        use pierre_commands::coach::CoachAddHandler;
+    async fn agent_add_handle_selects_the_installed_agent_and_binds_the_conversation() {
+        use pierre_commands::agent::AgentAddHandler;
 
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "coachinvitehandle@test.com").await;
-        let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
+        let installed = install_recovery_agent(&resources, user_id, tenant_id).await;
         let installed_id = installed.id.to_string();
         assert_eq!(installed.handle.as_deref(), Some("recovery-coach"));
         let conversation_id = dm_conversation(&resources, user_id, tenant_id).await;
         assert_eq!(
-            conversation_coach(&resources, &conversation_id, user_id, tenant_id).await,
+            conversation_agent(&resources, &conversation_id, user_id, tenant_id).await,
             None,
             "fixture precondition: no coach bound before the command"
         );
@@ -2870,11 +2870,11 @@ mod command_tests {
             "/coach add @recovery-coach",
             Some(conversation_id.clone()),
         );
-        let response = CoachAddHandler.execute(&ctx).await.unwrap();
+        let response = AgentAddHandler.execute(&ctx).await.unwrap();
 
         assert_eq!(response.text, "Agent selected: Recovery Coach.");
         assert_eq!(
-            conversation_coach(&resources, &conversation_id, user_id, tenant_id)
+            conversation_agent(&resources, &conversation_id, user_id, tenant_id)
                 .await
                 .as_deref(),
             Some(installed_id.as_str()),
@@ -2885,7 +2885,7 @@ mod command_tests {
                 .common
                 .repos
                 .tenants
-                .get_selected_coach(tenant_id, user_id)
+                .get_selected_agent(tenant_id, user_id)
                 .await
                 .unwrap()
                 .as_deref(),
@@ -2894,23 +2894,23 @@ mod command_tests {
         );
     }
 
-    /// A handle that names no installed coach — unknown, or a catalogue coach
+    /// A handle that names no installed agent — unknown, or a catalogue agent
     /// the caller never installed, with or without its `@` — is refused by
     /// name in the caller's locale, and nothing else happens: no pointer, no
-    /// rebind. A bare `/coach add` gets the usage line.
+    /// rebind. A bare `/agent add` gets the usage line.
     #[tokio::test]
-    async fn coach_add_unknown_handle_is_refused_by_name_and_binds_nothing() {
-        use crate::helpers::coach_fixtures::publish_catalogue_coach;
-        use pierre_commands::coach::CoachAddHandler;
+    async fn agent_add_unknown_handle_is_refused_by_name_and_binds_nothing() {
+        use crate::helpers::agent_fixtures::publish_catalogue_agent;
+        use pierre_commands::agent::AgentAddHandler;
 
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) =
             create_test_user(&resources, "coachinviteunknown@test.com").await;
         let (author_id, author_tenant) =
             create_test_user(&resources, "coachinviteunknown-author@test.com").await;
-        // Published, so `strength-coach` exists in the catalogue — but the
+        // Published, so `strength-agent` exists in the catalogue — but the
         // caller never installed it.
-        publish_catalogue_coach(
+        publish_catalogue_agent(
             &resources.common.repos,
             author_id,
             author_tenant,
@@ -2942,7 +2942,7 @@ mod command_tests {
                 &format!("/coach add {typed}"),
                 Some(conversation_id.clone()),
             );
-            let response = CoachAddHandler.execute(&ctx).await.unwrap();
+            let response = AgentAddHandler.execute(&ctx).await.unwrap();
             assert_eq!(response.text, expected, "typed {typed}");
         }
 
@@ -2954,7 +2954,7 @@ mod command_tests {
             "/coach add",
             Some(conversation_id.clone()),
         );
-        let response = CoachAddHandler.execute(&bare).await.unwrap();
+        let response = AgentAddHandler.execute(&bare).await.unwrap();
         assert_eq!(
             response.text,
             "Say which agent to add: /agent add @handle. Type /agent to see your list."
@@ -2970,14 +2970,14 @@ mod command_tests {
             Some(conversation_id.clone()),
         );
         ctx.locale = "fr".to_owned();
-        let response = CoachAddHandler.execute(&ctx).await.unwrap();
+        let response = AgentAddHandler.execute(&ctx).await.unwrap();
         assert_eq!(
             response.text,
             "Aucun agent installé ne répond à @nobody-here. Tape /agent pour voir ta liste, ou /discover pour l'installer."
         );
 
         assert_eq!(
-            conversation_coach(&resources, &conversation_id, user_id, tenant_id).await,
+            conversation_agent(&resources, &conversation_id, user_id, tenant_id).await,
             None,
             "nothing was bound"
         );
@@ -2986,7 +2986,7 @@ mod command_tests {
                 .common
                 .repos
                 .tenants
-                .get_selected_coach(tenant_id, user_id)
+                .get_selected_agent(tenant_id, user_id)
                 .await
                 .unwrap(),
             None,
@@ -2994,12 +2994,12 @@ mod command_tests {
         );
     }
 
-    /// `/coaches add @handle` — the alias, with the argument — reaches the
+    /// `/agents add @handle` — the alias, with the argument — reaches the
     /// add handler with the handle intact, through the dispatcher every chat
     /// surface uses.
     #[tokio::test]
     async fn dispatching_coaches_add_with_a_handle_selects_the_coach() {
-        use pierre_commands::coach::{CoachAddHandler, CoachListHandler};
+        use pierre_commands::agent::{AgentAddHandler, AgentListHandler};
         use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
         use pierre_commands::CommandHandlerRegistry;
         use pierre_runtime_context::CommandCtx;
@@ -3007,14 +3007,14 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "coachinvitealias@test.com").await;
-        let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
+        let installed = install_recovery_agent(&resources, user_id, tenant_id).await;
         let installed_id = installed.id.to_string();
         let conversation_id = dm_conversation(&resources, user_id, tenant_id).await;
 
         let command_registry = Arc::new(real_command_registry());
         let mut handlers = CommandHandlerRegistry::new();
-        handlers.register("agent-list", Arc::new(CoachListHandler));
-        handlers.register("agent-add", Arc::new(CoachAddHandler));
+        handlers.register("agent-list", Arc::new(AgentListHandler));
+        handlers.register("agent-add", Arc::new(AgentAddHandler));
         let handlers = Arc::new(handlers);
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(&resources);
         let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
@@ -3049,7 +3049,7 @@ mod command_tests {
         assert_eq!(command_name, "agent-add");
         assert_eq!(response.text, "Agent selected: Recovery Coach.");
         assert_eq!(
-            conversation_coach(&resources, &conversation_id, user_id, tenant_id)
+            conversation_agent(&resources, &conversation_id, user_id, tenant_id)
                 .await
                 .as_deref(),
             Some(installed_id.as_str()),

@@ -1,4 +1,4 @@
-// ABOUTME: PlaybookRepository dual-DB round-trip — atomic upsert, tenant isolation, advice lifecycle, coach scoping
+// ABOUTME: PlaybookRepository dual-DB round-trip — atomic upsert, tenant isolation, advice lifecycle, agent scoping
 // ABOUTME: Proves the procedural coaching memory storage layer (P2 of the coaching-playbook-memory epic)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -55,7 +55,7 @@ async fn record_outcome_creates_then_increments_same_playbook() {
     let mut outcome = RecordedOutcome {
         tenant_id: "t1",
         user_id: "u1",
-        coach_slug: None,
+        agent_slug: None,
         trigger: &trigger,
         intervention: &intervention,
         outcome_metric: &metric,
@@ -80,7 +80,7 @@ async fn record_outcome_creates_then_increments_same_playbook() {
         .await
         .unwrap();
 
-    // Same (tenant,user,coach,trigger,intervention) => the same playbook row, not
+    // Same (tenant,user,agent,trigger,intervention) => the same playbook row, not
     // three duplicates.
     assert_eq!(id1, id2, "repeated outcome reuses the playbook row");
     assert_eq!(id2, id3);
@@ -114,7 +114,7 @@ async fn list_playbooks_is_tenant_isolated() {
         let outcome = RecordedOutcome {
             tenant_id: tenant,
             user_id: "u1",
-            coach_slug: None,
+            agent_slug: None,
             trigger: &trigger,
             intervention: &intervention,
             outcome_metric: &metric,
@@ -146,7 +146,7 @@ async fn pending_advice_due_label_and_future() {
         id: id.to_owned(),
         tenant_id: "t1".to_owned(),
         user_id: "u1".to_owned(),
-        coach_slug: None,
+        agent_slug: None,
         playbook_id: None,
         trigger: sample_trigger(),
         intervention: sample_intervention(),
@@ -183,7 +183,7 @@ async fn pending_advice_due_label_and_future() {
     let outcome = RecordedOutcome {
         tenant_id: "t1",
         user_id: "u1",
-        coach_slug: None,
+        agent_slug: None,
         trigger: &trigger,
         intervention: &intervention,
         outcome_metric: &metric,
@@ -212,12 +212,12 @@ async fn pending_advice_due_label_and_future() {
 }
 
 #[tokio::test]
-async fn coach_scoping_includes_agnostic_excludes_other_coach() {
+async fn agent_scoping_includes_agnostic_excludes_other_agent() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
     let (intervention, metric) = (sample_intervention(), sample_metric());
 
-    // A coach-agnostic playbook and a "trail" coach playbook (distinct triggers
+    // An agent-agnostic playbook and a "trail" agent playbook (distinct triggers
     // so they are distinct rows).
     let agnostic_trigger = TriggerPattern {
         kind: TriggerKind::HrvDrop,
@@ -225,11 +225,11 @@ async fn coach_scoping_includes_agnostic_excludes_other_coach() {
         magnitude: Band::High,
     };
     let trail_trigger = sample_trigger();
-    for (coach, trigger) in [(None, &agnostic_trigger), (Some("trail"), &trail_trigger)] {
+    for (agent, trigger) in [(None, &agnostic_trigger), (Some("trail"), &trail_trigger)] {
         let outcome = RecordedOutcome {
             tenant_id: "t1",
             user_id: "u1",
-            coach_slug: coach,
+            agent_slug: agent,
             trigger,
             intervention: &intervention,
             outcome_metric: &metric,
@@ -243,7 +243,7 @@ async fn coach_scoping_includes_agnostic_excludes_other_coach() {
             .unwrap();
     }
 
-    // The "trail" coach sees its own playbook AND the coach-agnostic one.
+    // The "trail" agent sees its own playbook AND the agent-agnostic one.
     let trail = repos
         .playbooks
         .list_playbooks("t1", "u1", Some("trail"), 10)
@@ -251,14 +251,14 @@ async fn coach_scoping_includes_agnostic_excludes_other_coach() {
         .unwrap();
     assert_eq!(trail.len(), 2, "coach sees own + agnostic playbooks");
 
-    // No-coach context sees only the coach-agnostic playbook.
+    // No-agent context sees only the agent-agnostic playbook.
     let none = repos
         .playbooks
         .list_playbooks("t1", "u1", None, 10)
         .await
         .unwrap();
     assert_eq!(none.len(), 1, "no-coach context sees only agnostic");
-    assert_eq!(none[0].coach_slug, None);
+    assert_eq!(none[0].agent_slug, None);
 }
 
 /// Build one due, still-pending advice for the shared sample pattern.
@@ -267,7 +267,7 @@ fn due_sample_advice(id: &str) -> PendingAdvice {
         id: id.to_owned(),
         tenant_id: "t1".to_owned(),
         user_id: "u1".to_owned(),
-        coach_slug: None,
+        agent_slug: None,
         playbook_id: None,
         trigger: sample_trigger(),
         intervention: sample_intervention(),
@@ -296,7 +296,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
     let outcome = RecordedOutcome {
         tenant_id: "t1",
         user_id: "u1",
-        coach_slug: None,
+        agent_slug: None,
         trigger: &trigger,
         intervention: &intervention,
         outcome_metric: &metric,

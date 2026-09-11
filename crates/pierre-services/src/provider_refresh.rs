@@ -69,7 +69,7 @@ pub struct RefreshService {
     /// scrape-only providers) aren't background-synced, so their
     /// `oauth_tokens.last_sync` is written once at login and never updated —
     /// the cache's `synced_at` is the real timestamp of the last successful
-    /// scrape. Read for on-demand providers so the coach hint reflects honest
+    /// scrape. Read for on-demand providers so the agent hint reflects honest
     /// staleness instead of unconditionally reporting them Fresh.
     activity_cache: Arc<dyn ActivityCacheRepository>,
     /// Health data sync orchestrator (enforme).
@@ -234,7 +234,7 @@ impl RefreshService {
     /// continuous data only, so a provider serving nothing but activities to
     /// chat gets no activity refresh from that sync. Reading the
     /// `oauth_tokens.last_sync` those (empty) cycles keep stamping reported
-    /// Strava as perpetually Fresh, which suppressed the coach-hint directive
+    /// Strava as perpetually Fresh, which suppressed the agent-hint directive
     /// to re-fetch via `get_activities` — the model then answered activity
     /// questions from stale conversation history (live failure 2026-07-11:
     /// OAuth-connected Strava user could not get activity data on messaging
@@ -255,13 +255,13 @@ impl RefreshService {
     /// each per-provider sync up to `config.wait_for_refresh_timeout` so
     /// the LLM downstream reads the freshly-synced cache. Providers whose
     /// sync timed out or errored stay in the `refreshing` list and the
-    /// coach-hint flags them as stale so the model can acknowledge the
+    /// agent-hint flags them as stale so the model can acknowledge the
     /// limitation. When `wait_for_refresh` is `false`, the sync runs as a
     /// detached background task and the LLM proceeds against the cache
     /// as it stands.
     ///
     /// On success the freshly-synced providers move into `fresh` so
-    /// [`Self::build_coach_hint`] correctly omits them from the staleness
+    /// [`Self::build_agent_hint`] correctly omits them from the staleness
     /// hint — the data IS now fresh.
     #[instrument(skip(self, config), fields(%user_id, %tenant_id))]
     pub async fn check_and_refresh(
@@ -301,9 +301,9 @@ impl RefreshService {
                 // On-demand providers (sciotte) reaching here are genuinely
                 // stale per the activity cache, and there is no background sync
                 // to trigger — they are re-scraped per chat request via
-                // get_activities (the coach hint instructs the model to do so).
+                // get_activities (the agent hint instructs the model to do so).
                 // Report them honestly as stale instead of the previous
-                // unconditional Fresh shortcut, which made the coach claim
+                // unconditional Fresh shortcut, which made the agent claim
                 // sciotte data was current when it was hours old.
                 if self.is_on_demand_provider(&pf.provider) {
                     refreshing.push(pf.provider.clone());
@@ -318,7 +318,7 @@ impl RefreshService {
                     )
                     .await;
                     if result.success {
-                        // Reflect the just-completed sync so build_coach_hint
+                        // Reflect the just-completed sync so build_agent_hint
                         // (which reads .freshness) treats it as Fresh and
                         // omits the stale-data warning.
                         pf.last_sync_at = Some(Utc::now());
@@ -400,11 +400,11 @@ impl RefreshService {
         }
     }
 
-    /// Build a coach-facing freshness hint for the system prompt.
+    /// Build an agent-facing freshness hint for the system prompt.
     ///
     /// Returns `None` if all providers are fresh or no providers are connected.
     #[must_use]
-    pub fn build_coach_hint(freshness: &[ProviderFreshness]) -> Option<String> {
+    pub fn build_agent_hint(freshness: &[ProviderFreshness]) -> Option<String> {
         if freshness.is_empty() {
             return None;
         }
@@ -433,7 +433,7 @@ impl RefreshService {
         // above are read-only — they tell the LLM "data may be stale"
         // but don't push it to act. Without this directive the model
         // happily answers from the prior turn's baked-in context (see
-        // 2026-05-21 incident where the coach said "Le 17 mai" for the
+        // 2026-05-21 incident where the agent said "Le 17 mai" for the
         // user's "today only" question on the 20th because it never
         // re-fetched). The instruction below applies to every
         // connected provider via the same `get_activities` tool, so
@@ -670,7 +670,7 @@ pub struct RefreshResult {
 /// failure, and cap a sync that never returns. Written twice, they drifted:
 /// only one of them capped the wait at all until 938829b8c, and the copy that
 /// gained the cap also gained a line-wrap that put 34 spaces into the middle of
-/// a sentence the coach relays to the athlete.
+/// a sentence the agent relays to the athlete.
 ///
 /// On timeout the awaited work is NOT respawned: it ran inside this task, so
 /// `tokio::time::timeout` does not cancel it, and a second spawn would

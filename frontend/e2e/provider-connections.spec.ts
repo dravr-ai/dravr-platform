@@ -98,7 +98,7 @@ async function setupProviderMocks(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ coaches: [], total: 0 }),
+      body: JSON.stringify({ agents: [], total: 0 }),
     });
   });
 
@@ -289,7 +289,7 @@ test.describe('Provider Connections - Error Handling', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ coaches: [], total: 0 }),
+        body: JSON.stringify({ agents: [], total: 0 }),
       });
     });
 

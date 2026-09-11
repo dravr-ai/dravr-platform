@@ -39,12 +39,12 @@ const ARCHETYPE_PRIOR_FETCH_CEILING: i64 = 500;
 /// written once.
 const UPSERT_OUTCOME_SQL: &str = r"
     INSERT INTO coaching_playbooks (
-        id, tenant_id, user_id, coach_slug, trigger_hash, intervention_hash,
+        id, tenant_id, user_id, agent_slug, trigger_hash, intervention_hash,
         trigger_json, intervention_json, outcome_metric_json,
         success_count, failure_count, neutral_count, last_outcome_at, created_at, updated_at
     )
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
-    ON CONFLICT(tenant_id, user_id, coach_slug, trigger_hash, intervention_hash)
+    ON CONFLICT(tenant_id, user_id, agent_slug, trigger_hash, intervention_hash)
     DO UPDATE SET
         success_count = success_count + excluded.success_count,
         failure_count = failure_count + excluded.failure_count,
@@ -57,7 +57,7 @@ const UPSERT_OUTCOME_SQL: &str = r"
 /// existing id on conflict).
 const RESOLVE_PLAYBOOK_ID_SQL: &str = r"
     SELECT id FROM coaching_playbooks
-    WHERE tenant_id = ?1 AND user_id = ?2 AND coach_slug = ?3
+    WHERE tenant_id = ?1 AND user_id = ?2 AND agent_slug = ?3
       AND trigger_hash = ?4 AND intervention_hash = ?5
 ";
 
@@ -72,7 +72,7 @@ fn sqlite_playbook_row(r: &SqliteRow) -> AppResult<PlaybookRow> {
         id: r.try_get("id").map_err(|e| col("id", e))?,
         tenant_id: r.try_get("tenant_id").map_err(|e| col("tenant_id", e))?,
         user_id: r.try_get("user_id").map_err(|e| col("user_id", e))?,
-        coach_slug: r.try_get("coach_slug").map_err(|e| col("coach_slug", e))?,
+        agent_slug: r.try_get("agent_slug").map_err(|e| col("agent_slug", e))?,
         trigger_json: r
             .try_get("trigger_json")
             .map_err(|e| col("trigger_json", e))?,
@@ -106,7 +106,7 @@ fn sqlite_pending_row(r: &SqliteRow) -> AppResult<PendingAdviceRow> {
         id: r.try_get("id").map_err(|e| col("id", e))?,
         tenant_id: r.try_get("tenant_id").map_err(|e| col("tenant_id", e))?,
         user_id: r.try_get("user_id").map_err(|e| col("user_id", e))?,
-        coach_slug: r.try_get("coach_slug").map_err(|e| col("coach_slug", e))?,
+        agent_slug: r.try_get("agent_slug").map_err(|e| col("agent_slug", e))?,
         playbook_id: r
             .try_get("playbook_id")
             .map_err(|e| col("playbook_id", e))?,
@@ -200,7 +200,7 @@ impl PlaybookRepository for Database {
             .bind(&v.id)
             .bind(outcome.tenant_id)
             .bind(outcome.user_id)
-            .bind(&v.coach_slug)
+            .bind(&v.agent_slug)
             .bind(&v.trigger_hash)
             .bind(&v.intervention_hash)
             .bind(&v.trigger_json)
@@ -219,7 +219,7 @@ impl PlaybookRepository for Database {
         let row = sqlx::query(RESOLVE_PLAYBOOK_ID_SQL)
             .bind(outcome.tenant_id)
             .bind(outcome.user_id)
-            .bind(&v.coach_slug)
+            .bind(&v.agent_slug)
             .bind(&v.trigger_hash)
             .bind(&v.intervention_hash)
             .fetch_one(self.pool())
@@ -248,7 +248,7 @@ impl PlaybookRepository for Database {
             .bind(&v.id)
             .bind(outcome.tenant_id)
             .bind(outcome.user_id)
-            .bind(&v.coach_slug)
+            .bind(&v.agent_slug)
             .bind(&v.trigger_hash)
             .bind(&v.intervention_hash)
             .bind(&v.trigger_json)
@@ -266,7 +266,7 @@ impl PlaybookRepository for Database {
         let row = sqlx::query(RESOLVE_PLAYBOOK_ID_SQL)
             .bind(outcome.tenant_id)
             .bind(outcome.user_id)
-            .bind(&v.coach_slug)
+            .bind(&v.agent_slug)
             .bind(&v.trigger_hash)
             .bind(&v.intervention_hash)
             .fetch_one(&mut *tx)
@@ -300,24 +300,24 @@ impl PlaybookRepository for Database {
         &self,
         tenant_id: &str,
         user_id: &str,
-        coach_slug: Option<&str>,
+        agent_slug: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<Playbook>> {
-        let coach = coach_slug.unwrap_or("");
+        let agent = agent_slug.unwrap_or("");
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_slug, trigger_json, intervention_json,
+            SELECT id, tenant_id, user_id, agent_slug, trigger_json, intervention_json,
                    outcome_metric_json, success_count, failure_count, neutral_count,
                    last_outcome_at, created_at, updated_at
             FROM coaching_playbooks
-            WHERE tenant_id = ?1 AND user_id = ?2 AND (coach_slug = ?3 OR coach_slug = '')
+            WHERE tenant_id = ?1 AND user_id = ?2 AND (agent_slug = ?3 OR agent_slug = '')
             ORDER BY updated_at DESC
             LIMIT ?4
             ",
         )
         .bind(tenant_id)
         .bind(user_id)
-        .bind(coach)
+        .bind(agent)
         .bind(PLAYBOOK_FETCH_CEILING)
         .fetch_all(self.pool())
         .await
@@ -342,7 +342,7 @@ impl PlaybookRepository for Database {
     }
 
     async fn insert_pending_advice(&self, advice: &PendingAdvice) -> AppResult<()> {
-        let coach_slug = advice.coach_slug.as_deref().unwrap_or("");
+        let agent_slug = advice.agent_slug.as_deref().unwrap_or("");
         let trigger_json = serde_json::to_string(&advice.trigger)
             .map_err(|e| AppError::database(format!("serialize trigger: {e}")))?;
         let intervention_json = serde_json::to_string(&advice.intervention)
@@ -351,20 +351,20 @@ impl PlaybookRepository for Database {
             .map_err(|e| AppError::database(format!("serialize outcome_metric: {e}")))?;
         let baseline_json = serde_json::to_string(&advice.baseline)
             .map_err(|e| AppError::database(format!("serialize baseline: {e}")))?;
-        // Insert only when no identical advice is already in flight, so a coach
+        // Insert only when no identical advice is already in flight, so an agent
         // reaffirming the same recommendation across turns cannot enqueue two
         // rows that both later record the same outcome (double-counting).
         sqlx::query(
             r"
             INSERT INTO pending_advice (
-                id, tenant_id, user_id, coach_slug, playbook_id, trigger_json,
+                id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
                 intervention_json, outcome_metric_json, baseline_json, due_by,
                 status, label, label_source, source_msg_id, created_at
             )
             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
             WHERE NOT EXISTS (
                 SELECT 1 FROM pending_advice
-                WHERE tenant_id = ?2 AND user_id = ?3 AND coach_slug = ?4
+                WHERE tenant_id = ?2 AND user_id = ?3 AND agent_slug = ?4
                   AND trigger_json = ?6 AND intervention_json = ?7
                   AND status = 'pending'
             )
@@ -373,7 +373,7 @@ impl PlaybookRepository for Database {
         .bind(&advice.id)
         .bind(&advice.tenant_id)
         .bind(&advice.user_id)
-        .bind(coach_slug)
+        .bind(agent_slug)
         .bind(advice.playbook_id.as_deref())
         .bind(&trigger_json)
         .bind(&intervention_json)
@@ -398,7 +398,7 @@ impl PlaybookRepository for Database {
     ) -> AppResult<Vec<PendingAdvice>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_slug, playbook_id, trigger_json,
+            SELECT id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
                    intervention_json, outcome_metric_json, baseline_json, due_by,
                    status, label, label_source, source_msg_id, created_at
             FROM pending_advice
@@ -572,7 +572,7 @@ impl PlaybookRepository for Database {
     ) -> AppResult<Vec<Playbook>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, coach_slug, trigger_json, intervention_json,
+            SELECT id, tenant_id, user_id, agent_slug, trigger_json, intervention_json,
                    outcome_metric_json, success_count, failure_count, neutral_count,
                    last_outcome_at, created_at, updated_at
             FROM coaching_playbooks
@@ -612,7 +612,7 @@ impl PlaybookRepository for Database {
         playbook_id: &str,
     ) -> AppResult<u64> {
         // Purge the deleted playbook AND any still-pending advice that would
-        // re-materialize it: advice carries its own coach_slug/trigger/
+        // re-materialize it: advice carries its own agent_slug/trigger/
         // intervention and is decoupled from playbook_id, so on maturation its
         // ON CONFLICT upsert would re-insert the "forgotten" playbook. Both
         // deletes run in one transaction so erasure is durable (GDPR forget).
@@ -625,8 +625,8 @@ impl PlaybookRepository for Database {
             r"
             DELETE FROM pending_advice
             WHERE tenant_id = ?1 AND user_id = ?2
-              AND (coach_slug, trigger_json, intervention_json) IN (
-                  SELECT coach_slug, trigger_json, intervention_json
+              AND (agent_slug, trigger_json, intervention_json) IN (
+                  SELECT agent_slug, trigger_json, intervention_json
                   FROM coaching_playbooks
                   WHERE tenant_id = ?1 AND user_id = ?2 AND id = ?3
               )

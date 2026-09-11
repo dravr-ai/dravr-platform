@@ -30,9 +30,9 @@
 //! ## What still lives in pierre-server
 //!
 //! - `tools::implementations::*` — most concrete tools (~17k LOC). The
-//!   clean-leaf categories `admin`, `coaches`, `mobility` have moved into
+//!   clean-leaf categories `admin`, `agents`, `mobility` have moved into
 //!   [`implementations`] here; pierre-server re-exports them via a shim so
-//!   `crate::tools::implementations::{admin,coaches,mobility}` paths stay
+//!   `crate::tools::implementations::{admin,agents,mobility}` paths stay
 //!   stable for the registry-builtin wiring and tests.
 //! - `tools::protocol::*` — JSON-RPC envelope, executor, auth, format helpers.
 //! - `tools::engine.rs` / `tools::providers.rs` — pierre-server-internal
@@ -59,7 +59,7 @@
 /// that doesn't enable `tools-data` (e.g. under per-crate preflight clippy).
 #[cfg(feature = "tools-data")]
 pub mod activity_backfill;
-/// Shared provider activity fetching (used by group snapshots + coach recs).
+/// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_dedup;
 pub mod activity_fetch;
 /// The one display-name rule a member is rendered by, on every build.

@@ -12,7 +12,7 @@
 //! An LLM commonly asks for every sport with `sport_type: "all"` (or the
 //! French `"tous"`). 2026-07-20 dev incident: "all" was matched literally
 //! against sport names, dropping all 10 scraped activities and making the
-//! coach report "no recent data" while fresh activities existed. Wildcards
+//! agent report "no recent data" while fresh activities existed. Wildcards
 //! must pass the list through untouched; real sport filters must keep
 //! filtering.
 
@@ -75,7 +75,7 @@ fn wildcard_french_tous_returns_every_activity() {
 
 #[test]
 fn wildcard_spanish_german_portuguese_return_every_activity() {
-    // The platform ships fr/en/es/de/pt end to end and the coach answers in the
+    // The platform ships fr/en/es/de/pt end to end and the agent answers in the
     // athlete's language, so the wildcard arrives in that language too. An
     // es/de/pt wildcard that filtered literally would reproduce the 2026-07-20
     // incident for those athletes: every activity dropped, "no recent data".
@@ -202,7 +202,7 @@ fn cycling_activities() -> Vec<Activity> {
 
 /// A generic `ride` ask means every discipline the athlete rode.
 ///
-/// Exact equality made a cycling coach blind to cycling: an athlete whose
+/// Exact equality made a cycling agent blind to cycling: an athlete whose
 /// window held 22 mountain-bike and 7 gravel rides matched none of them, so a
 /// `"Ride"` ask returned an empty cycling history (2026-08-27).
 #[test]

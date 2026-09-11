@@ -89,7 +89,7 @@ impl ChangePasswordTestSetup {
 
     /// Create a test user and return their JWT token
     async fn create_user_with_token(&self) -> anyhow::Result<(String, String)> {
-        let (_, user) = common::create_test_user(&self.resources.coach.database).await?;
+        let (_, user) = common::create_test_user(&self.resources.agent.database).await?;
         let jwt_token = self
             .resources
             .auth

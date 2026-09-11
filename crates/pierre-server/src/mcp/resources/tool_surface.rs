@@ -252,7 +252,7 @@ impl ToolSurface for TurnToolSurface {
                     //
                     // `None` for anything that is not a recognised `get_activities`
                     // envelope, and then the payload travels whole. The projection
-                    // must never be the reason a coach has no data.
+                    // must never be the reason an agent has no data.
                     ToolOutcome::json(
                         project_activities_payload(tool_name, &payload).unwrap_or(payload),
                     )
@@ -344,7 +344,7 @@ impl HostedToolBridge {
     /// One listener on loopback with a kernel-assigned port: nothing to
     /// configure, and no collision between concurrent stacks on one machine.
     /// A bind failure yields `None` so the turn proceeds without tools rather
-    /// than erroring — a coach that cannot reach data should say so.
+    /// than erroring — an agent that cannot reach data should say so.
     async fn host(&self) -> Option<&ToolHost> {
         self.host
             .get_or_try_init(|| async {
@@ -355,7 +355,7 @@ impl HostedToolBridge {
                     // Served at `initialize`, which an opting-in agent folds
                     // into its SYSTEM prompt. That is the only route we have
                     // into the system layer of a CLI runner with no
-                    // system-prompt flag — and without it the coach answers as
+                    // system-prompt flag — and without it the agent answers as
                     // the underlying model and the reply is withheld.
                     instructions: Some(IDENTITY_ANCHOR.to_owned()),
                     ..ToolHostConfig::default()

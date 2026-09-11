@@ -29,7 +29,7 @@ use super::vocabulary_contract::VocabularyContractRegistry;
 
 /// Shared per-turn context passed to every asserter.
 pub struct TurnContext<'a> {
-    /// The coach's textual reply for this turn.
+    /// The agent's textual reply for this turn.
     pub reply: &'a str,
     /// Names of tools invoked during this turn's pipeline run, in
     /// invocation order. Empty when the driver doesn't expose tool
@@ -64,7 +64,7 @@ pub trait ScenarioDriver {
     fn trigger_sync(&mut self);
 
     /// Run one turn: feed `user_message` through the pipeline at
-    /// `locale` and return the coach's reply + observed tool calls.
+    /// `locale` and return the agent's reply + observed tool calls.
     fn run_turn(&mut self, user_message: &str, locale: &str) -> DriverTurnOutput;
 
     /// Pin the prompt's "today" anchor to the scenario's
@@ -80,8 +80,8 @@ pub trait ScenarioDriver {
     /// local 7b remembered to fetch them. A turn that asserts
     /// [`AssertionSpec::ToolCalled`] is grading exactly that, and handing it
     /// the data first leaves nothing to invoke — the assertion could not be
-    /// satisfied however well the coach behaved. The runner turns the prefetch
-    /// off for those turns so the call it demands is the coach's own.
+    /// satisfied however well the agent behaved. The runner turns the prefetch
+    /// off for those turns so the call it demands is the agent's own.
     ///
     /// Defaults to a no-op: a driver without a prefetch has nothing to gate.
     fn set_prefetch_allowed(&mut self, _allowed: bool) {}
@@ -141,7 +141,7 @@ pub struct DriverTurnOutput {
     pub prefetched_tools: Vec<String>,
     /// Set when the turn never reached the model — the provider errored or
     /// timed out after the driver's retries. The reply then holds diagnostic
-    /// text, NOT a coach answer, and must not be graded: assertions applied
+    /// text, NOT an agent answer, and must not be graded: assertions applied
     /// to a dead dispatch report the model's behaviour as the exact opposite
     /// of what was observed (nothing was observed). See
     /// [`ScenarioReport::infra_errors`].
@@ -271,7 +271,7 @@ pub struct TurnFailure {
     pub turn_index: usize,
     pub user_message: String,
     pub reply: String,
-    /// Independent findings — each one is its own statement about the coach.
+    /// Independent findings — each one is its own statement about the agent.
     pub failures: Vec<AssertionFailure>,
     /// Assertions that were unreachable on this turn rather than refuted.
     /// Populated only when the turn's [`AssertionSpec::ToolCalled`] assertion
@@ -410,11 +410,11 @@ fn effective_assertions(turn: &TurnSpec) -> Vec<AssertionSpec> {
 
 /// Split a turn's failures into independent findings and unreachable ones.
 ///
-/// A failing [`AssertionSpec::ToolCalled`] means the coach answered without
+/// A failing [`AssertionSpec::ToolCalled`] means the agent answered without
 /// the tool's payload. Every positive-presence assertion left on that turn
 /// was then looking for content — a distance, a count, a piece of
 /// fragment-dedup vocabulary — that only exists inside that payload, so it
-/// could not have matched whatever the coach said. Reporting those as
+/// could not have matched whatever the agent said. Reporting those as
 /// separate findings multiplies one root cause into several: the
 /// 2026-08-28 `fragment_dedup_no_hallucination_fr` nightly read as two
 /// independent defects (`ToolCalled` + `AnyOf`) when the second was purely
@@ -437,14 +437,14 @@ fn split_unreachable(
         .partition(|f| !reads_tool_payload(&f.spec))
 }
 
-/// Whether an assertion's subject is content the coach can only produce
+/// Whether an assertion's subject is content the agent can only produce
 /// from a tool response.
 ///
 /// Positive-presence assertions on figures, counts, or phrasings that
 /// describe the fetched data qualify. Two shapes deliberately do not:
 /// [`AssertionSpec::NoSubstring`] is negative — a banned phrase stays
 /// banned whether or not data arrived — and
-/// [`AssertionSpec::VocabularyContract`] grades the coach's voice, which
+/// [`AssertionSpec::VocabularyContract`] grades the agent's voice, which
 /// every reply carries regardless of payload.
 fn reads_tool_payload(spec: &AssertionSpec) -> bool {
     matches!(
@@ -829,7 +829,7 @@ mod tests {
     /// The 2026-07-15 AMX segfaults surfaced as `ToolCalled { get_activities }
     /// → called 0 time(s)` — the driver had written the crash text into
     /// `reply` and the asserters graded it, so a dead llama-server was
-    /// reported as a misbehaving coach. Pin the separation: a dispatch that
+    /// reported as a misbehaving agent. Pin the separation: a dispatch that
     /// never reached the model is infrastructure, and must NOT produce
     /// assertion failures that slander the model.
     #[test]
@@ -858,7 +858,7 @@ mod tests {
             report.infra_errors[0].error
         );
         // The crux: zero assertion failures. A reader must never conclude
-        // anything about the coach from a turn the coach never answered.
+        // anything about the agent from a turn the agent never answered.
         assert!(
             report.turn_failures.is_empty(),
             "a dead dispatch must not yield assertion failures, got: {:?}",
@@ -994,7 +994,7 @@ mod tests {
 
     /// The implied assertion survives a missing tool call as its own finding.
     ///
-    /// A language verdict does not read the tool payload — the coach wrote
+    /// A language verdict does not read the tool payload — the agent wrote
     /// prose in some language whether or not the data arrived — so it must
     /// not be swept into `not_evaluated` with the content assertions.
     #[test]
@@ -1118,11 +1118,11 @@ mod tests {
     /// A driver-side prefetch is not a model invocation.
     ///
     /// The live driver fetches activities ahead of a data-shaped turn so the
-    /// coach answers from real numbers, but that fetch is the driver's
+    /// agent answers from real numbers, but that fetch is the driver's
     /// decision, made from a keyword list. Crediting it to `tools_called`
     /// would make `tool_called` pass on every keyword-matching turn no
     /// matter what the model did — grading the keyword list instead of the
-    /// coach. The prefetch is reported, never graded.
+    /// agent. The prefetch is reported, never graded.
     #[test]
     fn driver_prefetch_does_not_satisfy_a_tool_called_assertion() {
         let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
@@ -1164,9 +1164,9 @@ mod tests {
     /// `provider_capability_not_narrated_en` turn 2 ("You have that information
     /// via the provider no?") matches on "provider". Once the prefetch stopped
     /// counting as the model's call, that turn could not pass however well the
-    /// coach behaved: it was handed the data, so it had nothing to invoke. The
+    /// agent behaved: it was handed the data, so it had nothing to invoke. The
     /// runner now switches the prefetch off for a turn that asserts
-    /// `ToolCalled`, so the call the assertion demands is the coach's own.
+    /// `ToolCalled`, so the call the assertion demands is the agent's own.
     #[test]
     fn a_turn_grading_the_tool_call_is_not_prefetched() {
         let scenario = one_turn_scenario_with(vec![AssertionSpec::ToolCalled {
@@ -1208,7 +1208,7 @@ mod tests {
     }
 
     /// The split fires only on a missing tool call. When the tool DID run,
-    /// a content miss is a real finding about the coach and must stay one.
+    /// a content miss is a real finding about the agent and must stay one.
     #[test]
     fn content_assertion_stays_a_finding_when_the_tool_ran() {
         let scenario = one_turn_scenario_with(vec![

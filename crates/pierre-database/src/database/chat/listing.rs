@@ -1,5 +1,5 @@
 // ABOUTME: The unified conversation list on SQLite — one page of every thread a participant is in
-// ABOUTME: Row facts (coach, group, newest message, unread count) come from the same statement
+// ABOUTME: Row facts (agent, group, newest message, unread count) come from the same statement
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -52,9 +52,9 @@ const CONTENT_HEAD_CHARS: i64 = 512;
 /// and a non-participant still matches nothing at all. Writes are unchanged and
 /// still require the caller's tenant.
 const PAGE_SQL: &str = r"
-    SELECT c.id, c.title, c.model, c.total_tokens, c.coach_id, c.channel_type,
+    SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id,
-           g.name AS group_name, co.slug AS coach_handle, co.title AS coach_title,
+           g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')) AS message_count,
            (SELECT COUNT(*) FROM chat_messages m
@@ -72,7 +72,7 @@ const PAGE_SQL: &str = r"
     FROM chat_conversations c
     JOIN conversation_participants p ON p.conversation_id = c.id
     LEFT JOIN coaching_groups g ON g.id = c.group_id
-    LEFT JOIN coaches co ON co.id = c.coach_id
+    LEFT JOIN agents co ON co.id = c.agent_id
     WHERE p.user_id = $1
       AND p.tenant_id = c.tenant_id
       AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
@@ -109,9 +109,9 @@ fn map_summary_row(r: &SqliteRow) -> ConversationSummary {
         model: r.get("model"),
         message_count: r.get("message_count"),
         total_tokens: r.get("total_tokens"),
-        coach_id: r.get("coach_id"),
-        coach_handle: r.get("coach_handle"),
-        coach_title: r.get("coach_title"),
+        agent_id: r.get("agent_id"),
+        agent_handle: r.get("agent_handle"),
+        agent_title: r.get("agent_title"),
         group_id: r.get("group_id"),
         group_name: r.get("group_name"),
         channel_type: r.get("channel_type"),

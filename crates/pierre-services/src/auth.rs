@@ -408,17 +408,17 @@ impl AuthService {
 
         debug!("Created personal tenant: {} ({})", tenant_name, tenant_id);
 
-        self.select_starter_coach(tenant_id, user_id).await;
+        self.select_starter_agent(tenant_id, user_id).await;
 
         Ok(tenant_id)
     }
 
-    /// Give a brand-new workspace a coach to talk to.
+    /// Give a brand-new workspace an agent to talk to.
     ///
     /// Without this a user reaches chat with nothing selected, which reads to
     /// every downstream check as "not onboarded" — the state that had the
-    /// messaging surface re-running the coach proposal at someone who had
-    /// already finished the web wizard. The coach proposal still runs and still
+    /// messaging surface re-running the agent proposal at someone who had
+    /// already finished the web wizard. The agent proposal still runs and still
     /// lets them choose; this only ensures the floor is a working conversation
     /// rather than an empty one.
     ///
@@ -428,14 +428,8 @@ impl AuthService {
     ///
     /// Best-effort: registration has already succeeded, and failing it over a
     /// default would trade a working account for a cosmetic one.
-    async fn select_starter_coach(&self, tenant_id: TenantId, user_id: uuid::Uuid) {
-        let coaches = match self
-            .data
-            .repos()
-            .coaches
-            .list_system_coaches(tenant_id)
-            .await
-        {
+    async fn select_starter_agent(&self, tenant_id: TenantId, user_id: uuid::Uuid) {
+        let agents = match self.data.repos().agents.list_system_agents(tenant_id).await {
             Ok(c) => c,
             Err(e) => {
                 warn!(error = %e, "could not list system agents for the starter selection");
@@ -443,18 +437,18 @@ impl AuthService {
             }
         };
 
-        let Some(first) = coaches.first() else {
+        let Some(first) = agents.first() else {
             // A deployment with no system agents seeded yet. The proposal will
             // still offer whatever exists by the time the user gets there.
             return;
         };
 
-        let coach_id = first.id.to_string();
+        let agent_id = first.id.to_string();
         if let Err(e) = self
             .data
             .repos()
             .tenants
-            .set_selected_coach(tenant_id, user_id, Some(&coach_id))
+            .set_selected_agent(tenant_id, user_id, Some(&agent_id))
             .await
         {
             warn!(error = %e, "could not set the starter coach selection");

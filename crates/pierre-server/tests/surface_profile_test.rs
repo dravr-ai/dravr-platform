@@ -110,7 +110,7 @@ fn in_app_surface_renders_markdown_cards_and_inline_scenes() {
     assert!(profile.render.blocks.action_buttons);
     assert_eq!(profile.render.progressive, ProgressiveSupport::DeltaChannel);
     assert_eq!(profile.render.max_reply_chars, usize::MAX);
-    assert_eq!(profile.budget, TurnBudget::CoachOrAdminDefault);
+    assert_eq!(profile.budget, TurnBudget::AgentOrAdminDefault);
     assert_eq!(profile.model_policy, ModelPolicy::UseStored);
     assert_eq!(profile.prose_contract, None);
 }
@@ -175,7 +175,7 @@ fn the_prose_contract_round_trips_the_live_contremaitre_string() {
 #[test]
 fn the_hard_ceiling_the_model_is_told_is_the_one_the_egress_enforces() {
     // The one number derived in code. It must equal max_reply_chars — the
-    // same field the guardrails stage trims against — or the coach writes to
+    // same field the guardrails stage trims against — or the agent writes to
     // a budget nobody enforces and the athlete reads a cut-off reply.
     for channel_type in [
         ChannelType::Telegram,

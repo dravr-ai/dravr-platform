@@ -81,7 +81,7 @@ fn unknown_pillar_error(arg: &str) -> AppError {
 ///
 /// Works in a direct message and in a shared room alike. Typing the command in
 /// a room is the athlete's consent to a room-visible walk, and the walk binds
-/// to them alone — the state carries their `subject_user_id`, so their coach
+/// to them alone — the state carries their `subject_user_id`, so their agent
 /// follows along read-only. A room walk covers only the room-safe topics
 /// ([`Pillar::visibility`]): Mental Resilience and Recovery Optimisation are
 /// never probed there, never named as arguments there, and never superseded
@@ -200,11 +200,11 @@ impl CommandHandler for PillarsHandler {
         // scoped exception to slash-command ephemerality, for flow-opening
         // commands only.
         //
-        // Two things depend on it. The coach otherwise receives the athlete's
+        // Two things depend on it. The agent otherwise receives the athlete's
         // North Star answer with no question attached, and improvises a reply to
         // a question it cannot see; and with no history row, that answer is
-        // message #1, which arms the first-turn coach startup prefetch — an
-        // activity dump plus the coach's own "build a block" query injected as
+        // message #1, which arms the first-turn agent startup prefetch — an
+        // activity dump plus the agent's own "build a block" query injected as
         // if the athlete had asked for it (the 2026-07-24 derail).
         //
         // Written under the same tenant as the state above, so

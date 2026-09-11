@@ -352,7 +352,16 @@ NEGATED = re.compile(r"never|not present|jamais|retired|retir\u00e9|\bpas\b", re
 GREEN = re.compile(r"green band|bande verte", re.I)
 ABS_TSB = re.compile(r"TSB\s*[<>\u2264\u2265]\s*[-\u2212+]?\d", re.I)
 hits = []
-for sub in ("tools", "prompts/personas", "prompts/coaches"):
+# The personas directory is being renamed coaches -> agents in
+# dravr-contremaitre, and the two repositories deploy independently, so either
+# name may be the one on disk. Accept both -- and refuse to pass when neither
+# is there, because a framing scan that walked no persona file reports exactly
+# the same green as one that walked them all and found nothing.
+PERSONAS = ("prompts/coaches", "prompts/agents")
+if not any((root / sub).is_dir() for sub in PERSONAS):
+    print(f"SCAN-INCOMPLETE: no personas directory at {' or '.join(PERSONAS)}", file=sys.stderr)
+    sys.exit(2)
+for sub in ("tools", "prompts/personas", *PERSONAS):
     d = root / sub
     if not d.is_dir():
         continue

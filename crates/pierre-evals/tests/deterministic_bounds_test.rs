@@ -58,7 +58,7 @@ fn flags_implausible_vo2max() {
 /// A `VO2max` mention carrying no number of its own must not be flagged.
 ///
 /// The keyword "vo2max" contains an ASCII digit. A scanner that reads the
-/// whole window including the keyword finds that `2`, decides the coach
+/// whole window including the keyword finds that `2`, decides the agent
 /// claimed a `VO2max` of 2 ml/kg/min, and contradicts a sentence that stated
 /// no value at all — a user-facing "unsupported claims" banner on every
 /// reply that merely says the word.

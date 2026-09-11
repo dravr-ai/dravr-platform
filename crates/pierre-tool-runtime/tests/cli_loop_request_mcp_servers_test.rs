@@ -116,7 +116,7 @@ fn no_servers_means_the_prose_catalog_is_the_surface() {
 }
 
 #[test]
-fn the_coach_temperature_survives_alongside_the_servers() {
+fn the_agent_temperature_survives_alongside_the_servers() {
     let request = cli_loop_request(turn(), "claude-sonnet-4", Some(0.35), vec![dravr_server()]);
 
     let temperature = request

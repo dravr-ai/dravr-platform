@@ -21,14 +21,14 @@
 //!   pattern in the table matched it.
 //!
 //! The failure was also self-reinforcing: a leak makes the athlete ask "are you
-//! Copilot?", and the coach's correct answer was then withheld in turn.
+//! Copilot?", and the agent's correct answer was then withheld in turn.
 
 use pierre_core::narration::{
     contains_identity_leak, identity_leak_match, scrub_internal_narration,
     scrub_replayed_narration, IdentityPatternClass,
 };
 
-/// Verbatim replies captured from the 2026-07-25 A/B. These are correct coach
+/// Verbatim replies captured from the 2026-07-25 A/B. These are correct agent
 /// behaviour and must reach the athlete.
 #[test]
 fn correct_denials_are_not_leaks() {
@@ -73,12 +73,12 @@ fn affirmative_claims_still_leak() {
     }
 }
 
-/// The negation guard is scoped by class: denying a *claim* is correct coach
+/// The negation guard is scoped by class: denying a *claim* is correct agent
 /// behaviour, denying the *framing* is the 2026-07-12 identity-break itself.
 #[test]
 fn refusals_to_be_dravr_are_still_leaks_despite_the_negation() {
     let refusals = [
-        // Roleplay: reads as a negation, but it is a refusal to BE the coach.
+        // Roleplay: reads as a negation, but it is a refusal to BE the agent.
         "I won't role-play as your coach.",
         "I won't role play as your coach.",
         // Injection framing.
@@ -119,7 +119,7 @@ fn underlying_model_disclosure_is_a_leak() {
 
 /// A negation that belongs to a *different* clause must not open the guard.
 ///
-/// Each of these denies something else — being a coach, being able to help —
+/// Each of these denies something else — being an agent, being able to help —
 /// and then claims the product identity in the next clause. A proximity-only
 /// lookbehind saw the earlier negation, read the claim as a denial, and
 /// delivered a full persona break to the athlete.
@@ -155,7 +155,7 @@ fn negation_in_another_clause_does_not_open_the_guard() {
 ///
 /// The first case is the shape of the identity anchor appended to every system
 /// prompt (`prompt_assembly::IDENTITY_ANCHOR`): one negation governing a list
-/// of things the coach is not. A model echoing its own anchor — or an athlete
+/// of things the agent is not. A model echoing its own anchor — or an athlete
 /// quoting it back — must not be withheld, which is what treating every comma
 /// as a clause break would do.
 #[test]

@@ -7,7 +7,7 @@
 //! `bound_blocking_sync` is what stands between a wedged provider sync and a
 //! chat turn held open indefinitely. The single-provider path ran unbounded
 //! until 938829b8c, and the copy that gained the cap also gained a bad line
-//! wrap that put a 34-space run into the middle of the sentence the coach
+//! wrap that put a 34-space run into the middle of the sentence the agent
 //! relays — so the message is asserted here character by character, not just
 //! for its numbers.
 

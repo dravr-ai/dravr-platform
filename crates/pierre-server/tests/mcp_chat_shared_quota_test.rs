@@ -61,7 +61,7 @@ mod shared_quota_tests {
         let resources = common::create_test_server_resources().await?;
         let email = format!("shared_quota_{}@example.com", Uuid::new_v4());
         let (user_id, _user) =
-            common::create_test_user_with_email(&resources.coach.database, &email).await?;
+            common::create_test_user_with_email(&resources.agent.database, &email).await?;
         let tenants = resources.common.repos.tenants.get_all().await?;
         let tenant = tenants
             .iter()
@@ -210,7 +210,7 @@ mod shared_quota_tests {
         // Make the caller an admin of their own tenant — the exact condition
         // the old `/mcp` check short-circuited on. Written straight to
         // `tenant_users` because no repository method promotes a membership.
-        match resources.coach.database.as_ref() {
+        match resources.agent.database.as_ref() {
             Database::SQLite(db) => {
                 sqlx::query(PROMOTE)
                     .bind(user_id.to_string())

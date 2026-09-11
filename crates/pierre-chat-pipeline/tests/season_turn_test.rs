@@ -10,7 +10,7 @@
 //!
 //! The resolver itself is exercised against a real database in
 //! `pierre-server/tests/season_command_test.rs`; what is checked here is the
-//! pure per-turn output: which directive the coach receives, how each answer
+//! pure per-turn output: which directive the agent receives, how each answer
 //! is stamped, that the calendar turn leaves its kind to the extractor, and
 //! that three flows cannot corrupt each other's ledger entries.
 

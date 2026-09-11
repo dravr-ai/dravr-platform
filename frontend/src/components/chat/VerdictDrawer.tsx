@@ -75,7 +75,7 @@ function VerdictCard({
     .map((s) => s.trim())
     .filter(Boolean);
   const hasProvenance = Boolean(
-    verdict.user_id || verdict.coach_id || verdict.conversation_id || verdict.message_id,
+    verdict.user_id || verdict.agent_id || verdict.conversation_id || verdict.message_id,
   );
   const emittedLabel = formatDateTime(verdict.created_at, language);
 
@@ -141,7 +141,7 @@ function VerdictCard({
           </h4>
           <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-xs">
             <Provenance label={t('chat.provenanceUser')} value={verdict.user_id} />
-            <Provenance label={t('chat.provenanceAgent')} value={verdict.coach_id} />
+            <Provenance label={t('chat.provenanceAgent')} value={verdict.agent_id} />
             <Provenance label={t('chat.provenanceConversation')} value={verdict.conversation_id} />
             <Provenance label={t('chat.provenanceMessage')} value={verdict.message_id} />
           </dl>

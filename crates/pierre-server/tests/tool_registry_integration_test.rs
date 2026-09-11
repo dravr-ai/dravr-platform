@@ -124,7 +124,7 @@ async fn test_every_registered_tool_has_security_class() {
     }
 }
 
-/// A stored training plan is coach/LLM/athlete-authored text re-entering the
+/// A stored training plan is agent/LLM/athlete-authored text re-entering the
 /// LLM context, so `get_training_plan` must taint the turn as
 /// `UNTRUSTED_OUTPUT` (like recalled memory); the write tool's small ack is
 /// not untrusted content.
@@ -176,7 +176,7 @@ async fn test_registry_tools_in_category() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    // Coach tools category
+    // Agent tools category
     let coach_tools = registry.tools_in_category("coaches");
     assert!(
         !coach_tools.is_empty(),
@@ -355,7 +355,7 @@ async fn test_execute_nonexistent_tool() {
         .expect("Failed to create test resources");
     // Seed a user so the resources fixture matches the sibling execution tests;
     // this case only inspects the registry, so the ids are intentionally unused.
-    let _ = create_test_user(&resources.coach.database)
+    let _ = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -376,7 +376,7 @@ async fn test_execute_admin_tool_as_non_admin_denied() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -419,7 +419,7 @@ async fn test_execute_admin_tool_as_admin_allowed() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -514,7 +514,7 @@ async fn test_context_require_tenant_with_tenant() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -531,7 +531,7 @@ async fn test_context_require_tenant_without_tenant() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -546,7 +546,7 @@ async fn test_context_is_admin_cached() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -566,7 +566,7 @@ async fn test_context_require_admin_as_admin() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -581,7 +581,7 @@ async fn test_context_require_admin_as_non_admin() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 
@@ -645,10 +645,10 @@ async fn test_different_users_separate_contexts() {
         .await
         .expect("Failed to create test resources");
 
-    let (user1_id, _) = create_test_user_with_email(&resources.coach.database, "user1@test.com")
+    let (user1_id, _) = create_test_user_with_email(&resources.agent.database, "user1@test.com")
         .await
         .expect("Failed to create user 1");
-    let (user2_id, _) = create_test_user_with_email(&resources.coach.database, "user2@test.com")
+    let (user2_id, _) = create_test_user_with_email(&resources.agent.database, "user2@test.com")
         .await
         .expect("Failed to create user 2");
 
@@ -795,7 +795,7 @@ async fn test_list_tools_carries_every_declared_output_schema() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create user");
 
@@ -874,7 +874,7 @@ async fn test_list_tools_advertises_task_support() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create user");
 
@@ -934,7 +934,7 @@ async fn test_task_support_advertised_matches_the_registry_declaration() {
     let resources = create_test_server_resources()
         .await
         .expect("Failed to create test resources");
-    let (user_id, _) = create_test_user(&resources.coach.database)
+    let (user_id, _) = create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create user");
 

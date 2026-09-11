@@ -92,10 +92,10 @@ describe('ChatTab assistant author label', () => {
     getConversationVerdicts.mockResolvedValue({ verdicts: [] });
     listParticipants.mockResolvedValue([]);
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: COACH_ID }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: COACH_ID }],
       total: 1,
     });
-    listCoaches.mockResolvedValue({ coaches: [{ id: COACH_ID, title: COACH_TITLE }] });
+    listCoaches.mockResolvedValue({ agents: [{ id: COACH_ID, title: COACH_TITLE }] });
     getConversationMessages.mockResolvedValue({
       messages: [
         {
@@ -139,7 +139,7 @@ describe('ChatTab assistant author label', () => {
 
   it('falls back to Dravr when the conversation has no coach attached', async () => {
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: null }],
       total: 1,
     });
 
@@ -151,7 +151,7 @@ describe('ChatTab assistant author label', () => {
 
   it('names the conversation in the header when no coach is attached', async () => {
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: null }],
       total: 1,
     });
 
@@ -164,7 +164,7 @@ describe('ChatTab assistant author label', () => {
 
   it('names an untitled coach-less conversation as a new conversation', async () => {
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: null, coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: null, agent_id: null }],
       total: 1,
     });
 
@@ -243,10 +243,10 @@ describe('ChatTab url reply actions', () => {
     getConversationVerdicts.mockResolvedValue({ verdicts: [] });
     listParticipants.mockResolvedValue([]);
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Connections', coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Connections', agent_id: null }],
       total: 1,
     });
-    listCoaches.mockResolvedValue({ coaches: [] });
+    listCoaches.mockResolvedValue({ agents: [] });
     getConversationMessages.mockResolvedValue({ messages: [] });
   });
 
@@ -327,10 +327,10 @@ describe('ChatTab verdict drawer', () => {
     getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: true }] });
     listParticipants.mockResolvedValue([]);
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Claims', coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Claims', agent_id: null }],
       total: 1,
     });
-    listCoaches.mockResolvedValue({ coaches: [] });
+    listCoaches.mockResolvedValue({ agents: [] });
     getConversationMessages.mockResolvedValue({ messages: [] });
   });
 
@@ -343,7 +343,7 @@ describe('ChatTab verdict drawer', () => {
       id: 'verdict-1',
       conversation_id: CONVERSATION_ID,
       message_id: 'm4',
-      coach_id: null,
+      agent_id: null,
       claim_text: 'Your VO2max is 82.',
       category: 'physiological',
       status: 'contradicted',
@@ -404,10 +404,10 @@ describe('ChatTab conversation rotation', () => {
     getConversationVerdicts.mockResolvedValue({ verdicts: [] });
     listParticipants.mockResolvedValue([]);
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Long thread', coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Long thread', agent_id: null }],
       total: 1,
     });
-    listCoaches.mockResolvedValue({ coaches: [] });
+    listCoaches.mockResolvedValue({ agents: [] });
     getConversationMessages.mockResolvedValue({ messages: [] });
   });
 
@@ -466,7 +466,7 @@ describe('ChatTab header info drawer', () => {
     listParticipants.mockResolvedValue([]);
     getConversationMessages.mockResolvedValue({ messages: [] });
     listCoaches.mockResolvedValue({
-      coaches: [
+      agents: [
         {
           id: COACH_ID,
           title: COACH_TITLE,
@@ -478,7 +478,7 @@ describe('ChatTab header info drawer', () => {
       ],
     });
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', coach_id: COACH_ID }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: COACH_ID }],
       total: 1,
     });
   });
@@ -504,7 +504,7 @@ describe('ChatTab header info drawer', () => {
         {
           id: CONVERSATION_ID,
           title: 'Sunday long run',
-          coach_id: COACH_ID,
+          agent_id: COACH_ID,
           group_id: 'group-7',
           group_name: 'Sunday Riders',
         },
@@ -591,9 +591,9 @@ describe('ChatTab copy and share', () => {
     getProvidersStatus.mockResolvedValue({ providers: [] });
     getConversationVerdicts.mockResolvedValue({ verdicts: [] });
     listParticipants.mockResolvedValue([]);
-    listCoaches.mockResolvedValue({ coaches: [] });
+    listCoaches.mockResolvedValue({ agents: [] });
     getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Août à vélo', coach_id: null }],
+      conversations: [{ id: CONVERSATION_ID, title: 'Août à vélo', agent_id: null }],
       total: 1,
     });
     getConversationMessages.mockResolvedValue({

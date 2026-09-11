@@ -44,7 +44,7 @@ use crate::TenantId;
 pub enum PushTier {
     /// Break-glass: delivered to every persona, always.
     P0,
-    /// High-signal events (coach messages, reauth prompts).
+    /// High-signal events (agent messages, reauth prompts).
     P1,
     /// Advisory alerts (training load, recovery, verdicts).
     P2,
@@ -115,7 +115,7 @@ pub enum DigestCadence {
     Weekly,
     /// Digest attached to each training session (Power-athlete request).
     PerSession,
-    /// Digest rolled up per coached athlete (Coach request).
+    /// Digest rolled up per coached athlete (Agent request).
     PerAthlete,
 }
 
@@ -172,7 +172,7 @@ impl FromStr for DigestCadence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PushPolicy {
     /// Persona slug the policy was resolved from (`casual`, `enthusiast`,
-    /// `power_athlete`, `coach`). Carried so shadow-verdict logs can be
+    /// `power_athlete`, `agent`). Carried so shadow-verdict logs can be
     /// analysed per persona before arming.
     pub persona: String,
     /// Highest tier number delivered unsolicited; `None` = no gate. An

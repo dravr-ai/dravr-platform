@@ -26,10 +26,10 @@ use pierre_services::analytics::hash_id;
 use serde_json::Value;
 
 use super::addressing::reply_recipient;
+use super::agent_proposal::maybe_send_agent_proposal;
 use super::agui::{setup_messaging_agui, MessagingAgUiWiring};
 use super::ambient_context::build_group_ambient_context;
 use super::block_render::{render_reply, RenderedReply};
-use super::coach_proposal::maybe_send_coach_proposal;
 use super::connect;
 use super::identity_leak_notify::{emit_identity_leak, LeakContext};
 use super::intake;
@@ -51,17 +51,17 @@ use pierre_services::user_status_gate::messaging_key_for_status;
 /// as long as the athlete has no provider connected.
 ///
 /// This card used to ride the refusal: a providerless user got the card
-/// *instead of* a coach reply. Now they get the reply, so the card rides it
+/// *instead of* an agent reply. Now they get the reply, so the card rides it
 /// instead of replacing it — the nudge survives the gate it was attached to.
 ///
 /// Every turn, deliberately. The alternative considered was once per
 /// conversation, but a user who has not connected still cannot be given
 /// grounded coaching on their next message either, and a tappable button is a
-/// cheaper reminder than a coach repeatedly explaining what it cannot see.
+/// cheaper reminder than an agent repeatedly explaining what it cannot see.
 ///
 /// Direct messages only, enforced inside [`connect::try_build_connect_card`]: a
 /// connect link is user-scoped and must never be posted into a shared room.
-/// Send failures are logged, never fatal — the coach's answer already went out
+/// Send failures are logged, never fatal — the agent's answer already went out
 /// and is the thing the athlete asked for.
 async fn maybe_send_connect_card(dispatch: &PendingDispatch, channel_config: &ChannelConfig) {
     let has_provider = user_has_connected_provider(
@@ -98,7 +98,7 @@ async fn maybe_send_connect_card(dispatch: &PendingDispatch, channel_config: &Ch
 
 /// Open the messaging intake behind a served turn, if one is owed.
 ///
-/// Sits beside the connect card and the coach proposal because it is the same
+/// Sits beside the connect card and the agent proposal because it is the same
 /// kind of thing: something the platform wants to say, appended to the reply
 /// the athlete actually asked for rather than replacing it. Once the first
 /// question is out, the athlete's answers are handled inline by
@@ -166,7 +166,7 @@ async fn deliver_reply(
     // attachments below are different messages and still have to go out.
     //
     // This used to `return` here, which silently dropped every chart on any
-    // channel with status streaming. Slack has it on always, so a granted coach
+    // channel with status streaming. Slack has it on always, so a granted agent
     // could emit a perfectly valid chart, have it lifted and stored, and the
     // athlete would still only ever see the paragraph (observed 2026-08-20).
     let first_sent_by_agui = match messaging_agui {
@@ -202,7 +202,7 @@ async fn deliver_reply(
         .await;
     }
 
-    // Charts and controls follow the prose, in the order the coach placed
+    // Charts and controls follow the prose, in the order the agent placed
     // them. Sent as separate messages because no channel here renders several
     // images inside one text bubble, and the prose must land first — it is
     // what makes the pictures mean something.
@@ -585,10 +585,10 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
         }
     };
 
-    // One-time onboarding coach proposal: on the user's first provider-connected
-    // turn, lead with the inferred-profile coach suggestions before processing
+    // One-time onboarding agent proposal: on the user's first provider-connected
+    // turn, lead with the inferred-profile agent suggestions before processing
     // their message. Best-effort — never blocks or fails the turn.
-    maybe_send_coach_proposal(dispatch, &channel_config).await;
+    maybe_send_agent_proposal(dispatch, &channel_config).await;
     maybe_send_connect_card(dispatch, &channel_config).await;
 
     // Register an AG-UI run for this messaging turn so the in-process
@@ -958,7 +958,7 @@ async fn serve_turn(
     //
     // "And no list" is the whole condition, and the code used to test only the
     // first half. A reply that is one chart and no prose is a complete answer to
-    // "fais-moi un graphique", and the athlete was told the coach could not
+    // "fais-moi un graphique", and the athlete was told the agent could not
     // formulate a response while the chart it had drawn was discarded. Both
     // halves empty is the case Telegram actually rejects.
     if rendered.is_empty() {

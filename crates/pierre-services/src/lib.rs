@@ -25,7 +25,7 @@ pub mod activity_sports;
 pub mod admin_ops;
 /// System-wide operator settings — auto-approval and its env shadow
 pub mod admin_settings;
-/// Advice capture: turn a coach recommendation into a PendingAdvice (playbook memory)
+/// Advice capture: turn an agent recommendation into a PendingAdvice (playbook memory)
 pub mod advice_capture;
 /// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
 pub mod archetype_aggregation;
@@ -70,37 +70,37 @@ pub mod tenant_chat_provider;
 /// progressive streaming.
 pub mod chat_stream;
 
-/// Coach followup scheduler — periodically dispatches notifications when
+/// Agent followup scheduler — periodically dispatches notifications when
 /// pending followups become overdue and marks them delivered.
-pub mod coach_followup_scheduler;
+pub mod agent_followup_scheduler;
 
-/// Per-coach content grading derived from claim verdict history
-pub mod coach_grading;
+/// Per-agent content grading derived from claim verdict history
+pub mod agent_grading;
 
-/// Coach markdown import: URL fetching, security validation, warnings, definition conversion
-pub mod coach_import;
+/// Agent markdown import: URL fetching, security validation, warnings, definition conversion
+pub mod agent_import;
 
-/// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's coach
-pub mod coach_package;
+/// Package-over-catalogue resolution of flavours, skeletons and workout templates for a plan's agent
+pub mod agent_package;
 
 /// The workout_plan block's payload — the saved plan projected for a card
 pub mod fortnight;
 pub mod plan_card;
 
-/// Coach-selection recording — the one emit site for `agent.selected`
-pub mod coach_selection;
+/// Agent-selection recording — the one emit site for `agent.selected`
+pub mod agent_selection;
 
-/// Coach generation from a conversation — the draft behind `/coach create`,
-/// plus the per-user coach quota read.
+/// Agent generation from a conversation — the draft behind `/agent create`,
+/// plus the per-user agent quota read.
 ///
-pub mod coach_generation;
+pub mod agent_generation;
 
-/// Coach Store browse / search / install, shared by the REST routes and the
+/// Agent Store browse / search / install, shared by the REST routes and the
 /// chat-callable `store` MCP tools.
-pub mod coach_store;
+pub mod agent_store;
 
-/// Coach lifecycle operations: prerequisites, assignments, and generation
-pub mod coaches;
+/// Agent lifecycle operations: prerequisites, assignments, and generation
+pub mod agents;
 
 /// Commitment sweep: counts due athlete commitments against real activity data
 /// and hands the verdict to a reporter for delivery.
@@ -123,7 +123,7 @@ pub mod health_sync;
 /// Memory extraction: Tier 2 background distillation of user facts from finished turns
 pub mod memory_extraction;
 
-/// User-facing memory fact service — list and forget what the coach remembers
+/// User-facing memory fact service — list and forget what the agent remembers
 /// Deciding whether an extracted fact is new or a restatement of an existing one.
 pub mod memory_dedup;
 /// Folding an athlete's already-stored duplicate facts into their anchors.
@@ -141,7 +141,7 @@ pub mod personas;
 
 /// The messaging intake walk — profile type, then the PAR-Q+.
 ///
-/// Asked by the platform rather than the coach, so a standardised instrument
+/// Asked by the platform rather than the agent, so a standardised instrument
 /// reaches the athlete verbatim instead of paraphrased.
 pub mod intake;
 
@@ -200,7 +200,7 @@ pub mod messaging_status_bridge;
 #[cfg(feature = "client-messaging")]
 pub mod channel_error_reply;
 
-/// Myth-busting summary over claim verdicts (top recurring claims, coaches, categories)
+/// Myth-busting summary over claim verdicts (top recurring claims, agents, categories)
 pub mod myth_busting;
 
 /// Best-effort bridge notification after a successful OAuth connection
@@ -216,7 +216,7 @@ pub mod provider_revocation;
 pub mod oauth_redirects;
 
 /// Onboarding gate: requires at least one connected fitness provider before
-/// the user can reach chat/coach/MCP tools.
+/// the user can reach chat/agent/MCP tools.
 pub mod onboarding_gate;
 /// Outcome evaluator: label due advice from real data + reinforce playbooks
 pub mod outcome_evaluator;

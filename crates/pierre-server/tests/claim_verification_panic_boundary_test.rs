@@ -24,12 +24,12 @@ use tokio::task::yield_now;
 
 const REPLY: &str = "Ta semaine 4 est un pic: 5 séances, dont une sortie longue de 3 h.";
 
-/// What a blocking coach replaces a reply with. The real one is localized out
+/// What a blocking agent replaces a reply with. The real one is localized out
 /// of the messaging-strings registry; the boundary only ever calls the closure
 /// the caller hands it, so its text is the caller's business.
 const BLOCK_FALLBACK: &str = "Je préfère vérifier ce point avant de te répondre.";
 
-/// A coach config with the given fallback behavior.
+/// An agent config with the given fallback behavior.
 fn config(fallback: VerificationFallback) -> VerificationConfig {
     VerificationConfig {
         fallback_behavior: fallback,
@@ -52,7 +52,7 @@ async fn panicking_stage() -> ClaimVerificationOutcome {
 
 #[tokio::test]
 async fn a_panicking_verifier_delivers_the_reply_unverified() {
-    // A warning coach would only ever have appended a footer, so losing the
+    // A warning agent would only ever have appended a footer, so losing the
     // footer is the whole cost of the panic.
     let outcome = degrade_to_unverified(
         panicking_stage(),
@@ -108,13 +108,13 @@ async fn a_healthy_verifier_result_passes_through_untouched() {
 }
 
 #[tokio::test]
-async fn a_blocking_coach_gets_its_block_fallback_when_the_detector_panics() {
-    // A coach configured to Block does not append a caveat — its fallback
+async fn a_blocking_agent_gets_its_block_fallback_when_the_detector_panics() {
+    // An agent configured to Block does not append a caveat — its fallback
     // exists to REPLACE a reply carrying a contradicted claim ("an HR max of
     // 300 bpm", "500 g of creatine per day"). Those are the class the
     // deterministic bounds catch, and the class whose numeric scan panicked.
     // Delivering the reply unverified hands the athlete exactly the sentence
-    // the coach configured the platform to withhold.
+    // the agent configured the platform to withhold.
     let outcome = degrade_to_unverified(
         panicking_stage(),
         REPLY,
@@ -138,7 +138,7 @@ async fn a_blocking_coach_gets_its_block_fallback_when_the_detector_panics() {
 }
 
 #[tokio::test]
-async fn a_silent_coach_still_gets_its_reply_after_a_panic() {
+async fn a_silent_agent_still_gets_its_reply_after_a_panic() {
     // Silent records the verdict and shows nothing, so an unscanned reply is
     // exactly what it would have delivered anyway. Only Block changes.
     let outcome = degrade_to_unverified(
@@ -153,10 +153,10 @@ async fn a_silent_coach_still_gets_its_reply_after_a_panic() {
 }
 
 #[tokio::test]
-async fn a_coach_with_verification_off_is_never_blocked_by_a_panic() {
+async fn an_agent_with_verification_off_is_never_blocked_by_a_panic() {
     // A disabled config returns the reply untouched before it looks at a single
     // claim, so it has no block behavior to honor — replacing the reply here
-    // would invent a refusal the coach never asked for.
+    // would invent a refusal the agent never asked for.
     let disabled = VerificationConfig {
         enabled: false,
         ..config(VerificationFallback::Block)

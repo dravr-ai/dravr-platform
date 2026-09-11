@@ -81,7 +81,7 @@ describe('CoachReviewQueue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(adminApi.getStoreReviewQueue).mockResolvedValue({
-      coaches: mockCoaches,
+      agents: mockCoaches,
       total: 2,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
@@ -156,7 +156,7 @@ describe('CoachReviewQueue', () => {
 
   it('shows empty state when no agents pending', async () => {
     vi.mocked(adminApi.getStoreReviewQueue).mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });

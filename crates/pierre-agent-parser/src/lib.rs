@@ -1,0 +1,713 @@
+// ABOUTME: Parser for agent markdown files with YAML frontmatter
+// ABOUTME: Extracts structured data from Claude Skills-style agent definitions
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! # Pierre Agent Parser
+//!
+//! Parses agent definitions authored as markdown files with YAML frontmatter
+//! (Claude-Skills-style). Two consumers:
+//!
+//! - **pierre-server's seeders** at startup, ingesting the on-disk agent
+//!   catalogue from `agents/*.md` into the database.
+//! - **pierre-server's `services::agent_import`** when an admin imports an agent
+//!   from a markdown payload posted to the admin API.
+//!
+//! Returns structured [`AgentDefinition`] values backed by the wire types
+//! from `pierre_core::models::agents::*`. The [`package`] module reads the
+//! training artefacts an agent may ship beside its prompt.
+
+/// An agent package's training artefacts — flavour, skeleton, workouts.
+pub mod package;
+pub use package::{has_package_files, read_package_artefacts};
+
+use std::fs;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use pierre_core::models::agents::{
+    AgentCategory, AgentPrerequisites, AgentVisibility, DataRequirements,
+};
+
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::SUPPORTED_LOCALES;
+use pierre_core::tokens::CHARS_PER_TOKEN;
+
+/// Drift classification (pure functions + types) for the `pierre-cli check-drift agents` binary.
+pub mod drift;
+
+/// Startup configuration for agent conversations
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentStartup {
+    /// Query to automatically send when starting an agent conversation.
+    /// When `data_requirements` is present, this is purely an analysis instruction
+    /// (the system pre-fetches data deterministically). Without `data_requirements`,
+    /// the LLM interprets this as a tool-calling instruction (fallback behavior).
+    #[serde(default)]
+    pub query: Option<String>,
+
+    /// Structured data requirements for deterministic pre-fetching.
+    /// When present, the system fetches activity data with exact parameters
+    /// and injects it as context before the startup query runs.
+    #[serde(default)]
+    pub data_requirements: Option<DataRequirements>,
+
+    /// Inline visuals this agent may embed in its prose, e.g. `[chart, table]`.
+    ///
+    /// A reply may carry several. Empty — the default — means the agent is
+    /// never told the visual contract, so it never emits a block.
+    ///
+    /// Intent only: whether a visual actually reaches a given athlete is decided
+    /// per-channel at render time, since messaging has no block renderer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub visuals: Vec<VisualKind>,
+}
+
+/// A kind of inline visual an agent may embed.
+///
+/// Deliberately an enum rather than free strings: an unknown value in agent
+/// frontmatter should fail to parse loudly rather than silently granting
+/// nothing, and the set is small and closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VisualKind {
+    /// A line/bar/area chart.
+    Chart,
+    /// A tabular comparison.
+    Table,
+    /// A map of an activity's recorded track. The agent emits only a reference
+    /// to the activity; the server hydrates the geometry, so a route grant
+    /// costs the reply no coordinates.
+    Route,
+}
+
+impl VisualKind {
+    /// Wire name, as written in agent frontmatter and stored in the database.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Chart => "chart",
+            Self::Table => "table",
+            Self::Route => "route",
+        }
+    }
+}
+
+/// Type of relationship between agents
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationType {
+    /// General relationship (bidirectional)
+    Related,
+    /// Alternative agent for similar needs (bidirectional)
+    Alternative,
+    /// Must consult before this agent (directional)
+    Prerequisite,
+    /// Consult after this agent (directional)
+    Sequel,
+}
+
+/// Canonical locale for agent content.
+///
+/// The directory MUST contain a `<locale>.md` file for this code; the
+/// seeder treats it as the English source of truth. Missing canonical
+/// files cause the seeder to skip the agent directory with a warning.
+pub const CANONICAL_LOCALE: &str = "en";
+
+/// `true` when `stem` is a locale the platform speaks, so a `<slug>/<stem>.md`
+/// file is a translation rather than some other document.
+///
+/// Reads [`pierre_core::models::SUPPORTED_LOCALES`] — the one list — so a sixth
+/// locale becomes a recognised filename by being added there, and the seeder
+/// can never recognise a locale the catalogue does not ship.
+#[must_use]
+pub fn is_locale_code(stem: &str) -> bool {
+    SUPPORTED_LOCALES.contains(&stem)
+}
+
+impl RelationType {
+    /// Parse relation type from string
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "related" => Some(Self::Related),
+            "alternative" => Some(Self::Alternative),
+            "prerequisite" => Some(Self::Prerequisite),
+            "sequel" => Some(Self::Sequel),
+            _ => None,
+        }
+    }
+}
+
+/// A related agent reference parsed from markdown
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelatedAgent {
+    /// Slug of the related agent
+    pub slug: String,
+
+    /// Type of relationship
+    pub relation_type: RelationType,
+}
+
+/// YAML frontmatter parsed from agent markdown file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentFrontmatter {
+    /// Unique slug identifier (kebab-case, matches filename)
+    pub name: String,
+
+    /// Display name for the agent
+    pub title: String,
+
+    /// Category for organization
+    pub category: AgentCategory,
+
+    /// Searchable tags
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Prerequisites to use this agent
+    #[serde(default)]
+    pub prerequisites: AgentPrerequisites,
+
+    /// Access level (defaults to tenant)
+    #[serde(default)]
+    pub visibility: AgentVisibility,
+
+    /// Startup configuration for agent conversations
+    #[serde(default)]
+    pub startup: AgentStartup,
+
+    /// Slugs of retired agents this agent absorbed.
+    ///
+    /// When the seeder prunes an agent whose directory is gone, every
+    /// conversation, group and agent pointer still bound to that slug is
+    /// re-pointed at the agent that names it here before the row is deleted,
+    /// so an athlete mid-conversation with a merged agent continues with its
+    /// successor instead of dropping to the default prompt.
+    #[serde(default)]
+    pub replaces: Vec<String>,
+}
+
+/// Markdown sections parsed from agent file
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentSections {
+    /// One paragraph describing the agent's purpose (Required)
+    pub purpose: String,
+
+    /// When to use this agent (Optional, not counted in tokens)
+    pub when_to_use: Option<String>,
+
+    /// Core AI system prompt instructions (Required)
+    pub instructions: String,
+
+    /// Example questions users might ask (Optional)
+    pub example_inputs: Option<String>,
+
+    /// Description of response style (Optional)
+    pub example_outputs: Option<String>,
+
+    /// What defines success (Optional)
+    pub success_criteria: Option<String>,
+
+    /// Related agents with relationship types (Optional, not counted in tokens)
+    pub related_agents: Vec<RelatedAgent>,
+}
+
+/// Complete agent definition combining frontmatter and sections
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentDefinition {
+    /// Parsed YAML frontmatter
+    pub frontmatter: AgentFrontmatter,
+
+    /// Parsed markdown sections
+    pub sections: AgentSections,
+
+    /// Source file path (relative to agents directory)
+    pub source_file: String,
+
+    /// Content hash for change detection
+    pub content_hash: String,
+
+    /// Estimated token count for sections that count toward budget
+    pub token_count: u32,
+}
+
+impl AgentDefinition {
+    /// First 16 hex chars of an already-computed content hash.
+    ///
+    /// Used by the seeder to stamp `agent_translations.source_sha` with a
+    /// short canonical-English fingerprint — the 16-char prefix is enough to
+    /// detect drift and matches the width the loader expects.
+    #[must_use]
+    pub fn source_sha_prefix(full_hash: &str) -> String {
+        full_hash.chars().take(16).collect()
+    }
+
+    /// Calculate token count from sections that count toward budget
+    ///
+    /// Counted: `purpose`, `instructions`, `example_inputs`, `example_outputs`, `success_criteria`
+    /// Not counted: `when_to_use`, `prerequisites`, `related_agents`
+    fn calculate_token_count(sections: &AgentSections) -> u32 {
+        let total_chars = sections.purpose.len()
+            + sections.instructions.len()
+            + sections.example_inputs.as_ref().map_or(0, String::len)
+            + sections.example_outputs.as_ref().map_or(0, String::len)
+            + sections.success_criteria.as_ref().map_or(0, String::len);
+
+        #[allow(clippy::cast_possible_truncation)]
+        let token_count = (total_chars / CHARS_PER_TOKEN) as u32;
+        token_count
+    }
+
+    /// Calculate SHA-256 hash of the file content
+    fn calculate_hash(content: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        content.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+}
+
+/// Parse YAML frontmatter from markdown content
+///
+/// # Errors
+/// Returns error if frontmatter delimiters are missing or YAML is invalid
+pub fn parse_frontmatter(content: &str) -> AppResult<AgentFrontmatter> {
+    let content = content.trim();
+
+    if !content.starts_with("---") {
+        return Err(AppError::new(
+            ErrorCode::InvalidFormat,
+            "Coach file must start with YAML frontmatter (---)",
+        ));
+    }
+
+    let after_first = &content[3..];
+    let end_pos = after_first.find("\n---").ok_or_else(|| {
+        AppError::new(
+            ErrorCode::InvalidFormat,
+            "Coach file missing closing frontmatter delimiter (---)",
+        )
+    })?;
+
+    let yaml_content = &after_first[..end_pos].trim();
+
+    let frontmatter: AgentFrontmatter = serde_yaml::from_str(yaml_content).map_err(|e| {
+        AppError::new(
+            ErrorCode::InvalidFormat,
+            format!("Invalid YAML frontmatter: {e}"),
+        )
+    })?;
+
+    // Validate startup.query is not empty if provided
+    if let Some(query) = &frontmatter.startup.query {
+        if query.trim().is_empty() {
+            return Err(AppError::new(
+                ErrorCode::InvalidFormat,
+                "startup.query must not be empty if provided",
+            ));
+        }
+    }
+
+    // Validate data_requirements if provided
+    if let Some(data_reqs) = &frontmatter.startup.data_requirements {
+        if let Some(activities) = &data_reqs.activities {
+            if activities.count == 0 {
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    "data_requirements.activities.count must be greater than 0",
+                ));
+            }
+            if !["summary", "detailed"].contains(&activities.mode.as_str()) {
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "data_requirements.activities.mode must be 'summary' or 'detailed', got '{}'",
+                        activities.mode
+                    ),
+                ));
+            }
+            if !["toon", "json"].contains(&activities.format.as_str()) {
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "data_requirements.activities.format must be 'toon' or 'json', got '{}'",
+                        activities.format
+                    ),
+                ));
+            }
+            // Validate time_frame format if provided
+            if let Some(tf) = &activities.time_frame {
+                if activities.time_frame_seconds().is_none() {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidFormat,
+                        format!(
+                            "data_requirements.activities.time_frame must be '<number><d|w|m>', got '{tf}'"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(frontmatter)
+}
+
+/// Parse markdown sections from content (after frontmatter)
+///
+/// # Errors
+/// Returns error if required sections (Purpose, Instructions) are missing
+pub fn parse_sections(content: &str) -> AppResult<AgentSections> {
+    let content = content.trim();
+
+    // Skip frontmatter to get to sections
+    let body = content.strip_prefix("---").map_or(content, |after_first| {
+        after_first
+            .find("\n---")
+            .map_or(content, |end_pos| after_first[end_pos + 4..].trim())
+    });
+
+    let mut sections = AgentSections::default();
+
+    // Parse sections by looking for ## headers
+    let section_pattern = "## ";
+    let mut current_section: Option<&str> = None;
+    let mut current_content = String::new();
+
+    for line in body.lines() {
+        if let Some(header) = line.strip_prefix(section_pattern) {
+            // Save previous section
+            if let Some(section_name) = current_section {
+                save_section(&mut sections, section_name, &current_content);
+            }
+
+            // Start new section
+            current_section = Some(header.trim());
+            current_content.clear();
+        } else if current_section.is_some() {
+            if !current_content.is_empty() {
+                current_content.push('\n');
+            }
+            current_content.push_str(line);
+        }
+    }
+
+    // Save final section
+    if let Some(section_name) = current_section {
+        save_section(&mut sections, section_name, &current_content);
+    }
+
+    // Validate required sections
+    if sections.purpose.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::MissingRequiredField,
+            "Coach file missing required section: ## Purpose",
+        ));
+    }
+    if sections.instructions.is_empty() {
+        return Err(AppError::new(
+            ErrorCode::MissingRequiredField,
+            "Coach file missing required section: ## Instructions",
+        ));
+    }
+
+    Ok(sections)
+}
+
+/// Save parsed content to the appropriate section field
+fn save_section(sections: &mut AgentSections, name: &str, content: &str) {
+    let trimmed = content.trim();
+
+    match name {
+        "Purpose" => trimmed.clone_into(&mut sections.purpose),
+        "When to Use" => sections.when_to_use = Some(trimmed.to_owned()),
+        "Instructions" => trimmed.clone_into(&mut sections.instructions),
+        "Example Inputs" => sections.example_inputs = Some(trimmed.to_owned()),
+        "Example Outputs" => sections.example_outputs = Some(trimmed.to_owned()),
+        "Success Criteria" => sections.success_criteria = Some(trimmed.to_owned()),
+        // Both spellings, for the length of the catalogue's rename. The arm
+        // below ignores an unrecognised heading silently, so matching only the
+        // old one would have dropped every relation the moment
+        // dravr-contremaitre renamed the heading -- no error, no empty list to
+        // notice, just 152 bullets that stopped existing.
+        "Related Coaches" | "Related Agents" => {
+            sections.related_agents = parse_related_agents(trimmed);
+        }
+        _ => {
+            // Unknown section - ignore silently for forward compatibility
+        }
+    }
+}
+
+/// Parse related agents from markdown list
+/// Format: `- agent-slug (relation_type)`
+fn parse_related_agents(content: &str) -> Vec<RelatedAgent> {
+    let mut related = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if !line.starts_with('-') {
+            continue;
+        }
+
+        let item = line[1..].trim();
+
+        // Parse "coach-slug (relation_type)" format
+        if let Some(paren_start) = item.find('(') {
+            if let Some(paren_end) = item.find(')') {
+                let slug = item[..paren_start].trim().to_owned();
+                let relation_str = item[paren_start + 1..paren_end].trim();
+
+                if let Some(relation_type) = RelationType::parse(relation_str) {
+                    related.push(RelatedAgent {
+                        slug,
+                        relation_type,
+                    });
+                }
+            }
+        }
+    }
+
+    related
+}
+
+/// Parse a complete agent markdown file
+///
+/// # Arguments
+/// * `path` - Path to the agent markdown file
+///
+/// # Errors
+/// Returns error if file cannot be read, or content is invalid
+pub fn parse_agent_file(path: &Path) -> AppResult<AgentDefinition> {
+    let content = fs::read_to_string(path).map_err(|e| {
+        AppError::new(
+            ErrorCode::StorageError,
+            format!("Failed to read coach file {}: {e}", path.display()),
+        )
+    })?;
+
+    let frontmatter = parse_frontmatter(&content)?;
+    let sections = parse_sections(&content)?;
+
+    // Validate that `name` matches either the filename stem (non-locale file,
+    // rare — used only by ad-hoc parses) or the parent directory (standard
+    // per-locale layout, e.g. marathon-agent/en.md).
+    let filename = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| AppError::new(ErrorCode::InvalidFormat, "Invalid coach filename"))?;
+
+    // Locale filenames (en, fr, es, de, pt) mean we're in the per-locale layout:
+    // <category>/<slug>/<locale>.md. Cross-check against the parent directory.
+    let expected_slug = if is_locale_code(filename) {
+        path.parent()
+            .and_then(Path::file_name)
+            .and_then(|s| s.to_str())
+            .unwrap_or(filename)
+    } else {
+        filename
+    };
+
+    if frontmatter.name != expected_slug {
+        return Err(AppError::new(
+            ErrorCode::InvalidFormat,
+            format!(
+                "Coach name '{}' does not match expected slug '{}' (file {})",
+                frontmatter.name,
+                expected_slug,
+                path.display()
+            ),
+        ));
+    }
+
+    let token_count = AgentDefinition::calculate_token_count(&sections);
+    let content_hash = AgentDefinition::calculate_hash(&content);
+
+    // Get relative source path (category/filename.md)
+    let source_file = path
+        .iter()
+        .rev()
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|s| s.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    Ok(AgentDefinition {
+        frontmatter,
+        sections,
+        source_file,
+        content_hash,
+        token_count,
+    })
+}
+
+/// Parse agent definition from markdown string content
+///
+/// # Arguments
+/// * `content` - Markdown content with YAML frontmatter
+/// * `source_name` - Optional source identifier for the content
+///
+/// # Errors
+/// Returns error if content is invalid
+pub fn parse_agent_content(content: &str, source_name: Option<&str>) -> AppResult<AgentDefinition> {
+    let frontmatter = parse_frontmatter(content)?;
+    let sections = parse_sections(content)?;
+
+    let token_count = AgentDefinition::calculate_token_count(&sections);
+    let content_hash = AgentDefinition::calculate_hash(content);
+
+    let source_file = source_name.map_or_else(
+        || format!("imported/{}.md", frontmatter.name),
+        str::to_owned,
+    );
+
+    Ok(AgentDefinition {
+        frontmatter,
+        sections,
+        source_file,
+        content_hash,
+        token_count,
+    })
+}
+
+/// Convert agent definition to markdown format
+///
+/// Generates markdown with YAML frontmatter and structured sections
+#[must_use]
+pub fn to_markdown(definition: &AgentDefinition) -> String {
+    use std::fmt::Write;
+
+    let mut output = String::new();
+
+    // YAML frontmatter
+    output.push_str("---\n");
+    let _ = writeln!(output, "name: {}", definition.frontmatter.name);
+    let _ = writeln!(output, "title: {}", definition.frontmatter.title);
+    let _ = writeln!(
+        output,
+        "category: {}",
+        definition.frontmatter.category.as_str()
+    );
+
+    // Tags as YAML array
+    if !definition.frontmatter.tags.is_empty() {
+        output.push_str("tags: [");
+        output.push_str(&definition.frontmatter.tags.join(", "));
+        output.push_str("]\n");
+    }
+
+    // Prerequisites
+    let prereqs = &definition.frontmatter.prerequisites;
+    if !prereqs.providers.is_empty()
+        || prereqs.min_activities > 0
+        || !prereqs.activity_types.is_empty()
+    {
+        output.push_str("prerequisites:\n");
+        if !prereqs.providers.is_empty() {
+            output.push_str("  providers: [");
+            output.push_str(&prereqs.providers.join(", "));
+            output.push_str("]\n");
+        }
+        if prereqs.min_activities > 0 {
+            let _ = writeln!(output, "  min_activities: {}", prereqs.min_activities);
+        }
+        if !prereqs.activity_types.is_empty() {
+            output.push_str("  activity_types: [");
+            output.push_str(&prereqs.activity_types.join(", "));
+            output.push_str("]\n");
+        }
+    }
+
+    // Visibility (only if not default)
+    if definition.frontmatter.visibility != AgentVisibility::Tenant {
+        let _ = writeln!(
+            output,
+            "visibility: {}",
+            definition.frontmatter.visibility.as_str()
+        );
+    }
+
+    // Startup configuration
+    let has_startup_query = definition.frontmatter.startup.query.is_some();
+    let has_data_reqs = definition.frontmatter.startup.data_requirements.is_some();
+    if has_startup_query || has_data_reqs {
+        output.push_str("startup:\n");
+        if let Some(query) = &definition.frontmatter.startup.query {
+            let _ = writeln!(output, "  query: \"{query}\"");
+        }
+        if let Some(data_reqs) = &definition.frontmatter.startup.data_requirements {
+            output.push_str("  data_requirements:\n");
+            if let Some(activities) = &data_reqs.activities {
+                output.push_str("    activities:\n");
+                let _ = writeln!(output, "      count: {}", activities.count);
+                if let Some(tf) = &activities.time_frame {
+                    let _ = writeln!(output, "      time_frame: {tf}");
+                }
+                if activities.mode != "summary" {
+                    let _ = writeln!(output, "      mode: {}", activities.mode);
+                }
+                if activities.format != "toon" {
+                    let _ = writeln!(output, "      format: {}", activities.format);
+                }
+                if activities.analysis_type != "general_overview" {
+                    let _ = writeln!(output, "      analysis_type: {}", activities.analysis_type);
+                }
+            }
+            if data_reqs.athlete_profile {
+                output.push_str("    athlete_profile: true\n");
+            }
+        }
+    }
+
+    output.push_str("---\n\n");
+
+    // Sections
+    output.push_str("## Purpose\n\n");
+    output.push_str(&definition.sections.purpose);
+    output.push_str("\n\n");
+
+    if let Some(when_to_use) = &definition.sections.when_to_use {
+        output.push_str("## When to Use\n\n");
+        output.push_str(when_to_use);
+        output.push_str("\n\n");
+    }
+
+    output.push_str("## Instructions\n\n");
+    output.push_str(&definition.sections.instructions);
+    output.push_str("\n\n");
+
+    if let Some(example_inputs) = &definition.sections.example_inputs {
+        output.push_str("## Example Inputs\n\n");
+        output.push_str(example_inputs);
+        output.push_str("\n\n");
+    }
+
+    if let Some(example_outputs) = &definition.sections.example_outputs {
+        output.push_str("## Example Outputs\n\n");
+        output.push_str(example_outputs);
+        output.push_str("\n\n");
+    }
+
+    if let Some(success_criteria) = &definition.sections.success_criteria {
+        output.push_str("## Success Criteria\n\n");
+        output.push_str(success_criteria);
+        output.push_str("\n\n");
+    }
+
+    if !definition.sections.related_agents.is_empty() {
+        output.push_str("## Related Agents\n\n");
+        for related in &definition.sections.related_agents {
+            let _ = writeln!(output, "- {} ({:?})", related.slug, related.relation_type);
+        }
+        output.push('\n');
+    }
+
+    output
+}

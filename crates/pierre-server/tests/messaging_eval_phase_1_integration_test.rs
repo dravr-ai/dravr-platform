@@ -24,7 +24,7 @@
 //!   does not emit `tool_calls`, so `tools_called` is empty, so the
 //!   asserter must flag the missing invocation. This is the
 //!   hallucination-catching property we care about — it has to fire
-//!   loudly when the coach claims an answer without actually calling a
+//!   loudly when the agent claims an answer without actually calling a
 //!   tool.
 //!
 //! Full tool-using scenarios (asserter happy-path on `tool_called`)
@@ -236,7 +236,7 @@ mod phase_1_integration {
         let tenant_str = tenant_id.to_string();
 
         for _ in 0..50 {
-            let row: Option<(String,)> = match resources.coach.database.as_ref() {
+            let row: Option<(String,)> = match resources.agent.database.as_ref() {
                 Database::SQLite(db) => sqlx::query_as(SQL)
                     .bind(&tenant_str)
                     .fetch_optional(db.pool())

@@ -206,13 +206,13 @@ pub trait BillingCtx: Send + Sync + 'static {
 /// Slice of runtime state the slash-command handler layer needs.
 ///
 /// Covers what `pierre-commands` handlers actually pull from
-/// pierre-server's `ServerContext`: the repository registry (for coach /
+/// pierre-server's `ServerContext`: the repository registry (for agent /
 /// group / user / chat / provider-connection lookups), the
 /// [`pierre_groups::GroupService`] (for `/group invite` code minting and
-/// the group settings `/coach add` changes in a group conversation), the
+/// the group settings `/agent add` changes in a group conversation), the
 /// [`pierre_contremaitre::MessagingStringsRegistry`] (for the localized
-/// reply rendering every handler performs), and the coach-generation
-/// slice `/coach create` needs — the chat provider, the generation prompt
+/// reply rendering every handler performs), and the agent-generation
+/// slice `/agent create` needs — the chat provider, the generation prompt
 /// and the admin-config quota lookup.
 ///
 /// Deliberately omitted from this trait (to keep `pierre-runtime-context`
@@ -224,20 +224,20 @@ pub trait BillingCtx: Send + Sync + 'static {
 ///   and hand them in directly; no trait round-trip is needed because
 ///   `try_dispatch` is the only consumer.
 pub trait CommandCtx: Send + Sync + 'static {
-    /// Repository registry — backs every coach / group / user / chat /
+    /// Repository registry — backs every agent / group / user / chat /
     /// provider-connection lookup the handlers perform.
     fn repos(&self) -> &Arc<RepositoryRegistry>;
 
     /// Group coaching service — used by `/group invite` to mint a fresh
-    /// invite code and by the group-settings writes `/coach add` and
-    /// `/group coach` perform in a group conversation.
+    /// invite code and by the group-settings writes `/agent add` and
+    /// `/group agent` perform in a group conversation.
     fn group_service(&self) -> &Arc<pierre_groups::GroupService>;
 
     /// Messaging strings registry — every handler renders user-facing
     /// reply text through this registry, keyed by `(template_key, locale)`.
     fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry>;
 
-    /// Admin config lookup — `/coach create confirm` enforces
+    /// Admin config lookup — `/agent create confirm` enforces
     /// `usage_quotas.max_coaches_per_user` through it and `/group create`
     /// reads the tenant's `group_creation_policy`, the same reads
     /// `POST /api/agents` and the REST group-create route perform.
@@ -248,18 +248,18 @@ pub trait CommandCtx: Send + Sync + 'static {
     /// is not stored as a trait object; the upcast happens here.
     fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>>;
 
-    /// Primary chat-completion provider — `/coach create` drafts the
+    /// Primary chat-completion provider — `/agent create` drafts the
     /// persona through it, on the shared singleton every chat turn uses.
     fn chat_provider(&self) -> Option<&Arc<ChatProvider>>;
 
-    /// Lower-level LLM provider — the fallback `/coach create` wraps when no
+    /// Lower-level LLM provider — the fallback `/agent create` wraps when no
     /// dedicated [`ChatProvider`] is configured.
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
 
-    /// Coach generation system prompt. Resolves from the contremaitre
+    /// Agent generation system prompt. Resolves from the contremaitre
     /// hot-reload registry when enabled, else the compiled-in fallback in
     /// `pierre-llm`.
-    fn coach_generation_prompt(&self) -> String;
+    fn agent_generation_prompt(&self) -> String;
 }
 
 /// The identity a config read resolves against.
@@ -389,13 +389,13 @@ pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
     &DEFAULT_ADMIN_CONFIG
 }
 
-/// Slice of runtime state the coaches/roster/store route layer needs.
+/// Slice of runtime state the agents/roster/store route layer needs.
 ///
 /// Covers `/api/agents/*`, `/api/admin/agents/*`, `/api/admin/store/*`,
 /// `/api/roster/*`, and `/api/store/*`. Pulls the repository registry
-/// (coaches + store-listings + roster + tenants + users repos), the
+/// (agents + store-listings + roster + tenants + users repos), the
 /// platform's `Database` handle (for the version-history author lookup),
-/// and provider handles for the LLM re-rank of coach proposals.
+/// and provider handles for the LLM re-rank of agent proposals.
 ///
 /// `admin_config()` is optional because the service is wired only when
 /// SQLite-backed quota config is enabled; routes degrade to defaults
@@ -404,7 +404,7 @@ pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
 /// `notification_service()` is gated by the `client-notifications`
 /// feature so leaf builds without push notifications don't pay the
 /// `dravr-commere` dependency cost.
-pub trait CoachesCtx: MiddlewareCtx {
+pub trait AgentsCtx: MiddlewareCtx {
     /// Database handle — the version-history routes reach the users
     /// repository through it to name a version's author.
     fn database(&self) -> &Arc<Database>;
@@ -416,13 +416,13 @@ pub trait CoachesCtx: MiddlewareCtx {
     /// not stored as a trait object; the upcast happens here.
     fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>>;
 
-    /// Notification dispatch service — used by admin coach update and
+    /// Notification dispatch service — used by admin agent update and
     /// assign handlers to fire `plan_updated` push notifications.
     /// `None` when notifications are not wired.
     #[cfg(feature = "client-notifications")]
     fn notification_service(&self) -> Option<&Arc<pierre_notifications::NotificationService>>;
 
-    /// Primary chat-completion provider — the LLM re-rank of coach
+    /// Primary chat-completion provider — the LLM re-rank of agent
     /// proposals runs on it. Falls back to wrapping `llm_provider()` when
     /// this is `None`.
     fn chat_provider(&self) -> Option<&Arc<ChatProvider>>;

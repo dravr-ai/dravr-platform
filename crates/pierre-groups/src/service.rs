@@ -61,9 +61,9 @@ pub struct ChannelGroupSpec<'a> {
     /// Human-readable group name, from the inbound chat title when the
     /// channel supplies one (Telegram `chat.title`, Discord `channel.name`).
     pub name: &'a str,
-    /// Coach bound to the group at bootstrap — the first sender's selected
-    /// coach, falling back to a system agent.
-    pub coach_id: &'a str,
+    /// Agent bound to the group at bootstrap — the first sender's selected
+    /// agent, falling back to a system agent.
+    pub agent_id: &'a str,
     /// Messaging platform: `telegram`, `slack`, `discord`.
     pub channel_type: &'a str,
     /// Platform-native chat identifier the group is bound to.
@@ -78,7 +78,7 @@ use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
 ///
 /// Coordinates strategy traits with the repository to provide group-aware
 /// coaching intelligence. The key function is [`inject_group_context`],
-/// called from `chat.rs` and the chat pipeline to augment coach
+/// called from `chat.rs` and the chat pipeline to augment agent
 /// system prompts with group context.
 pub struct GroupService {
     repo: Arc<dyn CoachingGroupRepository>,
@@ -96,13 +96,13 @@ impl GroupService {
     // THE KEY FUNCTION — System Prompt Injection
     // ========================================================================
 
-    /// Inject group context into a coach's system prompt.
+    /// Inject group context into an agent's system prompt.
     ///
     /// Called from two places in pierre-server:
     /// - `chat.rs::get_augmented_system_prompt()` — web + mobile path
     /// - `chat_pipeline::stages::prompt_builder` — messaging path
     ///
-    /// If the coach is assigned to a group the user belongs to, augments
+    /// If the agent is assigned to a group the user belongs to, augments
     /// the system prompt with member summaries, aggregate stats, and
     /// role-appropriate context (admin overview vs individual focus).
     ///
@@ -110,8 +110,8 @@ impl GroupService {
     /// Fast early return (single DB query) for non-group conversations.
     ///
     /// # Arguments
-    /// * `base_system_prompt` — The coach's system prompt (possibly already augmented with provider context)
-    /// * `coach_id` — The coach persona ID for this conversation
+    /// * `base_system_prompt` — The agent's system prompt (possibly already augmented with provider context)
+    /// * `agent_id` — The agent persona ID for this conversation
     /// * `user_id` — The user sending the message
     /// * `tenant_id` — Multi-tenant isolation
     /// * `conversation_group_id` — If already selected, skip disambiguation
@@ -123,7 +123,7 @@ impl GroupService {
     pub async fn inject_group_context(
         &self,
         base_system_prompt: &str,
-        coach_id: &str,
+        agent_id: &str,
         user_id: Uuid,
         tenant_id: TenantId,
         conversation_group_id: Option<&str>,
@@ -133,10 +133,10 @@ impl GroupService {
         let group = if let Some(gid) = conversation_group_id {
             self.repo.get_group(gid, tenant_id).await?
         } else {
-            // Find groups this user belongs to with this coach
+            // Find groups this user belongs to with this agent
             let groups = self
                 .repo
-                .find_groups_for_user_and_coach(user_id, coach_id)
+                .find_groups_for_user_and_agent(user_id, agent_id)
                 .await?;
 
             match groups.len() {
@@ -173,8 +173,8 @@ impl GroupService {
 
         // The group's human coach gets the same whole-group overview an admin
         // sees. The visibility filter below still gates each member's snapshot
-        // behind their own `peer_sharing_consent`, so a coach never sees data a
-        // member hasn't shared — coach access reuses the existing peer gate
+        // behind their own `peer_sharing_consent`, so an agent never sees data a
+        // member hasn't shared — agent access reuses the existing peer gate
         // rather than bypassing it.
         let is_coach = group.coach_user_id == Some(user_id);
         let is_admin = is_coach
@@ -303,7 +303,7 @@ impl GroupService {
             tenant_id: tenant_id.to_string(),
             name: request.name.clone(),
             description: request.description.clone(),
-            coach_id: request.coach_id.clone(),
+            agent_id: request.agent_id.clone(),
             owner_id,
             // No human coach until one redeems a coach-kind invite.
             coach_user_id: None,
@@ -313,7 +313,7 @@ impl GroupService {
             // FALSE in group settings to disable everyone's sharing in
             // one move.
             peer_data_sharing: true,
-            // Coach answers every message until the owner narrows it via
+            // Agent answers every message until the owner narrows it via
             // `/group respond mentions` or the group-settings UI.
             respond_mode: GroupRespondMode::default(),
             // Clamped to the tenant tier's per-group cap by
@@ -371,7 +371,7 @@ impl GroupService {
                 "Auto-created from {} group chat {}",
                 spec.channel_type, spec.channel_chat_id
             )),
-            coach_id: spec.coach_id.to_owned(),
+            agent_id: spec.agent_id.to_owned(),
             owner_id,
             // No human coach until one redeems a coach-kind invite.
             coach_user_id: None,
@@ -409,7 +409,7 @@ impl GroupService {
     /// emit the catalogued `group.created` event.
     ///
     /// The single creation chokepoint behind both
-    /// [`create_group`](Self::create_group) (REST + `/coach` slash command)
+    /// [`create_group`](Self::create_group) (REST + `/agent` slash command)
     /// and [`create_channel_group`](Self::create_channel_group) (messaging
     /// auto-bind). Emitting here rather than at each transport is what makes
     /// `group.created` fire for chat-created groups: `user_id` and
@@ -748,18 +748,18 @@ impl GroupService {
     }
 
     /// Redeem a coach-kind invite, attaching the caller as the group's human
-    /// coach (`coach_user_id`).
+    /// agent (`coach_user_id`).
     ///
-    /// Eligibility (the caller is a roster-managing coach and belongs to the
+    /// Eligibility (the caller is a roster-managing agent and belongs to the
     /// group's tenant) is enforced by the route layer, which owns user-repo
     /// access. This method owns the group-side business logic: invite
-    /// validity, the single-coach guard, the attachment write, and the
+    /// validity, the single-agent guard, the attachment write, and the
     /// invite-use increment.
     ///
     /// # Errors
     ///
     /// Returns an error if the invite is invalid/expired/exhausted, is not a
-    /// coach invite, the group is missing, or a different coach is already
+    /// agent invite, the group is missing, or a different agent is already
     /// attached.
     pub async fn redeem_coach_invite(
         &self,
@@ -785,9 +785,9 @@ impl GroupService {
             .open_group_for_invite(&invite.group_id.to_string(), tenant_id)
             .await?;
 
-        // Single human coach per group (v1). Re-redeeming as the same coach is
-        // idempotent; a different coach is rejected so an owner explicitly
-        // detaches the current coach first.
+        // Single human coach per group (v1). Re-redeeming as the same agent is
+        // idempotent; a different agent is rejected so an owner explicitly
+        // detaches the current agent first.
         match group.coach_user_id {
             Some(existing) if existing == coach_user_id => return Ok(group),
             Some(_) => {
@@ -809,9 +809,9 @@ impl GroupService {
             .increment_invite_use_count(&invite.id.to_string())
             .await?;
 
-        // Reuses the catalogued `group.joined` event (a coach redeeming a
+        // Reuses the catalogued `group.joined` event (an agent redeeming a
         // coach-kind invite is still a join); the message distinguishes the
-        // coach case for operators. Emitted after the attach succeeds, so
+        // agent case for operators. Emitted after the attach succeeds, so
         // re-redeeming the same invite — which returns early above — no
         // longer double-counts the way the route-level emission did.
         info!(

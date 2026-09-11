@@ -11,7 +11,7 @@ use super::patterns::IDENTITY_NARRATION_PATTERNS;
 use super::INTERNAL_NARRATION_PATTERNS;
 
 /// Lowercase, separator-folded vocabulary that marks a sentence as
-/// **capability-failure narration** — the coach saying its own tools are
+/// **capability-failure narration** — the agent saying its own tools are
 /// broken or that it cannot fetch the user's data («attempting to call them
 /// just returned "tool does not exist" errors», «Je ne peux pas aller
 /// chercher tes données à l'instant» — live incidents 2026-07-22/23).
@@ -90,7 +90,7 @@ pub(super) const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "i am not able to fetch your",
     "i'm not able to retrieve your",
     "i am not able to retrieve your",
-    // Self-anchored connection excuse ("on my side/end"): the coach blaming
+    // Self-anchored connection excuse ("on my side/end"): the agent blaming
     // its own connection is never legitimate coaching; "connection problem"
     // alone (user wifi, watch sync) must pass.
     "connection problem on my side",
@@ -98,7 +98,7 @@ pub(super) const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "connection issue on my side",
     "connection issue on my end",
     // English, third-person summary register — compaction summaries restate
-    // the coach's failure as "the coach was unable to fetch the user's
+    // the agent's failure as "the coach was unable to fetch the user's
     // data", which no first-person pattern sees. Anchored on "the user" so
     // an assistant reply about the athlete's own apps ("the Strava app was
     // unable to fetch data") passes.
@@ -170,7 +170,7 @@ pub(super) const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
     "je n'arrive pas à accéder à tes activités",
     "je n'arrive pas a acceder a tes activites",
     // The fabricated excuse that rode along both incidents — «de mon côté»
-    // is the self-anchor: the coach blaming its own connection can never be
+    // is the self-anchor: the agent blaming its own connection can never be
     // legitimate coaching, while «problème de connexion» alone (the user's
     // wifi, the watch's sync) must pass.
     "problème de connexion de mon côté",
@@ -259,7 +259,7 @@ pub(super) const CAPABILITY_FAILURE_PATTERNS: &[&str] = &[
 ];
 
 /// Lowercase, separator-folded vocabulary that marks a sentence as a
-/// **peer-access denial** — the coach saying it cannot read ANOTHER athlete's
+/// **peer-access denial** — the agent saying it cannot read ANOTHER athlete's
 /// data («je n'ai jamais eu accès à l'historique de Jean-Daniel … je n'ai
 /// aucune donnée sur lui» — live incident 2026-08-30, a Telegram group where
 /// the Guardian's own repair path manufactured that retraction).
@@ -452,8 +452,8 @@ pub(super) static FOLDED_PEER_DENIAL: LazyLock<Vec<String>> = LazyLock::new(|| {
 /// Scrubbed **only** on a turn where no fetch occurred. On a grounded turn
 /// "les données confirment" is simply true and must survive.
 ///
-/// Live 2026-09-02: after the athlete corrected the coach's weekday ordering
-/// for the third time, the coach replied *"Roster data confirme: Date ride
+/// Live 2026-09-02: after the athlete corrected the agent's weekday ordering
+/// for the third time, the agent replied *"Roster data confirme: Date ride
 /// était bien lundi"* — an appeal to data as authority, on a turn where no tool
 /// ran, restating what the athlete had just told it. Claiming confirmation
 /// without a fetch is worse than abstaining: it converts the athlete's own

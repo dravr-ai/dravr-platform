@@ -1,5 +1,5 @@
 // ABOUTME: Pins the turn directive's one write rule — physiology the athlete states gets saved
-// ABOUTME: Regression for 2026-09-02, where the coach saw an FTP, used it once, and stored nothing
+// ABOUTME: Regression for 2026-09-02, where the agent saw an FTP, used it once, and stored nothing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,11 +10,11 @@
 //! `set_physiology` has been chat-callable since registre#39, and the category
 //! comment that admits it names this exact scenario — *"Physiology arrives
 //! mid-conversation — 'my FTP is 285' — so the coach must be able to save it on
-//! the turn it is said."* The capability was there. Nothing asked the coach to
+//! the turn it is said."* The capability was there. Nothing asked the agent to
 //! use it.
 //!
 //! Live 2026-09-02: the athlete asked *"As tu acces a mes power zones?"*, was
-//! told no, supplied 380 W, and the coach acknowledged seeing it («tu l'as
+//! told no, supplied 380 W, and the agent acknowledged seeing it («tu l'as
 //! mentionné à 380W plus tôt»), hand-computed a threshold in prose, and stored
 //! nothing. Zero tool calls across all fifteen turns. The next session starts
 //! from the same flat "I don't have your zones" (registre#250).
@@ -115,7 +115,7 @@ fn set_physiology_is_reachable_from_a_chat_turn() {
 /// appended to group-room turns too, and a group prompt carries other members'
 /// messages — so "if the athlete states a physiological value" pointed at
 /// several people at once while the tool could only ever mean one of them. A
-/// coach that took Phil's FTP out of the transcript and saved it would have
+/// agent that took Phil's FTP out of the transcript and saved it would have
 /// written it onto whoever was speaking, and the wrong athlete's zones are
 /// worse than no zones: they are wrong with the same confidence as right ones.
 ///

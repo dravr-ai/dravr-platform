@@ -365,12 +365,12 @@ export function createUserApi(axios: AxiosInstance) {
      * remembers" panel.
      */
     async listMemoryFacts(params?: {
-      coach_id?: string;
+      agent_id?: string;
       kind?: string;
       limit?: number;
     }): Promise<MemoryFactListResponse> {
       const query = new URLSearchParams();
-      if (params?.coach_id) query.append('coach_id', params.coach_id);
+      if (params?.agent_id) query.append('agent_id', params.agent_id);
       if (params?.kind) query.append('kind', params.kind);
       if (params?.limit !== undefined) query.append('limit', String(params.limit));
       const path = query.toString()
@@ -468,14 +468,14 @@ export function createUserApi(axios: AxiosInstance) {
  * Wire shape for a single user_facts row served to the memory panel.
  *
  * `kind` is the server's `FactKind` serde string, typed by the shared
- * {@link MemoryFactKind} vocabulary rather than re-spelled here. `coach_title` is
- * the coach behind `coach_id`, joined by the server so the panel can name the
+ * {@link MemoryFactKind} vocabulary rather than re-spelled here. `agent_title` is
+ * the coach behind `agent_id`, joined by the server so the panel can name the
  * coach; a fact no coach authored, or whose coach is gone, carries none.
  */
 export interface MemoryFactRow {
   id: string;
-  coach_id: string | null;
-  coach_title: string | null;
+  agent_id: string | null;
+  agent_title: string | null;
   kind: MemoryFactKind;
   /** What the fact says, as a `PredicateCode` slug (`training_for`, `states`, ...). */
   predicate_code: string;

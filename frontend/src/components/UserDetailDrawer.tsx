@@ -631,10 +631,10 @@ export default function UserDetailDrawer({
                 <div className="h-4 bg-surface-container-high rounded w-3/4"></div>
                 <div className="h-4 bg-surface-container-high rounded w-2/3"></div>
               </div>
-            ) : adminProfile && adminProfile.installed_coaches.length > 0 ? (
+            ) : adminProfile && adminProfile.installed_agents.length > 0 ? (
               <div className="space-y-2">
-                {adminProfile.installed_coaches.map((coach) => (
-                  <div key={coach.coach_id} className="flex items-center justify-between">
+                {adminProfile.installed_agents.map((coach) => (
+                  <div key={coach.agent_id} className="flex items-center justify-between">
                     <span className="text-sm font-medium text-on-surface">
                       {coach.title}
                       {coach.is_default && (

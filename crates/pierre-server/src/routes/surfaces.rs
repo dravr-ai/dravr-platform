@@ -97,7 +97,7 @@ pub struct SurfaceCapabilityRow {
     /// provider emits deltas. Both halves of the streaming question, crossed
     /// once here so a reader does not have to.
     pub streams_text_deltas: bool,
-    /// Fixed tool-loop budget, or `null` when it resolves from coach/admin
+    /// Fixed tool-loop budget, or `null` when it resolves from agent/admin
     /// configuration.
     pub max_tool_iterations: Option<usize>,
     /// `"use_stored"` or `"override_with_env"`.
@@ -188,7 +188,7 @@ fn row(profile: &SurfaceProfile) -> SurfaceCapabilityRow {
             .delivers_partial_text(ProviderStreaming::TextDeltas),
         max_tool_iterations: match profile.budget {
             TurnBudget::Fixed(iterations) => Some(iterations),
-            TurnBudget::CoachOrAdminDefault => None,
+            TurnBudget::AgentOrAdminDefault => None,
         },
         model_policy: match profile.model_policy {
             ModelPolicy::UseStored => "use_stored",

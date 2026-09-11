@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! On 2026-08-30 a francophone athlete described night sweats, broken sleep and
-//! new urinary difficulty on Telegram, in French, and the coach answered
+//! new urinary difficulty on Telegram, in French, and the agent answered
 //! entirely in English. The athlete replied "Yes" and got French back. One
 //! conversation, two languages.
 //!
@@ -22,10 +22,10 @@
 //! the English disclaimer. It did not.
 //!
 //! So the server knew the language and never said it. `SurfaceProfile::locale`
-//! selected the French coach prompt, the French refusals, the French acronym
+//! selected the French agent prompt, the French refusals, the French acronym
 //! glosses and the French disclaimer, and the coaching text those wrapped was
 //! left to the model to infer from the athlete's own words — a few hundred
-//! French characters against tens of KB of English contract, coach scaffolding,
+//! French characters against tens of KB of English contract, agent scaffolding,
 //! provider context and tool results. The short second turn had no such weight
 //! against it, which is why it stayed French.
 //!

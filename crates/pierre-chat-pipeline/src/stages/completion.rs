@@ -9,7 +9,7 @@
 //! The failure this exists to prevent: the interview runs its questions,
 //! extraction lands nothing, nothing downstream notices, the next plan is
 //! identical, and the athlete concludes the feature is theatre. So the wrap-up
-//! is not written by the coach — it is rendered here from a count of the facts
+//! is not written by the agent — it is rendered here from a count of the facts
 //! that actually landed inside the interview's window, and it says so when the
 //! count is short.
 //!
@@ -204,19 +204,19 @@ pub async fn render(
     // when they do not. Both are questions, never actions — the athlete
     // approves the change.
     //
-    // Scoped to this conversation's coach, which is the slug `save_training_plan`
-    // binds a plan to. The lookup falls back to a coach-agnostic plan on its own
-    // (`coach_slug IN (slug, '')`), so passing the coach only widens what counts:
+    // Scoped to this conversation's agent, which is the slug `save_training_plan`
+    // binds a plan to. The lookup falls back to an agent-agnostic plan on its own
+    // (`agent_slug IN (slug, '')`), so passing the agent only widens what counts:
     // a `None` here matches agnostic plans alone, and calibration runs inside
-    // coach-bound messaging conversations — it would tell the athletes most
-    // likely to hold a plan, the ones who built one with a coach, to build one.
+    // agent-bound messaging conversations — it would tell the athletes most
+    // likely to hold a plan, the ones who built one with an agent, to build one.
     let has_plan = ctx
         .repos
         .training_plans
         .get_active_plan(
             &facts_tenant.to_string(),
             subject_user_id,
-            PlanOwner::from_slug(conv.coach_id.as_deref()),
+            PlanOwner::from_slug(conv.agent_id.as_deref()),
         )
         .await
         .ok()
@@ -382,7 +382,7 @@ mod tests {
             id: format!("{kind:?}-{age_minutes}"),
             tenant_id: "t".to_owned(),
             user_id: "u".to_owned(),
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind,
             pillar: None,

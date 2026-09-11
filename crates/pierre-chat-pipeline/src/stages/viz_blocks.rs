@@ -289,8 +289,8 @@ fn bounds(spec: &Value) -> String {
 /// must agree — an agent told it may draw whose blocks are then refused produces
 /// exactly the raw-JSON reply this pipeline works to avoid.
 #[must_use]
-pub fn granted_visuals(coach_visuals: Option<&[String]>) -> Vec<String> {
-    coach_visuals.map_or_else(
+pub fn granted_visuals(agent_visuals: Option<&[String]>) -> Vec<String> {
+    agent_visuals.map_or_else(
         || DEFAULT_VISUALS.iter().map(|k| (*k).to_owned()).collect(),
         <[String]>::to_vec,
     )

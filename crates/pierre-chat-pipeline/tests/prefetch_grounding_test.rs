@@ -1,5 +1,5 @@
 // ABOUTME: Tests later-turn activity grounding — the intent predicate, the refresh gate, and the
-// ABOUTME: injection contract that keeps a coach's plans anchored in real activities past turn 1.
+// ABOUTME: injection contract that keeps an agent's plans anchored in real activities past turn 1.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,14 +9,14 @@
 
 //! Later-turn activity grounding.
 //!
-//! [`inject_startup_context`] deterministically grounds a coach conversation in
+//! [`inject_startup_context`] deterministically grounds an agent conversation in
 //! real activities only on its first message; on later turns the model had to
 //! choose to call `get_activities` itself, and when it skipped that call a
 //! "fais-moi un plan" / "analyse ma charge" ask was answered from the persona
 //! prompt alone — the generic, ungrounded plan this stage fixes. These tests
 //! pin the three pure pieces of the fix: the [`needs_activity_grounding`]
 //! intent predicate, the [`should_refresh_activity_context`] gate (turn number,
-//! coach data-requirements, and intent), and the [`inject_activity_refresh`]
+//! agent data-requirements, and intent), and the [`inject_activity_refresh`]
 //! contract (inject fresh data just before the ask; never inject over an empty
 //! window; inject conservatively when the window cannot be parsed).
 
@@ -24,14 +24,14 @@ use pierre_chat_pipeline::stages::prefetch::{
     build_prefetch_params, get_startup_context_if_applicable, inject_activity_refresh,
     should_refresh_activity_context, startup_query_preview,
 };
-use pierre_core::models::coaches::ActivityDataRequirements;
-use pierre_core::models::{CoachCategory, CoachRuntimeContext};
+use pierre_core::models::agents::ActivityDataRequirements;
+use pierre_core::models::{AgentCategory, AgentRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
 
-/// A coach runtime context carrying only the `data_requirements` the gate
+/// An agent runtime context carrying only the `data_requirements` the gate
 /// reads; every other field is an inert placeholder.
-fn coach(data_requirements: Option<&str>) -> CoachRuntimeContext {
-    CoachRuntimeContext {
+fn agent(data_requirements: Option<&str>) -> AgentRuntimeContext {
+    AgentRuntimeContext {
         slug: "endurance-coach".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "You are a coach.".to_owned(),
@@ -40,18 +40,18 @@ fn coach(data_requirements: Option<&str>) -> CoachRuntimeContext {
         visuals: Vec::new(),
         max_tool_iterations: None,
         temperature: None,
-        category: CoachCategory::Training,
+        category: AgentCategory::Training,
     }
 }
 
-/// A coach whose requirements include an activity window (the grounded case).
+/// An agent whose requirements include an activity window (the grounded case).
 const WITH_ACTIVITIES: &str = r#"{"activities":{"count":30,"time_frame":"12w"}}"#;
 
 #[test]
 fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
-    let with_activities = coach(Some(WITH_ACTIVITIES));
+    let with_activities = agent(Some(WITH_ACTIVITIES));
 
-    // The happy path: a later turn and a coach that declared a window.
+    // The happy path: a later turn and an agent that declared a window.
     assert!(should_refresh_activity_context(
         3,
         Some(&with_activities),
@@ -62,7 +62,7 @@ fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
     // "Montre-moi l'évolution de mon volume hebdomadaire sur les 3 derniers
     // mois" matched none of the 61 terms the old gate tested, so a real
     // Telegram turn reached the model with no activity data at all and the
-    // coach answered from conversation history (2026-08-21). Nothing about the
+    // agent answered from conversation history (2026-08-21). Nothing about the
     // wording may decide whether the athlete's own data is fetched.
     assert!(
         should_refresh_activity_context(3, Some(&with_activities), false),
@@ -81,8 +81,8 @@ fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
         "a guided flow owns its turn"
     );
 
-    // No coach bound is NOT a reason to answer ungrounded. It used to return
-    // false here, and on a shared Telegram room — where nothing binds a coach —
+    // No agent bound is NOT a reason to answer ungrounded. It used to return
+    // false here, and on a shared Telegram room — where nothing binds an agent —
     // that meant fifteen consecutive turns with no deterministic prefetch on
     // any of them (registre#201).
     assert!(
@@ -90,15 +90,15 @@ fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
         "a coachless turn re-grounds on the default window, not on nothing"
     );
 
-    // A coach with no activity window (e.g. a profile-only coach).
-    let no_window = coach(Some(r#"{"athlete_profile":true}"#));
+    // An agent with no activity window (e.g. a profile-only agent).
+    let no_window = agent(Some(r#"{"athlete_profile":true}"#));
     assert!(
         !should_refresh_activity_context(3, Some(&no_window), false),
         "a coach without an activity window is left untouched"
     );
 
     // No data_requirements at all.
-    let no_reqs = coach(None);
+    let no_reqs = agent(None);
     assert!(
         !should_refresh_activity_context(3, Some(&no_reqs), false),
         "a coach without data_requirements is left untouched"
@@ -107,7 +107,7 @@ fn refresh_gate_fires_on_any_later_turn_with_an_activity_window() {
 
 #[test]
 fn refresh_gate_never_fires_while_a_guided_flow_owns_the_turn() {
-    let with_activities = coach(Some(WITH_ACTIVITIES));
+    let with_activities = agent(Some(WITH_ACTIVITIES));
 
     // Mid-walk, a pillar answer must not pull an activity dump (whose
     // instruction reads "base your analysis and any plan on these specific
@@ -120,7 +120,7 @@ fn refresh_gate_never_fires_while_a_guided_flow_owns_the_turn() {
         "guided flow active must suppress the refresh"
     );
 
-    // Outside the walk, the same coach and turn number ground normally.
+    // Outside the walk, the same agent and turn number ground normally.
     assert!(
         should_refresh_activity_context(2, Some(&with_activities), false),
         "outside a guided flow the coach's declared window is honoured"
@@ -129,11 +129,11 @@ fn refresh_gate_never_fires_while_a_guided_flow_owns_the_turn() {
 
 #[test]
 fn startup_gate_never_fires_while_a_guided_flow_owns_the_turn() {
-    let with_activities = coach(Some(WITH_ACTIVITIES));
+    let with_activities = agent(Some(WITH_ACTIVITIES));
 
     // The 2026-07-24 shape: history_len == 1 on the athlete's first answer with a
-    // builder coach bound. Without the gate this injects the activity dump AND
-    // the coach's own startup query as a synthetic user message.
+    // builder agent bound. Without the gate this injects the activity dump AND
+    // the agent's own startup query as a synthetic user message.
     assert!(
         get_startup_context_if_applicable(1, Some(&with_activities), true).is_none(),
         "guided flow active must suppress startup grounding"
@@ -151,7 +151,7 @@ const ACCENTED_STARTUP_QUERY: &str =
 
 #[test]
 fn the_startup_query_preview_cuts_on_a_character_not_a_byte() {
-    // `startup_query` is accepted verbatim by the custom-coach create/update
+    // `startup_query` is accepted verbatim by the custom-agent create/update
     // API on a fr-first platform, and the log line previewed it with a raw byte
     // slice. That runs on the `history_len == 1` path, before dispatch, with no
     // panic boundary between it and the turn — the same defect class that
@@ -192,7 +192,7 @@ fn the_startup_query_preview_cuts_on_a_character_not_a_byte() {
 
 #[test]
 fn a_startup_query_with_an_accent_at_the_preview_boundary_still_grounds_the_turn() {
-    let mut with_startup_query = coach(None);
+    let mut with_startup_query = agent(None);
     with_startup_query.startup_query = Some(ACCENTED_STARTUP_QUERY.to_owned());
 
     let (returned, data_reqs) =
@@ -338,7 +338,7 @@ fn grounding_injects_the_readable_list_not_the_whole_tool_response() {
     assert!(inject_activity_refresh(&mut messages, &payload));
     let injected = &messages[1].content;
 
-    // What the coach cites survives: name, date, distance, duration, elevation.
+    // What the agent cites survives: name, date, distance, duration, elevation.
     assert!(
         injected.contains("Morning Run #1")
             && injected.contains("12.34 km")
@@ -369,7 +369,7 @@ fn grounding_injects_the_readable_list_not_the_whole_tool_response() {
 }
 
 /// An unrecognised payload still reaches the model whole — the reducer must
-/// never be the reason a coach is left with nothing.
+/// never be the reason an agent is left with nothing.
 #[test]
 fn an_unrecognised_payload_is_injected_verbatim() {
     let odd = r#"{"count":3,"rows":"something this stage has never seen"}"#;
@@ -389,13 +389,13 @@ fn an_unrecognised_payload_is_injected_verbatim() {
 
 /// The grounding window is bounded by time and count, and by nothing else.
 ///
-/// A coach used to be able to declare a sport and have the prefetch narrow the
+/// An agent used to be able to declare a sport and have the prefetch narrow the
 /// athlete's window to it. On 2026-08-27 that turned a 106-activity window into
-/// 24 run-family sessions for a marathon coach, injected under a block telling
+/// 24 run-family sessions for a marathon agent, injected under a block telling
 /// the model to "infer the sport mix from them rather than asking" — so it told
 /// an athlete who had ridden 18 km of singletrack that morning that he had no
 /// mountain-bike history and was 100% trail running. The knob is gone, and the
-/// specialization lives in the coach's persona prompt instead.
+/// specialization lives in the agent's persona prompt instead.
 ///
 /// Asserts the parameter key set EXHAUSTIVELY rather than probing for the one
 /// name that used to leak. `params.get("sport_type").is_none()` only ever proved
@@ -404,7 +404,7 @@ fn an_unrecognised_payload_is_injected_verbatim() {
 /// added by someone who never reads this comment.
 #[test]
 fn the_grounding_window_is_bounded_by_time_and_count_and_nothing_else() {
-    let marathon_coach = ActivityDataRequirements {
+    let marathon_agent = ActivityDataRequirements {
         count: 30,
         time_frame: Some("16w".to_owned()),
         mode: "summary".to_owned(),
@@ -412,7 +412,7 @@ fn the_grounding_window_is_bounded_by_time_and_count_and_nothing_else() {
         analysis_type: "race_preparation".to_owned(),
     };
 
-    let params = build_prefetch_params(&marathon_coach);
+    let params = build_prefetch_params(&marathon_agent);
     let object = params
         .as_object()
         .expect("prefetch params must be a JSON object");
@@ -475,14 +475,14 @@ fn an_unbounded_window_still_carries_no_sport_key() {
 // The coachless path — registre#201
 // ============================================================================
 
-/// Live 2026-09-02, Telegram room: `coach_id="none"` on all fifteen turns, and
-/// both grounding gates required a bound coach. The model made zero tool calls
+/// Live 2026-09-02, Telegram room: `agent_id="none"` on all fifteen turns, and
+/// both grounding gates required a bound agent. The model made zero tool calls
 /// of its own across the whole conversation, so on 8 of 15 turns it answered
 /// with no activity data at all. It reconstructed a training week from a
 /// ~420-token roster card and got the weekdays, one activity's sport, and the
 /// "long ride" classification wrong — each corrected by hand.
 #[test]
-fn a_coachless_first_turn_is_grounded_on_the_default_window() {
+fn an_agentless_first_turn_is_grounded_on_the_default_window() {
     let context = get_startup_context_if_applicable(1, None, false)
         .expect("a coachless first turn must still be grounded");
 
@@ -506,7 +506,7 @@ fn a_coachless_first_turn_is_grounded_on_the_default_window() {
 /// A guided flow still owns its turn — the coachless default must not smuggle
 /// an activity dump into a profile interview.
 #[test]
-fn the_coachless_default_still_yields_to_a_guided_flow() {
+fn the_agentless_default_still_yields_to_a_guided_flow() {
     assert!(
         get_startup_context_if_applicable(1, None, true).is_none(),
         "a guided flow owns its turn whether or not a coach is bound"
@@ -520,18 +520,18 @@ fn the_coachless_default_still_yields_to_a_guided_flow() {
 /// Turn 1 stays with `inject_startup_context` on the coachless path too, or
 /// both stages would fetch for the same turn.
 #[test]
-fn the_coachless_refresh_still_leaves_turn_one_alone() {
+fn the_agentless_refresh_still_leaves_turn_one_alone() {
     assert!(
         !should_refresh_activity_context(1, None, false),
         "turn 1 belongs to inject_startup_context, coach or no coach"
     );
 }
 
-/// The default window is the floor, not a ceiling: a coach that declares its
+/// The default window is the floor, not a ceiling: an agent that declares its
 /// own requirements still wins.
 #[test]
-fn a_declared_coach_window_still_takes_precedence() {
-    let with_activities = coach(Some(WITH_ACTIVITIES));
+fn a_declared_agent_window_still_takes_precedence() {
+    let with_activities = agent(Some(WITH_ACTIVITIES));
     let (_, data_reqs) =
         get_startup_context_if_applicable(1, Some(&with_activities), false).unwrap();
 

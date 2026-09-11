@@ -51,7 +51,7 @@ fn rest(date: &str) -> PlannedDay {
     day(date, "rest", "", None, "")
 }
 
-/// The steps of a classic threshold session as a coach states them: 15 min
+/// The steps of a classic threshold session as an agent states them: 15 min
 /// warm-up, 3 × (8 min on / 4 min off), 10 min cool-down — 61 minutes.
 fn threshold_steps() -> Vec<WorkoutStep> {
     let step = |label: &str, seconds: u32, zone: &str, repeat: u32| WorkoutStep {
@@ -95,7 +95,7 @@ fn live_row(user_id: Uuid, entry: &DesiredEntry) -> PrescribedWorkout {
         id: Uuid::new_v4(),
         tenant_id: Uuid::new_v4(),
         user_id,
-        coach_id: None,
+        agent_id: None,
         template_slug: None,
         sport: entry.session.sport.clone(),
         prescribed_for_date: entry.session.date,
@@ -227,7 +227,7 @@ fn a_structured_day_renders_its_steps_and_sums_its_duration() {
     assert_eq!(session.sport, SportType::Ride);
 
     // Structure is content: the same day pushed as prose has a different
-    // hash, so a re-push after the coach adds steps updates the entry —
+    // hash, so a re-push after the agent adds steps updates the entry —
     // and the prose day still gets its single intensity-derived step.
     let prose =
         plan_day_session(user, &day("2026-09-08", "vélo", workout, Some(61), "Z4"), 0).unwrap();

@@ -1,29 +1,29 @@
-// ABOUTME: Coach Store tools — browse, search and install a published coach from any chat surface.
-// ABOUTME: Thin MCP shells over pierre_services::coach_store, the same code the /api/store routes run.
+// ABOUTME: Agent Store tools — browse, search and install a published agent from any chat surface.
+// ABOUTME: Thin MCP shells over pierre_services::agent_store, the same code the /api/store routes run.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Coach Store tools
+//! # Agent Store tools
 //!
-//! - [`BrowseCoachStoreTool`] — page through published coaches, grade-ranked
-//! - [`SearchCoachStoreTool`] — search published coaches by text
-//! - [`InstallCoachFromStoreTool`] — install one into the caller's library
+//! - [`BrowseAgentStoreTool`] — page through published agents, grade-ranked
+//! - [`SearchAgentStoreTool`] — search published agents by text
+//! - [`InstallAgentFromStoreTool`] — install one into the caller's library
 //!
 //! Registered under the `store` category, which is chat-callable: the store
 //! was previously reachable only from the web UI, because
 //! [`ToolRegistry::chat_callable_schemas`](crate::registry::ToolRegistry::chat_callable_schemas)
-//! named no store category at all. An athlete asking their coach "what
+//! named no store category at all. An athlete asking their agent "what
 //! nutrition coaches are there?" got a truthful refusal on web, mobile and
 //! messaging alike.
 //!
-//! Every operation delegates to [`pierre_services::coach_store`], which the
+//! Every operation delegates to [`pierre_services::agent_store`], which the
 //! `/api/store/*` REST handlers also call, so the ranking an athlete sees in
 //! chat is the ranking the web store shows.
 //!
 //! Install is a real, reversible write: it creates the caller's own copy of a
-//! published coach. Uninstall is deliberately *not* exposed here — removing a
-//! coach an athlete may have conversation history with is a destructive act
+//! published agent. Uninstall is deliberately *not* exposed here — removing a
+//! agent an athlete may have conversation history with is a destructive act
 //! that belongs to a deliberate UI gesture, not to an LLM's reading of a
 //! sentence.
 
@@ -38,18 +38,18 @@ use tracing::info;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
-use pierre_core::models::coaches::CoachCategory;
+use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::TenantId;
 use pierre_core::pagination::StoreSortOrder;
 use pierre_mcp_schema::PropertySchema;
-use pierre_services::coach_store::{
-    browse_store, install_store_coach, search_store, BrowseStoreParams, StoreCoach,
+use pierre_services::agent_store::{
+    browse_store, install_store_agent, search_store, BrowseStoreParams, StoreAgent,
     DEFAULT_STORE_PAGE_SIZE, MAX_STORE_PAGE_SIZE,
 };
 use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
-use super::coaches_tool_shape::{extract_format, read_only_annotations, write_annotations};
+use super::agents_tool_shape::{extract_format, read_only_annotations, write_annotations};
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -69,44 +69,44 @@ async fn athlete_locale(context: &ToolExecutionContext) -> String {
     .await
 }
 
-/// Factory for the Coach Store tools, registered under the `store` category.
+/// Factory for the Agent Store tools, registered under the `store` category.
 #[must_use]
 pub fn create_store_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
-        Box::new(BrowseCoachStoreTool),
-        Box::new(SearchCoachStoreTool),
-        Box::new(InstallCoachFromStoreTool),
+        Box::new(BrowseAgentStoreTool),
+        Box::new(SearchAgentStoreTool),
+        Box::new(InstallAgentFromStoreTool),
     ]
 }
 
-/// Project one store coach into the compact shape a coaching turn reasons
+/// Project one store agent into the compact shape a coaching turn reasons
 /// over. The system prompt is never included: browse and search return many
-/// coaches, and the prompt is by far the largest field on the row.
-fn project(coach: &StoreCoach) -> StoreCoachEntry {
-    StoreCoachEntry {
-        id: coach.id.to_string(),
-        title: coach.title.clone(),
-        description: coach.description.clone(),
-        category: coach.category.as_str().to_owned(),
-        tags: coach.tags.clone(),
-        sample_prompts: coach.sample_prompts.clone(),
-        install_count: coach.install_count,
-        published_at: coach.published_at.clone(),
+/// agents, and the prompt is by far the largest field on the row.
+fn project(agent: &StoreAgent) -> StoreAgentEntry {
+    StoreAgentEntry {
+        id: agent.id.to_string(),
+        title: agent.title.clone(),
+        description: agent.description.clone(),
+        category: agent.category.as_str().to_owned(),
+        tags: agent.tags.clone(),
+        sample_prompts: agent.sample_prompts.clone(),
+        install_count: agent.install_count,
+        published_at: agent.published_at.clone(),
     }
 }
 
-/// One store coach as the browse, search and install tools report it.
+/// One store agent as the browse, search and install tools report it.
 ///
 /// The system prompt is deliberately absent. Browse and search return many
-/// coaches and the prompt is by far the largest field on the row; install
+/// agents and the prompt is by far the largest field on the row; install
 /// echoes the same compact shape so a client renders one card either way.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct StoreCoachEntry {
-    /// Identifier `install_coach_from_store` takes.
+pub struct StoreAgentEntry {
+    /// Identifier `install_agent_from_store` takes.
     pub id: String,
     /// Display name, as its author wrote it.
     pub title: String,
-    /// What the coach is for; absent when its author gave none.
+    /// What the agent is for; absent when its author gave none.
     pub description: Option<String>,
     /// Which shelf it sits on.
     pub category: String,
@@ -120,11 +120,11 @@ pub struct StoreCoachEntry {
     pub published_at: Option<String>,
 }
 
-/// What `browse_coach_store` answers with.
+/// What `browse_agent_store` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct BrowseCoachStoreResult {
-    /// The coaches on this page.
-    pub coaches: Vec<StoreCoachEntry>,
+pub struct BrowseAgentStoreResult {
+    /// The agents on this page.
+    pub agents: Vec<StoreAgentEntry>,
     /// How many came back.
     pub count: usize,
     /// Whether another page follows.
@@ -133,26 +133,26 @@ pub struct BrowseCoachStoreResult {
     pub next_cursor: Option<String>,
 }
 
-/// What `search_coach_store` answers with.
+/// What `search_agent_store` answers with.
 ///
 /// No cursor: search is a single ranked page, so there is nothing to page to.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SearchCoachStoreResult {
+pub struct SearchAgentStoreResult {
     /// The query, echoed back.
     pub query: String,
     /// How many matched.
     pub count: usize,
     /// The matches.
-    pub coaches: Vec<StoreCoachEntry>,
+    pub agents: Vec<StoreAgentEntry>,
 }
 
-/// What `install_coach_from_store` answers with.
+/// What `install_agent_from_store` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct InstallCoachFromStoreResult {
+pub struct InstallAgentFromStoreResult {
     /// Always true: the tool errors rather than reporting a failed install.
     pub installed: bool,
     /// The installed copy, in the same shape browse and search send.
-    pub coach: StoreCoachEntry,
+    pub agent: StoreAgentEntry,
     /// What to tell the athlete, already written for them.
     pub message: String,
 }
@@ -166,11 +166,11 @@ fn limit_arg(args: &Value) -> u32 {
         .clamp(1, MAX_STORE_PAGE_SIZE)
 }
 
-/// Browse published coaches in the Coach Store.
-pub struct BrowseCoachStoreTool;
+/// Browse published agents in the Agent Store.
+pub struct BrowseAgentStoreTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
+impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -217,7 +217,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
         );
         let schema = object_schema_with_format(properties, None);
 
-        answers_with::<Formatted<BrowseCoachStoreResult>>(tool_definition(
+        answers_with::<Formatted<BrowseAgentStoreResult>>(tool_definition(
             "browse_agent_store",
             "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use \
              this when the athlete asks what agents exist, or for an agent of a given kind they \
@@ -231,7 +231,7 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
     fn capabilities(&self) -> TroncCapabilities {
         capabilities_to_tronc(
             ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::COACHES
+                | ToolCapabilities::AGENTS
                 | ToolCapabilities::READS_DATA,
         )
     }
@@ -247,14 +247,14 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
             let format = extract_format(&args);
             let viewer_tenant = TenantId::from_uuid(context.require_tenant()?);
             let locale = athlete_locale(&context).await;
-            let repos = context.resources.data().repos().coach_repos();
+            let repos = context.resources.data().repos().agent_repos();
 
             let cursor = args.get("cursor").and_then(Value::as_str);
             let params = BrowseStoreParams {
                 category: args
                     .get("category")
                     .and_then(Value::as_str)
-                    .map(CoachCategory::parse),
+                    .map(AgentCategory::parse),
                 sort_by: args
                     .get("sort_by")
                     .and_then(Value::as_str)
@@ -264,9 +264,9 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
             };
 
             let page = browse_store(&repos, viewer_tenant, &params, &locale).await?;
-            let payload = BrowseCoachStoreResult {
-                count: page.coaches.len(),
-                coaches: page.coaches.iter().map(project).collect(),
+            let payload = BrowseAgentStoreResult {
+                count: page.agents.len(),
+                agents: page.agents.iter().map(project).collect(),
                 has_more: page.has_more,
                 next_cursor: page.next_cursor,
             };
@@ -277,11 +277,11 @@ impl McpTool<dyn ToolRuntime> for BrowseCoachStoreTool {
     }
 }
 
-/// Search published coaches in the Coach Store.
-pub struct SearchCoachStoreTool;
+/// Search published agents in the Agent Store.
+pub struct SearchAgentStoreTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
+impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -306,12 +306,12 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
         );
         let schema = object_schema_with_format(properties, Some(vec!["query".to_owned()]));
 
-        answers_with::<Formatted<SearchCoachStoreResult>>(tool_definition(
+        answers_with::<Formatted<SearchAgentStoreResult>>(tool_definition(
             "search_agent_store",
             "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or \
              'vegetarian nutrition'. Searches the whole marketplace, unlike `search_agents`, \
              which searches only the athlete's own library. Install a result with \
-             `install_coach_from_store`.",
+             `install_agent_from_store`.",
             schema,
             Some(read_only_annotations()),
         ))
@@ -320,7 +320,7 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
     fn capabilities(&self) -> TroncCapabilities {
         capabilities_to_tronc(
             ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::COACHES
+                | ToolCapabilities::AGENTS
                 | ToolCapabilities::READS_DATA,
         )
     }
@@ -345,14 +345,14 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
                 })));
             };
 
-            let repos = context.resources.data().repos().coach_repos();
+            let repos = context.resources.data().repos().agent_repos();
             let locale = athlete_locale(&context).await;
-            let coaches = search_store(&repos, query, Some(limit_arg(&args)), &locale).await?;
-            let rendered: Vec<StoreCoachEntry> = coaches.iter().map(project).collect();
-            let payload = SearchCoachStoreResult {
+            let agents = search_store(&repos, query, Some(limit_arg(&args)), &locale).await?;
+            let rendered: Vec<StoreAgentEntry> = agents.iter().map(project).collect();
+            let payload = SearchAgentStoreResult {
                 query: query.to_owned(),
                 count: rendered.len(),
-                coaches: rendered,
+                agents: rendered,
             };
             ok_typed("search_agent_store", apply_format(payload, format))
         }
@@ -361,11 +361,11 @@ impl McpTool<dyn ToolRuntime> for SearchCoachStoreTool {
     }
 }
 
-/// Install a published coach from the Coach Store.
-pub struct InstallCoachFromStoreTool;
+/// Install a published agent from the Agent Store.
+pub struct InstallAgentFromStoreTool;
 
 #[async_trait]
-impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
+impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
     fn definition(&self) -> Tool {
         let mut properties = HashMap::new();
         properties.insert(
@@ -374,7 +374,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
                 property_type: "string".to_owned(),
                 description: Some(
                     "UUID of the published agent to install, as returned by \
-                     `browse_coach_store` or `search_coach_store`. Required."
+                     `browse_agent_store` or `search_agent_store`. Required."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -382,11 +382,11 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
         );
         let schema = object_schema_with_format(properties, Some(vec!["agent_id".to_owned()]));
 
-        answers_with::<Formatted<InstallCoachFromStoreResult>>(tool_definition(
+        answers_with::<Formatted<InstallAgentFromStoreResult>>(tool_definition(
             "install_agent_from_store",
             "Install a published Agent Store agent into the athlete's own library, creating their \
              personal copy. Call it only once the athlete has asked for that specific agent — \
-             pass the `id` from `browse_coach_store` or `search_coach_store`. After installing, \
+             pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, \
              `activate_agent` makes it the agent that answers.",
             schema,
             Some(write_annotations()),
@@ -396,7 +396,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
     fn capabilities(&self) -> TroncCapabilities {
         capabilities_to_tronc(
             ToolCapabilities::REQUIRES_AUTH
-                | ToolCapabilities::COACHES
+                | ToolCapabilities::AGENTS
                 | ToolCapabilities::WRITES_DATA,
         )
     }
@@ -410,7 +410,7 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
             let format = extract_format(&args);
-            let Some(coach_id) = args
+            let Some(agent_id) = args
                 .get("agent_id")
                 .and_then(Value::as_str)
                 .map(str::trim)
@@ -423,26 +423,26 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
 
             let user_id = context.user_id;
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let repos = context.resources.data().repos().coach_repos();
-            let installed = install_store_coach(&repos, coach_id, user_id, tenant_id).await?;
+            let repos = context.resources.data().repos().agent_repos();
+            let installed = install_store_agent(&repos, agent_id, user_id, tenant_id).await?;
 
-            // `agent.installed` is emitted by `install_store_coach`, the one
+            // `agent.installed` is emitted by `install_store_agent`, the one
             // install path this tool shares with the REST route and
             // `/discover install`, so it fires once per install on every surface.
             info!(
                 user_id = %user_id,
-                coach_id = %coach_id,
-                "install_coach_from_store: coach installed from the store"
+                agent_id = %agent_id,
+                "install_agent_from_store: coach installed from the store"
             );
 
-            let payload = InstallCoachFromStoreResult {
+            let payload = InstallAgentFromStoreResult {
                 installed: true,
                 // "agent library": main renamed the athlete-facing persona.
                 message: format!(
                     "'{}' is now in your agent library. Activate it to start using it.",
                     installed.title
                 ),
-                coach: project(&installed),
+                agent: project(&installed),
             };
             ok_typed("install_agent_from_store", apply_format(payload, format))
         }
@@ -452,9 +452,9 @@ impl McpTool<dyn ToolRuntime> for InstallCoachFromStoreTool {
 }
 
 // Guardian security classifications (see `crate::security`). The two reads echo
-// coach-author-written titles, descriptions and sample prompts back into the
+// agent-author-written titles, descriptions and sample prompts back into the
 // LLM context, which is third-party text and therefore a taint source. Install
 // creates a reversible copy, so it carries no label of its own.
-crate::declare_security!(BrowseCoachStoreTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(SearchCoachStoreTool => UNTRUSTED_OUTPUT);
-crate::declare_security!(InstallCoachFromStoreTool => empty);
+crate::declare_security!(BrowseAgentStoreTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(SearchAgentStoreTool => UNTRUSTED_OUTPUT);
+crate::declare_security!(InstallAgentFromStoreTool => empty);

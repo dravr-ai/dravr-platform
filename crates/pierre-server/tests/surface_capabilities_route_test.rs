@@ -169,11 +169,11 @@ async fn block_kinds_and_screens_are_published_whole() -> Result<(), Box<dyn Err
         .expect("the provider-reauth screen is catalogued");
     // The screen neither client's hand-written map handled.
     assert_eq!(connections["surface"], "data-providers");
-    let coach = screens
+    let agent = screens
         .iter()
         .find(|row| row["screen"] == "coach")
         .expect("the coach screen is catalogued");
-    assert_eq!(coach["surface"], "chat");
+    assert_eq!(agent["surface"], "chat");
     Ok(())
 }
 

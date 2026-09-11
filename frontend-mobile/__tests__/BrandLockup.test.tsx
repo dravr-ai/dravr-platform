@@ -76,8 +76,8 @@ describe('the Dravr lockup on the phone', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockGetConversations.mockResolvedValue({ conversations: [], total: 0 });
-    mockBrowseStore.mockResolvedValue({ coaches: [], total: 0 });
-    mockListCoaches.mockResolvedValue({ coaches: [] });
+    mockBrowseStore.mockResolvedValue({ agents: [], total: 0 });
+    mockListCoaches.mockResolvedValue({ agents: [] });
     await AsyncStorage.setItem(APPEARANCE_KEY, 'dark');
   });
 

@@ -46,11 +46,11 @@ async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
     env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-test");
 
     let resources = create_test_server_resources().await.unwrap();
-    let (user_id, user) = create_test_user(&resources.coach.database)
+    let (user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let tenants = resources
-        .coach
+        .agent
         .database
         .repositories()
         .tenants

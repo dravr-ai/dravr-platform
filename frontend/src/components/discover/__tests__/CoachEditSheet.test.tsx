@@ -8,9 +8,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 import CoachEditSheet from '../CoachEditSheet';
-import { DEFAULT_COACH_FORM_DATA, formDataToUpdateRequest, type CoachFormData } from '../coachForm';
+import { DEFAULT_COACH_FORM_DATA, formDataToUpdateRequest, type AgentFormData } from '../coachForm';
 
 const getCoach = vi.fn();
 const updateCoach = vi.fn();
@@ -27,7 +27,7 @@ vi.mock('../../../services/api', () => ({
 const COACH_ID = 'coach-tempo';
 const COACH_TITLE = 'Tempo Coach';
 
-function storedCoach(overrides: Partial<Coach> = {}): Coach {
+function storedCoach(overrides: Partial<Agent> = {}): Agent {
   return {
     id: COACH_ID,
     title: COACH_TITLE,
@@ -57,7 +57,7 @@ function renderSheet(onClose = vi.fn()) {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <CoachEditSheet coachId={COACH_ID} onClose={onClose} />
+      <CoachEditSheet agentId={COACH_ID} onClose={onClose} />
     </QueryClientProvider>,
   );
   return { onClose, queryClient };
@@ -68,7 +68,7 @@ describe('CoachEditSheet', () => {
     vi.clearAllMocks();
     getCoach.mockResolvedValue(storedCoach());
     updateCoach.mockImplementation(async (_id: string, request: Record<string, unknown>) =>
-      storedCoach({ ...(request as Partial<Coach>) }),
+      storedCoach({ ...(request as Partial<Agent>) }),
     );
     deleteCoach.mockResolvedValue(undefined);
   });
@@ -142,7 +142,7 @@ describe('CoachEditSheet', () => {
 });
 
 describe('agent form → update request tool budget', () => {
-  function filledForm(overrides: Partial<CoachFormData> = {}): CoachFormData {
+  function filledForm(overrides: Partial<AgentFormData> = {}): AgentFormData {
     return {
       ...DEFAULT_COACH_FORM_DATA,
       title: COACH_TITLE,

@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! `pattern_index=0` means "the reply contained `github copilot`". It does not
-//! say whether the coach CLAIMED to be Copilot, correctly DENIED being Copilot,
+//! say whether the agent CLAIMED to be Copilot, correctly DENIED being Copilot,
 //! or disclosed the underlying model. Those are three different diagnoses and
 //! they logged identically, which is why every leak count before this field is
 //! an upper bound rather than a measurement — the 2026-07-25 A/B found all five
@@ -53,7 +53,7 @@ fn a_denial_the_guard_missed_is_visibly_a_denial_in_the_window() {
     // The residual case, and the reason the window exists. The negation sits
     // far enough back that the bounded lookbehind cannot see it, so this still
     // logs as a leak — but an operator reading the window can tell instantly
-    // that the coach behaved correctly and the guard needs widening, rather
+    // that the agent behaved correctly and the guard needs widening, rather
     // than chasing a persona break that never happened.
     let reply = "Non — je vais être direct avec toi parce que la question revient souvent \
                  et je préfère y répondre clairement une bonne fois: je ne suis pas GitHub \

@@ -26,7 +26,7 @@ use pierre_memory::training_plans::{
     FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority,
     SelectedBy, TemplateParams, TrainingPlan, WeekStatus,
 };
-use pierre_services::coach_package::PackagedCatalogue;
+use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::training_plan_render::render_training_plan_block;
 
 fn d(s: &str) -> NaiveDate {
@@ -165,7 +165,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: "tenant-v",
             user_id: "user-v",
-            owner: PlanOwner::coach("endurance-coach"),
+            owner: PlanOwner::agent("endurance-coach"),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
@@ -188,7 +188,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .await?;
 
     let fetched = plans
-        .get_active_plan("tenant-v", "user-v", PlanOwner::coach("endurance-coach"))
+        .get_active_plan("tenant-v", "user-v", PlanOwner::agent("endurance-coach"))
         .await?
         .expect("the outline just saved is the active plan");
     assert_eq!(fetched.id, bundle.plan.id);
@@ -228,7 +228,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: "tenant-v",
             user_id: "user-v",
-            owner: PlanOwner::coach("endurance-coach"),
+            owner: PlanOwner::agent("endurance-coach"),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
@@ -267,7 +267,7 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        coach_slug: Some("endurance-coach".to_owned()),
+        agent_slug: Some("endurance-coach".to_owned()),
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -338,7 +338,7 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
         id: "plan-t".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        coach_slug: None,
+        agent_slug: None,
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -403,7 +403,7 @@ async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        coach_slug: Some("endurance-coach".to_owned()),
+        agent_slug: Some("endurance-coach".to_owned()),
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),
@@ -447,7 +447,7 @@ async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
         id: "plan-v".to_owned(),
         tenant_id: "t".to_owned(),
         user_id: "u".to_owned(),
-        coach_slug: Some("endurance-coach".to_owned()),
+        agent_slug: Some("endurance-coach".to_owned()),
         goal_fact_id: None,
         goal_race: goal(),
         races: Vec::new(),

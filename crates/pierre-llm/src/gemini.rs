@@ -560,7 +560,7 @@ impl GeminiProvider {
         let mut contents = Vec::new();
         // Every system message is concatenated, not overwritten. Assigning here
         // made the LAST system message win, so any mid-list one silently
-        // destroyed the coach persona + tool catalogue that sits at index 0.
+        // destroyed the agent persona + tool catalogue that sits at index 0.
         // The pipeline now emits a single system message, but Gemini is a
         // fallback provider reached only when the primary errored — it must not
         // depend on an invariant held one crate away.

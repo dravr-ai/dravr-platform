@@ -177,8 +177,8 @@ fn apply_system_prompt(
     SyncOutcome::Synced
 }
 
-/// Apply a downloaded coach prompt file to the registry, logging hash mismatches.
-fn apply_coach_prompt(
+/// Apply a downloaded agent prompt file to the registry, logging hash mismatches.
+fn apply_agent_prompt(
     registry: &PromptRegistry,
     slug: &str,
     locale: &str,
@@ -195,7 +195,7 @@ fn apply_coach_prompt(
             "manifest hash mismatch for coach prompt, using downloaded content"
         );
     }
-    registry.update_coach_prompt(slug, locale, file.content, actual_sha);
+    registry.update_agent_prompt(slug, locale, file.content, actual_sha);
     debug!(slug, locale, "synced coach prompt from contremaitre");
 }
 
@@ -219,21 +219,21 @@ async fn sync_single_system_prompt(
     }
 }
 
-/// Fetch and apply a single coach-locale prompt if its hash changed.
-async fn sync_single_coach_prompt(
+/// Fetch and apply a single agent-locale prompt if its hash changed.
+async fn sync_single_agent_prompt(
     registry: &PromptRegistry,
     store: &dyn PromptStore,
     slug: &str,
     locale: &str,
     entry: &ManifestEntry,
 ) -> SyncOutcome {
-    if registry.coach_prompt_sha256(slug, locale).as_deref() == Some(&entry.sha256) {
+    if registry.agent_prompt_sha256(slug, locale).as_deref() == Some(&entry.sha256) {
         debug!(slug, locale, "coach prompt unchanged, skipping");
         return SyncOutcome::Skipped;
     }
     match store.read_file(&entry.path).await {
         Ok(file) => {
-            apply_coach_prompt(registry, slug, locale, entry, file);
+            apply_agent_prompt(registry, slug, locale, entry, file);
             SyncOutcome::Synced
         }
         Err(e) => {
@@ -272,13 +272,13 @@ async fn sync_all_system_prompts(
     Ok(result)
 }
 
-/// Helper to sync all coach prompts during full sync. Iterates the
+/// Helper to sync all agent prompts during full sync. Iterates the
 /// `slug → locale → entry` map and treats each locale as an independent
 /// sync target so an `fr` failure never blocks `en`.
-async fn sync_all_coach_prompts(
+async fn sync_all_agent_prompts(
     registry: &PromptRegistry,
     store: &dyn PromptStore,
-    manifest_coaches: &HashMap<String, HashMap<String, ManifestEntry>>,
+    manifest_agents: &HashMap<String, HashMap<String, ManifestEntry>>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
         synced: 0,
@@ -286,9 +286,9 @@ async fn sync_all_coach_prompts(
         failed: 0,
     };
 
-    for (slug, locales) in manifest_coaches {
+    for (slug, locales) in manifest_agents {
         for (locale, entry) in locales {
-            let outcome = sync_single_coach_prompt(registry, store, slug, locale, entry).await;
+            let outcome = sync_single_agent_prompt(registry, store, slug, locale, entry).await;
             accumulate_outcome(&mut result, outcome);
         }
     }
@@ -422,7 +422,7 @@ pub async fn full_sync(
     let manifest = store.read_manifest().await?;
 
     let system_result = sync_all_system_prompts(registry, store, &manifest.prompts.system).await?;
-    let coach_result = sync_all_coach_prompts(registry, store, &manifest.prompts.coaches).await?;
+    let agent_result = sync_all_agent_prompts(registry, store, &manifest.prompts.agents).await?;
     let persona_result =
         sync_all_coaching_personas(registry, store, &manifest.prompts.personas).await?;
     let tool_result =
@@ -447,7 +447,7 @@ pub async fn full_sync(
 
     let result = total_sync_result(&[
         &system_result,
-        &coach_result,
+        &agent_result,
         &persona_result,
         &tool_result,
         &evidence_result,
@@ -506,8 +506,8 @@ async fn hot_reload_system_prompt(
     }
 }
 
-/// Hot-reload a single coach-locale prompt from a webhook event.
-async fn hot_reload_coach_prompt(
+/// Hot-reload a single agent-locale prompt from a webhook event.
+async fn hot_reload_agent_prompt(
     registry: &PromptRegistry,
     store: &dyn PromptStore,
     slug: &str,
@@ -517,7 +517,7 @@ async fn hot_reload_coach_prompt(
     match store.read_file(&entry.path).await {
         Ok(file) => {
             let actual_sha = compute_sha256(file.content.as_bytes());
-            registry.update_coach_prompt(slug, locale, file.content, actual_sha);
+            registry.update_agent_prompt(slug, locale, file.content, actual_sha);
             info!(slug, locale, "hot-reloaded coach prompt");
             SyncOutcome::Synced
         }
@@ -552,13 +552,13 @@ async fn sync_changed_system_prompts(
     Ok(result)
 }
 
-/// Helper to sync changed coach prompts during selective sync. Iterates
+/// Helper to sync changed agent prompts during selective sync. Iterates
 /// every `(slug, locale)` pair and re-fetches the ones whose path appears
 /// in `changed_set`.
-async fn sync_changed_coach_prompts(
+async fn sync_changed_agent_prompts(
     registry: &PromptRegistry,
     store: &dyn PromptStore,
-    manifest_coaches: &HashMap<String, HashMap<String, ManifestEntry>>,
+    manifest_agents: &HashMap<String, HashMap<String, ManifestEntry>>,
     changed_set: &HashSet<&str>,
 ) -> Result<SyncResult, ContremaitreError> {
     let mut result = SyncResult {
@@ -567,12 +567,12 @@ async fn sync_changed_coach_prompts(
         failed: 0,
     };
 
-    for (slug, locales) in manifest_coaches {
+    for (slug, locales) in manifest_agents {
         for (locale, entry) in locales {
             if !changed_set.contains(entry.path.as_str()) {
                 continue;
             }
-            let outcome = hot_reload_coach_prompt(registry, store, slug, locale, entry).await;
+            let outcome = hot_reload_agent_prompt(registry, store, slug, locale, entry).await;
             accumulate_outcome(&mut result, outcome);
         }
     }
@@ -661,9 +661,8 @@ pub async fn selective_sync(
         sync_changed_system_prompts(registry, store, &manifest.prompts.system, &changed_set)
             .await?;
 
-    let coach_result =
-        sync_changed_coach_prompts(registry, store, &manifest.prompts.coaches, &changed_set)
-            .await?;
+    let agent_result =
+        sync_changed_agent_prompts(registry, store, &manifest.prompts.agents, &changed_set).await?;
 
     let persona_result =
         sync_changed_coaching_personas(registry, store, &manifest.prompts.personas, &changed_set)
@@ -704,7 +703,7 @@ pub async fn selective_sync(
 
     let result = total_sync_result(&[
         &system_result,
-        &coach_result,
+        &agent_result,
         &persona_result,
         &tool_result,
         &evidence_result,

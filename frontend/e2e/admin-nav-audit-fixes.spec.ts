@@ -77,7 +77,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: [
+          agents: [
             {
               id: 'coach-1',
               title: 'Marathon Coach',
@@ -190,7 +190,7 @@ test.describe('Admin nav audit fixes (gist 56c1c1d7)', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          coaches: Array.from({ length: 21 }, (_, i) => ({
+          agents: Array.from({ length: 21 }, (_, i) => ({
             id: `coach-${i}`,
             title: `Coach ${i}`,
             category: 'training',

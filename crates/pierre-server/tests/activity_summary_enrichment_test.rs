@@ -1,12 +1,12 @@
 // ABOUTME: Tests for ActivitySummary scalar-field enrichment and retrieval advice
-// ABOUTME: Pins HR/elevation/calories presence so summary-mode coaches aren't starved
+// ABOUTME: Pins HR/elevation/calories presence so summary-mode agents aren't starved
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Regression coverage for the activity-summary-enrichment PR.
 //!
-//! The bug being guarded: `/coach` → Nutrition coach → "dinner based on
+//! The bug being guarded: `/agent` → Nutrition agent → "dinner based on
 //! yesterday's run" → reply that admits "no HR, no elevation, no recovery
 //! data" even though Strava returned all three on the list endpoint. The
 //! old `ActivitySummary` had 6 fields; sensor scalars were dropped on the
@@ -75,7 +75,7 @@ fn summary_preserves_scalar_sensor_fields_when_present() {
     assert_eq!(summary.average_cadence, Some(174));
     assert_eq!(summary.average_power, Some(220));
     assert_eq!(summary.suffer_score, Some(47));
-    // Ambient temperature: ski-de-fond "10 plus froides" coach query exposed
+    // Ambient temperature: ski-de-fond "10 plus froides" agent query exposed
     // that every OAuth provider was dropping the field on the floor; pin it
     // here so a future refactor can't quietly strip it again.
     assert_eq!(summary.temperature, Some(5.0));

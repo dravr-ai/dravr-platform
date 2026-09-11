@@ -1,4 +1,4 @@
-// ABOUTME: Asserts group/coach notify events fire from the chat paths, not just HTTP routes
+// ABOUTME: Asserts group/agent notify events fire from the chat paths, not just HTTP routes
 // ABOUTME: Plus the tier gate and member clamp the messaging auto-bind used to reach past
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -29,15 +29,15 @@ use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
 use helpers::notify_capture::{capture_notify, named, only};
-use pierre_commands::coach::CoachAddHandler;
+use pierre_commands::agent::AgentAddHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::coaches::CreateCoachRequest;
+use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::CreateGroupRequest;
 use pierre_core::models::TenantId;
 use pierre_groups::service::ChannelGroupSpec;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 use serde_json::json;
 use uuid::Uuid;
@@ -46,36 +46,36 @@ use uuid::Uuid;
 // Fixtures
 // ============================================================================
 
-/// A tenant on `plan`, a user in it, and a coach that user has selected —
+/// A tenant on `plan`, a user in it, and an agent that user has selected —
 /// everything the chat auto-bind needs to bootstrap a group.
 async fn chat_fixture(email: &str, plan: &str) -> (Arc<ServerContext>, Uuid, TenantId, String) {
     let res = create_test_server_resources().await.unwrap();
-    let (user_id, _user, tenant_id) = create_test_user_with_plan(&res.coach.database, email, plan)
+    let (user_id, _user, tenant_id) = create_test_user_with_plan(&res.agent.database, email, plan)
         .await
         .unwrap();
 
-    let request: CreateCoachRequest = serde_json::from_value(json!({
+    let request: CreateAgentRequest = serde_json::from_value(json!({
         "title": "Chat Coach",
         "description": null,
         "system_prompt": "You coach over chat.",
     }))
     .unwrap();
-    let coach = res
+    let agent = res
         .common
         .repos
-        .coaches
+        .agents
         .create(user_id, tenant_id, &request)
         .await
         .unwrap();
-    let coach_id = coach.id.to_string();
+    let agent_id = agent.id.to_string();
     res.common
         .repos
         .tenants
-        .set_selected_coach(tenant_id, user_id, Some(&coach_id))
+        .set_selected_agent(tenant_id, user_id, Some(&agent_id))
         .await
         .unwrap();
 
-    (res, user_id, tenant_id, coach_id)
+    (res, user_id, tenant_id, agent_id)
 }
 
 /// Another user who can send into the same chat.
@@ -84,7 +84,7 @@ async fn chat_fixture(email: &str, plan: &str) -> (Arc<ServerContext>, Uuid, Ten
 /// cross-tenant by design, and the chat binding enrols on user id alone.
 async fn second_sender(res: &Arc<ServerContext>, email: &str) -> Uuid {
     let (user_id, _user, _own_tenant) =
-        create_test_user_with_plan(&res.coach.database, email, "professional")
+        create_test_user_with_plan(&res.agent.database, email, "professional")
             .await
             .unwrap();
     user_id
@@ -114,13 +114,13 @@ async fn telegram_auto_bind_emits_group_created() {
     let (res, user_id, tenant_id, _coach) =
         chat_fixture("autobind-created@test.com", "professional").await;
     let auth = res.common.repos.auth_repos();
-    let coach = res.common.repos.coach_repos();
+    let agent = res.common.repos.agent_repos();
     let user_str = user_id.to_string();
 
     let (events, _guard) = capture_notify();
     let group_id = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100777", &user_str, "Sunday Ride"),
     )
@@ -143,15 +143,15 @@ async fn telegram_auto_bind_emits_group_created() {
 
 #[tokio::test]
 async fn auto_bound_group_carries_the_chat_binding_and_tier_cap() {
-    let (res, user_id, tenant_id, coach_id) =
+    let (res, user_id, tenant_id, agent_id) =
         chat_fixture("autobind-fields@test.com", "professional").await;
     let auth = res.common.repos.auth_repos();
-    let coach = res.common.repos.coach_repos();
+    let agent = res.common.repos.agent_repos();
     let user_str = user_id.to_string();
 
     let group_id = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100888", &user_str, "Thursday Track"),
     )
@@ -169,7 +169,7 @@ async fn auto_bound_group_carries_the_chat_binding_and_tier_cap() {
     assert_eq!(group.name, "Thursday Track");
     assert_eq!(group.channel_type.as_deref(), Some("telegram"));
     assert_eq!(group.channel_chat_id.as_deref(), Some("-100888"));
-    assert_eq!(group.coach_id, coach_id);
+    assert_eq!(group.agent_id, agent_id);
     assert_eq!(group.owner_id, user_id);
     // Professional caps a group at 10 members. Before the auto-bind path went
     // through GroupService it wrote a hardcoded 20, ignoring the plan.
@@ -185,12 +185,12 @@ async fn second_chat_sender_emits_group_joined() {
     let (res, owner_id, tenant_id, _coach) =
         chat_fixture("autobind-joined@test.com", "professional").await;
     let auth = res.common.repos.auth_repos();
-    let coach = res.common.repos.coach_repos();
+    let agent = res.common.repos.agent_repos();
     let owner_str = owner_id.to_string();
 
     let group_id = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100999", &owner_str, "Club Chat"),
     )
@@ -206,7 +206,7 @@ async fn second_chat_sender_emits_group_joined() {
     let (events, _guard) = capture_notify();
     let resolved = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100999", &joiner_str, "Club Chat"),
     )
@@ -230,12 +230,12 @@ async fn returning_sender_emits_nothing() {
     let (res, owner_id, tenant_id, _coach) =
         chat_fixture("autobind-repeat@test.com", "professional").await;
     let auth = res.common.repos.auth_repos();
-    let coach = res.common.repos.coach_repos();
+    let agent = res.common.repos.agent_repos();
     let owner_str = owner_id.to_string();
 
     let first = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100111", &owner_str, "Repeat Chat"),
     )
@@ -246,7 +246,7 @@ async fn returning_sender_emits_nothing() {
     let (events, _guard) = capture_notify();
     let second = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100111", &owner_str, "Repeat Chat"),
     )
@@ -267,7 +267,7 @@ async fn returning_sender_emits_nothing() {
 
 #[tokio::test]
 async fn tier_gate_refuses_group_creation_and_emits_nothing() {
-    let (res, user_id, tenant_id, coach_id) =
+    let (res, user_id, tenant_id, agent_id) =
         chat_fixture("autobind-gated@test.com", "professional").await;
 
     let (events, _guard) = capture_notify();
@@ -279,7 +279,7 @@ async fn tier_gate_refuses_group_creation_and_emits_nothing() {
         .create_channel_group(
             &ChannelGroupSpec {
                 name: "Gated Chat",
-                coach_id: &coach_id,
+                agent_id: &agent_id,
                 channel_type: "telegram",
                 channel_chat_id: "-100222",
             },
@@ -299,17 +299,17 @@ async fn tier_gate_refuses_group_creation_and_emits_nothing() {
 
 #[tokio::test]
 async fn a_full_group_leaves_the_sender_ungrouped() {
-    let (res, owner_id, tenant_id, coach_id) =
+    let (res, owner_id, tenant_id, agent_id) =
         chat_fixture("autobind-full@test.com", "professional").await;
     let auth = res.common.repos.auth_repos();
-    let coach = res.common.repos.coach_repos();
+    let agent = res.common.repos.agent_repos();
 
     // A 2-member group (the floor) that already holds its owner.
     res.group_service()
         .create_channel_group(
             &ChannelGroupSpec {
                 name: "Tiny Chat",
-                coach_id: &coach_id,
+                agent_id: &agent_id,
                 channel_type: "telegram",
                 channel_chat_id: "-100333",
             },
@@ -328,7 +328,7 @@ async fn a_full_group_leaves_the_sender_ungrouped() {
     // Second sender fills the group.
     assert!(resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100333", &second_str, "Tiny Chat"),
     )
@@ -339,7 +339,7 @@ async fn a_full_group_leaves_the_sender_ungrouped() {
     let (events, _guard) = capture_notify();
     let overflow = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100333", &third_str, "Tiny Chat"),
     )
@@ -374,10 +374,10 @@ async fn a_full_group_leaves_the_sender_ungrouped() {
 /// path is exempt; the member cap is the gate that applies there.
 #[tokio::test]
 async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
-    let (res, user_id, tenant_id, coach_id) =
+    let (res, user_id, tenant_id, agent_id) =
         chat_fixture("autobind-allowance@test.com", "professional").await;
     let auth = res.common.repos.auth_repos();
-    let coach = res.common.repos.coach_repos();
+    let agent = res.common.repos.agent_repos();
     let user_str = user_id.to_string();
 
     // Spend the owner's whole allowance (professional = 3 groups).
@@ -387,7 +387,7 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
             .create_channel_group(
                 &ChannelGroupSpec {
                     name: "Filler Chat",
-                    coach_id: &coach_id,
+                    agent_id: &agent_id,
                     channel_type: "telegram",
                     channel_chat_id: &chat_id,
                 },
@@ -407,7 +407,7 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
             &CreateGroupRequest {
                 name: "Fourth By REST".to_owned(),
                 description: None,
-                coach_id: coach_id.clone(),
+                agent_id: agent_id.clone(),
                 max_members: None,
             },
             user_id,
@@ -422,7 +422,7 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
     let (events, _guard) = capture_notify();
     let group_id = resolve_or_create_channel_group(
         &auth,
-        &coach,
+        &agent,
         res.group_service(),
         &binding(tenant_id, "-100555", &user_str, "Fourth Chat"),
     )
@@ -441,23 +441,23 @@ async fn chat_auto_bind_is_exempt_from_the_owner_group_allowance() {
 
 #[tokio::test]
 async fn coach_selection_emits_from_the_shared_recorder() {
-    let (res, user_id, tenant_id, coach_id) =
+    let (res, user_id, tenant_id, agent_id) =
         chat_fixture("coach-selected@test.com", "professional").await;
 
     let (events, _guard) = capture_notify();
-    let recorded = record_coach_selection(
-        res.common.repos.coaches.as_ref(),
-        &coach_id,
+    let recorded = record_agent_selection(
+        res.common.repos.agents.as_ref(),
+        &agent_id,
         user_id,
         tenant_id,
-        CoachSelectionSource::Rest,
+        AgentSelectionSource::Rest,
     )
     .await
     .unwrap();
 
     assert!(recorded, "selecting a visible coach records usage");
     let selected = only(&events, "agent.selected");
-    assert_eq!(selected.field("agent_slug"), coach_id);
+    assert_eq!(selected.field("agent_slug"), agent_id);
     assert_eq!(selected.field("user_id"), user_id.to_string());
     assert_eq!(selected.field("tenant_id"), tenant_id.to_string());
     // The surface is on the event so an explicit pick can be told apart from
@@ -471,12 +471,12 @@ async fn an_invisible_coach_records_nothing_and_emits_nothing() {
         chat_fixture("coach-invisible@test.com", "professional").await;
 
     let (events, _guard) = capture_notify();
-    let recorded = record_coach_selection(
-        res.common.repos.coaches.as_ref(),
+    let recorded = record_agent_selection(
+        res.common.repos.agents.as_ref(),
         &Uuid::new_v4().to_string(),
         user_id,
         tenant_id,
-        CoachSelectionSource::Rest,
+        AgentSelectionSource::Rest,
     )
     .await
     .unwrap();
@@ -497,15 +497,15 @@ async fn an_invisible_coach_records_nothing_and_emits_nothing() {
 /// have.
 #[tokio::test]
 async fn slash_coach_add_emits_coach_selected() {
-    let (res, user_id, tenant_id, coach_id) =
+    let (res, user_id, tenant_id, agent_id) =
         chat_fixture("coach-slash-add@test.com", "professional").await;
 
     let ctx = PlatformCommandContext {
         user_id,
         tenant_id,
         channel_type: "telegram".to_owned(),
-        args: vec![coach_id.clone()],
-        raw_text: format!("/agent add {coach_id}"),
+        args: vec![agent_id.clone()],
+        raw_text: format!("/agent add {agent_id}"),
         ctx: Arc::<ServerContext>::clone(&res),
         locale: "en".to_owned(),
         is_direct_message: true,
@@ -518,10 +518,10 @@ async fn slash_coach_add_emits_coach_selected() {
     };
 
     let (events, _guard) = capture_notify();
-    CoachAddHandler.execute(&ctx).await.unwrap();
+    AgentAddHandler.execute(&ctx).await.unwrap();
 
     let selected = only(&events, "agent.selected");
-    assert_eq!(selected.field("agent_slug"), coach_id);
+    assert_eq!(selected.field("agent_slug"), agent_id);
     assert_eq!(selected.field("user_id"), user_id.to_string());
     assert_eq!(selected.field("tenant_id"), tenant_id.to_string());
     assert_eq!(selected.field("source"), "slash_command");

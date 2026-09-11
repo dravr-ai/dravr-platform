@@ -8,7 +8,7 @@
 //! athlete talks to is an agent, a coach is a human. Two migrations rewrite
 //! the text of rows that already exist — the `tool_catalog` display text an
 //! operator reads, and the opening sentence of every persona the old
-//! `coach_generation` mandate produced. This file proves both.
+//! `agent_generation` mandate produced. This file proves both.
 //!
 //! Both are rewrites of live data, so they are proven by replaying each lane's
 //! migrations up to the cutover, planting the shape the mandate produced, and
@@ -39,6 +39,11 @@ const DISPLAY_TEXT_MIGRATION: i64 = 20_260_906_000_001;
 
 /// The system-prompt migration; the rows it rewrites are planted before it.
 const SYSTEM_PROMPT_MIGRATION: i64 = 20_260_906_000_002;
+
+// Both walks stop at a migration older than 20260909000002, which renames
+// `agents` to `agents`. Every query below addresses the schema as it stood at
+// that point and must keep the historical table name: renaming them to `agents`
+// reads as consistency and fails with "no such table".
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[cfg(feature = "postgresql")]
@@ -113,7 +118,7 @@ const PLAYBOOKS: (&str, &str, &str) = (
 ///
 /// The first three are what the old mandate produced. The rest are the rows
 /// the rewrite must leave alone: one already rewritten, one about the
-/// athlete's *human* coach, one where the phrase is not in the opening
+/// athlete's *human* agent, one where the phrase is not in the opening
 /// sentence, one that never named a role, and one whose opening sentence
 /// already carries "specialist in".
 const PROMPTS: [(&str, &str, &str); 8] = [
@@ -350,7 +355,7 @@ async fn prompts_on_postgres(url: &str) {
     let mut applied = None;
     for migration in PG_MIGRATOR.iter() {
         if migration.version == SYSTEM_PROMPT_MIGRATION {
-            // `coaches` carries real foreign keys here, so the owner exists.
+            // `agents` carries real foreign keys here, so the owner exists.
             sqlx::query("INSERT INTO tenants (id, name, slug) VALUES ($1, $2, $3)")
                 .bind(tenant)
                 .bind("Agent Vocabulary")

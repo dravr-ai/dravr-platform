@@ -9,7 +9,7 @@ import {
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from '@pierre/shared-constants';
-import type { CoachFormData } from './coachForm';
+import type { AgentFormData } from './coachForm';
 import { Select, Textarea, Radio } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
@@ -27,8 +27,8 @@ function clampToolIterations(raw: string): number | null {
 
 interface CoachFormModalProps {
   isOpen: boolean;
-  formData: CoachFormData;
-  onFormDataChange: (data: CoachFormData) => void;
+  formData: AgentFormData;
+  onFormDataChange: (data: AgentFormData) => void;
   onSubmit: () => void;
   onClose: () => void;
   isSubmitting: boolean;

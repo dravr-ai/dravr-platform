@@ -21,7 +21,7 @@ use pierre_fitness_compute::routes::{
     build_route_summary_from_streams, route_summary_from_cache, stream_route_identity, RouteSummary,
 };
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
-use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
+use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -88,12 +88,12 @@ async fn get_workout_templates(
 ) -> AppResult<Json<Vec<WorkoutTemplate>>> {
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    // The athlete's selected coach lends its package, laid over the
+    // The athlete's selected agent lends its package, laid over the
     // catalogue's bank (a package template shadows a catalogue one of the
     // same slug); then any user-authored rows for (tenant_id, user_id).
     let repos = resources.repos();
-    let coach = repos.tenants.get_selected_coach(tenant_id, user_id).await?;
-    let package = load_coach_package(repos, tenant_id, user_id, coach.as_deref()).await?;
+    let agent = repos.tenants.get_selected_agent(tenant_id, user_id).await?;
+    let package = load_agent_package(repos, tenant_id, user_id, agent.as_deref()).await?;
     let catalogue = PackagedCatalogue::new(resources.training_catalogue(), package);
     let mut templates = catalogue.workouts_matching(&WorkoutFilter::default());
     let user_authored = repos

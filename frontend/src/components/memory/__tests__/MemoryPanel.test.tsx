@@ -23,8 +23,8 @@ const { userApi } = await import('../../../services/api');
 function sampleFact(overrides: Partial<MemoryFactRow> = {}): MemoryFactRow {
   return {
     id: 'fact-1',
-    coach_id: null,
-    coach_title: null,
+    agent_id: null,
+    agent_title: null,
     kind: 'goal',
     predicate_code: 'working_toward',
     object: 'sub-3:30 marathon by October',
@@ -67,8 +67,8 @@ describe('MemoryPanel', () => {
     vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({
       facts: [
         sampleFact({
-          coach_id: '7c1f7d2e-4b0a-4f0e-9d3a-0f6c2b8e9a11',
-          coach_title: 'Coach Marie',
+          agent_id: '7c1f7d2e-4b0a-4f0e-9d3a-0f6c2b8e9a11',
+          agent_title: 'Coach Marie',
         }),
       ],
       total: 1,

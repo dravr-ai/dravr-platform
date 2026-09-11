@@ -6,7 +6,7 @@
 
 //! Structured intake for athletes who arrive through a messaging channel.
 //!
-//! ## Why the platform asks these, and not the coach
+//! ## Why the platform asks these, and not the agent
 //!
 //! Web and mobile ask profile type and the PAR-Q+ on real wizard steps. A
 //! messaging athlete reached neither: the pillar walk covers *who they are*
@@ -19,7 +19,7 @@
 //! reply. For a standardised pre-participation instrument the wording *is* the
 //! instrument, and an inferred "no" on chest pain is a safety failure, not a
 //! rounding error. So the platform renders these questions verbatim and parses
-//! the answers strictly — the same posture `coach_choice` takes for a numeric
+//! the answers strictly — the same posture `agent_choice` takes for a numeric
 //! selection, and for the same reason.
 //!
 //! ## Getting out of the way
@@ -70,11 +70,11 @@ pub const STATUS_SKIPPED: &str = "skipped";
 /// One question in the intake, in the order it is asked.
 ///
 /// Profile type comes first for the same reason it is step 1 on the web: it is
-/// the cheapest question in the set and it decides which voice the coach
+/// the cheapest question in the set and it decides which voice the agent
 /// answers in from that turn onward.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntakeTopic {
-    /// Athlete or coach — mirrors the wizard's profile-type step.
+    /// Athlete or agent — mirrors the wizard's profile-type step.
     Persona,
     /// PAR-Q+ Q1 — diagnosed heart condition.
     HeartCondition,
@@ -205,7 +205,7 @@ const NO_TOKENS: [&str; 6] = ["no", "n", "non", "nein", "nao", "nee"];
 /// Tokens naming someone who trains themselves.
 const ATHLETE_TOKENS: [&str; 6] = ["athlete", "atleta", "sportler", "athletin", "moi", "me"];
 
-/// Tokens naming someone who coaches others.
+/// Tokens naming someone who agents others.
 const COACH_TOKENS: [&str; 6] = [
     "coach",
     "entraineur",
@@ -239,7 +239,7 @@ fn normalise(text: &str) -> String {
 ///
 /// Deliberately strict: the whole message must be the answer. "yes" and "1"
 /// answer the question; "yes but only when I sprint" does not, because a
-/// qualified answer to a medical screen is a conversation the coach should
+/// qualified answer to a medical screen is a conversation the agent should
 /// have, not a flag the platform should raise on its own.
 #[must_use]
 pub fn parse_yes_no(text: &str) -> Option<bool> {
@@ -256,7 +256,7 @@ pub fn parse_yes_no(text: &str) -> Option<bool> {
 /// Parse a reply to the profile-type question.
 ///
 /// Same strictness as [`parse_yes_no`], and the same numbering the question
-/// presents: 1 is the athlete, 2 is the coach.
+/// presents: 1 is the athlete, 2 is the agent.
 #[must_use]
 pub fn parse_persona(text: &str) -> Option<PersonaAnswer> {
     let token = normalise(text);
@@ -269,7 +269,7 @@ pub fn parse_persona(text: &str) -> Option<PersonaAnswer> {
     None
 }
 
-/// Persist a "Yes" to one PAR-Q question as a coach-visible medical flag.
+/// Persist a "Yes" to one PAR-Q question as an agent-visible medical flag.
 ///
 /// A "No" writes nothing, which is what the API path does too — only a raised
 /// flag is a fact. Whether the screen happened at all is carried by the step

@@ -11,8 +11,8 @@ use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
+use pierre_seeders::agents::{run as run_agents, SeedArgs as AgentsArgs};
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
-use pierre_seeders::coaches::{run as run_coaches, SeedArgs as CoachesArgs};
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
 use pierre_seeders::llm_usage::{run as run_llm_usage, SeedArgs as LlmUsageArgs};
 use pierre_seeders::mobility::{run as run_mobility, SeedArgs as MobilityArgs};
@@ -27,8 +27,8 @@ pub enum SeedCommand {
     /// Create admin and demo users for a fresh deployment (idempotent)
     Bootstrap(BootstrapArgs),
 
-    /// Load coach definitions from markdown files, sync them to the database, and delete catalogue coaches whose file is gone
-    Coaches(CoachesArgs),
+    /// Load agent definitions from markdown files, sync them to the database, and delete catalogue agents whose file is gone
+    Agents(AgentsArgs),
 
     /// Populate database with realistic demo data for dashboard testing
     DemoData(DemoDataArgs),
@@ -95,7 +95,7 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
 
     match action {
         SeedCommand::Bootstrap(args) => run_bootstrap(args, &repos).await,
-        SeedCommand::Coaches(args) => run_coaches(args, &repos).await,
+        SeedCommand::Agents(args) => run_agents(args, &repos).await,
         SeedCommand::DemoData(args) => run_demo_data(args, &repos).await,
         SeedCommand::LlmUsage(args) => run_llm_usage(args, &repos).await,
         SeedCommand::Mobility(args) => run_mobility(args, &repos).await,

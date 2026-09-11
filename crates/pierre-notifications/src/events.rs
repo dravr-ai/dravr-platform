@@ -10,7 +10,7 @@
 //! parameters that describe it — and the sentence is rendered per locale at
 //! read time from the string catalogue. Writing the sentence at creation time
 //! froze one language into the database: an athlete whose locale is `fr` read
-//! an English wrapper around her coach's French reply, on every surface
+//! an English wrapper around her agent's French reply, on every surface
 //! including push, and switching language repaired nothing.
 //!
 //! The event kind is the `notification_type` column that already existed; what
@@ -53,12 +53,12 @@ pub enum NotificationEvent {
     MilestoneReached,
     /// A fitness metric improved.
     FitnessImprovement,
-    /// A coach sent the athlete a message.
-    CoachMessage,
-    /// A coach updated the athlete's training plan.
+    /// An agent sent the athlete a message.
+    AgentMessage,
+    /// An agent updated the athlete's training plan.
     PlanUpdated,
-    /// A coach left a note on an activity.
-    CoachFeedback,
+    /// An agent left a note on an activity.
+    AgentFeedback,
     /// A provider sync failed.
     SyncFailure,
     /// The weekly digest of the pushes a persona floor withheld.
@@ -77,9 +77,9 @@ impl NotificationEvent {
             Self::PersonalRecord => "personal_record",
             Self::MilestoneReached => "milestone_reached",
             Self::FitnessImprovement => "fitness_improvement",
-            Self::CoachMessage => "coach_message",
+            Self::AgentMessage => "coach_message",
             Self::PlanUpdated => "plan_updated",
-            Self::CoachFeedback => "coach_feedback",
+            Self::AgentFeedback => "coach_feedback",
             Self::SyncFailure => "sync_failure",
             Self::PersonaDigest => "persona_digest",
         }
@@ -97,9 +97,9 @@ impl NotificationEvent {
             Self::PersonalRecord,
             Self::MilestoneReached,
             Self::FitnessImprovement,
-            Self::CoachMessage,
+            Self::AgentMessage,
             Self::PlanUpdated,
-            Self::CoachFeedback,
+            Self::AgentFeedback,
             Self::SyncFailure,
             Self::PersonaDigest,
         ]
@@ -118,9 +118,9 @@ impl NotificationEvent {
             Self::PersonalRecord => "notifications.event.personal_record.title",
             Self::MilestoneReached => "notifications.event.milestone_reached.title",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.title",
-            Self::CoachMessage => "notifications.event.agent_message.title",
+            Self::AgentMessage => "notifications.event.agent_message.title",
             Self::PlanUpdated => "notifications.event.plan_updated.title",
-            Self::CoachFeedback => "notifications.event.agent_feedback.title",
+            Self::AgentFeedback => "notifications.event.agent_feedback.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::PersonaDigest => "notifications.digest.title",
         }
@@ -137,9 +137,9 @@ impl NotificationEvent {
             Self::PersonalRecord => "notifications.event.personal_record.body",
             Self::MilestoneReached => "notifications.event.milestone_reached.body",
             Self::FitnessImprovement => "notifications.event.fitness_improvement.body",
-            Self::CoachMessage => "notifications.event.agent_message.body",
+            Self::AgentMessage => "notifications.event.agent_message.body",
             Self::PlanUpdated => "notifications.event.plan_updated.body",
-            Self::CoachFeedback => "notifications.event.agent_feedback.body",
+            Self::AgentFeedback => "notifications.event.agent_feedback.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::PersonaDigest => "notifications.digest.body",
         }
@@ -165,8 +165,8 @@ impl NotificationEvent {
             Self::PersonalRecord => &["distance_label", "time_display"],
             Self::MilestoneReached => &["value_display", "unit"],
             Self::FitnessImprovement => &["metric_name", "value_display"],
-            Self::CoachMessage | Self::PlanUpdated => &["coach_name"],
-            Self::CoachFeedback => &["coach_name", "activity_type"],
+            Self::AgentMessage | Self::PlanUpdated => &["agent_name"],
+            Self::AgentFeedback => &["agent_name", "activity_type"],
             Self::SyncFailure => &["error_summary"],
             Self::PersonaDigest => &["item_count"],
         }
@@ -203,7 +203,7 @@ pub struct NotificationActionSpec {
     pub action_type: NotificationActionType,
 }
 
-/// Action id: open the coach conversation with the composer focused.
+/// Action id: open the agent conversation with the composer focused.
 pub const ACTION_REPLY: &str = "reply";
 /// Action id: reopen the provider connection flow.
 pub const ACTION_RECONNECT: &str = "reconnect";
@@ -274,6 +274,6 @@ pub struct EventDispatch {
     pub route: Value,
     /// Action buttons, by id; their labels are rendered per locale.
     pub actions: Option<Vec<NotificationActionSpec>>,
-    /// When true, skip the daily frequency cap (coach traffic).
+    /// When true, skip the daily frequency cap (agent traffic).
     pub bypass_frequency_cap: bool,
 }

@@ -98,7 +98,7 @@ fn a_short_reply_is_untouched() {
 }
 
 /// The admin's `max_response_chars` policy is a different ceiling and still
-/// bites: it is a rule about how much a coach may say, not about what a wire
+/// bites: it is a rule about how much an agent may say, not about what a wire
 /// will carry.
 #[test]
 fn the_admin_length_policy_still_trims() {

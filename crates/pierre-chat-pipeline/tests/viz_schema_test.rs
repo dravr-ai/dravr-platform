@@ -175,7 +175,7 @@ fn rejects_an_unknown_block_type() {
 
 #[test]
 fn rejects_unknown_properties() {
-    // Guards against a coach inventing fields the renderer would silently drop.
+    // Guards against an agent inventing fields the renderer would silently drop.
     let v = validator();
     let mut block = chart();
     block["render_hint"] = json!("big");
@@ -185,7 +185,7 @@ fn rejects_unknown_properties() {
 /// The generated contract must state the bound the hand-written prose omitted.
 ///
 /// The directive used to list "at most 4 series and 400 points" and never that
-/// `points` has `minItems: 2`; it now defers to this generated section entirely. A coach cannot obey a rule it is not told, and on
+/// `points` has `minItems: 2`; it now defers to this generated section entirely. An agent cannot obey a rule it is not told, and on
 /// 2026-08-31 one did not: a two-athlete comparison written as one series per
 /// athlete was refused on every pass. Asserting the minimum specifically —
 /// rather than that the text is non-empty — is the difference between this test
@@ -223,9 +223,9 @@ fn generated_contract_states_the_points_minimum() {
 /// shipped schema.
 ///
 /// The prose teaches by example, so an example the validator rejects teaches the
-/// coach a shape that will be refused at runtime — the athlete loses the visual
+/// agent a shape that will be refused at runtime — the athlete loses the visual
 /// and nothing says why. That is not hypothetical: the directive's only example
-/// was a time series, and asked to compare two athletes the coach produced the
+/// was a time series, and asked to compare two athletes the agent produced the
 /// natural-looking generalisation (one series each, one point apiece) which
 /// `points`' `minItems: 2` rejects. The fix was a second, category-shaped
 /// example; this keeps the next one honest.

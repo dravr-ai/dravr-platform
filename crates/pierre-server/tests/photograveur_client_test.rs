@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
 //! The press degrades by design: any failure drops the chart and sends the
-//! coach's prose. That is right for a cold start or a timeout, and wrong for a
+//! agent's prose. That is right for a cold start or a timeout, and wrong for a
 //! misconfiguration, which would present as charts quietly never appearing
 //! while every log line looks healthy. These assert the client refuses to be
 //! half-configured in the first place.

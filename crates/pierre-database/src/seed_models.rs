@@ -249,14 +249,14 @@ pub struct SeedA2AUsage {
 }
 
 // ================================
-// Coach Seeder
+// Agent Seeder
 // ================================
 
-/// Coach record for seeding (flat database columns, not the parsed markdown structure)
-pub struct SeedCoach {
-    /// Coach ID
+/// Agent record for seeding (flat database columns, not the parsed markdown structure)
+pub struct SeedAgent {
+    /// Agent ID
     pub id: String,
-    /// Admin user who created the coach
+    /// Admin user who created the agent
     pub user_id: Uuid,
     /// Tenant scope
     pub tenant_id: TenantId,
@@ -266,7 +266,7 @@ pub struct SeedCoach {
     pub description: String,
     /// System prompt (same as instructions)
     pub system_prompt: String,
-    /// Coach category
+    /// Agent category
     pub category: String,
     /// JSON array of tags
     pub tags_json: String,
@@ -301,7 +301,7 @@ pub struct SeedCoach {
     /// JSON-serialized data requirements for deterministic pre-fetching
     pub data_requirements: Option<String>,
     /// Inline visuals grant, comma-joined wire names ("chart,table"); `None`
-    /// when the coach frontmatter declares none.
+    /// when the agent frontmatter declares none.
     pub visuals: Option<String>,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
@@ -309,48 +309,48 @@ pub struct SeedCoach {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Per-locale translation overlay for a seeded coach.
+/// Per-locale translation overlay for a seeded agent.
 ///
-/// Produced by the seeder when a `coaches/<category>/<slug>/<locale>.md` file
+/// Produced by the seeder when a `agents/<category>/<slug>/<locale>.md` file
 /// (with `<locale>` ≠ `en`) is discovered; persisted into the
-/// `coach_translations` table keyed by `(coach_id, locale)`.
-pub struct SeedCoachTranslation {
-    /// Coach this translation applies to; must match an existing row in `coaches`.
-    pub coach_id: String,
+/// `agent_translations` table keyed by `(agent_id, locale)`.
+pub struct SeedAgentTranslation {
+    /// Agent this translation applies to; must match an existing row in `agents`.
+    pub agent_id: String,
     /// BCP-47 short locale (`fr`, `es`, `de`, `pt`).
     pub locale: String,
-    /// Localized display title; `None` leaves `coaches.title` visible.
+    /// Localized display title; `None` leaves `agents.title` visible.
     pub title: Option<String>,
-    /// Localized short description; `None` leaves `coaches.description` visible.
+    /// Localized short description; `None` leaves `agents.description` visible.
     pub description: Option<String>,
-    /// Localized `## Purpose` section; `None` leaves `coaches.purpose` visible.
+    /// Localized `## Purpose` section; `None` leaves `agents.purpose` visible.
     pub purpose: Option<String>,
-    /// Localized `## Instructions` section; `None` leaves `coaches.instructions` visible.
+    /// Localized `## Instructions` section; `None` leaves `agents.instructions` visible.
     pub instructions: Option<String>,
     /// First 16 hex chars of `sha256(en.md)` at translation time — used by the
     /// reader to detect when English has drifted past this translation.
     pub source_sha: Option<String>,
-    /// Localized tag list the `<locale>.md` declares; `None` leaves `coaches.tags` visible.
+    /// Localized tag list the `<locale>.md` declares; `None` leaves `agents.tags` visible.
     pub tags: Option<Vec<String>>,
 }
 
-/// Coach relation for seeding
-pub struct SeedCoachRelation {
+/// Agent relation for seeding
+pub struct SeedAgentRelation {
     /// Relation ID
     pub id: String,
-    /// Source coach ID
-    pub coach_id: String,
-    /// Related coach ID
-    pub related_coach_id: String,
+    /// Source agent ID
+    pub agent_id: String,
+    /// Related agent ID
+    pub related_agent_id: String,
     /// Relation type ("related", "alternative", "prerequisite", "sequel")
     pub relation_type: String,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
 }
 
-/// Coach author profile for seeding (Store creator profiles)
-pub struct SeedCoachAuthor {
-    /// Author profile ID (TEXT PK in `coach_authors`)
+/// Agent author profile for seeding (Store creator profiles)
+pub struct SeedAgentAuthor {
+    /// Author profile ID (TEXT PK in `agent_authors`)
     pub id: String,
     /// User who is the author
     pub user_id: Uuid,
@@ -368,11 +368,11 @@ pub struct SeedCoachAuthor {
 pub struct SeedStoreListing {
     /// Listing ID
     pub id: String,
-    /// Coach being listed
-    pub coach_id: String,
+    /// Agent being listed
+    pub agent_id: String,
     /// Tenant scope
     pub tenant_id: TenantId,
-    /// Coach author ID (references `coach_authors.id`, not `users.id`)
+    /// Agent author ID (references `agent_authors.id`, not `users.id`)
     pub author_id: String,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,

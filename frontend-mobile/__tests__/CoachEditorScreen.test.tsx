@@ -6,7 +6,7 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
-let mockParams: { coachId?: string } = { coachId: 'coach-1' };
+let mockParams: { agentId?: string } = { agentId: 'coach-1' };
 jest.mock('expo-router', () =>
   require('../jest.expo-router').createExpoRouterMock({
     useRouter: () => mockRouter,
@@ -31,9 +31,9 @@ jest.mock('../src/services/api', () => ({
 jest.spyOn(Alert, 'alert');
 
 import { CoachEditorScreen } from '../src/screens/coaches/CoachEditorScreen';
-import type { Coach } from '../src/types';
+import type { Agent } from '../src/types';
 
-const storedCoach = (overrides: Partial<Coach> = {}): Coach => ({
+const storedCoach = (overrides: Partial<Agent> = {}): Agent => ({
   id: 'coach-1',
   title: 'Coach Tempo',
   description: 'Threshold work',
@@ -66,9 +66,9 @@ const storedCoach = (overrides: Partial<Coach> = {}): Coach => ({
 describe('CoachEditorScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockParams = { coachId: 'coach-1' };
+    mockParams = { agentId: 'coach-1' };
     mockGet.mockResolvedValue(storedCoach());
-    mockUpdate.mockImplementation(async (_id: string, request: Partial<Coach>) => storedCoach(request));
+    mockUpdate.mockImplementation(async (_id: string, request: Partial<Agent>) => storedCoach(request));
     mockDelete.mockResolvedValue(undefined);
   });
 

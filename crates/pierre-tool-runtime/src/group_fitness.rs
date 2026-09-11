@@ -8,7 +8,7 @@
 //!
 //! Provides batch fetching of fitness metrics (CTL, ATL, TSB, weekly volume)
 //! for all members of a coaching group. Used by the group context injection
-//! system to give the AI coach data-driven group advice.
+//! system to give the AI agent data-driven group advice.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -32,7 +32,7 @@ use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 
 /// Lookback (days) for the `recent_activities` roster list rendered into
-/// the group context. One week is what coaches ask about ("this week",
+/// the group context. One week is what agents ask about ("this week",
 /// "the weekend", "yesterday"); longer windows blow the token budget.
 const RECENT_ACTIVITIES_LOOKBACK_DAYS: i64 = 7;
 
@@ -532,7 +532,7 @@ async fn fetch_single_member_snapshot(
         )
     };
 
-    // Surface any provider whose connection died non-recoverably so the group coach can
+    // Surface any provider whose connection died non-recoverably so the group agent can
     // name it ("Phil's WHOOP needs reconnecting") instead of treating the dead source as
     // merely quiet. Drawn from the same cross-tenant connection set so a dead provider is
     // named regardless of which tenant it lives in (a tenant-scoped re-query here was the

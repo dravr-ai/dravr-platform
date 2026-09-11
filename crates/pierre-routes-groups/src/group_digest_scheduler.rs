@@ -13,7 +13,7 @@
 //! `true` for Professional/Enterprise) was set but never read.
 //!
 //! This service ticks every [`DEFAULT_TICK_INTERVAL`] (one week) from a Tokio
-//! task spawned at server bootstrap next to the coach-followup scheduler. On
+//! task spawned at server bootstrap next to the agent-followup scheduler. On
 //! each tick it:
 //!
 //! 1. Enumerates every tenant ([`pierre_database::repositories::TenantRepository::get_all`]).
@@ -23,9 +23,9 @@
 //!    ([`pierre_database::repositories::CoachingGroupRepository::list_active_groups_for_tenant`]).
 //! 4. Builds member fitness snapshots via the canonical
 //!    [`fetch_member_snapshots`] builder (the same all-providers + deduplicated
-//!    path the chat coach and the REST analytics endpoints use), computes the
+//!    path the chat agent and the REST analytics endpoints use), computes the
 //!    weekly report with [`pierre_groups::GroupService::compute_weekly_report`],
-//!    and dispatches it as a `Coach`-category notification to every member who
+//!    and dispatches it as a `Agent`-category notification to every member who
 //!    can manage the group (owner + admins).
 //!
 //! Dispatch is best-effort: a failed snapshot fetch or notification send is

@@ -19,11 +19,11 @@ use crate::scope::MemoryScope;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FactKind {
-    /// Long-lived identity/preference (sport, goal, coach style preference).
+    /// Long-lived identity/preference (sport, goal, agent style preference).
     Preference,
     /// Physiological or training-state claim ("resting HR around 52").
     Physiology,
-    /// Injury, pain, or health constraint the coach should remember.
+    /// Injury, pain, or health constraint the agent should remember.
     Injury,
     /// Goal the user committed to, with or without a deadline.
     Goal,
@@ -34,7 +34,7 @@ pub enum FactKind {
     /// A core life motivation orienting the pillars ("be present for my kids").
     /// One to three per user; the layer above the pillars.
     NorthStar,
-    /// Medical / pre-participation (PAR-Q) flag the coach must heed. Kept
+    /// Medical / pre-participation (PAR-Q) flag the agent must heed. Kept
     /// distinct from [`Self::Injury`] so it can be redacted/gated separately.
     Medical,
     /// Catch-all for semantically meaningful facts that don't fit elsewhere.
@@ -90,7 +90,7 @@ pub enum FactSource {
     Conversation,
     /// Pre-filled from connected device/provider data.
     Device,
-    /// Written intentionally by a coach tool.
+    /// Written intentionally by an agent tool.
     Coach,
 }
 
@@ -125,7 +125,7 @@ impl FactSource {
 /// A fact used to carry a free-text `predicate` the extraction LLM wrote in
 /// English, and every renderer glued it to the object as a sentence — so a
 /// French athlete read "are training for un ultra de 26 km" in her own
-/// memory screen and her coach's prompt. The predicate is now one of these
+/// memory screen and her agent's prompt. The predicate is now one of these
 /// codes, the object is the athlete's own words, and the sentence is rendered
 /// once per locale from the string catalogue (`messaging.memory.predicate.<code>`,
 /// `{0}` = object). [`Self::States`] is the honest catch-all on every kind: its
@@ -174,7 +174,7 @@ pub enum PredicateCode {
     TrainBecause,
     /// Medical: a "yes" on a PAR-Q question; the object is the question.
     ParqYes,
-    /// Medical: a flag a coach tool raised.
+    /// Medical: a flag an agent tool raised.
     Flagged,
     /// Any kind: the athlete's own words, with no verb of ours in front.
     States,
@@ -309,7 +309,7 @@ impl PredicateCode {
 
     /// Whether the extraction model may pick this code. [`Self::TargetRace`]
     /// is minted by `save_training_plan` when a plan converges on a race,
-    /// [`Self::ParqYes`] by the PAR-Q screen and [`Self::Flagged`] by coach
+    /// [`Self::ParqYes`] by the PAR-Q screen and [`Self::Flagged`] by agent
     /// tools; each passes [`Self::allowed_for`] on its kind, so without this
     /// gate the model could pass a chat remark off as a tool's work.
     #[must_use]
@@ -378,9 +378,9 @@ pub struct UserFact {
     pub tenant_id: String,
     /// User the fact is about.
     pub user_id: String,
-    /// Coach that the fact was collected for, if any. `None` means the fact
-    /// is user-wide across coaches.
-    pub coach_id: Option<String>,
+    /// Agent that the fact was collected for, if any. `None` means the fact
+    /// is user-wide across agents.
+    pub agent_id: Option<String>,
     /// Scope bucket (conversation / user / tenant).
     pub scope: MemoryScope,
     /// Semantic category.
@@ -395,7 +395,7 @@ pub struct UserFact {
     pub object: String,
     /// Extractor confidence in `[0.0, 1.0]`.
     pub confidence: f32,
-    /// Where this fact came from (onboarding / conversation / device / coach).
+    /// Where this fact came from (onboarding / conversation / device / agent).
     pub source: FactSource,
     /// Freshness horizon: after this instant the fact is considered stale and
     /// is demoted/flagged at render time. `None` means no expiry.
@@ -429,7 +429,7 @@ impl UserFact {
 /// readable in the UI without sentinel values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserFactMetrics {
-    /// Total number of facts stored for the tenant across all users/coaches.
+    /// Total number of facts stored for the tenant across all users/agents.
     pub total_facts: u64,
     /// Facts inserted or updated in the last 24 hours — the "recent activity"
     /// signal that tells operators the worker is still extracting.
@@ -515,7 +515,7 @@ mod tests {
             id: "f1".into(),
             tenant_id: "t1".into(),
             user_id: "u1".into(),
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: None,

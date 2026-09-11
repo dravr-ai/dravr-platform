@@ -8,7 +8,7 @@
 //! turns, each one carrying the guided directive — the most forcefully worded
 //! block in the prompt, closing with "do not build, propose, or save a training
 //! plan on this turn". `guided interview completed` landed at 21:24:26. At
-//! 21:25:14 the coach called `get_training_history` and `export_dossier`, then
+//! 21:25:14 the agent called `get_training_history` and `export_dossier`, then
 //! told the athlete it could not save his plan "cette fois-ci". It never called
 //! `save_training_plan`, which was in that turn's catalogue: it reported a tool
 //! failure that had not happened.
@@ -73,7 +73,7 @@ fn a_freshly_retired_interview_is_completed_but_no_longer_active() {
 #[test]
 fn a_stale_marker_stops_claiming_the_interview_just_ended() {
     // Clearing the marker is best-effort, like every other write on this path.
-    // The window is what stops a failed clear from telling a coach days later
+    // The window is what stops a failed clear from telling an agent days later
     // that the interview "just" finished.
     let column = completed_column(
         GuidedFlow::Calibration,
@@ -133,7 +133,7 @@ fn the_release_directive_retracts_the_interviews_no_saving_rule() {
         "the withheld tool must be named as callable again: {text}"
     );
 
-    // The fabricated failure is its own defect: the coach announced a save
+    // The fabricated failure is its own defect: the agent announced a save
     // failure without ever calling the tool.
     assert!(
         text.contains("unless you called the tool on this turn"),
@@ -142,7 +142,7 @@ fn the_release_directive_retracts_the_interviews_no_saving_rule() {
 }
 
 #[test]
-fn the_release_directive_does_not_instruct_the_coach_to_save() {
+fn the_release_directive_does_not_instruct_the_agent_to_save() {
     // Retracting a prohibition is not the same as ordering the write. A plan
     // save is the athlete's decision, and a directive that pushed for one would
     // reintroduce the 2026-07-24 derail from the other direction — an unasked-for

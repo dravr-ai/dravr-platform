@@ -65,11 +65,11 @@ fn empty_input_yields_empty_output() {
 }
 
 #[test]
-fn coach_description_with_emphasis_is_flattened() {
+fn agent_description_with_emphasis_is_flattened() {
     // Regression: this exact string is the Purpose body of
-    // prompts/coaches/mobility/pre-workout-mobility-coach/en.md in the
+    // prompts/agents/mobility/pre-workout-mobility-agent/en.md in the
     // dravr-contremaitre repo. It reached Telegram with literal asterisks
-    // before strip_emphasis was wired into CoachListHandler.
+    // before strip_emphasis was wired into AgentListHandler.
     let raw = "Expert in dynamic warm-ups and muscle activation routines \
                before training. Helps athletes prepare their bodies for \
                exercise through movement preparation that enhances \

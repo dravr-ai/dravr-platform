@@ -25,7 +25,7 @@
 # -----------------------------------------------------------------------------
 # Reuses the same image, env vars, and Cloud SQL access path as the existing
 # seed_coaches job (see local.seed_common in main.tf) — the binary's
-# `check-drift coaches` subcommand connects to the DB, clones contremaitre,
+# `check-drift agents` subcommand connects to the DB, clones contremaitre,
 # and compares hashes.
 
 module "drift_check_coaches" {
@@ -49,7 +49,7 @@ module "drift_check_coaches" {
   timeout     = local.seed_common.timeout
 
   command = ["/app/seed-entrypoint.sh"]
-  args    = ["check-drift", "coaches"]
+  args    = ["check-drift", "agents"]
 
   env_vars        = local.seed_env_vars
   secret_env_vars = local.seed_secret_env_vars

@@ -80,7 +80,7 @@ describe('RejectedCoachesList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(adminApi.getRejectedStoreCoaches).mockResolvedValue({
-      coaches: mockCoaches,
+      agents: mockCoaches,
       total: 2,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
@@ -171,7 +171,7 @@ describe('RejectedCoachesList', () => {
 
   it('shows empty state when no rejected agents', async () => {
     vi.mocked(adminApi.getRejectedStoreCoaches).mockResolvedValue({
-      coaches: [],
+      agents: [],
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
@@ -219,7 +219,7 @@ describe('RejectedCoachesList', () => {
 
   it('handles unknown rejection reason gracefully', async () => {
     vi.mocked(adminApi.getRejectedStoreCoaches).mockResolvedValue({
-      coaches: [
+      agents: [
         {
           ...mockCoaches[0],
           rejection_reason: 'unknown_reason',
@@ -239,7 +239,7 @@ describe('RejectedCoachesList', () => {
 
   it('shows singular form for one rejection', async () => {
     vi.mocked(adminApi.getRejectedStoreCoaches).mockResolvedValue({
-      coaches: [mockCoaches[0]],
+      agents: [mockCoaches[0]],
       total: 1,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });

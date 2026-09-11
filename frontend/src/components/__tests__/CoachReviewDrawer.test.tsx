@@ -61,12 +61,12 @@ vi.mock('../../services/api', () => ({
     approveStoreCoach: vi.fn().mockResolvedValue({
       success: true,
       message: 'Coach approved',
-      coach_id: 'coach-1',
+      agent_id: 'coach-1',
     }),
     rejectStoreCoach: vi.fn().mockResolvedValue({
       success: true,
       message: 'Coach rejected',
-      coach_id: 'coach-1',
+      agent_id: 'coach-1',
     }),
   },
 }));

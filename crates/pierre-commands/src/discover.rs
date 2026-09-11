@@ -1,5 +1,5 @@
-// ABOUTME: Handlers for /discover — browse or search the coach catalogue and install a coach by @handle
-// ABOUTME: The chat face of the Coach Store, on the same reads and install path as the web tab and the tools
+// ABOUTME: Handlers for /discover — browse or search the agent catalogue and install an agent by @handle
+// ABOUTME: The chat face of the Agent Store, on the same reads and install path as the web tab and the tools
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,10 +13,10 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::markdown::strip_emphasis;
-use pierre_core::models::coaches::{CoachCategory, CoachHandle};
+use pierre_core::models::agents::{AgentCategory, AgentHandle};
 use pierre_messaging::commands::{CommandAction, CommandResponse};
-use pierre_services::coach_store::{
-    browse_store_page, install_store_coach, search_store, StoreCoach,
+use pierre_services::agent_store::{
+    browse_store_page, install_store_agent, search_store, StoreAgent,
 };
 use tracing::{debug, info};
 
@@ -27,24 +27,24 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// 64-byte callback limit (`/discover install @` plus a 40-character handle).
 const PAGE_SIZE: u32 = 8;
 
-/// The seven categories the Store files coaches under — the same set the web
+/// The seven categories the Store files agents under — the same set the web
 /// Discover tab offers as filters.
-const STORE_CATEGORIES: [CoachCategory; 7] = [
-    CoachCategory::Training,
-    CoachCategory::Nutrition,
-    CoachCategory::Recovery,
-    CoachCategory::Recipes,
-    CoachCategory::Mobility,
-    CoachCategory::Analysis,
-    CoachCategory::Custom,
+const STORE_CATEGORIES: [AgentCategory; 7] = [
+    AgentCategory::Training,
+    AgentCategory::Nutrition,
+    AgentCategory::Recovery,
+    AgentCategory::Recipes,
+    AgentCategory::Mobility,
+    AgentCategory::Analysis,
+    AgentCategory::Custom,
 ];
 
 /// What the words after `/discover` ask for.
 enum Scope {
-    /// Bare `/discover`: the newest published coaches.
+    /// Bare `/discover`: the newest published agents.
     All,
     /// One of the seven store categories, named exactly (case-insensitive).
-    Category(CoachCategory),
+    Category(AgentCategory),
     /// Anything else: a search over titles, descriptions and tags.
     Search(String),
 }
@@ -82,8 +82,8 @@ fn split_page(args: &[String]) -> (u32, &[String]) {
 
 /// What one `/discover` turn found.
 struct Listing {
-    /// The coaches to show, at most [`PAGE_SIZE`].
-    coaches: Vec<StoreCoach>,
+    /// The agents to show, at most [`PAGE_SIZE`].
+    agents: Vec<StoreAgent>,
     /// The postback that fetches the next page, when there is one.
     next_page: Option<String>,
     /// What the caller asked for, for the empty reply — `None` for the bare
@@ -94,14 +94,14 @@ struct Listing {
 /// Handler for `/discover [query|category]` and `/discover more <offset> [category]`.
 ///
 /// Reads the Store through the same service the web Discover tab and the
-/// `browse_agent_store` / `search_agent_store` tools use, so a coach ranks
-/// the same everywhere. Every coach on the card gets an install button;
+/// `browse_agent_store` / `search_agent_store` tools use, so an agent ranks
+/// the same everywhere. Every agent on the card gets an install button;
 /// only a browse pages, since a search already returns its best matches.
 pub struct DiscoverHandler;
 
 impl DiscoverHandler {
     async fn list(ctx: &PlatformCommandContext) -> Result<Listing, AppError> {
-        let repos = ctx.ctx.repos().coach_repos();
+        let repos = ctx.ctx.repos().agent_repos();
         let (offset, words) = split_page(&ctx.args);
         Ok(match Scope::parse(words) {
             Scope::All => {
@@ -109,7 +109,7 @@ impl DiscoverHandler {
                     browse_store_page(&repos, ctx.tenant_id, None, offset, PAGE_SIZE, &ctx.locale)
                         .await?;
                 Listing {
-                    coaches: page.coaches,
+                    agents: page.agents,
                     next_page: page
                         .next_offset
                         .map(|next| format!("/discover more {next}")),
@@ -127,7 +127,7 @@ impl DiscoverHandler {
                 )
                 .await?;
                 Listing {
-                    coaches: page.coaches,
+                    agents: page.agents,
                     next_page: page
                         .next_offset
                         .map(|next| format!("/discover more {next} {}", category.as_str())),
@@ -135,7 +135,7 @@ impl DiscoverHandler {
                 }
             }
             Scope::Search(query) => Listing {
-                coaches: search_store(&repos, &query, Some(PAGE_SIZE), &ctx.locale).await?,
+                agents: search_store(&repos, &query, Some(PAGE_SIZE), &ctx.locale).await?,
                 next_page: None,
                 asked: Some(query),
             },
@@ -150,7 +150,7 @@ impl CommandHandler for DiscoverHandler {
         let locale = ctx.locale.as_str();
 
         let listing = Self::list(ctx).await?;
-        if listing.coaches.is_empty() {
+        if listing.agents.is_empty() {
             let body = listing.asked.map_or_else(
                 || reg.render(KEY_DISCOVER_CATALOGUE_EMPTY, locale, &[]),
                 |asked| reg.render(KEY_DISCOVER_EMPTY, locale, &[&asked]),
@@ -159,20 +159,20 @@ impl CommandHandler for DiscoverHandler {
         }
 
         let mut body = String::with_capacity(512);
-        let mut actions = Vec::with_capacity(listing.coaches.len() + 1);
-        for coach in &listing.coaches {
-            // A handle is assigned when a coach is approved into the Store;
+        let mut actions = Vec::with_capacity(listing.agents.len() + 1);
+        for agent in &listing.agents {
+            // A handle is assigned when an agent is approved into the Store;
             // a listing without one predates that and is installable from
             // the web tab by id, but not by name from chat.
-            let Some(handle) = coach.handle.as_deref() else {
-                debug!(coach_id = %coach.id, "published coach has no catalogue handle; not listed in /discover");
+            let Some(handle) = agent.handle.as_deref() else {
+                debug!(agent_id = %agent.id, "published coach has no catalogue handle; not listed in /discover");
                 continue;
             };
-            // Coach markdown carries CommonMark emphasis that only Slack
+            // Agent markdown carries CommonMark emphasis that only Slack
             // renders natively; strip it so every channel reads plain text,
             // and keep the first line — a catalogue card is a shelf, not the
-            // coach's page.
-            let description = coach
+            // agent's page.
+            let description = agent
                 .description
                 .as_deref()
                 .and_then(|d| d.lines().find(|line| !line.trim().is_empty()))
@@ -182,14 +182,14 @@ impl CommandHandler for DiscoverHandler {
                 KEY_DISCOVER_ITEM,
                 locale,
                 &[
-                    &coach.title,
+                    &agent.title,
                     handle,
-                    coach.category.display_name(),
+                    agent.category.display_name(),
                     &description,
                 ],
             ));
             actions.push(CommandAction {
-                label: coach.title.clone(),
+                label: agent.title.clone(),
                 action_type: "postback".to_owned(),
                 value: format!("/discover install @{handle}"),
             });
@@ -212,12 +212,12 @@ impl CommandHandler for DiscoverHandler {
 
 /// Handler for `/discover install @handle`.
 ///
-/// Resolves the handle against the published catalogue — the origin coach,
+/// Resolves the handle against the published catalogue — the origin agent,
 /// never an athlete's copy — and installs it through the one path the REST
 /// route and the `install_agent_from_store` tool share, so `agent.installed`
 /// counts the install once. The reply is the post-install hint: how to bring
-/// the coach into a chat (`/coach add @handle`) or borrow it for one turn
-/// (`@handle` in a message). A coach already on the caller's list gets the
+/// the agent into a chat (`/agent add @handle`) or borrow it for one turn
+/// (`@handle` in a message). An agent already on the caller's list gets the
 /// same hint and no second copy.
 pub struct DiscoverInstallHandler;
 
@@ -234,15 +234,15 @@ impl CommandHandler for DiscoverInstallHandler {
                 &[],
             )));
         };
-        // A token the handle grammar refuses names no published coach either;
+        // A token the handle grammar refuses names no published agent either;
         // both are answered by name.
-        let Ok(handle) = CoachHandle::parse(typed) else {
+        let Ok(handle) = AgentHandle::parse(typed) else {
             return Ok(unknown_handle(ctx, typed));
         };
 
         let repos = ctx.ctx.repos();
         if let Some(installed) = repos
-            .coaches
+            .agents
             .find_installed_by_handle(&handle, ctx.user_id, ctx.tenant_id)
             .await?
         {
@@ -261,9 +261,9 @@ impl CommandHandler for DiscoverInstallHandler {
         else {
             return Ok(unknown_handle(ctx, typed));
         };
-        let installed = install_store_coach(
-            &repos.coach_repos(),
-            &published.coach.id.to_string(),
+        let installed = install_store_agent(
+            &repos.agent_repos(),
+            &published.agent.id.to_string(),
             ctx.user_id,
             ctx.tenant_id,
         )
@@ -271,7 +271,7 @@ impl CommandHandler for DiscoverInstallHandler {
 
         info!(
             user_id = %ctx.user_id,
-            coach_id = %installed.id,
+            agent_id = %installed.id,
             handle = handle.as_str(),
             channel = %ctx.channel_type,
             "Coach installed from the catalogue via /discover install"
@@ -286,13 +286,13 @@ impl CommandHandler for DiscoverInstallHandler {
     }
 }
 
-/// The post-install card: the coach's title above the hint, and one button
-/// that binds the coach to this chat.
+/// The post-install card: the agent's title above the hint, and one button
+/// that binds the agent to this chat.
 fn install_hint(
     ctx: &PlatformCommandContext,
     key: &str,
     title: &str,
-    handle: &CoachHandle,
+    handle: &AgentHandle,
 ) -> CommandResponse {
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = ctx.locale.as_str();
@@ -307,7 +307,7 @@ fn install_hint(
     )
 }
 
-/// Refuse a handle no published coach answers to, naming it as typed.
+/// Refuse a handle no published agent answers to, naming it as typed.
 fn unknown_handle(ctx: &PlatformCommandContext, typed: &str) -> CommandResponse {
     let shown = if typed.starts_with('@') {
         typed.to_owned()

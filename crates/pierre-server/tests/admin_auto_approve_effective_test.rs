@@ -102,7 +102,7 @@ async fn auto_approval_env_override_holds_after_a_write_that_agrees_with_the_dat
 #[tokio::test]
 async fn oauth_status_surfaces_a_repository_failure_instead_of_reporting_disconnected() {
     let resources = create_test_server_resources().await.unwrap();
-    let (_user_id, user) = create_test_user(&resources.coach.database).await.unwrap();
+    let (_user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let token = resources
         .auth
         .auth_manager
@@ -126,7 +126,7 @@ async fn oauth_status_surfaces_a_repository_failure_instead_of_reporting_disconn
     assert_eq!(statuses[1]["connected"], false);
 
     // Break the backing table so the repository read fails for the same user.
-    match resources.coach.database.as_ref() {
+    match resources.agent.database.as_ref() {
         Database::SQLite(db) => {
             sqlx::query(DROP_TOKENS_TABLE)
                 .execute(db.pool())

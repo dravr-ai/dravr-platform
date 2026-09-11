@@ -108,7 +108,7 @@ describe('ConversationItem anatomy', () => {
       conversation({
         group_id: 'group-1',
         group_name: 'Sunday Riders',
-        coach_title: 'Tempo Coach',
+        agent_title: 'Tempo Coach',
       }),
     );
 
@@ -140,7 +140,7 @@ describe('ConversationItem anatomy', () => {
   });
 
   it('falls back to the coach handle under a thread with no message yet', () => {
-    renderRow(conversation({ coach_id: 'coach-1', coach_handle: 'recovery-coach', last_message: null }));
+    renderRow(conversation({ agent_id: 'coach-1', agent_handle: 'recovery-coach', last_message: null }));
 
     expect(screen.getByTestId('conversation-preview')).toHaveTextContent('@recovery-coach');
   });

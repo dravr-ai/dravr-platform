@@ -6,14 +6,14 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Coach } from '@pierre/shared-types';
+import type { Agent } from '@pierre/shared-types';
 import { coachesApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 /** What the agent info panel draws. */
-export interface CoachInfoState {
+export interface AgentInfoState {
   /** The agent the conversation is bound to, or null while unknown. */
-  coach: Coach | null;
+  coach: Agent | null;
   isLoading: boolean;
 }
 
@@ -24,18 +24,18 @@ export interface CoachInfoState {
  * holds — installed agents plus the system catalogue — so opening the info
  * panel costs no request on a thread whose header has already resolved.
  */
-export function useCoachInfo(coachId: string | null | undefined): CoachInfoState {
-  const { data, isLoading } = useQuery<{ coaches: Coach[] }>({
+export function useCoachInfo(agentId: string | null | undefined): AgentInfoState {
+  const { data, isLoading } = useQuery<{ agents: Agent[] }>({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
     staleTime: 5 * 60 * 1000,
-    enabled: !!coachId,
+    enabled: !!agentId,
   });
 
   const coach = useMemo(
-    () => (coachId ? (data?.coaches.find((c) => c.id === coachId) ?? null) : null),
-    [data, coachId],
+    () => (agentId ? (data?.agents.find((c) => c.id === agentId) ?? null) : null),
+    [data, agentId],
   );
 
-  return { coach, isLoading: isLoading && !!coachId };
+  return { coach, isLoading: isLoading && !!agentId };
 }

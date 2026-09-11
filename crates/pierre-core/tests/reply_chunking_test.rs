@@ -23,9 +23,9 @@ use pierre_core::chunking::chunk_reply;
 /// the one that splits most often.
 const DISCORD: usize = 2000;
 
-/// A coach paragraph of `sentences` sentences, each exactly 80 characters
+/// An agent paragraph of `sentences` sentences, each exactly 80 characters
 /// including the space that follows it.
-fn coach_reply(sentences: usize) -> String {
+fn agent_reply(sentences: usize) -> String {
     let mut out = String::new();
     for n in 1..=sentences {
         let _ = write!(
@@ -97,7 +97,7 @@ fn a_blank_reply_produces_no_messages() {
 
 #[test]
 fn the_in_app_ceiling_never_splits() {
-    let reply = coach_reply(400);
+    let reply = agent_reply(400);
 
     let messages = chunk_reply(&reply, usize::MAX);
 
@@ -111,7 +111,7 @@ fn the_in_app_ceiling_never_splits() {
 /// messages once the split is confined to sentence boundaries.
 #[test]
 fn an_over_limit_reply_becomes_ordered_messages_that_all_fit() {
-    let reply = coach_reply(75);
+    let reply = agent_reply(75);
     assert_eq!(
         reply.chars().count(),
         5999,
@@ -143,7 +143,7 @@ fn an_over_limit_reply_becomes_ordered_messages_that_all_fit() {
 /// surface. Telegram's 4096 and Slack's 40000 are the other two real numbers.
 #[test]
 fn the_ceiling_that_splits_is_the_channels_own_not_a_constant() {
-    let reply = coach_reply(75);
+    let reply = agent_reply(75);
 
     let discord = chunk_reply(&reply, 2000);
     let telegram = chunk_reply(&reply, 4096);
@@ -164,7 +164,7 @@ fn the_ceiling_that_splits_is_the_channels_own_not_a_constant() {
 /// hands the athlete half a thought.
 #[test]
 fn the_split_lands_after_a_sentence() {
-    let reply = coach_reply(75);
+    let reply = agent_reply(75);
 
     let messages = chunk_reply(&reply, DISCORD);
 

@@ -9,7 +9,7 @@
 //! `GroupMember.display_name` is populated by the membership query with the
 //! member's full e-mail address, so matching or printing it would leak an
 //! address into a tool error — and from there into a room. Every path that
-//! names a member resolves the name here instead: the group roster the coach
+//! names a member resolves the name here instead: the group roster the agent
 //! reads, the peer-activity fetch that matches a roster name, and the plan
 //! tools' `athlete=` resolution.
 //!

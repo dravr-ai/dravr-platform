@@ -21,7 +21,7 @@
 //! Petite note : tu as utilisé 670828 de 500000 sur ton forfait.
 //! ```
 //!
-//! They landed under the replies where the athlete was disputing the coach's
+//! They landed under the replies where the athlete was disputing the agent's
 //! facts about his own training, so the last thing the conversation did before
 //! he left was interleave billing telemetry with an argument (registre#251).
 //!

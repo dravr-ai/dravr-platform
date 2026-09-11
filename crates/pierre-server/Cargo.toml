@@ -70,7 +70,7 @@ tools-all = [
     "tools-nutrition",
     "tools-sleep",
     "tools-recipes",
-    "tools-coaches",
+    "tools-agents",
     "tools-admin",
     "tools-mobility",
     "tools-groups",
@@ -93,8 +93,8 @@ tools-nutrition = ["pierre-tool-runtime/tools-nutrition"]       # daily_nutritio
 tools-sleep = ["pierre-tool-runtime/tools-sleep"]           # sleep_quality, recovery_score, rest_day
 tools-health-data = []     # sleep_sessions, recovery, health_snapshots, data_sources persistence queries
 tools-recipes = ["pierre-tool-runtime/tools-recipes"]         # validate_recipe, save_recipe, list_recipes
-tools-coaches = ["pierre-tool-runtime/tools-coaches"]         # coach CRUD, activate, favorites
-tools-admin = ["tools-coaches", "pierre-tool-runtime/tools-admin"]  # admin tools depend on coach tools
+tools-agents = ["pierre-tool-runtime/tools-agents"]         # coach CRUD, activate, favorites
+tools-admin = ["tools-agents", "pierre-tool-runtime/tools-admin"]  # admin tools depend on coach tools
 tools-mobility = ["pierre-tool-runtime/tools-mobility"]        # stretching exercises, yoga poses, mobility recommendations
 tools-groups = ["dep:pierre-groups", "pierre-tool-runtime/tools-groups", "pierre-commands?/tools-groups", "pierre-chat-pipeline?/tools-groups"]  # group coaching tools (create, join, manage, analytics) + group_fitness snapshot fetcher
 tools-memory = ["pierre-tool-runtime/tools-memory"]          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
@@ -129,10 +129,10 @@ transport-web = ["transport-http", "transport-sse"]
 client-dashboard = ["protocol-rest", "dep:pierre-routes-dashboard"]     # dashboard routes (extracted to pierre-routes-dashboard)
 client-settings = ["protocol-rest"]      # configuration.rs, fitness.rs
 client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
-client-coaches = ["protocol-rest", "tools-coaches"]  # coaches.rs
+client-agents = ["protocol-rest", "tools-agents"]  # the agent routes
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
-client-store = ["protocol-rest"]  # Coach Store REST API routes (pierre-routes-coaches build_store_router)
+client-store = ["protocol-rest"]  # Agent Store REST API routes (pierre-routes-agents build_store_router)
 # `client-notifications` because `pierre-routes-groups` calls
 # `GroupsCtx::notification_service()` on every path — the trait method is not
 # optional there, so a build that mounts these routes without notifications has
@@ -140,7 +140,7 @@ client-store = ["protocol-rest"]  # Coach Store REST API routes (pierre-routes-c
 # separates the two features, which is why it went unnoticed (carnet#116).
 client-groups = ["protocol-rest", "tools-groups", "dep:pierre-routes-groups", "client-notifications"]  # group coaching routes (extracted to pierre-routes-groups)
 
-client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-groups"]
+client-web = ["client-dashboard", "client-settings", "client-chat", "client-agents", "client-oauth-apps", "client-store", "client-groups"]
 
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-ADMIN FEATURES
@@ -164,7 +164,7 @@ client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 # Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
 # GroupService, which owns the tier gate and the group.created/joined events.
 client-messaging = ["protocol-rest", "dep:pierre-messaging", "dep:pierre-commands", "pierre-messaging/all-channels", "pierre-services/client-messaging", "tools-groups"]
-client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-services/client-notifications", "pierre-routes-coaches/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
+client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-services/client-notifications", "pierre-routes-agents/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 
@@ -190,7 +190,7 @@ pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", optional = true }
 pierre-commands = { version = "0.3.0", path = "../pierre-commands", optional = true }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
-pierre-coach-parser = { version = "0.3.0", path = "../pierre-coach-parser" }
+pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
 pierre-external = { version = "0.3.0", path = "../pierre-external" }
@@ -205,7 +205,7 @@ pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context"
 pierre-routes-admin = { version = "0.3.0", path = "../pierre-routes-admin" }
 pierre-routes-auth = { version = "0.3.0", path = "../pierre-routes-auth", optional = true }
 pierre-routes-billing = { version = "0.3.0", path = "../pierre-routes-billing" }
-pierre-routes-coaches = { version = "0.3.0", path = "../pierre-routes-coaches" }
+pierre-routes-agents = { version = "0.3.0", path = "../pierre-routes-agents" }
 pierre-routes-dashboard = { version = "0.3.0", path = "../pierre-routes-dashboard", optional = true }
 pierre-routes-groups = { version = "0.3.0", path = "../pierre-routes-groups", optional = true }
 pierre-routes-identity = { version = "0.3.0", path = "../pierre-routes-identity" }

@@ -21,9 +21,9 @@ use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
 };
 use pierre_core::errors::AppError;
-use pierre_services::coach_selection::{record_coach_selection, CoachSelectionSource};
+use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
-    forge_conversation, messaging_title, selected_coach_id, ForgeCoach, ForgeParams,
+    forge_conversation, messaging_title, selected_agent_id, ForgeAgent, ForgeParams,
 };
 use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
@@ -120,12 +120,12 @@ pub(super) async fn forge_fresh_session_conversation(
             tenant_id,
             title: &title,
             model: None,
-            // A messaging session carries no coach of its own, so the
+            // A messaging session carries no agent of its own, so the
             // athlete's tenant-level selection is the only answer available.
-            coach: ForgeCoach::Selected,
+            agent: ForgeAgent::Selected,
             group_id: None,
             channel_type,
-            selection_source: CoachSelectionSource::MessagingSession,
+            selection_source: AgentSelectionSource::MessagingSession,
             guided_flow: is_direct_message,
         },
     )
@@ -334,12 +334,12 @@ async fn resume_existing_session(
         }
     }
 
-    // A messaging channel holds ONE long-lived conversation, so a coach the
+    // A messaging channel holds ONE long-lived conversation, so an agent the
     // athlete picks after it was opened has to reach the thread they are
     // already in. Bound only at creation, selection appeared to do nothing
     // until `/reset` forged a new conversation — which is why `/reset` looked
-    // like the way to change coach, at the cost of the whole history.
-    rebind_conversation_coach(resources, tenant_id, &user_id, &conversation).await;
+    // like the way to change agent, at the cost of the whole history.
+    rebind_conversation_agent(resources, tenant_id, &user_id, &conversation).await;
 
     if let Err(e) = db.touch_session(&session_id).await {
         error!(error = %e, session_id = %session_id, "Failed to touch session");
@@ -354,31 +354,31 @@ async fn resume_existing_session(
     })
 }
 
-/// Point the session's conversation at the athlete's currently selected coach.
+/// Point the session's conversation at the athlete's currently selected agent.
 ///
-/// Web chat binds a coach per conversation, so it must not be rebound; a
+/// Web chat binds an agent per conversation, so it must not be rebound; a
 /// messaging channel has no such choice to make — one thread, one selection —
 /// and the selection is the athlete's latest word on who they are talking to.
 /// Deselection clears the binding for the same reason.
 ///
 /// Best-effort, like the group retrofit beside it: a lookup failure leaves the
 /// existing binding in place rather than dropping the turn. It is logged at
-/// WARN because the visible symptom — the previous coach answering — reads to
+/// WARN because the visible symptom — the previous agent answering — reads to
 /// the athlete as the selection being ignored.
-async fn rebind_conversation_coach(
+async fn rebind_conversation_agent(
     resources: &ServerContext,
     tenant_id: TenantId,
     user_id: &str,
     conversation_id: &str,
 ) {
-    let selected = selected_coach_id(&resources.common.repos, tenant_id, user_id).await;
+    let selected = selected_agent_id(&resources.common.repos, tenant_id, user_id).await;
     let chat = resources.common.repos.chat.as_ref();
 
     let current = match chat
         .get_conversation(conversation_id, user_id, tenant_id)
         .await
     {
-        Ok(Some(conv)) => conv.coach_id,
+        Ok(Some(conv)) => conv.agent_id,
         Ok(None) => return,
         Err(e) => {
             warn!(error = %e, conversation_id, "coach rebind: conversation unreadable");
@@ -389,7 +389,7 @@ async fn rebind_conversation_coach(
         return;
     }
 
-    apply_coach_rebind(
+    apply_agent_rebind(
         resources,
         tenant_id,
         user_id,
@@ -403,7 +403,7 @@ async fn rebind_conversation_coach(
 /// Write the rebind and record the switch. Split from its caller only because
 /// the three outcomes plus their log lines push the combined function past the
 /// cognitive-complexity gate.
-async fn apply_coach_rebind(
+async fn apply_agent_rebind(
     resources: &ServerContext,
     tenant_id: TenantId,
     user_id: &str,
@@ -415,7 +415,7 @@ async fn apply_coach_rebind(
         .common
         .repos
         .chat
-        .set_conversation_coach_id(conversation_id, selected, tenant_id)
+        .set_conversation_agent_id(conversation_id, selected, tenant_id)
         .await;
 
     match written {
@@ -436,32 +436,32 @@ async fn apply_coach_rebind(
         selected = selected.unwrap_or("none"),
         "Rebound messaging conversation to the athlete's selected coach"
     );
-    if let Some(coach_id) = selected {
-        record_rebound_coach_usage(resources, coach_id, user_id, tenant_id).await;
+    if let Some(agent_id) = selected {
+        record_rebound_agent_usage(resources, agent_id, user_id, tenant_id).await;
     }
 }
 
-/// Best-effort `coach_assignments.use_count++` for a rebound conversation,
+/// Best-effort `agent_assignments.use_count++` for a rebound conversation,
 /// through the shared recorder that also emits `agent.selected`.
-async fn record_rebound_coach_usage(
+async fn record_rebound_agent_usage(
     resources: &ServerContext,
-    coach_id: &str,
+    agent_id: &str,
     user_id: &str,
     tenant_id: TenantId,
 ) {
     let Ok(caller) = Uuid::parse_str(user_id) else {
         return;
     };
-    if let Err(e) = record_coach_selection(
-        resources.common.repos.coaches.as_ref(),
-        coach_id,
+    if let Err(e) = record_agent_selection(
+        resources.common.repos.agents.as_ref(),
+        agent_id,
         caller,
         tenant_id,
-        CoachSelectionSource::MessagingSession,
+        AgentSelectionSource::MessagingSession,
     )
     .await
     {
-        warn!(error = %e, coach_id, "Failed to record the rebound coach's usage");
+        warn!(error = %e, agent_id, "Failed to record the rebound coach's usage");
     }
 }
 
@@ -500,10 +500,10 @@ async fn open_new_session(
             tenant_id,
             title: &title,
             model: None,
-            coach: ForgeCoach::Selected,
+            agent: ForgeAgent::Selected,
             group_id: group_id_opt.as_deref(),
             channel_type,
-            selection_source: CoachSelectionSource::MessagingSession,
+            selection_source: AgentSelectionSource::MessagingSession,
             guided_flow: is_direct_message,
         },
     )
@@ -551,7 +551,7 @@ async fn open_new_session(
 }
 
 /// Pick the `coaching_groups.id` to attach to a new messaging conversation,
-/// or `None` for DMs / when no coach is available to bootstrap the group.
+/// or `None` for DMs / when no agent is available to bootstrap the group.
 ///
 /// `chat_ref.chat_title` carries the human-readable group name from the
 /// inbound payload (Telegram `chat.title`, Discord `channel.name`). When
@@ -573,7 +573,7 @@ async fn resolve_group_for_new_session(
         .chat_title
         .map_or_else(|| format!("{channel_type} group {chat_id}"), str::to_owned);
     let auth = resources.common.repos.auth_repos();
-    let coach = resources.common.repos.coach_repos();
+    let agent = resources.common.repos.agent_repos();
     let binding = ChannelChatBinding {
         tenant_id,
         channel_type,
@@ -581,7 +581,7 @@ async fn resolve_group_for_new_session(
         user_id,
         chat_title_hint: &chat_title_hint,
     };
-    match resolve_or_create_channel_group(&auth, &coach, resources.group_service(), &binding).await
+    match resolve_or_create_channel_group(&auth, &agent, resources.group_service(), &binding).await
     {
         Ok(opt) => opt,
         Err(e) => {
@@ -691,7 +691,7 @@ async fn conversation_already_bound(
 
 /// Resolve (or auto-create on first sender) the channel-bound
 /// `coaching_groups.id` for a retrofit pass. Logs and returns `None` on
-/// failure or when no coach is available to bootstrap the group.
+/// failure or when no agent is available to bootstrap the group.
 async fn resolve_group_for_retrofit(
     resources: &ServerContext,
     tenant_id: TenantId,
@@ -701,7 +701,7 @@ async fn resolve_group_for_retrofit(
     chat_title_hint: &str,
 ) -> Option<String> {
     let auth = resources.common.repos.auth_repos();
-    let coach = resources.common.repos.coach_repos();
+    let agent = resources.common.repos.agent_repos();
     let binding = ChannelChatBinding {
         tenant_id,
         channel_type,
@@ -709,7 +709,7 @@ async fn resolve_group_for_retrofit(
         user_id,
         chat_title_hint,
     };
-    match resolve_or_create_channel_group(&auth, &coach, resources.group_service(), &binding).await
+    match resolve_or_create_channel_group(&auth, &agent, resources.group_service(), &binding).await
     {
         Ok(opt) => opt,
         Err(e) => {

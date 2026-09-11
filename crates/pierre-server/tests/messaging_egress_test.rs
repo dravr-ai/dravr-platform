@@ -95,7 +95,7 @@ fn conversation() -> ConversationRecord {
         tenant_id: "tenant-1".to_owned(),
         title: "Charge".to_owned(),
         model: "opus".to_owned(),
-        coach_id: None,
+        agent_id: None,
         session_id: None,
         total_tokens: 162,
         created_at: "2026-08-24T00:00:00Z".to_owned(),
@@ -119,7 +119,7 @@ fn telemetry() -> TurnTelemetry {
 }
 
 /// A turn whose entire answer is one chart and no words — the shape
-/// "fais-moi un graphique" produces when the coach lets the picture speak.
+/// "fais-moi un graphique" produces when the agent lets the picture speak.
 fn chart_only_turn_state() -> TurnState {
     let mut state = turn_state("");
     state.scene_images = vec![SceneImage {
@@ -153,7 +153,7 @@ fn envelope(channel_type: ChannelType, state: TurnState) -> TurnEnvelope {
     build_envelope(&profile(channel_type), state)
 }
 
-/// A coach paragraph of `sentences` sentences, each exactly 80 characters
+/// An agent paragraph of `sentences` sentences, each exactly 80 characters
 /// including the trailing space.
 fn long_reply(sentences: usize) -> String {
     let mut out = String::new();
@@ -648,7 +648,7 @@ fn the_quota_notice_is_written_in_all_five_locales() {
 /// Both levels used to render the same template, `"{used} of {limit}"`, which
 /// is fine at 45 of 50 and nonsense at 60 of 50. Live 2026-09-02: an athlete
 /// was told *"tu as utilisé 670828 de 500000 sur ton forfait"* on four
-/// consecutive turns, under the replies where he was disputing the coach's
+/// consecutive turns, under the replies where he was disputing the agent's
 /// facts about his own training (registre#251).
 #[test]
 fn the_burst_notice_never_prints_the_over_limit_comparison() {
@@ -889,7 +889,7 @@ fn every_channel_reports_its_own_ceiling() {
 /// `dispatch.rs` used to test `prose.is_empty()` alone while its own comment
 /// said "empty content **and no list**". A reply that is one chart and no prose
 /// hit that guard, the chart was discarded, and the athlete was told « je n'ai
-/// pas réussi à formuler une réponse » about a chart the coach had drawn.
+/// pas réussi à formuler une réponse » about a chart the agent had drawn.
 #[test]
 fn a_chart_with_no_prose_is_not_an_empty_reply() {
     let envelope = envelope(ChannelType::Telegram, chart_only_turn_state());

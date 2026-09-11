@@ -542,7 +542,7 @@ async fn record_and_mark(
     let outcome = RecordedOutcome {
         tenant_id: &advice.tenant_id,
         user_id: &advice.user_id,
-        coach_slug: advice.coach_slug.as_deref(),
+        agent_slug: advice.agent_slug.as_deref(),
         trigger: &advice.trigger,
         intervention: &advice.intervention,
         outcome_metric: &advice.outcome_metric,

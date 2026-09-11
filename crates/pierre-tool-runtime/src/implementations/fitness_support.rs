@@ -52,7 +52,7 @@ use uuid::Uuid;
 /// Localized short sport-type label for the activity list, keyed by BCP-47
 /// locale.
 ///
-/// The names are intentionally short coach/athlete nouns (fr "course à
+/// The names are intentionally short agent/athlete nouns (fr "course à
 /// pied"/"rando"/"ski de fond", not the English `display_name`) so a French
 /// chat reads natively. Falls back to English for an unrecognized locale and
 /// keeps the provider-supplied label for `SportType::Other`; the match has no
@@ -770,8 +770,8 @@ pub(crate) async fn cache_activities_result(
 /// locales the platform ships (en/fr/es/de/pt).
 ///
 /// These are not sport names: matching them literally drops every activity and
-/// makes the coach report "no recent data" over a full cache (the 2026-07-20
-/// dev incident, where English `all` did exactly that). The coach speaks the
+/// makes the agent report "no recent data" over a full cache (the 2026-07-20
+/// dev incident, where English `all` did exactly that). The agent speaks the
 /// athlete's language, so it emits the wildcard in that language too.
 ///
 /// Compared after [`normalise_sport_string`], which lowercases and strips

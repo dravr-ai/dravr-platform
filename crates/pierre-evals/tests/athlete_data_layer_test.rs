@@ -21,7 +21,7 @@
 //!
 //! - Treating a providerless fabrication as merely unverifiable keeps the
 //!   original failure.
-//! - Treating a cache miss as a contradiction calls the coach a liar over our
+//! - Treating a cache miss as a contradiction calls the agent a liar over our
 //!   own sync lag.
 
 use chrono::NaiveDate;

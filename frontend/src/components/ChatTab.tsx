@@ -88,7 +88,7 @@ interface ChatTabProps {
   onSelectConversation: (id: string | null) => void;
   /**
    * Dashboard route navigator, `tab[/subview]`. Editing an agent leaves for
-   * `discover/<coachId>`, which is where the edit sheet lives.
+   * `discover/<agentId>`, which is where the edit sheet lives.
    */
   onNavigate?: (route: string) => void;
   /** Text the shell wants drafted or sent in a thread — the invite deep link uses it. */
@@ -210,9 +210,9 @@ export default function ChatTab({
     [conversations, selectedConversation],
   );
 
-  // `pendingCoachId` covers a freshly created conversation whose `coach_id`
+  // `pendingCoachId` covers a freshly created conversation whose `agent_id`
   // has not yet been written back to the list.
-  const { coach: activeCoach } = useCoachInfo(activeConversation?.coach_id ?? pendingCoachId);
+  const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? pendingCoachId);
   const activeCoachTitle = activeCoach?.title ?? null;
 
   // What the header names: the group, the agent, or the thread's own title.
@@ -263,7 +263,7 @@ export default function ChatTab({
   // Mutations. Takes an optional coach ID; the server resolves the
   // agent's system prompt at runtime from the coaches table.
   const createConversation = useMutation<{ id: string }, Error, string | void>({
-    mutationFn: (coachId) => {
+    mutationFn: (agentId) => {
       // Named for the moment it starts, in the viewer's language and on the
       // same 24-hour clock the list row shows; a rename replaces it.
       const defaultTitle = defaultConversationTitle(
@@ -273,7 +273,7 @@ export default function ChatTab({
       );
       return chatApi.createConversation({
         title: defaultTitle,
-        coach_id: coachId || pendingCoachId || undefined,
+        agent_id: agentId || pendingCoachId || undefined,
       });
     },
     onSuccess: (data) => {
@@ -932,9 +932,9 @@ export default function ChatTab({
             setInfoOpen(false);
             runComposerAction({ kind: 'send', text });
           }}
-          onEditCoach={(coachId) => {
+          onEditCoach={(agentId) => {
             setInfoOpen(false);
-            onNavigate?.(`discover/${encodeURIComponent(coachId)}`);
+            onNavigate?.(`discover/${encodeURIComponent(agentId)}`);
           }}
           onRename={(title) => {
             void rename(activeConversation.id, title);

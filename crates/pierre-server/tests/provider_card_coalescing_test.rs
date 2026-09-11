@@ -33,7 +33,7 @@ mod helpers;
 
 async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId, User) {
     let resources = common::create_test_server_resources().await.unwrap();
-    let (user_id, user) = common::create_test_user(&resources.coach.database)
+    let (user_id, user) = common::create_test_user(&resources.agent.database)
         .await
         .unwrap();
     let tenants = resources

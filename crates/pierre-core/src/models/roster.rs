@@ -1,4 +1,4 @@
-// ABOUTME: Coach-athlete roster assignment models (1:N junction)
+// ABOUTME: Agent-athlete roster assignment models (1:N junction)
 // ABOUTME: Backs the coach_athlete_assignments table and /api/roster routes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! # Roster assignments
 //!
 //! A user with `manages_roster=true` (or `is_admin=true`) can be
-//! assigned to coach another user inside the same tenant. The
+//! assigned to agent another user inside the same tenant. The
 //! relationship is many-to-many: an athlete can be coached by multiple
 //! users, a coach can manage many athletes.
 //!
@@ -15,7 +15,7 @@
 //! assigned, who revoked, when) survives the unassign action. Active
 //! assignments are uniquely indexed on `(coach_user_id,
 //! athlete_user_id, tenant_id) WHERE revoked_at IS NULL` so the same
-//! coach cannot double-assign the same athlete.
+//! agent cannot double-assign the same athlete.
 //!
 //! Persona's [`crate::models::CoachingPersona::Coach`] picks the output
 //! voice; `manages_roster` picks the *permission*. They're independent —
@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use crate::models::TenantId;
 
-/// A single coach → athlete assignment row.
+/// A single agent → athlete assignment row.
 ///
 /// Persistence: rows live in `coach_athlete_assignments`. `revoked_at`
 /// is `NULL` for active assignments; once set, the row stays for audit.
@@ -43,7 +43,7 @@ pub struct CoachAthleteAssignment {
     /// Tenant scope — both users must belong to this tenant. Cross-
     /// tenant assignments are refused at the route layer, never written.
     pub tenant_id: TenantId,
-    /// Who initiated the assignment (admin granting, coach self-assigning,
+    /// Who initiated the assignment (admin granting, agent self-assigning,
     /// `None` for system-generated rows). Nullable on delete via FK so
     /// removing the assigner does not orphan the row.
     pub assigned_by: Option<Uuid>,

@@ -234,7 +234,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg) : null,
   );
 
-  // The agent whose Discover edit sheet is open, from `#discover/<coachId>`.
+  // The agent whose Discover edit sheet is open, from `#discover/<agentId>`.
   const [editingCoachId, setEditingCoachId] = useState<string | null>(
     initialTabSeg === 'discover' && initialSubSeg ? decodeURIComponent(initialSubSeg) : null,
   );

@@ -77,7 +77,7 @@ impl ChatRepository for PostgresDatabase {
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         group_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let id = Uuid::new_v4().to_string();
@@ -102,7 +102,7 @@ impl ChatRepository for PostgresDatabase {
 
         sqlx::query(
             r"
-            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, group_id, total_tokens, created_at, updated_at)
+            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, agent_id, group_id, total_tokens, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)
             ",
         )
@@ -111,7 +111,7 @@ impl ChatRepository for PostgresDatabase {
         .bind(tenant_id.to_string())
         .bind(title)
         .bind(model)
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(group_uuid)
         .bind(now)
         .execute(&mut *tx)
@@ -143,7 +143,7 @@ impl ChatRepository for PostgresDatabase {
             tenant_id: tenant_id.to_string(),
             title: title.to_owned(),
             model: model.to_owned(),
-            coach_id: coach_id.map(ToOwned::to_owned),
+            agent_id: agent_id.map(ToOwned::to_owned),
             session_id: None,
             total_tokens: 0,
             created_at: now.to_rfc3339(),
@@ -165,7 +165,7 @@ impl ChatRepository for PostgresDatabase {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.coach_id, c.session_id,
+            SELECT c.id, c.user_id, c.tenant_id, c.title, c.model, c.agent_id, c.session_id,
                    c.total_tokens, c.created_at, c.updated_at, c.group_id::TEXT AS group_id,
                    c.channel_type, c.onboarding_state
             FROM chat_conversations c
@@ -202,7 +202,7 @@ impl ChatRepository for PostgresDatabase {
                 tenant_id: r.get("tenant_id"),
                 title: r.get("title"),
                 model: r.get("model"),
-                coach_id: r.get("coach_id"),
+                agent_id: r.get("agent_id"),
                 session_id: r.get("session_id"),
                 total_tokens: r.get("total_tokens"),
                 created_at: created_at.to_rfc3339(),
@@ -717,7 +717,7 @@ impl ChatRepository for PostgresDatabase {
         limit: i64,
     ) -> AppResult<Vec<ConversationRecord>> {
         let rows = sqlx::query(
-            "SELECT id::TEXT, user_id::TEXT, tenant_id::TEXT, title, model, coach_id, session_id, \
+            "SELECT id::TEXT, user_id::TEXT, tenant_id::TEXT, title, model, agent_id, session_id, \
                     total_tokens, TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at, \
                     TO_CHAR(updated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as updated_at, \
                     group_id::TEXT, channel_type, onboarding_state \
@@ -743,7 +743,7 @@ impl ChatRepository for PostgresDatabase {
                     tenant_id: row.get("tenant_id"),
                     title: row.get("title"),
                     model: row.get("model"),
-                    coach_id: row.get("coach_id"),
+                    agent_id: row.get("agent_id"),
                     session_id: row.get("session_id"),
                     total_tokens: row.get("total_tokens"),
                     created_at: row.get("created_at"),
@@ -900,22 +900,22 @@ impl ChatRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn set_conversation_coach_id(
+    async fn set_conversation_agent_id(
         &self,
         conversation_id: &str,
-        coach_id: Option<&str>,
+        agent_id: Option<&str>,
         tenant_id: TenantId,
     ) -> AppResult<bool> {
-        // chat_conversations.coach_id is TEXT in both backends (coach ids are
+        // chat_conversations.agent_id is TEXT in both backends (agent ids are
         // slugs, not uuids), so unlike group_id there is nothing to parse.
         let result = sqlx::query(
             r"
             UPDATE chat_conversations
-            SET coach_id = $1
+            SET agent_id = $1
             WHERE id = $2 AND tenant_id = $3
             ",
         )
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(conversation_id)
         .bind(tenant_id.to_string())
         .execute(&self.pool)

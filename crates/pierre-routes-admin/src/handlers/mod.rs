@@ -9,16 +9,16 @@
 //! Each sub-module exposes one or more `pub(crate)` axum handler functions
 //! that the route builders in `crate::routes` wire to URL patterns. The
 //! handlers consume [`crate::AdminApiContext`] via `State<Arc<...>>` and
-//! delegate business logic to `pierre-services` (myth-busting, coach
+//! delegate business logic to `pierre-services` (myth-busting, agent
 //! grading, tenant admin, eval harness, …).
 
 pub mod admin_rate_limit_override;
+pub mod agent_followups;
+pub mod agent_grading;
+pub mod agent_notes;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
 pub mod claim_verdicts;
-pub mod coach_followups;
-pub mod coach_grading;
-pub mod coach_notes;
 pub mod contremaitre_admin;
 /// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
 pub mod device_auth;

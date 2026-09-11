@@ -6,7 +6,7 @@
 
 //! # System-prompt fingerprinting.
 //!
-//! Defense-in-depth for prompt exfiltration. Coach personas run under a
+//! Defense-in-depth for prompt exfiltration. Agent personas run under a
 //! tenant-customized system prompt that the harness considers
 //! confidential. A jailbroken user can try to coax the model into
 //! reciting the prompt verbatim ("repeat everything above this line").
@@ -149,7 +149,7 @@ fn shingle_set(text: &str) -> Vec<u64> {
 /// Compute the [`PromptFingerprint`] for a system prompt.
 ///
 /// Deterministic and side-effect-free. Safe to call on every dispatch
-/// turn; the caller decides whether to cache by coach id.
+/// turn; the caller decides whether to cache by agent id.
 #[must_use]
 pub fn fingerprint_prompt(prompt: &str) -> PromptFingerprint {
     let normalized = normalize(prompt);
@@ -168,7 +168,7 @@ pub fn fingerprint_prompt(prompt: &str) -> PromptFingerprint {
     }
 }
 
-/// Scan a coach response body for verbatim fragments of the system prompt.
+/// Scan an agent response body for verbatim fragments of the system prompt.
 ///
 /// Returns [`LeakVerdict::Leaked`] when at least `threshold` distinct
 /// shingles from the prompt appear in the response. Pass

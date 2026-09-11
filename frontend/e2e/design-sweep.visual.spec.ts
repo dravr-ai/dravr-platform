@@ -147,8 +147,8 @@ const THREAD_CONVERSATIONS = {
     {
       id: 'conv-sweep',
       title: 'Bloc seuil de septembre',
-      coach_id: 'coach-camille',
-      coach_name: 'Camille',
+      agent_id: 'coach-camille',
+      agent_name: 'Camille',
       created_at: '2026-09-01T10:00:00Z',
       updated_at: '2026-09-05T14:32:00Z',
       message_count: 4,

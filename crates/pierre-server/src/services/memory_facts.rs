@@ -34,9 +34,9 @@ use crate::mcp::resources::ServerContext;
 /// Query parameters for [`get_facts_handler`].
 #[derive(Debug, Deserialize)]
 pub struct ListFactsQuery {
-    /// Optional coach scope — when set, only facts attached to this
-    /// coach are returned.
-    pub coach_id: Option<String>,
+    /// Optional agent scope — when set, only facts attached to this
+    /// agent are returned.
+    pub agent_id: Option<String>,
     /// Optional fact-kind filter (`snake_case` form).
     pub kind: Option<String>,
     /// Maximum facts to return, clamped to `1..=100`. Defaults to 50.
@@ -45,7 +45,7 @@ pub struct ListFactsQuery {
 
 /// Axum handler for `GET /api/memory/facts`.
 ///
-/// Returns the user's stored facts. Filters by coach and/or kind when
+/// Returns the user's stored facts. Filters by agent and/or kind when
 /// provided. The response always includes an explicit `total` so the
 /// frontend can render an empty-state message without a separate request.
 ///
@@ -69,11 +69,11 @@ pub async fn get_facts_handler(
     let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
 
     let response = list_user_facts(
-        &data.repos().coach_repos(),
+        &data.repos().agent_repos(),
         SentenceRenderer::new(&resources.mcp.messaging_strings_registry, &locale),
         tenant_id,
         &auth.user_id.to_string(),
-        params.coach_id.as_deref(),
+        params.agent_id.as_deref(),
         kind,
         limit,
     )
@@ -103,7 +103,7 @@ pub async fn forget_fact_handler(
     let data = resources.data();
 
     let response = forget_user_fact(
-        &data.repos().coach_repos(),
+        &data.repos().agent_repos(),
         &fact_id,
         tenant_id,
         &auth.user_id.to_string(),

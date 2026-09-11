@@ -1,5 +1,5 @@
 // ABOUTME: Endurance per-user training-zone boundaries (HR + power) — distinct from per-activity HeartRateZone
-// ABOUTME: Used by latest.json + dossier.json to expose the athlete's zone definitions to coaches and analytics
+// ABOUTME: Used by latest.json + dossier.json to expose the athlete's zone definitions to agents and analytics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -144,7 +144,7 @@ impl PowerZoneSet {
 /// Values are absolute seconds spent in each zone. Sum across all zones plus
 /// `above_max_seconds` equals total samples in the analyzed window. Used by
 /// the Endurance `latest.json` payload to surface polarized-distribution
-/// stats (Z1+Z2 share vs Z3 share vs Z4+Z5 share) to coaches.
+/// stats (Z1+Z2 share vs Z3 share vs Z4+Z5 share) to agents.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
 )]

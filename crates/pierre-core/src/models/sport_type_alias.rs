@@ -18,7 +18,7 @@ use dravr_cageux::models::sport::SportType;
 /// pass-through filtering, but most LLM/UI inputs should resolve to
 /// a built-in variant.
 ///
-/// French aliases are included because the messaging coach is
+/// French aliases are included because the messaging agent is
 /// bilingual; users say "ski de fond", "vélo", or "rando" naturally.
 #[must_use]
 pub fn resolve_sport_type(input: &str) -> Option<SportType> {
@@ -96,7 +96,7 @@ pub fn resolve_sport_type(input: &str) -> Option<SportType> {
 /// Providers tag the same effort inconsistently — an athlete who runs almost
 /// only on trails still has many logged as a plain "Run" — and "how much did I
 /// ride" means every discipline to the athlete who rode them. Exact equality on
-/// the cycling side made a cycling coach blind to cycling: a `"Ride"` filter
+/// the cycling side made a cycling agent blind to cycling: a `"Ride"` filter
 /// matched none of an athlete's 22 mountain-bike and 7 gravel rides
 /// (2026-08-27).
 ///

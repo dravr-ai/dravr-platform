@@ -13,8 +13,8 @@
 //!
 //! The views in this module bundle repositories that consumers touch
 //! *together*. A handler or service that needs only authentication state takes
-//! [`AuthRepos`]; one that needs coach / chat / memory plumbing takes
-//! [`CoachRepos`]; etc. Each view is built once from the registry via
+//! [`AuthRepos`]; one that needs agent / chat / memory plumbing takes
+//! [`AgentRepos`]; etc. Each view is built once from the registry via
 //! `RepositoryRegistry::<view>_repos()` (cheap — every field is a clone of an
 //! `Arc<dyn Trait>`).
 //!
@@ -29,8 +29,8 @@
 use std::sync::Arc;
 
 use crate::repositories::{
-    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
-    CoachesRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
+    A2ARepository, AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository,
+    ClaimVerdictRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
     FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
     HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
     MobilityRepository, OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
@@ -108,25 +108,25 @@ impl AuthRepos {
     }
 }
 
-/// Repositories backing coach personas, conversations, harness memory, and
+/// Repositories backing agent personas, conversations, harness memory, and
 /// claim-verdict bookkeeping.
 ///
 /// Consumers: chat pipeline (`chat`, `memory`, `users` — the last via
-/// `AuthRepos`), claim-verdict / coach-grading / myth-busting services
+/// `AuthRepos`), claim-verdict / agent-grading / myth-busting services
 /// (`claim_verdicts`), memory-facts service (`memory`), MCP resources layer
-/// (`coaches`, `groups`, `store_listings`), messaging group-bind service
+/// (`agents`, `groups`, `store_listings`), messaging group-bind service
 /// (`groups`).
 #[derive(Clone)]
-pub struct CoachRepos {
-    /// Coach persona management
-    pub coaches: Arc<dyn CoachesRepository>,
-    /// Store listings for coach marketplace
+pub struct AgentRepos {
+    /// Agent persona management
+    pub agents: Arc<dyn AgentsRepository>,
+    /// Store listings for agent marketplace
     pub store_listings: Arc<dyn StoreListingsRepository>,
     /// Chat conversation and message storage
     pub chat: Arc<dyn ChatRepository>,
     /// Coaching group CRUD, membership, and invites
     pub groups: Arc<dyn CoachingGroupRepository>,
-    /// Coach-athlete roster assignments
+    /// Agent-athlete roster assignments
     pub roster: Arc<dyn RosterRepository>,
     /// Endurance dossier composer (read-time aggregate from physiology /
     /// goals / zones / nutrition / equipment)
@@ -141,12 +141,12 @@ pub struct CoachRepos {
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
 }
 
-impl CoachRepos {
-    /// Build a `CoachRepos` view from the master registry.
+impl AgentRepos {
+    /// Build an `AgentRepos` view from the master registry.
     #[must_use]
     pub fn from_registry(registry: &RepositoryRegistry) -> Self {
         Self {
-            coaches: Arc::clone(&registry.coaches),
+            agents: Arc::clone(&registry.agents),
             store_listings: Arc::clone(&registry.store_listings),
             chat: Arc::clone(&registry.chat),
             groups: Arc::clone(&registry.groups),
@@ -303,10 +303,10 @@ impl RepositoryRegistry {
         AuthRepos::from_registry(self)
     }
 
-    /// Build a [`CoachRepos`] view from this registry.
+    /// Build a [`AgentRepos`] view from this registry.
     #[must_use]
-    pub fn coach_repos(&self) -> CoachRepos {
-        CoachRepos::from_registry(self)
+    pub fn agent_repos(&self) -> AgentRepos {
+        AgentRepos::from_registry(self)
     }
 
     /// Build a [`FitnessRepos`] view from this registry.

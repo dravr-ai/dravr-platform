@@ -23,7 +23,7 @@ async fn setup() -> (axum::Router, String) {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (_user_id, user) = create_test_user(&resources.coach.database)
+    let (_user_id, user) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
     let token = generate_test_token(&resources, &user).await;

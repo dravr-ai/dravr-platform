@@ -39,7 +39,7 @@ fn row_to_group(r: &PgRow) -> CoachingGroup {
         tenant_id: r.get("tenant_id"),
         name: r.get("name"),
         description: r.get("description"),
-        coach_id: r.get("coach_id"),
+        agent_id: r.get("agent_id"),
         owner_id,
         coach_user_id: r.try_get::<Option<Uuid>, _>("coach_user_id").ok().flatten(),
         peer_data_sharing,
@@ -153,7 +153,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         let now = Utc::now();
 
         sqlx::query(
-            r"INSERT INTO coaching_groups (id, tenant_id, name, description, coach_id, owner_id,
+            r"INSERT INTO coaching_groups (id, tenant_id, name, description, agent_id, owner_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, created_at, updated_at)
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $12)",
@@ -162,7 +162,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         .bind(tenant_id.to_string())
         .bind(&group.name)
         .bind(&group.description)
-        .bind(&group.coach_id)
+        .bind(&group.agent_id)
         .bind(group.owner_id)
         .bind(group.peer_data_sharing)
         .bind(group.max_members)
@@ -189,7 +189,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         // Group UUID is globally unique — tenant filter removed to support
         // cross-tenant group access (members join from different tenants)
         let row = sqlx::query(
-            r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
+            r"SELECT id, tenant_id, name, description, agent_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, created_at, updated_at
               FROM coaching_groups WHERE id = $1",
@@ -209,7 +209,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         channel_chat_id: &str,
     ) -> AppResult<Option<CoachingGroup>> {
         let row = sqlx::query(
-            r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
+            r"SELECT id, tenant_id, name, description, agent_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, created_at, updated_at
               FROM coaching_groups
@@ -228,7 +228,7 @@ impl CoachingGroupRepository for PostgresDatabase {
 
     async fn list_groups_for_user(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>> {
         let rows = sqlx::query(
-            r"SELECT g.id, g.name, g.description, g.coach_id, g.is_active, g.peer_data_sharing,
+            r"SELECT g.id, g.name, g.description, g.agent_id, g.is_active, g.peer_data_sharing,
               g.created_at, m.role,
               (SELECT COUNT(*) FROM coaching_group_members m2
                WHERE m2.group_id = g.id AND m2.left_at IS NULL) AS member_count
@@ -255,7 +255,7 @@ impl CoachingGroupRepository for PostgresDatabase {
                     id,
                     name: r.get("name"),
                     description: r.get("description"),
-                    coach_id: r.get("coach_id"),
+                    agent_id: r.get("agent_id"),
                     member_count: r.get("member_count"),
                     is_active,
                     peer_data_sharing,
@@ -266,20 +266,20 @@ impl CoachingGroupRepository for PostgresDatabase {
             .collect())
     }
 
-    async fn list_groups_for_coach(
+    async fn list_groups_for_agent(
         &self,
-        coach_id: &str,
+        agent_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<CoachingGroup>> {
         let rows = sqlx::query(
-            r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
+            r"SELECT id, tenant_id, name, description, agent_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, created_at, updated_at
               FROM coaching_groups
-              WHERE coach_id = $1 AND tenant_id = $2 AND is_active = true
+              WHERE agent_id = $1 AND tenant_id = $2 AND is_active = true
               ORDER BY created_at DESC",
         )
-        .bind(coach_id)
+        .bind(agent_id)
         .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
@@ -289,9 +289,9 @@ impl CoachingGroupRepository for PostgresDatabase {
     }
 
     async fn list_groups_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<CoachingGroup>> {
-        // No tenant filter — groups span tenants; the coach attachment is the key.
+        // No tenant filter — groups span tenants; the agent attachment is the key.
         let rows = sqlx::query(
-            r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
+            r"SELECT id, tenant_id, name, description, agent_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, created_at, updated_at
               FROM coaching_groups
@@ -311,7 +311,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         tenant_id: TenantId,
     ) -> AppResult<Vec<CoachingGroup>> {
         let rows = sqlx::query(
-            r"SELECT id, tenant_id, name, description, coach_id, owner_id, coach_user_id,
+            r"SELECT id, tenant_id, name, description, agent_id, owner_id, coach_user_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, created_at, updated_at
               FROM coaching_groups
@@ -339,7 +339,7 @@ impl CoachingGroupRepository for PostgresDatabase {
             r"UPDATE coaching_groups SET
               name = COALESCE($1, name),
               description = COALESCE($2, description),
-              coach_id = COALESCE($3, coach_id),
+              agent_id = COALESCE($3, agent_id),
               max_members = COALESCE($4, max_members),
               peer_data_sharing = COALESCE($5, peer_data_sharing),
               respond_mode = COALESCE($6, respond_mode),
@@ -349,7 +349,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         )
         .bind(&request.name)
         .bind(&request.description)
-        .bind(&request.coach_id)
+        .bind(&request.agent_id)
         .bind(request.max_members)
         .bind(request.peer_data_sharing)
         .bind(request.respond_mode.map(|m| m.as_str()))
@@ -687,23 +687,23 @@ impl CoachingGroupRepository for PostgresDatabase {
 
     // -- Context queries --
 
-    async fn find_groups_for_user_and_coach(
+    async fn find_groups_for_user_and_agent(
         &self,
         user_id: Uuid,
-        coach_id: &str,
+        agent_id: &str,
     ) -> AppResult<Vec<CoachingGroup>> {
         // No tenant filter — groups span tenants via cross-tenant membership
         let rows = sqlx::query(
-            r"SELECT g.id, g.tenant_id, g.name, g.description, g.coach_id, g.owner_id,
+            r"SELECT g.id, g.tenant_id, g.name, g.description, g.agent_id, g.owner_id,
               g.coach_user_id, g.peer_data_sharing, g.max_members, g.is_active,
               g.channel_type, g.channel_chat_id, g.created_at, g.updated_at
               FROM coaching_groups g
               JOIN coaching_group_members m ON m.group_id = g.id
-              WHERE m.user_id = $1 AND g.coach_id = $2
+              WHERE m.user_id = $1 AND g.agent_id = $2
               AND m.left_at IS NULL AND g.is_active = true",
         )
         .bind(user_id)
-        .bind(coach_id)
+        .bind(agent_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to find groups for user+coach: {e}")))?;

@@ -1,4 +1,4 @@
-// ABOUTME: /coach is a permanent synonym of /agent (D4) — this proves it resolves and does the identical work
+// ABOUTME: /agent is a permanent synonym of /agent (D4) — this proves it resolves and does the identical work
 // ABOUTME: Catalogue → matcher → in-app chat → signed Telegram webhook, plus the menu that publishes only the canonical name
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,11 +7,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! carnet#346: the coach→agent rename made `/agent` canonical and kept every
-//! `/coach` spelling as a permanent alias — not a deprecation shim — so an
-//! athlete's muscle memory and the `/coach` text already sitting in pinned
+//! carnet#346: the agent→agent rename made `/agent` canonical and kept every
+//! `/agent` spelling as a permanent alias — not a deprecation shim — so an
+//! athlete's muscle memory and the `/agent` text already sitting in pinned
 //! chat messages keep working. Roughly 37 assertions covered `/agent`; nothing
-//! asserted that `/coach` still resolves, which is the entire justification
+//! asserted that `/agent` still resolves, which is the entire justification
 //! for keeping it.
 //!
 //! Resolution is three files deep and no existing test walks them together:
@@ -47,14 +47,14 @@ mod agent_alias {
     use crate::common::{
         create_test_server_resources, create_test_server_resources_with_chat_provider,
     };
+    use crate::helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
     use crate::helpers::axum_test::AxumTestRequest;
-    use crate::helpers::coach_fixtures::{install_catalogue_coach, publish_catalogue_coach};
     use crate::helpers::command_e2e::{commands_dir, CommandE2e, Member, RouterLlm};
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
         KEY_AGENT_GROUP_UPDATED, KEY_AGENT_REMOVED, KEY_UNKNOWN_COMMAND,
     };
-    use pierre_core::models::coaches::{CoachCategory, CreateCoachRequest};
+    use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
     use pierre_core::models::groups::{
         CoachingGroup, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
     };
@@ -106,14 +106,14 @@ mod agent_alias {
         (!name.contains(' ')).then_some(name)
     }
 
-    /// Every agent subcommand the catalogue declares keeps a `/coach` twin.
+    /// Every agent subcommand the catalogue declares keeps a `/agent` twin.
     ///
     /// Enumerated from `commands/**/*.md`, not from a list in this file: a
     /// sixth subcommand added canonically but never given its legacy
     /// spelling fails here rather than surprising an athlete.
     ///
-    /// `coach-invite` is not among them: it attaches a human coach, so it
-    /// lives in the `coach` domain under `/coach invite` and is covered by
+    /// `agent-invite` is not among them: it attaches a human coach, so it
+    /// lives in the `agent` domain under `/agent invite` and is covered by
     /// [`the_human_coach_invite_is_issued_under_both_spellings`].
     #[tokio::test]
     async fn every_agent_subcommand_declares_its_legacy_coach_spelling() {
@@ -172,7 +172,7 @@ mod agent_alias {
     /// The matcher resolves every legacy spelling to the canonical handler
     /// name, with the arguments intact.
     ///
-    /// `/coaches invite` is the case the matcher's second pass exists for: the
+    /// `/agents invite` is the case the matcher's second pass exists for: the
     /// subcommand is registered under the canonical spelling only, so a match
     /// reached through a shorter alias has to be re-resolved or `invite` would
     /// be handed to the shelf listing as an argument.
@@ -355,19 +355,19 @@ mod agent_alias {
         (user_id, tenant_id, format!("Bearer {token}"))
     }
 
-    /// A coach the athlete owns outright, for the cases that need an id
+    /// An agent the athlete owns outright, for the cases that need an id
     /// rather than a catalogue handle.
-    async fn seed_coach(
+    async fn seed_agent(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
         tenant_id: TenantId,
         title: &str,
     ) -> String {
-        let request = CreateCoachRequest {
+        let request = CreateAgentRequest {
             title: title.to_owned(),
             description: Some(format!("{title} description.")),
             system_prompt: "You are a test persona.".to_owned(),
-            category: CoachCategory::Training,
+            category: AgentCategory::Training,
             tags: vec![],
             sample_prompts: vec![],
             startup_query: None,
@@ -383,7 +383,7 @@ mod agent_alias {
         resources
             .common
             .repos
-            .coaches
+            .agents
             .create(user_id, tenant_id, &request)
             .await
             .unwrap()
@@ -392,15 +392,15 @@ mod agent_alias {
     }
 
     /// Publish "Recovery Coach" under a fresh author and install it for the
-    /// athlete; the installed copy answers to `@recovery-coach`.
-    async fn install_recovery_coach(
+    /// athlete; the installed copy answers to `@recovery-agent`.
+    async fn install_recovery_agent(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> String {
         let (author_id, author_tenant, _auth) =
             seed_user_tenant(resources, &format!("alias-author-{user_id}@test.com")).await;
-        let origin = publish_catalogue_coach(
+        let origin = publish_catalogue_agent(
             &resources.common.repos,
             author_id,
             author_tenant,
@@ -409,7 +409,7 @@ mod agent_alias {
         )
         .await;
         let installed =
-            install_catalogue_coach(&resources.common.repos, origin, user_id, tenant_id).await;
+            install_catalogue_agent(&resources.common.repos, origin, user_id, tenant_id).await;
         assert_eq!(installed.handle.as_deref(), Some("recovery-coach"));
         installed.id.to_string()
     }
@@ -478,8 +478,8 @@ mod agent_alias {
             .render(key, "fr", args)
     }
 
-    /// The coach the conversation row is bound to.
-    async fn conversation_coach(
+    /// The agent the conversation row is bound to.
+    async fn conversation_agent(
         resources: &Arc<ServerContext>,
         conv_id: &str,
         user_id: Uuid,
@@ -493,11 +493,11 @@ mod agent_alias {
             .await
             .unwrap()
             .expect("the conversation exists")
-            .coach_id
+            .agent_id
     }
 
     /// The athlete's selection pointer.
-    async fn selected_coach(
+    async fn selected_agent(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -506,13 +506,13 @@ mod agent_alias {
             .common
             .repos
             .tenants
-            .get_selected_coach(tenant_id, user_id)
+            .get_selected_agent(tenant_id, user_id)
             .await
             .unwrap()
     }
 
-    /// The coach a group is pointed at.
-    async fn group_coach(
+    /// The agent a group is pointed at.
+    async fn group_agent(
         resources: &Arc<ServerContext>,
         group_id: Uuid,
         tenant_id: TenantId,
@@ -525,10 +525,10 @@ mod agent_alias {
             .await
             .unwrap()
             .expect("the group exists")
-            .coach_id
+            .agent_id
     }
 
-    /// A group named `name` owned by `user_id`, pointed at `coach_id`.
+    /// A group named `name` owned by `user_id`, pointed at `agent_id`.
     ///
     /// Two groups may share a name here on purpose: the assignment reply
     /// renders the group's NAME, so twin names make the canonical and legacy
@@ -538,7 +538,7 @@ mod agent_alias {
         user_id: Uuid,
         tenant_id: TenantId,
         name: &str,
-        coach_id: &str,
+        agent_id: &str,
     ) -> Uuid {
         let now = chrono::Utc::now();
         let group_id = Uuid::new_v4();
@@ -547,7 +547,7 @@ mod agent_alias {
             tenant_id: tenant_id.to_string(),
             name: name.to_owned(),
             description: None,
-            coach_id: coach_id.to_owned(),
+            agent_id: agent_id.to_owned(),
             owner_id: user_id,
             coach_user_id: None,
             peer_data_sharing: false,
@@ -645,13 +645,13 @@ mod agent_alias {
 
     /// The shelf reads identically under all five spellings — same text, same
     /// card title, same buttons — and the content is real: the installed
-    /// coach's handle and the canonical `/agent add` postback.
+    /// agent's handle and the canonical `/agent add` postback.
     #[tokio::test]
     async fn the_shelf_reads_the_same_under_every_spelling() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "alias-list@test.com").await;
-        install_recovery_coach(&resources, user_id, tenant_id).await;
-        let own = seed_coach(&resources, user_id, tenant_id, "My Own Agent").await;
+        install_recovery_agent(&resources, user_id, tenant_id).await;
+        let own = seed_agent(&resources, user_id, tenant_id, "My Own Agent").await;
 
         let router = ChatRoutes::routes(Arc::clone(&resources));
         let conv_id = create_conversation(router.clone(), &auth).await;
@@ -696,14 +696,14 @@ mod agent_alias {
         }
     }
 
-    /// `/coach add @handle` binds exactly what `/agent add @handle` binds: the
-    /// same confirmation text, the same `chat_conversations.coach_id`, the
+    /// `/agent add @handle` binds exactly what `/agent add @handle` binds: the
+    /// same confirmation text, the same `chat_conversations.agent_id`, the
     /// same selection pointer.
     #[tokio::test]
     async fn binding_an_agent_works_under_both_spellings() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "alias-add@test.com").await;
-        let installed = install_recovery_coach(&resources, user_id, tenant_id).await;
+        let installed = install_recovery_agent(&resources, user_id, tenant_id).await;
 
         let router = ChatRoutes::routes(Arc::clone(&resources));
         let canonical_conv = create_conversation(router.clone(), &auth).await;
@@ -738,21 +738,21 @@ mod agent_alias {
             "/coach add answered differently from /agent add"
         );
         assert_eq!(
-            conversation_coach(&resources, &canonical_conv, user_id, tenant_id)
+            conversation_agent(&resources, &canonical_conv, user_id, tenant_id)
                 .await
                 .as_deref(),
             Some(installed.as_str()),
             "/agent add bound its conversation"
         );
         assert_eq!(
-            conversation_coach(&resources, &legacy_conv, user_id, tenant_id)
+            conversation_agent(&resources, &legacy_conv, user_id, tenant_id)
                 .await
                 .as_deref(),
             Some(installed.as_str()),
             "/coach add bound its conversation to the same installed copy"
         );
         assert_eq!(
-            selected_coach(&resources, user_id, tenant_id)
+            selected_agent(&resources, user_id, tenant_id)
                 .await
                 .as_deref(),
             Some(installed.as_str()),
@@ -760,14 +760,14 @@ mod agent_alias {
         );
     }
 
-    /// `/coach remove` detaches what `/agent remove` detaches, and says the
+    /// `/agent remove` detaches what `/agent remove` detaches, and says the
     /// same catalogued sentence naming the agent.
     #[tokio::test]
     async fn detaching_an_agent_works_under_both_spellings() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id, auth) =
             seed_user_tenant(&resources, "alias-remove@test.com").await;
-        install_recovery_coach(&resources, user_id, tenant_id).await;
+        install_recovery_agent(&resources, user_id, tenant_id).await;
 
         let router = ChatRoutes::routes(Arc::clone(&resources));
         let canonical_conv = create_conversation(router.clone(), &auth).await;
@@ -789,22 +789,22 @@ mod agent_alias {
             "/coach remove renders the very same sentence"
         );
         assert_eq!(
-            conversation_coach(&resources, &canonical_conv, user_id, tenant_id).await,
+            conversation_agent(&resources, &canonical_conv, user_id, tenant_id).await,
             None
         );
         assert_eq!(
-            conversation_coach(&resources, &legacy_conv, user_id, tenant_id).await,
+            conversation_agent(&resources, &legacy_conv, user_id, tenant_id).await,
             None,
             "/coach remove actually detached the row"
         );
         assert_eq!(
-            selected_coach(&resources, user_id, tenant_id).await,
+            selected_agent(&resources, user_id, tenant_id).await,
             None,
             "the selection pointer is cleared too"
         );
     }
 
-    /// `/coach assign` points a group at an agent exactly as `/agent assign`
+    /// `/agent assign` points a group at an agent exactly as `/agent assign`
     /// does. Twin group names make the two replies comparable byte for byte
     /// while each call acts on its own group row.
     #[tokio::test]
@@ -812,8 +812,8 @@ mod agent_alias {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id, auth) =
             seed_user_tenant(&resources, "alias-assign@test.com").await;
-        let starting = seed_coach(&resources, user_id, tenant_id, "Starting Agent").await;
-        let target = seed_coach(&resources, user_id, tenant_id, "Assignable Agent").await;
+        let starting = seed_agent(&resources, user_id, tenant_id, "Starting Agent").await;
+        let target = seed_agent(&resources, user_id, tenant_id, "Assignable Agent").await;
         let canonical_group =
             seed_group(&resources, user_id, tenant_id, "Twin Group", &starting).await;
         let legacy_group =
@@ -848,29 +848,29 @@ mod agent_alias {
             "/coach assign answered differently from /agent assign"
         );
         assert_eq!(
-            group_coach(&resources, canonical_group, tenant_id).await,
+            group_agent(&resources, canonical_group, tenant_id).await,
             target
         );
         assert_eq!(
-            group_coach(&resources, legacy_group, tenant_id).await,
+            group_agent(&resources, legacy_group, tenant_id).await,
             target,
             "/coach assign actually moved its group's coach"
         );
     }
 
-    /// `/agent invite` issues the same human-coach invite `/coach invite`
-    /// issues — a second `group_invites` row of kind `Coach`, and a body that
+    /// `/agent invite` issues the same human-agent invite `/agent invite`
+    /// issues — a second `group_invites` row of kind `Agent`, and a body that
     /// differs from the canonical one only by its own code.
     ///
     /// This is the one B-sense subcommand in the tree: the invite attaches a
-    /// human coach, so `/coach invite` is the canonical spelling and the
+    /// human coach, so `/agent invite` is the canonical spelling and the
     /// `/agent` one is the alias every other subcommand has in reverse.
     #[tokio::test]
     async fn the_human_coach_invite_is_issued_under_both_spellings() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id, auth) =
             seed_user_tenant(&resources, "alias-invite@test.com").await;
-        let starting = seed_coach(&resources, user_id, tenant_id, "Starting Agent").await;
+        let starting = seed_agent(&resources, user_id, tenant_id, "Starting Agent").await;
         let group_id = seed_group(&resources, user_id, tenant_id, "Invite Group", &starting).await;
 
         let router = ChatRoutes::routes(Arc::clone(&resources));
@@ -920,7 +920,7 @@ mod agent_alias {
         );
     }
 
-    /// `/coach create` drafts what `/agent create` drafts, and — the point of
+    /// `/agent create` drafts what `/agent create` drafts, and — the point of
     /// D4 — the confirm button it hands back carries the CANONICAL spelling,
     /// which then really creates the agent.
     #[tokio::test]
@@ -999,7 +999,7 @@ mod agent_alias {
             resources
                 .common
                 .repos
-                .coaches
+                .agents
                 .count(user_id, tenant_id)
                 .await
                 .unwrap(),
@@ -1016,7 +1016,7 @@ mod agent_alias {
             resources
                 .common
                 .repos
-                .coaches
+                .agents
                 .count(user_id, tenant_id)
                 .await
                 .unwrap(),
@@ -1024,7 +1024,7 @@ mod agent_alias {
             "the legacy spelling's draft really created the agent"
         );
         assert!(
-            conversation_coach(&resources, &legacy_conv, user_id, tenant_id)
+            conversation_agent(&resources, &legacy_conv, user_id, tenant_id)
                 .await
                 .is_some(),
             "the new agent answers in the thread it was drafted from"
@@ -1037,7 +1037,7 @@ mod agent_alias {
     async fn a_near_miss_spelling_is_refused_in_chat_and_binds_nothing() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "alias-typo@test.com").await;
-        install_recovery_coach(&resources, user_id, tenant_id).await;
+        install_recovery_agent(&resources, user_id, tenant_id).await;
 
         let router = ChatRoutes::routes(Arc::clone(&resources));
         let conv_id = create_conversation(router.clone(), &auth).await;
@@ -1062,15 +1062,15 @@ mod agent_alias {
             assert_eq!(body.telemetry.model, "command");
         }
         assert_eq!(
-            conversation_coach(&resources, &conv_id, user_id, tenant_id).await,
+            conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
             None,
             "a typo bound nothing"
         );
-        assert_eq!(selected_coach(&resources, user_id, tenant_id).await, None);
+        assert_eq!(selected_agent(&resources, user_id, tenant_id).await, None);
     }
 
     // ================================================================
-    // The wire: a real athlete typing /coach into Telegram
+    // The wire: a real athlete typing /agent into Telegram
     // ================================================================
 
     /// One slash command over a signed Telegram webhook; returns the body the
@@ -1099,8 +1099,8 @@ mod agent_alias {
         bodies.last().unwrap().clone()
     }
 
-    /// The coach bound to the member's DM conversation.
-    async fn dm_conversation_coach(e2e: &CommandE2e, member: &Member) -> Option<String> {
+    /// The agent bound to the member's DM conversation.
+    async fn dm_conversation_agent(e2e: &CommandE2e, member: &Member) -> Option<String> {
         let conversation = e2e
             .conversation_id(member, member.home_tenant, &member.channel_user_id)
             .await?;
@@ -1116,7 +1116,7 @@ mod agent_alias {
             .await
             .ok()
             .flatten()?
-            .coach_id
+            .agent_id
     }
 
     /// The whole alias contract over the real wire: a signed Telegram webhook
@@ -1138,7 +1138,7 @@ mod agent_alias {
 
         let author = e2e.linked_member(false).await;
         let member = e2e.linked_member(false).await;
-        let origin = publish_catalogue_coach(
+        let origin = publish_catalogue_agent(
             &e2e.resources.common.repos,
             author.user_id,
             author.home_tenant,
@@ -1146,7 +1146,7 @@ mod agent_alias {
             "You are the recovery coach.",
         )
         .await;
-        let installed = install_catalogue_coach(
+        let installed = install_catalogue_agent(
             &e2e.resources.common.repos,
             origin,
             member.user_id,
@@ -1195,13 +1195,13 @@ mod agent_alias {
         )
         .await;
         assert_eq!(
-            dm_conversation_coach(&e2e, &member).await.as_deref(),
+            dm_conversation_agent(&e2e, &member).await.as_deref(),
             Some(installed_id.as_str()),
             "/coach add bound the Telegram thread"
         );
         let legacy_remove = dm_reply(&e2e, &member, &session, &mut sent, "/coach remove").await;
         assert_eq!(
-            dm_conversation_coach(&e2e, &member).await,
+            dm_conversation_agent(&e2e, &member).await,
             None,
             "/coach remove detached it again"
         );
@@ -1215,11 +1215,11 @@ mod agent_alias {
         )
         .await;
         assert_eq!(
-            dm_conversation_coach(&e2e, &member).await.as_deref(),
+            dm_conversation_agent(&e2e, &member).await.as_deref(),
             Some(installed_id.as_str())
         );
         let canonical_remove = dm_reply(&e2e, &member, &session, &mut sent, "/agent remove").await;
-        assert_eq!(dm_conversation_coach(&e2e, &member).await, None);
+        assert_eq!(dm_conversation_agent(&e2e, &member).await, None);
 
         assert!(
             canonical_add.contains("Recovery Coach"),
@@ -1246,7 +1246,7 @@ mod agent_alias {
 
     /// Telegram's `/` menu publishes the canonical spelling and no alias of a
     /// command that can already publish its own name — so `agent` is offered
-    /// and `coach`/`coaches` are not, even though both still work when typed.
+    /// and `agent`/`agents` are not, even though both still work when typed.
     #[tokio::test]
     async fn the_telegram_menu_publishes_the_canonical_spelling_only() {
         let (registry, definitions) = catalogue();

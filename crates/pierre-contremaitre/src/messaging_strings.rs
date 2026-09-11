@@ -15,7 +15,7 @@
 //! - Chat-pipeline fallbacks (generic error, empty reply, guardrail rewrites,
 //!   claim-verification warnings)
 //! - Slash-command handler output (`/status`, `/help`, `/logout`, `/privacy`,
-//!   `/group`, `/coach`) — every user-visible string goes through the registry
+//!   `/group`, `/agent`) — every user-visible string goes through the registry
 //!   so operators can hot-reload translations via the contremaitre repo without
 //!   a code change or redeploy
 //!
@@ -136,23 +136,23 @@ pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
 ///
 /// Appended to the tail of every system prompt, on every surface, rendered
 /// from the locale the turn already resolved — the same value that selects the
-/// coach prompt, the refusals above, the acronym glosses and the guardrail
+/// agent prompt, the refusals above, the acronym glosses and the guardrail
 /// disclaimer. Each locale's text is authored in its own language, so the
 /// directive is itself an instance of what it asks for.
 pub const KEY_TURN_LANGUAGE: &str = "messaging.turn.language";
-/// Key: Nutrition-coach carve-out for the generic scope list.
+/// Key: Nutrition-agent carve-out for the generic scope list.
 ///
 /// Generic `pierre_system.md` lists "food/meal finders" as out-of-scope
-/// alongside restaurant prices and delivery apps. For Nutrition coaches
+/// alongside restaurant prices and delivery apps. For Nutrition agents
 /// that collides with their core purpose — answering meal/dinner/snack
 /// questions grounded in training data. This string reaffirms nutrition
 /// questions ARE in scope and is injected into the system prompt whenever
-/// the active coach's category is Nutrition.
+/// the active agent's category is Nutrition.
 pub const KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION: &str = "messaging.scope.carve_out.nutrition";
-/// Key: Recipes-coach carve-out for the generic scope list.
+/// Key: Recipes-agent carve-out for the generic scope list.
 ///
 /// Same rationale as [`KEY_AGENT_SCOPE_CARVE_OUT_NUTRITION`] — Recipes
-/// coaches exist to suggest meals and food choices, so the generic
+/// agents exist to suggest meals and food choices, so the generic
 /// "food/meal finders" refusal must not fire for them.
 pub const KEY_AGENT_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.recipes";
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
@@ -161,7 +161,7 @@ pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
 /// Key: reply for unmatched slash commands.
 ///
 /// Fires when the user types a `/something` prefix that doesn't match any
-/// registered command (typos like `/.coach`, obsolete names, etc.).
+/// registered command (typos like `/.agent`, obsolete names, etc.).
 /// Short-circuits the LLM dispatch so typos don't eat quota or spam the
 /// channel.
 pub const KEY_UNKNOWN_COMMAND: &str = "messaging.unknown_command";
@@ -174,19 +174,19 @@ pub const KEY_STATUS_CALLING_TOOL: &str = "messaging.status.calling_tool";
 /// Key: progress status shown when the pipeline errors. `{0}` = error text.
 pub const KEY_STATUS_ERROR: &str = "messaging.status.error";
 
-// ── Coach onboarding proposal keys ────────────────────────────────────────
+// ── Agent onboarding proposal keys ────────────────────────────────────────
 // Rendered by the messaging auto-send when a user's first provider-connected
-// turn leads with inferred-profile coach suggestions. The per-coach reason
+// turn leads with inferred-profile agent suggestions. The per-agent reason
 // lines are localized upstream (LLM re-rank prompt / deterministic fallback);
 // these wrap them with a locale-aware lead-in and footer.
 
-/// Key: coach-proposal lead-in when a recent sport profile is known.
-/// `{0}` = primary sport display name, `{1}` = coach count.
+/// Key: agent-proposal lead-in when a recent sport profile is known.
+/// `{0}` = primary sport display name, `{1}` = agent count.
 pub const KEY_AGENT_PROPOSAL_WELCOME: &str = "messaging.agent_proposal.welcome";
-/// Key: coach-proposal lead-in for a cold-start user (no profile yet).
-/// `{0}` = coach count.
+/// Key: agent-proposal lead-in for a cold-start user (no profile yet).
+/// `{0}` = agent count.
 pub const KEY_AGENT_PROPOSAL_WELCOME_GENERIC: &str = "messaging.agent_proposal.welcome_generic";
-/// Key: coach-proposal closing line inviting the user to reply with a number.
+/// Key: agent-proposal closing line inviting the user to reply with a number.
 pub const KEY_AGENT_PROPOSAL_FOOTER: &str = "messaging.agent_proposal.footer";
 
 /// Key: account-approval welcome, sent on each linked messaging channel when a
@@ -228,7 +228,7 @@ pub const KEY_BACKFILL_PUSH_BODY: &str = "messaging.backfill.push_body";
 // ── Commitment verdict keys ───────────────────────────────────────────────
 // Emitted by the commitment sweep once a promise's window closes. Composed
 // from counts and the sanitized sport slug only — never from the athlete's or
-// the coach's stored text — because the sweep reads provider activity data and
+// the agent's stored text — because the sweep reads provider activity data and
 // an activity title must never be able to author a sentence the athlete reads.
 
 /// Key: the athlete completed everything they promised.
@@ -376,7 +376,7 @@ pub const KEY_NO_PROVIDER_CONNECTED: &str = "messaging.account.no_provider";
 /// fetch, etc.).
 pub const KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL: &str = "messaging.account.no_provider_with_email";
 
-/// Key: coach-voice prompt for the in-chat "Connect your account" Card.
+/// Key: agent-voice prompt for the in-chat "Connect your account" Card.
 pub const KEY_CONNECT_PROMPT: &str = "messaging.connect.prompt";
 
 /// Key: button label for the in-chat "Connect your account" Card.
@@ -401,7 +401,7 @@ pub const KEY_PROVIDER_REAUTH_REQUIRED: &str = "messaging.provider.reauth_requir
 /// Minting the hosted-login URL can fail — no OAuth credentials configured for
 /// the tenant, or the mint endpoint refusing. `auth_recovery` used to bail out
 /// on that, leaving the turn with no content at all, and the athlete was told
-/// the coach could not formulate a response when what was actually wrong was a
+/// the agent could not formulate a response when what was actually wrong was a
 /// disconnected provider. Knowing which provider dropped is most of the answer;
 /// the link is the convenience.
 ///
@@ -411,7 +411,7 @@ pub const KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK: &str = "messaging.provider.reaut
 /// Key: a provider needs reconnecting on a turn the athlete's OTHER
 /// connections already answered.
 ///
-/// [`KEY_PROVIDER_REAUTH_REQUIRED`] says the coach could not retrieve the data,
+/// [`KEY_PROVIDER_REAUTH_REQUIRED`] says the agent could not retrieve the data,
 /// which contradicts an answer that just delivered it. A multi-source athlete
 /// whose watch token died still gets their history from a healthy connection,
 /// so this copy stands beside that answer: what you asked for is above, `{0}` is
@@ -459,7 +459,7 @@ pub const KEY_HELP_DOMAIN_GENERAL: &str = "commands.help.domain.general";
 pub const KEY_HELP_DOMAIN_GROUP: &str = "commands.help.domain.group";
 /// Key: `/help` domain heading — agent selection commands.
 pub const KEY_HELP_DOMAIN_AGENT: &str = "commands.help.domain.agent";
-/// Key: `/help` domain heading — human-coach commands.
+/// Key: `/help` domain heading — human-agent commands.
 pub const KEY_HELP_DOMAIN_COACH: &str = "commands.help.domain.coach";
 /// Key: `/help` domain heading — fitness data commands.
 pub const KEY_HELP_DOMAIN_DATA: &str = "commands.help.domain.data";
@@ -469,7 +469,7 @@ pub const KEY_HELP_DOMAIN_PROVIDER: &str = "commands.help.domain.provider";
 pub const KEY_HELP_DOMAIN_ACCOUNT: &str = "commands.help.domain.account";
 /// Key: `/help` domain heading — training plan and calibration commands.
 pub const KEY_HELP_DOMAIN_TRAINING: &str = "commands.help.domain.training";
-/// Key: `/help` domain heading for the coach catalogue (`/discover`).
+/// Key: `/help` domain heading for the agent catalogue (`/discover`).
 pub const KEY_HELP_DOMAIN_DISCOVER: &str = "commands.help.domain.discover";
 /// Key: `/help` closing line inviting the user to chat.
 pub const KEY_HELP_FOOTER: &str = "commands.help.footer";
@@ -511,7 +511,7 @@ pub const KEY_TIMEZONE_INVALID: &str = "commands.timezone.invalid";
 
 /// Key: `/pillars` opener — the first question of the guided profile walk.
 ///
-/// Persisted as the conversation's first assistant message, so the coach sees
+/// Persisted as the conversation's first assistant message, so the agent sees
 /// the question it is credited with asking when the athlete's answer arrives.
 pub const KEY_PILLARS_OPENER: &str = "commands.pillars.opener";
 /// Key: `/pillars` opener for a walk started in a shared room.
@@ -548,7 +548,7 @@ pub const KEY_NEW_CONVERSATION_TITLE_PREFIX: &str = "chat.newConversationTitlePr
 // ── memory fact sentences ──────────────────────────────────────────────────
 // One key per `PredicateCode`; `{0}` is the athlete's own words (the object).
 // Rendered once, on the server, in the athlete's locale — for the memory
-// screen, the recall tool and the coach dossier alike.
+// screen, the recall tool and the agent dossier alike.
 /// Key: memory fact sentence for the `training_for` predicate code. Args: `{0}` object.
 pub const KEY_MEMORY_PREDICATE_TRAINING_FOR: &str = "messaging.memory.predicate.training_for";
 /// Key: memory fact sentence for the `working_toward` predicate code. Args: `{0}` object.
@@ -595,7 +595,7 @@ pub const KEY_MEMORY_PREDICATE_STATES: &str = "messaging.memory.predicate.states
 // ── messaging intake keys ─────────────────────────────────────────────────
 /// Key: intake opener — sent with the first question after a channel is linked.
 pub const KEY_INTAKE_OPENER: &str = "messaging.intake.opener";
-/// Key: intake profile-type question (athlete vs coach), numbered 1/2.
+/// Key: intake profile-type question (athlete vs agent), numbered 1/2.
 pub const KEY_INTAKE_PERSONA: &str = "humanCoach.intake_persona";
 /// Key: framing sent with the first PAR-Q+ question — a "yes" blocks nothing.
 pub const KEY_INTAKE_PARQ_INTRO: &str = "messaging.intake.parq.intro";
@@ -627,7 +627,7 @@ pub const KEY_INTAKE_COMPLETE_FLAGGED: &str = "messaging.intake.complete_flagged
 /// Key: `/calibrate` opener — states what was inferred and what follows.
 ///
 /// Persisted as the conversation's first assistant message for the same reason
-/// as the `/pillars` opener: without it the coach receives the athlete's first
+/// as the `/pillars` opener: without it the agent receives the athlete's first
 /// answer with no question attached, and the turn counts as message #1, which
 /// arms the first-turn startup prefetch.
 pub const KEY_CALIBRATE_OPENER: &str = "commands.calibrate.opener";
@@ -772,8 +772,8 @@ pub const KEY_GROUP_INVITE_FORBIDDEN: &str = "commands.group.invite_forbidden";
 pub const KEY_GROUP_INVITE_BODY: &str = "commands.group.invite_body";
 /// Key: `/group invite` unavailable when the groups feature is disabled.
 pub const KEY_GROUP_INVITE_UNAVAILABLE: &str = "commands.group.invite_unavailable";
-/// Key: coach-invite success body, shared by `/coach invite` and
-/// `/group invite coach`. `{0}` = group name, `{1}` = invite code (URL),
+/// Key: agent-invite success body, shared by `/agent invite` and
+/// `/group invite agent`. `{0}` = group name, `{1}` = invite code (URL),
 /// `{2}` = invite code (display).
 pub const KEY_COACH_INVITE_BODY: &str = "humanCoach.invite_body";
 /// Key: `/group leave` confirmation prompt. `{0}` = group name.
@@ -785,26 +785,26 @@ pub const KEY_GROUP_CONSENT_USAGE: &str = "commands.group.consent_usage";
 pub const KEY_GROUP_CONSENT_UPDATED: &str = "commands.group.consent_updated";
 /// Key: `/group respond` usage hint when the argument is missing or invalid.
 pub const KEY_GROUP_RESPOND_USAGE: &str = "commands.group.respond_usage";
-/// Key: `/group respond mentions` confirmation — coach answers only when addressed.
+/// Key: `/group respond mentions` confirmation — agent answers only when addressed.
 pub const KEY_GROUP_RESPOND_MENTIONS: &str = "commands.group.respond_mentions";
-/// Key: `/group respond all` confirmation — coach answers every message.
+/// Key: `/group respond all` confirmation — agent answers every message.
 pub const KEY_GROUP_RESPOND_ALL: &str = "commands.group.respond_all";
 /// Key: `/group status` line shown when the group is in mentions-only mode.
 pub const KEY_GROUP_RESPOND_STATUS_MENTIONS: &str = "commands.group.respond_status_mentions";
-/// Key: `/group coach detach` confirmation — the group's human coach was
+/// Key: `/group agent detach` confirmation — the group's human coach was
 /// cleared. `{0}` = group name.
 pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
 /// Key: `/group create` usage hint when no name was typed.
 pub const KEY_GROUP_CREATE_USAGE: &str = "commands.group.create_usage";
 /// Key: `/group create` refusal when neither the conversation nor the
-/// selection pointer names a coach for the new group.
+/// selection pointer names an agent for the new group.
 pub const KEY_GROUP_CREATE_NO_AGENT: &str = "commands.group.create_no_agent";
 /// Key: `/group create` refusal when the tenant plan has no group coaching.
 pub const KEY_GROUP_CREATE_UNAVAILABLE: &str = "commands.group.create_unavailable";
 /// Key: `/group create` refusal when the tenant's `group_creation_policy`
 /// reserves creation to its admins.
 pub const KEY_GROUP_CREATE_FORBIDDEN: &str = "commands.group.create_forbidden";
-/// Key: `/group create` success body. `{0}` = group name, `{1}` = coach title.
+/// Key: `/group create` success body. `{0}` = group name, `{1}` = agent title.
 pub const KEY_GROUP_CREATED: &str = "commands.group.created";
 /// Key: label of the `/group invite` button under a `/group create` reply.
 pub const KEY_GROUP_INVITE_LABEL: &str = "commands.group.invite_label";
@@ -837,17 +837,17 @@ pub const KEY_DISCOVER_CATALOGUE_EMPTY: &str = "commands.discover.catalogue_empt
 pub const KEY_DISCOVER_MORE_LABEL: &str = "commands.discover.more_label";
 /// Key: `/discover install` usage hint when no handle was typed.
 pub const KEY_DISCOVER_INSTALL_USAGE: &str = "commands.discover.install_usage";
-/// Key: `/discover install @handle` when no published coach answers to the
+/// Key: `/discover install @handle` when no published agent answers to the
 /// handle. `{0}` = the handle as typed, with its `@`.
 pub const KEY_DISCOVER_INSTALL_UNKNOWN_HANDLE: &str = "commands.discover.install_unknown_handle";
 /// Key: `/discover install` success — the post-install hint that teaches
-/// `/coach add @handle` and the `@handle` mention. `{0}` = coach title,
+/// `/agent add @handle` and the `@handle` mention. `{0}` = agent title,
 /// `{1}` = handle (no `@`).
 pub const KEY_DISCOVER_INSTALLED: &str = "commands.discover.installed";
-/// Key: `/discover install` for a coach already on the caller's list — the
-/// same hint, no second copy. `{0}` = coach title, `{1}` = handle (no `@`).
+/// Key: `/discover install` for an agent already on the caller's list — the
+/// same hint, no second copy. `{0}` = agent title, `{1}` = handle (no `@`).
 pub const KEY_DISCOVER_INSTALL_ALREADY: &str = "commands.discover.install_already";
-/// Key: label of the `/coach add @handle` button under a `/discover install` reply.
+/// Key: label of the `/agent add @handle` button under a `/discover install` reply.
 pub const KEY_DISCOVER_ADD_LABEL: &str = "commands.discover.add_label";
 
 // ── Notification messaging-sink keys ────────────────────────────
@@ -857,73 +857,73 @@ pub const KEY_DISCOVER_ADD_LABEL: &str = "commands.discover.add_label";
 /// `{0}` = notification title, `{1}` = notification body.
 pub const KEY_NOTIFICATION_CHANNEL_BODY: &str = "notifications.channel_body";
 
-// ── /coach command keys ───────────────────────────────────────────────────
+// ── /agent command keys ───────────────────────────────────────────────────
 
-/// Key: `/coach` when the caller's list holds no coach.
+/// Key: `/agent` when the caller's list holds no agent.
 pub const KEY_AGENT_LIST_EMPTY: &str = "commands.agent.list_empty";
-/// Key: `/coach` list card title.
+/// Key: `/agent` list card title.
 pub const KEY_AGENT_LIST_CARD_TITLE: &str = "commands.agent.list_card_title";
-/// Key: `/coach` list item for a coach with a catalogue handle.
+/// Key: `/agent` list item for an agent with a catalogue handle.
 /// `{0}` = title, `{1}` = handle (without `@`), `{2}` = description.
 pub const KEY_AGENT_LIST_ITEM: &str = "commands.agent.list_item";
-/// Key: `/coach` list item for a coach that owns no catalogue handle yet.
+/// Key: `/agent` list item for an agent that owns no catalogue handle yet.
 /// `{0}` = title, `{1}` = description.
 pub const KEY_AGENT_LIST_ITEM_NO_HANDLE: &str = "commands.agent.list_item_no_handle";
-/// Key: `/coach` list footer teaching the mention and the `/coach add` forms.
+/// Key: `/agent` list footer teaching the mention and the `/agent add` forms.
 pub const KEY_AGENT_LIST_FOOTER: &str = "commands.agent.list_footer";
-/// Key: `/coach` description fallback when the coach has no description set.
+/// Key: `/agent` description fallback when the agent has no description set.
 pub const KEY_AGENT_NO_DESCRIPTION: &str = "commands.agent.no_description";
-/// Key: `/coach add` in a group conversation / `/coach assign` success.
-/// `{0}` = coach, `{1}` = group.
+/// Key: `/agent add` in a group conversation / `/agent assign` success.
+/// `{0}` = agent, `{1}` = group.
 pub const KEY_AGENT_GROUP_UPDATED: &str = "commands.agent.group_updated";
-/// Key: `/coach add` success in a personal conversation. `{0}` = coach title.
+/// Key: `/agent add` success in a personal conversation. `{0}` = agent title.
 /// Distinct from [`KEY_AGENT_GROUP_UPDATED`] so personal replies don't mention any "group".
 pub const KEY_AGENT_USER_UPDATED: &str = "commands.agent.user_updated";
-/// Key: `/coach assign` rejection when the user is not a group member.
+/// Key: `/agent assign` rejection when the user is not a group member.
 pub const KEY_AGENT_ASSIGN_NOT_A_MEMBER: &str = "commands.agent.assign_not_a_member";
-/// Key: `/coach assign` and `/coach add` (group conversation) rejection when the
+/// Key: `/agent assign` and `/agent add` (group conversation) rejection when the
 /// caller lacks admin rights in the group.
 pub const KEY_AGENT_ASSIGN_FORBIDDEN: &str = "commands.agent.assign_forbidden";
-/// Key: `/coach add` typed without a coach.
+/// Key: `/agent add` typed without an agent.
 pub const KEY_AGENT_ADD_USAGE: &str = "commands.agent.add_usage";
-/// Key: `/coach add` when no installed coach answers to the argument.
+/// Key: `/agent add` when no installed agent answers to the argument.
 /// `{0}` = the handle as typed, with its `@`.
 pub const KEY_AGENT_ADD_UNKNOWN: &str = "commands.agent.add_unknown";
-/// Key: `/coach remove` refused in a group conversation, where the coach is the group's.
+/// Key: `/agent remove` refused in a group conversation, where the agent is the group's.
 pub const KEY_AGENT_REMOVE_GROUP_THREAD: &str = "commands.agent.remove_group_thread";
-/// Key: `/coach remove` when the conversation has no coach attached.
+/// Key: `/agent remove` when the conversation has no agent attached.
 pub const KEY_AGENT_REMOVE_NOTHING: &str = "commands.agent.remove_nothing";
-/// Key: `/coach remove` success. `{0}` = coach title.
+/// Key: `/agent remove` success. `{0}` = agent title.
 pub const KEY_AGENT_REMOVED: &str = "commands.agent.removed";
-/// Key: `/coach create` dispatched with no conversation to read.
+/// Key: `/agent create` dispatched with no conversation to read.
 pub const KEY_AGENT_CREATE_NO_CONVERSATION: &str = "commands.agent.create_no_conversation";
-/// Key: `/coach create` on a conversation with no message to draft from.
+/// Key: `/agent create` on a conversation with no message to draft from.
 pub const KEY_AGENT_CREATE_EMPTY: &str = "commands.agent.create_empty";
-/// Key: `/coach create` with arguments that are neither empty nor `confirm token`.
+/// Key: `/agent create` with arguments that are neither empty nor `confirm token`.
 pub const KEY_AGENT_CREATE_USAGE: &str = "commands.agent.create_usage";
-/// Key: `/coach create` proposal card title.
+/// Key: `/agent create` proposal card title.
 pub const KEY_AGENT_CREATE_CARD_TITLE: &str = "commands.agent.create_card_title";
-/// Key: `/coach create` proposal card body.
+/// Key: `/agent create` proposal card body.
 /// `{0}` = title, `{1}` = description, `{2}` = category, `{3}` = tags, `{4}` = claim token.
 pub const KEY_AGENT_CREATE_PROPOSAL_BODY: &str = "commands.agent.create_proposal_body";
-/// Key: `/coach create` proposal card — the button that creates the coach.
+/// Key: `/agent create` proposal card — the button that creates the agent.
 pub const KEY_AGENT_CREATE_CONFIRM_LABEL: &str = "commands.agent.create_confirm_label";
-/// Key: `/coach create` proposal card — the button that discards the draft.
+/// Key: `/agent create` proposal card — the button that discards the draft.
 pub const KEY_AGENT_CREATE_DISCARD_LABEL: &str = "commands.agent.create_discard_label";
-/// Key: `/coach create confirm` refused by the per-user coach quota.
-/// `{0}` = coaches the caller already has, `{1}` = the plan's maximum.
+/// Key: `/agent create confirm` refused by the per-user agent quota.
+/// `{0}` = agents the caller already has, `{1}` = the plan's maximum.
 pub const KEY_AGENT_CREATE_QUOTA: &str = "commands.agent.create_quota";
-/// Key: `/coach create confirm` success, coach bound to the conversation.
+/// Key: `/agent create confirm` success, agent bound to the conversation.
 /// `{0}` = title, `{1}` = handle (without `@`).
 pub const KEY_AGENT_CREATE_DONE: &str = "commands.agent.create_done";
-/// Key: `/coach create confirm` success when the conversation could not take the
-/// coach (a group whose settings the caller may not change). `{0}` = title, `{1}` = handle.
+/// Key: `/agent create confirm` success when the conversation could not take the
+/// agent (a group whose settings the caller may not change). `{0}` = title, `{1}` = handle.
 pub const KEY_AGENT_CREATE_DONE_UNBOUND: &str = "commands.agent.create_done_unbound";
-/// Key: `/deny` on a coach draft — the draft is dropped, nothing was created.
+/// Key: `/deny` on an agent draft — the draft is dropped, nothing was created.
 pub const KEY_AGENT_CREATE_DISCARDED: &str = "commands.agent.create_discarded";
 
-/// Key: notice appended to a coach reply after the tenant-isolation stage
-/// redacted a section citing an athlete outside the coach's roster.
+/// Key: notice appended to an agent reply after the tenant-isolation stage
+/// redacted a section citing an athlete outside the agent's roster.
 pub const KEY_PERSONA_ISOLATION_REDACTED: &str = "persona.isolation.redacted";
 
 /// Key: one-line summary of the Casual persona.
@@ -935,7 +935,7 @@ pub const KEY_PERSONA_SUMMARY_ENTHUSIAST: &str = "persona.summary.enthusiast";
 /// Key: one-line summary of the Power-athlete persona.
 pub const KEY_PERSONA_SUMMARY_POWER_ATHLETE: &str = "persona.summary.power_athlete";
 
-/// Key: one-line summary of the Coach persona.
+/// Key: one-line summary of the Agent persona.
 pub const KEY_PERSONA_SUMMARY_COACH: &str = "humanCoach.persona_summary";
 
 /// Key: contract rule — reply word cap. `{0}` = the cap.
@@ -981,7 +981,7 @@ pub const KEY_PERSONA_RULE_P0_P3_LADDER: &str = "persona.rule.p0_p3_ladder";
 /// Key: contract rule — every data block names the athlete it belongs to.
 pub const KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION: &str = "persona.rule.athlete_attribution";
 
-/// Key: contract rule — athlete citations are verified against the coach's roster.
+/// Key: contract rule — athlete citations are verified against the agent's roster.
 pub const KEY_PERSONA_RULE_ROSTER_VERIFIED: &str = "persona.rule.roster_verified";
 
 /// Key: enforcement badge when the effective contract runs `strict_mode`.
@@ -1046,17 +1046,17 @@ pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_TITLE: &str =
 /// Key: which metric moved. `{0}` metric name, `{1}` new value.
 pub const KEY_NOTIFICATION_FITNESS_IMPROVEMENT_BODY: &str =
     "notifications.event.fitness_improvement.body";
-/// Key: a coach wrote to the athlete. No format placeholders.
+/// Key: an agent wrote to the athlete. No format placeholders.
 pub const KEY_NOTIFICATION_AGENT_MESSAGE_TITLE: &str = "notifications.event.agent_message.title";
-/// Key: who wrote. `{0}` = the coach's name.
+/// Key: who wrote. `{0}` = the agent's name.
 pub const KEY_NOTIFICATION_AGENT_MESSAGE_BODY: &str = "notifications.event.agent_message.body";
-/// Key: a coach revised the training plan. No format placeholders.
+/// Key: an agent revised the training plan. No format placeholders.
 pub const KEY_NOTIFICATION_PLAN_UPDATED_TITLE: &str = "notifications.event.plan_updated.title";
-/// Key: who revised it. `{0}` = the coach's name.
+/// Key: who revised it. `{0}` = the agent's name.
 pub const KEY_NOTIFICATION_PLAN_UPDATED_BODY: &str = "notifications.event.plan_updated.body";
-/// Key: a coach left a note on an activity. No format placeholders.
+/// Key: an agent left a note on an activity. No format placeholders.
 pub const KEY_NOTIFICATION_AGENT_FEEDBACK_TITLE: &str = "notifications.event.agent_feedback.title";
-/// Key: whose note, on what. `{0}` coach name, `{1}` activity type.
+/// Key: whose note, on what. `{0}` agent name, `{1}` activity type.
 pub const KEY_NOTIFICATION_AGENT_FEEDBACK_BODY: &str = "notifications.event.agent_feedback.body";
 /// Key: a provider sync failed. `{0}` = the provider's name.
 pub const KEY_NOTIFICATION_SYNC_FAILURE_TITLE: &str = "notifications.event.sync_failure.title";

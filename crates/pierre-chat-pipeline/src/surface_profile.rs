@@ -35,7 +35,7 @@ use crate::envelope::ReplyBlockKind;
 ///
 /// Messaging users wait on a webhook round-trip with a channel-side delivery
 /// timeout behind it, so the loop is capped outright rather than resolved
-/// from coach/admin configuration the way an in-app turn is.
+/// from agent/admin configuration the way an in-app turn is.
 const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
 
 /// Identifier for the surface a turn originated from.
@@ -119,7 +119,7 @@ pub enum ProseFormat {
     /// code all render. The in-app chat client.
     Markdown,
     /// The reply is shown as typed. Markdown syntax reaches the athlete as
-    /// literal asterisks and hashes, so the coach is told to write prose.
+    /// literal asterisks and hashes, so the agent is told to write prose.
     PlainText,
 }
 
@@ -141,7 +141,7 @@ pub struct BlockSupport {
     /// produced.
     pub workout_plan_card: bool,
     /// `get_activities` output renders as its own "Your Activities" panel
-    /// above the coach's analysis. When false the egress must prepend the
+    /// above the agent's analysis. When false the egress must prepend the
     /// list to the reply text or the athlete never sees it.
     pub activity_list_card: bool,
     /// Claim-verification verdicts render as chips attached to the reply
@@ -242,7 +242,7 @@ pub struct RenderCapabilities {
     ///
     /// Sourced from the canot channel descriptor's `max_message_length` for
     /// messaging surfaces — Telegram 4096, Discord 2000, Slack 40000 — so the
-    /// sentence the coach is told and the number the egress packs against
+    /// sentence the agent is told and the number the egress packs against
     /// cannot drift apart. An answer longer than this is not cut: the egress
     /// splits it into ordered messages, each inside the ceiling.
     pub max_reply_chars: usize,
@@ -297,18 +297,18 @@ impl RenderCapabilities {
 /// Budget for the multi-turn tool-execution loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnBudget {
-    /// Fixed iteration budget regardless of coach or admin config.
+    /// Fixed iteration budget regardless of agent or admin config.
     ///
     /// Applies to messaging surfaces, where tight latency budgets and
     /// rate-limit considerations force a hard cap.
     Fixed(usize),
-    /// Resolve from (in order) the coach runtime context's
+    /// Resolve from (in order) the agent runtime context's
     /// `max_tool_iterations`, the admin config override, then the
     /// compiled-in default.
     ///
     /// Applies to the in-app surface, where long-running analyses on a
     /// browser or app session are acceptable.
-    CoachOrAdminDefault,
+    AgentOrAdminDefault,
 }
 
 /// Policy for resolving the active LLM model on a turn.
@@ -403,7 +403,7 @@ impl SurfaceProfile {
             || {
                 (
                     in_app_capabilities(),
-                    TurnBudget::CoachOrAdminDefault,
+                    TurnBudget::AgentOrAdminDefault,
                     ModelPolicy::UseStored,
                 )
             },
@@ -498,8 +498,8 @@ const fn in_app_capabilities() -> RenderCapabilities {
 const fn messaging_capabilities(transport: MessagingTransportCaps) -> RenderCapabilities {
     RenderCapabilities {
         // Every supported channel renders its own dialect of rich text (or
-        // none), and none of them parse the markdown the coach would write,
-        // so the coach is asked for prose and the egress does the shaping.
+        // none), and none of them parse the markdown the agent would write,
+        // so the agent is asked for prose and the egress does the shaping.
         prose: ProseFormat::PlainText,
         max_reply_chars: transport.max_message_length,
         blocks: BlockSupport {
@@ -508,7 +508,7 @@ const fn messaging_capabilities(transport: MessagingTransportCaps) -> RenderCapa
             scene_inline: false,
             scene_raster: transport.renders_media_natively,
             // No plan-card renderer: a stripped JSON plan would leave an
-            // empty reply, so the coach writes the plan as prose instead.
+            // empty reply, so the agent writes the plan as prose instead.
             workout_plan_card: false,
             // No activity panel either — the egress prepends the list.
             activity_list_card: false,

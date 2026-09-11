@@ -47,7 +47,7 @@ pub struct PlannedSession {
     /// Planned duration, when the entry has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_seconds: Option<u32>,
-    /// Coach prose, verbatim — what the athlete reads on the entry.
+    /// Agent prose, verbatim — what the athlete reads on the entry.
     pub notes: String,
     /// Structured steps when Dravr has structure; empty means a timed entry
     /// carrying only the prose.
@@ -212,9 +212,9 @@ pub struct PrescribedWorkout {
     pub tenant_id: Uuid,
     /// Athlete the entry was written for.
     pub user_id: Uuid,
-    /// Optional coach id that triggered the write.
+    /// Optional agent id that triggered the write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coach_id: Option<String>,
+    pub agent_id: Option<String>,
     /// Slug of the template a prescription pushed; `None` for a plan entry,
     /// which has no template behind it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

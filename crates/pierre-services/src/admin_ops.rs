@@ -104,16 +104,16 @@ pub struct UserActivityResult {
     pub top_tools: Vec<ToolUsageEntry>,
 }
 
-/// A coach installed by a user (admin User Details panel).
+/// An agent installed by a user (admin User Details panel).
 #[derive(Serialize)]
-pub struct InstalledCoachSummary {
-    /// Installed coach ID
-    pub coach_id: String,
-    /// Coach display title
+pub struct InstalledAgentSummary {
+    /// Installed agent ID
+    pub agent_id: String,
+    /// Agent display title
     pub title: String,
-    /// Coach category (e.g., "endurance", "strength")
+    /// Agent category (e.g., "endurance", "strength")
     pub category: String,
-    /// True if this is the user's default coach
+    /// True if this is the user's default agent
     pub is_default: bool,
 }
 
@@ -126,22 +126,22 @@ pub struct UserGroupSummary {
     pub name: String,
     /// Caller's role within the group (member, admin, etc.)
     pub role: String,
-    /// Coach assigned to the group
-    pub coach_id: String,
+    /// Agent assigned to the group
+    pub agent_id: String,
     /// Member count at query time
     pub member_count: i64,
 }
 
 /// Per-user enrichments rendered by the admin User Details drawer:
-/// coaching persona, default coach, installed coaches, joined groups.
+/// coaching persona, default agent, installed agents, joined groups.
 #[derive(Serialize)]
 pub struct UserAdminProfile {
     /// Target user ID
     pub user_id: String,
     /// Configured coaching persona label
     pub coaching_persona: String,
-    /// Coaches the user has installed from the Coach Store
-    pub installed_coaches: Vec<InstalledCoachSummary>,
+    /// Coaches the user has installed from the Agent Store
+    pub installed_agents: Vec<InstalledAgentSummary>,
     /// Coaching groups the user belongs to
     pub joined_groups: Vec<UserGroupSummary>,
 }
@@ -1234,13 +1234,13 @@ pub async fn compute_user_activity(
 }
 
 // =========================================================================
-// User admin profile (installed coaches, joined groups, coach style)
+// User admin profile (installed agents, joined groups, agent style)
 // =========================================================================
 
 /// Build the per-user enrichments rendered by the admin User Details drawer.
 ///
-/// Returns coaching persona + default coach (from the user model), the list
-/// of coaches the user has installed from the Coach Store, and the coaching
+/// Returns coaching persona + default agent (from the user model), the list
+/// of agents the user has installed from the Agent Store, and the coaching
 /// groups they're a member of. Used by `/api/admin/users/{user_id}/admin-profile`.
 ///
 /// # Errors
@@ -1267,7 +1267,7 @@ pub async fn compute_user_admin_profile(
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    // Installed coaches require a tenant scope — use the user's first tenant.
+    // Installed agents require a tenant scope — use the user's first tenant.
     // Most users belong to exactly one tenant; for multi-tenant users we show
     // installs from their primary tenant only.
     let tenants = data
@@ -1279,30 +1279,30 @@ pub async fn compute_user_admin_profile(
 
     // Which one is selected now comes from the membership row rather than a
     // column on the user, since selection is per-tenant.
-    let selected_coach = if let Some(tenant) = tenants.first() {
+    let selected_agent = if let Some(tenant) = tenants.first() {
         data.repos()
             .tenants
-            .get_selected_coach(tenant.id, target_user_id)
+            .get_selected_agent(tenant.id, target_user_id)
             .await
             .unwrap_or_default()
     } else {
         None
     };
 
-    let installed_coaches = if let Some(tenant) = tenants.first() {
-        let coaches = data
+    let installed_agents = if let Some(tenant) = tenants.first() {
+        let agents = data
             .repos()
             .store_listings
-            .get_installed_coaches(target_user_id, tenant.id)
+            .get_installed_agents(target_user_id, tenant.id)
             .await
             .unwrap_or_default();
-        coaches
+        agents
             .into_iter()
-            .map(|c| InstalledCoachSummary {
-                is_default: selected_coach
+            .map(|c| InstalledAgentSummary {
+                is_default: selected_agent
                     .as_deref()
                     .is_some_and(|d| d == c.id.to_string()),
-                coach_id: c.id.to_string(),
+                agent_id: c.id.to_string(),
                 title: c.title,
                 category: c.category.as_str().to_owned(),
             })
@@ -1324,7 +1324,7 @@ pub async fn compute_user_admin_profile(
             group_id: g.id.to_string(),
             name: g.name,
             role: g.my_role.to_string(),
-            coach_id: g.coach_id,
+            agent_id: g.agent_id,
             member_count: g.member_count,
         })
         .collect();
@@ -1332,7 +1332,7 @@ pub async fn compute_user_admin_profile(
     Ok(UserAdminProfile {
         user_id: target_user_id.to_string(),
         coaching_persona: user.coaching_persona.to_string(),
-        installed_coaches,
+        installed_agents,
         joined_groups,
     })
 }

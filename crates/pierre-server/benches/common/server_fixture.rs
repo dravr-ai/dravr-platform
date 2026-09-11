@@ -148,7 +148,7 @@ pub async fn seed_user(resources: &ServerContext, email: &str) -> (User, TenantI
     user.approved_at = Some(Utc::now());
     user.tier = UserTier::Enterprise;
 
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
@@ -176,7 +176,7 @@ pub async fn seed_user(resources: &ServerContext, email: &str) -> (User, TenantI
 /// admin write path, exercising the `UserOverride` rung on later dispatches.
 /// Unknown tool names fail loudly here (catalog-validated), not mid-bench.
 pub async fn seed_user_overrides(resources: &ServerContext, user_id: Uuid, tools: &[&str]) {
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     for tool_name in tools {
         admin_ops::set_user_tool_override(
             &repos,

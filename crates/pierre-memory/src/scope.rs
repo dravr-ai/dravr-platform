@@ -18,7 +18,7 @@ pub enum MemoryScope {
     Conversation,
     /// Bound to a single user within their tenant.
     User,
-    /// Visible to all users within the tenant (e.g., tenant-wide coach notes).
+    /// Visible to all users within the tenant (e.g., tenant-wide agent notes).
     Tenant,
 }
 

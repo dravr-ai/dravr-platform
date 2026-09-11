@@ -1,5 +1,5 @@
 // ABOUTME: The about-you onboarding step — three structured answers persisted as onboarding facts
-// ABOUTME: Populates the North Star + sport + goal that build_coach_proposal already reads and falls back without
+// ABOUTME: Populates the North Star + sport + goal that build_agent_proposal already reads and falls back without
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,14 +8,14 @@
 //!
 //! ## Why this exists
 //!
-//! The coach proposal infers the athlete from provider activity, and on a
+//! The agent proposal infers the athlete from provider activity, and on a
 //! first-run connection that activity has usually not synced yet — so the
 //! proposal degrades to catalogue order with generic rationales at exactly the
-//! moment we are trying to earn the user. `build_coach_proposal` already reads
+//! moment we are trying to earn the user. `build_agent_proposal` already reads
 //! pillar context and explicitly falls back to sport-mix when it is absent; this
 //! step is what stops that fallback being permanent for every user.
 //!
-//! Three questions, deliberately. Everything else the coach eventually needs —
+//! Three questions, deliberately. Everything else the agent eventually needs —
 //! availability, fuelling, sleep, stress — is captured conversationally by the
 //! pillar walk, which resumes on its own because this step seeds its state. Ask
 //! for all seven up front and the wizard becomes the thing people abandon.
@@ -34,7 +34,7 @@ use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
 /// Longest accepted free-text answer.
 ///
-/// These land in the coach's prompt, so an unbounded field is a prompt-budget
+/// These land in the agent's prompt, so an unbounded field is a prompt-budget
 /// hole as much as a storage one. Generous enough for a real sentence or three.
 pub const MAX_ANSWER_LEN: usize = 500;
 
@@ -79,7 +79,7 @@ fn clean(value: Option<&String>) -> Option<String> {
 /// Each answer supersedes the previous answer to the same question first.
 /// `upsert_user_fact` is a plain insert despite its name — it has no conflict
 /// target — so without this a second submission leaves the athlete with two
-/// North Stars and feeds both into the coach prompt. Superseding sets
+/// North Stars and feeds both into the agent prompt. Superseding sets
 /// `valid_until` rather than deleting, matching how the pillar walk re-screens
 /// and keeping the GDPR forget path separate.
 ///
@@ -108,7 +108,7 @@ where
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::NorthStar,
             pillar: None,
@@ -129,7 +129,7 @@ where
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Preference,
             pillar: Some(Pillar::TrainingAndMovement),
@@ -150,7 +150,7 @@ where
         repo.upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: Some(Pillar::TrainingAndMovement),

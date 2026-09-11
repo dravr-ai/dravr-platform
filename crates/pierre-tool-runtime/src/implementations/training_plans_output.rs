@@ -35,7 +35,7 @@ use uuid::Uuid;
 pub struct GetTrainingPlanResult {
     /// The active plan, or null when there is none.
     pub plan: Option<TrainingPlan>,
-    /// Whose plan this is — a coach may be reading a consenting athlete's.
+    /// Whose plan this is — an agent may be reading a consenting athlete's.
     pub athlete: Option<String>,
     /// Present only when there is no plan: what to do instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,7 +43,7 @@ pub struct GetTrainingPlanResult {
     /// The weeks, day by day. Absent when there is no plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weeks: Option<Vec<PlanWeek>>,
-    /// Whether the goal the plan snapshotted has since expired, so the coach
+    /// Whether the goal the plan snapshotted has since expired, so the agent
     /// re-confirms it rather than planning toward a race that moved. Absent
     /// when there is no plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -185,7 +185,7 @@ pub struct SaveTrainingPlanResult {
     /// Argument keys the caller supplied that this tool does not have.
     ///
     /// Serde drops an unknown key in silence, so a plan saved with
-    /// `coach_id` instead of `agent_id` stores against no agent and the
+    /// `agent_id` instead of `agent_id` stores against no agent and the
     /// athlete is told "no active plan to extend yet" on some later turn,
     /// with nothing anywhere naming the cause. Reporting the dropped keys
     /// puts that on the turn it happened, where the model can fix it.

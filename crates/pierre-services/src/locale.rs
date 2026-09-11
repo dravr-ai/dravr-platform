@@ -8,7 +8,7 @@
 //!
 //! Ten call sites asked the same question — REST handlers, chat routes, store
 //! and memory tools, the persona cards — and answered it ten times. The copies
-//! were not identical: only the coaches one treated a stored empty string as
+//! were not identical: only the agents one treated a stored empty string as
 //! "no preference", so every other site would have handed `""` to the string
 //! registry as if it were a locale.
 //!

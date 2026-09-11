@@ -108,7 +108,7 @@ async fn seed_anchor(
         .upsert_user_fact(&UpsertUserFactParams {
             tenant_id,
             user_id: user,
-            coach_id: None,
+            agent_id: None,
             scope: MemoryScope::User,
             kind: FactKind::Goal,
             pillar: None,
@@ -138,10 +138,10 @@ async fn run(
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _email) = create_test_user(&resources.coach.database)
+    let (user_id, _email) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -166,7 +166,7 @@ async fn run(
         &ExtractionRequest {
             tenant_id,
             user_id: &user,
-            coach_id: None,
+            agent_id: None,
             pillar: None,
             source: FactSource::Conversation,
             source_msg_id: Some("m-later"),
@@ -294,7 +294,7 @@ async fn a_restatement_named_across_kinds_is_refused() {
     assert_eq!(facts[0].object, ANCHOR);
 }
 
-/// A coach prescription does not become a `Schedule` fact once the plan that
+/// An agent prescription does not become a `Schedule` fact once the plan that
 /// carries it is stored — asserted through the real extraction path, not on
 /// the predicate.
 ///
@@ -310,10 +310,10 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _email) = create_test_user(&resources.coach.database)
+    let (user_id, _email) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -340,7 +340,7 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
         &ExtractionRequest {
             tenant_id,
             user_id: &user,
-            coach_id: None,
+            agent_id: None,
             pillar: None,
             source: FactSource::Conversation,
             source_msg_id: Some("m-prescribed"),
@@ -378,10 +378,10 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    let (user_id, _email) = create_test_user(&resources.coach.database)
+    let (user_id, _email) = create_test_user(&resources.agent.database)
         .await
         .expect("test user");
-    let repos = resources.coach.database.repositories();
+    let repos = resources.agent.database.repositories();
     let tenant_id = repos
         .tenants
         .list_for_user(user_id)
@@ -406,7 +406,7 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
         &ExtractionRequest {
             tenant_id,
             user_id: &user,
-            coach_id: None,
+            agent_id: None,
             pillar: None,
             source: FactSource::Conversation,
             source_msg_id: Some("m-unsaved"),
