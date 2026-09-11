@@ -716,9 +716,23 @@ impl UniversalExecutor {
     /// own `noop` and shell calls are counted in the ACP-reported total but
     /// never reach this function, so they now cost nothing.
     ///
-    /// Only a successful dispatch is charged and reported. A refused or errored
-    /// call consumed the athlete's quota under the old scheme, which is the
-    /// same mistake as letting it satisfy a citation.
+    /// Only a successful dispatch is *charged*. A refused or errored call
+    /// consumed the athlete's quota under the old scheme, which is the same
+    /// mistake as letting it satisfy a citation. It is still *reported*: the
+    /// notify event sits above the charge guard and carries
+    /// `success: false`, so a tool that ran and declined stays visible to
+    /// operators.
+    ///
+    /// What no transport reports through here is a call that produced no
+    /// response at all. This is `execute_tool`'s last statement before `Ok`,
+    /// so an early `ProtocolError` return skips it, and so does a caller that
+    /// abandons the future — which is what the loopback surface's own timeout
+    /// does. `TurnToolSurface::call` also refuses outright when a turn's tool
+    /// budget is spent, before reaching `execute_tool` at all. Those three
+    /// exits are the notify lane's blind spot, and the closing analysis on
+    /// registre#103 mistook it for a wider one: every native call that DOES
+    /// return a response is catalogued here, because that surface dispatches
+    /// through this executor like every other transport.
     ///
     /// Fire-and-forget: a counter write must never fail a tool the athlete
     /// already received an answer from.
