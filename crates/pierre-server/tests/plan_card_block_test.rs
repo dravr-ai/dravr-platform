@@ -46,12 +46,18 @@ const ANSWER: &str = "Voilà ta première quinzaine — deux séances dures, le 
 
 /// The plan the mock saves: a build phase covering today, a taper after it,
 /// and one week whose Tuesday runs the catalogue's threshold template.
-fn plan_payload(week_start: &str, tuesday: &str, thursday: &str, race: &str) -> Value {
+fn plan_payload(
+    week_start: &str,
+    tuesday: &str,
+    thursday: &str,
+    b_race: &str,
+    race: &str,
+) -> Value {
     json!({
         "outline": {
             "goal_race": { "name": "Parkrun PB", "date": race, "discipline": "run_5k", "priority": "A" },
             "races": [
-                { "name": "Club 10k", "date": thursday, "discipline": "run_10k", "priority": "B" }
+                { "name": "Club 10k", "date": b_race, "discipline": "run_10k", "priority": "B" }
             ],
             "strategy": "polarised build, two hard days",
             "flavour": { "id": "polarized-classic", "selected_by": "coach", "override_reason": "house style" },
@@ -159,7 +165,15 @@ fn web_profile() -> SurfaceProfile {
 }
 
 /// Monday of the current week and the dates the fixture needs around it.
-fn dates() -> (String, String, String, String) {
+///
+/// `b_race` is deliberately weeks out rather than inside the current week. The
+/// card keeps only races still ahead (`plan_card.rs`, `date >= today`) and
+/// `races` is `skip_serializing_if = "Vec::is_empty"`, so a B race dated inside
+/// this week drops out of the JSON entirely from the moment it passes — which
+/// made `the_reply_carries_the_saved_plan_as_a_card` pass Monday to Thursday
+/// and fail Friday, Saturday and Sunday. It first went red on Friday
+/// 2026-09-11 against a tree whose last green run was the Thursday.
+fn dates() -> (String, String, String, String, String) {
     let today = Utc::now().date_naive();
     let monday = today - Duration::days(i64::from(today.weekday().num_days_from_monday()));
     let f = |d: chrono::NaiveDate| d.format("%Y-%m-%d").to_string();
@@ -167,17 +181,18 @@ fn dates() -> (String, String, String, String) {
         f(monday),
         f(monday + Duration::days(1)),
         f(monday + Duration::days(3)),
+        f(monday + Duration::weeks(4)),
         f(monday + Duration::weeks(10)),
     )
 }
 
 #[tokio::test]
 async fn the_reply_carries_the_saved_plan_as_a_card() {
-    let (week_start, tuesday, thursday, race) = dates();
+    let (week_start, tuesday, thursday, b_race, race) = dates();
     let provider: Arc<dyn LlmProvider> = Arc::new(ToolThenAnswer {
         asked: Mutex::new(false),
         tool: "save_training_plan",
-        payload: plan_payload(&week_start, &tuesday, &thursday, &race),
+        payload: plan_payload(&week_start, &tuesday, &thursday, &b_race, &race),
         models: vec![MODEL.to_owned()],
     });
     let resources = create_test_server_resources_with_chat_provider(provider)
@@ -279,12 +294,12 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
 
 #[tokio::test]
 async fn a_turn_that_saved_nothing_carries_no_card() {
-    let (week_start, tuesday, thursday, race) = dates();
+    let (week_start, tuesday, thursday, b_race, race) = dates();
     // The mock answers in prose from the first call: no tool, no card.
     let provider: Arc<dyn LlmProvider> = Arc::new(ToolThenAnswer {
         asked: Mutex::new(true),
         tool: "save_training_plan",
-        payload: plan_payload(&week_start, &tuesday, &thursday, &race),
+        payload: plan_payload(&week_start, &tuesday, &thursday, &b_race, &race),
         models: vec![MODEL.to_owned()],
     });
     let resources = create_test_server_resources_with_chat_provider(provider)
@@ -434,9 +449,9 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
     // that reads the plan renders the same projection as the turn that saved
     // it, so "show me my season" answers with the timeline rather than with
     // the agent's paraphrase of it.
-    let (week_start, tuesday, thursday, race) = dates();
+    let (week_start, tuesday, thursday, b_race, race) = dates();
     let provider: Arc<dyn LlmProvider> = Arc::new(SaveThenRead {
-        payload: plan_payload(&week_start, &tuesday, &thursday, &race),
+        payload: plan_payload(&week_start, &tuesday, &thursday, &b_race, &race),
         models: vec![MODEL.to_owned()],
     });
     let resources = create_test_server_resources_with_chat_provider(provider)
