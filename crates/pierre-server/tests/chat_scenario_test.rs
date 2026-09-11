@@ -25,6 +25,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+mod common;
 mod helpers;
 
 use std::env;
@@ -57,9 +58,51 @@ const MAX_SCENARIO_ATTEMPTS: usize = 4;
 
 use helpers::chat_scenario::{
     format::{AssertionSpec, ProviderState},
+    live_driver::RealExecution,
     load_scenario, load_trace, run_scenario, ChatScenario, LiveScenarioDriver, MockScenarioDriver,
     VocabularyContractRegistry,
 };
+use tokio::runtime::Builder as TokioRuntimeBuilder;
+
+/// Seed an athlete on a real server for a scenario that grades written state.
+///
+/// Built fresh per attempt rather than shared: a retry must start from an
+/// athlete with no plan, or the second attempt grades rows the first one
+/// wrote and a model that saved nothing passes on its predecessor's work.
+///
+/// Synchronous because the live-scenario test is a plain `#[test]` — the
+/// driver already spins a nested runtime per turn for the same reason.
+fn real_execution_fixture() -> Result<RealExecution, String> {
+    let rt = TokioRuntimeBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("build runtime: {e}"))?;
+    rt.block_on(async {
+        common::init_server_config();
+        common::init_test_http_clients();
+        let resources = common::create_test_server_resources()
+            .await
+            .map_err(|e| format!("server resources: {e}"))?;
+        let (user_id, _user) = common::create_test_user(&resources.coach.database)
+            .await
+            .map_err(|e| format!("test user: {e}"))?;
+        let tenant_id = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user_id)
+            .await
+            .map_err(|e| format!("tenants: {e}"))?
+            .first()
+            .ok_or_else(|| "the seeded athlete owns no tenant".to_owned())?
+            .id;
+        Ok(RealExecution {
+            resources,
+            user_id,
+            tenant_id,
+        })
+    })
+}
 
 /// Resolve the `tests/scenarios/` directory relative to this file at
 /// compile time so the test works regardless of `cargo test` invocation
@@ -199,6 +242,19 @@ fn check_invariants(s: &ChatScenario) -> Result<(), String> {
         }
         for (j, a) in t.assertions.iter().enumerate() {
             check_assertion(a).map_err(|e| format!("turn {} assertion {}: {e}", i + 1, j + 1))?;
+            // An assertion that grades written state needs somewhere to write.
+            // Caught here, at parse time, rather than at run time: the
+            // asserter does fail without a platform, but a scenario that can
+            // never pass should be rejected when it is read, not after an LLM
+            // has been paid for.
+            if matches!(a, AssertionSpec::PlanWeekWritten { .. }) && !s.real_execution {
+                return Err(format!(
+                    "turn {} assertion {}: plan_week_written grades what the turn \
+                     SAVED, which requires `real_execution: true` on the scenario",
+                    i + 1,
+                    j + 1
+                ));
+            }
         }
     }
     Ok(())
@@ -275,6 +331,7 @@ fn a_bare_reply_language_assertion_is_rejected() {
 #[test]
 fn runner_executes_a_scenario_against_the_mock_driver() {
     let scenario = ChatScenario {
+        real_execution: false,
         name: "Mock-driver smoke".to_owned(),
         locales: vec!["en".to_owned()],
         notes: String::new(),
@@ -382,6 +439,15 @@ fn live_driver_executes_every_scenario() {
             let mut driver = LiveScenarioDriver::from_env().unwrap_or_else(|e| {
                 panic!("LiveScenarioDriver::from_env failed: {e}");
             });
+            // A scenario grading written state gets a real platform: tools
+            // that write commit, and the runner reads the rows back after
+            // each turn. Built per attempt so a retry starts from a clean
+            // athlete rather than inheriting the previous attempt's plan.
+            if scenario.real_execution {
+                driver = driver.with_real_execution(real_execution_fixture().unwrap_or_else(|e| {
+                    panic!("seed a real platform for {}: {e}", path.display())
+                }));
+            }
             driver.reset_history();
             let reports = run_scenario(&scenario, &mut driver, &vocab);
             let attempt_failures: Vec<String> = reports

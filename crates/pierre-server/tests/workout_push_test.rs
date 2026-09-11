@@ -36,6 +36,7 @@ use pierre_core::models::{
     CalendarEventSource, CalendarKey, ConnectionType, PrescribedWorkout, SportType, TenantId,
     UserOAuthToken, WorkoutStep,
 };
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::intervals_icu_provider::default_config;
@@ -451,7 +452,7 @@ impl Fixture {
             .save_plan_bundle(&SavePlanBundleParams {
                 tenant_id: &self.tenant_str(),
                 user_id: &self.user_id.to_string(),
-                coach_slug: None,
+                owner: PlanOwner::agnostic(),
                 goal_fact_id: None,
                 outline,
                 weeks: &inputs,

@@ -25,6 +25,7 @@
 //! presence tells you nothing.
 
 use pierre_core::models::LoadSnapshot;
+use serde::Serialize;
 
 /// Fractional increase over the athlete's recent weekly hours that trips the
 /// warning.
@@ -46,7 +47,8 @@ pub const RAMP_WARN_THRESHOLD: f64 = 0.20;
 const THRESHOLD_EPSILON: f64 = 1e-9;
 
 /// Why a ramp check could not produce a verdict.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum RampUnmeasurable {
     /// No cached activity in the window — no provider connected, a new
     /// account, or a genuine layoff. There is no baseline to compare against.
@@ -68,7 +70,14 @@ impl RampUnmeasurable {
 }
 
 /// What the ramp check concluded about a saved plan.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Serialised because the save reports it to the agent: the numbers are
+/// descriptive magnitudes — planned hours, the athlete's recent average, the
+/// fractional increase — and never a risk claim, which is the CI-enforced
+/// framing rule for load ratios. The agent writes the sentence; this carries
+/// only what was measured.
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum RampVerdict {
     /// The opening week sits within the threshold of recent load.
     WithinThreshold {

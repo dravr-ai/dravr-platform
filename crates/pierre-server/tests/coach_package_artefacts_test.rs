@@ -44,6 +44,7 @@ mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
 use helpers::coach_fixtures::publish_catalogue_coach_tagged;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_mcp_server::routes::endurance::endurance_routes;
 
 const CATALOGUE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../training_catalogue");
@@ -523,7 +524,11 @@ async fn a_saved_day_records_the_tier_its_template_came_from() -> Result<()> {
 
     let plan = repos
         .training_plans
-        .get_active_plan(&tenant.to_string(), &user_id.to_string(), Some(&id))
+        .get_active_plan(
+            &tenant.to_string(),
+            &user_id.to_string(),
+            PlanOwner::coach(&id),
+        )
         .await?
         .expect("plan saved under the coach");
     assert_eq!(

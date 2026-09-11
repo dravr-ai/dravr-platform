@@ -45,6 +45,7 @@ use pierre_core::models::{
     CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
     PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
 };
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
 use pierre_providers::core::FitnessProvider;
@@ -459,7 +460,11 @@ pub async fn push_active_plan(
     let user_str = params.user_id.to_string();
     let plan = repos
         .training_plans
-        .get_active_plan(&tenant_str, &user_str, params.coach_slug)
+        .get_active_plan(
+            &tenant_str,
+            &user_str,
+            PlanOwner::from_slug(params.coach_slug),
+        )
         .await?
         .ok_or_else(|| {
             AppError::not_found(

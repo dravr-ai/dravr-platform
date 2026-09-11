@@ -37,6 +37,7 @@ use pierre_services::training_plan_render::select_active_weeks;
 
 use super::onboarding::{calibration_conditions, season_conditions};
 use crate::ChatPipelineContext;
+use pierre_database::repositories::training_plans::PlanOwner;
 
 /// Upper bound on facts pulled when counting what the interview landed. An
 /// interview asks at most eight questions, so this leaves generous room for an
@@ -215,7 +216,7 @@ pub async fn render(
         .get_active_plan(
             &facts_tenant.to_string(),
             subject_user_id,
-            conv.coach_id.as_deref(),
+            PlanOwner::from_slug(conv.coach_id.as_deref()),
         )
         .await
         .ok()
@@ -318,7 +319,11 @@ pub async fn render_fortnight(
     let covered = match ctx
         .repos
         .training_plans
-        .get_active_plan(&facts_tenant.to_string(), subject_user_id, agent)
+        .get_active_plan(
+            &facts_tenant.to_string(),
+            subject_user_id,
+            PlanOwner::from_slug(agent),
+        )
         .await
     {
         Ok(Some(plan)) => {

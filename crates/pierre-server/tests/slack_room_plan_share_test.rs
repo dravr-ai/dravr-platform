@@ -61,6 +61,7 @@ mod slack_room {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
+    use pierre_database::repositories::training_plans::PlanOwner;
     use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -246,7 +247,7 @@ mod slack_room {
             .save_plan_bundle(&SavePlanBundleParams {
                 tenant_id: &tenant.to_string(),
                 user_id: &user.to_string(),
-                coach_slug: Some(coach_slug),
+                owner: PlanOwner::coach(coach_slug),
                 goal_fact_id: None,
                 outline: Some(PlanOutlineInput {
                     goal_race: &goal,

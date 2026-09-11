@@ -454,3 +454,110 @@ async fn a_recovery_week_is_measured_against_the_skeletons_cut() -> Result<()> {
     );
     Ok(())
 }
+
+/// Spacing is one of the two checks the ledger calls safety-shaped, and the
+/// save now tells the agent when it reads off.
+///
+/// Before this, the verdict went to `training_plan.week_assessed` and stopped
+/// there — measured on every save since the rail shipped, reported into a log
+/// line no agent reads. A week that put its hard days back to back reached the
+/// athlete with nothing said about it.
+#[tokio::test]
+async fn a_week_that_crowds_its_hard_days_says_so_in_the_save_reply() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    // Back-to-back thresholds: 24 h apart against a 48 h minimum.
+    let days = vec![
+        threshold_day("2026-09-14"),
+        threshold_day("2026-09-15"),
+        easy_day("2026-09-16"),
+        easy_day("2026-09-17"),
+        json!({"date": "2026-09-18", "sport": "rest", "workout": "off"}),
+    ];
+
+    let (events, guard) = setup_capture();
+    let saved = executor
+        .execute_tool(request(
+            "save_training_plan",
+            plan_with(&days),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    let captured = events.lock().expect("capture lock").clone();
+    drop(guard);
+    assert!(
+        saved.success,
+        "a warn, not a refusal: the save still commits, got {:?}",
+        saved.error
+    );
+    assert_eq!(
+        assessed(&captured, "2026-09-14").field("spacing"),
+        "off",
+        "the rail still reports for the base rate"
+    );
+
+    let safety = saved
+        .result
+        .as_ref()
+        .and_then(|r| r.get("safety"))
+        .expect("the save reports what the rail found");
+    let crowded = safety
+        .get("crowded_weeks")
+        .and_then(|v| v.as_array())
+        .expect("crowded_weeks present");
+    assert_eq!(crowded.len(), 1, "one week crowds: {crowded:?}");
+    assert_eq!(crowded[0]["week_start"], "2026-09-14");
+    assert_eq!(
+        crowded[0]["min_hours"], 48,
+        "the minimum applied travels with the finding, so the agent states a \
+         number the platform measured rather than one it recalls: {:?}",
+        crowded[0]
+    );
+    assert!(
+        crowded[0]["short"]
+            .as_array()
+            .is_some_and(|gaps| !gaps.is_empty()),
+        "and which gaps were short: {:?}",
+        crowded[0]
+    );
+    Ok(())
+}
+
+/// The control: a week whose hard days are properly spaced reports nothing,
+/// and the field leaves the wire.
+///
+/// Without this, the assertion above passes just as well when every save
+/// reports a crowded week.
+#[tokio::test]
+async fn a_properly_spaced_week_reports_no_safety_findings() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let days = vec![
+        threshold_day("2026-09-14"),
+        easy_day("2026-09-15"),
+        threshold_day("2026-09-16"),
+        easy_day("2026-09-17"),
+        json!({"date": "2026-09-18", "sport": "rest", "workout": "off"}),
+    ];
+
+    let saved = executor
+        .execute_tool(request(
+            "save_training_plan",
+            plan_with(&days),
+            user_id,
+            &tenant_id,
+        ))
+        .await?;
+    assert!(saved.success, "save failed: {:?}", saved.error);
+    assert!(
+        saved
+            .result
+            .as_ref()
+            .and_then(|r| r.get("safety"))
+            .is_none(),
+        "48 h apart is the minimum, so there is nothing to warn about and the \
+         turn pays nothing for the check"
+    );
+    Ok(())
+}

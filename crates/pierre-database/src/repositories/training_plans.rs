@@ -20,8 +20,8 @@ pub struct SaveTrainingPlanParams<'a> {
     pub tenant_id: &'a str,
     /// Athlete the plan is for.
     pub user_id: &'a str,
-    /// Coach persona slug, or `None` for a coach-agnostic plan.
-    pub coach_slug: Option<&'a str>,
+    /// Whose plan this is.
+    pub owner: PlanOwner<'a>,
     /// Pillar `Goal` user-fact this plan serves, when linked.
     pub goal_fact_id: Option<&'a str>,
     /// Snapshot of the goal race at plan time.
@@ -106,8 +106,8 @@ pub struct SavePlanBundleParams<'a> {
     pub tenant_id: &'a str,
     /// Athlete the plan is for.
     pub user_id: &'a str,
-    /// Coach persona slug, or `None` for a coach-agnostic plan.
-    pub coach_slug: Option<&'a str>,
+    /// Whose plan this is.
+    pub owner: PlanOwner<'a>,
     /// Pillar `Goal` user-fact this plan serves, when linked.
     pub goal_fact_id: Option<&'a str>,
     /// New outline to create (superseding the current active one), or `None`
@@ -130,13 +130,82 @@ pub struct SavedPlanBundle {
     pub superseded_plan_id: Option<String>,
 }
 
+/// The stored `coach_slug` of a plan that belongs to no coach.
+///
+/// One place, deliberately. This value is load-bearing in a way nothing about
+/// `""` announces: it is what the one-active-per-coach uniqueness key
+/// constrains agnostic rows by, and it is what [`PlanOwner`]'s fallback reads.
+/// Spelling it into a second query is how the two halves stop agreeing.
+pub const AGNOSTIC_PLAN_SLUG: &str = "";
+
+/// Whose plan a read or write is for: the coach this athlete has selected, if
+/// they have selected one.
+///
+/// **One question, not two.** Every caller asks the same thing — "this
+/// athlete's coach, if any" — which is why this is a newtype rather than an
+/// enum with an `AgnosticOnly` variant. All ten production call sites pass a
+/// resolved `Option`; none asks for the agnostic plan *in preference to* a
+/// coach's own, so that variant would have no caller outside its own tests.
+///
+/// What it is NOT is "any plan". A read for coach A never returns coach B's:
+/// the fallback reaches only [`AGNOSTIC_PLAN_SLUG`] rows, which is where an
+/// athlete with no selected coach has their plan stored.
+///
+/// This type exists because `Option<&str>` said none of that. `Some(slug)`
+/// meant "that coach's plan, else the agnostic one" and `None` meant "the
+/// agnostic one only" — two different questions in one shape, and the second
+/// reads like "any". `.unwrap_or_default()` then collapsed `None` and `""`
+/// into the same bound value on both the read and the write, so a caller that
+/// meant "this athlete has no coach" and a row that meant "this plan has no
+/// coach" were indistinguishable by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PlanOwner<'a>(Option<&'a str>);
+
+impl<'a> PlanOwner<'a> {
+    /// The plan this coach owns, falling back to the agnostic plan when they
+    /// own none.
+    #[must_use]
+    pub const fn coach(slug: &'a str) -> Self {
+        Self(Some(slug))
+    }
+
+    /// An athlete with no selected coach: only the agnostic plan.
+    #[must_use]
+    pub const fn agnostic() -> Self {
+        Self(None)
+    }
+
+    /// From a resolved slug, which is the shape every call site already has.
+    #[must_use]
+    pub const fn from_slug(slug: Option<&'a str>) -> Self {
+        Self(slug)
+    }
+
+    /// The value to bind: the coach's slug, or the agnostic sentinel.
+    ///
+    /// The only place either half of the mapping is spelled.
+    #[must_use]
+    pub const fn stored_slug(self) -> &'a str {
+        match self.0 {
+            Some(slug) => slug,
+            None => AGNOSTIC_PLAN_SLUG,
+        }
+    }
+
+    /// The coach's own slug, or `None` for an athlete with no selected coach.
+    #[must_use]
+    pub const fn coach_slug(self) -> Option<&'a str> {
+        self.0
+    }
+}
+
 /// Persistence for coach-authored training plans.
 ///
 /// Plans are **tenant-scoped**: every query carries `tenant_id` in its
-/// `WHERE` clause. `coach_slug` is stored as `''` for coach-agnostic rows —
-/// the repository maps `Option<&str>` <-> `''` at the boundary so the
-/// one-active-per-coach uniqueness key constrains those rows too (mirrors
-/// [`super::playbooks::PlaybookRepository`]).
+/// `WHERE` clause. Who a plan belongs to is [`PlanOwner`], and
+/// [`AGNOSTIC_PLAN_SLUG`] is the stored value for a plan that belongs to no
+/// coach — so the one-active-per-coach uniqueness key constrains those rows
+/// too (mirrors [`super::playbooks::PlaybookRepository`]).
 #[async_trait]
 pub trait TrainingPlanRepository: Send + Sync {
     /// Persist a new plan outline, superseding the athlete's current active
@@ -165,15 +234,16 @@ pub trait TrainingPlanRepository: Send + Sync {
         params: &SavePlanBundleParams<'_>,
     ) -> AppResult<SavedPlanBundle>;
 
-    /// Fetch the athlete's active outline. When `coach_slug` is `Some`,
-    /// prefers that coach's plan and falls back to a coach-agnostic (`''`)
-    /// one; when `None`, only coach-agnostic. Returns `None` when the athlete
-    /// has no active plan.
+    /// Fetch the athlete's active outline for `owner`. Returns `None` when
+    /// they have no active plan.
+    ///
+    /// [`PlanOwner`] states the preference the old `Option<&str>` left to a
+    /// sort direction: a coach's own plan wins over the agnostic fallback.
     async fn get_active_plan(
         &self,
         tenant_id: &str,
         user_id: &str,
-        coach_slug: Option<&str>,
+        owner: PlanOwner<'_>,
     ) -> AppResult<Option<TrainingPlan>>;
 
     /// List a plan's weeks in calendar order (`week_start` ascending).
@@ -380,7 +450,7 @@ pub(crate) fn plan_insert_values(
         .map_err(|e| AppError::internal(format!("serialize flavour: {e}")))?;
     Ok(PlanInsertValues {
         id: uuid::Uuid::new_v4().to_string(),
-        coach_slug: params.coach_slug.unwrap_or_default().to_owned(),
+        coach_slug: params.owner.stored_slug().to_owned(),
         goal_race_json,
         races_json,
         phases_json,

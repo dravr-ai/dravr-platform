@@ -46,6 +46,16 @@ pub struct ChatScenario {
     /// `appears_after_sync` mechanism described on each entry.
     #[serde(default)]
     pub provider_state: ProviderState,
+    /// Run the scenario against a real platform, so tools that WRITE commit
+    /// and an assertion can grade what the turn saved.
+    ///
+    /// Default `false`, which keeps the hand-written tool stubs and costs no
+    /// database. A scenario asserting
+    /// [`AssertionSpec::PlanWeekWritten`] needs this, and that assertion fails
+    /// loudly rather than passing when it is missing — an assertion satisfied
+    /// by absence would report the model compliant having observed nothing.
+    #[serde(default)]
+    pub real_execution: bool,
     /// Ordered list of user turns.
     pub turns: Vec<TurnSpec>,
     /// Opt out of the cross-turn numeric-drift asserter for this scenario.
@@ -216,6 +226,35 @@ pub enum AssertionSpec {
         name: String,
         #[serde(default = "default_min_calls")]
         min_calls: u32,
+    },
+    /// The plan the turn WROTE must carry a catalogue template on at least
+    /// `min_days` of the week's days, and its time-in-zone must read `within`
+    /// when `tid_within` is set.
+    ///
+    /// The first assertion kind that grades an outcome rather than the words.
+    /// Every other kind here reads the reply or the tool calls, which is why
+    /// the Annual Vision plan's fortnight line — "references templates on ≥5
+    /// of 7 days and lands inside the phase's TID target" — could be graded
+    /// neither in `pierre-evals` (no database, no state-reading kind) nor
+    /// here, until the driver could execute a save for real.
+    ///
+    /// Both halves matter and they fail differently. A week of prose days
+    /// reads as unclassified to the compliance rail, so the plan is unmeasured
+    /// rather than wrong — a model that writes seven paragraphs produces a
+    /// plan nothing can grade, which is the failure this catches. Time in zone
+    /// is taken from the rail's own verdict, never recomputed here: a second
+    /// classifier in the harness would be free to disagree with the one that
+    /// ships.
+    ///
+    /// Unreachable, not failed, when the scenario runs no real platform —
+    /// the same way a content assertion reports itself when its tool never ran.
+    PlanWeekWritten {
+        /// Days of the week that must name a template. The plan's line asks
+        /// for five.
+        min_days_with_templates: usize,
+        /// Require the compliance rail to read time in zone as `within`.
+        #[serde(default)]
+        tid_within: bool,
     },
     /// Reply must contain ≥1 term from the coach's declared
     /// vocabulary contract (P4 — vocabulary-contract pattern). The

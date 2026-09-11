@@ -25,6 +25,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
@@ -200,7 +201,7 @@ async fn seed_plan_with(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            coach_slug,
+            owner: PlanOwner::from_slug(coach_slug),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
@@ -713,7 +714,7 @@ async fn seed_future_only_plan(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            coach_slug: None,
+            owner: PlanOwner::agnostic(),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
@@ -793,7 +794,7 @@ async fn seed_week_missing_today(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            coach_slug: None,
+            owner: PlanOwner::agnostic(),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,
@@ -945,7 +946,7 @@ async fn seed_expired_plan(
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: &tenant.to_string(),
             user_id: &user_id.to_string(),
-            coach_slug: None,
+            owner: PlanOwner::agnostic(),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal,

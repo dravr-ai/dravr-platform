@@ -54,6 +54,7 @@ use pierre_core::models::periodization::{
     SeasonPhase, SkeletonTemplate, SportMix, TrainingAge,
 };
 use pierre_core::models::{SportFamily, SportType, TenantId, UserPhysiologicalProfile};
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::{parse_plan_date, RacePriority, TrainingPlan};
 use pierre_services::athlete_clock::athlete_today;
@@ -773,7 +774,11 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
                 .await?;
             let plan = repos
                 .training_plans
-                .get_active_plan(&tenant_id.to_string(), &user_id.to_string(), coach)
+                .get_active_plan(
+                    &tenant_id.to_string(),
+                    &user_id.to_string(),
+                    PlanOwner::from_slug(coach),
+                )
                 .await?;
             let goal = plan.as_ref().and_then(|p| {
                 let ec = event_class_from_discipline(&p.goal_race.discipline)?;

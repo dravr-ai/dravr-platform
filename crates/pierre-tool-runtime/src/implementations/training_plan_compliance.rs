@@ -21,8 +21,8 @@
 //! nothing refuses a save.
 
 use pierre_core::models::periodization::{
-    assess_week_compliance, PhaseTargets, PlannedSession, RecoverySpeed, SessionParams, WeekInput,
-    WeekVerdict, WorkoutTemplate,
+    assess_week_compliance, PhaseTargets, PlannedSession, RecoverySpeed, SessionParams,
+    SpacingCheck, WeekInput, WeekVerdict, WorkoutTemplate,
 };
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
@@ -33,6 +33,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::training_plans_output::CrowdedWeek;
 use crate::runtime::ToolRuntime;
 
 /// Measure the weeks in `saved` against their phases, and return each verdict.
@@ -177,7 +178,14 @@ pub(super) async fn assess_saved_weeks(
     assessed
 }
 
-/// Measure the saved weeks and report each verdict, on the save path.
+/// Measure the saved weeks, report each verdict, and return the weeks whose
+/// hard sessions sit closer together than the minimum.
+///
+/// The reporting is the base-rate measurement and is unchanged. The return is
+/// the half that reaches the turn: spacing is one of the two checks the ledger
+/// calls safety-shaped, and until now the verdict went to a log line no agent
+/// reads, so a week that crowded its hard days was measured and never
+/// mentioned.
 pub(super) async fn emit_week_compliance(
     state: &Arc<dyn ToolRuntime>,
     repos: &RepositoryRegistry,
@@ -185,12 +193,24 @@ pub(super) async fn emit_week_compliance(
     user_id: Uuid,
     plan: &TrainingPlan,
     saved: &[PlanWeek],
-) {
+) -> Vec<CrowdedWeek> {
+    let mut crowded = Vec::new();
     for (week_start, verdict) in
         assess_saved_weeks(state, repos, tenant, user_id, plan, saved).await
     {
         emit_week_assessed(&plan.id, &week_start, &verdict);
+        // Only `Off` travels. `Within` is the common case and says nothing the
+        // agent needs; `Unmeasured` means fewer than two hard sessions or no
+        // flavour to take a minimum from, which is an absence of evidence
+        // rather than a finding.
+        if matches!(verdict.spacing, SpacingCheck::Off { .. }) {
+            crowded.push(CrowdedWeek {
+                week_start,
+                spacing: verdict.spacing,
+            });
+        }
     }
+    crowded
 }
 
 /// Which week of its phase this week is, 0-based, counted from the phase's own

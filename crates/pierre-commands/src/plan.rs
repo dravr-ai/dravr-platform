@@ -14,6 +14,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::User;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_memory::training_plans::{
     parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
@@ -358,7 +359,7 @@ async fn render_plan_reply(
 
     let Some(plan) = repos
         .training_plans
-        .get_active_plan(&tenant, &user, coach.as_deref())
+        .get_active_plan(&tenant, &user, PlanOwner::from_slug(coach.as_deref()))
         .await?
     else {
         return Ok(None);

@@ -14,6 +14,7 @@ use pierre_core::models::{
     Activity, ActivityBuilder, GuidedFlow, OnboardingState, Pillar, SportType, TenantId,
 };
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
@@ -1186,7 +1187,7 @@ async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()>
     assert!(
         repos
             .training_plans
-            .get_active_plan(&tenant_id, &user_id.to_string(), None)
+            .get_active_plan(&tenant_id, &user_id.to_string(), PlanOwner::agnostic())
             .await?
             .is_none(),
         "the refused save must not have written a plan"
@@ -1884,7 +1885,11 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
     assert!(
         repos
             .training_plans
-            .get_active_plan(&tenant_id, &user_id.to_string(), Some("endurance-coach"))
+            .get_active_plan(
+                &tenant_id,
+                &user_id.to_string(),
+                PlanOwner::coach("endurance-coach"),
+            )
             .await?
             .is_none(),
         "the refused save must not have written a plan"
@@ -2603,7 +2608,11 @@ async fn stored_race_names(
         .resources
         .repos()
         .training_plans
-        .get_active_plan(tenant_id, &user_id.to_string(), Some("endurance-coach"))
+        .get_active_plan(
+            tenant_id,
+            &user_id.to_string(),
+            PlanOwner::coach("endurance-coach"),
+        )
         .await?
         .expect("an active plan");
     Ok(plan.races.into_iter().map(|race| race.name).collect())

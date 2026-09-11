@@ -14,9 +14,9 @@ use uuid::Uuid;
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::training_plans::{
     built_plan_week, built_training_plan, plan_insert_values, plan_week_from_row,
-    training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek, PlanWeekInput, PlanWeekRow,
-    SavePlanBundleParams, SaveTrainingPlanParams, SavedPlanBundle, TrainingPlanRepository,
-    TrainingPlanRow,
+    training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek, PlanOwner, PlanWeekInput,
+    PlanWeekRow, SavePlanBundleParams, SaveTrainingPlanParams, SavedPlanBundle,
+    TrainingPlanRepository, TrainingPlanRow, AGNOSTIC_PLAN_SLUG,
 };
 
 /// Column list shared by every outline read so row mapping stays aligned.
@@ -252,7 +252,7 @@ async fn supersede_and_insert_plan(
         id: v.id,
         tenant_id: params.tenant_id,
         user_id: params.user_id,
-        coach_slug: params.coach_slug,
+        coach_slug: params.owner.coach_slug(),
         goal_fact_id: params.goal_fact_id,
         goal_race: params.goal_race,
         races: &written_races,
@@ -323,23 +323,29 @@ async fn supersede_and_insert_week(
     })
 }
 
-/// Read the athlete's active outline on an in-transaction connection (specific
-/// coach first, coach-agnostic `''` as fallback).
+/// Read the athlete's active outline on an in-transaction connection.
+///
+/// The owner's own plan wins over the agnostic fallback, and the `CASE` says
+/// so. It replaced `ORDER BY coach_slug DESC`, which got the same answer only
+/// because any real slug happens to sort above the empty-string sentinel —
+/// true, undocumented, and silently dependent on collation.
 async fn resolve_active_plan(
     conn: &mut sqlx::PgConnection,
     tenant_id: &str,
     user_id: &str,
-    coach_slug: Option<&str>,
+    owner: PlanOwner<'_>,
 ) -> AppResult<Option<TrainingPlan>> {
     let sql = format!(
         "SELECT {PLAN_COLUMNS} FROM training_plans \
-         WHERE tenant_id = $1 AND user_id = $2 AND coach_slug IN ($3, '') \
-         AND status = 'active' ORDER BY coach_slug DESC LIMIT 1"
+         WHERE tenant_id = $1 AND user_id = $2 AND coach_slug IN ($3, $4) \
+         AND status = 'active' \
+         ORDER BY CASE WHEN coach_slug = $3 THEN 0 ELSE 1 END LIMIT 1"
     );
     let row = sqlx::query(&sql)
         .bind(tenant_id)
         .bind(user_id)
-        .bind(coach_slug.unwrap_or_default())
+        .bind(owner.stored_slug())
+        .bind(AGNOSTIC_PLAN_SLUG)
         .fetch_optional(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("get active plan: {e}")))?;
@@ -386,7 +392,7 @@ impl TrainingPlanRepository for PostgresDatabase {
             let stp = SaveTrainingPlanParams {
                 tenant_id: params.tenant_id,
                 user_id: params.user_id,
-                coach_slug: params.coach_slug,
+                owner: params.owner,
                 goal_fact_id: params.goal_fact_id,
                 goal_race: o.goal_race,
                 races: o.races,
@@ -401,14 +407,13 @@ impl TrainingPlanRepository for PostgresDatabase {
             let superseded = plan.supersedes_id.clone();
             (plan, superseded)
         } else {
-            let plan =
-                resolve_active_plan(&mut tx, params.tenant_id, params.user_id, params.coach_slug)
-                    .await?
-                    .ok_or_else(|| {
-                        AppError::invalid_input(
-                            "no active plan to attach weeks to — save an outline first",
-                        )
-                    })?;
+            let plan = resolve_active_plan(&mut tx, params.tenant_id, params.user_id, params.owner)
+                .await?
+                .ok_or_else(|| {
+                    AppError::invalid_input(
+                        "no active plan to attach weeks to — save an outline first",
+                    )
+                })?;
             (plan, None)
         };
 
@@ -434,7 +439,7 @@ impl TrainingPlanRepository for PostgresDatabase {
         &self,
         tenant_id: &str,
         user_id: &str,
-        coach_slug: Option<&str>,
+        owner: PlanOwner<'_>,
     ) -> AppResult<Option<TrainingPlan>> {
         // Specific coach first, coach-agnostic ('') as fallback — shares the
         // in-transaction resolver so the SELECT lives in one place.
@@ -442,7 +447,7 @@ impl TrainingPlanRepository for PostgresDatabase {
             self.pool().acquire().await.map_err(|e| {
                 AppError::database(format!("acquire conn for get active plan: {e}"))
             })?;
-        resolve_active_plan(&mut conn, tenant_id, user_id, coach_slug).await
+        resolve_active_plan(&mut conn, tenant_id, user_id, owner).await
     }
 
     async fn list_plan_weeks(

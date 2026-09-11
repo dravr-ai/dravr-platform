@@ -180,6 +180,8 @@ pub mod playbooks;
 pub mod training_plan_compliance;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
+/// The opening week's ramp against the athlete's recent load, on the save path.
+pub mod training_plan_ramp;
 pub mod training_plan_readiness;
 /// The schema `save_training_plan` advertises, and the rejection skeleton generated from it.
 pub mod training_plan_schema;

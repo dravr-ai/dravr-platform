@@ -12,6 +12,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::fortnight::{
@@ -87,7 +88,7 @@ impl CommandHandler for FortnightHandler {
             .get_active_plan(
                 &ctx.tenant_id.to_string(),
                 &ctx.user_id.to_string(),
-                agent.as_deref(),
+                PlanOwner::from_slug(agent.as_deref()),
             )
             .await
             .unwrap_or_else(|e| {

@@ -24,6 +24,7 @@ use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::{ConversationRecord, Pillar, TenantId, WorkoutStep};
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::{
     PlanOutlineInput, PlanWeekInput, SavePlanBundleParams, UpsertUserFactParams,
 };
@@ -35,7 +36,7 @@ use pierre_memory::training_plans::{
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_package::{load_coach_package, PackagedCatalogue};
-use pierre_services::ramp_check::assess_ramp;
+use pierre_services::ramp_check::RampVerdict;
 use pierre_services::training_plan_render::plan_goal_is_stale;
 use serde::Deserialize;
 use serde_json::Value;
@@ -45,18 +46,19 @@ use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
 use super::training_plan_compliance::emit_week_compliance;
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
+use super::training_plan_ramp::{earliest_week, emit_ramp_check};
 use super::training_plan_readiness::{emit_week_readiness, week_is_actionable};
 use super::training_plan_schema::{
-    athlete_prop, outline_schema, parse_payload_part, string_prop, weeks_schema,
+    athlete_prop, outline_schema, parse_payload_part, string_prop, unknown_argument_keys,
+    weeks_schema,
 };
 use super::training_plan_state::plan_state_block;
-use super::training_plan_telemetry::{
-    emit_coverage_check, emit_plan_saved, emit_ramp_verdict, emit_vision_saved, ramp_baseline,
-};
+use super::training_plan_telemetry::{emit_coverage_check, emit_plan_saved, emit_vision_saved};
 use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, resolve_flavour, validate_day_template,
     validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
+use super::training_plans_output::PlanSafetyReport;
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -700,7 +702,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             let today = athlete_today(repos, scope.user_id).await;
             let Some(plan) = repos
                 .training_plans
-                .get_active_plan(&tenant_id, &user_id, coach.as_deref())
+                .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(coach.as_deref()))
                 .await?
             else {
                 // No plan, but the calendar may still hold single prescriptions
@@ -819,6 +821,11 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         args: Value,
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
+        // Computed before anything consumes `args`: a key this tool does not
+        // declare is dropped silently by serde, and the caller never learns
+        // which one. This is the only point where the whole supplied object
+        // is still in hand.
+        let ignored_arguments = unknown_argument_keys(&self.definition(), &args);
         let result: AppResult<ToolResult> = async move {
             let requester_tenant = TenantId::from_uuid(context.require_tenant()?);
             let requester = ctx_user_id(&context);
@@ -948,7 +955,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 Some(o) => o.phases.len(),
                 None => repos
                     .training_plans
-                    .get_active_plan(&tenant_id, &user_id, coach.as_deref())
+                    .get_active_plan(&tenant_id, &user_id, PlanOwner::from_slug(coach.as_deref()))
                     .await?
                     .map_or(0, |plan| plan.phases.len()),
             };
@@ -1016,7 +1023,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .save_plan_bundle(&SavePlanBundleParams {
                     tenant_id: &tenant_id,
                     user_id: &user_id,
-                    coach_slug: coach.as_deref(),
+                    owner: PlanOwner::from_slug(coach.as_deref()),
                     goal_fact_id: goal_fact_id.as_deref(),
                     outline: outline_input,
                     weeks: &week_inputs,
@@ -1037,16 +1044,20 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // week. A week-only save is an adjustment to one week of a plan
             // that was already measured, and grading it as an opening week
             // reports a ramp the athlete is not being asked to make.
-            if outline.is_some() {
-                emit_ramp_check(
-                    repos,
-                    tenant,
-                    &user_id,
-                    &bundle.plan.id,
-                    earliest_week(&weeks),
+            let ramp = if outline.is_some() {
+                Some(
+                    emit_ramp_check(
+                        repos,
+                        tenant,
+                        &user_id,
+                        &bundle.plan.id,
+                        earliest_week(&weeks),
+                    )
+                    .await,
                 )
-                .await;
-            }
+            } else {
+                None
+            };
 
             // Every committed write is reported, so a weeks-only adjustment is
             // no longer silent, and the plan is then checked for whether it
@@ -1072,12 +1083,15 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 today,
             )
             .await;
-            // The compliance rail, Log-only: every week this save wrote is
-            // measured against its phase's targets and the flavour's caps,
-            // and the verdict reported for the base-rate measurement. It
-            // walks the whole plan so one week's last hard day bounds the
-            // next week's first gap.
-            emit_week_compliance(
+            // The compliance rail: every week this save wrote is measured
+            // against its phase's targets and the flavour's caps, and every
+            // verdict reported for the base-rate measurement. It walks the
+            // whole plan so one week's last hard day bounds the next week's
+            // first gap. The weeks whose hard sessions crowd come back, and
+            // travel to the agent below — the base rate is still being
+            // gathered, but a week the rail already knows crowds its hard days
+            // should not reach the athlete unmentioned while it gathers.
+            let crowded_weeks = emit_week_compliance(
                 state,
                 repos,
                 tenant,
@@ -1130,9 +1144,18 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 })
                 .collect();
 
+            // Only the two safety-shaped checks, and only when they found
+            // something: an empty report would be noise on every save.
+            let safety = PlanSafetyReport {
+                crowded_weeks,
+                ramp: ramp.filter(|v| matches!(v, RampVerdict::Exceeded { .. })),
+            };
+
             ok_typed(
                 "save_training_plan",
                 SaveTrainingPlanResult {
+                    safety: (!safety.is_empty()).then_some(safety),
+                    ignored_arguments,
                     plan_id: bundle.plan.id.clone(),
                     athlete: scope.acting_for.clone(),
                     goal_race: race_summary,
@@ -1147,39 +1170,6 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         .await;
         tool_result_to_response(result)
     }
-}
-
-/// The chronologically first week of a payload — the plan's opening week.
-///
-/// Payload order is the model's, not the calendar's: nothing sorts `weeks`, and
-/// a plan may be sent newest-first or in any order at all. The ramp check grades
-/// the week the athlete starts on, so it is selected by date.
-fn earliest_week(weeks: &[WeekPayload]) -> Option<&WeekPayload> {
-    weeks
-        .iter()
-        .filter_map(|w| parse_plan_date(&w.week_start).map(|date| (date, w)))
-        .min_by_key(|(date, _)| *date)
-        .map(|(_, week)| week)
-}
-
-/// Measure the saved plan's opening week against the athlete's real recent
-/// load and emit the result.
-///
-/// Best-effort by design: a plan the athlete already agreed to must not fail to
-/// save because the activity cache was unreadable, so every failure path here
-/// degrades to an unmeasurable verdict rather than an error.
-async fn emit_ramp_check(
-    repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user_id: &str,
-    plan_id: &str,
-    opening_week: Option<&WeekPayload>,
-) {
-    let baseline = ramp_baseline(repos, tenant, user_id).await;
-    let durations: Vec<Option<u32>> = opening_week
-        .map(|w| w.days.iter().map(|d| d.duration_min).collect())
-        .unwrap_or_default();
-    emit_ramp_verdict(plan_id, &assess_ramp(&durations, baseline.as_ref()));
 }
 
 /// Factory for the training-plan tool set.

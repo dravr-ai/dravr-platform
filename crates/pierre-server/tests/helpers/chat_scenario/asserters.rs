@@ -75,7 +75,72 @@ fn evaluate(
         AssertionSpec::ReplyLanguage { locale } => {
             assert_reply_language(ctx, locale.as_deref(), spec)
         }
+        AssertionSpec::PlanWeekWritten {
+            min_days_with_templates,
+            tid_within,
+        } => assert_plan_week_written(ctx, *min_days_with_templates, *tid_within, spec),
     }
+}
+
+/// Grade the plan the turn WROTE, not the reply it wrote it in.
+///
+/// Three outcomes, and the difference between the last two is the whole point:
+///
+/// - the week carries templates on enough days and the rail reads its time in
+///   zone `within` — pass;
+/// - the week exists but its days are prose, so the rail cannot classify them
+///   — fail, and say how many carried a template, because a plan nothing can
+///   grade is the failure this assertion exists for;
+/// - no plan was written at all — also fail, and say so differently, because
+///   "the agent saved nothing" and "the agent saved something unmeasurable"
+///   are different model behaviours and collapsing them would hide which.
+///
+/// A scenario with no real platform reports the assertion unreachable rather
+/// than failed: there was nothing to write to, so the model's behaviour was
+/// never observed.
+fn assert_plan_week_written(
+    ctx: &TurnContext<'_>,
+    min_days_with_templates: usize,
+    tid_within: bool,
+    spec: &AssertionSpec,
+) -> Result<(), AssertionFailure> {
+    let fail = |reason: String| {
+        Err(AssertionFailure {
+            spec: spec.clone(),
+            reason,
+        })
+    };
+    let Some(plan) = ctx.written_plan else {
+        return fail(
+            "the scenario ran no real platform, so nothing could be written and \
+             the model's behaviour was not observed — set `real_execution: true`"
+                .to_owned(),
+        );
+    };
+    let Some(week) = plan.weeks.first() else {
+        return fail(
+            "no week was saved at all: the agent did not write a plan this turn, \
+             which is a different failure from writing one that cannot be graded"
+                .to_owned(),
+        );
+    };
+    if week.days_with_templates < min_days_with_templates {
+        return fail(format!(
+            "week {} carries a catalogue template on {} of {} day(s), below the \
+             {} required — a day without one is what the compliance rail reads \
+             as unclassified, so a week of prose produces a plan nothing can \
+             measure",
+            week.week_start, week.days_with_templates, week.days, min_days_with_templates
+        ));
+    }
+    if tid_within && week.tid != "within" {
+        return fail(format!(
+            "week {} reads time in zone `{}`, not `within` — taken from the \
+             compliance rail's own verdict, not recomputed here",
+            week.week_start, week.tid
+        ));
+    }
+    Ok(())
 }
 
 fn assert_reply_contains(
@@ -336,6 +401,7 @@ fn assert_any_of(
 
 #[cfg(test)]
 mod tests {
+    use super::super::runner::{WrittenPlan, WrittenWeek};
     use super::super::vocabulary_contract::{VocabularyContract, VocabularyContractRegistry};
     use super::*;
 
@@ -344,7 +410,112 @@ mod tests {
             reply,
             tools_called: Vec::new(),
             locale: "fr",
+            written_plan: None,
         }
+    }
+
+    fn week(week_start: &str, days: usize, with_templates: usize, tid: &str) -> WrittenWeek {
+        WrittenWeek {
+            week_start: week_start.to_owned(),
+            days,
+            days_with_templates: with_templates,
+            tid: tid.to_owned(),
+        }
+    }
+
+    fn ctx_with_plan<'a>(reply: &'a str, plan: &'a WrittenPlan) -> TurnContext<'a> {
+        TurnContext {
+            reply,
+            tools_called: Vec::new(),
+            locale: "fr",
+            written_plan: Some(plan),
+        }
+    }
+
+    /// The spec the Annual Vision plan's fortnight line asks for.
+    const FORTNIGHT_SPEC: AssertionSpec = AssertionSpec::PlanWeekWritten {
+        min_days_with_templates: 5,
+        tid_within: true,
+    };
+
+    #[test]
+    fn a_week_of_template_backed_days_inside_its_tid_target_passes() {
+        let plan = WrittenPlan {
+            weeks: vec![week("2026-09-14", 7, 6, "within")],
+        };
+        assert!(
+            assert_plan_week_written(&ctx_with_plan("voilà", &plan), 5, true, &FORTNIGHT_SPEC)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_week_of_prose_days_fails_and_says_how_many_carried_a_template() {
+        // The failure this assertion exists for: the agent wrote a plausible
+        // week in prose, so the compliance rail can classify none of it and
+        // the plan is unmeasurable rather than wrong.
+        let plan = WrittenPlan {
+            weeks: vec![week("2026-09-14", 7, 1, "unmeasured")],
+        };
+        let err =
+            assert_plan_week_written(&ctx_with_plan("voilà", &plan), 5, true, &FORTNIGHT_SPEC)
+                .expect_err("one template of seven days is below the five required");
+        assert!(err.reason.contains("1 of 7"), "{}", err.reason);
+        assert!(err.reason.contains("unclassified"), "{}", err.reason);
+    }
+
+    #[test]
+    fn a_turn_that_saved_nothing_fails_differently_from_one_that_saved_prose() {
+        // Two distinct model behaviours. Collapsing them would hide which
+        // happened, and they call for different fixes.
+        let empty = WrittenPlan { weeks: Vec::new() };
+        let nothing =
+            assert_plan_week_written(&ctx_with_plan("voilà", &empty), 5, true, &FORTNIGHT_SPEC)
+                .expect_err("no week saved");
+        assert!(
+            nothing.reason.contains("no week was saved"),
+            "{}",
+            nothing.reason
+        );
+
+        let prose = WrittenPlan {
+            weeks: vec![week("2026-09-14", 7, 0, "unmeasured")],
+        };
+        let unmeasurable =
+            assert_plan_week_written(&ctx_with_plan("voilà", &prose), 5, true, &FORTNIGHT_SPEC)
+                .expect_err("prose week");
+        assert_ne!(
+            nothing.reason, unmeasurable.reason,
+            "saving nothing and saving something ungradeable must not read alike"
+        );
+    }
+
+    #[test]
+    fn a_tid_that_reads_off_fails_even_when_every_day_has_a_template() {
+        // Templates everywhere and still outside the target: the second half
+        // of the plan's line, and it must be able to fail on its own.
+        let plan = WrittenPlan {
+            weeks: vec![week("2026-09-14", 7, 7, "off")],
+        };
+        let err =
+            assert_plan_week_written(&ctx_with_plan("voilà", &plan), 5, true, &FORTNIGHT_SPEC)
+                .expect_err("tid off");
+        assert!(err.reason.contains("`off`"), "{}", err.reason);
+        assert!(
+            err.reason.contains("not recomputed here"),
+            "the verdict is the rail's: {}",
+            err.reason
+        );
+    }
+
+    #[test]
+    fn without_a_real_platform_the_assertion_is_not_silently_satisfied() {
+        // The dangerous case. A scenario that forgot `real_execution` writes
+        // nothing, and an assertion that passed on absence would report the
+        // model as compliant having observed nothing at all.
+        let err = assert_plan_week_written(&ctx("voilà"), 5, true, &FORTNIGHT_SPEC)
+            .expect_err("no platform means nothing was observed");
+        assert!(err.reason.contains("real_execution"), "{}", err.reason);
     }
 
     fn ctx_with_tools<'a>(reply: &'a str, tools: Vec<&str>) -> TurnContext<'a> {
@@ -352,6 +523,7 @@ mod tests {
             reply,
             tools_called: tools.into_iter().map(str::to_owned).collect(),
             locale: "fr",
+            written_plan: None,
         }
     }
 
@@ -553,6 +725,7 @@ mod tests {
                 reply,
                 tools_called: Vec::new(),
                 locale,
+                written_plan: None,
             };
             let spec = AssertionSpec::ReplyLanguage { locale: None };
             if let Err(e) = evaluate(&spec, &ctx, &vocab) {
@@ -587,6 +760,7 @@ mod tests {
                 reply,
                 tools_called: Vec::new(),
                 locale,
+                written_plan: None,
             };
             let spec = AssertionSpec::ReplyLanguage { locale: None };
             let Err(err) = evaluate(&spec, &ctx, &vocab) else {

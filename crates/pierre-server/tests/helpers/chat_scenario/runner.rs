@@ -39,6 +39,9 @@ pub struct TurnContext<'a> {
     /// default to "the language this turn is supposed to be in"
     /// instead of restating it in every scenario file.
     pub locale: &'a str,
+    /// What this turn wrote, for an assertion that grades the outcome rather
+    /// than the words. `None` when the scenario runs no real platform.
+    pub written_plan: Option<&'a WrittenPlan>,
 }
 
 /// Trait that abstracts how a turn is dispatched.
@@ -85,6 +88,42 @@ pub trait ScenarioDriver {
 }
 
 /// Output of one [`ScenarioDriver::run_turn`].
+/// What the turn actually wrote, read back after it ran.
+///
+/// Every other field of [`DriverTurnOutput`] is model *behaviour* — what it
+/// said, what it asked for. This is the outcome: the rows that exist because
+/// the turn ran. It is the thing no assertion kind could see before, which is
+/// why a claim about a saved plan could be graded in neither `pierre-evals`
+/// nor here.
+///
+/// Deliberately narrow. A general "snapshot of the database" would invite
+/// assertions on anything and rot the moment a schema moved; this carries the
+/// two properties the Annual Vision plan's fortnight line names, and the
+/// second is the RAIL's verdict rather than a recomputation — a harness that
+/// classified time in zone itself would be a second implementation of the
+/// kernel's classifier, free to disagree with the one that ships.
+#[derive(Debug, Clone, Default)]
+pub struct WrittenPlan {
+    /// Weeks the athlete's active plan holds, soonest first.
+    pub weeks: Vec<WrittenWeek>,
+}
+
+/// One saved week, as the eval needs to read it.
+#[derive(Debug, Clone)]
+pub struct WrittenWeek {
+    /// Monday, `YYYY-MM-DD`.
+    pub week_start: String,
+    /// Days the week holds, rest days included.
+    pub days: usize,
+    /// Days naming a catalogue template. The plan's line asks for at least
+    /// five of seven, and a day without one is what the compliance rail reads
+    /// as unclassified.
+    pub days_with_templates: usize,
+    /// The compliance rail's own time-in-zone outcome for this week —
+    /// `within`, `off` or `unmeasured`. Taken from the rail, never recomputed.
+    pub tid: String,
+}
+
 pub struct DriverTurnOutput {
     pub reply: String,
     /// Tools the MODEL asked for on this turn, in invocation order. This is
@@ -107,6 +146,10 @@ pub struct DriverTurnOutput {
     /// of what was observed (nothing was observed). See
     /// [`ScenarioReport::infra_errors`].
     pub dispatch_error: Option<String>,
+    /// What the turn wrote, when the scenario runs against a real platform.
+    /// `None` for a prose-only scenario, which writes nothing and should not
+    /// be made to look as though it wrote nothing *interesting*.
+    pub written_plan: Option<WrittenPlan>,
 }
 
 /// Final report of a scenario run.
@@ -304,6 +347,7 @@ fn run_one_locale<D: ScenarioDriver>(
             reply: &output.reply,
             tools_called: output.tools_called,
             locale,
+            written_plan: output.written_plan.as_ref(),
         };
         let (failures, not_evaluated) =
             split_unreachable(evaluate_all(&effective_assertions(turn), &ctx, vocab));
@@ -694,6 +738,11 @@ impl ScenarioDriver for MockScenarioDriver {
             reply,
             tools_called,
             prefetched_tools,
+            // The mock writes nothing, so there is nothing to read back. A
+            // scenario that grades written state needs a real platform, and
+            // the assertion reports itself unreachable rather than failing —
+            // the same way a content assertion does when its tool never ran.
+            written_plan: None,
             // The mock never dispatches, so it can never fail to reach a
             // model. Tests that need the infra path set this explicitly via
             // `canned_dispatch_errors`.
@@ -727,6 +776,7 @@ mod tests {
 
     fn one_turn_scenario(reply_assertion: AssertionSpec) -> ChatScenario {
         ChatScenario {
+            real_execution: false,
             name: "Test scenario".to_owned(),
             locales: vec!["en".to_owned()],
             notes: String::new(),
@@ -827,6 +877,7 @@ mod tests {
     /// carnet#162 made the language check automatic.
     fn silent_french_turn() -> ChatScenario {
         ChatScenario {
+            real_execution: false,
             name: "Silent turn".to_owned(),
             locales: vec!["fr".to_owned()],
             notes: String::new(),
@@ -986,6 +1037,7 @@ mod tests {
     /// One turn carrying several assertions, for the reporting split.
     fn one_turn_scenario_with(assertions: Vec<AssertionSpec>) -> ChatScenario {
         ChatScenario {
+            real_execution: false,
             name: "Multi-assertion turn".to_owned(),
             locales: vec!["fr".to_owned()],
             notes: String::new(),
@@ -1249,6 +1301,7 @@ mod tests {
     #[test]
     fn runner_propagates_locale_to_driver_and_returns_one_report_per_locale() {
         let scenario = ChatScenario {
+            real_execution: false,
             name: "Locale matrix".to_owned(),
             locales: vec!["en".to_owned(), "fr".to_owned()],
             notes: String::new(),
@@ -1280,6 +1333,7 @@ mod tests {
         // "33.10 km". Drift asserter should flag this even when each
         // turn's per-turn assertions pass.
         let scenario = ChatScenario {
+            real_execution: false,
             name: "Drift smoke".to_owned(),
             locales: vec!["en".to_owned()],
             notes: String::new(),
@@ -1318,6 +1372,7 @@ mod tests {
     /// Drift findings for a two-turn run with the given canned replies.
     fn drift_findings_for(reply1: &str, reply2: &str) -> usize {
         let scenario = ChatScenario {
+            real_execution: false,
             name: "drift-fixture".to_owned(),
             locales: vec!["fr".to_owned()],
             notes: String::new(),

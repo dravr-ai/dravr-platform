@@ -543,3 +543,95 @@ async fn the_newest_thing_asked_for_owns_the_next_turn() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_save_names_the_argument_keys_it_ignored() -> Result<()> {
+    // The bug this closes, reproduced: `coach_id` is not a field
+    // save_training_plan has, serde drops it in silence, and the plan saves
+    // against no agent. The athlete then hears "no active plan to extend yet"
+    // on a later turn with nothing naming the cause — which is exactly how it
+    // cost several debugging steps while these tests were being written.
+    let (resources, user_id, tenant, _, agent) = setup().await?;
+    let executor = Arc::new(
+        UniversalToolExecutor::new(Arc::<ServerContext>::clone(&resources))
+            .with_scopes(OAuthScope::self_grant()),
+    );
+    let mut payload = plan(
+        &agent,
+        &json!([phase(-4, 12)]),
+        &json!([week(-4, "old", Some(0))]),
+    );
+    // The wrong key, beside the right one, plus a provider-envelope-shaped
+    // stray so the report is a list rather than a lucky single.
+    payload["coach_id"] = json!(agent);
+    payload["parameters"] = json!({"agent_id": agent});
+
+    let saved = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "save_training_plan".to_owned(),
+            parameters: payload,
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+            progress_token: None,
+            cancellation_token: None,
+            progress_reporter: None,
+        })
+        .await?;
+    assert!(saved.success, "the save still succeeds: {:?}", saved.error);
+
+    let reported = saved
+        .result
+        .as_ref()
+        .and_then(|r| r.get("ignored_arguments"))
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        reported,
+        vec!["coach_id".to_owned(), "parameters".to_owned()],
+        "both dropped keys are named, sorted, on the turn they were sent"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_well_formed_save_reports_no_ignored_arguments() -> Result<()> {
+    // The control. Without this, the assertion above passes just as well when
+    // the reporter names every key it was given.
+    let (resources, user_id, tenant, _, agent) = setup().await?;
+    let executor = Arc::new(
+        UniversalToolExecutor::new(Arc::<ServerContext>::clone(&resources))
+            .with_scopes(OAuthScope::self_grant()),
+    );
+    let saved = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "save_training_plan".to_owned(),
+            parameters: plan(
+                &agent,
+                &json!([phase(-4, 12)]),
+                &json!([week(-4, "old", Some(0))]),
+            ),
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+            progress_token: None,
+            cancellation_token: None,
+            progress_reporter: None,
+        })
+        .await?;
+    assert!(saved.success, "plan save failed: {:?}", saved.error);
+    assert!(
+        saved
+            .result
+            .as_ref()
+            .and_then(|r| r.get("ignored_arguments"))
+            .is_none(),
+        "an all-known payload reports nothing and the field leaves the wire"
+    );
+    Ok(())
+}

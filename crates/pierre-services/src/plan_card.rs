@@ -24,6 +24,7 @@ use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
 use pierre_core::models::{FuelingProtocol, TenantId};
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateSource, TrainingPlan,
@@ -307,7 +308,7 @@ pub async fn load_plan_card(
     let user = user_id.to_string();
     let plan = match repos
         .training_plans
-        .get_active_plan(&tenant_id, &user, coach)
+        .get_active_plan(&tenant_id, &user, PlanOwner::from_slug(coach))
         .await
     {
         Ok(Some(plan)) => plan,

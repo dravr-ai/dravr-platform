@@ -1,0 +1,51 @@
+# Scenario: the fortnight an agent writes must be MEASURABLE, not merely
+# plausible prose.
+#
+# This is the Annual Vision plan's last verification line, and it could not be
+# graded anywhere until now. The plan named `pierre-evals` as its home; the
+# 2026-09-08 audit found that crate grades a fixture's own expected text, has
+# no assertion kind that reads persisted state, and carries no database
+# dependency — so it could neither seed a plan nor read a week back. The live
+# eval lane looked like the answer and was not: its driver answered every tool
+# it did not hand-model with `{"status":"unsupported"}`, save_training_plan
+# included, so nothing was ever written and there was no state to assert on.
+#
+# Both halves of the claim are state, and they fail differently:
+#
+#   - a day naming no catalogue template is UNCLASSIFIED to the compliance
+#     rail, so a week of prose produces a plan nothing can measure. That is
+#     not a wrong plan, it is an ungradeable one, and it is why the rail's
+#     own arming criterion ("unclassified_days is not the dominant reading")
+#     can never be met while agents write prose days.
+#   - time in zone is read from the rail's verdict, never recomputed here. A
+#     second classifier in the harness would be free to disagree with the one
+#     that ships, and then the eval grades itself.
+#
+# `real_execution: true` gives the driver a real platform so the save commits.
+# Without it `plan_week_written` is REJECTED AT PARSE TIME rather than passing
+# on absence — an assertion satisfied by nothing written would report the model
+# compliant having observed nothing at all.
+name: "A written fortnight carries templates and lands in its TID target (EN)"
+locales: ["en"]
+notes: "Annual Vision Phase 4 verification — the fortnight claim is state, not prose"
+real_execution: true
+# Same lane as the other invocation-grading scenarios: this needs the model to
+# call save_training_plan with structured days, which the local nightly grader
+# (qwen2.5:7b, CPU-only) does not do. Runs under
+# CHAT_SCENARIO_INCLUDE_ONDEMAND=1 or against a stronger model.
+nightly_gate: false
+turns:
+  - user: "Lay out a 12-week build toward a 10k and write me the first week, using the workout templates you have."
+    assertions:
+      # The write has to actually happen — without it the state assertion
+      # below reports "no week was saved", which is the honest reading.
+      - kind: tool_called
+        name: save_training_plan
+      # The claim itself: five of seven days naming a catalogue template, and
+      # the compliance rail reading time in zone as within its phase target.
+      - kind: plan_week_written
+        min_days_with_templates: 5
+        tid_within: true
+      # The payload never reaches the athlete.
+      - kind: no_substring
+        values: ["save_training_plan", "template_slug", "phase_index"]

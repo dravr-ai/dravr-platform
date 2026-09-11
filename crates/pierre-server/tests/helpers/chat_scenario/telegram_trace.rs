@@ -125,6 +125,7 @@ fn project(trace: TelegramTrace) -> ChatScenario {
         trace.notes
     };
     ChatScenario {
+        real_execution: false,
         name: trace.name,
         locales: vec![trace.locale],
         notes,

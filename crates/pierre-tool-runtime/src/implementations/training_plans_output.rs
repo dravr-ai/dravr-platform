@@ -16,10 +16,13 @@
 
 use std::collections::BTreeSet;
 
-use pierre_core::models::periodization::{ReadinessLevel, SubstitutionVerdict, TrainingAlert};
+use pierre_core::models::periodization::{
+    ReadinessLevel, SpacingCheck, SubstitutionVerdict, TrainingAlert,
+};
 use pierre_core::models::CalendarEventSource;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use pierre_services::plan_calendar_push::PushPreview;
+use pierre_services::ramp_check::RampVerdict;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -100,6 +103,61 @@ pub struct WeekReadiness {
     pub verdict: SubstitutionVerdict,
 }
 
+/// One week whose hard sessions sit closer together than its flavour allows.
+///
+/// Named rather than paired for the reason [`WeekReadiness`] is: a tuple
+/// serialises positionally and the reader has to know which slot is which.
+/// The check is flattened, so the kernel stays the one definition of what
+/// "too close" means — including the minimum it applied and which gaps were
+/// short.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct CrowdedWeek {
+    /// Monday, `YYYY-MM-DD`.
+    pub week_start: String,
+    /// The spacing check, from the kernel.
+    #[serde(flatten)]
+    pub spacing: SpacingCheck,
+}
+
+/// What the two safety-shaped checks found in the weeks this save wrote.
+///
+/// The compliance rail has measured every saved week since it shipped and
+/// reported into a log line no agent reads; the readiness rail the same. This
+/// is the half that reaches the turn: the agent sees what the platform
+/// measured on the save it just made, and can say so before the athlete acts
+/// on a week that crowds its hard days or opens well above their recent load.
+///
+/// Only the two checks the ledger calls safety-shaped travel here. Time in
+/// zone, volume against target and template parameter ranges are coaching
+/// judgements the agent already owns, and a platform that volunteered those
+/// would be second-guessing the plan rather than flagging a risk.
+///
+/// Structured, never prose. What the athlete is told is the agent's to write:
+/// the framing rules on load ratios are CI-enforced and live in the prompt,
+/// so a sentence composed here would be a second place they could be broken.
+///
+/// Absent when both checks read within, unmeasured, or had nothing to measure
+/// — which is the common case and costs the turn nothing.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PlanSafetyReport {
+    /// Weeks whose hard sessions are closer together than the minimum.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub crowded_weeks: Vec<CrowdedWeek>,
+    /// The opening week against the athlete's recent weekly hours, when it
+    /// came in above the threshold. `None` when it did not, or when there was
+    /// no baseline to compare against.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ramp: Option<RampVerdict>,
+}
+
+impl PlanSafetyReport {
+    /// Whether anything was found worth the agent's attention.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.crowded_weeks.is_empty() && self.ramp.is_none()
+    }
+}
+
 /// One week against its phase's targets.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct WeekComplianceBlock {
@@ -124,6 +182,26 @@ pub struct WeekComplianceBlock {
 /// What `save_training_plan` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct SaveTrainingPlanResult {
+    /// Argument keys the caller supplied that this tool does not have.
+    ///
+    /// Serde drops an unknown key in silence, so a plan saved with
+    /// `coach_id` instead of `agent_id` stores against no agent and the
+    /// athlete is told "no active plan to extend yet" on some later turn,
+    /// with nothing anywhere naming the cause. Reporting the dropped keys
+    /// puts that on the turn it happened, where the model can fix it.
+    ///
+    /// Reported rather than refused on purpose: these payloads are
+    /// LLM-written, and one provider wraps its arguments in an envelope of
+    /// its own (Cohere's v1 `{"parameters":{...}}` leaking onto the v2
+    /// surface), so rejecting an unknown key would turn a degraded turn into
+    /// a failed one — intermittently, and only on that provider.
+    ///
+    /// Empty on every well-formed call, and then omitted from the wire.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored_arguments: Vec<String>,
+    /// What the two safety-shaped checks found in the weeks just written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safety: Option<PlanSafetyReport>,
     /// The plan that was written.
     pub plan_id: String,
     /// Whose plan it is.

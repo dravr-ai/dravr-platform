@@ -15,6 +15,7 @@
 use anyhow::Result;
 use pierre_core::models::periodization::{FlavourInputs, FlavourVerdict};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -244,7 +245,11 @@ async fn a_rule_selection_stores_the_verdict_it_came_from_and_reports_it() -> Re
         .resources
         .repos()
         .training_plans
-        .get_active_plan(&tenant_id, &user_id.to_string(), Some("endurance-coach"))
+        .get_active_plan(
+            &tenant_id,
+            &user_id.to_string(),
+            PlanOwner::coach("endurance-coach"),
+        )
         .await?
         .expect("the plan is stored");
     let flavour = plan.flavour.expect("the flavour is stored");
@@ -401,7 +406,11 @@ async fn an_override_wearing_the_rules_name_is_refused() -> Result<()> {
             .resources
             .repos()
             .training_plans
-            .get_active_plan(&tenant_id, &user_id.to_string(), Some("endurance-coach"))
+            .get_active_plan(
+                &tenant_id,
+                &user_id.to_string(),
+                PlanOwner::coach("endurance-coach"),
+            )
             .await?
             .is_none(),
         "nothing is written"

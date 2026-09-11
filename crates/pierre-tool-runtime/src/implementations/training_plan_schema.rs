@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use super::calendar::step_schema;
+use dravr_tronc::mcp::schema::Tool;
 
 /// String schema property with a description.
 pub(super) fn string_prop(description: &str) -> PropertySchema {
@@ -509,4 +510,35 @@ fn week_schema() -> PropertySchema {
         p,
         vec!["week_start".to_owned(), "days".to_owned()],
     )
+}
+
+/// Argument keys the caller supplied that `definition` does not declare.
+///
+/// Derived from the tool's own advertised schema rather than a second list of
+/// names, because a second list is a thing that drifts: the day someone adds a
+/// property and forgets the list, the new key reports itself as ignored.
+///
+/// Sorted so the report reads the same on every call, and so a test can assert
+/// it without depending on map order.
+pub(super) fn unknown_argument_keys(declared: &Tool, args: &Value) -> Vec<String> {
+    let Some(supplied) = args.as_object() else {
+        return Vec::new();
+    };
+    let known = declared
+        .input_schema
+        .get("properties")
+        .and_then(Value::as_object);
+    let Some(known) = known else {
+        // No declared properties means nothing to compare against. Saying
+        // "every key you sent was ignored" would be a louder lie than saying
+        // nothing, so say nothing.
+        return Vec::new();
+    };
+    let mut unknown: Vec<String> = supplied
+        .keys()
+        .filter(|key| !known.contains_key(key.as_str()))
+        .cloned()
+        .collect();
+    unknown.sort();
+    unknown
 }

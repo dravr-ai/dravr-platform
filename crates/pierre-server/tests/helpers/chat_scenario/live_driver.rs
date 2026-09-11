@@ -32,28 +32,34 @@
 //! tool-call discipline, fabrication on freshness pushback) end-to-end
 //! against a real model.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
+use std::sync::Arc;
 
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_TURN_LANGUAGE};
 use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::prompts::{PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT};
 use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
     LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
 };
 use pierre_mcp_schema::ToolSchema;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::runtime::Builder as TokioRuntimeBuilder;
 use tokio::time::sleep as tokio_sleep;
 use tokio::time::timeout as tokio_timeout;
+use uuid::Uuid;
 
 use super::format::ScenarioActivity;
-use super::runner::{DriverTurnOutput, ScenarioDriver};
+use super::runner::{DriverTurnOutput, ScenarioDriver, WrittenPlan, WrittenWeek};
 
 /// Hard ceiling on tool-call iterations per turn. Bounded to keep a
 /// runaway model from racking up cost; scenarios that need more rounds
@@ -114,6 +120,27 @@ const FRAGMENT_DENSITY_THRESHOLD: usize = 5;
 /// Construct with [`LiveScenarioDriver::from_env`] once per scenario;
 /// each instance carries its own conversation history so two scenarios
 /// can't bleed state into each other.
+/// A real platform behind the driver, so a tool that WRITES is executed
+/// rather than acknowledged.
+///
+/// Without this the driver answers every tool it does not hand-model with
+/// `{"status":"unsupported"}` — including `save_training_plan`. A scenario
+/// asserting on what the agent SAVED therefore had nothing to read, because
+/// nothing was ever written. That is why the Annual Vision plan's fortnight
+/// verification line could live neither in `pierre-evals` (no database, no
+/// assertion kind that reads state) nor here.
+///
+/// Optional on purpose: a scenario that only grades prose should not pay for
+/// a database, and the existing corpus does exactly that.
+pub struct RealExecution {
+    /// The server the tools run against.
+    pub resources: Arc<ServerContext>,
+    /// The athlete whose rows the scenario writes and reads.
+    pub user_id: Uuid,
+    /// Their tenant.
+    pub tenant_id: TenantId,
+}
+
 pub struct LiveScenarioDriver {
     /// Whether this turn may be handed its activity data unasked.
     ///
@@ -140,6 +167,9 @@ pub struct LiveScenarioDriver {
     /// Frozen `{{CURRENT_DATE}}` anchor from the scenario, `%Y-%m-%d %H:%M`
     /// (UTC). `None` anchors to wall-clock now.
     current_date: Option<String>,
+    /// A real platform, when the scenario grades persisted state rather than
+    /// only prose. `None` keeps the hand-written stubs and costs nothing.
+    real: Option<RealExecution>,
 }
 
 impl LiveScenarioDriver {
@@ -191,7 +221,19 @@ impl LiveScenarioDriver {
             history: Vec::new(),
             prefetch_allowed: true,
             current_date: None,
+            real: None,
         })
+    }
+
+    /// Execute tools against a real server for the rest of this run.
+    ///
+    /// Turns the driver from "answers plausibly" into "actually writes", which
+    /// is what lets a scenario assert on what the agent saved rather than on
+    /// what it said it saved.
+    #[must_use]
+    pub fn with_real_execution(mut self, real: RealExecution) -> Self {
+        self.real = Some(real);
+        self
     }
 
     /// Reset conversation history. Called between locale runs so two
@@ -296,7 +338,7 @@ impl LiveScenarioDriver {
             let mut call_summaries: Vec<String> = Vec::with_capacity(calls.len());
             for call in &calls {
                 tools_called.push(call.name.clone());
-                let result = self.execute_tool(call);
+                let result = self.execute_tool(call).await;
                 call_summaries.push(format!(
                     "Tool `{name}` returned:\n{result}",
                     name = call.name
@@ -312,7 +354,9 @@ impl LiveScenarioDriver {
             );
         }
 
+        let written_plan = self.read_back_plan().await;
         DriverTurnOutput {
+            written_plan,
             reply: final_reply,
             tools_called,
             prefetched_tools,
@@ -368,7 +412,7 @@ impl LiveScenarioDriver {
     /// tools return a diagnostic so the LLM can decide whether to retry
     /// with a different tool — silently succeeding would mask catalog
     /// drift, which is exactly what these tests are meant to catch.
-    fn execute_tool(&self, call: &FunctionCall) -> String {
+    async fn execute_tool(&self, call: &FunctionCall) -> String {
         if !self.tool_names.iter().any(|n| n == &call.name) {
             return format!(
                 "{{\"error\":\"Tool '{name}' is not in the registered catalog\"}}",
@@ -394,17 +438,127 @@ impl LiveScenarioDriver {
                 ),
             })
             .to_string(),
-            other => json!({
-                "status": "unsupported",
-                "tool": other,
-                "note": "Live eval driver doesn't model this tool yet — extend LiveScenarioDriver::execute_tool to add coverage.",
-            })
-            .to_string(),
+            // Anything the stubs do not hand-model runs for real when the
+            // scenario asked for a real platform. This is what lets a
+            // scenario grade what the agent WROTE: the save actually commits,
+            // so there are rows to read back afterwards.
+            other => self.execute_for_real(other, &call.args).await.unwrap_or_else(|| {
+                json!({
+                    "status": "unsupported",
+                    "tool": other,
+                    "note": "Live eval driver doesn't model this tool and the scenario asked for no real platform — add `real_execution: true` to the scenario, or hand-model it in LiveScenarioDriver::execute_tool.",
+                })
+                .to_string()
+            }),
         }
     }
 
     /// Render the seeded provider state as a `get_activities` response.
     /// Supports the common `limit` / `provider` arguments scenarios pass.
+    /// Read back the athlete's active plan after the turn, through the same
+    /// tool an agent would use.
+    ///
+    /// `include_state` is passed so the compliance rail's own time-in-zone
+    /// outcome comes with it: the eval grades the rail's verdict rather than
+    /// classifying zones itself, which would be a second implementation of the
+    /// kernel's classifier and free to disagree with the shipped one.
+    ///
+    /// A failed read yields `None` rather than an empty plan — "nothing was
+    /// written" and "I could not tell" must not collapse, or a broken read
+    /// would fail a scenario as though the agent had saved nothing.
+    async fn read_back_plan(&self) -> Option<WrittenPlan> {
+        // Presence is the gate; `execute_for_real` holds the context itself.
+        self.real.as_ref()?;
+        let payload = self
+            .execute_for_real(
+                "get_training_plan",
+                &json!({"include_state": true, "include_weeks": true}),
+            )
+            .await?;
+        let parsed: Value = serde_json::from_str(&payload).ok()?;
+        if parsed.get("status").and_then(Value::as_str) == Some("error") {
+            return None;
+        }
+        let tid_by_week: HashMap<String, String> = parsed
+            .get("state")
+            .and_then(|s| s.get("compliance_weeks"))
+            .and_then(Value::as_array)
+            .map(|weeks| {
+                weeks
+                    .iter()
+                    .filter_map(|w| {
+                        Some((
+                            w.get("week_start")?.as_str()?.to_owned(),
+                            w.get("tid")?.as_str().unwrap_or("unmeasured").to_owned(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let weeks = parsed
+            .get("weeks")
+            .and_then(Value::as_array)?
+            .iter()
+            .filter_map(|week| {
+                let week_start = week.get("week_start")?.as_str()?.to_owned();
+                let days = week.get("days").and_then(Value::as_array)?;
+                Some(WrittenWeek {
+                    days_with_templates: days
+                        .iter()
+                        .filter(|d| d.get("template_slug").is_some_and(|v| !v.is_null()))
+                        .count(),
+                    days: days.len(),
+                    tid: tid_by_week
+                        .get(&week_start)
+                        .cloned()
+                        .unwrap_or_else(|| "unmeasured".to_owned()),
+                    week_start,
+                })
+            })
+            .collect();
+        Some(WrittenPlan { weeks })
+    }
+
+    /// Run one tool against the real server, when the scenario asked for one.
+    ///
+    /// `None` means no real platform is attached, which the caller reports as
+    /// unsupported rather than as a failure — a scenario grading prose alone
+    /// should not be made to carry a database.
+    ///
+    /// A tool error is returned to the MODEL as its payload rather than
+    /// panicking the scenario: that is what production does, and a scenario
+    /// grading how the agent recovers from a refused save needs to see the
+    /// refusal.
+    async fn execute_for_real(&self, name: &str, args: &Value) -> Option<String> {
+        let real = self.real.as_ref()?;
+        let executor = UniversalToolExecutor::new(Arc::<ServerContext>::clone(&real.resources))
+            .with_scopes(OAuthScope::self_grant());
+        let response = executor
+            .execute_tool(UniversalRequest {
+                tool_name: name.to_owned(),
+                parameters: args.clone(),
+                user_id: real.user_id.to_string(),
+                protocol: "live-eval".to_owned(),
+                tenant_id: Some(real.tenant_id.to_string()),
+                progress_token: None,
+                cancellation_token: None,
+                progress_reporter: None,
+            })
+            .await;
+        Some(match response {
+            Ok(result) if result.success => result
+                .result
+                .map_or_else(|| json!({"status": "ok"}).to_string(), |v| v.to_string()),
+            Ok(result) => json!({
+                "status": "error",
+                "tool": name,
+                "error": result.error.unwrap_or_else(|| "unspecified".to_owned()),
+            })
+            .to_string(),
+            Err(e) => json!({"status": "error", "tool": name, "error": e.to_string()}).to_string(),
+        })
+    }
+
     fn tool_get_activities(&self, args: &Value) -> String {
         let provider_filter = args
             .get("provider")

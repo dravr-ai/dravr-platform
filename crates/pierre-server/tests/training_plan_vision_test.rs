@@ -20,6 +20,7 @@ use pierre_core::models::periodization::{
     FlavourFamily, LoadingPattern, PhaseKind, Sequencing, Share, TidTarget, WorkoutPurpose,
 };
 use pierre_database::database::test_utils::create_test_db;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{
     FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority,
@@ -164,7 +165,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: "tenant-v",
             user_id: "user-v",
-            coach_slug: Some("endurance-coach"),
+            owner: PlanOwner::coach("endurance-coach"),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),
@@ -187,7 +188,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .await?;
 
     let fetched = plans
-        .get_active_plan("tenant-v", "user-v", Some("endurance-coach"))
+        .get_active_plan("tenant-v", "user-v", PlanOwner::coach("endurance-coach"))
         .await?
         .expect("the outline just saved is the active plan");
     assert_eq!(fetched.id, bundle.plan.id);
@@ -227,7 +228,7 @@ async fn the_vision_round_trips_through_storage() -> Result<()> {
         .save_plan_bundle(&SavePlanBundleParams {
             tenant_id: "tenant-v",
             user_id: "user-v",
-            coach_slug: Some("endurance-coach"),
+            owner: PlanOwner::coach("endurance-coach"),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
                 goal_race: &goal(),

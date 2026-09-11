@@ -35,6 +35,7 @@ use pierre_services::playbook_render::{render_archetype_block, render_playbooks_
 use pierre_services::training_plan_render::render_training_plan_block;
 
 use crate::ChatPipelineContext;
+use pierre_database::repositories::training_plans::PlanOwner;
 
 /// What the plan block is rendered from: the stored plan, the coach's
 /// package, and the catalogue whose templates the phase header names.
@@ -111,7 +112,10 @@ pub async fn inject_training_plan(
     }
     let PlanPromptSources { repos, catalogue } = sources;
     let plans = repos.training_plans.as_ref();
-    let plan = match plans.get_active_plan(tenant_id, user_id, coach_slug).await {
+    let plan = match plans
+        .get_active_plan(tenant_id, user_id, PlanOwner::from_slug(coach_slug))
+        .await
+    {
         Ok(Some(plan)) => plan,
         Ok(None) => return base_prompt,
         Err(e) => {

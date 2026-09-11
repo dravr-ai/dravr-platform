@@ -34,6 +34,7 @@ use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
 };
 use pierre_database::backends::factory::Database;
+use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::{
@@ -408,7 +409,7 @@ async fn the_coach_saves_a_week_under_the_athletes_own_tenant_user_and_coach() {
         .get_active_plan(
             &fx.athlete_tenant.to_string(),
             &fx.athlete.to_string(),
-            Some(fx.athlete_coach.as_str()),
+            PlanOwner::coach(fx.athlete_coach.as_str()),
         )
         .await
         .unwrap()
@@ -438,7 +439,11 @@ async fn the_coach_saves_a_week_under_the_athletes_own_tenant_user_and_coach() {
         assert!(
             repos
                 .training_plans
-                .get_active_plan(&fx.coach_tenant.to_string(), &fx.coach.to_string(), coach)
+                .get_active_plan(
+                    &fx.coach_tenant.to_string(),
+                    &fx.coach.to_string(),
+                    PlanOwner::from_slug(coach),
+                )
                 .await
                 .unwrap()
                 .is_none(),
@@ -548,7 +553,7 @@ async fn a_non_consenting_athlete_is_refused() {
             .get_active_plan(
                 &fx.athlete_tenant.to_string(),
                 &fx.athlete.to_string(),
-                Some(fx.athlete_coach.as_str())
+                PlanOwner::coach(fx.athlete_coach.as_str())
             )
             .await
             .unwrap()
@@ -839,7 +844,7 @@ async fn a_disabled_tool_in_the_athletes_tenant_refuses_the_cross_tenant_write()
             .get_active_plan(
                 &fx.athlete_tenant.to_string(),
                 &fx.athlete.to_string(),
-                Some(fx.athlete_coach.as_str())
+                PlanOwner::coach(fx.athlete_coach.as_str())
             )
             .await
             .unwrap()
@@ -963,7 +968,11 @@ async fn omitting_athlete_keeps_self_scope() {
     assert!(
         repos
             .training_plans
-            .get_active_plan(&fx.coach_tenant.to_string(), &fx.coach.to_string(), None)
+            .get_active_plan(
+                &fx.coach_tenant.to_string(),
+                &fx.coach.to_string(),
+                PlanOwner::agnostic(),
+            )
             .await
             .unwrap()
             .is_some(),
@@ -975,7 +984,7 @@ async fn omitting_athlete_keeps_self_scope() {
             .get_active_plan(
                 &fx.athlete_tenant.to_string(),
                 &fx.athlete.to_string(),
-                Some(fx.athlete_coach.as_str())
+                PlanOwner::coach(fx.athlete_coach.as_str())
             )
             .await
             .unwrap()
