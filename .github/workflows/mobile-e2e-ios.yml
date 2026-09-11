@@ -652,9 +652,32 @@ jobs:
             echo "=== Batch $BATCH_NUM ==="
             echo "Files: $FLOW_ARGS"
 
+            # One retry, for the same reason the smoke step above has two: this
+            # simulator intermittently takes minutes to bring a screen up, and
+            # the flow that loses the race is whichever one it lands on. The
+            # run that last reported green failed 01-show-login-screen at
+            # 4m28s with "login-screen is visible" and passed it on the retry;
+            # the run after it failed 06-successful-login at 4m13s with the
+            # same assertion, in this loop, which had no retry — so the lane's
+            # colour was decided by which step the flake hit, not by the app.
+            # The Android lane already retries each flow three times.
+            #
+            # A retry only re-runs the batch; a flow that fails both times is
+            # still counted and still reds the lane.
             BATCH_RC=0
-            $MAESTRO test --device "$SIMULATOR_UDID" $FLOW_ARGS \
-              --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || BATCH_RC=$?
+            for BATCH_ATTEMPT in 1 2; do
+              BATCH_RC=0
+              $MAESTRO test --device "$SIMULATOR_UDID" $FLOW_ARGS \
+                --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || BATCH_RC=$?
+              if [ "$BATCH_RC" -eq 0 ]; then
+                break
+              fi
+              if [ "$BATCH_ATTEMPT" -lt 2 ]; then
+                echo "Batch $BATCH_NUM attempt $BATCH_ATTEMPT failed (rc=$BATCH_RC) — re-opening the app and retrying in 15s."
+                xcrun simctl openurl "$SIMULATOR_UDID" "exp://127.0.0.1:8082" 2>/dev/null || true
+                sleep 15
+              fi
+            done
 
             # grep -c returns exit code 1 when no matches; assign separately to avoid
             # || echo "0" appending a second line that breaks arithmetic.
