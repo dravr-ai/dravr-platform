@@ -8,7 +8,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use pierre_core::models::messaging::{ChannelType, LinkingMethod};
+use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{MessagingRepository, TenantRepository, UpsertChannelConfigParams};
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::linking::can_complete_a_link;
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -168,23 +169,6 @@ const fn channel_display_name(channel: ChannelType) -> &'static str {
 ///
 /// Returns `AppError` when authentication fails, no tenant can be resolved, or a
 /// channel-config read errors.
-/// Whether a channel config carries the app credentials an OAuth link needs.
-///
-/// `api_key` / `api_secret` hold the OAuth client id and secret for the OAuth
-/// channels. Both are required: an authorize URL without a client id is a dead
-/// link, and a callback without the secret cannot exchange the code.
-///
-/// Reads only for presence — never logs or returns the values.
-fn has_oauth_credentials(config: &serde_json::Value) -> bool {
-    let present = |key: &str| {
-        config
-            .get(key)
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|v| !v.is_empty())
-    };
-    present("api_key") && present("api_secret")
-}
-
 pub async fn list_available_channels(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
@@ -210,13 +194,16 @@ pub async fn list_available_channels(
         if !is_active {
             continue;
         }
-        // Connectable also means the link can actually COMPLETE. An OAuth
-        // channel needs the app credentials the authorize round-trip is built
-        // from; without them the picker would offer a button that cannot work,
-        // which is the advertised-but-broken surface the Messenger 400 was.
-        // Deep-link channels are covered by their own refuse-to-guess checks at
-        // URL-build time.
-        if channel.linking_method() == LinkingMethod::OAuth && !has_oauth_credentials(&config) {
+        // Connectable also means the link can actually COMPLETE, for every
+        // channel and not just the OAuth ones. This used to check OAuth alone,
+        // on the reasoning that deep-link channels are covered by their own
+        // refuse-to-guess checks at URL-build time — but those run *after* the
+        // athlete taps, so a Telegram config with no `bot_token` was advertised
+        // in the picker and then failed on init. That is the same
+        // advertised-but-broken surface the Messenger 400 was, moved one screen
+        // later. `can_complete_a_link` reads the very keys the URL builder
+        // needs, so the picker offers a channel only when the link can finish.
+        if !can_complete_a_link(channel, &config) {
             continue;
         }
 

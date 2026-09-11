@@ -191,7 +191,47 @@ async fn telegram_bot_username(config: &serde_json::Value) -> Result<String, App
     Ok(username)
 }
 
+/// The config keys `build_linking_url` needs before it can build a URL for this
+/// channel at all.
+///
+/// This exists so the channel picker can withhold a channel whose link cannot
+/// complete, instead of advertising a button that fails the moment the athlete
+/// taps it. `build_linking_url` below reads exactly these keys and errors when
+/// one is absent — the two must agree, so they sit next to each other and any
+/// new channel has to answer both in the same edit.
+///
+/// Presence only. Nothing here reads, logs or returns a credential's value.
+pub const fn required_credential_keys(channel_type: ChannelType) -> &'static [&'static str] {
+    match channel_type {
+        // The bot the code is sent to; resolved to a username via `getMe`.
+        ChannelType::Telegram => &["bot_token"],
+        // The number the pre-filled message is addressed to.
+        ChannelType::WhatsApp => &["phone_number"],
+        // The page the `m.me` link opens.
+        ChannelType::Messenger => &["account_id"],
+        // The authorize URL needs the client id, and the callback that follows
+        // needs the secret to exchange the code, so a link completes only with
+        // both.
+        ChannelType::Slack | ChannelType::Discord => &["api_key", "api_secret"],
+    }
+}
+
+/// Whether a channel config carries every credential its linking flow needs.
+///
+/// Reads only for presence — never logs or returns the values.
+pub fn can_complete_a_link(channel_type: ChannelType, config: &serde_json::Value) -> bool {
+    required_credential_keys(channel_type).iter().all(|key| {
+        config
+            .get(*key)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+    })
+}
+
 /// Build the linking URL based on channel type and method.
+///
+/// Reads the keys [`required_credential_keys`] names for this channel and errors
+/// when one is absent, rather than guessing a target.
 async fn build_linking_url(
     channel_type: ChannelType,
     code: &str,

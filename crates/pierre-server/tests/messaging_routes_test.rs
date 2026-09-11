@@ -223,6 +223,56 @@ mod messaging_routes_tests {
     }
 
     #[tokio::test]
+    async fn test_channels_available_excludes_deep_link_channel_missing_its_credential() {
+        let (router, token) = setup_messaging_router().await;
+
+        // Telegram enabled, but carrying no `bot_token` — the key
+        // `build_linking_url` needs to resolve the bot a pairing code is sent to.
+        AxumTestRequest::put("/api/messaging/channels/telegram")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "webhook_secret": "tg_secret" }
+            }))
+            .send(router.clone())
+            .await;
+
+        // WhatsApp complete, as a positive control: without it this test would
+        // also pass on an empty list, which is the failure it exists to catch.
+        AxumTestRequest::put("/api/messaging/channels/whatsapp")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": { "phone_number": "15551234567" }
+            }))
+            .send(router.clone())
+            .await;
+
+        let response = AxumTestRequest::get("/api/messaging/channels/available")
+            .header("authorization", &token)
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        let channels = body.as_array().expect("available channels is an array");
+
+        assert!(
+            channels.iter().any(|c| c["channel"] == "whatsapp"),
+            "a deep-link channel that carries its credential must still be offered"
+        );
+        // The picker used to gate only OAuth channels on credentials, trusting
+        // the deep-link builders' own refuse-to-guess checks — but those run
+        // after the athlete taps, so this config was advertised and then failed
+        // on init. Withholding it is the whole point.
+        assert!(
+            !channels.iter().any(|c| c["channel"] == "telegram"),
+            "a Telegram config with no bot_token cannot complete a link, so the \
+             picker must withhold it instead of failing after the athlete taps"
+        );
+    }
+
+    #[tokio::test]
     async fn test_link_init_deep_link_returns_qr_svg() {
         // Exercised through WhatsApp rather than Telegram. Both are deep-link
         // channels and share this code path, but Telegram's bot handle is now
