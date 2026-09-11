@@ -55,6 +55,15 @@ use tracing::{info, warn};
 use pierre_database::RepositoryRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 
+/// What this surface calls itself to the rest of the platform.
+///
+/// The agent reached us over MCP, so this is the `protocol` every dispatch is
+/// charged and reported under — and therefore the `channel` dimension on both
+/// notify events below. One constant rather than two literals: a refusal rate
+/// is `messaging.tool_call_refused` over `messaging.tool_executed`, and the
+/// two events have to agree on the dimension for that ratio to exist at all.
+const NATIVE_PROTOCOL: &str = "mcp";
+
 /// Upper bound on one loopback tool call, enforced platform-side.
 ///
 /// The ACP subprocess awaits the call inside its own turn; a call that never
@@ -163,6 +172,21 @@ impl ToolSurface for TurnToolSurface {
             .collect()
     }
 
+    /// Run one tool for the agent, or refuse and say why.
+    ///
+    /// Every call that reaches a dispatch is already reported: `execute_tool`
+    /// emits `messaging.tool_executed` from `record_dispatch`, one per call,
+    /// for this surface exactly as for every other transport. What it cannot
+    /// report is a call that produces no response, and all three of those exits
+    /// are here rather than in the executor — the budget refusal returns before
+    /// `execute_tool` is called, the bound below abandons its future, and a
+    /// `ProtocolError` return skips `record_dispatch` on the way out.
+    ///
+    /// So each one emits `messaging.tool_call_refused` with the reason that
+    /// distinguishes it. Before that, a turn whose coach answered from data it
+    /// could not refresh was indistinguishable in the notify lane from a turn
+    /// that asked for no data at all, and the budget this surface enforces had
+    /// no operator signal that it fires.
     async fn call(&self, tool_name: &str, arguments: &Value) -> ToolOutcome {
         // The agent's loop lives in its own subprocess and nothing bounded it:
         // `max_iterations` stopped at the platform-run loop, so a native turn
@@ -178,7 +202,12 @@ impl ToolSurface for TurnToolSurface {
         let served = self.calls.fetch_add(1, Ordering::Relaxed);
         if served >= self.budget {
             warn!(
-                tool_name,
+                target: "notify",
+                event = "messaging.tool_call_refused",
+                tenant_id = %self.tenant_id,
+                channel = NATIVE_PROTOCOL,
+                tool_name = tool_name,
+                reason = "budget_spent",
                 budget = self.budget,
                 served,
                 "native tool-loop budget spent; refusing further calls this turn"
@@ -197,7 +226,7 @@ impl ToolSurface for TurnToolSurface {
             user_id: self.user_id.clone(),
             // The agent reached us over MCP, and this is what the charge and the
             // operator event are attributed to.
-            protocol: "mcp".to_owned(),
+            protocol: NATIVE_PROTOCOL.to_owned(),
             tenant_id: Some(self.tenant_id.to_string()),
             progress_token: None,
             cancellation_token: None,
@@ -241,12 +270,26 @@ impl ToolSurface for TurnToolSurface {
                 }
             }
             Ok(Err(e)) => {
-                warn!(tool_name, error = %e, "tool dispatch failed for the agent");
+                warn!(
+                    target: "notify",
+                    event = "messaging.tool_call_refused",
+                    tenant_id = %self.tenant_id,
+                    channel = NATIVE_PROTOCOL,
+                    tool_name = tool_name,
+                    reason = "dispatch_failed",
+                    error = %e,
+                    "tool dispatch failed for the agent"
+                );
                 ToolOutcome::refused(e.to_string())
             }
             Err(_) => {
                 warn!(
-                    tool_name,
+                    target: "notify",
+                    event = "messaging.tool_call_refused",
+                    tenant_id = %self.tenant_id,
+                    channel = NATIVE_PROTOCOL,
+                    tool_name = tool_name,
+                    reason = "platform_timeout",
                     timeout_secs = LOOPBACK_TOOL_TIMEOUT.as_secs(),
                     "loopback tool call hit the platform bound; refusing so the \
                      agent's turn continues instead of stalling"
