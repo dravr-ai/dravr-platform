@@ -94,7 +94,7 @@ jest.mock('../src/services/api', () => ({
     addParticipant: jest.fn(),
     removeParticipant: jest.fn(),
   },
-  coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
+  coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
   // The root layout hands this to initI18n at import time, so a mock of this
   // barrel has to carry it — the live catalogue overlay is part of booting.

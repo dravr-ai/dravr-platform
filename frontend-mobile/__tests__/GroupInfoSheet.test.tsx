@@ -17,7 +17,7 @@ jest.mock('expo-router', () => ({
 const mockLeaveGroup = jest.fn();
 const mockDeleteGroup = jest.fn();
 jest.mock('../src/services/api', () => ({
-  coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
+  coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   groupsApi: {
     getGroup: jest.fn().mockResolvedValue({
       id: 'group-1',

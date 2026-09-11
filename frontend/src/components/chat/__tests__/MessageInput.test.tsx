@@ -16,7 +16,7 @@ const listCommands = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   chatApi: { listCommands: (...args: unknown[]) => listCommands(...args) },
-  coachesApi: { list: vi.fn().mockResolvedValue({ coaches: [] }) },
+  coachesApi: { list: vi.fn().mockResolvedValue({ agents: [] }) },
 }));
 
 const CATALOGUE: CommandEntry[] = [

@@ -16,7 +16,7 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('../src/services/api', () => ({
-  coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
+  coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   groupsApi: {
     getGroup: jest.fn().mockResolvedValue(null),
     listMembers: jest.fn().mockResolvedValue({ members: [] }),

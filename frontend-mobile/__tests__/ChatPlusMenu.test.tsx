@@ -39,7 +39,7 @@ jest.mock('../src/services/api', () => ({
     updateConversation: jest.fn(),
     deleteConversation: jest.fn(),
   },
-  coachesApi: { list: jest.fn().mockResolvedValue({ coaches: [] }) },
+  coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
 }));
 
