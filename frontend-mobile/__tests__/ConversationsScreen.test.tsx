@@ -14,6 +14,13 @@ const mockDeleteConversation = jest.fn();
 const mockMarkConversationRead = jest.fn();
 const mockMarkConversationUnread = jest.fn();
 const mockPush = jest.fn();
+const mockPresentChatPlusMenu = jest.fn();
+
+// The "+" menu is the platform's action sheet; what this file proves is that
+// the empty state's link opens it with the same actions the header's "+" has.
+jest.mock('../src/screens/chat/presentChatPlusMenu', () => ({
+  presentChatPlusMenu: (...args: unknown[]) => mockPresentChatPlusMenu(...args),
+}));
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
@@ -118,14 +125,25 @@ describe('ConversationsScreen — one flat list', () => {
     jest.restoreAllMocks();
   });
 
-  it('shows one line and the "+" when there is no conversation', async () => {
+  it('shows one sentence and a link that opens the "+" menu when there is no conversation', async () => {
     mockGetConversations.mockResolvedValueOnce(page([]));
 
-    const { findByText, getByTestId } = render(<ConversationsScreen />);
+    const { findByText, getByTestId, queryByTestId } = render(<ConversationsScreen />);
 
-    // The unit setup pins English; the line is the corpus's, not the screen's.
-    expect(await findByText('No chats yet — start one with the +')).toBeTruthy();
-    expect(getByTestId('conversations-empty-plus')).toBeTruthy();
+    // The unit setup pins English; the sentence and the link read as one flow.
+    expect(await findByText('No discussions yet.')).toBeTruthy();
+    expect(await findByText('Start a discussion')).toBeTruthy();
+    expect(getByTestId('conversations-empty')).toBeTruthy();
+    // The violet circle is gone; the link is the one way in from here.
+    expect(queryByTestId('conversations-empty-plus')).toBeNull();
+    fireEvent.press(getByTestId('conversations-empty-start'));
+    expect(mockPresentChatPlusMenu).toHaveBeenCalledTimes(1);
+    expect(mockPresentChatPlusMenu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'New chat or new group chat',
+        actions: expect.arrayContaining([expect.objectContaining({ label: expect.any(String), onPress: expect.any(Function) })]),
+      }),
+    );
     // The list asks for its first page, and only that.
     expect(mockGetConversations).toHaveBeenCalledTimes(1);
     expect(mockGetConversations).toHaveBeenCalledWith(50, 0);

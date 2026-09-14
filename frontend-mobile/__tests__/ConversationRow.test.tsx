@@ -2,10 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for one conversation-list row — the anatomy the shared row model is drawn with
-// ABOUTME: Avatar slot, kind glyph, bold-when-unread title, preview, time, count badge, mention badge, swipe actions
+// ABOUTME: Avatar slot, kind glyph, semibold-when-unread title, preview, time, the one count capsule and its @ reading, swipe actions
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
+import { TouchableOpacity } from 'react-native';
 import { buildConversationRow, type ConversationRowModel } from '@pierre/chat-utils';
 
 /** The words the row cannot spell itself, as the English client resolves them. */
@@ -56,10 +57,26 @@ describe('ConversationRow', () => {
     expect(getByTestId('conversation-title-conv-1')).toHaveTextContent('Tempo Tuesday');
     expect(getByTestId('conversation-preview-conv-1')).toHaveTextContent('Easy Thursday, then the long run');
     expect(getByTestId('conversation-time-conv-1')).toHaveTextContent('09:50');
-    // A 1:1 thread with nothing unread: no glyph, no badges.
+    // A 1:1 thread with nothing unread: no glyph, no capsule.
     expect(queryByTestId('conversation-kind-conv-1')).toBeNull();
     expect(queryByTestId('conversation-unread-conv-1')).toBeNull();
     expect(queryByTestId('conversation-mention-conv-1')).toBeNull();
+  });
+
+  it('is a 72-point row around a 48-point avatar, with the hairline inset to the text column', () => {
+    const { getByTestId, UNSAFE_getAllByType } = renderRow(row());
+    // The touchable's className lives on the composite, not the host view.
+    const touchable = UNSAFE_getAllByType(TouchableOpacity).find((node) => node.props.testID === 'conversation-row-conv-1');
+    expect(touchable?.props.className).toContain('min-h-[72px]');
+    const avatar = getByTestId('conversation-avatar-conv-1', { includeHiddenElements: true });
+    expect(avatar.props.style).toEqual(expect.objectContaining({ width: 48, height: 48, borderRadius: 24 }));
+    // The divider is the text column's, not the touchable's.
+    expect(touchable?.props.className).not.toContain('border-b');
+  });
+
+  it('weights the title semibold while unread and medium once read', () => {
+    expect(renderRow(row({ unread_count: 2 })).getByTestId('conversation-title-conv-1').props.className).toContain('font-semibold');
+    expect(renderRow(row({ unread_count: 0 })).getByTestId('conversation-title-conv-1').props.className).toContain('font-medium');
   });
 
   it('prefixes the athlete own last line with You:', () => {
@@ -79,11 +96,12 @@ describe('ConversationRow', () => {
     expect(getByTestId('conversation-preview-conv-1')).toHaveTextContent('Coach Tempo: Bloc 3 starts Monday');
   });
 
-  it('shows the channel badge and glyph for a messaging-origin thread', () => {
+  it('shows the channel glyph, and no channel pill, for a messaging-origin thread', () => {
     const model = row({ channel_type: 'telegram' });
-    const { getByTestId } = renderRow(model);
+    const { getByTestId, queryByText } = renderRow(model);
     expect(getByTestId('conversation-kind-conv-1').props.accessibilityLabel).toBe('Messaging chat');
-    expect(getByTestId('conversation-channel-badge-conv-1')).toHaveTextContent('Telegram');
+    // The channel's name is the info sheet's; the row carries only the glyph.
+    expect(queryByText('Telegram')).toBeNull();
   });
 
   it('shows the coach handle beside the title of a coach thread', () => {
@@ -96,24 +114,31 @@ describe('ConversationRow', () => {
     expect(renderRow(row({ unread_count: 250 })).getByTestId('conversation-unread-conv-1')).toHaveTextContent('99+');
   });
 
-  it('adds the @ badge only when the unread preview mentions someone', () => {
+  it('prefixes the count capsule with @ only when the unread preview mentions someone', () => {
     const mentioned = row({
-      unread_count: 1,
+      unread_count: 3,
       last_message: { preview: '@coach-tempo what about Sunday?', role: 'user', created_at: '2026-08-26T09:50:00' },
     });
-    expect(renderRow(mentioned).getByTestId('conversation-mention-conv-1')).toBeTruthy();
+    const mentionedView = renderRow(mentioned);
+    // One capsule: the @ and the count share the node under the unread id.
+    expect(mentionedView.getByTestId('conversation-unread-conv-1')).toHaveTextContent('@ 3');
+    expect(mentionedView.getByTestId('conversation-mention-conv-1')).toHaveTextContent('@ 3');
+    expect(mentionedView.queryByTestId('conversation-unread-text-conv-1')).toBeNull();
 
     const readMention = row({
       unread_count: 0,
       last_message: { preview: '@coach-tempo what about Sunday?', role: 'user', created_at: '2026-08-26T09:50:00' },
     });
     expect(renderRow(readMention).queryByTestId('conversation-mention-conv-1')).toBeNull();
+    expect(renderRow(readMention).queryByTestId('conversation-unread-conv-1')).toBeNull();
 
     const address = row({
       unread_count: 1,
       last_message: { preview: 'write to jf@dravr.ai', role: 'assistant', created_at: '2026-08-26T09:50:00' },
     });
-    expect(renderRow(address).queryByTestId('conversation-mention-conv-1')).toBeNull();
+    const addressView = renderRow(address);
+    expect(addressView.queryByTestId('conversation-mention-conv-1')).toBeNull();
+    expect(addressView.getByTestId('conversation-unread-text-conv-1')).toHaveTextContent('1');
   });
 
   it('reveals Mark unread on the left and Delete on the right, each calling its handler', () => {

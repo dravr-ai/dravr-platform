@@ -1,3 +1,4 @@
+| `text-md` | 15 / 20 | A row's second line when it is read, not scanned: the chat preview, a Discover description |
 # Design System: Dravr Boreal — Product Tier
 
 > **Source of truth.** The hex values and rules in this document are mirrored in
@@ -772,6 +773,7 @@ vault under `Design/Boreal v2.2 — Mobile Less`.
 |---|---|---|
 | `text-xs` | 12 / 16 | Captions, timestamps, badge numbers — **the floor**; only a native badge goes under it |
 | `text-sm` | 13 / 18 | **Interface text**: a row's second line, hints, tabs, section titles, chips — `font-medium` on anything navigable |
+| `text-md` | 15 / 20 | A row's second line when it is read, not scanned: the chat preview, a Discover description |
 | `text-base` | 16 / 22 | **Reading text**: messages, descriptions, row titles, field values, button labels |
 | `text-lg` | 17 / 22 | An inline title in body; the native header's inline title |
 | `text-xl` | 20 / 25 | A hero number inside a screen |
@@ -796,3 +798,7 @@ compared — an unread count, a token total, a time in a row — are
 | Colour | every value through a token — the class path or `useThemeColors()`; no hex outside `BrandIcons`, the Sciotte login modal and the flag-gated billing screen; brand colour lives inside a brand glyph |
 | Labels | sentence case, no tracking, no `textTransform`; a section title is 13 / 600 |
 | Gradients | none on a resting surface; `expo-linear-gradient` exists for the Sciotte modal's brand sweeps and the two functional edge fades of `ScrollFadeContainer` |
+| Sheet | one, `ui/Sheet`: `bg-scrim/60` behind a `rounded-t-3xl` panel on the secondary ground, no drag pill, content as sections; a dialog (the provider picker) keeps a centred 12-radius panel with `shadow-floating` |
+| Composer | a bar in the layout, never an overlay: hairline top, paper ground, the field 40 / radius 20 on `surface-container`, the left slot empty, the mic, a 32 send circle filled in `primary` only while there is text; the keyboard is met through `KeyboardAvoidingView`, so the list pays no clearance for it |
+| Rows | a chat row 72 with a 48 avatar and one count capsule (22, 13 / 600 mono, `@` prefixed for a mention), its hairline inset to the text; a message's actions live behind a long-press action sheet, and only the time sits under the prose |
+| Empty state | `ui/EmptyState`: one 13 sentence on the secondary ink and, when there is something to do, one inline `primary` link — no icon, no card, no filled button |

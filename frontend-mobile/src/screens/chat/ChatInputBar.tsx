@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Chat input bar — the "/" button, the slash-command and @handle palettes, voice and send
-// ABOUTME: Keyboard-aware positioning — animates above keyboard or tab bar
+// ABOUTME: Chat composer bar — the field, the slash-command and @handle palettes, voice and send
+// ABOUTME: An in-flow bar under the thread: the layout, not a transform, keeps it above the keyboard
 
-import React, { useEffect, useRef, useState } from 'react';
-import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, Animated } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, StyleSheet, Keyboard, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { COMMAND_PREFIX, isCommandDraft } from '@pierre/shared-constants';
+import { isCommandDraft } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { spacing, useThemeColors, useTheme } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { VoiceButton } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
 import { MentionPalette } from '../../components/MentionPalette';
@@ -29,12 +30,25 @@ interface ChatInputBarProps {
   onChangeText: (text: string) => void;
   onVoicePress: () => void;
   onSendMessage: () => void;
-  /** Where the composer sits with the keyboard closed, safe-area included. */
-  restingOffset: number;
-  /** Keyboard height in dp, 0 when closed. */
-  keyboardHeight: number;
-  /** The OS keyboard animation duration, so the composer moves with it. */
-  keyboardDuration: number;
+}
+
+/**
+ * The bar is paper with a top hairline, laid out under the message list; the
+ * screen's `KeyboardAvoidingView` moves it with the keyboard. Its leading slot
+ * is empty — typing `/` opens the command palette, and the empty thread's
+ * hint sentence is what tells a new athlete so (Boreal v2.2 P3.3, P3.4).
+ */
+/** The bar's own breathing room under the field, keyboard up or down. */
+const BAR_BOTTOM_PADDING = 8;
+
+/**
+ * The bar rests on the home indicator, so it pays the safe-area inset while
+ * the keyboard is down; once the keyboard is up the `KeyboardAvoidingView`
+ * has lifted the whole bar above it, and the inset would only be a dead band
+ * between the field and the keys.
+ */
+export function composerBottomPadding(keyboardShown: boolean, bottomInset: number): number {
+  return keyboardShown ? BAR_BOTTOM_PADDING : bottomInset + BAR_BOTTOM_PADDING;
 }
 
 export function ChatInputBar({
@@ -48,13 +62,22 @@ export function ChatInputBar({
   onChangeText,
   onVoicePress,
   onSendMessage,
-  restingOffset,
-  keyboardHeight,
-  keyboardDuration,
 }: ChatInputBarProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const { scheme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [keyboardShown, setKeyboardShown] = useState(false);
+  useEffect(() => {
+    // iOS announces the keyboard before it moves; Android only after.
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, () => setKeyboardShown(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardShown(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const displayText = isListening ? partialTranscript : inputText;
   // Dictation is prose, never a command, so the palettes read the typed text
   // rather than what is on screen mid-transcription.
@@ -80,7 +103,7 @@ export function ChatInputBar({
       setSelectionEnd(nextCaret);
     },
   });
-  const canSend = inputText.trim() && !isSending && !isListening && !disabled;
+  const canSend = Boolean(inputText.trim()) && !isSending && !isListening && !disabled;
 
   /**
    * Hardware-keyboard keys, offered to the command palette first and the
@@ -96,48 +119,15 @@ export function ChatInputBar({
     }
   };
 
-  /** The visible way in to the palette, the way Telegram's bot menu button is. */
-  const openCommandPalette = () => {
-    onChangeText(COMMAND_PREFIX);
-    inputRef.current?.focus();
-  };
-  const isDark = scheme === 'dark';
-
-  // Composer pill matches the surrounding canvas — elevated lowest tier with
-  // a hairline outline-variant edge in both schemes. The accent ring uses the
-  // active primary so the input reads as the primary action surface.
-  const pillBackground = isDark ? colors.background.elevated : colors.background.primary;
-  const pillBorder = colors.border.default;
-
-  // How far the composer must rise above its resting place. `bottom` stays
-  // fixed and the movement is a transform, because `bottom` cannot be animated
-  // on the native driver: the old version ran useNativeDriver:false and drove a
-  // LAYOUT property from JS on every keyboard frame, which is the textbook way
-  // to drop frames on the exact interaction the app is built around.
-  const rise = Math.max(0, keyboardHeight - restingOffset);
-  const riseAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(riseAnim, {
-      toValue: -rise,
-      duration: keyboardDuration,
-      useNativeDriver: true,
-    }).start();
-  }, [rise, keyboardDuration, riseAnim]);
+  const sendInk = canSend ? colors.tokens.onPrimary : colors.text.tertiary;
 
   return (
-    <Animated.View
-      style={{
-        position: 'absolute',
-        bottom: restingOffset,
-        transform: [{ translateY: riseAnim }],
-        left: 0,
-        right: 0,
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.xs,
-        backgroundColor: 'transparent',
-      }}
+    <View
+      className="px-3 pt-2 border-t border-border bg-background-primary"
+      style={{ borderTopWidth: StyleSheet.hairlineWidth, paddingBottom: composerBottomPadding(keyboardShown, insets.bottom) }}
+      testID="chat-input-bar"
     >
+      {/* The bar's own popovers, laid out above the field inside the bar's column. */}
       <CommandPalette
         matches={palette.matches}
         highlightedIndex={palette.highlightedIndex}
@@ -148,62 +138,48 @@ export function ChatInputBar({
         highlightedIndex={mentions.highlightedIndex}
         onSelect={mentions.select}
       />
-      <View
-        className="flex-row items-center rounded-full px-3 min-h-11 max-h-[100px]"
-        style={{
-          backgroundColor: pillBackground,
-          borderColor: pillBorder,
-          borderWidth: 1,
-          borderRadius: 9999,
-          shadowColor: colors.tokens.scrim,
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: isDark ? 0.4 : 0.06,
-          shadowRadius: 12,
-          elevation: 4,
-        }}
-      >
-        <TouchableOpacity
-          className="w-9 h-9 rounded-full items-center justify-center mr-1"
-          style={{ backgroundColor: `${colors.pierre.violet}1F` }}
-          onPress={openCommandPalette}
-          disabled={isListening || disabled}
-          accessibilityRole="button"
-          accessibilityLabel={t('app.composerCommandsAria')}
-          testID="slash-command-button"
+      <View className="flex-row items-end">
+        <View
+          className="flex-1 min-h-[40px] max-h-[120px] rounded-[20px] bg-surface-container px-3 justify-center"
+          testID="message-field"
         >
-          <Text className="text-lg font-bold" style={{ color: colors.pierre.violet }}>
-            {COMMAND_PREFIX}
-          </Text>
-        </TouchableOpacity>
-        <TextInput
-          ref={inputRef}
-          className="flex-1 text-base text-text-primary py-2 max-h-[100px]"
-          placeholder={isListening ? t('app.composerListening') : t('app.composerPlaceholder')}
-          placeholderTextColor={isListening ? colors.error : colors.text.tertiary}
-          value={displayText}
-          onChangeText={onChangeText}
-          onSelectionChange={handleSelectionChange}
-          onKeyPress={handleKeyPress}
-          multiline
-          maxLength={4000}
-          returnKeyType="default"
-          editable={!isListening && !disabled}
-          testID="message-input"
-        />
-        <VoiceButton
-          isListening={isListening}
-          isAvailable={voiceAvailable}
-          onPress={onVoicePress}
-          disabled={isSending}
-          size="sm"
-          testID="voice-input-button"
-        />
-        {/* Violet send button per Stitch spec */}
+          <TextInput
+            ref={inputRef}
+            className="text-base text-text-primary py-2"
+            placeholder={isListening ? t('app.composerListening') : t('app.composerPlaceholder')}
+            placeholderTextColor={isListening ? colors.error : colors.text.tertiary}
+            value={displayText}
+            onChangeText={onChangeText}
+            onSelectionChange={handleSelectionChange}
+            onKeyPress={handleKeyPress}
+            multiline
+            maxLength={4000}
+            returnKeyType="default"
+            editable={!isListening && !disabled}
+            testID="message-input"
+          />
+        </View>
+        {/* The mic and its gap leave together: `VoiceButton` renders null without recognition. */}
+        {voiceAvailable && (
+          <View className="ml-2">
+            <VoiceButton
+              isListening={isListening}
+              isAvailable={voiceAvailable}
+              onPress={onVoicePress}
+              disabled={isSending}
+              size="sm"
+              testID="voice-input-button"
+            />
+          </View>
+        )}
+        {/*
+          The primary fill and `onPrimary` glyph only when there is something
+          to send; otherwise the glyph rests in tertiary ink on nothing. The
+          testID flip is what the Maestro flows wait on.
+        */}
         <TouchableOpacity
-          className={`w-9 h-9 rounded-full items-center justify-center ml-2 ${
-            !canSend ? 'bg-background-tertiary' : ''
-          }`}
-          style={canSend ? { backgroundColor: colors.pierre.violet } : undefined}
+          className="w-8 h-8 rounded-full items-center justify-center ml-2"
+          style={canSend ? { backgroundColor: colors.tokens.primary } : undefined}
           onPress={onSendMessage}
           disabled={!canSend}
           accessibilityRole="button"
@@ -212,21 +188,17 @@ export function ChatInputBar({
           testID={canSend ? 'send-button' : 'send-button-disabled'}
         >
           {isSending ? (
-            <ActivityIndicator size="small" color={canSend ? colors.tokens.onPrimary : colors.text.tertiary} />
+            <ActivityIndicator size="small" color={sendInk} />
           ) : (
-            <Ionicons
-              name="arrow-up"
-              size={20}
-              color={canSend ? colors.tokens.onPrimary : colors.text.tertiary}
-            />
+            <Ionicons name="arrow-up" size={18} color={sendInk} />
           )}
         </TouchableOpacity>
       </View>
       {isListening && (
         <View className="pt-1 items-center">
-          <Text className="text-xs text-error">{t('app.composerTapMicToStop')}</Text>
+          <Text className="text-sm text-error">{t('app.composerTapMicToStop')}</Text>
         </View>
       )}
-    </Animated.View>
+    </View>
   );
 }

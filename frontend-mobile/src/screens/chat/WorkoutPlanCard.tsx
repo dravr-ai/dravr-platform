@@ -12,13 +12,44 @@ import type {
   WorkoutPlan,
 } from '@pierre/shared-types';
 
-import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
+}
+
+/** A figure inside a sentence: dates, durations, counts, set in the mono face so columns of them line up. */
+const FIGURE = 'font-mono tabular-nums';
+
+/**
+ * A figure inside a sentence — a date, a duration, a count — set in the mono
+ * face so two of them under each other line up.
+ */
+function Figure({ children }: { children: React.ReactNode }) {
+  return <Text className={FIGURE}>{children}</Text>;
+}
+
+/**
+ * A translated sentence with the figure it interpolates set in mono: the
+ * sentence is split at the figure's first occurrence, so every locale keeps
+ * its own word order. A sentence that does not carry the figure verbatim
+ * renders as it is.
+ */
+function Sentence({ text, figure }: { text: string; figure: string | number }) {
+  const needle = String(figure);
+  const at = text.indexOf(needle);
+  if (at < 0) {
+    return <Text>{text}</Text>;
+  }
+  return (
+    <Text>
+      {text.slice(0, at)}
+      <Figure>{needle}</Figure>
+      {text.slice(at + needle.length)}
+    </Text>
+  );
 }
 
 /**
@@ -30,10 +61,26 @@ function stepDuration(seconds: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.round(seconds / 60)}m`;
 }
 
-/** "label · Nm · zone", with "×repeat" appended when the step is repeated. */
-function stepText(step: PlanStep): string {
-  const text = [step.label, stepDuration(step.duration_seconds), step.target_zone].join(' · ');
-  return step.repeat !== undefined && step.repeat > 1 ? `${text} ×${step.repeat}` : text;
+/**
+ * "label · Nm · zone", with "×repeat" appended when the step is repeated.
+ * The duration and the repeat count are the step's two figures.
+ */
+function StepText({ step }: { step: PlanStep }) {
+  return (
+    <Text>
+      {step.label}
+      {' · '}
+      <Figure>{stepDuration(step.duration_seconds)}</Figure>
+      {' · '}
+      {step.target_zone}
+      {step.repeat !== undefined && step.repeat > 1 ? (
+        <Text>
+          {' '}
+          <Figure>×{step.repeat}</Figure>
+        </Text>
+      ) : null}
+    </Text>
+  );
 }
 
 /**
@@ -54,47 +101,50 @@ function fuelParts(fueling: PlanFueling, t: Translate): string[] {
 
 /**
  * The current phase's rhythm — its intent, then the weekly hours and hard
- * sessions the kernel set for it — as one line under the timeline.
+ * sessions the kernel set for it — as one line under the timeline. The two
+ * weekly figures are mono; the intent is prose.
  */
-function phaseSummary(phase: PlanPhase, t: Translate): string {
-  const parts = [phase.intent || phase.purpose];
-  if (phase.target_hours !== undefined) {
-    parts.push(t('plan.card.hoursPerWeek', { hours: phase.target_hours }));
-  }
-  if (phase.hard_sessions_max !== undefined) {
-    parts.push(t('plan.card.hardPerWeek', { count: phase.hard_sessions_max }));
-  }
-  return parts.filter((part) => part.length > 0).join(' · ');
+function PhaseSummary({ phase }: { phase: PlanPhase }) {
+  const { t } = useTranslation();
+  const intent = phase.intent || phase.purpose;
+  return (
+    <Text className="text-sm text-text-secondary mt-2">
+      {intent}
+      {phase.target_hours !== undefined ? (
+        <Text>
+          {intent.length > 0 ? ' · ' : ''}
+          <Figure>{t('plan.card.hoursPerWeek', { hours: phase.target_hours })}</Figure>
+        </Text>
+      ) : null}
+      {phase.hard_sessions_max !== undefined ? (
+        <Text>
+          {' · '}
+          <Figure>{t('plan.card.hardPerWeek', { count: phase.hard_sessions_max })}</Figure>
+        </Text>
+      ) : null}
+    </Text>
+  );
 }
 
 /**
  * One segment of the season timeline: the phase's kind and length, and the
- * `now` badge on the phase covering the athlete's today. The kind label
- * defaults to the kind itself so a kind the catalogue has not named still
- * reads as a word rather than as a key.
+ * word `now` on the phase covering the athlete's today, in the primary ink
+ * like the phase it marks. The kind label defaults to the kind itself so a
+ * kind the catalogue has not named still reads as a word rather than as a key.
  */
 function PhaseSegment({ phase }: { phase: PlanPhase }) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
+  const ink = phase.current ? 'text-primary' : 'text-text-secondary';
   return (
-    <View
-      className="flex-row items-center mr-1 mb-1 px-2 py-1 rounded-md"
-      style={{ backgroundColor: colors.tokens.surfaceContainerHigh }}
-    >
-      <Text className="text-xs font-semibold text-text-primary">
+    <View className="flex-row items-center mr-3 mb-1">
+      <Text className={`text-sm font-medium ${ink}`}>
         {t(`plan.card.phase.${phase.kind}`, { defaultValue: phase.kind })}
       </Text>
-      <Text className="text-xs text-text-secondary"> {t('plan.card.weeksShort', { count: phase.weeks })}</Text>
-      {phase.current ? (
-        <View
-          className="ml-1 px-1.5 rounded-full"
-          style={{ backgroundColor: colors.tokens.primaryContainer }}
-        >
-          <Text className="text-xs font-semibold" style={{ color: colors.tokens.onPrimaryContainer }}>
-            {t('plan.card.now')}
-          </Text>
-        </View>
-      ) : null}
+      <Text className={`text-sm ${ink}`}>
+        {' '}
+        <Figure>{t('plan.card.weeksShort', { count: phase.weeks })}</Figure>
+      </Text>
+      {phase.current ? <Text className="text-sm text-primary ml-1">{t('plan.card.now')}</Text> : null}
     </View>
   );
 }
@@ -105,22 +155,18 @@ function PhaseSegment({ phase }: { phase: PlanPhase }) {
  */
 function Season({ plan }: { plan: WorkoutPlan }) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
   const { flavour, phases } = plan;
   const current = phases.find((phase) => phase.current);
   if (!flavour && phases.length === 0) {
     return null;
   }
   return (
-    <View
-      className="px-4 py-3"
-      style={{ borderBottomWidth: 1, borderBottomColor: colors.border.faint }}
-    >
+    <View className="px-4 mt-3">
       {flavour ? (
         <Text className="text-sm mb-2">
           <Text className="text-text-secondary">{t('plan.card.approach')} </Text>
           <Text className="font-semibold text-text-primary">{flavour.label}</Text>
-          <Text className="text-xs text-text-secondary">
+          <Text className="text-text-secondary">
             {' · '}
             {t(`plan.card.selectedBy.${flavour.selected_by}`, { defaultValue: flavour.selected_by })}
           </Text>
@@ -128,18 +174,23 @@ function Season({ plan }: { plan: WorkoutPlan }) {
       ) : null}
       {phases.length > 0 ? (
         <>
-          <Text className="text-xs text-text-secondary mb-1">
+          <Text className="text-sm text-text-secondary mb-1">
             {t('plan.card.season')}
-            {plan.season_start && plan.season_end ? `  ${plan.season_start} → ${plan.season_end}` : ''}
+            {plan.season_start && plan.season_end ? (
+              <Text>
+                {'  '}
+                <Figure>{plan.season_start}</Figure>
+                {' → '}
+                <Figure>{plan.season_end}</Figure>
+              </Text>
+            ) : null}
           </Text>
           <View className="flex-row flex-wrap">
             {phases.map((phase) => (
               <PhaseSegment key={`${phase.kind}-${phase.start}`} phase={phase} />
             ))}
           </View>
-          {current ? (
-            <Text className="text-xs text-text-secondary mt-1">{phaseSummary(current, t)}</Text>
-          ) : null}
+          {current ? <PhaseSummary phase={current} /> : null}
         </>
       ) : null}
     </View>
@@ -149,21 +200,15 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 /**
  * One day of the fortnight: the date, the sport, and the session — its text,
  * duration and intensity, then the steps, the template and the fuel it
- * carries. A rest day is the one word.
+ * carries. A rest day is the one word. Rows are separated by space, not by a
+ * rule; the card's one hairline sits under its header.
  */
 function DayRow({ day }: { day: PlanDay }) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
-  const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
-    (part): part is string => typeof part === 'string' && part.length > 0,
-  );
   const steps = day.steps ?? [];
   return (
-    <View
-      className="flex-row py-2"
-      style={{ borderTopWidth: 1, borderTopColor: colors.border.faint }}
-    >
-      <Text className="w-20 text-xs text-text-secondary">{day.date}</Text>
+    <View className="flex-row mt-2" testID={`workout-plan-day-${day.date}`}>
+      <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>{day.date}</Text>
       <View className="flex-1">
         {day.rest ? (
           <Text className="text-sm text-text-secondary">{t('chat.restDay')}</Text>
@@ -173,18 +218,29 @@ function DayRow({ day }: { day: PlanDay }) {
             <Text className="text-text-secondary">
               {' · '}
               {day.sport}
-              {meta.length > 0 ? ` · ${meta.join(' · ')}` : ''}
+              {day.duration_min !== undefined ? (
+                <Text>
+                  {' · '}
+                  <Figure>{day.duration_min} min</Figure>
+                </Text>
+              ) : null}
+              {day.intensity ? ` · ${day.intensity}` : ''}
             </Text>
           </Text>
         )}
         {steps.length > 0 ? (
-          <Text className="text-xs text-text-secondary mt-0.5">
+          <Text className="text-sm text-text-secondary mt-0.5">
             <Text className="font-semibold text-text-primary">{t('plan.card.steps')}</Text>{' '}
-            {steps.map(stepText).join('  ·  ')}
+            {steps.map((step, index) => (
+              <Text key={`${step.label}-${index}`}>
+                {index > 0 ? '  ·  ' : ''}
+                <StepText step={step} />
+              </Text>
+            ))}
           </Text>
         ) : null}
         {day.template_slug ? (
-          <Text className="text-xs text-text-secondary mt-0.5">
+          <Text className="text-sm text-text-secondary mt-0.5">
             {t('plan.card.template')}{' '}
             <Text className="text-text-primary">{day.template_slug}</Text>
             {day.template_source
@@ -193,7 +249,7 @@ function DayRow({ day }: { day: PlanDay }) {
           </Text>
         ) : null}
         {day.fueling ? (
-          <Text className="text-xs text-text-secondary mt-0.5">
+          <Text className="text-sm text-text-secondary mt-0.5">
             <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
             {fuelParts(day.fueling, t).join(' · ')}
           </Text>
@@ -224,61 +280,64 @@ function WeekHeading({
       ? t('plan.card.nextWeek')
       : null;
   return (
-    <Text className="text-xs mb-1">
+    <Text className="text-sm">
       <Text className="font-semibold text-text-secondary">
-        {named ?? t('plan.card.weekOf', { date: week.week_start })}
+        {named ?? <Sentence text={t('plan.card.weekOf', { date: week.week_start })} figure={week.week_start} />}
       </Text>
-      {named ? <Text className="text-text-tertiary"> {week.week_start}</Text> : null}
+      {named ? (
+        <Text className="text-text-tertiary">
+          {' '}
+          <Figure>{week.week_start}</Figure>
+        </Text>
+      ) : null}
       {week.focus ? <Text className="text-text-secondary"> {week.focus}</Text> : null}
     </Text>
   );
 }
 
+/**
+ * The card is one outline on the paper: a faint rounded border, no fill, and
+ * a single hairline under the header block. Everything under it is separated
+ * by spacing alone.
+ */
 export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
   const { t } = useTranslation();
-  const colors = useThemeColors();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
   return (
-    <View
-      className="my-2 rounded-xl overflow-hidden"
-      style={{
-        backgroundColor: colors.tokens.surfaceContainer,
-        borderWidth: 1,
-        borderColor: colors.border.faint,
-      }}
-    >
-      <View
-        className="px-4 py-3"
-        style={{ backgroundColor: colors.tokens.surfaceContainerHigh }}
-      >
+    <View className="my-2 rounded-xl border border-border-faint overflow-hidden" testID="workout-plan-card">
+      <View className="px-4 py-3 border-b border-border-faint">
         <Text className="text-sm font-semibold text-text-primary">{t('app.trainingPlan')}</Text>
-        <Text className="text-xs text-text-secondary mt-0.5">
+        <Text className="text-sm text-text-secondary mt-0.5">
           {t('plan.card.goalRace')}{' '}
           <Text className="font-semibold text-text-primary">{plan.goal_race.name}</Text>
           {' · '}
-          {plan.goal_race.date}
+          <Figure>{plan.goal_race.date}</Figure>
         </Text>
       </View>
 
       {plan.races !== undefined && plan.races.length > 0 ? (
-        <Text
-          className="px-4 py-2 text-xs text-text-secondary"
-          style={{ borderBottomWidth: 1, borderBottomColor: colors.border.faint }}
-        >
+        <Text className="px-4 mt-3 text-sm text-text-secondary">
           <Text className="font-semibold text-text-primary">{t('plan.card.alsoRacing')}</Text>{' '}
-          {plan.races
-            .map((race) => `${race.name} ${race.date} (${race.priority})`)
-            .join('  ·  ')}
+          {plan.races.map((race, index) => (
+            <Text key={`${race.name}-${race.date}`}>
+              {index > 0 ? '  ·  ' : ''}
+              {race.name} <Figure>{race.date}</Figure> ({race.priority})
+            </Text>
+          ))}
         </Text>
       ) : null}
 
       <Season plan={plan} />
 
       {plan.weeks.length > 0 ? (
-        <View className="px-4 py-3">
+        <View className="px-4 mt-3">
           {plan.weeks.map((week, index) => (
-            <View key={week.week_start} className="mb-3">
+            <View
+              key={week.week_start}
+              className={index > 0 ? 'mt-3' : undefined}
+              testID={`workout-plan-week-${index + 1}`}
+            >
               <WeekHeading week={week} index={index} currentIndex={currentIndex} />
               {week.days.map((day) => (
                 <DayRow key={day.date} day={day} />
@@ -289,13 +348,12 @@ export default function WorkoutPlanCard({ plan }: WorkoutPlanCardProps) {
       ) : null}
 
       {plan.weeks_deferred > 0 ? (
-        <Text
-          className="px-4 py-2 text-xs text-text-secondary"
-          style={{ borderTopWidth: 1, borderTopColor: colors.border.faint }}
-        >
-          {t('plan.card.moreWeeks', { count: plan.weeks_deferred })}
+        <Text className="px-4 mt-3 mb-3 text-sm text-text-secondary">
+          <Sentence text={t('plan.card.moreWeeks', { count: plan.weeks_deferred })} figure={plan.weeks_deferred} />
         </Text>
-      ) : null}
+      ) : (
+        <View className="mb-3" />
+      )}
     </View>
   );
 }

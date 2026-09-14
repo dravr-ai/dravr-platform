@@ -36,4 +36,4 @@ appId: ai.dravr.app
     id: "login-button"
 
 # Verify validation error is shown
-- assertVisible: "Email is required"
+- assertVisible: "(?i)Email is required|L'adresse e-mail est requise"

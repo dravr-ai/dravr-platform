@@ -2,18 +2,20 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: SVG brand logos for third-party fitness providers and auth methods
-// ABOUTME: Strava, Garmin, Google, and Apple icons used in connection flows
+// ABOUTME: Strava, Garmin, Whoop, intervals.icu, Google and Apple marks, plus the provider-id → glyph map
 
 import React from 'react';
-import Svg, { Path, Circle } from 'react-native-svg';
+import type { ComponentType } from 'react';
+import Svg, { Path, Circle, Rect } from 'react-native-svg';
+import { PROVIDER_COLORS } from '../../constants/theme';
 
-interface IconProps {
+export interface IconProps {
   size?: number;
   color?: string;
 }
 
 /** Strava logo — the distinctive arrow/chevron mark */
-export function StravaLogo({ size = 24, color = '#FC4C02' }: IconProps) {
+export function StravaLogo({ size = 24, color = PROVIDER_COLORS.strava }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
@@ -22,12 +24,33 @@ export function StravaLogo({ size = 24, color = '#FC4C02' }: IconProps) {
 }
 
 /** Garmin logo — simplified "G" mark with triangle */
-export function GarminLogo({ size = 24, color = '#FFFFFF' }: IconProps) {
+export function GarminLogo({ size = 24, color = PROVIDER_COLORS.garmin }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth="2" />
       <Path d="M12 7v5l3.5 3.5" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <Path d="M17 12h-5" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Whoop logo — the strap drawn as a rounded band with its sensor at the centre */
+export function WhoopLogo({ size = 24, color = PROVIDER_COLORS.whoop }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x="4" y="3" width="16" height="18" rx="8" stroke={color} strokeWidth="2.5" />
+      <Circle cx="12" cy="12" r="2.5" fill={color} />
+    </Svg>
+  );
+}
+
+/** intervals.icu logo — three interval bars of a workout chart */
+export function IntervalsIcuLogo({ size = 24, color = PROVIDER_COLORS.intervals_icu }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <Rect x="3" y="12" width="4" height="9" rx="1" />
+      <Rect x="10" y="4" width="4" height="17" rx="1" />
+      <Rect x="17" y="8" width="4" height="13" rx="1" />
     </Svg>
   );
 }
@@ -51,4 +74,24 @@ export function AppleLogo({ size = 24, color = '#FFFFFF' }: IconProps) {
       <Path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
     </Svg>
   );
+}
+
+/**
+ * The glyph for each provider id the server reports. The sciotte ids are the
+ * captured Strava and Garmin accounts, so they share the brand's mark.
+ */
+const PROVIDER_GLYPHS: Readonly<Record<string, ComponentType<IconProps>>> = {
+  sciotte: StravaLogo,
+  strava: StravaLogo,
+  sciotte_garmin: GarminLogo,
+  garmin: GarminLogo,
+  whoop: WhoopLogo,
+  intervals_icu: IntervalsIcuLogo,
+};
+
+/** Resolve a provider id to its brand glyph, or null when no mark exists for it. */
+export function providerGlyph(providerId: string): ComponentType<IconProps> | null {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_GLYPHS, providerId)
+    ? PROVIDER_GLYPHS[providerId]
+    : null;
 }

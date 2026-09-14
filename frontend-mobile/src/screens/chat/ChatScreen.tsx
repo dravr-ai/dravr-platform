@@ -5,16 +5,25 @@
 // ABOUTME: Coordinates conversation, message, provider and voice state, and the thread's info sheet
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { useAuth } from '../../contexts/AuthContext';
-import { HeaderActions, PromptDialog } from '../../components/ui';
+import { HeaderActions, PromptDialog, Sheet } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
-import { spacing, useThemeColors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
 import { defaultConversationTitle, providerStatusLine, trustedActionUrl } from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
@@ -24,7 +33,6 @@ import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
 import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
 import { ChatInputBar } from './ChatInputBar';
-import { useKeyboardOffset } from '../../hooks/useKeyboardOffset';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { MessageList } from './MessageList';
@@ -45,14 +53,9 @@ import { useTranslation } from '@pierre/i18n';
 export function ChatScreen() {
   const { t, language } = useTranslation();
   const { isAuthenticated } = useAuth();
-  const insets = useSafeAreaInsets();
-  // One keyboard reading, shared by the composer and the list. They used to
-  // disagree: the composer listened and moved, the list reserved a fixed 140dp
-  // and did not, so the newest messages hid behind the raised composer.
-  const keyboard = useKeyboardOffset();
-  // The composer rests on the device's REAL bottom inset. The thread is pushed
-  // over the tab bar, so nothing sits under the composer but the home indicator.
-  const composerResting = Math.max(insets.bottom, spacing.sm);
+  // The native header sits above this screen, so the keyboard-avoiding column
+  // offsets by its height on iOS, where `padding` measures from the window.
+  const headerHeight = useHeaderHeight();
   const colors = useThemeColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ conversationId?: string; draft?: string; send?: string }>();
@@ -79,10 +82,9 @@ export function ChatScreen() {
   // back.
   const scrollToBottom = messagesHook.scrollToBottom;
   useEffect(() => {
-    if (keyboard.height > 0) {
-      scrollToBottom();
-    }
-  }, [keyboard.height, scrollToBottom]);
+    const shown = Keyboard.addListener('keyboardDidShow', scrollToBottom);
+    return () => shown.remove();
+  }, [scrollToBottom]);
   const providerStatus = useProviderStatus();
   // The header's fallback line, from the same rule web renders.
   const headerProviderStatus = useMemo(
@@ -450,8 +452,15 @@ export function ChatScreen() {
 
   return (
     <View className="flex-1 bg-background-primary" testID="chat-screen">
-      <View
+      {/*
+        The list, the progress strip, the usage banner and the composer bar
+        are one column; the keyboard shortens it through the layout. Android
+        runs edge-to-edge and resizes the window itself, so only iOS pads.
+      */}
+      <KeyboardAvoidingView
         className="flex-1"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
       >
         {/*
           The native header: the system back chevron, the thread's avatar and
@@ -515,7 +524,6 @@ export function ChatScreen() {
           onReconnectProvider={handleConnectProvider}
           onActionClick={handleActionClick}
           onShowVerdict={handleShowVerdict}
-          bottomInset={Math.max(composerResting, keyboard.height)}
         />
 
         <ChatProgressStrip statusText={messagesHook.progressText} />
@@ -533,9 +541,6 @@ export function ChatScreen() {
           onChangeText={setInputText}
           onVoicePress={voiceInput.handleVoicePress}
           onSendMessage={handleSendMessage}
-          restingOffset={composerResting}
-          keyboardHeight={keyboard.height}
-          keyboardDuration={keyboard.duration}
         />
 
         <ProviderModal
@@ -574,27 +579,20 @@ export function ChatScreen() {
           }}
         />
 
-        {providerStatus.needsCredentialsProvider !== null && (
-          <Modal visible animationType="slide" transparent onRequestClose={() => providerStatus.setNeedsCredentialsProvider(null)}>
-            <View className="flex-1 bg-scrim/60 justify-end">
-              <View
-                className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
-                onStartShouldSetResponder={() => true}
-              >
-                <View className="items-center mb-2">
-                  <View className="w-10 h-1 rounded-full bg-border-default" />
-                </View>
-                <OAuthCredentialsSection />
-                <TouchableOpacity
-                  className="mt-4 py-3 items-center"
-                  onPress={() => providerStatus.setNeedsCredentialsProvider(null)}
-                >
-                  <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-        )}
+        {/* A reply asked for provider credentials the app does not hold yet. */}
+        <Sheet
+          visible={providerStatus.needsCredentialsProvider !== null}
+          onClose={() => providerStatus.setNeedsCredentialsProvider(null)}
+          testID="oauth-credentials-sheet"
+        >
+          <OAuthCredentialsSection />
+          <TouchableOpacity
+            className="mt-4 py-3 items-center"
+            onPress={() => providerStatus.setNeedsCredentialsProvider(null)}
+          >
+            <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
+          </TouchableOpacity>
+        </Sheet>
 
         <PromptDialog
           visible={renamePromptVisible}
@@ -607,8 +605,7 @@ export function ChatScreen() {
           onCancel={handleRenameCancel}
           testID="rename-conversation-dialog"
         />
-
-      </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }

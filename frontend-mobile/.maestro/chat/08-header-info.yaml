@@ -50,11 +50,10 @@ appId: ai.dravr.app
       id: "message-input"
     timeout: 10000
 
-# The visible way into the command palette sits beside the composer
-- assertVisible:
-    id: "slash-command-button"
+# The composer's leading slot is empty; a typed "/" is the way into the command palette
 - tapOn:
-    id: "slash-command-button"
+    id: "message-input"
+- inputText: "/"
 - extendedWaitUntil:
     visible:
       id: "command-palette"

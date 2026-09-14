@@ -11,20 +11,21 @@ import { fireEvent, render } from '@testing-library/react-native';
 
 import type { ReplyBlock } from '@pierre/shared-types';
 import { MessageList } from '../src/screens/chat/MessageList';
+import { presentMessageMenu } from '../src/screens/chat/presentMessageMenu';
 import type { Message } from '../src/types';
 
 jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn(() => Promise.resolve(true)),
 }));
 
-// The icon buttons carry no text, so name each glyph for the query.
-jest.mock('@expo/vector-icons', () => {
-  const View = require('react-native').View;
-  return {
-    Ionicons: (props: Record<string, unknown>) =>
-      require('react').createElement(View, { testID: `icon-${props.name}` }),
-  };
-});
+// The actions live behind the turn's long press, presented by the platform's
+// own menu. The menu is its own unit (MessageMenu.test.tsx); here it is a
+// mock that hands back the callbacks the turn wired into it.
+jest.mock('../src/screens/chat/presentMessageMenu', () => ({
+  presentMessageMenu: jest.fn(),
+}));
+
+type MenuOptions = { onCopy: () => void; onShare: () => void };
 
 const MESSAGE_ID = 'msg-1';
 const BEFORE = 'Voici ton vélo d’août — surtout du VTT à Prévost 🚴';
@@ -58,7 +59,6 @@ const message: Message = {
 function renderList() {
   return render(
     <MessageList
-      bottomInset={0}
       messages={[message]}
       isLoading={false}
       isSending={false}
@@ -77,15 +77,23 @@ function renderList() {
   );
 }
 
+/** Long-press the turn and read back the callbacks it handed the menu. */
+function openMenu(screen: ReturnType<typeof renderList>): MenuOptions {
+  fireEvent(screen.getByTestId(`message-turn-${MESSAGE_ID}`), 'longPress');
+  const menu = presentMessageMenu as jest.Mock;
+  expect(menu).toHaveBeenCalledTimes(1);
+  return menu.mock.calls[0][0] as MenuOptions;
+}
+
 describe('MessageList copy and share', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('copies the reply with the chart named, not with its marker', () => {
-    const { getByTestId } = renderList();
+    const { onCopy } = openMenu(renderList());
 
-    fireEvent.press(getByTestId('icon-copy-outline'));
+    onCopy();
 
     expect(Clipboard.setStringAsync).toHaveBeenCalledTimes(1);
     const copied = (Clipboard.setStringAsync as jest.Mock).mock.calls[0][0] as string;
@@ -98,9 +106,9 @@ describe('MessageList copy and share', () => {
 
   it('shares the same readable text', () => {
     const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
-    const { getByTestId } = renderList();
+    const { onShare } = openMenu(renderList());
 
-    fireEvent.press(getByTestId('icon-arrow-redo-outline'));
+    onShare();
 
     expect(share).toHaveBeenCalledTimes(1);
     const shared = (share.mock.calls[0][0] as { message: string }).message;

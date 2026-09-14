@@ -42,7 +42,6 @@ function renderList() {
   return render(
     <ThemeProvider>
       <MessageList
-        bottomInset={0}
         messages={MESSAGES}
         isLoading={false}
         isSending={false}

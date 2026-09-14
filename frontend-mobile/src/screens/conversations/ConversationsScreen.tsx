@@ -19,7 +19,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { filterRows, type ConversationRowModel } from '@pierre/chat-utils';
 import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
-import { BrandLockup, PromptDialog } from '../../components/ui';
+import { BrandLockup, EmptyState, PromptDialog } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { HeaderActions } from '../../components/ui/HeaderActions';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
@@ -250,7 +250,7 @@ export function ConversationsScreen() {
 
       {list.isLoading ? (
         <View className="flex-1 items-center justify-center" testID="conversations-loading">
-          <ActivityIndicator size="large" color={colors.pierre.violet} />
+          <ActivityIndicator size="large" color={colors.tokens.primary} />
         </View>
       ) : (
         <FlashList
@@ -269,33 +269,29 @@ export function ConversationsScreen() {
           ListFooterComponent={
             list.isLoadingMore ? (
               <View className="py-4 items-center" testID="conversations-loading-more">
-                <ActivityIndicator size="small" color={colors.pierre.violet} />
+                <ActivityIndicator size="small" color={colors.tokens.primary} />
               </View>
             ) : null
           }
           testID="conversations-list"
+          // The empty state sits left-aligned in the content column where
+          // the rows would have been: one sentence and, when nothing is
+          // being searched, one ink link that opens the same "+" menu as the
+          // header's button (DESIGN.md §5).
           ListEmptyComponent={
-            <View className="flex-1 items-center justify-center pt-16 px-8" testID="conversations-empty">
-              {searchQuery.trim() ? (
-                <Text className="text-base text-text-secondary text-center">
-                  {t('app.convNoSearchMatch', { query: searchQuery.trim() })}
-                </Text>
-              ) : (
-                <>
-                  <Text className="text-base text-text-secondary text-center">{t('chat.noChatsEmptyMobile')}</Text>
-                  <TouchableOpacity
-                    className="w-12 h-12 rounded-full items-center justify-center mt-4"
-                    style={{ backgroundColor: `${colors.pierre.violet}26` }}
-                    onPress={openPlusMenu}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('app.convNewAria')}
-                    testID="conversations-empty-plus"
-                  >
-                    <Feather name="plus" size={24} color={colors.pierre.violet} />
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
+            searchQuery.trim() ? (
+              <EmptyState testID="conversations-empty" className="pt-6">
+                {t('app.convNoSearchMatch', { query: searchQuery.trim() })}
+              </EmptyState>
+            ) : (
+              <EmptyState
+                testID="conversations-empty"
+                className="pt-6"
+                action={{ label: t('chat.startConversation'), onPress: openPlusMenu, testID: 'conversations-empty-start' }}
+              >
+                {t('chat.noChatsEmptyMobile')}
+              </EmptyState>
+            )
           }
         />
       )}

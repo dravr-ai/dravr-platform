@@ -10,8 +10,11 @@ export { ScrollFadeContainer } from './ScrollFadeContainer';
 export { SwipeableRow } from './SwipeableRow';
 export type { SwipeAction } from './SwipeableRow';
 export { InitialsAvatar, avatarSlotColors } from './InitialsAvatar';
+export { Sheet } from './Sheet';
+export type { SheetProps } from './Sheet';
+export { EmptyState } from './EmptyState';
+export type { EmptyStateAction, EmptyStateProps } from './EmptyState';
 
-export { DragIndicator } from './DragIndicator';
 export { CollapsibleSection } from './CollapsibleSection';
 // The scroll container that insets itself for the native header and tab bar.
 export { PaneScrollView } from './PaneScrollView';

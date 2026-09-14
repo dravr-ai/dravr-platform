@@ -104,8 +104,8 @@ describe('the chat "+"', () => {
     expect(header.labels).toEqual(['New chat', 'New group chat', 'Cancel']);
     expect(header.cancelButtonIndex).toBe(2);
 
-    // The empty state's "+" presents the same rows, in the same order.
-    fireEvent.press(await findByTestId('conversations-empty-plus'));
+    // The empty state's link presents the same rows, in the same order.
+    fireEvent.press(await findByTestId('conversations-empty-start'));
     expect(presentedMenu().labels).toEqual(header.labels);
     expect(getByTestId('conversations-screen')).toBeTruthy();
   });
@@ -113,7 +113,7 @@ describe('the chat "+"', () => {
   it('new chat opens an empty thread', async () => {
     const { findByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('conversations-empty-plus'));
+    fireEvent.press(await findByTestId('conversations-empty-start'));
     presentedMenu().pick('New chat');
 
     expect(mockRouter.push).toHaveBeenCalledWith({
@@ -128,7 +128,7 @@ describe('the chat "+"', () => {
   it('new group chat asks for a name and sends /group create in a fresh thread', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('conversations-empty-plus'));
+    fireEvent.press(await findByTestId('conversations-empty-start'));
     presentedMenu().pick('New group chat');
 
     const dialog = await findByTestId('new-group-name-dialog-input');
@@ -148,7 +148,7 @@ describe('the chat "+"', () => {
   it('an empty name creates nothing', async () => {
     const { findByTestId, getByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('conversations-empty-plus'));
+    fireEvent.press(await findByTestId('conversations-empty-start'));
     presentedMenu().pick('New group chat');
 
     fireEvent.changeText(await findByTestId('new-group-name-dialog-input'), '   ');
@@ -160,7 +160,7 @@ describe('the chat "+"', () => {
   it('cancel runs nothing', async () => {
     const { findByTestId } = render(withClient(<ConversationsScreen />));
 
-    fireEvent.press(await findByTestId('conversations-empty-plus'));
+    fireEvent.press(await findByTestId('conversations-empty-start'));
     presentedMenu().pick('Cancel');
 
     expect(mockRouter.push).not.toHaveBeenCalled();

@@ -110,8 +110,8 @@ describe('the Dravr lockup on the phone', () => {
       expect(screen.getByTestId('new-chat-button')).toBeTruthy();
       expect(screen.queryByTestId('chat-plus-button')).toBeNull();
 
-      // The empty state's own "+" is a call to action, not chrome, and stays.
-      expect(screen.getByTestId('conversations-empty-plus')).toBeTruthy();
+      // The empty state's ink link is a call to action, not chrome, and stays.
+      expect(screen.getByTestId('conversations-empty-start')).toBeTruthy();
     });
 
     it('draws the mark from the shipped badge asset', async () => {

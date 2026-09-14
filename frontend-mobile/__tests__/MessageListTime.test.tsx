@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Renders MessageList to pin the day pill, the bubble clock and the run boundary on mobile
+// ABOUTME: Renders MessageList to pin the day label, the bubble clock and the run boundary on mobile
 // ABOUTME: The web thread has drawn all three since the messenger cutover; this is the parity that was missing
 
 import React from 'react';
@@ -48,7 +48,6 @@ const MESSAGES: Message[] = [
 function renderList(messages: Message[] = MESSAGES) {
   return render(
     <MessageList
-      bottomInset={0}
       messages={messages}
       isLoading={false}
       isSending={false}
@@ -66,8 +65,8 @@ function renderList(messages: Message[] = MESSAGES) {
   );
 }
 
-describe('MessageList day pill, clock and grouping', () => {
-  it('puts a pill above each day and names today and yesterday in words', () => {
+describe('MessageList day label, clock and grouping', () => {
+  it('puts a label above each day and names today and yesterday in words', () => {
     const { getAllByTestId, getByText } = renderList();
 
     expect(getAllByTestId('day-separator')).toHaveLength(2);

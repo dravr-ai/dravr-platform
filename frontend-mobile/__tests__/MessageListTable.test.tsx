@@ -37,7 +37,6 @@ const assistantMessage: Message = {
 function renderList(messages: Message[]) {
   return render(
     <MessageList
-      bottomInset={0}
       messages={messages}
       isLoading={false}
       isSending={false}

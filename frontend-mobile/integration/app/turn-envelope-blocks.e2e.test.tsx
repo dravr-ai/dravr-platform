@@ -33,7 +33,6 @@ function renderList(
 ) {
   return render(
     <MessageList
-      bottomInset={0}
       messages={messages}
       isLoading={false}
       isSending={false}
@@ -250,7 +249,6 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
 
     const view = render(
       <MessageList
-      bottomInset={0}
         messages={result.current.messages}
         isLoading={false}
         isSending={false}
@@ -318,7 +316,6 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
 
     const view = render(
       <MessageList
-      bottomInset={0}
         messages={result.current.messages}
         isLoading={false}
         isSending={false}

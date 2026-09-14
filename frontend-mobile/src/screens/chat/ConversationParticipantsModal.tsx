@@ -2,10 +2,10 @@
 // ABOUTME: The mobile caller of the participants routes; the owner is listed but never removable
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { ConversationParticipant } from '@pierre/shared-types';
-import { Input } from '../../components/ui';
+import { Input, Sheet } from '../../components/ui';
 import { describeApiError } from '@pierre/ui-logic';
 import { chatApi } from '../../services/api';
 import { useThemeColors } from '../../constants/theme';
@@ -91,77 +91,75 @@ export function ConversationParticipantsModal({
   );
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View className="flex-1 justify-end bg-scrim/60">
-        <View
-          className="rounded-t-2xl px-4 pt-4 pb-8"
-          style={{ backgroundColor: colors.background.secondary, maxHeight: '75%' }}
-          testID="conversation-participants-modal"
-        >
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-lg font-semibold text-text-primary">{t('app.participants')}</Text>
-            <TouchableOpacity onPress={onClose} testID="participants-close" accessibilityLabel={t('common.close')}>
-              <Ionicons name="close" size={22} color={colors.text.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          {isLoading ? (
-            <ActivityIndicator testID="participants-loading" />
-          ) : (
-            <FlatList
-              data={participants}
-              keyExtractor={p => p.user_id}
-              renderItem={({ item }) => (
-                <View className="flex-row items-center justify-between py-2 border-b border-border-faint">
-                  <View className="flex-1 mr-2">
-                    <Text className="text-sm text-text-primary" numberOfLines={1} testID={`participant-${item.user_id}`}>
-                      {item.user_id}
-                    </Text>
-                    <Text className="text-xs text-text-tertiary">{item.role}</Text>
-                  </View>
-                  {item.role !== 'owner' && (
-                    <TouchableOpacity
-                      onPress={() => handleRemove(item.user_id)}
-                      disabled={isSaving}
-                      accessibilityLabel={`Remove ${item.user_id}`}
-                      testID={`remove-${item.user_id}`}
-                    >
-                      <Ionicons name="person-remove-outline" size={20} color={colors.error} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            />
-          )}
-
-          <View className="flex-row items-center mt-4">
-            <Input
-              containerStyle={{ flex: 1, marginRight: 8 }}
-              value={newUserId}
-              onChangeText={setNewUserId}
-              placeholder={t('app.userIdToAdd')}
-              autoCapitalize="none"
-              autoCorrect={false}
-              testID="participant-user-id-input"
-            />
-            <TouchableOpacity
-              className="px-3 py-2 rounded-lg bg-primary"
-              onPress={handleAdd}
-              disabled={isSaving || newUserId.trim() === ''}
-              accessibilityLabel={t('app.addParticipant')}
-              testID="participant-add-button"
-            >
-              <Text className="text-sm font-medium text-white">{t('app.add')}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {error && (
-            <Text className="text-sm text-error mt-3" testID="participants-error">
-              {error}
-            </Text>
-          )}
-        </View>
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      testID="conversation-participants-modal"
+      backdropTestID="conversation-participants-backdrop"
+      maxHeight="max-h-[75%]"
+    >
+      <View className="flex-row items-center justify-between mb-3">
+        <Text className="text-lg font-semibold text-text-primary">{t('app.participants')}</Text>
+        <TouchableOpacity onPress={onClose} testID="participants-close" accessibilityLabel={t('common.close')}>
+          <Ionicons name="close" size={22} color={colors.text.secondary} />
+        </TouchableOpacity>
       </View>
-    </Modal>
+
+      {isLoading ? (
+        <ActivityIndicator testID="participants-loading" />
+      ) : (
+        <FlatList
+          data={participants}
+          keyExtractor={p => p.user_id}
+          renderItem={({ item }) => (
+            <View className="flex-row items-center justify-between py-2 border-b border-border-faint">
+              <View className="flex-1 mr-2">
+                <Text className="text-sm text-text-primary" numberOfLines={1} testID={`participant-${item.user_id}`}>
+                  {item.user_id}
+                </Text>
+                <Text className="text-xs text-text-tertiary">{item.role}</Text>
+              </View>
+              {item.role !== 'owner' && (
+                <TouchableOpacity
+                  onPress={() => handleRemove(item.user_id)}
+                  disabled={isSaving}
+                  accessibilityLabel={`Remove ${item.user_id}`}
+                  testID={`remove-${item.user_id}`}
+                >
+                  <Ionicons name="person-remove-outline" size={20} color={colors.error} />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        />
+      )}
+
+      <View className="flex-row items-center mt-4">
+        <Input
+          containerStyle={{ flex: 1, marginRight: 8 }}
+          value={newUserId}
+          onChangeText={setNewUserId}
+          placeholder={t('app.userIdToAdd')}
+          autoCapitalize="none"
+          autoCorrect={false}
+          testID="participant-user-id-input"
+        />
+        <TouchableOpacity
+          className="px-3 py-2 rounded-lg bg-primary"
+          onPress={handleAdd}
+          disabled={isSaving || newUserId.trim() === ''}
+          accessibilityLabel={t('app.addParticipant')}
+          testID="participant-add-button"
+        >
+          <Text className="text-sm font-medium text-white">{t('app.add')}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {error && (
+        <Text className="text-sm text-error mt-3" testID="participants-error">
+          {error}
+        </Text>
+      )}
+    </Sheet>
   );
 }

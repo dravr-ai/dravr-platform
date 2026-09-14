@@ -5,7 +5,7 @@
 // ABOUTME: Red if a field name reaches the screen, if no phase carries the now badge, or if a day's steps go missing
 
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { render, within } from '@testing-library/react-native';
 
 import type { WorkoutPlan } from '@pierre/shared-types';
 import WorkoutPlanCard from '../src/screens/chat/WorkoutPlanCard';
@@ -121,40 +121,78 @@ describe('WorkoutPlanCard', () => {
     expect(getByText(/chosen by your human coach/)).toBeTruthy();
   });
 
-  it('lays every phase on the timeline and badges exactly the current one', () => {
+  it('lays every phase on the timeline and marks exactly the current one', () => {
     const { getByText, getAllByText } = render(<WorkoutPlanCard plan={plan()} />);
 
-    expect(getByText('Build')).toBeTruthy();
-    expect(getByText('Taper')).toBeTruthy();
+    // The current phase and its `now` word take the primary ink; the other
+    // phase stays secondary. Neither is a pill.
+    expect(getByText('Build').props.className).toContain('text-primary');
+    expect(getByText('Taper').props.className).toContain('text-text-secondary');
+    expect(getByText('Taper').props.className).not.toContain('rounded');
     expect(getAllByText('now')).toHaveLength(1);
+    expect(getByText('now').props.className).toContain('text-primary');
+    expect(getByText('now').props.className).not.toContain('rounded-full');
     expect(getByText(/two hard days, the rest easy/)).toBeTruthy();
-    expect(getByText(/8 h\/wk/)).toBeTruthy();
-    expect(getByText(/2 hard\/wk/)).toBeTruthy();
+    // The weekly figures are their own mono spans.
+    expect(getByText('8 h/wk').props.className).toContain('font-mono');
+    expect(getByText('2 hard/wk').props.className).toContain('font-mono');
+    expect(getByText('6 wk').props.className).toContain('font-mono');
   });
 
   it('names this week and the next, and renders a day down to its steps', () => {
-    const { getByText } = render(<WorkoutPlanCard plan={plan()} />);
+    const { getByText, getByTestId } = render(<WorkoutPlanCard plan={plan()} />);
 
     expect(getByText(/This week/)).toBeTruthy();
     expect(getByText(/Next week/)).toBeTruthy();
-    expect(getByText('4 x 8 min at threshold')).toBeTruthy();
-    expect(getByText(/65 min/)).toBeTruthy();
-    expect(getByText(/Threshold · 8m · Threshold ×4/)).toBeTruthy();
-    expect(getByText(/threshold_4x8/)).toBeTruthy();
-    expect(getByText(/catalogue/)).toBeTruthy();
-    expect(getByText(/60 g\/h carbs/)).toBeTruthy();
-    expect(getByText('Rest')).toBeTruthy();
+    expect(within(getByTestId('workout-plan-week-1')).getByText('2026-09-14').props.className).toContain(
+      'font-mono',
+    );
+
+    const day = within(getByTestId('workout-plan-day-2026-09-15'));
+    expect(day.getByText('2026-09-15').props.className).toContain('font-mono');
+    expect(day.getByText('4 x 8 min at threshold')).toBeTruthy();
+    // The duration is a mono span of its own; the sentence around it still
+    // reads "· run · 65 min · threshold".
+    expect(day.getByText('65 min').props.className).toContain('font-mono');
+    expect(day.getByText(/· run ·.*· threshold$/)).toBeTruthy();
+    // A step is one sentence whose duration and repeat count are mono spans.
+    expect(day.getByText(/Threshold · 8m · Threshold ×4/)).toBeTruthy();
+    expect(day.getByText('8m').props.className).toContain('font-mono');
+    expect(day.getByText('×4').props.className).toContain('font-mono');
+    expect(day.getByText(/threshold_4x8/)).toBeTruthy();
+    expect(day.getByText(/catalogue/)).toBeTruthy();
+    expect(day.getByText(/60 g\/h carbs/)).toBeTruthy();
+    expect(within(getByTestId('workout-plan-day-2026-09-17')).getByText('Rest')).toBeTruthy();
   });
 
   it('shows the other races the athlete named', () => {
     const { getByText } = render(<WorkoutPlanCard plan={plan()} />);
     expect(getByText(/Also racing/)).toBeTruthy();
     expect(getByText(/Club 10k/)).toBeTruthy();
+    expect(getByText('2026-10-11').props.className).toContain('font-mono');
   });
 
   it('says how many weeks the plan still holds beyond the card', () => {
     const { getByText } = render(<WorkoutPlanCard plan={plan()} />);
     expect(getByText(/4 more weeks in the plan/)).toBeTruthy();
+    expect(getByText('4').props.className).toContain('font-mono');
+  });
+
+  // Boreal v2.2 P3: the card is one faint outline on the paper — no header
+  // fill, no interior hairline but the one under the header block.
+  it('is one outline with a single hairline under its header', () => {
+    const { getByTestId, toJSON } = render(<WorkoutPlanCard plan={plan()} />);
+
+    const card = getByTestId('workout-plan-card');
+    expect(card.props.className).toContain('border-border-faint');
+    expect(card.props.style).toBeUndefined();
+
+    const json = JSON.stringify(toJSON());
+    expect(json).not.toContain('surfaceContainerHigh');
+    expect(json).not.toContain('borderTopWidth');
+    expect(json).not.toContain('borderBottomWidth');
+    const hairlines = json.match(/border-b border-border-faint/g) ?? [];
+    expect(hairlines).toHaveLength(1);
   });
 
   it('never leaks a field name to the screen', () => {

@@ -26,4 +26,4 @@ appId: ai.dravr.app
     visible:
       id: "conversations-screen"
     timeout: 5000
-- assertVisible: "Chats"
+- assertVisible: "Chats|Discussions"

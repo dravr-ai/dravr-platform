@@ -118,7 +118,6 @@ describe('the unified conversation list and its read marker', () => {
     const { findByTestId, getByTestId } = renderShell();
 
     expect(await findByTestId('conversation-row-conv-telegram')).toBeTruthy();
-    expect(getByTestId('conversation-channel-badge-conv-telegram')).toHaveTextContent('Telegram');
     expect(getByTestId('conversation-handle-conv-coach')).toHaveTextContent('@coach-tempo');
     expect(getByTestId('conversation-kind-conv-group').props.accessibilityLabel).toBe('Group chat');
     expect(getByTestId('conversation-preview-conv-group')).toHaveTextContent('Coach Tempo: Bloc 3 starts Monday');

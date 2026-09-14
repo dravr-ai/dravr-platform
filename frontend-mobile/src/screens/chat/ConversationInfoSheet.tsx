@@ -5,11 +5,11 @@
 // ABOUTME: One host for the three shapes a thread can have, so tapping the title always opens the same place
 
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { deriveKind } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
-import { DragIndicator } from '../../components/ui';
+import { Sheet } from '../../components/ui';
 import type { Conversation } from '../../types';
 import { GroupInfoSheet } from '../groups/GroupInfoSheet';
 import { CoachInfoSheet } from './CoachInfoSheet';
@@ -53,76 +53,66 @@ export function ConversationInfoSheet({
   const kind = deriveKind(conversation);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <TouchableOpacity
-        className="flex-1 justify-end bg-scrim/60"
-        activeOpacity={1}
-        onPress={onClose}
-        testID="conversation-info-backdrop"
-      >
-        <View
-          className="rounded-t-2xl px-4 pt-3 pb-8 max-h-[85%]"
-          style={{ backgroundColor: colors.background.secondary }}
-          onStartShouldSetResponder={() => true}
-          testID="conversation-info-sheet"
-        >
-          <DragIndicator />
-          <View className="flex-row items-center justify-end mb-1">
-            <TouchableOpacity onPress={onClose} accessibilityLabel={t('common.close')} testID="conversation-info-close">
-              <Feather name="x" size={22} color={colors.text.secondary} />
-            </TouchableOpacity>
-          </View>
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      testID="conversation-info-sheet"
+      backdropTestID="conversation-info-backdrop"
+    >
+      <View className="flex-row items-center justify-end mb-1">
+        <TouchableOpacity onPress={onClose} accessibilityLabel={t('common.close')} testID="conversation-info-close">
+          <Feather name="x" size={22} color={colors.text.secondary} />
+        </TouchableOpacity>
+      </View>
 
-          {kind === 'group' && conversation.group_id ? (
-            <GroupInfoSheet
-              groupId={conversation.group_id}
-              fallbackName={conversation.group_name ?? conversation.title ?? null}
-              onClose={onClose}
-              onLeft={onLeaveThread}
-            />
-          ) : conversation.agent_id ? (
-            <CoachInfoSheet
-              agentId={conversation.agent_id}
-              fallbackTitle={conversation.agent_title ?? null}
-              onSendCommand={onSendCommand}
-              onClose={onClose}
-            />
-          ) : (
-            <View testID="conversation-info-plain">
-              <Text className="text-lg font-bold text-text-primary" testID="conversation-info-title">
-                {conversation.title || t('app.untitledChat')}
-              </Text>
-              <TouchableOpacity
-                className="flex-row items-center py-3 mt-2"
-                onPress={onRename}
-                accessibilityRole="button"
-                testID="conversation-info-rename"
-              >
-                <Feather name="edit-2" size={18} color={colors.text.primary} />
-                <Text className="text-base text-text-primary ml-3">{t('app.convMenuRename')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="flex-row items-center py-3"
-                onPress={onParticipants}
-                accessibilityRole="button"
-                testID="conversation-info-participants"
-              >
-                <Feather name="users" size={18} color={colors.text.primary} />
-                <Text className="text-base text-text-primary ml-3">{t('app.participants')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="flex-row items-center py-3"
-                onPress={onDelete}
-                accessibilityRole="button"
-                testID="conversation-info-delete"
-              >
-                <Feather name="trash-2" size={18} color={colors.error} />
-                <Text className="text-base text-error ml-3">{t('common.delete')}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+      {kind === 'group' && conversation.group_id ? (
+        <GroupInfoSheet
+          groupId={conversation.group_id}
+          fallbackName={conversation.group_name ?? conversation.title ?? null}
+          onClose={onClose}
+          onLeft={onLeaveThread}
+        />
+      ) : conversation.agent_id ? (
+        <CoachInfoSheet
+          agentId={conversation.agent_id}
+          fallbackTitle={conversation.agent_title ?? null}
+          onSendCommand={onSendCommand}
+          onClose={onClose}
+        />
+      ) : (
+        <View testID="conversation-info-plain">
+          <Text className="text-lg font-bold text-text-primary" testID="conversation-info-title">
+            {conversation.title || t('app.untitledChat')}
+          </Text>
+          <TouchableOpacity
+            className="flex-row items-center py-3 mt-2"
+            onPress={onRename}
+            accessibilityRole="button"
+            testID="conversation-info-rename"
+          >
+            <Feather name="edit-2" size={18} color={colors.text.primary} />
+            <Text className="text-base text-text-primary ml-3">{t('app.convMenuRename')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-row items-center py-3"
+            onPress={onParticipants}
+            accessibilityRole="button"
+            testID="conversation-info-participants"
+          >
+            <Feather name="users" size={18} color={colors.text.primary} />
+            <Text className="text-base text-text-primary ml-3">{t('app.participants')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="flex-row items-center py-3"
+            onPress={onDelete}
+            accessibilityRole="button"
+            testID="conversation-info-delete"
+          >
+            <Feather name="trash-2" size={18} color={colors.error} />
+            <Text className="text-base text-error ml-3">{t('common.delete')}</Text>
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
-    </Modal>
+      )}
+    </Sheet>
   );
 }

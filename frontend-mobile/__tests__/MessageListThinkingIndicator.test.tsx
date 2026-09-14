@@ -5,8 +5,8 @@
 // ABOUTME: A full-width slab of nothing with three frozen dots reads as a broken bubble, not as typing
 
 import React from 'react';
-import { Animated, StyleSheet } from 'react-native';
-import { act, render } from '@testing-library/react-native';
+import { Animated, Image, StyleSheet } from 'react-native';
+import { act, render, within } from '@testing-library/react-native';
 
 import { MessageList, typingDotAnimation } from '../src/screens/chat/MessageList';
 import type { Message } from '../src/types';
@@ -24,7 +24,6 @@ const message: Message = {
 function renderSending() {
   return render(
     <MessageList
-      bottomInset={0}
       messages={[message]}
       isLoading={false}
       isSending
@@ -64,6 +63,18 @@ describe('MessageList typing indicator', () => {
     // And it is not a bubble capped at 85% of the screen any more: nothing
     // caps it, because nothing stretches it.
     expect(style.maxWidth).toBeUndefined();
+  });
+
+  it('is the three dots alone, with no mark beside them', () => {
+    const { getByTestId } = renderSending();
+
+    const indicator = within(getByTestId('thinking-indicator'));
+    // The app icon used to sit in a circle beside the dots; the header already
+    // names who is typing, so the row is only the dots.
+    expect(indicator.UNSAFE_queryByType(Image)).toBeNull();
+    for (let i = 0; i < 3; i += 1) {
+      expect(indicator.getByTestId(`typing-dot-${i}`)).toBeTruthy();
+    }
   });
 
   it('gives each dot a different opacity, so the three read as a wave', () => {

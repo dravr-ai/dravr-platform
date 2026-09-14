@@ -34,7 +34,6 @@ function renderList(props: {
 }) {
   return render(
     <MessageList
-      bottomInset={0}
       messages={[props.message]}
       isLoading={false}
       isSending={false}

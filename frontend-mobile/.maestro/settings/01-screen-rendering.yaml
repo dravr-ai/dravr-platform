@@ -23,4 +23,4 @@ appId: ai.dravr.app
     id: "settings-profile-section"
 
 # Test: should show Edit Profile button
-- assertVisible: "Edit Profile"
+- assertVisible: "Edit Profile|Modifier le profil"

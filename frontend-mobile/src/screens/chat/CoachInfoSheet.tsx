@@ -61,7 +61,7 @@ export function CoachInfoSheet({ agentId, fallbackTitle, onSendCommand, onClose 
         </Text>
       )}
 
-      {isLoading && <ActivityIndicator className="mt-3" size="small" color={colors.pierre.violet} />}
+      {isLoading && <ActivityIndicator className="mt-3" size="small" color={colors.tokens.primary} />}
 
       {coach?.description && (
         <Text className="text-sm text-text-secondary leading-5 mt-3" testID="coach-info-description">

@@ -216,9 +216,12 @@ describe('client locale corpus', () => {
     // `app.scanQrOtherDevice` and `app.tapBelowToConnect` became whole
     // sentences under names that say so, +0; `app.connectChannelTitle`
     // replaces the `Connect ${displayName}` template literal that was English
-    // in all five locales at three call sites, +1. Net -5.
+    // in all five locales at three call sites, +1. Net -5. Then 2365: the
+    // phone's composer lost its `/` button (Boreal v2.2 Phase 3, the left slot
+    // stays empty), and `app.composerCommandsAria`, the button's only string,
+    // went with it, -1.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2366);
+    expect(reference).toHaveLength(2365);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

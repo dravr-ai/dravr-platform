@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the mobile slash-command palette over the composer, including its keyboard
-// ABOUTME: Asserts the "/" button and key open it, arrows move the highlight, Enter takes it and Escape dismisses
+// ABOUTME: Asserts a typed "/" opens it, arrows move the highlight, Enter takes it and Escape dismisses
 
 import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -53,9 +53,6 @@ function Composer() {
   const inputRef = React.useRef(null);
   return (
     <ChatInputBar
-      restingOffset={68}
-      keyboardHeight={0}
-      keyboardDuration={250}
       inputText={inputText}
       partialTranscript=""
       isListening={false}
@@ -156,15 +153,17 @@ describe('slash-command palette (mobile composer)', () => {
     expect(listCommands).not.toHaveBeenCalled();
   });
 
-  // The visible affordance: new athletes do not know "/" exists until
-  // something tells them, which is why Telegram gives its bots a menu button.
-  it('the "/" button opens the palette', async () => {
+  // The bar's leading slot is empty (Boreal v2.2 P3.3): the way in is the
+  // typed "/", and the empty thread's hint sentence is what tells a new
+  // athlete so. Turns red if the palette needs a button to open.
+  it('typing "/" opens the palette', async () => {
     renderComposer();
 
-    fireEvent.press(screen.getByTestId('slash-command-button'));
+    fireEvent.changeText(screen.getByTestId('message-input'), '/');
 
     await waitFor(() => expect(screen.getByTestId('command-palette')).toBeTruthy());
     expect(screen.getByTestId('message-input').props.value).toBe('/');
+    expect(screen.queryByTestId('slash-command-button')).toBeNull();
   });
 
   it('walks the list with the arrows and takes the highlighted row on Enter', async () => {

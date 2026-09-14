@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One row of the unified conversation list — avatar, kind glyph, title, preview, time, unread and mention badges
+// ABOUTME: One row of the unified conversation list — avatar, kind glyph, title, preview, time and the one count capsule
 // ABOUTME: Swipe right reveals Mark unread and swipe left reveals Delete; long-press hands the row to the host's menu
 
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import type { ConversationKind, ConversationRowModel } from '@pierre/chat-utils';
@@ -20,7 +20,8 @@ type FeatherIconName = ComponentProps<typeof Feather>['name'];
 /**
  * The glyph before the title of a row that is not a 1:1 thread, with the
  * label a screen reader announces in its place — the glyph is the only thing
- * on the row that says "group" or "from a messaging channel".
+ * on the row that says "group" or "from a messaging channel". The channel's
+ * name itself lives in the thread's info sheet, not on the row.
  */
 const KIND_GLYPH: Partial<Record<ConversationKind, { icon: FeatherIconName; labelKey: string }>> = {
   group: { icon: 'users', labelKey: 'app.rowKindGroup' },
@@ -41,9 +42,18 @@ export function previewMentionsSomeone(preview: string): boolean {
   return MENTION_TOKEN.test(preview);
 }
 
-/** What the badge prints for a count; three digits is where it stops growing. */
+/** What the capsule prints for a count; three digits is where it stops growing. */
 function badgeLabel(count: number): string {
   return count > 99 ? '99+' : String(count);
+}
+
+/**
+ * The capsule's text: the count alone, or the `@` prefixed to it when the
+ * unread line is a mention (`@ 3`). A mention is badged only while unread,
+ * so the capsule always has a count to show. One capsule carries both readings.
+ */
+function capsuleLabel(count: number, mentioned: boolean): string {
+  return mentioned ? `${MENTION_PREFIX} ${badgeLabel(count)}` : badgeLabel(count);
 }
 
 export interface ConversationRowProps {
@@ -55,10 +65,14 @@ export interface ConversationRowProps {
 }
 
 /**
- * The Telegram-shaped row: a 40 pt initials avatar, the kind glyph for a
- * group or a channel thread, the title in bold while something is unread,
- * the coach's `@handle`, the one-line preview, the relative time on the
- * right, the unread count, and the `@` badge when that unread is a mention.
+ * The Telegram-shaped row: a 48 pt initials avatar, the kind glyph for a
+ * group or a channel thread, the title at 600 while something is unread and
+ * 500 once read, the coach's `@handle`, the one-line preview, the relative
+ * time on the right, and one count capsule that takes the `@` when that
+ * unread is a mention.
+ *
+ * The hairline sits on the text column, not the touchable, so the divider
+ * is inset to the text and the avatars stand in an unbroken column.
  */
 export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDelete }: ConversationRowProps) {
   const { t } = useTranslation();
@@ -89,7 +103,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
   return (
     <SwipeableRow leftActions={leftActions} rightActions={rightActions} testID={`swipeable-conversation-${row.id}`}>
       <TouchableOpacity
-        className="flex-row items-center px-4 py-3 border-b border-border-faint bg-background-primary"
+        className="flex-row items-center min-h-[72px] px-4 bg-background-primary"
         onPress={() => onPress(row)}
         onLongPress={() => onLongPress(row)}
         delayLongPress={300}
@@ -97,9 +111,17 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
         accessibilityLabel={unread ? t('app.openRowUnread', { title: row.title, count: row.unreadCount }) : t('app.openRow', { title: row.title })}
         testID={`conversation-row-${row.id}`}
       >
-        <InitialsAvatar initials={row.initials} slot={row.avatarSlot} testID={`conversation-avatar-${row.id}`} />
+        <InitialsAvatar initials={row.initials} slot={row.avatarSlot} size={48} testID={`conversation-avatar-${row.id}`} />
 
-        <View className="flex-1 ml-3">
+        {/*
+          The column stretches to the row's height so its bottom hairline is
+          the row's divider; `border-b` alone draws a full point, and the
+          system's hairline is `StyleSheet.hairlineWidth` (DESIGN.md §10).
+        */}
+        <View
+          className="flex-1 ml-3 self-stretch justify-center border-b border-border-faint"
+          style={{ borderBottomWidth: StyleSheet.hairlineWidth }}
+        >
           <View className="flex-row items-center">
             {glyph && (
               <Feather
@@ -112,7 +134,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
               />
             )}
             <Text
-              className={`flex-shrink text-base text-text-primary ${unread ? 'font-bold' : 'font-medium'}`}
+              className={`flex-shrink text-base text-text-primary ${unread ? 'font-semibold' : 'font-medium'}`}
               numberOfLines={1}
               testID={`conversation-title-${row.id}`}
             >
@@ -120,7 +142,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
             </Text>
             {row.agentHandle && (
               <Text
-                className="text-xs text-text-tertiary ml-1.5 flex-shrink"
+                className="text-sm text-text-tertiary ml-1.5 flex-shrink"
                 numberOfLines={1}
                 testID={`conversation-handle-${row.id}`}
               >
@@ -128,7 +150,7 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
               </Text>
             )}
             <Text
-              className={`text-xs font-mono tabular-nums ml-2 ${unread ? 'text-primary font-semibold' : 'text-text-tertiary'}`}
+              className={`text-sm font-mono tabular-nums ml-2 ${unread ? 'text-primary' : 'text-text-tertiary'}`}
               style={{ marginLeft: 'auto' }}
               testID={`conversation-time-${row.id}`}
             >
@@ -137,53 +159,32 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
           </View>
 
           <View className="flex-row items-center mt-0.5">
-            {row.channel && (
-              <View
-                className="flex-row items-center rounded-full px-1.5 py-0.5 mr-1.5"
-                style={{ backgroundColor: `${colors.pierre.violet}26` }}
-                accessibilityLabel={t('app.fromChannel', { channel: row.channel.label })}
-                testID={`conversation-channel-badge-${row.id}`}
-              >
-                <Text className="text-xs font-medium" style={{ color: colors.pierre.violet }}>
-                  {row.channel.label}
-                </Text>
-              </View>
-            )}
             <Text
-              className={`flex-1 text-sm ${unread ? 'text-text-primary' : 'text-text-tertiary'}`}
+              className="flex-1 text-md text-text-secondary"
               numberOfLines={1}
               testID={`conversation-preview-${row.id}`}
             >
               {row.preview}
             </Text>
             {/*
-              The mention marker rides an amber tint and draws its `@` in the
-              ink bound to that hue, the same pair the channel badge above uses.
-              The amber is what separates it from the primary unread pill it
-              always sits beside — a mention is only ever badged while unread,
-              so the two circles are on the row together and read as two things.
+              The one mark on the row. A mention is only ever badged while
+              unread, so the `@` rides the same capsule as the count rather
+              than a second circle beside it; the inner text carries the
+              mention id then, and the plain count id otherwise.
             */}
-            {mentioned && (
-              <View
-                className="w-[18px] h-[18px] rounded-full items-center justify-center ml-2"
-                style={{ backgroundColor: `${colors.pierre.nutrition}26` }}
-                accessibilityLabel={t('app.rowMentionsYou')}
-                testID={`conversation-mention-${row.id}`}
-              >
-                <Text className="text-xs font-bold" style={{ color: colors.ink.nutrition }}>
-                  {MENTION_PREFIX}
-                </Text>
-              </View>
-            )}
             {unread && (
               <View
-                className="min-w-[18px] h-[18px] rounded-full items-center justify-center px-1 ml-2"
+                className="h-[22px] min-w-[22px] rounded-full px-2 items-center justify-center ml-2"
                 style={{ backgroundColor: colors.tokens.primary }}
-                accessibilityLabel={`${row.unreadCount} unread`}
+                accessibilityLabel={mentioned ? t('app.rowMentionsYou') : `${row.unreadCount} unread`}
                 testID={`conversation-unread-${row.id}`}
               >
-                <Text className="text-xs font-bold font-mono tabular-nums" style={{ color: colors.tokens.onPrimary }}>
-                  {badgeLabel(row.unreadCount)}
+                <Text
+                  className="text-sm font-semibold font-mono tabular-nums"
+                  style={{ color: colors.tokens.onPrimary }}
+                  testID={mentioned ? `conversation-mention-${row.id}` : `conversation-unread-text-${row.id}`}
+                >
+                  {capsuleLabel(row.unreadCount, mentioned)}
                 </Text>
               </View>
             )}

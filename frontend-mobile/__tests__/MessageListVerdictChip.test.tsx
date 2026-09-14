@@ -67,7 +67,6 @@ function renderList(props: {
 }) {
   return render(
     <MessageList
-      bottomInset={0}
       messages={[assistantMessage]}
       isLoading={false}
       isSending={false}

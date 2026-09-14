@@ -1,4 +1,4 @@
-# ABOUTME: The unified conversation list — one flat row per thread, search, and the "+" empty state
+# ABOUTME: The unified conversation list — one flat row per thread, search, and the one-sentence empty state
 # ABOUTME: Replaces the grouped list retired in b460057d3 — no per-persona headers, no bucket, one row each
 
 appId: ai.dravr.app
@@ -43,8 +43,19 @@ appId: ai.dravr.app
       id: "conversations-empty"
     timeout: 5000
 
-# Clearing the search brings the list back.
+# Clearing the search brings the list back. `hideKeyboard` fails in Expo Go v55
+# (see helpers/login.yaml), so the keyboard goes the way the platform closes a
+# native search: iOS through the bar's own Cancel, Android through hardware back.
 - eraseText
-- hideKeyboard
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Cancel"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
 - assertVisible:
     id: "conversations-list"

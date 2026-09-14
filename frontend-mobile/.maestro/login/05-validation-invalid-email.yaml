@@ -26,4 +26,4 @@ appId: ai.dravr.app
 - pressKey: Enter
 
 # Verify validation error is shown
-- assertVisible: "Please enter a valid email"
+- assertVisible: "(?i)Enter a valid email address|Saisis une adresse e-mail valide"

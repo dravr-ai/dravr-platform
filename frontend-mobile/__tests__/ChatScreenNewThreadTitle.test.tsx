@@ -5,9 +5,13 @@
 // ABOUTME: The thread is named for the moment it starts, not for whatever was typed into it
 
 import React from 'react';
+import { KeyboardAvoidingView } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+// The native header's height feeds the keyboard-avoiding column; there is no
+// navigator under a unit test, so the header is as tall as nothing.
+jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
 jest.mock('@expo/vector-icons', () => {
   const View = require('react-native').View;
   const glyph = (props: Record<string, unknown>) =>
@@ -132,11 +136,15 @@ describe('ChatScreen new-thread title', () => {
     // The header's unread badge is a real query; give it a client rather than
     // mocking the bell away, so the screen renders the way it ships.
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { getByTestId } = render(
+    const { getByTestId, UNSAFE_getByType } = render(
       <QueryClientProvider client={client}>
         <ChatScreen />
       </QueryClientProvider>,
     );
+
+    // The composer is in the layout, so the keyboard shortens the column
+    // through this view rather than lifting an overlay (Boreal v2.2 P3.4).
+    expect(UNSAFE_getByType(KeyboardAvoidingView)).toBeTruthy();
 
     fireEvent.changeText(
       getByTestId('message-input'),

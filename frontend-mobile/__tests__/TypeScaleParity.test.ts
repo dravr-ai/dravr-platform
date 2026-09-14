@@ -40,6 +40,7 @@ describe('the platform ladder in the system face (D4)', () => {
   it.each([
     ['xs', 12, 16],
     ['sm', 13, 18],
+    ['md', 15, 20],
     ['base', 16, 22],
     ['lg', 17, 22],
     ['xl', 20, 25],
@@ -55,7 +56,7 @@ describe('the platform ladder in the system face (D4)', () => {
     const sizes = Object.values(ladder).map(([size]) => px(size));
     expect(Math.min(...sizes)).toBe(12);
     expect(Math.max(...sizes)).toBe(26);
-    expect(Object.keys(ladder)).toEqual(['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl']);
+    expect(Object.keys(ladder)).toEqual(['xs', 'sm', 'md', 'base', 'lg', 'xl', '2xl', '3xl']);
   });
 
   it('loads two faces beside the system one: the display face and the mono', () => {

@@ -64,7 +64,15 @@ appId: ai.dravr.app
     visible: "Test message"
     timeout: 30000
 
-# Now create new chat via the floating tab bar
+# A second chat starts from the list: the thread header carries no "+" (the
+# floating tab bar that used to offer one is gone with the Boreal v2.2 shell),
+# so leave the thread through the native back chevron first.
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 10000
 - runFlow:
     file: ../helpers/new-chat.yaml
 

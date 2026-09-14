@@ -8,6 +8,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   ScrollView,
   Platform,
@@ -42,6 +43,7 @@ import {
 import type { RenderBlock } from '@pierre/scene-types';
 import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
 import DaySeparator from './DaySeparator';
+import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
@@ -50,12 +52,12 @@ import { useTranslation } from '@pierre/i18n';
 export type ThemeColors = ReturnType<typeof useThemeColors>;
 
 /**
- * One entry of the rendered thread: a message, or the day pill above the first
+ * One entry of the rendered thread: a message, or the day label above the first
  * message of a day.
  *
  * The list draws a projection of the transcript rather than the transcript
  * itself, because a separator is a row of the list like any other — FlashList
- * recycles by `getItemType`, so a pill and a bubble never reuse each other's
+ * recycles by `getItemType`, so a label and a bubble never reuse each other's
  * view. `groupStart` is the same decision the web thread makes: the first row
  * of a run of one author's messages carries the larger gap above it.
  */
@@ -116,7 +118,7 @@ function FeedbackReasonInput({
         style={{ backgroundColor: colors.background.elevated }}
         onPress={submit}
       >
-        <Text className="text-xs" style={{ color: colors.pierre.violet }}>
+        <Text className="text-xs" style={{ color: colors.tokens.primary }}>
           {saved ? t('app.blockSaved') : t('app.blockSend')}
         </Text>
       </TouchableOpacity>
@@ -426,19 +428,7 @@ interface MessageListProps {
    * which case the host fetches them.
    */
   onShowVerdict?: (rows: ClaimVerdict[], messageId: string) => void;
-  /**
-   * Space to keep clear at the bottom: whichever is taller, the resting
-   * composer or the open keyboard. Was a hardcoded 140, which was only ever
-   * right with the keyboard closed on a home-indicator phone.
-   */
-  bottomInset: number;
 }
-
-/**
- * The composer pill's own height plus the vertical padding around it. The list
- * has to clear the composer as well as whatever the composer is sitting on.
- */
-const COMPOSER_CLEARANCE = 64;
 
 export function MessageList({
   messages,
@@ -458,7 +448,6 @@ export function MessageList({
   onReconnectProvider,
   onActionClick,
   onShowVerdict,
-  bottomInset,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -674,7 +663,7 @@ export function MessageList({
              A FILLED primary is not the alternative — that reads as a call to
              action, not as a message. */
           <View
-            className="max-w-[85%] rounded-2xl rounded-br-[4px] px-4 py-3"
+            className="max-w-[85%] rounded-[18px] rounded-br-[4px] px-3 py-2"
             style={{ backgroundColor: colors.tokens.primaryContainer }}
           >
             {blocks.map((block, index) => renderBlock(block, index, context))}
@@ -688,64 +677,58 @@ export function MessageList({
               </Text>
             ) : null}
           </View>
-        ) : (
-          /* Assistant message — full-width, no bubble, like Claude */
-          <View
-            className={`w-full ${isError ? 'bg-error/10 rounded-xl p-3 border border-error/30' : ''}`}
-          >
-            {blocks.map((block, index) => renderBlock(block, index, context))}
-          </View>
-        )}
-        {!isUser && (
-          <View className="flex-row mt-1 gap-4">
-            {isError ? (
-              <TouchableOpacity
-                className="flex-row items-center bg-background-tertiary px-2 py-1 rounded gap-1"
+        ) : isError ? (
+          /* A failed turn — the message and its retry on one line. The clock
+             belongs to the row, not to what it offers: an error row still says
+             when it arrived. */
+          <View className="w-full">
+            <View className="flex-row flex-wrap items-center gap-2">
+              <Text className="text-sm text-error flex-shrink">{item.content}</Text>
+              <Text
+                testID="message-retry"
+                accessibilityRole="button"
+                className="text-sm text-primary font-medium"
                 onPress={() => onRetryMessage(item.id)}
               >
-                <Ionicons name="refresh-outline" size={14} color={colors.text.primary} />
-                <Text className="text-xs text-text-primary font-medium">{t('common.retry')}</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity className="p-0.5" onPress={() => handleCopyMessage(readableCopy)}>
-                  <Ionicons name="copy-outline" size={14} color={colors.text.tertiary} />
-                </TouchableOpacity>
-                <TouchableOpacity className="p-0.5" onPress={() => handleShareMessage(readableCopy)}>
-                  <Ionicons name="arrow-redo-outline" size={14} color={colors.text.tertiary} />
-                </TouchableOpacity>
-                <TouchableOpacity className="p-0.5" onPress={() => onThumbsUp(item.id)}>
-                  <Ionicons
-                    name={messageFeedback[item.id] === 'up' ? 'thumbs-up' : 'thumbs-up-outline'}
-                    size={14}
-                    color={messageFeedback[item.id] === 'up' ? colors.pierre.violet : colors.text.tertiary}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity className="p-0.5" onPress={() => onThumbsDown(item.id)}>
-                  <Ionicons
-                    name={messageFeedback[item.id] === 'down' ? 'thumbs-down' : 'thumbs-down-outline'}
-                    size={14}
-                    color={messageFeedback[item.id] === 'down' ? colors.error : colors.text.tertiary}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity className="p-0.5" onPress={() => onRetryMessage(item.id)}>
-                  <Ionicons name="refresh-outline" size={14} color={colors.text.tertiary} />
-                </TouchableOpacity>
-                {item.model && (
-                  <Text className="text-xs text-text-tertiary ml-2">
-                    {item.model}{item.execution_time_ms ? ` · ${(item.execution_time_ms / 1000).toFixed(1)}s` : ''}
-                  </Text>
-                )}
-              </>
-            )}
-            {/* The clock belongs to the row, not to what it offers: an error
-                row shows Retry and still says when it arrived. */}
+                {t('common.retry')}
+              </Text>
+            </View>
             {clock ? (
-              <Text className="text-xs text-text-tertiary ml-auto" testID="message-time">
+              <Text className="text-xs text-text-tertiary mt-1" testID="message-time">
                 {clock}
               </Text>
             ) : null}
           </View>
+        ) : (
+          /* The coach's turn — full width, no bubble, prose then the clock.
+             Copy, share, the two ratings and retry live behind a long press,
+             presented by the platform's own menu; nothing but the time sits
+             under the prose. */
+          <Pressable
+            testID={`message-turn-${item.id}`}
+            className="w-full"
+            delayLongPress={300}
+            onLongPress={() =>
+              presentMessageMenu(
+                {
+                  canRetry: true,
+                  rating: messageFeedback[item.id] ?? null,
+                  onCopy: () => handleCopyMessage(readableCopy),
+                  onShare: () => handleShareMessage(readableCopy),
+                  onRate: (rating) => (rating === 'up' ? onThumbsUp(item.id) : onThumbsDown(item.id)),
+                  onRetry: () => onRetryMessage(item.id),
+                },
+                t,
+              )
+            }
+          >
+            {blocks.map((block, index) => renderBlock(block, index, context))}
+            {clock ? (
+              <Text className="text-xs text-text-tertiary mt-1" testID="message-time">
+                {clock}
+              </Text>
+            ) : null}
+          </Pressable>
         )}
         {/* Optional thumbs-down reason — the down rating is already saved; this
             adds/updates the free-text comment on the same feedback row. */}
@@ -761,7 +744,7 @@ export function MessageList({
   };
 
   /**
-   * The transcript as rows: a day pill wherever the local date changes, and a
+   * The transcript as rows: a day label wherever the local date changes, and a
    * run boundary wherever the author or the five-minute window does.
    *
    * Tool plumbing is dropped here rather than inside the renderer, so a
@@ -811,11 +794,12 @@ export function MessageList({
   /**
    * The coach is composing.
    *
-   * The mark and three breathing dots, hugging their own content: `alignSelf`
-   * is what sizes this row, since a plain parent stretches its child across
-   * the full width and a message-shaped slab holding 70pt of content reads as
-   * a broken bubble rather than as "typing". No bubble chrome for the same
-   * reason — there is no message here yet to put in one.
+   * Three breathing dots, hugging their own content: `alignSelf` is what
+   * sizes this row, since a plain parent stretches its child across the full
+   * width and a message-shaped slab holding 70pt of content reads as a broken
+   * bubble rather than as "typing". No bubble chrome and no mark for the same
+   * reason — there is no message here yet to put in one, and the header
+   * already names who is typing.
    */
   const renderThinkingIndicator = () => (
     <View
@@ -823,13 +807,6 @@ export function MessageList({
       style={{ alignSelf: 'flex-start' }}
       testID="thinking-indicator"
     >
-      <View className="w-8 h-8 rounded-full mr-3 overflow-hidden">
-        <Image
-          source={require('../../../assets/icon.png')}
-          className="w-8 h-8"
-          resizeMode="cover"
-        />
-      </View>
       <View className="flex-row items-center gap-1">
         {Array.from({ length: TYPING_DOT_COUNT }, (_, index) => (
           <TypingDot key={index} index={index} />
@@ -853,7 +830,7 @@ export function MessageList({
         alignItems: 'center',
         justifyContent: 'center',
         paddingHorizontal: spacing.lg,
-        paddingBottom: 140,
+        paddingBottom: spacing.lg,
       }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
@@ -887,17 +864,11 @@ export function MessageList({
         data={rows}
         renderItem={renderRow}
         keyExtractor={(item) => item.key}
-        // A pill and a bubble are different shapes; recycling one as the other
+        // A label and a bubble are different shapes; recycling one as the other
         // is what makes a separator flicker into a message on fast scroll.
         getItemType={(item) => item.kind}
 
-        contentContainerStyle={{
-          paddingHorizontal: spacing.md,
-          paddingVertical: spacing.md,
-          // COMPOSER_CLEARANCE is the pill's own height plus its padding; the
-          // inset above it is the resting bar or the raised keyboard.
-          paddingBottom: bottomInset + COMPOSER_CLEARANCE,
-        }}
+        contentContainerStyle={{ padding: spacing.md }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={onScrollToBottom}
         ListFooterComponent={isSending ? renderThinkingIndicator : null}

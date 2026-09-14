@@ -5,9 +5,24 @@
 // ABOUTME: The ask action hands back the exact row pressed, so the composer quotes the right claim
 
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VerdictSheet, type VerdictSheetProps } from '../src/screens/chat/VerdictSheet';
+
+type ClassNamed = { props: { className?: string }; children?: unknown };
+
+/** Every className in a rendered subtree, host views included. */
+function classNames(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const found: string[] = [];
+  const el = node as ClassNamed;
+  if (el.props && typeof el.props.className === 'string') found.push(el.props.className);
+  const children = Array.isArray(node) ? node : el.children;
+  if (Array.isArray(children)) {
+    for (const child of children) found.push(...classNames(child));
+  }
+  return found;
+}
 
 function row(overrides: Partial<ClaimVerdict> & { id: string }): ClaimVerdict {
   return {
@@ -71,8 +86,8 @@ describe('VerdictSheet', () => {
 
     expect(getByText('About this claim')).toBeTruthy();
     expect(getByText('contradicted')).toBeTruthy();
-    expect(getByText('evidence: none')).toBeTruthy();
-    expect(getByText('confidence: 91%')).toBeTruthy();
+    // Evidence and confidence share one tertiary line.
+    expect(getByText(/evidence: none.*confidence: 91%/)).toBeTruthy();
     expect(getByText('What the detector found')).toBeTruthy();
     expect(getByText(FIRST.explanation as string)).toBeTruthy();
     expect(getByText('Evidence references')).toBeTruthy();
@@ -111,5 +126,30 @@ describe('VerdictSheet', () => {
     fireEvent.press(getByTestId('verdict-sheet-close'));
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes from a press on the scrim', () => {
+    const { getByTestId, onClose } = renderSheet({ verdicts: [FIRST] });
+
+    fireEvent.press(getByTestId('verdict-sheet-backdrop'));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Boreal v2.2 P3.6: a verdict is a section, not a stack of pills — no
+  // rounded-full anywhere inside it, and the ask action is an inline link.
+  it('draws no pill inside a verdict and no filled button under it', () => {
+    const { getByTestId, UNSAFE_getAllByProps } = renderSheet({ verdicts: [FIRST] });
+
+    const card = getByTestId('verdict-card');
+    const inside = classNames(card.children);
+    expect(inside.length).toBeGreaterThan(0);
+    expect(inside.some((c) => /\brounded-full\b/.test(c))).toBe(false);
+    expect(within(card).getByText('contradicted').props.className).toContain('font-semibold');
+
+    const [ask] = UNSAFE_getAllByProps({ testID: 'verdict-ask' });
+    expect(ask.props.className).toContain('text-primary');
+    expect(ask.props.className).not.toContain('bg-primary');
+    expect(getByTestId('verdict-sheet').props.className).toContain('rounded-t-3xl');
   });
 });

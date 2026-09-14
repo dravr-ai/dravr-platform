@@ -33,6 +33,9 @@ const mockBlocks: ReplyBlock[] = [
   },
 ];
 
+// No navigator under a unit test, so the header the column offsets by is 0 tall.
+jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
+
 jest.mock('expo-web-browser', () => ({
   openAuthSessionAsync: jest.fn(() => Promise.resolve({ type: 'cancel' })),
   openBrowserAsync: jest.fn(() => Promise.resolve({ type: 'success' })),

@@ -1,28 +1,29 @@
 # ABOUTME: Helper flow to start a fresh chat conversation
-# ABOUTME: Opens the chat "+" menu — the header "+", or the empty list's own — and picks New chat in either app language
+# ABOUTME: Opens the chat "+" menu — the header "+", or the empty list's own link — and picks New chat in either app language
 
 appId: host.exp.Exponent
 
 ---
-# The header "+" and the empty list's "+" present the same menu. On a
-# non-empty list only the header one exists; on an empty list the mid-screen
-# one is preferred because Expo Go's floating dev-tools button sits over the
-# header's trailing buttons on the CI simulator. The header branch runs first
-# so the sheet the empty "+" opens never hides the condition of a later step.
+# The header "+" and the empty list's "Start a discussion" link present the
+# same menu. On a non-empty list only the header one exists; on an empty list
+# the mid-screen link is preferred because Expo Go's floating dev-tools button
+# sits over the header's trailing buttons on the CI simulator. The header
+# branch runs first so the sheet the empty link opens never hides the
+# condition of a later step.
 - runFlow:
     when:
       notVisible:
-        id: "conversations-empty-plus"
+        id: "conversations-empty-start"
     commands:
       - tapOn:
           id: "new-chat-button"
 - runFlow:
     when:
       visible:
-        id: "conversations-empty-plus"
+        id: "conversations-empty-start"
     commands:
       - tapOn:
-          id: "conversations-empty-plus"
+          id: "conversations-empty-start"
 
 # The platform menu (an action sheet on iOS, a dialog on Android — whose
 # buttons Material may print in capitals) offers the rows in the athlete's
