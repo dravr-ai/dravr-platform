@@ -1,25 +1,23 @@
-// ABOUTME: OAuth credentials management section for Settings screen
-// ABOUTME: Allows users to register custom OAuth app credentials for providers
+// ABOUTME: OAuth credentials section — the athlete's own OAuth app credentials per provider, as a Section with an Add action
+// ABOUTME: The add form is a centred dialog on the secondary ground, radius 12 and flat; the provider picker is its second view
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  Alert,
-  Modal,
-  ActivityIndicator,
-  FlatList,
-} from 'react-native';
-import { TouchableOpacity, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PROVIDER_COLORS, useThemeColors } from '../constants/theme';
-import { Card, Button, Input } from './ui';
+import { View, Text, Alert, Modal, ActivityIndicator, FlatList, Pressable } from 'react-native';
+import { useThemeColors } from '../constants/theme';
+import { Button, Input, Section } from './ui';
+import { ProviderGlyph } from './ProviderGlyph';
 import { userApi } from '../services/api';
-import type { OAuthApp, OAuthProvider } from '../types';
+import type { OAuthApp } from '../types';
 import { useTranslation } from '@pierre/i18n';
 
-const PROVIDERS: OAuthProvider[] = [
-  { id: 'whoop', name: 'WHOOP', color: PROVIDER_COLORS.whoop },
-];
+/** A provider an athlete can register their own OAuth app for. */
+interface ByoProvider {
+  id: string;
+  name: string;
+}
+
+// After the 2026-Q2 provider cleanup, BYO-OAuth-app is WHOOP-only.
+const PROVIDERS: ByoProvider[] = [{ id: 'whoop', name: 'WHOOP' }];
 
 const DEFAULT_REDIRECT_URI = 'https://pierre.fit/api/oauth/callback';
 
@@ -34,7 +32,7 @@ export function OAuthCredentialsSection() {
   const [modalView, setModalView] = useState<ModalView>('form');
 
   // Form state
-  const [selectedProvider, setSelectedProvider] = useState<OAuthProvider | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<ByoProvider | null>(null);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -68,12 +66,12 @@ export function OAuthCredentialsSection() {
     resetForm();
   };
 
-  const handleSelectProvider = (provider: OAuthProvider) => {
+  const handleSelectProvider = (provider: ByoProvider) => {
     setSelectedProvider(provider);
     setModalView('form');
   };
 
-  const getAvailableProviders = (): OAuthProvider[] => {
+  const getAvailableProviders = (): ByoProvider[] => {
     const configuredIds = oauthApps.map(app => app.provider.toLowerCase());
     return PROVIDERS.filter(p => !configuredIds.includes(p.id.toLowerCase()));
   };
@@ -133,11 +131,10 @@ export function OAuthCredentialsSection() {
     );
   };
 
-  const getProviderInfo = (providerId: string): OAuthProvider => {
+  const getProviderInfo = (providerId: string): ByoProvider => {
     return PROVIDERS.find(p => p.id.toLowerCase() === providerId.toLowerCase()) || {
       id: providerId,
       name: providerId.charAt(0).toUpperCase() + providerId.slice(1),
-      color: colors.tokens.outline,
     };
   };
 
@@ -149,197 +146,176 @@ export function OAuthCredentialsSection() {
   const availableProviders = getAvailableProviders();
 
   return (
-    <View className="mt-3">
-      <View className="flex-row justify-between items-center mb-1">
-        <Text className="text-lg font-semibold text-text-primary">{t('app.oauthCredentials')}</Text>
-        {availableProviders.length > 0 && (
-          <TouchableOpacity
-            className="px-3 py-2 min-h-11 justify-center"
+    <Section
+      title={t('app.oauthCredentials')}
+      description={t('app.oauthCredsBlurb')}
+      testID="oauth-credentials-section"
+      actions={
+        availableProviders.length > 0 ? (
+          <Text
+            className="text-sm font-medium text-primary py-2"
             onPress={() => setShowAddModal(true)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            activeOpacity={0.7}
+            accessibilityRole="button"
+            testID="oauth-credentials-add"
           >
-            <Text className="text-sm font-semibold text-primary">+ Add</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <Text className="text-sm text-text-secondary mb-3">
-        {t('app.oauthCredsBlurb')}
-      </Text>
-
-      <Card className="mb-3">
-        {isLoading ? (
-          <ActivityIndicator size="small" color={colors.tokens.primary} />
-        ) : oauthApps.length === 0 ? (
-          <Text className="text-sm text-text-secondary text-center py-3">
-            {t('app.noOauthCreds')}
+            {t('common.add')}
           </Text>
-        ) : (
-          oauthApps.map((app, index) => {
-            const providerInfo = getProviderInfo(app.provider);
-            return (
-              <View
-                key={app.provider}
-                className={`py-2 ${index > 0 ? 'border-t border-border-faint' : ''}`}
-              >
-                <View className="flex-row items-center mb-1">
-                  <View
-                    className="w-10 h-10 rounded-lg items-center justify-center mr-3"
-                    style={{ backgroundColor: providerInfo.color }}
-                  >
-                    <Text className="text-lg font-bold text-text-primary">
-                      {providerInfo.name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View className="flex-1">
-                    <View className="flex-row items-center mb-0.5">
-                      <Text className="text-base font-semibold text-text-primary mr-2">
-                        {providerInfo.name}
-                      </Text>
-                      <View className="bg-success/20 px-1 py-0.5 rounded">
-                        <Text className="text-xs text-success font-medium">{t('app.configured')}</Text>
-                      </View>
-                    </View>
-                    <Text className="text-sm text-text-tertiary font-mono">
-                      {t('app.clientIdColon')} {maskClientId(app.client_id)}
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity onPress={() => handleDelete(app.provider, providerInfo.name)}>
-                  <Text className="text-sm text-error font-medium">{t('app.remove')}</Text>
-                </TouchableOpacity>
+        ) : undefined
+      }
+    >
+      {/* The Section's content is full-bleed and these are plain lines and
+          custom rows, not settings `Row`s, so each pays the header's inset
+          itself to share its left edge. */}
+      {isLoading ? (
+        <ActivityIndicator size="small" color={colors.tokens.primary} />
+      ) : oauthApps.length === 0 ? (
+        <Text className="text-sm text-text-secondary px-4 py-3">{t('app.noOauthCreds')}</Text>
+      ) : (
+        oauthApps.map((app, index) => {
+          const providerInfo = getProviderInfo(app.provider);
+          return (
+            <View
+              key={app.provider}
+              className={`flex-row items-center min-h-[52px] px-4 py-2 ${index > 0 ? 'border-t border-border-faint' : ''}`}
+            >
+              <View className="w-6 items-center mr-3.5">
+                <ProviderGlyph providerId={app.provider} label={providerInfo.name} />
               </View>
-            );
-          })
-        )}
-      </Card>
+              <View className="flex-1 min-w-0">
+                <Text className="text-base text-text-primary">{providerInfo.name}</Text>
+                <Text className="text-sm text-text-tertiary font-mono" numberOfLines={1}>
+                  {t('app.clientIdColon')} {maskClientId(app.client_id)}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-2 ml-3">
+                <Text className="text-sm font-medium text-text-secondary">{t('app.configured')}</Text>
+                <Text
+                  className="text-md font-medium text-error"
+                  onPress={() => handleDelete(app.provider, providerInfo.name)}
+                  accessibilityRole="button"
+                >
+                  {t('app.remove')}
+                </Text>
+              </View>
+            </View>
+          );
+        })
+      )}
 
-      {/* Add Credentials Modal - single modal with view switching */}
+      {/* The add form: a centred dialog on the secondary ground, flat, with the
+          provider picker as its second view. A dialog rather than a sheet because
+          it already opens from inside one. */}
       <Modal
         visible={showAddModal}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={handleCloseModal}
       >
-        <GestureHandlerRootView className="flex-1">
-          <View className="flex-1 bg-scrim/60 justify-center px-4">
-            {modalView === 'form' ? (
-              <View className="bg-background-secondary rounded-xl p-4 max-h-[80%]">
-                <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
-                  {t('app.addOauthCredentials')}
-                </Text>
+        <View className="flex-1 bg-scrim/60 justify-center px-4">
+          {modalView === 'form' ? (
+            <View className="bg-background-secondary rounded-xl p-4 max-h-[80%]" testID="oauth-credentials-form">
+              <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
+                {t('app.addOauthCredentials')}
+              </Text>
 
-                {/* Provider Picker */}
-                <Text className="text-sm font-medium text-text-secondary mb-1">{t('app.provider')}</Text>
-                <TouchableOpacity
-                  className="flex-row items-center justify-between bg-background-tertiary rounded-lg p-3 mb-3 border border-border-faint"
-                  onPress={() => setModalView('providerPicker')}
-                  hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-                  activeOpacity={0.7}
-                >
-                  {selectedProvider ? (
-                    <View className="flex-row items-center">
-                      <View
-                        className="w-6 h-6 rounded items-center justify-center mr-2"
-                        style={{ backgroundColor: selectedProvider.color }}
-                      >
-                        <Text className="text-sm font-bold text-text-primary">
-                          {selectedProvider.name.charAt(0)}
-                        </Text>
-                      </View>
-                      <Text className="text-base text-text-primary">{selectedProvider.name}</Text>
-                    </View>
-                  ) : (
-                    <Text className="text-base text-text-tertiary">{t('app.selectProviderPlaceholder')}</Text>
-                  )}
-                  <Text className="text-lg text-text-tertiary">{'>'}</Text>
-                </TouchableOpacity>
+              {/* Provider Picker */}
+              <Text className="text-sm font-medium text-text-secondary mb-1">{t('app.provider')}</Text>
+              <Pressable
+                className="flex-row items-center justify-between py-3 mb-3 border-b border-border"
+                onPress={() => setModalView('providerPicker')}
+                accessibilityRole="button"
+                testID="oauth-credentials-provider-picker"
+              >
+                {selectedProvider ? (
+                  <View className="flex-row items-center gap-2">
+                    <ProviderGlyph providerId={selectedProvider.id} label={selectedProvider.name} size={20} />
+                    <Text className="text-base text-text-primary">{selectedProvider.name}</Text>
+                  </View>
+                ) : (
+                  <Text className="text-base text-text-tertiary">{t('app.selectProviderPlaceholder')}</Text>
+                )}
+                <Text className="text-lg text-text-tertiary">{'>'}</Text>
+              </Pressable>
 
-                <Input
-                  label={t('app.clientId')}
-                  placeholder={t('app.enterOauthClientId')}
-                  value={clientId}
-                  onChangeText={setClientId}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
+              <Input
+                label={t('app.clientId')}
+                placeholder={t('app.enterOauthClientId')}
+                value={clientId}
+                onChangeText={setClientId}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
 
-                <Input
-                  label={t('app.clientSecret')}
-                  placeholder={t('app.enterOauthClientSecret')}
-                  value={clientSecret}
-                  onChangeText={setClientSecret}
-                  secureTextEntry
-                  showPasswordToggle
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
+              <Input
+                label={t('app.clientSecret')}
+                placeholder={t('app.enterOauthClientSecret')}
+                value={clientSecret}
+                onChangeText={setClientSecret}
+                secureTextEntry
+                showPasswordToggle
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
 
-                {/* Redirect URI - read-only, shown for user to configure in OAuth app */}
-                <Text className="text-sm font-medium text-text-secondary mb-1">
-                  {t('app.redirectUriHint')}
-                </Text>
-                <View className="bg-background-tertiary rounded-lg p-3 mb-3 border border-border-faint">
-                  <Text className="text-sm text-text-secondary font-mono" selectable>
-                    {selectedProvider ? `${DEFAULT_REDIRECT_URI}/${selectedProvider.id}` : DEFAULT_REDIRECT_URI}
-                  </Text>
-                </View>
+              {/* Redirect URI - read-only, shown for user to configure in OAuth app */}
+              <Text className="text-sm font-medium text-text-secondary mb-1">
+                {t('app.redirectUriHint')}
+              </Text>
+              <Text className="text-sm text-text-secondary font-mono py-3 mb-3 border-b border-border" selectable>
+                {selectedProvider ? `${DEFAULT_REDIRECT_URI}/${selectedProvider.id}` : DEFAULT_REDIRECT_URI}
+              </Text>
 
-                <View className="flex-row gap-3 mt-3">
-                  <Button
-                    title={t('common.cancel')}
-                    onPress={handleCloseModal}
-                    variant="secondary"
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    title={t('common.save')}
-                    onPress={handleSave}
-                    loading={isSaving}
-                    style={{ flex: 1 }}
-                  />
-                </View>
-              </View>
-            ) : (
-              <View className="bg-background-secondary rounded-xl p-4 max-h-[60%]">
-                <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
-                  {t('app.selectProvider')}
-                </Text>
-                <FlatList
-                  data={availableProviders}
-                  keyExtractor={(item) => item.id}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity
-                      className="flex-row items-center py-3"
-                      onPress={() => handleSelectProvider(item)}
-                    >
-                      <View
-                        className="w-10 h-10 rounded-lg items-center justify-center mr-3"
-                        style={{ backgroundColor: item.color }}
-                      >
-                        <Text className="text-lg font-bold text-text-primary">{item.name.charAt(0)}</Text>
-                      </View>
-                      <Text className="flex-1 text-base text-text-primary ml-2">{item.name}</Text>
-                      {selectedProvider?.id === item.id && (
-                        <Text className="text-lg text-primary">{'✓'}</Text>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  ItemSeparatorComponent={() => <View className="h-px bg-border-faint" />}
+              <View className="flex-row gap-3 mt-3">
+                <Button
+                  title={t('common.cancel')}
+                  onPress={handleCloseModal}
+                  variant="secondary"
+                  style={{ flex: 1 }}
                 />
                 <Button
-                  title={t('common.back')}
-                  onPress={() => setModalView('form')}
-                  variant="secondary"
-                  fullWidth
-                  style={{ marginTop: 12 }}
+                  title={t('common.save')}
+                  onPress={handleSave}
+                  loading={isSaving}
+                  style={{ flex: 1 }}
                 />
               </View>
-            )}
-          </View>
-        </GestureHandlerRootView>
+            </View>
+          ) : (
+            <View className="bg-background-secondary rounded-xl p-4 max-h-[60%]" testID="oauth-credentials-picker">
+              <Text className="text-xl font-semibold text-text-primary mb-4 text-center">
+                {t('app.selectProvider')}
+              </Text>
+              <FlatList
+                data={availableProviders}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <Pressable
+                    className="flex-row items-center min-h-[52px] py-2"
+                    onPress={() => handleSelectProvider(item)}
+                    accessibilityRole="button"
+                  >
+                    <View className="w-6 items-center mr-3.5">
+                      <ProviderGlyph providerId={item.id} label={item.name} />
+                    </View>
+                    <Text className="flex-1 text-base text-text-primary">{item.name}</Text>
+                    {selectedProvider?.id === item.id && (
+                      <Text className="text-lg text-primary">{'✓'}</Text>
+                    )}
+                  </Pressable>
+                )}
+                ItemSeparatorComponent={() => <View className="h-px bg-border-faint" />}
+              />
+              <Button
+                title={t('common.back')}
+                onPress={() => setModalView('form')}
+                variant="secondary"
+                fullWidth
+                style={{ marginTop: 12 }}
+              />
+            </View>
+          )}
+        </View>
       </Modal>
-    </View>
+    </Section>
   );
 }

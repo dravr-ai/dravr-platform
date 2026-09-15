@@ -1,5 +1,5 @@
-# ABOUTME: Visual tests for connection modal
-# ABOUTME: Converted from mobile-visual.test.js "Connection Modal" tests
+# ABOUTME: Visual test for the Connections pane — opens it from Settings, waits for the first provider row, captures it
+# ABOUTME: Ids only: the pane row on Settings, the Connections root, the Strava-branded sciotte row the seeded stack always lists
 
 appId: ai.dravr.app
 
@@ -10,44 +10,21 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# Navigate to settings
+# Navigate to Settings
 - runFlow:
-    when:
-      visible:
-        text: "Réglages|Settings"
-    commands:
-      - tapOn:
-          text: "Réglages|Settings"
+    file: ../helpers/navigate-to-settings.yaml
 
-- runFlow:
-    when:
-      notVisible:
-        text: "Réglages|Settings"
-    commands:
-      - tapOn: "Settings"
+# Test: connections - opens from settings
+- tapOn:
+    id: "settings-pane-connections"
 
 - extendedWaitUntil:
     visible:
-      id: "settings-screen"
+      id: "connections-screen"
     timeout: 5000
 
-# Test: connections - opens from settings
-- runFlow:
-    when:
-      visible: "Connections"
-    commands:
-      - tapOn: "Connections"
-      - runFlow:
-          when:
-            visible:
-              id: "connections-modal"
-          commands:
-            - assertVisible:
-                id: "connections-modal"
+# Test: connections - lists the first provider as a row
+- assertVisible:
+    id: "provider-row-sciotte"
 
-# Test: connections - displays Strava provider
-- runFlow:
-    when:
-      visible: "Strava"
-    commands:
-      - assertVisible: "Strava"
+- takeScreenshot: connections-pane

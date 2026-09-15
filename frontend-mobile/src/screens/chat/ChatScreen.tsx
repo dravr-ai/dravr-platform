@@ -36,9 +36,6 @@ import { ChatInputBar } from './ChatInputBar';
 import { ChatProgressStrip } from './ChatProgressStrip';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { MessageList } from './MessageList';
-import { ProviderModal } from './ProviderModal';
-import { SciotteLoginModal } from '../../components/SciotteLoginModal';
-import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -67,8 +64,6 @@ export function ChatScreen() {
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [renameConversationId, setRenameConversationId] = useState<string | null>(null);
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
-  const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
-  const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   // The message whose verdicts the sheet shows, or `null` while it is closed.
   const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
 
@@ -371,24 +366,15 @@ export function ChatScreen() {
   }, [t]);
 
   /**
-   * Authorize a provider, from the picker or from a reply that asks for it.
+   * Authorize a provider from a reply that asks for it.
    *
-   * One path for both: `WebBrowser.openAuthSessionAsync`, a sheet presented
-   * over the app that hands the callback back to it. Opening the reply's URL
-   * with the generic opener instead sends the athlete to Safari, where the
-   * callback has nowhere to return to.
+   * `WebBrowser.openAuthSessionAsync` presents a sheet over the app that
+   * hands the callback back to it. Opening the reply's URL with the generic
+   * opener instead sends the athlete to Safari, where the callback has
+   * nowhere to return to.
    */
   const handleConnectProvider = useCallback(async (provider: string) => {
     await providerStatus.handleConnectProvider(provider);
-  }, [providerStatus]);
-
-  const handleProviderSelect = useCallback((provider: string) => {
-    providerStatus.setSelectedProvider(provider);
-    providerStatus.setProviderModalVisible(false);
-  }, [providerStatus]);
-
-  const handleProviderModalClose = useCallback(() => {
-    providerStatus.setProviderModalVisible(false);
   }, [providerStatus]);
 
   // Info sheet handlers
@@ -543,47 +529,12 @@ export function ChatScreen() {
           onSendMessage={handleSendMessage}
         />
 
-        <ProviderModal
-          visible={providerStatus.providerModalVisible}
-          providers={providerStatus.connectedProviders}
-          connectingProvider={providerStatus.connectingProvider}
-          onClose={handleProviderModalClose}
-          onSelectConnected={handleProviderSelect}
-          onConnectProvider={handleConnectProvider}
-          onConnectSciotte={(target) => {
-            providerStatus.setProviderModalVisible(false);
-            setSciotteTarget(target);
-          }}
-          onConnectIntervals={() => {
-            providerStatus.setProviderModalVisible(false);
-            setIntervalsModalVisible(true);
-          }}
-        />
-
-        <SciotteLoginModal
-          visible={sciotteTarget !== null}
-          onClose={() => setSciotteTarget(null)}
-          onConnected={() => {
-            providerStatus.loadProviderStatus();
-            setSciotteTarget(null);
-          }}
-          target={sciotteTarget ?? 'strava'}
-        />
-
-        <IntervalsIcuLinkModal
-          visible={intervalsModalVisible}
-          onClose={() => setIntervalsModalVisible(false)}
-          onConnected={() => {
-            providerStatus.loadProviderStatus();
-            setIntervalsModalVisible(false);
-          }}
-        />
-
         {/* A reply asked for provider credentials the app does not hold yet. */}
         <Sheet
           visible={providerStatus.needsCredentialsProvider !== null}
           onClose={() => providerStatus.setNeedsCredentialsProvider(null)}
           testID="oauth-credentials-sheet"
+          flush
         >
           <OAuthCredentialsSection />
           <TouchableOpacity

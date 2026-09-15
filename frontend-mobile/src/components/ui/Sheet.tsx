@@ -16,6 +16,11 @@ export interface SheetProps {
   backdropTestID?: string;
   /** NativeWind `max-h-*` class for the panel; the default caps it at 85% of the window. */
   maxHeight?: string;
+  /**
+   * Drops the panel's 16 px side inset so content that pays its own — a
+   * `Section` with its rows — sits 16 from the edge, not 32.
+   */
+  flush?: boolean;
 }
 
 /**
@@ -31,6 +36,7 @@ export function Sheet({
   testID,
   backdropTestID,
   maxHeight = 'max-h-[85%]',
+  flush = false,
 }: SheetProps) {
   const colors = useThemeColors();
 
@@ -43,7 +49,7 @@ export function Sheet({
         testID={backdropTestID}
       >
         <View
-          className={`rounded-t-3xl px-4 pt-4 pb-8 ${maxHeight}`}
+          className={`rounded-t-3xl pt-4 pb-8 ${flush ? '' : 'px-4'} ${maxHeight}`}
           style={{ backgroundColor: colors.background.secondary }}
           onStartShouldSetResponder={() => true}
           testID={testID}

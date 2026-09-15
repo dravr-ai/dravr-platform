@@ -187,4 +187,55 @@ describe('CoachingStyleScreen', () => {
     expect(queryByTestId('back-button')).toBeNull();
     expect(mockBack).not.toHaveBeenCalled();
   });
+
+  // Turns red if the cards come back: each persona is a radio row, the rules
+  // and the enforcement word sit under the selected row only, and nothing in
+  // the tree is a pill, a ring or an "Active" label (Boreal v2.2, DESIGN.md §10).
+  it('renders the personas as rows, the contract under the selected one, with no card or pill', async () => {
+    const { findByTestId, getByTestId, queryByTestId, queryByText, toJSON } = renderScreen();
+
+    const selected = await findByTestId('persona-card-casual');
+    expect(selected.props.accessibilityRole).toBe('radio');
+    expect(getByTestId('persona-card-casual-inner').props.className).toContain('min-h-[52px]');
+
+    expect(getByTestId('persona-details-casual')).toBeTruthy();
+    expect(queryByTestId('persona-details-enthusiast')).toBeNull();
+    expect(queryByTestId('persona-details-power_athlete')).toBeNull();
+    expect(queryByTestId('persona-details-coach')).toBeNull();
+    expect(queryByTestId('persona-enforcement-advisory')).toBeNull();
+
+    const enforcement = getByTestId('persona-enforcement-verified');
+    expect(enforcement.props.className).toContain('text-sm');
+    expect(enforcement.props.className).toContain('text-success');
+    expect(enforcement.props.className).not.toContain('rounded');
+    expect(queryByText('Active')).toBeNull();
+
+    const serialised = JSON.stringify(toJSON());
+    expect(serialised).not.toContain('rounded-full');
+    expect(serialised).not.toContain('bg-success/15');
+    const styles = allStyles(rootOf(toJSON));
+    expect(styles.some((s) => typeof s.borderRadius === 'number' && s.borderRadius >= 999)).toBe(false);
+    expect(styles.some((s) => s.borderRadius === 16)).toBe(false);
+  });
 });
+
+type Json = { type: string; props: Record<string, unknown>; children: Array<Json | string> | null };
+
+/** Every style object in a rendered tree, flat or nested arrays alike. */
+function allStyles(node: Json | string | null | undefined, out: Array<Record<string, unknown>> = []) {
+  if (!node || typeof node === 'string') return out;
+  const flatten = (style: unknown): void => {
+    if (Array.isArray(style)) style.forEach(flatten);
+    else if (style && typeof style === 'object') out.push(style as Record<string, unknown>);
+  };
+  flatten(node.props.style);
+  for (const child of node.children ?? []) allStyles(child, out);
+  return out;
+}
+
+/** The rendered tree as one node, whichever shape `toJSON()` returned. */
+function rootOf(tree: ReturnType<typeof render>['toJSON']): Json {
+  const rendered = tree() as Json | Json[] | null;
+  if (!rendered) throw new Error('nothing rendered');
+  return Array.isArray(rendered) ? rendered[0] : rendered;
+}

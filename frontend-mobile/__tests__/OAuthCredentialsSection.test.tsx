@@ -93,7 +93,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        expect(getByText('+ Add')).toBeTruthy();
+        expect(getByText('Add')).toBeTruthy();
       });
     });
 
@@ -107,7 +107,7 @@ describe('OAuthCredentialsSection', () => {
       const { queryByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        expect(queryByText('+ Add')).toBeNull();
+        expect(queryByText('Add')).toBeNull();
       });
     });
   });
@@ -119,10 +119,10 @@ describe('OAuthCredentialsSection', () => {
       const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        expect(getByText('+ Add')).toBeTruthy();
+        expect(getByText('Add')).toBeTruthy();
       });
 
-      fireEvent.press(getByText('+ Add'));
+      fireEvent.press(getByText('Add'));
 
       await waitFor(() => {
         expect(getByText('Add OAuth Credentials')).toBeTruthy();
@@ -136,7 +136,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText, queryByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       await waitFor(() => {
@@ -158,7 +158,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       await waitFor(() => {
@@ -176,7 +176,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText, getByPlaceholderText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       // Open provider picker
@@ -201,7 +201,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText, getByPlaceholderText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       // Open provider picker
@@ -235,7 +235,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText, getByPlaceholderText, queryByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       // Open provider picker and select WHOOP
@@ -277,7 +277,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText, getByPlaceholderText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       // Select provider
@@ -406,7 +406,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       // Open provider picker
@@ -425,7 +425,7 @@ describe('OAuthCredentialsSection', () => {
       const { getByText } = render(<OAuthCredentialsSection />);
 
       await waitFor(() => {
-        fireEvent.press(getByText('+ Add'));
+        fireEvent.press(getByText('Add'));
       });
 
       // Open provider picker

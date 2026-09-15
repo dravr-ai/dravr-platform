@@ -1,5 +1,5 @@
 # ABOUTME: Helper flow to log out of the application
-# ABOUTME: Navigates to Settings and taps the logout button
+# ABOUTME: Navigates to Settings, taps the quiet sign-out row at the end of the list, then confirms the alert
 
 appId: ai.dravr.app
 
@@ -8,23 +8,27 @@ appId: ai.dravr.app
 - runFlow:
     file: navigate-to-settings.yaml
 
-# Scroll down if needed to see logout button
+# The sign-out row sits after the pane list
 - scrollUntilVisible:
     element:
-      id: "settings-logout-button"
+      id: "settings-sign-out"
     direction: DOWN
     timeout: 5000
 
-# Tap logout button
+# Tap the sign-out row
 - tapOn:
-    id: "settings-logout-button"
+    id: "settings-sign-out"
 
-# Confirm logout if a confirmation dialog appears
+# Confirm the alert. Its title and its confirm button carry the same words
+# (`common.logout`, fr/en), so the second match — the button below the
+# message — is the one to tap.
 - runFlow:
     when:
-      visible: "Log Out"
+      visible: "Se déconnecter|Sign Out"
     commands:
-      - tapOn: "Log Out"
+      - tapOn:
+          text: "Se déconnecter|Sign Out"
+          index: 1
 
 # Verify we're back on login screen
 - extendedWaitUntil:

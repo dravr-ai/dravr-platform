@@ -50,6 +50,27 @@ function renderScreen() {
   );
 }
 
+type Json = { type: string; props: Record<string, unknown>; children: Array<Json | string> | null };
+
+/** Every style object in a rendered tree, flat or nested arrays alike. */
+function allStyles(node: Json | string | null | undefined, out: Array<Record<string, unknown>> = []) {
+  if (!node || typeof node === 'string') return out;
+  const flatten = (style: unknown): void => {
+    if (Array.isArray(style)) style.forEach(flatten);
+    else if (style && typeof style === 'object') out.push(style as Record<string, unknown>);
+  };
+  flatten(node.props.style);
+  for (const child of node.children ?? []) allStyles(child, out);
+  return out;
+}
+
+/** The rendered tree as one node, whichever shape `toJSON()` returned. */
+function rootOf(tree: ReturnType<typeof render>['toJSON']): Json {
+  const rendered = tree() as Json | Json[] | null;
+  if (!rendered) throw new Error('nothing rendered');
+  return Array.isArray(rendered) ? rendered[0] : rendered;
+}
+
 describe('NotificationPreferencesScreen', () => {
   beforeEach(() => {
     getPreferences.mockReset();
@@ -162,5 +183,55 @@ describe('NotificationPreferencesScreen', () => {
       quiet_hours_start: '23:00',
       timezone: 'Europe/Paris',
     });
+  });
+
+  // Turns red if the card comes back: the seven categories are seven sections
+  // in a gap-8 column, with no colour dot before the label and no pill anywhere
+  // (Boreal v2.2, DESIGN.md §10 — sections are separated by space, not a box).
+  it('lays each category out as its own section, with no card, colour dot or pill', async () => {
+    getPreferences.mockResolvedValue({ user_id: 'u1', tenant_id: 't1', preferences: [pref()] });
+
+    const { toJSON } = renderScreen();
+    await waitFor(() => expect(screen.getByTestId('notification-pref-training')).toBeTruthy());
+
+    expect(screen.getAllByTestId(/^notification-pref-(training|recovery|coach|achievement|system|ai|reminders)$/)).toHaveLength(7);
+    expect(screen.getByTestId('notification-prefs-list').props.className).toContain('gap-8');
+    for (const category of NOTIFICATION_CATEGORIES) {
+      const section = screen.getByTestId(`notification-pref-${category}`);
+      expect(section.props.className).not.toContain('bg-');
+      expect(section.props.className).not.toContain('border');
+      expect(section.props.style).toBeUndefined();
+    }
+
+    const serialised = JSON.stringify(toJSON());
+    expect(serialised).not.toContain('rounded-full');
+    expect(serialised).not.toContain('w-2.5');
+    const styles = allStyles(rootOf(toJSON));
+    expect(styles.some((s) => typeof s.borderRadius === 'number' && s.borderRadius >= 999)).toBe(false);
+    expect(styles.some((s) => s.width === 10 && s.height === 10)).toBe(false);
+  });
+
+  // Turns red if the cap picker stops being text tabs: the stored cap is the
+  // one selected tab, "no limit" is a tab too, and the tabs say so to a screen
+  // reader rather than being anonymous chips.
+  it('offers the daily cap as text tabs with the stored cap selected', async () => {
+    getPreferences.mockResolvedValue({
+      user_id: 'u1',
+      tenant_id: 't1',
+      preferences: [pref({ category: 'recovery', max_per_day: 3 })],
+    });
+
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId('notification-pref-details-recovery')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('notification-pref-details-recovery'));
+
+    const stored = screen.getByTestId('notification-pref-cap-recovery-3');
+    expect(stored.props.accessibilityRole).toBe('tab');
+    expect(stored.props.accessibilityState.selected).toBe(true);
+    const none = screen.getByTestId('notification-pref-cap-recovery-none');
+    expect(none.props.accessibilityRole).toBe('tab');
+    expect(none.props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('notification-pref-quiet-start-recovery-22:00').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('notification-pref-quiet-end-recovery-off').props.accessibilityState.selected).toBe(false);
   });
 });

@@ -39,8 +39,10 @@ describe('IntervalsIcuLinkModal', () => {
         api_key: 'secret-key',
       })
     );
-    // Success confirmation renders (onConnected fires after a short delay).
-    await waitFor(() => expect(getByText('Connected Test Athlete')).toBeTruthy());
+    // Success confirmation renders — the keyed "Connected!" and the athlete
+    // the server named under it (onConnected fires after a short delay).
+    await waitFor(() => expect(getByText('Connected!')).toBeTruthy());
+    expect(getByText('Test Athlete')).toBeTruthy();
   });
 
   it('shows an error when the server rejects the credentials', async () => {

@@ -1,20 +1,23 @@
-// ABOUTME: Provider connections screen for fitness data sources
-// ABOUTME: Displays connection status and OAuth flow for Strava, Garmin, WHOOP
+// ABOUTME: The Connections pane — one row per fitness data provider, its brand glyph, one status word and one ink action, then the connected-apps section
+// ABOUTME: Runs the OAuth, Sciotte and Intervals.icu connect flows and the disconnect confirm; a long-press on a connected row opens the platform menu
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
+  Pressable,
+  StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
+import { useRouter } from 'expo-router';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
-import { PROVIDER_COLORS, spacing, useCardStyle, useThemeColors } from '../../constants/theme';
-import { Modal } from 'react-native';
-import { Card, PaneScrollView } from '../../components/ui';
+import { spacing, useThemeColors } from '../../constants/theme';
+import { EmptyState, PaneScrollView, Section, Sheet } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
@@ -22,13 +25,15 @@ import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
-import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
+import { presentProviderMenu } from './presentProviderMenu';
+import { ProviderGlyph } from '../../components/ProviderGlyph';
+import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 
 export function ConnectionsScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const cardStyle = useCardStyle();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,13 +44,13 @@ export function ConnectionsScreen() {
   const [showCredentials, setShowCredentials] = useState(false);
   // Whoop is BYO-OAuth-app: users register their own developer app at
   // developer.whoop.com and paste client_id/secret before the OAuth dance can
-  // run. Rather than fall through the generic credentials Settings sheet, open
-  // the provider-aware setup modal in-place so first-touch users never need to
+  // run. Rather than fall through the generic credentials sheet, open the
+  // provider-aware setup sheet in-place so first-touch users never need to
   // navigate elsewhere. Mirrors the web onboarding flow.
   const [showWhoopSetup, setShowWhoopSetup] = useState(false);
-  // Tracks the "Provider connected — preparing your dashboard…" state shown
-  // after a successful OAuth completes. Replaces the legacy Alert.alert success
-  // dialog and lines the UX up with the web onboarding screen.
+  // Tracks the "Connected!" state shown after a successful OAuth completes.
+  // Replaces the legacy Alert.alert success dialog and lines the UX up with
+  // the web onboarding screen.
   const [justConnected, setJustConnected] = useState<string | null>(null);
 
   const loadConnectionStatus = useCallback(async () => {
@@ -194,179 +199,204 @@ export function ConnectionsScreen() {
     );
   };
 
-  // Provider display config (colors, icons, descriptions). After the 2026-Q2
-  // provider cleanup the API surfaces only three: `sciotte` (Strava-branded),
-  // `sciotte_garmin` (Garmin-branded), and `whoop`. Unknown ids fall back to a
-  // neutral outline-grey tile so the screen never crashes on an unexpected payload.
-  const getProviderConfig = (providerId: string) => {
-    const configs: Record<string, { color: string; icon: string; description: string }> = {
-      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: t('app.provStravaBlurb') },
-      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: t('app.provGarminBlurb') },
-      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: t('app.provWhoopBlurb') },
-      intervals_icu: { color: PROVIDER_COLORS.intervals_icu, icon: 'I', description: t('app.provIntervalsBlurb') },
-    };
-    return configs[providerId] || { color: colors.tokens.outline, icon: '?', description: t('app.fitnessDataProvider') };
+  /**
+   * The connect flow a provider row starts, for a first connection and for a
+   * reconnect alike. The `sciotte` row is the user-facing Strava row: OAuth is
+   * the default while shared-app seats remain (the server recommends `oauth`);
+   * once the athlete cap is reached it recommends `mirror` and we go straight
+   * to the Sciotte credential login. If the OAuth attempt itself fails,
+   * handleConnect falls back to Sciotte. Garmin (`sciotte_garmin`) is always
+   * credentials. Whoop is BYO: the setup sheet opens first and OAuth fires
+   * once the user saves valid client_id/secret, which spares first-touch
+   * users a speculative attempt and its "Configuration error" toast.
+   */
+  const startConnect = (provider: ExtendedProviderStatus) => {
+    if (provider.provider.startsWith('sciotte')) {
+      if (provider.provider === 'sciotte' && provider.recommended_backend === 'oauth') {
+        handleConnect('strava', provider.display_name);
+      } else {
+        setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+      }
+    } else if (provider.provider === 'intervals_icu') {
+      setIntervalsModalVisible(true);
+    } else if (provider.provider === 'whoop') {
+      setShowWhoopSetup(true);
+    } else {
+      handleConnect(provider.provider, provider.display_name);
+    }
   };
 
-  const renderProvider = (provider: ExtendedProviderStatus) => {
-    const config = getProviderConfig(provider.provider);
+  // The one line under a provider's name. After the 2026-Q2 provider cleanup
+  // the API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
+  // (Garmin-branded), `whoop` and `intervals_icu`; an unknown id gets the
+  // generic line so the screen never crashes on an unexpected payload.
+  const providerBlurb = (providerId: string): string => {
+    const blurbs: Record<string, string> = {
+      sciotte: t('app.provStravaBlurb'),
+      sciotte_garmin: t('app.provGarminBlurb'),
+      whoop: t('app.provWhoopBlurb'),
+      intervals_icu: t('app.provIntervalsBlurb'),
+    };
+    return blurbs[providerId] ?? t('app.fitnessDataProvider');
+  };
+
+  const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
+    const id = provider.provider;
     const isConnected = provider.connected;
-    // A connected-but-dead session (dead sciotte scrape / failed OAuth refresh):
-    // show t('app.reconnectNeeded') and route the action to the connect flow instead of
-    // a healthy-looking t('app.connected') pill with only a disconnect affordance.
+    // A connected-but-dead session (dead sciotte scrape / failed OAuth
+    // refresh): the row says "Expiré" and its action reconnects, instead of a
+    // healthy-looking "Connecté" with only a disconnect affordance.
     const needsReauth = provider.connected && provider.needs_reauth;
-    const isConnecting = connectingProvider === provider.provider;
-    const requiresOAuth = provider.requires_oauth;
-    const isSciotte = provider.provider.startsWith('sciotte');
-    const isIntervals = provider.provider === 'intervals_icu';
-    const canConnect = requiresOAuth || isSciotte || isIntervals;
+    const isConnecting = connectingProvider === id;
+    const canConnect = provider.requires_oauth || id.startsWith('sciotte') || id === 'intervals_icu';
+    const hasMenu = isConnected && canConnect;
 
+    // The row's one action as an ink word; the spinner takes its place while
+    // the connect flow this row started is in flight.
+    const action = (label: string, onPress: () => void) =>
+      isConnecting ? (
+        <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${id}`} />
+      ) : (
+        <Text
+          className="text-md font-medium text-primary"
+          onPress={onPress}
+          accessibilityRole="button"
+          testID={`provider-action-${id}`}
+        >
+          {label}
+        </Text>
+      );
+    const reconnect = () => startConnect(provider);
+    const disconnect = () => handleDisconnect(id, provider.display_name);
+
+    // One status word and one ink action, never a pill or a filled button:
+    // the state reads as text and the thing to do about it as a link.
+    let trailing: React.ReactNode = null;
+    if (needsReauth) {
+      trailing = (
+        <>
+          <Text className="text-sm font-medium text-warning">{t('providers.expired')}</Text>
+          {canConnect && action(t('app.reconnect'), reconnect)}
+        </>
+      );
+    } else if (isConnected) {
+      trailing = (
+        <>
+          <View className="w-2 h-2 rounded-full bg-success" />
+          <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
+          {canConnect && action(t('app.disconnect'), disconnect)}
+        </>
+      );
+    } else if (canConnect) {
+      trailing = action(t('app.connect'), reconnect);
+    }
+
+    // The row pays the pane's 16 inset itself, as a settings `Row` does, so
+    // its press target runs to the pane's edge and its hairline does not.
     return (
-      <Card key={provider.provider} className="mb-3">
-        <View className="flex-row items-center">
-          {/* Provider icon */}
-          <View
-            className="w-11 h-11 rounded-xl items-center justify-center mr-3"
-            style={{ backgroundColor: config.color }}
-          >
-            <Text className="text-xl font-bold text-on-surface">{config.icon}</Text>
-          </View>
-
-          {/* Provider info */}
-          <View className="flex-1 mr-3">
-            <Text className="text-base font-semibold text-text-primary">{provider.display_name}</Text>
-            {needsReauth ? (
-              <Text className="text-xs text-warning font-semibold mt-0.5" numberOfLines={1}>
-                {t('app.reconnectNeeded')}
-              </Text>
-            ) : (
-              <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{config.description}</Text>
-            )}
-          </View>
-
-          {/* Action button — right-aligned pill */}
-          {isConnected && !needsReauth ? (
-            <View className="flex-row items-center">
-              <View className="flex-row items-center bg-success/15 px-3 py-1.5 rounded-full mr-1">
-                <Text className="text-xs text-success font-semibold">{t('app.connected')}</Text>
-              </View>
-              {(requiresOAuth || isSciotte || isIntervals) && (
-                <TouchableOpacity
-                  className="p-2"
-                  onPress={() => handleDisconnect(provider.provider, provider.display_name)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Feather name="x-circle" size={16} color={colors.text.tertiary} />
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : canConnect ? (
-            <TouchableOpacity
-              // The provider's brand colour identifies the provider and lives on
-              // the icon tile above. This is an action, so it wears the app's
-              // primary like every other CTA — four saturated brand buttons in
-              // one list read as four competing primaries.
-              className="px-5 py-2 rounded-full bg-primary"
-              onPress={() => {
-                if (isSciotte) {
-                  // The `sciotte` card is the user-facing t('app.brandStrava') card. OAuth is
-                  // the default while shared-app seats remain (server recommends
-                  // `oauth`); once the athlete cap is reached it recommends
-                  // `mirror` and we go straight to the Sciotte credential login.
-                  // If the OAuth attempt itself fails, handleConnect falls back
-                  // to Sciotte. Garmin (`sciotte_garmin`) is always credentials.
-                  if (provider.provider === 'sciotte' && provider.recommended_backend === 'oauth') {
-                    handleConnect('strava', provider.display_name);
-                  } else {
-                    setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
-                  }
-                } else if (isIntervals) {
-                  setIntervalsModalVisible(true);
-                } else if (provider.provider === 'whoop') {
-                  // Whoop is BYO: open the setup modal first; OAuth fires once
-                  // the user saves valid client_id/secret. Skipping the
-                  // speculative OAuth attempt removes a confusing
-                  // "Configuration error" toast on first-touch.
-                  setShowWhoopSetup(true);
-                } else {
-                  handleConnect(provider.provider, provider.display_name);
-                }
-              }}
-              disabled={isConnecting}
-              activeOpacity={0.7}
-            >
-              {isConnecting ? (
-                // on-primary flips with the theme (white on light, near-black on
-                // dark); a hardcoded #FFFFFF vanishes on the dark-mode primary.
-                <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
-              ) : (
-                <Text className="text-sm font-semibold text-on-primary">
-                  {needsReauth ? t('app.reconnect') : t('app.connect')}
-                </Text>
-              )}
-            </TouchableOpacity>
-          ) : null}
+      <Pressable
+        key={id}
+        className="flex-row items-center px-4"
+        onLongPress={
+          hasMenu
+            ? () =>
+                presentProviderMenu(
+                  {
+                    providerName: provider.display_name,
+                    canReconnect: needsReauth,
+                    onReconnect: reconnect,
+                    onDisconnect: disconnect,
+                  },
+                  t,
+                )
+            : undefined
+        }
+        accessibilityRole={hasMenu ? 'button' : undefined}
+        testID={`provider-row-${id}`}
+      >
+        <View className="w-6 items-center mr-3.5">
+          <ProviderGlyph providerId={id} label={provider.display_name} />
         </View>
-      </Card>
+        {/* The hairline sits on this inner column, so it insets past the glyph to the text. */}
+        <View
+          className={`flex-1 flex-row items-center min-h-[52px] ${last ? '' : 'border-b border-border-faint'}`}
+          style={last ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
+        >
+          <View className="flex-1 min-w-0 py-2">
+            <Text className="text-base text-text-primary">{provider.display_name}</Text>
+            <Text className="text-sm text-text-secondary" numberOfLines={1}>
+              {providerBlurb(id)}
+            </Text>
+          </View>
+          {trailing !== null && <View className="flex-row items-center gap-2 ml-3">{trailing}</View>}
+        </View>
+      </Pressable>
     );
   };
+
+  // After the 2026-Q2 provider cleanup the API surfaces sciotte,
+  // sciotte_garmin, whoop and intervals_icu. The bare `strava` row is hidden:
+  // official OAuth is reached exclusively through the Sciotte modal's
+  // t('app.useOwnStravaApp') button, so a separate strava row would duplicate
+  // the entry, and `connected` already counts either backend behind a row —
+  // the server coalesces it (carnet#255). Mirrors
+  // frontend/src/components/ProviderConnectionCards.tsx.
+  const visibleProviders = providers.filter((p) => p.provider !== 'strava');
 
   return (
     <View className="flex-1 bg-background-primary" testID="connections-screen">
       <PaneScrollView
-        contentContainerStyle={{ padding: spacing.lg }}
+        contentContainerStyle={{ paddingVertical: spacing.lg }}
         showsVerticalScrollIndicator={false}
       >
-        <Text className="text-xl font-bold text-text-primary mb-1">{t('app.fitnessProviders')}</Text>
-        <Text className="text-base text-text-secondary mb-4 leading-[22px]">
-          {t('app.connectAccountsBlurb')}
-        </Text>
+        <View className="gap-8">
+          <Section
+            title={t('providers.fitnessTitle')}
+            description={t('app.connectAccountsBlurb')}
+            testID="connections-providers-section"
+          >
+            {isLoading ? (
+              <View className="items-center py-12">
+                <ActivityIndicator size="large" color={colors.tokens.primary} />
+                <Text className="mt-3 text-text-secondary text-base">{t('app.loadingConnections')}</Text>
+              </View>
+            ) : error ? (
+              // A plain line, so it pays the pane's inset itself.
+              <View className="flex-row flex-wrap items-baseline px-4 py-3">
+                <Text className="text-sm text-error">{error}</Text>
+                <Text
+                  className="text-sm text-primary font-medium ml-1"
+                  onPress={() => {
+                    setError(null);
+                    loadConnectionStatus();
+                  }}
+                  accessibilityRole="button"
+                  testID="connections-retry"
+                >
+                  {t('common.retry')}
+                </Text>
+              </View>
+            ) : (
+              <View>
+                {visibleProviders.map((provider, index) =>
+                  renderProvider(provider, index === visibleProviders.length - 1),
+                )}
+              </View>
+            )}
+            <Text className="text-xs text-text-tertiary px-4 pt-2.5">{t('app.privacyNoteBlurb')}</Text>
+          </Section>
 
-        {isLoading ? (
-          <View className="items-center py-12">
-            <ActivityIndicator size="large" color={colors.tokens.primary} />
-            <Text className="mt-3 text-text-secondary text-base">{t('app.loadingConnections')}</Text>
-          </View>
-        ) : error ? (
-          <View className="p-4 bg-error/10 border border-error/30 rounded-lg">
-            <Text className="text-error text-base mb-3">{error}</Text>
-            <TouchableOpacity
-              className="self-start px-4 py-2 bg-error/20 rounded-md"
-              onPress={() => {
-                setError(null);
-                loadConnectionStatus();
+          <Section title={t('tokens.connectedApps')} testID="connections-apps-section">
+            <EmptyState
+              action={{
+                label: t('settingsTabs.tokens'),
+                onPress: () => router.push(CONNECTED_APPS_ROUTE),
+                testID: 'connections-manage-apps',
               }}
             >
-              <Text className="text-error font-semibold">{t('common.retry')}</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View className="gap-3">
-            {/* After the 2026-Q2 provider cleanup the API surfaces only three:
-                sciotte, sciotte_garmin, and whoop. Filter out the bare `strava`
-                row — official OAuth is reached exclusively through the Sciotte
-                modal's t('app.useOwnStravaApp') button, so a separate
-                strava card would just duplicate the entry. Mirror its
-                `connected` state onto the Sciotte card so the badge appears in
-                the right place. Mirrors frontend/src/components/ProviderConnectionCards.tsx. */}
-            {(() => {
-              // `connected` already counts either backend behind a card — the
-              // server coalesces it (carnet#255), so this only hides the raw
-              // `strava` entry the Sciotte card stands in for.
-              const visible = providers.filter((p) => p.provider !== 'strava');
-              return visible.map(renderProvider);
-            })()}
-          </View>
-        )}
-
-        {/* Privacy note */}
-        <View className="rounded-xl overflow-hidden mt-6" style={{ ...cardStyle, borderRadius: 16 }}>
-          <View className="p-4">
-            <Text className="text-sm font-semibold text-text-primary mb-1">{t('app.privacyNote')}</Text>
-            <Text className="text-sm text-text-secondary leading-5">
-              {t('app.privacyNoteBlurb')}
-            </Text>
-          </View>
+              {t('tokens.connectedAppsEmpty')}
+            </EmptyState>
+          </Section>
         </View>
       </PaneScrollView>
 
@@ -389,25 +419,14 @@ export function ConnectionsScreen() {
         }}
       />
 
-      <Modal visible={showCredentials} animationType="slide" transparent onRequestClose={() => setShowCredentials(false)}>
-        <View className="flex-1 bg-scrim/60 justify-end">
-          <View
-            className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
-            onStartShouldSetResponder={() => true}
-          >
-            <View className="items-center mb-2">
-              <View className="w-10 h-1 rounded-full bg-border-default" />
-            </View>
-            <OAuthCredentialsSection />
-            <TouchableOpacity
-              className="mt-4 py-3 items-center"
-              onPress={() => setShowCredentials(false)}
-            >
-              <Text className="text-base text-text-tertiary">{t('common.close')}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <Sheet
+        visible={showCredentials}
+        onClose={() => setShowCredentials(false)}
+        testID="connections-credentials-sheet"
+        flush
+      >
+        <OAuthCredentialsSection />
+      </Sheet>
 
       <OAuthAppSetupModal
         visible={showWhoopSetup}
@@ -433,8 +452,9 @@ export function ConnectionsScreen() {
         <View className="flex-1 bg-background-primary items-center justify-center px-8">
           <ActivityIndicator size="large" color={colors.tokens.primary} />
           <Text className="mt-4 text-base font-medium text-text-primary text-center">
-            {justConnected} connected — preparing your dashboard…
+            {t('app.connectedBang')}
           </Text>
+          <Text className="mt-1 text-sm text-text-secondary text-center">{justConnected}</Text>
           <TouchableOpacity
             className="mt-8 px-6 py-3"
             onPress={() => setJustConnected(null)}

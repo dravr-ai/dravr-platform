@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins that the Profile pane carries appearance and language, and that the tiles lay out evenly
-// ABOUTME: Web groups both with the profile; the five language tiles used to wrap 4 + 1 and strand Portuguese
+// ABOUTME: Pins that the Profile pane carries appearance and language, each as a radio list of rows with one selected
+// ABOUTME: Web groups both with the profile; the five locales are rows named in their own language, never flag tiles
 
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react-native';
@@ -27,7 +27,6 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { ProfileScreen } from '../src/screens/settings/ProfileScreen';
-import { languageGridColumns, languageGridRows } from '../src/components/LanguageSwitcher';
 import { i18n } from '@pierre/i18n';
 
 const baseUser: Partial<User> = {
@@ -38,6 +37,11 @@ const baseUser: Partial<User> = {
   role: 'user',
   user_status: 'active',
 };
+
+/** The ids of the rendered rows whose accessibility state says selected. */
+function selectedRows(ids: readonly string[]): string[] {
+  return ids.filter((id) => screen.getByTestId(id).props.accessibilityState?.selected === true);
+}
 
 describe('Profile pane — appearance and language', () => {
   // This asserts French is the preselected locale, which is the product
@@ -57,59 +61,48 @@ describe('Profile pane — appearance and language', () => {
     });
   });
 
-  it('holds appearance beside the profile, as web does', async () => {
+  it('holds appearance beside the profile, as web does, as a radio list with one choice in force', async () => {
     render(<ProfileScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('profile-appearance-section')).toBeTruthy();
     });
-    for (const option of ['system', 'dark', 'light']) {
-      expect(screen.getByTestId(`appearance-option-${option}`)).toBeTruthy();
+    const ids = ['system', 'dark', 'light'].map((option) => `appearance-option-${option}`);
+    for (const id of ids) {
+      expect(screen.getByTestId(id).props.accessibilityRole).toBe('radio');
     }
+    expect(selectedRows(ids)).toHaveLength(1);
   });
 
-  it('mounts the switcher with all five locales, French selected', async () => {
+  it('mounts the switcher with all five locales as rows, French selected', async () => {
     render(<ProfileScreen />);
 
     await waitFor(() => {
       expect(screen.getByTestId('profile-language-section')).toBeTruthy();
     });
     expect(screen.getByTestId('language-switcher')).toBeTruthy();
-    for (const locale of ['fr', 'en', 'es', 'de', 'pt']) {
-      expect(screen.getByTestId(`language-option-${locale}`)).toBeTruthy();
+    expect(SUPPORTED_LANGUAGES).toHaveLength(5);
+    const ids = ['fr', 'en', 'es', 'de', 'pt'].map((locale) => `language-option-${locale}`);
+    for (const id of ids) {
+      expect(screen.getByTestId(id).props.accessibilityRole).toBe('radio');
     }
-    expect(screen.getByTestId('language-option-fr').props.accessibilityState.selected).toBe(true);
+    expect(selectedRows(ids)).toEqual(['language-option-fr']);
     expect(
       screen.getByText('L’interface et les réponses de ton agent suivent toutes deux ce réglage.'),
     ).toBeTruthy();
   });
 
-  it('never leaves a single tile alone on the last line', () => {
-    // The plain wrapping row laid the five locales out 4 + 1 on a phone, so
-    // Portuguese sat by itself under four siblings. The column count is chosen
-    // rather than inherited, and the rule has to hold for any locale count —
-    // adding a sixth must not re-create the orphan.
-    for (let count = 2; count <= 12; count += 1) {
-      const columns = languageGridColumns(count);
-      const rows = languageGridRows([...Array(count).keys()], columns);
-      expect(rows[rows.length - 1].length).toBeGreaterThan(1);
-      expect(rows.flat()).toHaveLength(count);
-    }
-  });
-
-  it('lays the shipped locales out three to a line', () => {
-    const columns = languageGridColumns(SUPPORTED_LANGUAGES.length);
-    expect(SUPPORTED_LANGUAGES).toHaveLength(5);
-    expect(columns).toBe(3);
-    expect(languageGridRows(SUPPORTED_LANGUAGES, columns).map((row) => row.length)).toEqual([3, 2]);
-  });
-
-  it('renders one row element per computed line', async () => {
+  it('names each locale in its own language, with no flag in front of it', async () => {
+    // The tiles carried a flag emoji above the name; a flag is a country, not
+    // a language, and the row grammar has no glyph slot. The name alone is the
+    // row's title.
     render(<ProfileScreen />);
     await waitFor(() => {
-      expect(screen.getByTestId('language-row-0')).toBeTruthy();
+      expect(screen.getByTestId('language-option-pt')).toBeTruthy();
     });
-    expect(screen.getByTestId('language-row-1')).toBeTruthy();
-    expect(screen.queryByTestId('language-row-2')).toBeNull();
+    expect(screen.getByText('Português')).toBeTruthy();
+    expect(screen.getByText('Deutsch')).toBeTruthy();
+    expect(screen.queryByText(/🇫🇷|🇬🇧|🇪🇸|🇩🇪|🇵🇹/u)).toBeNull();
+    expect(screen.queryByTestId('language-row-0')).toBeNull();
   });
 });

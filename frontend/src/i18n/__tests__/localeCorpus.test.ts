@@ -219,9 +219,14 @@ describe('client locale corpus', () => {
     // in all five locales at three call sites, +1. Net -5. Then 2365: the
     // phone's composer lost its `/` button (Boreal v2.2 Phase 3, the left slot
     // stays empty), and `app.composerCommandsAria`, the button's only string,
-    // went with it, -1.
+    // went with it, -1. Then 2366: the phone's connections list names a
+    // provider whose token lapsed (Boreal v2.2 Phase 4), `providers.expired`,
+    // +1. Then 2362: the chat's provider picker, which nothing could open,
+    // was deleted with the four strings only it read (`app.connectAProvider`,
+    // `app.connectedCheck`, `app.connectFirstBlurb`, `app.connectingProvider`),
+    // -4.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2365);
+    expect(reference).toHaveLength(2362);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

@@ -1,22 +1,14 @@
-// ABOUTME: Connected apps screen — lists external MCP OAuth clients (e.g. Claude Desktop) the user approved on the consent screen
-// ABOUTME: Each row shows the client, its scope + grant date, with a per-row Revoke action (React Query + confirm Alert)
+// ABOUTME: Connected apps pane — one Section of 52 rows, the external MCP OAuth clients (e.g. Claude Desktop) approved on the consent screen
+// ABOUTME: Each row names the client with its scope and grant date under it and an ink Revoke on the trailing side (Boreal v2.2 Phase 4)
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import React from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
-} from 'react-native';
+import { View, Text, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Feather } from '@expo/vector-icons';
 import type { OAuthGrant } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
+import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { oauthApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
 
@@ -70,48 +62,6 @@ export function ConnectedAppsScreen(): React.JSX.Element {
     );
   };
 
-  const renderItem = ({ item }: { item: OAuthGrant }): React.JSX.Element => {
-    const revoking = revokeMutation.isPending && revokeMutation.variables === item.id;
-    return (
-      <View
-        testID={`connected-app-${item.id}`}
-        className="flex-row items-start justify-between gap-3 rounded-xl border border-border bg-surface-container-low p-4 mb-3"
-      >
-        <View className="flex-1">
-          <Text
-            className="text-base font-semibold text-text-primary"
-            numberOfLines={1}
-          >
-            {item.client_id}
-          </Text>
-          <Text className="text-sm text-text-secondary mt-1" numberOfLines={2}>
-            {item.scope}
-          </Text>
-          <Text className="text-xs text-text-tertiary mt-1">
-            {t('app.connected')} {formatGrantedDate(item.granted_at)}
-          </Text>
-        </View>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={t('app.revokeAppLabel', { app: item.client_id })}
-          onPress={() => handleRevoke(item)}
-          disabled={revoking}
-          className="flex-row items-center gap-1.5 rounded-lg bg-error/10 px-3 py-2"
-          testID={`revoke-${item.id}`}
-        >
-          {revoking ? (
-            <ActivityIndicator size="small" color={colors.pierre.red} />
-          ) : (
-            <>
-              <Feather name="trash-2" size={16} color={colors.pierre.red} />
-              <Text className="text-sm font-semibold text-error">{t('app.revoke')}</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
   return (
     <View className="flex-1 bg-background-primary" testID="connected-apps-screen">
       {isLoading ? (
@@ -119,22 +69,26 @@ export function ConnectedAppsScreen(): React.JSX.Element {
           <ActivityIndicator color={colors.text.primary} />
         </View>
       ) : isError ? (
-        <View className="flex-1 items-center justify-center px-6">
-          <Text className="text-error text-center">
-            {t('app.failedLoadConnectedApps')}{' '}
-            {error instanceof Error ? error.message : String(error)}
+        // The retry is a sibling, not a nested span: Android gives a nested
+        // `Text` no native view, so a tap on it would reach nothing there.
+        <View className="flex-row flex-wrap items-baseline px-4 py-3" testID="connected-apps-error">
+          <Text className="text-sm text-error">
+            {t('app.failedLoadConnectedApps')} {error instanceof Error ? error.message : String(error)}
+          </Text>
+          <Text
+            className="text-sm text-primary font-medium ml-1"
+            accessibilityRole="button"
+            onPress={() => {
+              refetch();
+            }}
+            testID="connected-apps-retry"
+          >
+            {t('common.retry')}
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={grants}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={{
-            padding: spacing.md,
-            paddingBottom: spacing.xl,
-            flexGrow: 1,
-          }}
+        <PaneScrollView
+          contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl }}
           refreshControl={
             <RefreshControl
               refreshing={isFetching}
@@ -144,23 +98,45 @@ export function ConnectedAppsScreen(): React.JSX.Element {
               tintColor={colors.text.primary}
             />
           }
-          ListHeaderComponent={
-            <Text className="text-text-secondary text-sm leading-relaxed mb-4">
-              {t('tokens.connectedAppsHint')}
-            </Text>
-          }
-          ListEmptyComponent={
-            <View className="flex-1 items-center justify-center py-16">
-              <Feather name="link-2" size={48} color={colors.text.tertiary} />
-              <Text className="text-text-secondary mt-3 text-center">
-                {t('app.noConnectedApps')}
-              </Text>
-              <Text className="text-text-tertiary text-xs mt-1 text-center px-6">
-                {t('app.connectedAppsEmpty')}
-              </Text>
-            </View>
-          }
-        />
+        >
+          <Section
+            title={t('tokens.connectedApps')}
+            description={t('tokens.connectedAppsHint')}
+            testID="connected-apps-list"
+          >
+            {grants.length === 0 ? (
+              <EmptyState testID="connected-apps-empty">{t('tokens.connectedAppsEmpty')}</EmptyState>
+            ) : (
+              grants.map((grant, index) => {
+                const revoking = revokeMutation.isPending && revokeMutation.variables === grant.id;
+                return (
+                  <Row
+                    key={grant.id}
+                    testID={`connected-app-${grant.id}`}
+                    title={grant.client_id}
+                    subtitle={`${grant.scope} · ${t('app.connected')} ${formatGrantedDate(grant.granted_at)}`}
+                    last={index === grants.length - 1}
+                    trailing={
+                      revoking ? (
+                        <ActivityIndicator size="small" color={colors.text.tertiary} />
+                      ) : (
+                        <Text
+                          className="text-sm font-medium text-primary"
+                          accessibilityRole="button"
+                          accessibilityLabel={t('app.revokeAppLabel', { app: grant.client_id })}
+                          onPress={() => handleRevoke(grant)}
+                          testID={`revoke-${grant.id}`}
+                        >
+                          {t('app.revoke')}
+                        </Text>
+                      )
+                    }
+                  />
+                );
+              })
+            )}
+          </Section>
+        </PaneScrollView>
       )}
     </View>
   );

@@ -1,11 +1,11 @@
-// ABOUTME: Reusable collapsible accordion section with animated chevron
-// ABOUTME: Resting-card styling with smooth expand/collapse transitions on UI thread
+// ABOUTME: A Section with a disclosure — the 13 / 600 title and a chevron on one pressable header, the content under it while expanded
+// ABOUTME: No fill, no border, no radius: sections are separated by space (32 below each), never by a box (DESIGN.md §10)
 
 import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { useCardStyle, useThemeColors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -21,7 +21,6 @@ export function CollapsibleSection({
   testID,
 }: CollapsibleSectionProps) {
   const colors = useThemeColors();
-  const cardStyle = useCardStyle();
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const toggle = useCallback(() => {
@@ -29,33 +28,27 @@ export function CollapsibleSection({
   }, []);
 
   return (
-    <View
-      className="mb-5 overflow-hidden"
-      style={{
-        ...cardStyle,
-        borderRadius: 12,
-      }}
-      testID={testID}
-    >
-      <TouchableOpacity
-        className="flex-row items-center justify-between p-3.5"
+    <View className="mb-8" testID={testID}>
+      <Pressable
+        className="flex-row items-center justify-between py-2"
         onPress={toggle}
-        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
         testID={testID ? `${testID}-toggle` : undefined}
       >
-        <Text className="text-text-primary text-sm font-semibold">{title}</Text>
+        <Text className="text-sm font-semibold text-text-primary">{title}</Text>
         <Feather
           name={expanded ? 'chevron-up' : 'chevron-down'}
           size={18}
           color={colors.text.secondary}
         />
-      </TouchableOpacity>
+      </Pressable>
 
       {expanded && (
         <Animated.View
           entering={FadeIn.duration(200)}
           exiting={FadeOut.duration(150)}
-          className="px-3.5 pb-3.5"
+          className="pt-2"
           testID={testID ? `${testID}-content` : undefined}
         >
           {children}

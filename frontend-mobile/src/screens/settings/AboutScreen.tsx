@@ -1,24 +1,17 @@
-// ABOUTME: About pane — the release, which model answers the athlete, and the help and legal links
-// ABOUTME: Section order comes from the shared settings declaration, so web lists the same four rows
+// ABOUTME: About pane — the release, which model answers the athlete, and the help and legal links, as one Section of Rows
+// ABOUTME: Row order comes from the shared settings declaration, so web lists the same four
 
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Alert,
-  Linking,
-  type ViewStyle,
-} from 'react-native';
-import { PaneScrollView } from '../../components/ui';
+import { Alert, Linking, View } from 'react-native';
+import { PaneScrollView, Row, Section } from '../../components/ui';
 import { useQuery } from '@tanstack/react-query';
-import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 import {
   APP_VERSION,
   HELP_URL,
   LEGAL_URL,
   QUERY_KEYS,
+  settingsPane,
   settingsPaneSections,
 } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -48,6 +41,9 @@ async function openExternal(
  * The model line is read-only on purpose: an athlete does not bring their own
  * provider key, so the fact of which model replies belongs beside the version
  * rather than beside a field that invites a credential.
+ *
+ * Four rows in one group: two facts that are read and two links that open the
+ * browser, so only the links carry a chevron.
  */
 export function AboutScreen() {
   const { t } = useTranslation();
@@ -64,105 +60,53 @@ export function AboutScreen() {
     ? [systemProvider.display_name, systemProvider.model].filter(Boolean).join(' · ')
     : null;
 
-  const cardStyle: ViewStyle = {
-    backgroundColor: colors.background.tertiary,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
-  const rowStyle: ViewStyle = {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  };
-
-  const iconBox = (name: React.ComponentProps<typeof Feather>['name']) => (
-    <View
-      style={{
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        backgroundColor: colors.background.secondary,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: 12,
-      }}
-    >
-      <Feather name={name} size={20} color={colors.text.secondary} />
-    </View>
-  );
-
   const sections = settingsPaneSections('about');
 
-  const renderSection = (section: string, index: number) => {
-    const divider =
-      index < sections.length - 1
-        ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
-        : {};
+  const renderRow = (section: string, index: number) => {
+    const last = index === sections.length - 1;
 
     switch (section) {
       case 'version':
-        return (
-          <View key={section} style={[rowStyle, divider]} testID="about-section-version">
-            {iconBox('info')}
-            <View style={{ flex: 1 }}>
-              <Text className="text-base" style={{ color: colors.text.primary }}>{t('app.version')}</Text>
-              <Text className="text-sm" style={{ color: colors.text.tertiary }}>{APP_VERSION}</Text>
-            </View>
-          </View>
-        );
+        return <Row key={section} compact last={last} title={t('app.version')} value={APP_VERSION} testID="about-section-version" />;
 
       case 'coach-model':
+        // A model name is a name, not a figure, so it takes the hint slot
+        // rather than the mono value slot; the hint carries the id the sweep
+        // reads it by.
         return (
-          <View key={section} style={[rowStyle, divider]} testID="about-section-coach-model">
-            {iconBox('cpu')}
-            <View style={{ flex: 1 }}>
-              <Text className="text-base" style={{ color: colors.text.primary }}>{t('about.agentModel')}</Text>
-              <Text
-                className="text-sm" style={{ color: colors.text.tertiary }}
-                testID="about-coach-model-value"
-              >
-                {coachModelLabel ?? t('about.agentModelUnknown')}
-              </Text>
-            </View>
-          </View>
+          <Row
+            key={section}
+            compact
+            last={last}
+            title={t('about.agentModel')}
+            hint={coachModelLabel ?? t('about.agentModelUnknown')}
+            hintTestID="about-coach-model-value"
+            testID="about-section-coach-model"
+          />
         );
 
       case 'help':
         return (
-          <TouchableOpacity
+          <Row
             key={section}
-            style={[rowStyle, divider]}
+            last={last}
+            title={t('about.helpCenter')}
+            subtitle={t('about.helpHint')}
             onPress={() => { void openExternal(HELP_URL, t); }}
             testID="about-section-help"
-          >
-            {iconBox('help-circle')}
-            <View style={{ flex: 1 }}>
-              <Text className="text-base" style={{ color: colors.text.primary }}>{t('about.helpCenter')}</Text>
-              <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('about.helpHint')}</Text>
-            </View>
-            <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-          </TouchableOpacity>
+          />
         );
 
       case 'legal':
         return (
-          <TouchableOpacity
+          <Row
             key={section}
-            style={[rowStyle, divider]}
+            last={last}
+            title={t('about.legalDocuments')}
+            subtitle={t('about.legalHint')}
             onPress={() => { void openExternal(LEGAL_URL, t); }}
             testID="about-section-legal"
-          >
-            {iconBox('file-text')}
-            <View style={{ flex: 1 }}>
-              <Text className="text-base" style={{ color: colors.text.primary }}>{t('about.legalDocuments')}</Text>
-              <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('about.legalHint')}</Text>
-            </View>
-            <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-          </TouchableOpacity>
+          />
         );
 
       default:
@@ -172,8 +116,8 @@ export function AboutScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="about-screen">
-      <PaneScrollView contentContainerStyle={{ padding: spacing.md }}>
-        <View style={cardStyle}>{sections.map(renderSection)}</View>
+      <PaneScrollView contentContainerStyle={{ paddingVertical: spacing.md }}>
+        <Section title={t(settingsPane('about').nameKey)}>{sections.map(renderRow)}</Section>
       </PaneScrollView>
     </View>
   );

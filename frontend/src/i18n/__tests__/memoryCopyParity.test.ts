@@ -28,11 +28,17 @@ const SHARED_KEYS = [
   'shell.memoryTitle',
   'app.memoryPanelBlurb',
   'shell.memoryEmpty',
-  'shell.memoryEmptyHint',
   'shell.memoryEmptyFiltered',
-  'shell.memoryEmptyFilteredHint',
   'shell.memoryShowAllKinds',
 ];
+
+/**
+ * Read by the browser alone. The phone's empty state is one sentence and, when
+ * filtered, one link (`ui/EmptyState`, Boreal v2.2 Phase 4), so it has no hint
+ * line to translate; the browser's memory panel still shows one under each
+ * sentence. The keys stay in the catalogue for as long as the browser reads them.
+ */
+const WEB_ONLY_KEYS = ['shell.memoryEmptyHint', 'shell.memoryEmptyFilteredHint'];
 
 /** The second copies, retired: each said the same thing as a key above. */
 const RETIRED_KEYS = [
@@ -62,6 +68,11 @@ describe('memory screen copy parity', () => {
     for (const key of SHARED_KEYS) {
       expect(web, `web is missing ${key}`).toContain(`'${key}'`);
       expect(mobile, `mobile is missing ${key}`).toContain(`'${key}'`);
+      expect(typeof leaf(en as Record<string, unknown>, key), key).toBe('string');
+    }
+    for (const key of WEB_ONLY_KEYS) {
+      expect(web, `web is missing ${key}`).toContain(`'${key}'`);
+      expect(mobile, `mobile reads the browser-only ${key}`).not.toContain(`'${key}'`);
       expect(typeof leaf(en as Record<string, unknown>, key), key).toBe('string');
     }
   });

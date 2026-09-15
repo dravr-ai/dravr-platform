@@ -1,0 +1,74 @@
+# ABOUTME: The Memory pane from Settings — the kind tabs, the empty state under each, and the way back to all kinds
+# ABOUTME: Ids only, no copy: the seeded tester holds no memory facts, so the empty branch is the deterministic one
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# Navigate to Settings
+- runFlow:
+    file: ../helpers/navigate-to-settings.yaml
+
+# The Memory row sits in the pane list under the profile section.
+- scrollUntilVisible:
+    element:
+      id: "settings-pane-memory"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "settings-pane-memory"
+
+# The pane is up, with the kind tabs over the list.
+- extendedWaitUntil:
+    visible:
+      id: "memory-screen"
+    timeout: 10000
+- assertVisible:
+    id: "memory-kind-tab-all"
+
+# The seeders write no memory facts for mobiletest@pierre.dev (see
+# crates/pierre-seeders/src/demo_data.rs), so under "all kinds" the pane says
+# there is nothing yet — and offers no way back, there being nowhere to go.
+- extendedWaitUntil:
+    visible:
+      id: "memory-empty"
+    timeout: 15000
+- assertNotVisible:
+    id: "memory-show-all-kinds"
+
+# Under one kind the sentence changes — "none of this type", not "none at
+# all" — and the way back to all kinds appears.
+- tapOn:
+    id: "memory-kind-tab-goal"
+- extendedWaitUntil:
+    visible:
+      id: "memory-empty-filtered"
+    timeout: 15000
+- assertVisible:
+    id: "memory-show-all-kinds"
+- assertNotVisible:
+    id: "memory-empty"
+
+# Taking it lands back on the unfiltered empty state.
+- tapOn:
+    id: "memory-show-all-kinds"
+- extendedWaitUntil:
+    visible:
+      id: "memory-empty"
+    timeout: 15000
+- assertNotVisible:
+    id: "memory-empty-filtered"
+
+# Memory is an app-level modal, not a push: its header carries the native
+# Close button, not a back chevron, so the way back is that button.
+- tapOn:
+    id: "back-button"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000

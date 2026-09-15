@@ -1,19 +1,10 @@
-// ABOUTME: Messaging channels screen — view, link and unlink chat apps after onboarding
-// ABOUTME: Mobile could link a channel during onboarding but never manage one afterwards
+// ABOUTME: Messaging channels pane — two Sections, the chat apps linked to the account and the ones still available to link
+// ABOUTME: Unlink and connect are ink words on the trailing side of a 52 row; no card, no filled button (Boreal v2.2 Phase 4)
 
 import React, { useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Linking,
-  type ViewStyle,
-} from 'react-native';
-import { PaneScrollView } from '../../components/ui';
+import { View, Text, ActivityIndicator, Alert, Linking } from 'react-native';
+import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { useFocusEffect } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import type { AvailableChannel, ChannelLink } from '@pierre/api-client';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { messagingApi } from '../../services/api';
@@ -123,126 +114,101 @@ export function MessagingChannelsScreen() {
     );
   };
 
-  const cardStyle: ViewStyle = {
-    backgroundColor: colors.background.tertiary,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
-  const rowStyle: ViewStyle = {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  };
+  /** The ink word on a row's trailing side, or the spinner while that channel is busy. */
+  const inkAction = (channel: string, label: string, onPress: () => void, testID: string) =>
+    busyChannel === channel ? (
+      <ActivityIndicator color={colors.text.tertiary} />
+    ) : (
+      <Text
+        className="text-sm font-medium text-primary"
+        accessibilityRole="button"
+        onPress={onPress}
+        testID={testID}
+      >
+        {label}
+      </Text>
+    );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="messaging-channels-screen">
+    <View className="flex-1 bg-background-primary" testID="messaging-channels-screen">
       {isLoading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color={colors.pierre.violet} />
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.text.primary} />
         </View>
       ) : error ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: 12 }}>
-          <Text style={{ color: colors.text.secondary, textAlign: 'center' }} testID="messaging-error">{error}</Text>
-          <TouchableOpacity onPress={() => { void load(); }} testID="messaging-retry" style={{ paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background.tertiary }}>
-            <Text style={{ color: colors.text.primary, fontWeight: '600' }}>{t('common.retry')}</Text>
-          </TouchableOpacity>
+        // The retry is a sibling, not a nested span: Android gives a nested
+        // `Text` no native view, so a tap on it would reach nothing there.
+        <View className="flex-row flex-wrap items-baseline px-4 py-3">
+          <Text className="text-sm text-error" testID="messaging-error">{error}</Text>
+          <Text
+            className="text-sm text-primary font-medium ml-1"
+            accessibilityRole="button"
+            onPress={() => { void load(); }}
+            testID="messaging-retry"
+          >
+            {t('common.retry')}
+          </Text>
         </View>
       ) : (
-        <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
-          <View>
-            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>{t('app.linked')}</Text>
-            <View style={cardStyle}>
+        <PaneScrollView contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl }}>
+          <View className="gap-8">
+            <Section title={t('app.linked')} testID="messaging-linked-section">
               {links.length === 0 ? (
-                <View style={{ padding: spacing.md }} testID="messaging-no-links">
-                  <Text style={{ color: colors.text.tertiary }}>
-                    {/* "Link one below" points at nothing when the tenant has
-                        no channel configured, so that case says what is
-                        actually true instead of giving an instruction the
-                        athlete cannot follow. */}
-                    {available.length === 0
-                      ? t('app.noChatAppsAvailableYet')
-                      : t('app.noChatAppsLinked')}
-                  </Text>
-                </View>
+                <EmptyState testID="messaging-no-links">
+                  {/* "Link one below" points at nothing when the tenant has no
+                      channel configured, so that case says what is actually
+                      true instead of giving an instruction the athlete cannot
+                      follow. */}
+                  {available.length === 0 ? t('app.noChatAppsAvailableYet') : t('app.noChatAppsLinked')}
+                </EmptyState>
               ) : (
                 links.map((link, index) => (
-                  <View
+                  <Row
                     key={link.channel}
-                    style={[
-                      rowStyle,
-                      index < links.length - 1
-                        ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
-                        : {},
-                    ]}
                     testID={`messaging-link-${link.channel}`}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text className="text-base" style={{ color: colors.text.primary }}>
-                        {available.find((c) => c.channel === link.channel)?.display_name ?? link.channel}
-                      </Text>
-                      <Text className="text-sm" style={{ color: colors.text.tertiary }}>
-                        {link.display_name ?? link.channel_user_id}
-                      </Text>
-                    </View>
-                    {busyChannel === link.channel ? (
-                      <ActivityIndicator color={colors.text.tertiary} />
-                    ) : (
-                      <TouchableOpacity
-                        onPress={() => handleUnlink(link)}
-                        testID={`messaging-unlink-${link.channel}`}
-                        style={{ paddingHorizontal: 12, paddingVertical: 8 }}
-                      >
-                        <Text style={{ color: colors.pierre.red, fontWeight: '600' }}>{t('app.unlink')}</Text>
-                      </TouchableOpacity>
+                    title={available.find((c) => c.channel === link.channel)?.display_name ?? link.channel}
+                    hint={link.display_name ?? link.channel_user_id}
+                    last={index === links.length - 1}
+                    trailing={inkAction(
+                      link.channel,
+                      t('app.unlink'),
+                      () => handleUnlink(link),
+                      `messaging-unlink-${link.channel}`,
                     )}
-                  </View>
+                  />
                 ))
               )}
-            </View>
-          </View>
+            </Section>
 
-          <View>
-            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>{t('app.available')}</Text>
-            <View style={cardStyle}>
-              {unlinked.map((channel, index) => (
-                <TouchableOpacity
-                  key={channel.channel}
-                  style={[
-                    rowStyle,
-                    index < unlinked.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
-                      : {},
-                  ]}
-                  onPress={() => handleLink(channel)}
-                  disabled={busyChannel === channel.channel}
-                  testID={`messaging-link-add-${channel.channel}`}
-                >
-                  <Text className="text-base" style={{ flex: 1, color: colors.text.primary }}>{channel.display_name}</Text>
-                  {busyChannel === channel.channel ? (
-                    <ActivityIndicator color={colors.text.tertiary} />
-                  ) : (
-                    <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-                  )}
-                </TouchableOpacity>
-              ))}
+            <Section title={t('app.available')} testID="messaging-available-section">
               {/* An empty list has two causes and they are not the same news.
                   Nothing configured for the tenant is not "you already linked
                   everything", and saying the second when the first is true is
                   how this screen came to contradict itself. */}
               {available.length === 0 ? (
-                <View style={{ padding: spacing.md }} testID="messaging-none-configured">
-                  <Text style={{ color: colors.text.tertiary }}>{t('app.noChatAppsConfigured')}</Text>
-                </View>
+                <EmptyState testID="messaging-none-configured">{t('app.noChatAppsConfigured')}</EmptyState>
               ) : unlinked.length === 0 ? (
-                <View style={{ padding: spacing.md }} testID="messaging-all-linked">
-                  <Text style={{ color: colors.text.tertiary }}>{t('app.everyChatAppLinked')}</Text>
-                </View>
-              ) : null}
-            </View>
+                <EmptyState testID="messaging-all-linked">{t('app.everyChatAppLinked')}</EmptyState>
+              ) : (
+                unlinked.map((channel, index) => (
+                  <Row
+                    key={channel.channel}
+                    testID={`messaging-link-add-${channel.channel}`}
+                    title={channel.display_name}
+                    last={index === unlinked.length - 1}
+                    onPress={busyChannel === channel.channel ? undefined : () => handleLink(channel)}
+                    // The whole 52 row is the target; the ink word only says what the tap does.
+                    trailing={
+                      busyChannel === channel.channel ? (
+                        <ActivityIndicator color={colors.text.tertiary} />
+                      ) : (
+                        <Text className="text-sm font-medium text-primary">{t('app.connect')}</Text>
+                      )
+                    }
+                  />
+                ))
+              )}
+            </Section>
           </View>
         </PaneScrollView>
       )}

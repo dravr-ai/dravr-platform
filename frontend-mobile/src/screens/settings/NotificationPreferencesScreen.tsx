@@ -2,16 +2,8 @@
 // ABOUTME: Mobile half of the surface pair; web renders the same rows from the same hook
 
 import React, { useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
-  ActivityIndicator,
-  type ViewStyle,
-} from 'react-native';
-import { PaneScrollView } from '../../components/ui';
+import { View, Text, Pressable, Switch, ActivityIndicator } from 'react-native';
+import { PaneScrollView, Section, TextTabs } from '../../components/ui';
 import type { NotificationCategory } from '@pierre/shared-types';
 import {
   NOTIFICATION_CATEGORY_META,
@@ -48,6 +40,12 @@ const QUIET_HOUR_VALUES: readonly string[] = [
   ...Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
 ];
 
+/** The tab key of a quiet-hours boundary: the hour itself, or `off` for none. */
+const QUIET_OFF_KEY = 'off';
+
+/** The tab key of the daily cap that means no cap. */
+const CAP_NONE_KEY = 'none';
+
 /** The device's IANA zone, used when a category has never had one stored. */
 function localTimezone(): string {
   try {
@@ -77,6 +75,11 @@ function capLabel(choice: number | null, t: (key: string, opts?: Record<string, 
  * restates the whole row —
  * the endpoint is an upsert, so a partial request would erase the fields it
  * left out.
+ *
+ * Each category is a `Section` of its own: the label and blurb are the header,
+ * the switch is the header's action, and the quiet-hours pickers are the
+ * content. Sections separate themselves by the column's gap, so no card and no
+ * divider is drawn between them (DESIGN.md §10).
  */
 export function NotificationPreferencesScreen() {
   const { t } = useTranslation();
@@ -91,86 +94,60 @@ export function NotificationPreferencesScreen() {
   // sees the same seven rows on both.
   const rows = useMemo(() => mergeNotificationPreferences(preferences), [preferences]);
 
-  const cardStyle: ViewStyle = {
-    backgroundColor: colors.background.tertiary,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
-  const chipStyle = (selected: boolean): ViewStyle => ({
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: selected ? colors.pierre.violet : colors.border.default,
-    backgroundColor: selected ? `${colors.pierre.violet}20` : 'transparent',
-  });
+  // The pickers' items are the same for every category, so they are built
+  // once per language rather than once per open section.
+  const capItems = useMemo(
+    () =>
+      NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => ({
+        key: choice === null ? CAP_NONE_KEY : String(choice),
+        label: capLabel(choice, t),
+      })),
+    [t],
+  );
+  const quietHourItems = useMemo(
+    () =>
+      QUIET_HOUR_VALUES.map((value) => ({
+        key: value === '' ? QUIET_OFF_KEY : value,
+        label: value === '' ? t('notifPrefs.off') : value,
+      })),
+    [t],
+  );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="notification-preferences-screen">
+    <View className="flex-1 bg-background-primary" testID="notification-preferences-screen">
       {isLoading ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color={colors.pierre.violet} testID="notification-prefs-loading" />
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color={colors.tokens.primary} testID="notification-prefs-loading" />
         </View>
       ) : isError ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg }}>
-          <Text
-            style={{ color: colors.text.secondary, textAlign: 'center' }}
-            testID="notification-prefs-error"
-          >
-            {t('notifPrefs.loadFailedMobile')}
-          </Text>
-        </View>
+        <Text className="text-sm text-error px-4 pt-6" testID="notification-prefs-error">
+          {t('notifPrefs.loadFailedMobile')}
+        </Text>
       ) : (
-        <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}>
-          <Text className="text-sm" style={{ color: colors.text.tertiary }}>
-            {t('notifPrefs.intro')}
-          </Text>
+        <PaneScrollView
+          contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl, gap: spacing.lg }}
+        >
+          <Text className="text-sm text-text-secondary px-4">{t('notifPrefs.intro')}</Text>
 
-          <View style={cardStyle} testID="notification-prefs-list">
-            {rows.map((pref, index) => {
+          <View className="gap-8" testID="notification-prefs-list">
+            {rows.map((pref) => {
               const meta = NOTIFICATION_CATEGORY_META[pref.category];
               const isOpen = expanded === pref.category;
+              const capValue =
+                pref.max_per_day === null || pref.max_per_day === undefined
+                  ? CAP_NONE_KEY
+                  : String(pref.max_per_day);
               return (
-                <View
+                <Section
                   key={pref.category}
-                  style={
-                    index < rows.length - 1
-                      ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
-                      : undefined
+                  title={meta ? t(meta.labelKey) : pref.category}
+                  description={
+                    CATEGORY_BLURB_KEYS[pref.category]
+                      ? t(CATEGORY_BLURB_KEYS[pref.category])
+                      : t('notifPrefs.categoryBlurbFallback')
                   }
                   testID={`notification-pref-${pref.category}`}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 16,
-                      paddingVertical: 14,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 5,
-                        marginRight: 12,
-                        backgroundColor: meta?.color ?? colors.text.tertiary,
-                      }}
-                    />
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text className="text-base" style={{ color: colors.text.primary }}>
-                        {meta ? t(meta.labelKey) : pref.category}
-                      </Text>
-                      <Text className="text-sm" style={{ color: colors.text.tertiary, marginTop: 2 }}>
-                        {CATEGORY_BLURB_KEYS[pref.category]
-                          ? t(CATEGORY_BLURB_KEYS[pref.category])
-                          : t('notifPrefs.categoryBlurbFallback')}
-                      </Text>
-                    </View>
+                  actions={
                     <Switch
                       testID={`notification-pref-switch-${pref.category}`}
                       value={pref.enabled}
@@ -178,134 +155,84 @@ export function NotificationPreferencesScreen() {
                       onValueChange={(next) =>
                         updatePreference(notificationPreferenceUpdate(pref, { enabled: next }))
                       }
-                      trackColor={{
-                        false: colors.background.secondary,
-                        true: `${colors.pierre.violet}60`,
-                      }}
-                      thumbColor={pref.enabled ? colors.pierre.violet : colors.text.tertiary}
+                      trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
                     />
-                  </View>
-
+                  }
+                >
                   {pref.enabled && (
-                    <TouchableOpacity
-                      onPress={() => setExpanded(isOpen ? null : pref.category)}
-                      testID={`notification-pref-details-${pref.category}`}
-                      style={{ paddingHorizontal: 16, paddingBottom: 12 }}
-                    >
-                      <Text className="text-sm" style={{ color: colors.pierre.violet }}>
-                        {isOpen ? t('notifPrefs.hideQuietHours') : t('notifPrefs.quietHoursAndLimit')}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {pref.enabled && isOpen && (
-                    <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
-                      <View>
-                        <Text className="text-sm font-medium" style={{ color: colors.text.tertiary, marginBottom: 6 }}>
-                          {t('notifPrefs.maxPerDay')}
+                    // The link and the picker labels are plain lines and pay
+                    // the pane's inset themselves; the tab rows run full-bleed
+                    // and inset their own labels, so a long row scrolls to the
+                    // pane's edge.
+                    <View className="gap-3">
+                      <Pressable
+                        className="px-4"
+                        onPress={() => setExpanded(isOpen ? null : pref.category)}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: isOpen }}
+                        testID={`notification-pref-details-${pref.category}`}
+                      >
+                        <Text className="text-sm font-medium text-primary">
+                          {isOpen ? t('notifPrefs.hideQuietHours') : t('notifPrefs.quietHoursAndLimit')}
                         </Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          {NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => (
-                            <TouchableOpacity
-                              key={choice === null ? 'none' : choice}
-                              testID={`notification-pref-cap-${pref.category}-${choice === null ? 'none' : choice}`}
-                              style={chipStyle(pref.max_per_day === choice)}
-                              onPress={() =>
+                      </Pressable>
+
+                      {isOpen && (
+                        <View className="gap-3">
+                          <View className="gap-1.5">
+                            <Text className="text-sm text-text-secondary px-4">{t('notifPrefs.maxPerDay')}</Text>
+                            <TextTabs
+                              testID={`notification-pref-cap-${pref.category}`}
+                              items={capItems}
+                              value={capValue}
+                              onChange={(key) =>
                                 updatePreference(
                                   notificationPreferenceUpdate(pref, {
-                                    max_per_day: choice === null ? undefined : choice,
+                                    max_per_day: key === CAP_NONE_KEY ? undefined : Number(key),
                                   }),
                                 )
                               }
-                            >
-                              <Text
-                                className="text-sm"
-                                style={{
-                                  color:
-                                    pref.max_per_day === choice
-                                      ? colors.pierre.violet
-                                      : colors.text.secondary,
-                                }}
-                              >
-                                {capLabel(choice, t)}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
+                            />
+                          </View>
 
-                      <View>
-                        <Text className="text-sm font-medium" style={{ color: colors.text.tertiary, marginBottom: 6 }}>
-                          {t('notifPrefs.quietFrom')}
-                        </Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          {QUIET_HOUR_VALUES.map((value) => (
-                            <TouchableOpacity
-                              key={value === '' ? 'off' : value}
-                              testID={`notification-pref-quiet-start-${pref.category}-${value === '' ? 'off' : value}`}
-                              style={chipStyle((pref.quiet_hours_start ?? '') === value)}
-                              onPress={() =>
+                          <View className="gap-1.5">
+                            <Text className="text-sm text-text-secondary px-4">{t('notifPrefs.quietFrom')}</Text>
+                            <TextTabs
+                              testID={`notification-pref-quiet-start-${pref.category}`}
+                              items={quietHourItems}
+                              value={pref.quiet_hours_start ?? QUIET_OFF_KEY}
+                              onChange={(key) =>
                                 updatePreference(
                                   notificationPreferenceUpdate(pref, {
-                                    quiet_hours_start: value === '' ? undefined : value,
+                                    quiet_hours_start: key === QUIET_OFF_KEY ? undefined : key,
                                     timezone: pref.timezone ?? localTimezone(),
                                   }),
                                 )
                               }
-                            >
-                              <Text
-                                className="text-sm"
-                                style={{
-                                  color:
-                                    (pref.quiet_hours_start ?? '') === value
-                                      ? colors.pierre.violet
-                                      : colors.text.secondary,
-                                }}
-                              >
-                                {value === '' ? t('notifPrefs.off') : value}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
+                            />
+                          </View>
 
-                      <View>
-                        <Text className="text-sm font-medium" style={{ color: colors.text.tertiary, marginBottom: 6 }}>
-                          {t('notifPrefs.quietUntil')}
-                        </Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          {QUIET_HOUR_VALUES.map((value) => (
-                            <TouchableOpacity
-                              key={value === '' ? 'off' : value}
-                              testID={`notification-pref-quiet-end-${pref.category}-${value === '' ? 'off' : value}`}
-                              style={chipStyle((pref.quiet_hours_end ?? '') === value)}
-                              onPress={() =>
+                          <View className="gap-1.5">
+                            <Text className="text-sm text-text-secondary px-4">{t('notifPrefs.quietUntil')}</Text>
+                            <TextTabs
+                              testID={`notification-pref-quiet-end-${pref.category}`}
+                              items={quietHourItems}
+                              value={pref.quiet_hours_end ?? QUIET_OFF_KEY}
+                              onChange={(key) =>
                                 updatePreference(
                                   notificationPreferenceUpdate(pref, {
-                                    quiet_hours_end: value === '' ? undefined : value,
+                                    quiet_hours_end: key === QUIET_OFF_KEY ? undefined : key,
                                     timezone: pref.timezone ?? localTimezone(),
                                   }),
                                 )
                               }
-                            >
-                              <Text
-                                className="text-sm"
-                                style={{
-                                  color:
-                                    (pref.quiet_hours_end ?? '') === value
-                                      ? colors.pierre.violet
-                                      : colors.text.secondary,
-                                }}
-                              >
-                                {value === '' ? t('notifPrefs.off') : value}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
+                            />
+                          </View>
+                        </View>
+                      )}
                     </View>
                   )}
-                </View>
+                </Section>
               );
             })}
           </View>

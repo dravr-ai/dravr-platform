@@ -79,6 +79,23 @@ describe('Sheet', () => {
     expect(getByTestId('tall').props.className).not.toContain('max-h-[85%]');
   });
 
+  it('pads the panel 16 on the sides unless the caller asks for flush content', () => {
+    const padded = render(
+      <Sheet visible onClose={() => {}} testID="padded">
+        <Text>Padded</Text>
+      </Sheet>,
+    );
+    expect(padded.getByTestId('padded').props.className).toContain('px-4');
+
+    const flush = render(
+      <Sheet visible onClose={() => {}} testID="flush" flush>
+        <Text>Flush</Text>
+      </Sheet>,
+    );
+    expect(flush.getByTestId('flush').props.className).not.toContain('px-4');
+    expect(flush.getByTestId('flush').props.className).toContain('pt-4');
+  });
+
   it('has no drag pill anywhere in the tree', () => {
     const { toJSON } = renderSheet();
     const all = classNames(toJSON());

@@ -111,4 +111,49 @@ describe('PrivacySettingsScreen — analytics consent', () => {
     expect(mockUpdateUser).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
+
+  // Turns red if the cards come back: three sections in a gap-8 column, the
+  // switch as the first section's action, and no icon circle, pill or filled
+  // card anywhere in the tree (Boreal v2.2, DESIGN.md §10).
+  it('lays the consent switch and the two promise lists out as sections, with no card or icon circle', () => {
+    const { getByTestId, toJSON } = renderScreen();
+
+    for (const id of ['privacy-section-analytics', 'privacy-section-collected', 'privacy-section-never']) {
+      const section = getByTestId(id);
+      expect(section.props.className).not.toContain('bg-');
+      expect(section.props.className).not.toContain('border');
+      expect(section.props.style).toBeUndefined();
+    }
+    expect(getByTestId('analytics-consent-switch')).toBeTruthy();
+
+    const serialised = JSON.stringify(toJSON());
+    expect(serialised).not.toContain('rounded-full');
+    expect(serialised).toContain('"className":"gap-8"');
+    expect(serialised).not.toContain('mt-6 mb-2 ml-2');
+    const styles = allStyles(rootOf(toJSON));
+    expect(styles.some((s) => typeof s.borderRadius === 'number' && s.borderRadius >= 999)).toBe(false);
+    // The card recipe: a fill with a hairline around it.
+    expect(styles.some((s) => s.backgroundColor !== undefined && s.borderWidth !== undefined)).toBe(false);
+  });
 });
+
+type Json = { type: string; props: Record<string, unknown>; children: Array<Json | string> | null };
+
+/** Every style object in a rendered tree, flat or nested arrays alike. */
+function allStyles(node: Json | string | null | undefined, out: Array<Record<string, unknown>> = []) {
+  if (!node || typeof node === 'string') return out;
+  const flatten = (style: unknown): void => {
+    if (Array.isArray(style)) style.forEach(flatten);
+    else if (style && typeof style === 'object') out.push(style as Record<string, unknown>);
+  };
+  flatten(node.props.style);
+  for (const child of node.children ?? []) allStyles(child, out);
+  return out;
+}
+
+/** The rendered tree as one node, whichever shape `toJSON()` returned. */
+function rootOf(tree: ReturnType<typeof render>['toJSON']): Json {
+  const rendered = tree() as Json | Json[] | null;
+  if (!rendered) throw new Error('nothing rendered');
+  return Array.isArray(rendered) ? rendered[0] : rendered;
+}

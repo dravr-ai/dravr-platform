@@ -1,24 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Intervals.icu link modal for mobile — collects athlete id + API key (non-OAuth)
+// ABOUTME: Intervals.icu link sheet for mobile — collects athlete id + API key (non-OAuth) in the one bottom sheet
 // ABOUTME: Server validates the HTTP Basic ("API_KEY":api_key) pair live before storing
 
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Modal,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { Activity, X, CheckCircle2 } from 'lucide-react-native';
+import { View, Text, KeyboardAvoidingView, Platform } from 'react-native';
+import { CheckCircle2 } from 'lucide-react-native';
 import { describeApiError } from '@pierre/ui-logic';
-import { PROVIDER_COLORS, useThemeColors } from '../constants/theme';
+import { useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
-import { Input } from './ui';
+import { IntervalsIcuLogo } from './icons/BrandIcons';
+import { Button, Input, Sheet } from './ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface IntervalsIcuLinkModalProps {
@@ -34,7 +27,10 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
   const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  // The linked athlete once the server accepted the pair: the name it knows,
+  // else the id, else nothing but the confirmation word.
+  const [linkedAthlete, setLinkedAthlete] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -42,7 +38,8 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
       setApiKey('');
       setIsLoading(false);
       setError(null);
-      setSuccess(null);
+      setLinkedAthlete(null);
+      setSuccess(false);
     }
   }, [visible]);
 
@@ -54,8 +51,8 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
         athlete_id: athleteId.trim(),
         api_key: apiKey.trim(),
       });
-      const name = result.athlete?.name || result.athlete?.id || 'your account';
-      setSuccess(`Connected ${name}`);
+      setLinkedAthlete(result.athlete?.name || result.athlete?.id || null);
+      setSuccess(true);
       setTimeout(onConnected, 1200);
     } catch (err) {
       setError(describeApiError(err, { t, fallbackKey: 'shell.intervalsLinkFailed' }));
@@ -66,98 +63,70 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
   const canSubmit = athleteId.trim().length > 0 && apiKey.trim().length > 0 && !isLoading;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        className="flex-1 bg-scrim/60 justify-end"
-      >
-        <View
-          className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
-          onStartShouldSetResponder={() => true}
-        >
-          <View className="items-center mb-3">
-            <View className="w-10 h-1 rounded-full bg-border-default" />
+    <Sheet visible={visible} onClose={onClose} testID="intervals-sheet" backdropTestID="intervals-sheet-backdrop">
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View className="flex-row items-center gap-3 mb-4">
+          <IntervalsIcuLogo size={24} />
+          <View className="flex-1 min-w-0">
+            <Text className="text-lg font-semibold text-text-primary">
+              {t('app.connectProvider', { provider: 'Intervals.icu' })}
+            </Text>
+            <Text className="text-xs text-text-tertiary">{t('app.apiKeyNoOauth')}</Text>
           </View>
-
-          {/* Header */}
-          <View className="flex-row items-center justify-between mb-4">
-            <View className="flex-row items-center">
-              <View
-                className="w-9 h-9 rounded-xl items-center justify-center mr-3"
-                style={{ backgroundColor: PROVIDER_COLORS.intervals_icu }}
-              >
-                <Activity size={18} color={colors.tokens.onPrimary} />
-              </View>
-              <View>
-                <Text className="text-lg font-semibold text-text-primary">Connect Intervals.icu</Text>
-                <Text className="text-xs text-text-tertiary">{t('app.apiKeyNoOauth')}</Text>
-              </View>
-            </View>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <X size={22} color={colors.text.tertiary} />
-            </TouchableOpacity>
-          </View>
-
-          {success ? (
-            <View className="items-center py-6">
-              <CheckCircle2 size={40} color={colors.success} />
-              <Text className="mt-3 text-base font-medium text-text-primary">{success}</Text>
-            </View>
-          ) : (
-            <>
-              <Text className="text-sm text-text-secondary mb-4 leading-5">
-                Find your athlete id and API key under Settings → Developer on intervals.icu.
-              </Text>
-
-              {/* These were hand-rolled boxed fields, so the Input primitive's
-                  editorial underline never reached them — the same bypass that
-                  put a boxed textarea beside an underline on web. */}
-              <Input
-                label={t('app.athleteId')}
-                placeholder="i123456"
-                value={athleteId}
-                onChangeText={setAthleteId}
-                autoCapitalize="none"
-                autoCorrect={false}
-                testID="intervals-athlete-id"
-              />
-
-              <Input
-                label={t('app.apiKey')}
-                placeholder={t('app.apiKeyLower')}
-                value={apiKey}
-                onChangeText={setApiKey}
-                secureTextEntry
-                showPasswordToggle
-                autoCapitalize="none"
-                autoCorrect={false}
-                testID="intervals-api-key"
-              />
-              {error && (
-                <Text className="text-sm text-error mb-3" testID="intervals-error">
-                  {error}
-                </Text>
-              )}
-
-              <TouchableOpacity
-                // Intervals' brand blue belongs on the provider mark, not on the
-                // submit action — see ConnectionsScreen for the same split.
-                className={`py-3.5 rounded-xl items-center bg-primary ${canSubmit ? '' : 'opacity-50'}`}
-                onPress={handleSubmit}
-                disabled={!canSubmit}
-                activeOpacity={0.8}
-                testID="intervals-submit"
-              >
-                {isLoading ? (
-                  <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
-                ) : (
-                  <Text className="text-base font-semibold text-on-primary">{t('app.connect')}</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
         </View>
+
+        {success ? (
+          <View className="items-center py-6">
+            <CheckCircle2 size={40} color={colors.success} />
+            <Text className="mt-3 text-base font-medium text-text-primary">{t('app.connectedBang')}</Text>
+            {linkedAthlete !== null && (
+              <Text className="mt-1 text-sm text-text-secondary">{linkedAthlete}</Text>
+            )}
+          </View>
+        ) : (
+          <>
+            <Text className="text-sm text-text-secondary mb-4">
+              {t('frag.findAthleteIdUnder')} {t('shell.intervalsSettingsPath')}
+            </Text>
+
+            <Input
+              label={t('app.athleteId')}
+              placeholder="i123456"
+              value={athleteId}
+              onChangeText={setAthleteId}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="intervals-athlete-id"
+            />
+
+            <Input
+              label={t('app.apiKey')}
+              placeholder={t('app.apiKeyLower')}
+              value={apiKey}
+              onChangeText={setApiKey}
+              secureTextEntry
+              showPasswordToggle
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="intervals-api-key"
+            />
+            {error && (
+              <Text className="text-sm text-error mb-3" testID="intervals-error">
+                {error}
+              </Text>
+            )}
+
+            <Button
+              title={t('app.connect')}
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+              loading={isLoading}
+              fullWidth
+              testID="intervals-submit"
+            />
+          </>
+        )}
       </KeyboardAvoidingView>
-    </Modal>
+    </Sheet>
   );
 }

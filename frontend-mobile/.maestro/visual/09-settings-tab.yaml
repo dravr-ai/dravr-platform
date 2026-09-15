@@ -1,5 +1,5 @@
-# ABOUTME: Visual tests for settings tab
-# ABOUTME: Converted from mobile-visual.test.js "Settings Tab" tests
+# ABOUTME: Visual tests for the Settings tab — the tab opens, the profile section shows, the Connections pane opens and is captured
+# ABOUTME: Ids only past the tab tap: the Settings root, its profile section, the pane row, the Connections root
 
 appId: ai.dravr.app
 
@@ -39,15 +39,24 @@ appId: ai.dravr.app
       id: "settings-profile-section"
     timeout: 10000
 
-# Test: settings - displays connections section (may need scroll)
-- runFlow:
-    when:
-      visible: "Connections"
-    commands:
-      - assertVisible: "Connections"
+- takeScreenshot: settings-tab
 
+# Test: settings - the Connections pane opens from its row
+- tapOn:
+    id: "settings-pane-connections"
+
+- extendedWaitUntil:
+    visible:
+      id: "connections-screen"
+    timeout: 5000
+
+- takeScreenshot: settings-connections
+
+# Back to Settings
 - runFlow:
-    when:
-      visible: "Providers"
-    commands:
-      - assertVisible: "Providers"
+    file: ../helpers/go-back.yaml
+
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 5000

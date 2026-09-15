@@ -1,5 +1,5 @@
-# ABOUTME: Test Account section is visible with expected elements
-# ABOUTME: Converted from settings.test.js "expected sections - data from backend"
+# ABOUTME: Test the Account pane opens from the settings list and shows every section the shared declaration groups under it
+# ABOUTME: Status, usage, security, connected apps and sign-out — each found by id, never by copy
 
 appId: ai.dravr.app
 
@@ -14,34 +14,61 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
-# Scroll to Account section (below profile and data sections)
+# Open the Account pane from its row. Account is the last pane row and sits
+# under the tab bar until the list is scrolled to its end, so the scroll
+# targets the sign-out row below it: a row that is only partly visible
+# counts as visible, and a tap on its centre lands on the tab bar instead.
 - scrollUntilVisible:
     element:
-      id: "settings-account-section"
+      id: "settings-sign-out"
     direction: DOWN
     timeout: 10000
+- tapOn:
+    id: "settings-pane-account"
+- extendedWaitUntil:
+    visible:
+      id: "account-screen"
+    timeout: 5000
 
-# Test: should show Account section header
+# Test: the status and usage sections lead the pane
 - assertVisible:
-    id: "settings-account-section"
-
-# Test: should show Personal Information option
+    id: "account-section-account-status"
 - assertVisible:
-    id: "settings-personal-info-button"
+    id: "account-section-usage"
 
-# Test: should show Change Password option
-- assertVisible:
-    id: "settings-change-password-button"
-
-# Test: should show Connected Apps option
-# MCP Tokens is deliberately absent here: that row is gated on the `api_tokens`
-# feature flag, which defaults off, so on a stock tenant it does not render.
+# Test: security holds the change-password row
 - scrollUntilVisible:
     element:
-      id: "settings-connected-apps-button"
+      id: "account-section-security"
     direction: DOWN
-    timeout: 5000
+    timeout: 10000
 - assertVisible:
-    id: "settings-connected-apps-button"
-- assertNotVisible:
-    id: "settings-mcp-tokens-button"
+    id: "account-section-security"
+- assertVisible:
+    id: "account-change-password-button"
+
+# Test: the connected apps row is there
+- scrollUntilVisible:
+    element:
+      id: "account-connected-apps-button"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "account-connected-apps-button"
+
+# Test: sign-out closes the pane (not tapped here)
+- scrollUntilVisible:
+    element:
+      id: "account-section-sign-out"
+    direction: DOWN
+    timeout: 10000
+- assertVisible:
+    id: "account-section-sign-out"
+
+# Back to the settings list
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 5000

@@ -20,7 +20,6 @@ export interface ProviderStatusState {
    */
   providersLoaded: boolean;
   selectedProvider: string | null;
-  providerModalVisible: boolean;
   connectingProvider: string | null;
   needsCredentialsProvider: string | null;
   error: string | null;
@@ -30,7 +29,6 @@ export interface ProviderStatusActions {
   loadProviderStatus: () => Promise<void>;
   hasConnectedProvider: () => boolean;
   setSelectedProvider: (provider: string | null) => void;
-  setProviderModalVisible: (visible: boolean) => void;
   setNeedsCredentialsProvider: (provider: string | null) => void;
   handleConnectProvider: (
     provider: string,
@@ -44,7 +42,6 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
   const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
-  const [providerModalVisible, setProviderModalVisible] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [needsCredentialsProvider, setNeedsCredentialsProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,8 +94,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       const returnUrl = getOAuthCallbackUrl();
       const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl);
 
-      // Dismiss modal only after OAuth URL is ready and browser is about to open
-      setProviderModalVisible(false);
+      // The connecting state ends once the OAuth URL is ready and the browser is about to open
       setConnectingProvider(null);
 
       const result = await WebBrowser.openAuthSessionAsync(
@@ -152,7 +148,6 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         || errorMessage.toLowerCase().includes('configuration');
 
       if (isCredentialError) {
-        setProviderModalVisible(false);
         setNeedsCredentialsProvider(provider);
       } else {
         setError(errorMessage);
@@ -166,14 +161,12 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     connectedProviders,
     providersLoaded,
     selectedProvider,
-    providerModalVisible,
     connectingProvider,
     needsCredentialsProvider,
     error,
     loadProviderStatus,
     hasConnectedProvider,
     setSelectedProvider,
-    setProviderModalVisible,
     setNeedsCredentialsProvider,
     handleConnectProvider,
     getCachedConnectedProvider,

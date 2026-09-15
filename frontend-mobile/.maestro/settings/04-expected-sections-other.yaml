@@ -1,5 +1,5 @@
-# ABOUTME: Test Privacy, About, and Logout are visible
-# ABOUTME: Converted from settings.test.js "expected sections - data from backend"
+# ABOUTME: Test the Privacy and About rows open their panes, and the quiet sign-out closes the settings list
+# ABOUTME: Every element is found by id — the pane rows, the pane screens, the sign-out row — never by copy
 
 appId: ai.dravr.app
 
@@ -14,30 +14,49 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
-# Test: should show Privacy section (scroll to find it)
+# Test: the Privacy row opens the privacy pane
 - scrollUntilVisible:
     element:
-      text: "Privacy"
+      id: "settings-pane-privacy"
     direction: DOWN
     timeout: 15000
-- assertVisible: "Privacy"
+- tapOn:
+    id: "settings-pane-privacy"
+- extendedWaitUntil:
+    visible:
+      id: "privacy-settings-screen"
+    timeout: 5000
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 5000
 
-# Test: should show About section
+# Test: the About row opens the about pane
 - scrollUntilVisible:
     element:
-      text: "About"
+      id: "settings-pane-about"
     direction: DOWN
     timeout: 15000
-- assertVisible: "About"
+- tapOn:
+    id: "settings-pane-about"
+- extendedWaitUntil:
+    visible:
+      id: "about-screen"
+    timeout: 5000
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 5000
 
-# Scroll down to see logout button
+# Test: the sign-out row ends the list (not tapped here)
 - scrollUntilVisible:
     element:
-      id: "settings-logout-button"
+      id: "settings-sign-out"
     direction: DOWN
     timeout: 15000
-
-# Test: should show Log Out button
 - assertVisible:
-    id: "settings-logout-button"
-- assertVisible: "Log Out"
+    id: "settings-sign-out"

@@ -1,5 +1,5 @@
-# ABOUTME: Test navigation to Connections screen via Data Providers
-# ABOUTME: Converted from settings.test.js "Data Providers navigation"
+# ABOUTME: Navigation into the Connections pane and back — the Settings row pushes it, the header back returns
+# ABOUTME: Ids only: the pane row on Settings, the Connections root, the Settings root
 
 appId: ai.dravr.app
 
@@ -14,24 +14,16 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
-# Scroll to the Data Providers button (profile section is tall)
-- scrollUntilVisible:
-    element:
-      id: "settings-data-providers-button"
-    direction: DOWN
-    timeout: 5000
-
-# Test: should navigate to Connections screen when Data Providers is tapped
+# The Connections row pushes the pane
 - tapOn:
-    id: "settings-data-providers-button"
+    id: "settings-pane-connections"
 
-# Should navigate to Connections screen
 - extendedWaitUntil:
     visible:
-      text: "Connections"
+      id: "connections-screen"
     timeout: 5000
 
-# Navigate back via the back button (not hardware back which may not work on iOS)
+# Navigate back via the header back button (not hardware back which may not work on iOS)
 - runFlow:
     file: ../helpers/go-back.yaml
 

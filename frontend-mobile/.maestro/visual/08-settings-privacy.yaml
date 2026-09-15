@@ -1,4 +1,4 @@
-# ABOUTME: Visual tests that the Settings screen reaches its Privacy and About sections
+# ABOUTME: Visual tests that the Settings screen reaches its Privacy and About panes
 # ABOUTME: Privacy is where the analytics-consent control lives since the social tab was retired
 
 appId: ai.dravr.app
@@ -18,18 +18,44 @@ appId: ai.dravr.app
       id: "settings-screen"
     timeout: 10000
 
-# Test: settings displays Privacy section
+# Test: the Privacy pane opens and carries the analytics-consent control.
+# Rows are found by id, never by their label: the label is translated and the
+# flow runs in whichever language the device is set to.
 - scrollUntilVisible:
     element:
-      text: "Privacy"
+      id: "settings-pane-privacy"
     direction: DOWN
     timeout: 10000
-- assertVisible: "Privacy"
+- tapOn:
+    id: "settings-pane-privacy"
+- extendedWaitUntil:
+    visible:
+      id: "privacy-settings-screen"
+    timeout: 10000
+- assertVisible:
+    id: "analytics-consent-switch"
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
 
-# Test: settings displays About section
+# Test: the About pane opens
 - scrollUntilVisible:
     element:
-      text: "About"
+      id: "settings-pane-about"
     direction: DOWN
     timeout: 10000
-- assertVisible: "About"
+- tapOn:
+    id: "settings-pane-about"
+- extendedWaitUntil:
+    visible:
+      id: "about-screen"
+    timeout: 10000
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000

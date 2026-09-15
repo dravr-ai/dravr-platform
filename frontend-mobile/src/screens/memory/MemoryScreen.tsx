@@ -1,34 +1,28 @@
-// ABOUTME: Phase B Sprint C12 — mobile port of the web MemoryPanel
-// ABOUTME: Lists pierre-memory user_facts grouped by kind with per-row forget action
+// ABOUTME: Memory pane — what the coach remembers, one compact row per fact under a Section per kind, text tabs to filter by kind
+// ABOUTME: Forgetting is the long-press menu or the swipe action, never a button on the row (Boreal v2.2 Phase 4, DESIGN.md §10)
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import React, { useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Feather } from '@expo/vector-icons';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { formatDateTime } from '@pierre/chat-utils';
-import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY, formatNotificationTime } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
-import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
+import { spacing, useThemeColors } from '../../constants/theme';
+import { EmptyState, Row, Section, SwipeableRow, TextTabs, type SwipeAction } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { presentMemoryFactMenu } from './presentMemoryFactMenu';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
+/** The tab that stands for "no kind filter"; the server sees `kind: undefined`. */
+const ALL_KINDS_TAB = 'all';
+
 export function MemoryScreen(): React.JSX.Element {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
@@ -68,7 +62,7 @@ export function MemoryScreen(): React.JSX.Element {
     return Array.from(groups.entries());
   }, [facts]);
 
-  const handleForget = (fact: MemoryFactRow): void => {
+  const confirmForget = (fact: MemoryFactRow): void => {
     Alert.alert(
       t('app.forgetThisFactQ'),
       t('app.confirmForgetFact', { fact: fact.sentence }),
@@ -83,22 +77,24 @@ export function MemoryScreen(): React.JSX.Element {
     );
   };
 
-  // The chips and the group headers read the same shared table, so a kind the
+  // The tabs and the section titles read the same shared table, so a kind the
   // server sends is never a translated word in one place and a raw enum in the other.
-  const kindOptions: { value: MemoryFactRow['kind'] | ''; label: string }[] = [
-    { value: '', label: t('shell.memoryFilterAllKinds') },
-    ...MEMORY_FACT_KINDS.map((kind) => ({ value: kind, label: t(MEMORY_KIND_LABEL_KEY[kind]) })),
+  const kindTabs = [
+    { key: ALL_KINDS_TAB, label: t('shell.memoryFilterAllKinds') },
+    ...MEMORY_FACT_KINDS.map((kind) => ({ key: kind, label: t(MEMORY_KIND_LABEL_KEY[kind]) })),
   ];
 
+  const filtered = kindFilter !== '';
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="memory-screen">
+    <View className="flex-1 bg-background-primary" testID="memory-screen">
       {/* Memory is a settings pane like Notifications or About; the native
           header names it — the same `shell.memoryTitle` the web panel reads —
           and carries the way back. */}
       <Stack.Screen options={{ title: t('shell.memoryTitle') }} />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: spacing.lg }}
+        contentContainerStyle={{ paddingBottom: spacing.xl }}
         refreshControl={
           <RefreshControl
             refreshing={isFetching}
@@ -109,204 +105,136 @@ export function MemoryScreen(): React.JSX.Element {
           />
         }
       >
-        <View style={{ marginBottom: spacing.lg }}>
-          <Text className="text-sm" style={{ color: colors.text.secondary }}>
-            {t('app.memoryPanelBlurb')}
-          </Text>
-        </View>
+        <Text className="text-sm text-text-secondary px-4 pt-2 pb-2.5">{t('app.memoryPanelBlurb')}</Text>
 
-        {/* Nine kinds fit on a tablet and overflow a phone, so the chip row
-            scrolls; the chip cut at the right edge is what says there is more. */}
-        <View style={{ marginBottom: spacing.md }}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: spacing.sm, paddingRight: spacing.lg }}
-          >
-            {kindOptions.map((opt) => {
-              const active = kindFilter === opt.value;
-              return (
-                <TouchableOpacity
-                  key={opt.value || 'all'}
-                  onPress={() => setKindFilter(opt.value)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  className={active ? 'bg-primary' : 'bg-surface-container'}
-                  style={{
-                    paddingHorizontal: spacing.md,
-                    paddingVertical: spacing.sm,
-                    borderRadius: borderRadius.full,
-                    borderWidth: 1,
-                    borderColor: active ? colors.tokens.primary : colors.border.default,
-                  }}
-                >
-                  <Text
-                    className="text-sm font-medium"
-                    style={{ color: active ? colors.tokens.onPrimary : colors.text.secondary }}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+        <TextTabs
+          testID="memory-kind-tab"
+          items={kindTabs}
+          value={kindFilter || ALL_KINDS_TAB}
+          onChange={(key) => setKindFilter(key === ALL_KINDS_TAB ? '' : (key as MemoryFactRow['kind']))}
+        />
 
         {isLoading ? (
-          <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
+          <View className="py-8 items-center">
             <ActivityIndicator color={colors.text.primary} />
           </View>
         ) : isError ? (
-          <View style={{ paddingVertical: spacing.lg }}>
-            <Text style={{ color: colors.pierre.red }}>
+          // The retry is a sibling, not a nested span: Android gives a nested
+          // `Text` no native view, so a tap on it would reach nothing there.
+          <View className="flex-row flex-wrap items-baseline px-4 py-3" testID="memory-error">
+            <Text className="text-sm text-error">
               {t('app.failedLoadMemoryFacts', {
                 reason: error instanceof Error ? error.message : String(error),
               })}
             </Text>
+            <Text
+              className="text-sm text-primary font-medium ml-1"
+              accessibilityRole="button"
+              onPress={() => {
+                refetch();
+              }}
+              testID="memory-retry"
+            >
+              {t('common.retry')}
+            </Text>
           </View>
         ) : facts.length === 0 ? (
-          // The query is filtered server-side, so an empty result under a chip
+          // The query is filtered server-side, so an empty result under a tab
           // is "none of this type", not "none at all". Telling an athlete who
-          // has memory that they have none, and inviting them to go earn some,
-          // is a different sentence — and it needs the way back to all types.
-          <View
-            testID={kindFilter === '' ? 'memory-empty' : 'memory-empty-filtered'}
-            style={{
-              paddingVertical: spacing.xl,
-              alignItems: 'center',
-            }}
+          // has memory that they have none is a different sentence — and it
+          // needs the way back to all types.
+          <EmptyState
+            testID={filtered ? 'memory-empty-filtered' : 'memory-empty'}
+            className="pt-6"
+            action={
+              filtered
+                ? {
+                    label: t('shell.memoryShowAllKinds'),
+                    onPress: () => setKindFilter(''),
+                    testID: 'memory-show-all-kinds',
+                  }
+                : undefined
+            }
           >
-            <Feather name="inbox" size={48} color={colors.text.tertiary} />
-            <Text
-              style={{
-                color: colors.text.secondary,
-                marginTop: spacing.sm,
-                textAlign: 'center',
-              }}
-            >
-              {kindFilter === '' ? t('shell.memoryEmpty') : t('shell.memoryEmptyFiltered')}
-            </Text>
-            <Text
-              className="text-xs"
-              style={{
-                color: colors.text.tertiary,
-                marginTop: spacing.xs,
-                textAlign: 'center',
-              }}
-            >
-              {kindFilter === '' ? t('shell.memoryEmptyHint') : t('shell.memoryEmptyFilteredHint')}
-            </Text>
-            {kindFilter === '' ? null : (
-              <TouchableOpacity
-                accessibilityRole="button"
-                testID="memory-show-all-kinds"
-                onPress={() => setKindFilter('')}
-                style={{
-                  marginTop: spacing.md,
-                  paddingHorizontal: spacing.md,
-                  paddingVertical: spacing.sm,
-                  borderRadius: borderRadius.full,
-                  borderWidth: 1,
-                  borderColor: colors.pierre.violet,
-                }}
-              >
-                <Text className="text-sm" style={{ color: colors.pierre.violet }}>
-                  {t('shell.memoryShowAllKinds')}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
+            {filtered ? t('shell.memoryEmptyFiltered') : t('shell.memoryEmpty')}
+          </EmptyState>
         ) : (
-          groupedByKind.map(([kind, items]) => (
-            <View
-              key={kind}
-              className="bg-surface-container-low"
-              style={{
-                borderRadius: borderRadius.lg,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: colors.border.faint,
-                marginBottom: spacing.md,
-                overflow: 'hidden',
-              }}
-            >
-              <View
-                className="bg-surface-container"
-                style={{
-                  paddingHorizontal: spacing.md,
-                  paddingVertical: spacing.sm,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
+          <View className="gap-8 pt-6">
+            {groupedByKind.map(([kind, items]) => (
+              <Section
+                key={kind}
+                testID={`memory-section-${kind}`}
+                title={t(MEMORY_KIND_LABEL_KEY[kind])}
+                actions={
+                  <Text testID="memory-fact-count" className="text-xs font-mono tabular-nums text-text-tertiary">
+                    {t(items.length === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', {
+                      count: items.length,
+                    })}
+                  </Text>
+                }
               >
-                <Text className="text-sm font-semibold" style={{ color: colors.text.primary }}>
-                  {t(MEMORY_KIND_LABEL_KEY[kind])}
-                </Text>
-                <Text
-                  testID="memory-fact-count"
-                  className="text-xs font-mono tabular-nums"
-                  style={{ color: colors.text.tertiary }}
-                >
-                  {t(items.length === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', {
-                    count: items.length,
-                  })}
-                </Text>
-              </View>
-              {items.map((fact, idx) => (
-                <View
-                  key={fact.id}
-                  testID={`memory-fact-${fact.id}`}
-                  style={{
-                    paddingHorizontal: spacing.md,
-                    paddingVertical: spacing.md,
-                    borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
-                    borderTopColor: colors.border.faint,
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    gap: spacing.sm,
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text className="text-sm" style={{ color: colors.text.primary }}>
-                      {fact.sentence}
-                    </Text>
-                    <Text
-                      testID="memory-fact-meta"
-                      className="text-xs"
-                      style={{ color: colors.text.tertiary, marginTop: spacing.xs }}
-                    >
-                      {t('shell.memoryFactMeta', {
-                        confidence: (fact.confidence * 100).toFixed(0),
-                        updated: formatDateTime(fact.updated_at, language),
-                      })}
-                      {/* The coach is named by title, never by its id — a UUID means nothing to the athlete. */}
-                      {fact.agent_title ? ` · ${t('shell.memoryFactAgent', { name: fact.agent_title })}` : ''}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={t('shell.memoryForgetFactLabel', { fact: fact.sentence })}
-                    onPress={() => handleForget(fact)}
-                    disabled={forgetMutation.isPending}
-                    className="bg-error/15"
-                    style={{
-                      padding: spacing.sm,
-                      borderRadius: borderRadius.md,
-                    }}
-                  >
-                    <Feather
-                      name="trash-2"
-                      size={16}
-                      color={colors.error}
-                    />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          ))
+                {items.map((fact, idx) => (
+                  <FactRow
+                    key={fact.id}
+                    fact={fact}
+                    last={idx === items.length - 1}
+                    onForget={() => confirmForget(fact)}
+                  />
+                ))}
+              </Section>
+            ))}
+          </View>
         )}
       </ScrollView>
     </View>
+  );
+}
+
+interface FactRowProps {
+  fact: MemoryFactRow;
+  last: boolean;
+  onForget: () => void;
+}
+
+/**
+ * One remembered fact: the server's sentence as the title, the coach it
+ * belongs to under it, and how long ago it was updated in mono on the right.
+ * A long-press opens the platform menu whose one row is Forget; a swipe left
+ * reveals the same action. Both land on the same confirm.
+ */
+function FactRow({ fact, last, onForget }: FactRowProps): React.JSX.Element {
+  const { t } = useTranslation();
+  const colors = useThemeColors();
+
+  const forgetAction: SwipeAction[] = [
+    {
+      icon: 'trash-2',
+      label: t('shell.memoryForget'),
+      color: colors.tokens.onError,
+      backgroundColor: colors.error,
+      onPress: onForget,
+    },
+  ];
+
+  return (
+    <SwipeableRow rightActions={forgetAction} testID={`memory-fact-${fact.id}-swipe`}>
+      <View className="bg-background-primary">
+        <Row
+          compact
+          last={last}
+          testID={`memory-fact-${fact.id}`}
+          title={fact.sentence}
+          // The coach is named by title, never by its id — a UUID means nothing to the athlete.
+          subtitle={fact.agent_title ? t('shell.memoryFactAgent', { name: fact.agent_title }) : undefined}
+          trailing={
+            <Text testID="memory-fact-meta" className="text-sm font-mono tabular-nums text-text-secondary">
+              {formatNotificationTime(fact.updated_at, t)}
+            </Text>
+          }
+          accessibilityLabel={t('shell.memoryForgetFactLabel', { fact: fact.sentence })}
+          onLongPress={() => presentMemoryFactMenu({ onForget }, t)}
+        />
+      </View>
+    </SwipeableRow>
   );
 }

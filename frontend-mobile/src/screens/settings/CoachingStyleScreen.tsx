@@ -1,19 +1,14 @@
-// ABOUTME: Coaching-style picker screen — the cards the server renders from the live contract registry
+// ABOUTME: Coaching-style picker screen — the personas the server renders from the live contract registry, one row each
 // ABOUTME: Persona is orthogonal to the chosen coach — it shapes how every coach speaks
 
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ActivityIndicator,
-  type ViewStyle,
-} from 'react-native';
-import { PaneScrollView } from '../../components/ui';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { PaneScrollView, Row, Section } from '../../components/ui';
 import { useQuery } from '@tanstack/react-query';
 import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
+import { spacing, useThemeColors } from '../../constants/theme';
 import { personasApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
@@ -21,29 +16,21 @@ import { useTranslation } from '@pierre/i18n';
 /**
  * The persona picker.
  *
- * Every word on a card is the server's. This screen used to hold four
+ * Every word on a row is the server's. This screen used to hold four
  * hand-written options — a tagline, a blurb and up to two bullets each, in
  * five locales — describing contracts it could not see, while
  * `GET /api/personas` rendered the same cards from the live contract registry
  * and no client read it. Its confirmation line also said the raw slug where
  * web said the brand name; both read `display_name` now.
+ *
+ * One `Section` holds a `Row` per persona, the selected one marked by a check
+ * and followed by its rules and enforcement word — the athlete reads the
+ * contract they are on, not every contract at once (DESIGN.md §10).
  */
 export function CoachingStyleScreen() {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { user, updateUser } = useAuth();
-  const cardStyle: ViewStyle = {
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    ...useCardStyle(),
-  };
-  // The selection ring is the primary token, so it stays legible on whichever
-  // fill the card takes.
-  const cardSelectedStyle: ViewStyle = {
-    borderColor: colors.pierre.violet,
-    borderWidth: 1,
-  };
   const [selected, setSelected] = useState<CoachingPersona>('casual');
   const [isPending, setIsPending] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -60,7 +47,7 @@ export function CoachingStyleScreen() {
   });
   const personas: PersonaCard[] = data?.personas ?? [];
 
-  /** The card's own brand name, for a message about a persona. */
+  /** The row's own brand name, for a message about a persona. */
   const nameOf = (slug: string) =>
     personas.find((persona) => persona.slug === slug)?.display_name ?? slug;
 
@@ -94,114 +81,94 @@ export function CoachingStyleScreen() {
   return (
     <View className="flex-1 bg-background-primary" testID="coaching-style-screen">
       <PaneScrollView
-        className="flex-1 px-4"
-        contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xl }}
+        contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
-        <Text className="text-text-secondary text-sm leading-relaxed mb-4">
-          {t('app.coachingStyleIntro')}
-        </Text>
-
-        {message && (
-          <View
-            className={`mb-4 p-3 rounded-lg border ${
-              message.type === 'success'
-                ? 'bg-success/15 border-success/30'
-                : 'bg-error-container border-error/30'
-            }`}
-            testID="persona-status"
-          >
+        <Section
+          title={t('settingsTabs.coaching')}
+          description={t('app.coachingStyleIntro')}
+          testID="coaching-style-section"
+        >
+          {/* The outcome of the last change, one line in the feedback ink. The
+              slot keeps one id whichever way the write went: the test that
+              pins the rollback waits on it, and the ink says which. A plain
+              line, so it pays the pane's inset itself. */}
+          {message && (
             <Text
-              className={`text-sm ${
-                message.type === 'success' ? 'text-success' : 'text-on-error-container'
-              }`}
+              className={`text-sm mb-3 px-4 ${message.type === 'success' ? 'text-success' : 'text-error'}`}
+              testID="persona-status"
             >
               {message.text}
             </Text>
-          </View>
-        )}
+          )}
 
-        {isLoading && (
-          <Text className="text-sm text-text-secondary" testID="persona-loading">
-            {t('common.loading')}
-          </Text>
-        )}
-        {isError && (
-          <Text className="text-sm text-error" testID="persona-error">
-            {t('common.error')}
-          </Text>
-        )}
+          {isLoading && (
+            <ActivityIndicator size="small" color={colors.tokens.primary} testID="persona-loading" />
+          )}
+          {isError && (
+            <Text className="text-sm text-error px-4" testID="persona-error">
+              {t('common.error')}
+            </Text>
+          )}
 
-        {personas.map((persona) => {
-          const isSelected = selected === persona.slug;
-          return (
-            <TouchableOpacity
-              key={persona.slug}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: isSelected }}
-              testID={`persona-card-${persona.slug}`}
-              onPress={() => handleSelect(persona.slug as CoachingPersona)}
-              disabled={isPending}
-              activeOpacity={0.85}
-              style={[cardStyle, isSelected ? cardSelectedStyle : null]}
-            >
-              <View className="flex-row items-center justify-between mb-1.5">
-                <Text className="text-base font-semibold text-text-primary">
-                  {persona.display_name}
-                </Text>
-                {isSelected && (
-                  <View className="flex-row items-center">
-                    {isPending ? (
-                      <ActivityIndicator size="small" color={colors.pierre.violet} />
-                    ) : (
-                      <Text
-                        className="text-xs font-semibold"
-                        style={{ color: colors.pierre.violet }}
+          <View>
+            {personas.map((persona, index) => {
+              const isSelected = selected === persona.slug;
+              const isLast = index === personas.length - 1;
+              const isVerified = persona.enforcement === 'verified';
+              return (
+                <View key={persona.slug}>
+                  <Row
+                    title={persona.display_name}
+                    subtitle={persona.summary}
+                    trailing={
+                      isSelected ? (
+                        isPending ? (
+                          <ActivityIndicator size="small" color={colors.tokens.primary} />
+                        ) : (
+                          <Feather name="check" size={18} color={colors.tokens.primary} />
+                        )
+                      ) : undefined
+                    }
+                    showChevron={false}
+                    onPress={() => handleSelect(persona.slug as CoachingPersona)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
+                    // The selected row's hairline moves under its rules, so the
+                    // rules read as part of the row rather than the next one.
+                    last={isLast || isSelected}
+                    testID={`persona-card-${persona.slug}`}
+                  />
+                  {isSelected && (
+                    <View className="px-4">
+                      <View
+                        className={`pb-3 gap-1.5 ${isLast ? '' : 'border-b border-border-faint'}`}
+                        style={isLast ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
+                        testID={`persona-details-${persona.slug}`}
                       >
-                        {t('app.active')}
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </View>
-              <Text className="text-sm text-text-secondary leading-relaxed mb-3">
-                {persona.summary}
-              </Text>
-              <View className="mb-3">
-                {persona.rules.map((rule) => (
-                  <View key={rule.key} className="flex-row mb-1.5">
-                    <Text
-                      className="text-sm mr-2 mt-0.5"
-                      style={{ color: colors.pierre.violet }}
-                    >
-                      ›
-                    </Text>
-                    <Text className="text-xs text-text-tertiary flex-1 leading-relaxed">
-                      {rule.text}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              {/* Whether the contract is enforced on every reply or only
-                  logged — the one thing about a persona the athlete cannot
-                  infer from how it reads. */}
-              <View
-                className={`self-start rounded-full px-2 py-0.5 ${
-                  persona.enforcement === 'verified' ? 'bg-success/15' : 'bg-background-tertiary'
-                }`}
-                testID={`persona-enforcement-${persona.enforcement}`}
-              >
-                <Text
-                  className={`text-xs font-medium ${
-                    persona.enforcement === 'verified' ? 'text-success' : 'text-text-tertiary'
-                  }`}
-                >
-                  {persona.enforcement_label}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+                        {persona.rules.map((rule) => (
+                          <View key={rule.key} className="flex-row">
+                            <Text className="text-sm text-text-secondary mr-1.5">›</Text>
+                            <Text className="flex-1 text-sm text-text-secondary">{rule.text}</Text>
+                          </View>
+                        ))}
+                        {/* Whether the contract is enforced on every reply or
+                            only logged — the one thing about a persona the
+                            athlete cannot infer from how it reads. */}
+                        <Text
+                          className={`text-sm font-medium ${isVerified ? 'text-success' : 'text-text-tertiary'}`}
+                          testID={`persona-enforcement-${persona.enforcement}`}
+                        >
+                          {persona.enforcement_label}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </Section>
       </PaneScrollView>
     </View>
   );

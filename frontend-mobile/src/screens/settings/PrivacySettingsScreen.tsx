@@ -4,17 +4,11 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  Switch,
-  Alert,
-  type ViewStyle,
-} from 'react-native';
-import { PaneScrollView } from '../../components/ui';
+import { View, Text, Switch, Alert } from 'react-native';
+import { PaneScrollView, Section } from '../../components/ui';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
-import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
+import { spacing, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
@@ -33,14 +27,14 @@ const NEVER_COLLECTED_KEYS = [
   'app.analyticsNever2',
 ] as const;
 
+/**
+ * Three sections separated by space, not by cards: the consent switch as the
+ * first section's action, then the two promise lists as glyph-led lines
+ * (DESIGN.md §10).
+ */
 export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const sectionCardStyle: ViewStyle = {
-    borderRadius: 12,
-    padding: spacing.md,
-    ...useCardStyle(),
-  };
   const { user, updateUser } = useAuth();
 
   // Analytics consent is stored on the user record, so the switch is seeded
@@ -78,62 +72,49 @@ export function PrivacySettingsScreen(): React.JSX.Element {
 
   return (
     <View className="flex-1 bg-background-primary" testID="privacy-settings-screen">
-      <PaneScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
-        {/* Analytics consent */}
-        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2">
-          {t('app.usageAnalytics')}
-        </Text>
-        <View style={sectionCardStyle}>
-          <View className="flex-row items-center py-2">
-            <View
-              className="w-10 h-10 rounded-full justify-center items-center mr-4"
-              style={{ backgroundColor: colors.pierre.violet + '20' }}
-            >
-              <Feather name="bar-chart-2" size={20} color={colors.pierre.violet} />
-            </View>
-            <View className="flex-1 mr-4">
-              <Text className="text-text-primary text-base font-semibold">{t('app.usageAnalytics')}</Text>
-              <Text className="text-text-tertiary text-sm mt-0.5">
-                {t('app.analyticsBlurb')}
-              </Text>
-            </View>
-            <Switch
-              testID="analytics-consent-switch"
-              value={analyticsConsent}
-              onValueChange={handleToggle}
-              trackColor={{ false: colors.background.tertiary, true: colors.pierre.violet + '60' }}
-              thumbColor={analyticsConsent ? colors.pierre.violet : colors.text.tertiary}
-              disabled={consentMutation.isPending}
-            />
-          </View>
-        </View>
+      <PaneScrollView
+        contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View className="gap-8">
+          <Section
+            title={t('app.usageAnalytics')}
+            description={t('app.analyticsBlurb')}
+            testID="privacy-section-analytics"
+            actions={
+              <Switch
+                testID="analytics-consent-switch"
+                value={analyticsConsent}
+                onValueChange={handleToggle}
+                trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                disabled={consentMutation.isPending}
+              />
+            }
+          />
 
-        {/* What we collect */}
-        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2">
-          {t('app.whatWeCollect')}
-        </Text>
-        <View style={sectionCardStyle}>
-          {COLLECTED_WHEN_ENABLED_KEYS.map((item) => (
-            <View key={item} className="flex-row items-start py-1.5">
-              <Feather name="check" size={16} color={colors.pierre.activity} style={{ marginTop: 2 }} />
-              <Text className="flex-1 text-text-secondary text-sm ml-2">{t(item)}</Text>
+          {/* Plain lines, not rows: they pay the pane's inset themselves. */}
+          <Section title={t('app.whatWeCollect')} testID="privacy-section-collected">
+            <View className="gap-2 px-4">
+              {COLLECTED_WHEN_ENABLED_KEYS.map((item) => (
+                <View key={item} className="flex-row items-start gap-2">
+                  <Feather name="check" size={16} color={colors.success} style={{ marginTop: 1 }} />
+                  <Text className="flex-1 text-sm text-text-secondary">{t(item)}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </Section>
 
-        <Text className="text-text-secondary text-sm font-semibold mt-6 mb-2 ml-2">
-          {t('app.whatWeNeverCollect')}
-        </Text>
-        <View style={sectionCardStyle}>
-          {NEVER_COLLECTED_KEYS.map((item) => (
-            <View key={item} className="flex-row items-start py-1.5">
-              <Feather name="x" size={16} color={colors.pierre.red} style={{ marginTop: 2 }} />
-              <Text className="flex-1 text-text-secondary text-sm ml-2">{t(item)}</Text>
+          <Section title={t('app.whatWeNeverCollect')} testID="privacy-section-never">
+            <View className="gap-2 px-4">
+              {NEVER_COLLECTED_KEYS.map((item) => (
+                <View key={item} className="flex-row items-start gap-2">
+                  <Feather name="x" size={16} color={colors.text.tertiary} style={{ marginTop: 1 }} />
+                  <Text className="flex-1 text-sm text-text-secondary">{t(item)}</Text>
+                </View>
+              ))}
             </View>
-          ))}
+          </Section>
         </View>
-
-        <View className="h-6" />
       </PaneScrollView>
     </View>
   );

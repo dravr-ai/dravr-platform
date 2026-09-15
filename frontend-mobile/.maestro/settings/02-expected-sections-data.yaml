@@ -1,5 +1,5 @@
-# ABOUTME: Test Data section is visible with expected elements
-# ABOUTME: Converted from settings.test.js "expected sections - data from backend"
+# ABOUTME: The Connections pane lists the data providers — Settings → Connections → a provider row, then back to Settings
+# ABOUTME: Ids only: the pane row on Settings, the Connections root, the Strava-branded sciotte row the seeded stack always lists
 
 appId: ai.dravr.app
 
@@ -14,17 +14,24 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
-# Scroll directly to the Data Providers button (profile section is tall)
-- scrollUntilVisible:
-    element:
-      id: "settings-data-providers-button"
-    direction: DOWN
+# Open the Connections pane
+- tapOn:
+    id: "settings-pane-connections"
+
+- extendedWaitUntil:
+    visible:
+      id: "connections-screen"
     timeout: 5000
 
-# Test: should show Data section
+# The seeded stack always lists the Strava-branded sciotte provider
 - assertVisible:
-    id: "settings-data-section"
+    id: "provider-row-sciotte"
 
-# Test: should show Data Providers button
-- assertVisible:
-    id: "settings-data-providers-button"
+# Back to Settings
+- runFlow:
+    file: ../helpers/go-back.yaml
+
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 5000

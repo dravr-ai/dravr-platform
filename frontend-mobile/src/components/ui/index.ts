@@ -16,6 +16,13 @@ export { EmptyState } from './EmptyState';
 export type { EmptyStateAction, EmptyStateProps } from './EmptyState';
 
 export { CollapsibleSection } from './CollapsibleSection';
+// The settings grammar: a group, its rows, and the text-tab filter over a list.
+export { Section } from './Section';
+export type { SectionProps } from './Section';
+export { Row } from './Row';
+export type { RowProps } from './Row';
+export { TextTabs } from './TextTabs';
+export type { TextTabItem, TextTabsProps } from './TextTabs';
 // The scroll container that insets itself for the native header and tab bar.
 export { PaneScrollView } from './PaneScrollView';
 export { AppearanceToggleButton } from './AppearanceToggleButton';

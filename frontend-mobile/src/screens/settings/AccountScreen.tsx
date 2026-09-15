@@ -1,25 +1,17 @@
-// ABOUTME: Account pane — status, usage, security, connected MCP apps and sign-out, in one place
+// ABOUTME: Account pane — status, usage, security, connected MCP apps and sign-out, as settings Sections of Rows
 // ABOUTME: Section order comes from the shared settings declaration, so web groups the same five
 
 import React, { useMemo, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  Modal,
-  type ViewStyle,
-} from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 import { settingsPaneSections } from '@pierre/shared-constants';
-import { spacing, borderRadius, useThemeColors } from '../../constants/theme';
-import { Input, PaneScrollView } from '../../components/ui';
+import { spacing, useThemeColors } from '../../constants/theme';
+import { Button, EmptyState, Input, PaneScrollView, Row, Section, Sheet } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
+import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 
 /** Format large numbers compactly (e.g. 145000 -> "145.0K"). */
 function formatCompactNumber(value: number): string {
@@ -30,19 +22,6 @@ function formatCompactNumber(value: number): string {
     return `${(value / 1_000).toFixed(1)}K`;
   }
   return value.toLocaleString();
-}
-
-/** Green under 70% of the cap, amber to 90%, red past it. */
-function getUsageBarColor(
-  current: number,
-  limit: number,
-  palette: { activity: string; nutrition: string; red: string },
-): string {
-  if (limit <= 0) return palette.activity;
-  const pct = (current / limit) * 100;
-  if (pct > 90) return palette.red;
-  if (pct > 70) return palette.nutrition;
-  return palette.activity;
 }
 
 /**
@@ -75,6 +54,13 @@ function formatMemberSince(isoString: string | undefined, fallback: string): str
   }
 }
 
+/** A quota as the athlete reads it: what is used over what is allowed. */
+function formatQuota(counter: LimitCheckResult, compact: boolean): string {
+  const current = compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString();
+  const limit = compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString();
+  return `${current} / ${limit}`;
+}
+
 /**
  * Everything about the account itself.
  *
@@ -82,6 +68,11 @@ function formatMemberSince(isoString: string | undefined, fallback: string): str
  * has held them together since it had panes. The section order is read from the
  * shared declaration rather than typed twice, which is what let the phone
  * scatter the same four things down one scroll with nothing failing.
+ *
+ * Every group is a `Section` of `Row`s on the ground. A `Section` pays the
+ * pane's 16 inset for its title and none for its content, and a `Row` pays the
+ * same inset for itself so its hairline insets to the text while its press
+ * target runs to the pane's edge; title and row text share one left edge.
  */
 export function AccountScreen() {
   const { t } = useTranslation();
@@ -97,14 +88,28 @@ export function AccountScreen() {
 
   const { data: usageData, isLoading: usageLoading } = useUsageStatus();
 
-  const usageBars = useMemo(() => {
+  // Each figure is one fact row: the label on the left, `used / allowed` as
+  // the mono value on the right. No meter — the number is the whole state.
+  const usageRows = useMemo(() => {
     if (!usageData) return [];
     return [
-      { label: t('app.dailyMessages'), counter: usageData.daily.messages, compact: false },
-      { label: t('app.dailyTokens'), counter: usageData.daily.tokens, compact: true },
-      { label: t('app.weeklyMessages'), counter: usageData.weekly.messages, compact: false },
-    ] as { label: string; counter: LimitCheckResult; compact: boolean }[];
+      { label: t('app.dailyMessages'), value: formatQuota(usageData.daily.messages, false) },
+      { label: t('app.dailyTokens'), value: formatQuota(usageData.daily.tokens, true) },
+      { label: t('app.weeklyMessages'), value: formatQuota(usageData.weekly.messages, false) },
+      { label: t('app.agents'), value: `${usageData.resources.agents} / ${usageData.resources.max_agents}` },
+      {
+        label: t('app.conversations'),
+        value: `${usageData.resources.conversations} / ${usageData.resources.max_conversations}`,
+      },
+    ];
   }, [usageData, t]);
+
+  const closeChangePassword = () => {
+    setShowChangePassword(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+  };
 
   const handleChangePassword = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -123,10 +128,7 @@ export function AccountScreen() {
       setIsChangingPassword(true);
       await userApi.changePassword(currentPassword, newPassword);
       Alert.alert(t('common.success'), t('app.passwordChanged'));
-      setShowChangePassword(false);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      closeChangePassword();
     } catch {
       Alert.alert(t('common.error'), t('app.failedChangePasswordCheck'));
     } finally {
@@ -145,203 +147,91 @@ export function AccountScreen() {
     );
   };
 
-  const cardStyle: ViewStyle = {
-    backgroundColor: colors.background.tertiary,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
-  const rowStyle: ViewStyle = {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  };
-
-  const factRow = (label: string, value: string, isLast: boolean) => (
-    <View
-      key={label}
-      style={[
-        rowStyle,
-        { justifyContent: 'space-between' },
-        isLast ? {} : { borderBottomWidth: 1, borderBottomColor: colors.border.faint },
-      ]}
-    >
-      <Text className="text-base" style={{ color: colors.text.secondary }}>{label}</Text>
-      <Text className="text-base" style={{ color: colors.text.primary }}>{value}</Text>
-    </View>
-  );
-
   const renderSection = (section: string) => {
     switch (section) {
       case 'account-status':
         return (
-          <View key={section} testID="account-section-account-status">
-            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
-              {t('profile.accountStatus')}
-            </Text>
-            <View style={cardStyle}>
-              {factRow(t('settingsUi.status'), user?.user_status ?? t('settingsUi.unknownDate'), false)}
-              {factRow(t('settingsUi.role'), user?.role ?? t('settingsUi.unknownDate'), false)}
-              {factRow(
-                t('profile.memberSince'),
-                formatMemberSince(user?.created_at, t('settingsUi.unknownDate')),
-                true,
-              )}
-            </View>
-          </View>
+          <Section key={section} title={t('profile.accountStatus')} testID="account-section-account-status">
+            <Row compact title={t('settingsUi.status')} value={user?.user_status ?? t('settingsUi.unknownDate')} />
+            <Row compact title={t('settingsUi.role')} value={user?.role ?? t('settingsUi.unknownDate')} />
+            <Row
+              compact
+              last
+              title={t('profile.memberSince')}
+              value={formatMemberSince(user?.created_at, t('settingsUi.unknownDate'))}
+            />
+          </Section>
         );
 
       case 'usage':
         return (
-          <View key={section} testID="account-section-usage">
-            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
-              {t('app.usage')}
-            </Text>
-            <View style={cardStyle}>
-              {usageLoading ? (
-                <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color={colors.pierre.violet} />
-                </View>
-              ) : !usageData ? (
-                <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-                  <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('app.usageDataUnavailable')}</Text>
-                </View>
-              ) : (
-                <View style={{ padding: 16 }}>
-                  {usageBars.map(({ label, counter, compact }) => {
-                    const pct = counter.limit > 0 ? Math.min((counter.current / counter.limit) * 100, 100) : 0;
-                    return (
-                      <View key={label} style={{ marginBottom: 16 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <Text className="text-sm font-medium" style={{ color: colors.text.secondary }}>{label}</Text>
-                          <Text className="text-sm" style={{ color: colors.text.tertiary }}>
-                            {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
-                            {' / '}
-                            {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
-                          </Text>
-                        </View>
-                        <View style={{ height: 8, backgroundColor: colors.background.tertiary, borderRadius: 4, overflow: 'hidden' }}>
-                          <View
-                            style={{
-                              height: '100%',
-                              width: `${pct}%`,
-                              // The bar's LENGTH carries the value; the colour is
-                              // the severity band, and it has to read against the
-                              // track it sits in. The bound inks do — the bare
-                              // amber hue measures 2.57:1 on the light track,
-                              // under the 3:1 a non-text mark owes.
-                              backgroundColor: getUsageBarColor(counter.current, counter.limit, {
-                                activity: colors.ink.activity,
-                                nutrition: colors.ink.nutrition,
-                                red: colors.pierre.red,
-                              }),
-                              borderRadius: 4,
-                            }}
-                          />
-                        </View>
-                      </View>
-                    );
+          <Section key={section} title={t('app.usage')} testID="account-section-usage">
+            {usageLoading ? (
+              <View className="py-6 items-center">
+                <ActivityIndicator size="small" color={colors.tokens.primary} />
+              </View>
+            ) : !usageData ? (
+              <EmptyState>{t('app.usageDataUnavailable')}</EmptyState>
+            ) : (
+              <>
+                {usageRows.map(({ label, value }, index) => (
+                  <Row key={label} compact title={label} value={value} last={index === usageRows.length - 1} />
+                ))}
+                <Text className="text-xs text-text-tertiary px-4 mt-2">
+                  {t('app.dailyLimitsResetAt', {
+                    time: formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc')),
                   })}
-
-                  <Text className="text-xs" style={{ color: colors.text.tertiary, marginBottom: 16 }}>
-                    {t('app.dailyLimitsResetAt', {
-                      time: formatResetTime(usageData.daily.messages.resets_at, t('settingsUi.midnightUtc')),
-                    })}
-                  </Text>
-
-                  <View style={{ borderTopWidth: 1, borderTopColor: colors.border.default, paddingTop: 16 }}>
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                      <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                        <Text className="text-xs" style={{ color: colors.text.tertiary, marginBottom: 4 }}>{t('app.agents')}</Text>
-                        <Text className="text-sm font-medium" style={{ color: colors.text.primary }}>
-                          {usageData.resources.agents} / {usageData.resources.max_agents}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1, backgroundColor: colors.background.tertiary, borderRadius: 8, padding: 12 }}>
-                        <Text className="text-xs" style={{ color: colors.text.tertiary, marginBottom: 4 }}>{t('app.conversations')}</Text>
-                        <Text className="text-sm font-medium" style={{ color: colors.text.primary }}>
-                          {usageData.resources.conversations} / {usageData.resources.max_conversations}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              )}
-            </View>
-          </View>
+                </Text>
+              </>
+            )}
+          </Section>
         );
 
       case 'security':
         return (
-          <View key={section} testID="account-section-security">
-            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
-              {t('settingsUi.security')}
-            </Text>
-            <View style={cardStyle}>
-              <TouchableOpacity
-                style={rowStyle}
-                onPress={() => setShowChangePassword(true)}
-                testID="account-change-password-button"
-              >
-                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                  <Feather name="lock" size={20} color={colors.text.secondary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text className="text-base" style={{ color: colors.text.primary }}>{t('app.changePassword')}</Text>
-                  <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('password.changeHint')}</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <Section key={section} title={t('settingsUi.security')} testID="account-section-security">
+            <Row
+              last
+              title={t('app.changePassword')}
+              subtitle={t('password.changeHint')}
+              onPress={() => setShowChangePassword(true)}
+              testID="account-change-password-button"
+            />
+          </Section>
         );
 
       case 'connected-mcp-apps':
         return (
-          <View key={section} testID="account-section-connected-mcp-apps">
-            <Text className="text-lg font-semibold" style={{ color: colors.text.primary, marginBottom: 12 }}>
-              {t('tokens.connectedMcpApps')}
-            </Text>
-            <View style={cardStyle}>
-              <TouchableOpacity
-                style={rowStyle}
-                onPress={() => router.push('/(app)/(tabs)/(settings)/connected-apps')}
-                testID="account-connected-apps-button"
-              >
-                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                  <Feather name="grid" size={20} color={colors.text.secondary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text className="text-base" style={{ color: colors.text.primary }}>{t('app.connectedApps')}</Text>
-                  <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t('tokens.connectedAppsHint')}</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <Section
+            key={section}
+            title={t('tokens.connectedMcpApps')}
+            description={t('tokens.connectedAppsHint')}
+            testID="account-section-connected-mcp-apps"
+          >
+            <Row
+              last
+              title={t('app.connectedApps')}
+              onPress={() => router.push(CONNECTED_APPS_ROUTE)}
+              testID="account-connected-apps-button"
+            />
+          </Section>
         );
 
       case 'sign-out':
+        // Signing out is a quiet row in the secondary ink, the same one the
+        // settings root ends with, and its one-line hint under it. There is no
+        // group title: the row is its own name.
         return (
           <View key={section} testID="account-section-sign-out">
-            <TouchableOpacity
-              style={{
-                ...cardStyle,
-                borderColor: colors.pierre.red,
-                paddingVertical: 16,
-                alignItems: 'center',
-              }}
+            <Pressable
+              className="px-4 min-h-[52px] justify-center"
               onPress={handleLogout}
+              accessibilityRole="button"
               testID="account-logout-button"
             >
-              <Text className="text-base font-semibold" style={{ color: colors.pierre.red }}>{t('app.logOut')}</Text>
-            </TouchableOpacity>
-            <Text className="text-sm" style={{ color: colors.text.tertiary, marginTop: 8, textAlign: 'center' }}>
-              {t('account.signOutHint')}
-            </Text>
+              <Text className="text-sm text-text-secondary">{t('app.logOut')}</Text>
+            </Pressable>
+            <Text className="text-xs text-text-tertiary px-4">{t('account.signOutHint')}</Text>
           </View>
         );
 
@@ -352,70 +242,56 @@ export function AccountScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="account-screen">
-      <PaneScrollView contentContainerStyle={{ padding: spacing.md, gap: spacing.lg }}>
-        {settingsPaneSections('account').map(renderSection)}
+      <PaneScrollView contentContainerStyle={{ paddingVertical: spacing.md }}>
+        <View className="gap-8">{settingsPaneSections('account').map(renderSection)}</View>
       </PaneScrollView>
 
-      <Modal
-        visible={showChangePassword}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowChangePassword(false)}
-      >
-        <View className="flex-1 bg-scrim/60 justify-center" style={{ paddingHorizontal: spacing.lg }}>
-          <View className="bg-surface-container-low p-5" style={{ borderRadius: borderRadius.xl }}>
-            <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
-              {t('app.changePassword')}
-            </Text>
+      <Sheet visible={showChangePassword} onClose={closeChangePassword} testID="account-change-password-sheet">
+        <Text className="text-xl font-semibold text-text-primary mb-5">{t('app.changePassword')}</Text>
 
-            <Input
-              label={t('app.currentPassword')}
-              value={currentPassword}
-              onChangeText={setCurrentPassword}
-              secureTextEntry
-              showPasswordToggle
-            />
-            <Input
-              label={t('app.newPassword')}
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry
-              showPasswordToggle
-            />
-            <Input
-              label={t('app.confirmNewPassword')}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-              showPasswordToggle
-            />
+        <Input
+          label={t('app.currentPassword')}
+          value={currentPassword}
+          onChangeText={setCurrentPassword}
+          secureTextEntry
+          showPasswordToggle
+          testID="account-current-password-input"
+        />
+        <Input
+          label={t('app.newPassword')}
+          value={newPassword}
+          onChangeText={setNewPassword}
+          secureTextEntry
+          showPasswordToggle
+          testID="account-new-password-input"
+        />
+        <Input
+          label={t('app.confirmNewPassword')}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry
+          showPasswordToggle
+          testID="account-confirm-password-input"
+        />
 
-            <View className="flex-row gap-3 mt-4">
-              <TouchableOpacity
-                className="flex-1 py-3 rounded-full items-center"
-                style={{ backgroundColor: colors.background.tertiary }}
-                onPress={() => setShowChangePassword(false)}
-              >
-                <Text className="text-base font-semibold text-on-surface">{t('common.cancel')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="flex-1 py-3 rounded-full items-center"
-                style={{ backgroundColor: colors.pierre.violet }}
-                onPress={() => { void handleChangePassword(); }}
-                disabled={isChangingPassword}
-              >
-                {isChangingPassword ? (
-                  <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
-                ) : (
-                  <Text className="text-base font-semibold" style={{ color: colors.tokens.onPrimary }}>
-                    {t('app.change')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
+        <View className="flex-row gap-3 mt-4">
+          <Button
+            title={t('common.cancel')}
+            variant="ghost"
+            onPress={closeChangePassword}
+            style={{ flex: 1 }}
+            testID="account-change-password-cancel"
+          />
+          <Button
+            title={t('app.change')}
+            variant="primary"
+            onPress={() => { void handleChangePassword(); }}
+            loading={isChangingPassword}
+            style={{ flex: 1 }}
+            testID="account-change-password-confirm"
+          />
         </View>
-      </Modal>
+      </Sheet>
     </View>
   );
 }

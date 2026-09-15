@@ -1,46 +1,17 @@
-// ABOUTME: The settings list — the athlete's profile header above one row per named pane
+// ABOUTME: The settings list — the athlete's identity row above one settings Row per named pane, then the quiet sign-out
 // ABOUTME: Rows come from the shared settings declaration, so web and the phone offer the same panes
 
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, type ViewStyle } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import {
-  ADMIN_HIDDEN_PANES,
-  settingsPane,
-  settingsPanesFor,
-  type SettingsPane,
-  type SettingsPaneId,
-} from '@pierre/shared-constants';
+import { ADMIN_HIDDEN_PANES, settingsPane, settingsPanesFor } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
-import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
+import { InitialsAvatar, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 import { BILLING_ENABLED } from '../../constants/features';
-
-/** The Feather glyph each pane carries in the list. */
-const PANE_ICONS: Record<SettingsPaneId, React.ComponentProps<typeof Feather>['name']> = {
-  profile: 'user',
-  connections: 'link',
-  tokens: 'key',
-  coaching: 'message-square',
-  messaging: 'message-circle',
-  notifications: 'bell',
-  memory: 'cpu',
-  privacy: 'shield',
-  about: 'info',
-  account: 'settings',
-  billing: 'credit-card',
-};
-
-const rowStyle: ViewStyle = {
-  flexDirection: 'row',
-  alignItems: 'center',
-  paddingVertical: 14,
-  paddingHorizontal: 16,
-};
 
 /**
  * Settings, as a list of named destinations.
@@ -50,10 +21,14 @@ const rowStyle: ViewStyle = {
  * served ten named panes, and the grouping between them drifted with nothing to
  * catch it. The rows are read from `SETTINGS_PANES`, the one declaration both
  * clients share, so a pane added on one surface cannot go missing on the other.
+ *
+ * Each pane is a plain settings `Row`: its name, the current state as the
+ * inline hint, a chevron. No glyph square and no card — the rows sit on the
+ * ground and the hairline between them is the only separator (DESIGN.md §10).
  */
 export function SettingsScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const colors = useThemeColors();
   const { t } = useTranslation();
   const { flags: featureFlags } = useFeatureFlags();
@@ -70,70 +45,41 @@ export function SettingsScreen() {
     return true;
   });
 
-  const cardStyle: ViewStyle = {
-    backgroundColor: colors.background.tertiary,
-    borderWidth: 1,
-    borderColor: colors.border.default,
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
   const displayName = user?.display_name || user?.email?.split('@')[0] || t('app.athlete');
 
-  const renderRow = (pane: SettingsPane, index: number) => (
-    <TouchableOpacity
-      key={pane.id}
-      style={[
-        rowStyle,
-        index < panes.length - 1
-          ? { borderBottomWidth: 1, borderBottomColor: colors.border.faint }
-          : {},
-      ]}
-      onPress={() => router.push(pane.mobile as never)}
-      testID={`settings-pane-${pane.id}`}
-    >
-      <View
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 12,
-          backgroundColor: colors.background.secondary,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginRight: 12,
-        }}
-      >
-        <Feather name={PANE_ICONS[pane.id]} size={20} color={colors.text.secondary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text className="text-base" style={{ color: colors.text.primary }}>{t(pane.nameKey)}</Text>
-        <Text className="text-sm" style={{ color: colors.text.tertiary }}>{t(pane.hintKey)}</Text>
-      </View>
-      <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
-    </TouchableOpacity>
-  );
+  // The same confirmation the Account pane asks for, so signing out reads the
+  // same wherever the athlete reaches it from.
+  const handleLogout = () => {
+    Alert.alert(
+      t('common.logout'),
+      t('app.signOutConfirm'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.logout'), style: 'destructive', onPress: logout },
+      ],
+    );
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background.primary }} testID="settings-screen">
       {/* The title is the native large title above; the header and the tab
-          bar inset the scroll themselves. */}
+          bar inset the scroll themselves. The rows pay their own 16 inset so
+          their hairlines reach the pane's right edge. */}
       <ScrollView
         style={{ flex: 1 }}
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{
-          paddingBottom: spacing.lg,
-          paddingHorizontal: spacing.md,
-        }}
+        contentContainerStyle={{ paddingBottom: spacing.lg }}
         showsVerticalScrollIndicator={false}
         testID="settings-scroll"
       >
         {/* The identity row: the same initials circle and colour hash the
             conversation list draws, the name and email beside it, and the way
             to the profile pane as an ink link — no hero ring, no filled pill. */}
-        <View className="h-14 flex-row items-center my-2" testID="settings-profile-section">
+        <View className="h-14 flex-row items-center my-2 px-4" testID="settings-profile-section">
           <InitialsAvatar
             initials={initialsFor(displayName)}
             slot={avatarSlot({ id: user?.id ?? displayName, agent_id: null, group_id: null })}
+            size={40}
           />
           <View className="flex-1 ml-3">
             <Text className="text-base font-semibold text-text-primary" numberOfLines={1}>
@@ -143,19 +89,41 @@ export function SettingsScreen() {
               {user?.email}
             </Text>
           </View>
-          <TouchableOpacity
+          <Pressable
             className="py-2 pl-3"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             onPress={() => router.push(settingsPane('profile').mobile as never)}
+            accessibilityRole="button"
             testID="settings-edit-profile-button"
           >
             <Text className="text-sm font-medium text-primary">{t('app.editProfile')}</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
-        <View style={cardStyle} testID="settings-pane-list">
-          {panes.map(renderRow)}
+        <View testID="settings-pane-list">
+          {panes.map((pane, index) => (
+            <Row
+              key={pane.id}
+              title={t(pane.nameKey)}
+              hint={t(pane.hintKey)}
+              onPress={() => router.push(pane.mobile as never)}
+              last={index === panes.length - 1}
+              testID={`settings-pane-${pane.id}`}
+            />
+          ))}
         </View>
+
+        {/* Signing out is a quiet row after the list, in the secondary ink
+            with no chevron: it goes nowhere in the app, and it is not the
+            thing this screen is for. */}
+        <Pressable
+          className="mt-8 px-4 min-h-[52px] justify-center"
+          onPress={handleLogout}
+          accessibilityRole="button"
+          testID="settings-sign-out"
+        >
+          <Text className="text-sm text-text-secondary">{t('app.logOut')}</Text>
+        </Pressable>
       </ScrollView>
     </View>
   );

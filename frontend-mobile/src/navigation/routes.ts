@@ -4,7 +4,7 @@
 // ABOUTME: The expo-router paths the chat tab and the agent edit sheet live at, in one place
 // ABOUTME: Screens, the tab bar, deep links and tests read these so a moved route changes one line
 
-import { MOBILE_THREAD_PATHNAME } from '@pierre/shared-constants';
+import { MOBILE_THREAD_PATHNAME, surfaceById } from '@pierre/shared-constants';
 
 /** The chat tab: the conversation list, and where the app lands after onboarding. */
 export const CHAT_LIST_ROUTE = '/(app)/(tabs)/(chat)' as const;
@@ -58,3 +58,27 @@ export function threadHref(
  * only agent editor in the app: agent creation is the `/agent create` command.
  */
 export const COACH_EDIT_ROUTE = '/(app)/(tabs)/(discover)/edit/[agentId]' as const;
+
+/**
+ * The mobile route of a surface the shared registry declares this app serves.
+ *
+ * Throws at module load rather than returning null: the registry is static
+ * data in this monorepo, and `SurfaceParity.test.ts` already fails when a
+ * surface declared for mobile has no screen, so a missing row is a build
+ * error, not a runtime state to branch on.
+ */
+function mobileRouteOf(id: string): string {
+  const route = surfaceById(id)?.mobile;
+  if (route === undefined || route === null) {
+    throw new Error('surface registry declares no mobile route for ' + id);
+  }
+  return route;
+}
+
+/**
+ * The connected-apps screen — the external MCP clients the athlete approved.
+ * Account's connected-apps row and the Connections pane's section both push
+ * it, and both read the path from the surface registry, so the route a screen
+ * opens and the route the registry declares for mobile cannot differ.
+ */
+export const CONNECTED_APPS_ROUTE = mobileRouteOf('connected-apps');
