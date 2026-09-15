@@ -1,23 +1,23 @@
 // ABOUTME: Notification center screen with feed, category filters, and swipe actions
-// ABOUTME: Shows grouped notifications with pull-to-refresh and mark-all-read
+// ABOUTME: Shows notifications grouped by day with pull-to-refresh, swipe/long-press delete, and an ink "mark all read" header action
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
+  Alert,
   RefreshControl,
   ScrollView,
-  Image,
+  SectionList,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { NotificationDetailModal } from '../../components/notifications/NotificationDetailModal';
 import { mobileNotificationTarget } from '@pierre/shared-constants';
+import { dayLabelFor, localDayKey } from '@pierre/chat-utils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import {
   Bell,
-  CheckCheck,
-  Trash2,
   Dumbbell,
   Heart,
   MessageCircle,
@@ -36,11 +36,12 @@ import {
 import {
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
-  formatNotificationTime,
-  formatCollapsedCount,
 } from '../../../../packages/shared-constants/src/notifications';
-import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
+import type { NotificationCategory, NotificationItem } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { EmptyState, SwipeableRow, type SwipeAction } from '../../components/ui';
+import { NotificationRow } from './NotificationRow';
+import { presentNotificationMenu } from './presentNotificationMenu';
 
 /** Map Lucide-native icon components by category for rendering */
 const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
@@ -54,115 +55,27 @@ const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = 
   reminders: Clock,
 };
 
-function NotificationRow({
-  item,
-  onPress,
-  onAction,
-  onDelete,
-}: {
-  item: NotificationItem;
-  onPress: (item: NotificationItem) => void;
-  onAction: (item: NotificationItem, actionId: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const colors = useThemeColors();
-  const { t } = useTranslation();
-  const isUnread = !item.read_at;
-  const meta = NOTIFICATION_CATEGORY_META[item.category];
-  const collapsedLabel = formatCollapsedCount(item.collapsed_count);
+interface NotificationSection {
+  title: string;
+  data: NotificationItem[];
+}
 
+/**
+ * The label between two days of the feed — left-aligned, no fill, inline in
+ * the list. Not a reuse of the chat thread's `DaySeparator`: that one is
+ * centered and pill-shaped, a different visual shape from what the vault
+ * generator draws for this screen (Boreal v2.2 Phase 5, P5.7).
+ */
+function NotificationDayHeader({ label }: { label: string }) {
   return (
-    <TouchableOpacity
-      className="flex-row items-start px-4 py-3 border-b border-border-faint"
-      style={{ backgroundColor: isUnread ? colors.background.secondary : 'transparent' }}
-      onPress={() => onPress(item)}
-      activeOpacity={0.7}
-      testID={`notification-${item.id}`}
-    >
-      {/* Unread dot */}
-      <View className="w-6 items-center pt-1.5">
-        {isUnread && (
-          <View
-            className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: meta.color }}
-          />
-        )}
-      </View>
-
-      {/* Image thumbnail */}
-      {item.image_url ? (
-        <Image
-          source={{ uri: item.image_url }}
-          className="w-10 h-10 rounded-lg mr-2"
-          resizeMode="cover"
-        />
-      ) : null}
-
-      {/* Content */}
-      <View className="flex-1 mr-2">
-        <View className="flex-row items-center mb-0.5 flex-wrap">
-          <Text
-            className="text-xs font-medium mr-2"
-            style={{ color: meta.color }}
-          >
-            {t(meta.labelKey)}
-          </Text>
-          <Text className="text-xs text-outline">
-            {formatNotificationTime(item.created_at, t)}
-          </Text>
-          {collapsedLabel && (
-            <View className="ml-2 px-1.5 py-0.5 rounded bg-surface-container-low">
-              <Text className="text-xs font-mono tabular-nums text-outline">{collapsedLabel}</Text>
-            </View>
-          )}
-        </View>
-        <Text
-          className="text-sm mb-0.5"
-          style={{
-            color: isUnread ? colors.text.primary : colors.text.secondary,
-            fontWeight: isUnread ? '600' : '400',
-          }}
-          numberOfLines={1}
-        >
-          {item.title}
-        </Text>
-        <Text className="text-xs text-on-surface-variant" numberOfLines={2}>
-          {item.body}
-        </Text>
-        {/* Action buttons */}
-        {item.actions && item.actions.length > 0 && (
-          <View className="flex-row mt-2 gap-2">
-            {item.actions.map((action: NotificationAction) => (
-              <TouchableOpacity
-                key={action.id}
-                className="px-3 py-1.5 rounded-md"
-                style={{ backgroundColor: `${colors.pierre.violet}1F` }}
-                onPress={() => onAction(item, action.id)}
-                testID={`action-${action.id}`}
-              >
-                <Text className="text-xs font-medium" style={{ color: colors.pierre.violet }}>
-                  {action.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </View>
-
-      {/* Delete button */}
-      <TouchableOpacity
-        className="w-8 h-8 items-center justify-center"
-        onPress={() => onDelete(item.id)}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Trash2 size={14} color={colors.text.tertiary} />
-      </TouchableOpacity>
-    </TouchableOpacity>
+    <View className="px-4 pt-3 pb-0.5 bg-background-primary" testID="notification-day-header">
+      <Text className="text-sm font-medium text-text-secondary">{label}</Text>
+    </View>
   );
 }
 
 export function NotificationCenterScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const colors = useThemeColors();
@@ -207,9 +120,18 @@ export function NotificationCenterScreen() {
     }
   }, [markAsRead, router]);
 
-  const handleDelete = useCallback((id: string) => {
-    deleteNotification(id);
-  }, [deleteNotification]);
+  /**
+   * The confirm both the swipe action and the long-press menu land on —
+   * mirroring Memory's `confirmForget`/`presentMemoryFactMenu` pair exactly
+   * (Boreal v2.2 Phase 5, P5.8): one shared callback, so a delete triggered
+   * either way asks the same question and calls the same mutation.
+   */
+  const confirmDelete = useCallback((item: NotificationItem) => {
+    Alert.alert(t('shell.notificationDelete'), undefined, [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deleteNotification(item.id) },
+    ]);
+  }, [t, deleteNotification]);
 
   /** Category filter list: 'all' + each category from shared constants */
   const categoryFilters = [
@@ -220,40 +142,85 @@ export function NotificationCenterScreen() {
     })),
   ];
 
-  return (
-    <View className="flex-1 bg-background-primary">
-      {/* The native header names the screen and carries the close button;
-          this row exists only while something is unread: the count, and
-          the one action that clears it. */}
-      {unreadCount > 0 && (
-        <View className="flex-row items-center px-4 py-3 border-b border-border-faint">
-          <View className="flex-1 flex-row items-center">
-            <View
-              className="ml-2 px-2 py-0.5 rounded-full"
-              style={{ backgroundColor: colors.pierre.violet }}
-            >
-              <Text
-                className="text-xs font-bold"
-                style={{ color: colors.tokens.onPrimary }}
-              >
-                {unreadCount}
-              </Text>
-            </View>
-          </View>
+  /**
+   * The feed grouped by local calendar day. The API returns notifications
+   * newest-first and a `Map` keeps insertion order, so the grouped sections
+   * read top to bottom exactly the way the flat feed did.
+   */
+  const sections = useMemo<NotificationSection[]>(() => {
+    const byDay = new Map<string, NotificationSection>();
+    for (const item of notifications) {
+      const dayKey = localDayKey(item.created_at);
+      let section = byDay.get(dayKey);
+      if (!section) {
+        const label = dayLabelFor(item.created_at, language);
+        section = {
+          title:
+            label.kind === 'today'
+              ? t('chat.dayToday')
+              : label.kind === 'yesterday'
+                ? t('chat.dayYesterday')
+                : label.label,
+          data: [],
+        };
+        byDay.set(dayKey, section);
+      }
+      section.data.push(item);
+    }
+    return Array.from(byDay.values());
+  }, [notifications, language, t]);
 
-          <TouchableOpacity
-            className="flex-row items-center px-3 py-1.5 rounded-lg bg-surface-container-low"
-            onPress={() => markAllAsRead()}
-            disabled={isMarkingAllRead}
-            testID="mark-all-read"
-          >
-            <CheckCheck size={14} color={colors.pierre.violet} />
-            <Text className="text-xs ml-1" style={{ color: colors.pierre.violet }}>
-              {t('app.readAll')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+  const renderItem = useCallback(({ item }: { item: NotificationItem }) => {
+    const deleteAction: SwipeAction[] = [
+      {
+        icon: 'trash-2',
+        label: t('common.delete'),
+        color: colors.tokens.onError,
+        backgroundColor: colors.error,
+        onPress: () => confirmDelete(item),
+      },
+    ];
+    return (
+      <SwipeableRow rightActions={deleteAction} testID={`notification-row-${item.id}-swipe`}>
+        <NotificationRow
+          item={item}
+          onPress={() => handleNotificationPress(item)}
+          onLongPress={() => presentNotificationMenu({ onDelete: () => confirmDelete(item) }, t)}
+        />
+      </SwipeableRow>
+    );
+  }, [t, colors, confirmDelete, handleNotificationPress]);
+
+  // The bug this replaces interpolated the raw category enum (`training`)
+  // into the sentence instead of its translated label; both branches below
+  // read the same corpus the filter tabs and the row's category word do.
+  const emptyStateText = selectedCategory === 'all'
+    ? `${t('app.noNotificationsYet')} ${t('app.allCaughtUp')}`
+    : `${t('app.noNotificationsYet')} ${t('app.noCategoryNotifications', {
+        category: t(NOTIFICATION_CATEGORY_META[selectedCategory].labelKey),
+      })}`;
+
+  return (
+    <View className="flex-1 bg-background-primary" testID="notification-center-screen">
+      {/* "Tout lire" replaces the old filled pill as an ink header action —
+          it only exists while something is unread (Boreal v2.2 Phase 5, P5.8). */}
+      <Stack.Screen
+        options={{
+          headerRight: () =>
+            unreadCount > 0 ? (
+              <TouchableOpacity
+                onPress={() => markAllAsRead()}
+                disabled={isMarkingAllRead}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                testID="mark-all-read"
+              >
+                <Text className="font-medium" style={{ fontSize: 13, color: colors.tokens.primary }}>
+                  {t('app.readAll')}
+                </Text>
+              </TouchableOpacity>
+            ) : null,
+        }}
+      />
 
       {/* Category filter tabs */}
       <View className="border-b border-border-faint">
@@ -290,46 +257,32 @@ export function NotificationCenterScreen() {
         </ScrollView>
       </View>
 
-      {/* Notification list */}
-      <ScrollView
-        className="flex-1"
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={colors.tokens.primary}
-          />
-        }
-      >
-        {isLoading && !isRefetching ? (
-          <View className="items-center py-12">
-            <Text className="text-outline">{t('app.loadingNotifications')}</Text>
-          </View>
-        ) : notifications.length === 0 ? (
-          <View className="items-center py-16">
-            <Bell size={48} color={colors.tokens.outline} />
-            <Text className="text-on-surface-variant mt-4 text-base">{t('app.noNotificationsYet')}</Text>
-            <Text className="text-outline mt-1 text-sm">
-              {selectedCategory === 'all'
-                ? t('app.allCaughtUp')
-                : t('app.noCategoryNotifications', { category: selectedCategory })}
-            </Text>
-          </View>
-        ) : (
-          notifications.map((item) => (
-            <NotificationRow
-              key={item.id}
-              item={item}
-              onPress={handleNotificationPress}
-              onAction={handleAction}
-              onDelete={handleDelete}
+      {/* Notification feed, grouped by day */}
+      {isLoading && !isRefetching ? (
+        <View className="items-center py-12">
+          <Text className="text-outline">{t('app.loadingNotifications')}</Text>
+        </View>
+      ) : notifications.length === 0 ? (
+        <EmptyState testID="notifications-empty" className="pt-6">
+          {emptyStateText}
+        </EmptyState>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          renderSectionHeader={({ section }) => <NotificationDayHeader label={section.title} />}
+          stickySectionHeadersEnabled={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor={colors.tokens.primary}
             />
-          ))
-        )}
-
-        {/* Bottom padding */}
-        <View style={{ height: insets.bottom + 80 }} />
-      </ScrollView>
+          }
+          contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
+        />
+      )}
 
       {/* Notification detail overlay */}
       <NotificationDetailModal

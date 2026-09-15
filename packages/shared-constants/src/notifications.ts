@@ -24,23 +24,28 @@ export interface NotificationCategoryMeta {
 /**
  * Canonical category metadata for notification rendering.
  *
- * Colors are aligned with the Boreal Editorial palette so badges read
- * correctly on the light `surface` (#F9F9F6). Training and recovery pull
- * from `PILLAR_COLORS`; coach/ai/reminders use tonal derivatives of the
- * primary forest-green family.
+ * Notification categories (training/recovery/coach/achievement/system/ai/
+ * reminders) are their own taxonomy, not the four fitness pillars
+ * (activity/nutrition/recovery/mobility) — `training` and `recovery` share a
+ * name with a pillar but not a source: three of the seven categories here
+ * (coach, achievement, ai, reminders) have no pillar equivalent at all, and
+ * `PILLAR_COLORS` is scheme-aware (a light and a dark half) while every hex
+ * below is one flat value used as-is in both themes. These are this
+ * taxonomy's own swatches, chosen to read on the app's `surface` in either
+ * scheme — not pulled from `PILLAR_COLORS`, and not meant to be.
  */
 // `labelKey` rather than `label`: this metadata is shared with mobile and
 // rendered on an athlete screen, so the words come from the corpus. They
 // shipped as English strings here, which is why no scan of the frontend
 // components ever saw them.
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
-  training: { labelKey: 'notifPrefs.catTraining', color: '#3c6658', iconName: 'dumbbell' },     // activity pillar
-  recovery: { labelKey: 'notifPrefs.catRecovery', color: '#5e7a82', iconName: 'heart' },        // recovery pillar
-  coach: { labelKey: 'notifPrefs.catAgent', color: '#00241a', iconName: 'message-circle' },     // primary
-  achievement: { labelKey: 'notifPrefs.catAchievement', color: '#8f6a2e', iconName: 'trophy' }, // nutrition pillar / warm bronze
-  system: { labelKey: 'notifPrefs.catSystem', color: '#717974', iconName: 'settings' },          // outline
-  ai: { labelKey: 'notifPrefs.catAi', color: '#0d3b2e', iconName: 'brain' },           // primary_container
-  reminders: { labelKey: 'notifPrefs.catReminders', color: '#7a4d5e', iconName: 'clock' },      // mobility pillar / aged rose
+  training: { labelKey: 'notifPrefs.catTraining', color: '#3c6658', iconName: 'dumbbell' },     // deep sage
+  recovery: { labelKey: 'notifPrefs.catRecovery', color: '#5e7a82', iconName: 'heart' },        // muted slate
+  coach: { labelKey: 'notifPrefs.catAgent', color: '#00241a', iconName: 'message-circle' },     // near-black forest green
+  achievement: { labelKey: 'notifPrefs.catAchievement', color: '#8f6a2e', iconName: 'trophy' }, // warm bronze
+  system: { labelKey: 'notifPrefs.catSystem', color: '#717974', iconName: 'settings' },          // neutral grey
+  ai: { labelKey: 'notifPrefs.catAi', color: '#0d3b2e', iconName: 'brain' },           // dark forest green
+  reminders: { labelKey: 'notifPrefs.catReminders', color: '#7a4d5e', iconName: 'clock' },      // aged rose
 } as const;
 
 /** All notification categories in display order */

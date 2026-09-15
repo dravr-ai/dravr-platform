@@ -26,6 +26,8 @@ export type { TextTabItem, TextTabsProps } from './TextTabs';
 // The scroll container that insets itself for the native header and tab bar.
 export { PaneScrollView } from './PaneScrollView';
 export { AppearanceToggleButton } from './AppearanceToggleButton';
+export { OnboardingProgressBar } from './OnboardingProgressBar';
+export type { OnboardingProgressBarProps } from './OnboardingProgressBar';
 export { BrandLockup } from './BrandLockup';
 export { HeaderActions } from './HeaderActions';
 export { HeaderCloseButton } from './HeaderCloseButton';

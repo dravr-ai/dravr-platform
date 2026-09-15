@@ -26,15 +26,6 @@ jest.mock('../src/services/api', () => ({
   },
 }));
 
-// Mock @expo/vector-icons
-jest.mock('@expo/vector-icons', () => {
-  const View = require('react-native').View;
-  return {
-    Ionicons: (props: Record<string, unknown>) =>
-      require('react').createElement(View, { testID: `icon-${props.name}` }),
-  };
-});
-
 import { ResetPasswordScreen } from '../src/screens/auth/ResetPasswordScreen';
 
 describe('ResetPasswordScreen', () => {
@@ -80,6 +71,18 @@ describe('ResetPasswordScreen', () => {
       expect(getByTestId('reset-password-button')).toBeTruthy();
       expect(getByText('Resend code')).toBeTruthy();
       expect(getByText('Back to sign in')).toBeTruthy();
+    });
+
+    it('renders no icon tile — a headline is enough', () => {
+      const { queryByTestId } = renderComponent();
+      expect(queryByTestId('icon-shield-checkmark-outline')).toBeNull();
+    });
+
+    it('promotes "Resend code" to ink, not the old tertiary grey', () => {
+      const { getByText } = renderComponent();
+      const className = getByText('Resend code').props.className as string;
+      expect(className).toContain('text-primary');
+      expect(className).not.toContain('text-tertiary');
     });
   });
 

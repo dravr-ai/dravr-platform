@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { Feather } from '@expo/vector-icons';
 import { spacing, useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
@@ -209,7 +210,7 @@ export function CoachEditorScreen() {
   const handleDelete = () => {
     if (!agentId) return;
     Alert.alert(
-      t('app.deleteAgentQ'),
+      t('discover.deleteAgentConfirm'),
       t('app.confirmDeleteAgent', { coach: title }),
       [
         { text: t('common.cancel'), style: 'cancel' },
@@ -224,7 +225,7 @@ export function CoachEditorScreen() {
               router.back();
             } catch (error) {
               console.error('Failed to delete coach:', error);
-              Alert.alert(t('common.error'), t('app.failedDeleteAgent'));
+              Alert.alert(t('common.error'), t('discover.deleteAgentFailed'));
             } finally {
               setIsDeleting(false);
             }
@@ -241,13 +242,13 @@ export function CoachEditorScreen() {
     return (
       <View className="flex-1 bg-background-primary" testID="coach-editor-missing">
         <View className="flex-1 justify-center items-center p-6">
-          <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
+          <Text className="text-lg text-text-secondary mb-3">{t('discover.agentNotFound')}</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary rounded-lg"
             onPress={() => router.back()}
             testID="back-button"
           >
-            <Text className="text-on-primary text-base font-medium">{t('app.goBack')}</Text>
+            <Text className="text-on-primary text-base font-medium">{t('discover.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -355,7 +356,7 @@ export function CoachEditorScreen() {
                   {currentCategory ? t(currentCategory.labelKey) : undefined}
                 </Text>
               </View>
-              <Text className="text-text-secondary text-sm">{'▼'}</Text>
+              <Feather name="chevron-down" size={16} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
 
@@ -399,10 +400,12 @@ export function CoachEditorScreen() {
               <TouchableOpacity
                 onPress={() => setExpandedTextArea(true)}
                 testID="expand-prompt-button"
+                className="flex-row items-center"
               >
-                <Text style={{ color: colors.pierre.violet }} className="text-sm">
-                  {t('app.expand')} {'↗'}
+                <Text style={{ color: colors.pierre.violet }} className="text-sm mr-1">
+                  {t('app.expand')}
                 </Text>
+                <Feather name="maximize-2" size={14} color={colors.pierre.violet} />
               </TouchableOpacity>
             </View>
             <TextInput
@@ -456,7 +459,7 @@ export function CoachEditorScreen() {
           </CollapsibleSection>
 
           {/* Tags Section (collapsible, collapsed by default) */}
-          <CollapsibleSection title={t('app.tags')} defaultExpanded={false} testID="tags-section">
+          <CollapsibleSection title={t('discover.tagsSection')} defaultExpanded={false} testID="tags-section">
             <View className="flex-row gap-2">
               <TextInput
                 testID="tag-input"
@@ -503,9 +506,7 @@ export function CoachEditorScreen() {
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     testID={`remove-tag-${tag}`}
                   >
-                    <Text style={{ color: colors.pierre.violet }} className="text-lg font-bold">
-                      {'×'}
-                    </Text>
+                    <Feather name="x" size={14} color={colors.pierre.violet} />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -550,9 +551,7 @@ export function CoachEditorScreen() {
                   borderColor: colors.border.strong,
                 }}
               >
-                {prefetchEnabled && (
-                  <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
-                )}
+                {prefetchEnabled && <Feather name="check" size={12} color={colors.tokens.onPrimary} />}
               </View>
               <Text className="text-text-primary text-sm">{t('app.prefetchActivity')}</Text>
             </TouchableOpacity>
@@ -586,7 +585,7 @@ export function CoachEditorScreen() {
                       <Text className="text-text-primary text-sm">
                         {timeFrame === '3w' ? '3 weeks' : timeFrame === '8w' ? '8 weeks' : timeFrame === '12w' ? '12 weeks' : timeFrame === '16w' ? '16 weeks' : '6 months'}
                       </Text>
-                      <Text className="text-text-tertiary text-xs">{'▼'}</Text>
+                      <Feather name="chevron-down" size={14} color={colors.text.tertiary} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -634,9 +633,7 @@ export function CoachEditorScreen() {
                       borderColor: colors.border.strong,
                     }}
                   >
-                    {athleteProfile && (
-                      <Text className="text-xs font-bold" style={{ color: colors.tokens.onPrimary }}>{'✓'}</Text>
-                    )}
+                    {athleteProfile && <Feather name="check" size={12} color={colors.tokens.onPrimary} />}
                   </View>
                   <Text className="text-text-secondary text-xs">{t('app.alsoFetchProfile')}</Text>
                 </TouchableOpacity>

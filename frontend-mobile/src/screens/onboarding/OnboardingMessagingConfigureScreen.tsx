@@ -10,10 +10,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Device from 'expo-device';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Button } from '../../components/ui';
+import type { OnboardingProgressItem } from '@pierre/shared-constants';
+import { Button } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { messagingApi } from '../../services/api';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { BOREAL_LIGHT, CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
@@ -32,6 +35,7 @@ export function OnboardingMessagingConfigureScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const messaging = useMessagingOnboarding(user?.id, true);
+  const progress = useOnboardingProgress('messaging_configure');
   const channel = messaging.chosenChannel;
   const displayName =
     messaging.availableChannels.find((c) => c.channel === channel)?.display_name ?? channel ?? '';
@@ -72,7 +76,7 @@ export function OnboardingMessagingConfigureScreen() {
 
   if (isLoading || !channel) {
     return (
-      <Shell heading={t('app.connectChannelTitle', { channel: displayName })}>
+      <Shell heading={t('app.connectChannelTitle', { channel: displayName })} progress={progress}>
         <View className="items-center gap-4 py-10">
           <ActivityIndicator size="large" />
           <Text className="text-sm text-on-surface">{t('app.preparingLink', { channel: displayName })}</Text>
@@ -83,7 +87,7 @@ export function OnboardingMessagingConfigureScreen() {
 
   if (isError || !link) {
     return (
-      <Shell heading={t('app.connectChannelTitle', { channel: displayName })}>
+      <Shell heading={t('app.connectChannelTitle', { channel: displayName })} progress={progress}>
         <View className="items-center gap-4 py-10">
           <Text className="text-base text-on-surface font-medium text-center">
             {t('app.couldNotStartConnection', { channel: displayName })}
@@ -109,7 +113,7 @@ export function OnboardingMessagingConfigureScreen() {
     isDeepLink && Boolean(link.qr_svg) && Device.deviceType !== Device.DeviceType.PHONE;
 
   return (
-    <Shell heading={t('app.connectChannelTitle', { channel: displayName })}>
+    <Shell heading={t('app.connectChannelTitle', { channel: displayName })} progress={progress}>
       <View className="mt-5 items-center gap-5">
         {showQr ? (
           <>
@@ -159,18 +163,23 @@ export function OnboardingMessagingConfigureScreen() {
   );
 }
 
-function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
+function Shell({
+  heading,
+  children,
+  progress,
+}: {
+  heading?: string;
+  children: React.ReactNode;
+  progress: OnboardingProgressItem[];
+}) {
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="messaging-configure-screen">
       <ScrollView contentContainerClassName="px-5 py-8">
-        <Card>
-          <View className="px-2 py-2">
-            {heading ? (
-              <Text className="text-2xl font-bold text-on-surface text-center">{heading}</Text>
-            ) : null}
-            {children}
-          </View>
-        </Card>
+        <OnboardingProgressBar steps={progress} />
+        {heading ? (
+          <Text className="mt-4 text-3xl font-display text-left text-on-surface">{heading}</Text>
+        ) : null}
+        {children}
       </ScrollView>
     </SafeAreaView>
   );

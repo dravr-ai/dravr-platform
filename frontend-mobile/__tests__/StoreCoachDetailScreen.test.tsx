@@ -313,9 +313,11 @@ describe('StoreCoachDetailScreen', () => {
 
       fireEvent.press(getByTestId('post-install-open-chat'));
 
+      // The draft the hint taught — `/agent add @handle` — rides along, so the
+      // fresh thread's composer opens pre-filled instead of blank.
       expect(mockRouter.push).toHaveBeenCalledWith({
         pathname: CHAT_THREAD_ROUTE,
-        params: { conversationId: 'new' },
+        params: { conversationId: 'new', draft: `/agent add @${COACH_HANDLE}` },
       });
       expect(queryByTestId('post-install-hint')).toBeNull();
     });

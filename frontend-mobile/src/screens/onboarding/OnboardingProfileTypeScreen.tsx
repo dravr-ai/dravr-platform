@@ -5,12 +5,16 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card } from '../../components/ui';
+import { Row } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useProfileTypeChosen } from '../../hooks/useProfileTypeChosen';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useThemeColors } from '../../constants/theme';
+import type { OnboardingProgressItem } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 /**
@@ -23,8 +27,10 @@ import { useTranslation } from '@pierre/i18n';
  */
 export function OnboardingProfileTypeScreen() {
   const { t } = useTranslation();
+  const colors = useThemeColors();
   const { user } = useAuth();
   const { markChosen } = useProfileTypeChosen(user?.id);
+  const progress = useOnboardingProgress('profile_type');
   const [choosing, setChoosing] = useState<'athlete' | 'coach' | null>(null);
 
   const finish = async (persona: 'athlete' | 'coach') => {
@@ -46,77 +52,54 @@ export function OnboardingProfileTypeScreen() {
     : t('app.welcomeToDravr');
 
   return (
-    <Shell heading={heading}>
-      <Text className="mt-3 text-sm text-on-surface-variant text-center">
-        {t('app.profileTypeBlurb')}
-      </Text>
-      <View className="mt-6 gap-4">
-        <ChoiceCard
+    <Shell heading={heading} progress={progress}>
+      <View className="px-4">
+        <Text className="mt-3 text-sm text-on-surface-variant">
+          {t('app.profileTypeBlurb')}
+        </Text>
+      </View>
+      <View className="mt-6">
+        <Row
           title={t('app.imAnAthlete')}
-          description={t('onboarding.athleteCardDescription')}
-          busy={choosing === 'athlete'}
-          disabled={choosing !== null}
-          onSelect={() => void finish('athlete')}
+          subtitle={t('onboarding.athleteCardDescription')}
+          trailing={choosing === 'athlete' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
+          onPress={() => void finish('athlete')}
+          accessibilityLabel={t('app.imAnAthlete')}
+          testID="profile-type-athlete"
         />
-        <ChoiceCard
+        <Row
           title={t('humanCoach.iCoachOthers')}
-          description={t('humanCoach.cardDescription')}
-          busy={choosing === 'coach'}
-          disabled={choosing !== null}
-          onSelect={() => void finish('coach')}
+          subtitle={t('humanCoach.cardDescription')}
+          trailing={choosing === 'coach' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
+          onPress={() => void finish('coach')}
+          accessibilityLabel={t('humanCoach.iCoachOthers')}
+          last
+          testID="profile-type-coach"
         />
       </View>
     </Shell>
   );
 }
 
-function ChoiceCard({
-  title,
-  description,
-  busy,
-  disabled,
-  onSelect,
+function Shell({
+  heading,
+  children,
+  progress,
 }: {
-  title: string;
-  description: string;
-  busy: boolean;
-  disabled: boolean;
-  onSelect: () => void;
+  heading?: string;
+  children: React.ReactNode;
+  progress: OnboardingProgressItem[];
 }) {
-  const { t } = useTranslation();
-  return (
-    <Pressable
-      onPress={onSelect}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      className="rounded-2xl border border-outline-variant bg-surface-container-low px-4 py-4 active:opacity-80"
-      style={disabled ? { opacity: 0.6 } : undefined}
-    >
-      <Text className="text-base font-semibold text-on-surface">{title}</Text>
-      <Text className="mt-1 text-sm text-on-surface-variant">{description}</Text>
-      {busy ? (
-        <View className="mt-2 flex-row items-center gap-2">
-          <ActivityIndicator size="small" />
-          <Text className="text-xs text-on-surface-variant">{t('app.settingThingsUp')}</Text>
-        </View>
-      ) : null}
-    </Pressable>
-  );
-}
-
-function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="profile-type-screen">
-      <ScrollView contentContainerClassName="px-5 py-8">
-        <Card>
-          <View className="px-2 py-2">
-            {heading ? (
-              <Text className="text-2xl font-bold text-on-surface text-center">{heading}</Text>
-            ) : null}
-            {children}
-          </View>
-        </Card>
+      <ScrollView contentContainerClassName="py-8">
+        <View className="px-4">
+          <OnboardingProgressBar steps={progress} />
+          {heading ? (
+            <Text className="mt-4 text-3xl font-display text-left text-on-surface">{heading}</Text>
+          ) : null}
+        </View>
+        {children}
       </ScrollView>
     </SafeAreaView>
   );

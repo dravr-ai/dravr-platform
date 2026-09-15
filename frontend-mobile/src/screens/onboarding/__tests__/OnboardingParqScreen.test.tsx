@@ -15,6 +15,11 @@ jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', display_name: 'Jean' } }),
 }));
 jest.mock('../../../hooks/useOnboardingFlag');
+jest.mock('../../../hooks/useOnboardingProgress', () => ({
+  useOnboardingProgress: () => [
+    { id: 'parq', labelKey: 'onboarding.stepHealthCheck', status: 'current' },
+  ],
+}));
 jest.mock('../../../services/api', () => ({
   userApi: {
     getParqQuestions: jest.fn(),
@@ -51,10 +56,21 @@ describe('OnboardingParqScreen', () => {
     (useOnboardingFlag as jest.Mock).mockReturnValue({ done: false, mark: mockMark });
   });
 
-  it('renders every question the server returns', async () => {
+  it('renders every question the server returns, under the progress hairline', async () => {
     renderScreen();
     await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
     expect(screen.getByText(QUESTIONS[1].text)).toBeTruthy();
+    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
+  });
+
+  it('marks the chosen answer with a trailing check', async () => {
+    renderScreen();
+    await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
+
+    const yesRow = screen.getByTestId('parq-heart_condition-yes');
+    expect(yesRow.props.accessibilityState).toEqual({ selected: false });
+    fireEvent.press(screen.getAllByText('Yes')[0]);
+    expect(screen.getByTestId('parq-heart_condition-yes').props.accessibilityState).toEqual({ selected: true });
   });
 
   it('submits a yes as yes — the flag is the whole point of the screen', async () => {

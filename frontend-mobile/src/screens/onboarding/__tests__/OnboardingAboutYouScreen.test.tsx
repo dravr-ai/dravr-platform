@@ -14,6 +14,11 @@ jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', display_name: 'Jean' } }),
 }));
 jest.mock('../../../hooks/useOnboardingFlag');
+jest.mock('../../../hooks/useOnboardingProgress', () => ({
+  useOnboardingProgress: () => [
+    { id: 'about_you', labelKey: 'onboarding.stepAboutTraining', status: 'current' },
+  ],
+}));
 jest.mock('../../../services/api', () => ({
   userApi: {
     saveAboutYou: jest.fn(),
@@ -33,12 +38,22 @@ describe('OnboardingAboutYouScreen', () => {
     (useOnboardingFlag as jest.Mock).mockReturnValue({ done: false, mark: mockMark });
   });
 
-  it('offers the sport choices and both free-text questions', () => {
+  it('offers the sport choices and both free-text questions, under the progress hairline', () => {
     render(<OnboardingAboutYouScreen />);
+    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
     expect(screen.getByText('Running')).toBeTruthy();
     expect(screen.getByText('Cycling')).toBeTruthy();
     expect(screen.getByText('What are you working toward?')).toBeTruthy();
     expect(screen.getByText('And why does it matter to you?')).toBeTruthy();
+  });
+
+  it('marks the selected sport with a trailing check', () => {
+    render(<OnboardingAboutYouScreen />);
+    const running = screen.getByTestId('sport-row-Running');
+    expect(running.props.accessibilityState).toEqual({ selected: false });
+
+    fireEvent.press(screen.getByText('Running'));
+    expect(screen.getByTestId('sport-row-Running').props.accessibilityState).toEqual({ selected: true });
   });
 
   it('sends the chosen sport, goal and North Star to the API', async () => {

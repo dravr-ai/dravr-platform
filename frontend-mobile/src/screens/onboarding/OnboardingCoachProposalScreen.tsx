@@ -9,10 +9,13 @@ import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import type { ProposedAgent } from '@pierre/shared-types';
-import { Card, Button } from '../../components/ui';
+import type { OnboardingProgressItem } from '@pierre/shared-constants';
+import { Button } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useTranslation } from '@pierre/i18n';
 import { defaultConversationTitle } from '@pierre/chat-utils';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
@@ -34,6 +37,7 @@ export function OnboardingCoachProposalScreen() {
   const { t, language } = useTranslation();
   const { user } = useAuth();
   const { markSeen } = useCoachProposalSeen(user?.id);
+  const progress = useOnboardingProgress('coach_proposal');
   const [selecting, setSelecting] = useState<string | null>(null);
   const router = useRouter();
   const { createConversation } = useConversations();
@@ -81,12 +85,12 @@ export function OnboardingCoachProposalScreen() {
 
   if (isLoading) {
     return (
-      <Shell>
+      <Shell progress={progress}>
         <View className="items-center gap-4 py-10">
           <ActivityIndicator size="large" />
-          <Text className="text-base text-on-surface font-medium">{t('app.obAnalyzing')}</Text>
+          <Text className="text-base text-on-surface font-medium">{t('onboarding.analyzingTrainingData')}</Text>
           <Text className="text-sm text-on-surface-variant text-center px-6">
-            {t('app.obReadingActivities')}
+            {t('onboarding.readingActivitiesHint')}
           </Text>
         </View>
       </Shell>
@@ -95,10 +99,10 @@ export function OnboardingCoachProposalScreen() {
 
   if (isError || !data) {
     return (
-      <Shell>
+      <Shell progress={progress}>
         <View className="items-center gap-4 py-10">
           <Text className="text-base text-on-surface font-medium text-center">
-            {t('app.obNoSuggestions')}
+            {t('onboarding.agentSuggestionsFailed')}
           </Text>
           <Button title={t('app.continue')} onPress={finish} />
         </View>
@@ -110,6 +114,7 @@ export function OnboardingCoachProposalScreen() {
 
   return (
     <Shell
+      progress={progress}
       heading={
         user?.display_name
           ? t('app.obStartingLineup', { name: user.display_name })
@@ -155,7 +160,7 @@ export function OnboardingCoachProposalScreen() {
           </>
         ) : (
           <Text className="text-sm text-on-surface-variant">
-            {t('app.obNoActivitiesYet')}
+            {t('onboarding.agentProposalNoActivities')}
           </Text>
         )}
       </View>
@@ -214,18 +219,23 @@ function CoachProposalCard({
   );
 }
 
-function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
+function Shell({
+  heading,
+  children,
+  progress,
+}: {
+  heading?: string;
+  children: React.ReactNode;
+  progress: OnboardingProgressItem[];
+}) {
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="coach-proposal-screen">
       <ScrollView contentContainerClassName="px-5 py-8">
-        <Card>
-          <View className="px-2 py-2">
-            {heading ? (
-              <Text className="text-2xl font-bold text-on-surface text-center">{heading}</Text>
-            ) : null}
-            {children}
-          </View>
-        </Card>
+        <OnboardingProgressBar steps={progress} />
+        {heading ? (
+          <Text className="mt-4 text-3xl font-display text-left text-on-surface">{heading}</Text>
+        ) : null}
+        {children}
       </ScrollView>
     </SafeAreaView>
   );

@@ -15,6 +15,11 @@ jest.mock('../../../contexts/AuthContext', () => ({
 jest.mock('../../../hooks/useMessagingOnboarding', () => ({
   useMessagingOnboarding: jest.fn(),
 }));
+jest.mock('../../../hooks/useOnboardingProgress', () => ({
+  useOnboardingProgress: () => [
+    { id: 'messaging_channel', labelKey: 'onboarding.stepChatApp', status: 'current' },
+  ],
+}));
 
 const chooseChannel = jest.fn();
 const skipMessaging = jest.fn();
@@ -42,8 +47,9 @@ describe('OnboardingMessagingChannelScreen', () => {
     (useMessagingOnboarding as jest.Mock).mockReturnValue(baseState);
   });
 
-  it('renders each channel and flags the recommended one', () => {
+  it('renders each channel and flags the recommended one, under the progress hairline', () => {
     render(<OnboardingMessagingChannelScreen />);
+    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
     expect(screen.getByText('Telegram')).toBeTruthy();
     expect(screen.getByText('Slack')).toBeTruthy();
     expect(screen.getByText('Recommended')).toBeTruthy();

@@ -1,5 +1,5 @@
-# ABOUTME: Test sort options in Discover screen
-# ABOUTME: Converted from store.test.js "sort options" tests
+# ABOUTME: Sort lives behind the header's sliders button as a native menu, not an inline chip row
+# ABOUTME: Converted from store.test.js "sort options" tests to the Boreal v2.2 Phase 5 shape (D7/P5.2)
 
 appId: ai.dravr.app
 
@@ -14,14 +14,30 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/navigate-to-discover.yaml
 
-# Test: should sort by Popular
-- tapOn: "Popular"
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+
+# Test: the sort menu offers the three choices
+- tapOn:
+    id: "discover-sort-button"
 - assertVisible: "Popular"
-
-# Test: should sort by Newest
-- tapOn: "Newest"
 - assertVisible: "Newest"
-
-# Test: should sort alphabetically
-- tapOn: "A-Z"
 - assertVisible: "A-Z"
+
+# Test: picking Newest reloads the catalogue rather than crashing it
+- tapOn: "Newest"
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000
+
+# Test: the menu re-opens for a second sort, alphabetically this time
+- tapOn:
+    id: "discover-sort-button"
+- tapOn: "A-Z"
+- extendedWaitUntil:
+    visible:
+      id: "coach-card-0"
+    timeout: 10000

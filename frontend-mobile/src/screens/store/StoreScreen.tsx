@@ -1,31 +1,34 @@
 // ABOUTME: Discover screen — the Agent Store catalogue to install agents from
-// ABOUTME: Lists published agents with category filters, search, and the detail screen's install actions
+// ABOUTME: A hairline list of DiscoverRows under one category text-tabs row; search and sort live in the native header
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
-
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 
-import { spacing, useCardStyle, categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
+import { spacing, useThemeColors } from '../../constants/theme';
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreAgent, AgentCategory } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
-// Category filter options. `key` is the value sent to the API and must stay
-// English; `labelKey` is what the chip shows and is resolved at render, since
-// module scope cannot hold a hook. The chips and the card badges read the same
-// shared table, so one screen never shows a category in two languages.
-const CATEGORY_FILTERS: Array<{ key: AgentCategory | 'all'; labelKey: string }> = [
-  { key: 'all', labelKey: 'app.filterAll' },
+import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
+import { TextTabs, HeaderActions, type TextTabItem } from '../../components/ui';
+import { DiscoverRow } from './DiscoverRow';
+import { presentSortMenu, type SortMenuOption } from './presentSortMenu';
+
+// Category tabs. `key` is the value sent to the API and must stay English;
+// the label is resolved at render, since module scope cannot hold a hook.
+// The tabs and the row's glyph tint read the same shared table, so a
+// category never shows one hue on the tab and another on the row.
+const CATEGORY_TABS: Array<{ key: AgentCategory | 'all'; labelKey: string }> = [
+  { key: 'all', labelKey: 'discover.filterAll' },
   { key: 'training', labelKey: COACH_CATEGORY_LABEL_KEY.training },
   { key: 'nutrition', labelKey: COACH_CATEGORY_LABEL_KEY.nutrition },
   { key: 'recovery', labelKey: COACH_CATEGORY_LABEL_KEY.recovery },
@@ -34,18 +37,17 @@ const CATEGORY_FILTERS: Array<{ key: AgentCategory | 'all'; labelKey: string }> 
   { key: 'custom', labelKey: COACH_CATEGORY_LABEL_KEY.custom },
 ];
 
-// Sort options
+// Sort options — offered from the header's sliders menu, not an inline row.
 type SortOption = 'newest' | 'popular' | 'title';
 const SORT_OPTIONS: Array<{ key: SortOption; labelKey: string }> = [
-  { key: 'popular', labelKey: 'app.sortPopular' },
-  { key: 'newest', labelKey: 'app.sortNewest' },
-  { key: 'title', labelKey: 'app.sortAlphabetical' },
+  { key: 'popular', labelKey: 'discover.sortPopular' },
+  { key: 'newest', labelKey: 'discover.sortNewest' },
+  { key: 'title', labelKey: 'discover.sortAlpha' },
 ];
 
 export function StoreScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const cardStyle = useCardStyle();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [coaches, setCoaches] = useState<StoreAgent[]>([]);
@@ -171,101 +173,24 @@ export function StoreScreen() {
     router.push({ pathname: '/(app)/(tabs)/(discover)/[agentId]', params: { agentId: coach.id } });
   };
 
-  const renderCategoryChip = ({ key, labelKey }: { key: AgentCategory | 'all'; labelKey: string }) => (
-    <TouchableOpacity
-      key={key}
-      className={`px-3 py-1 rounded-full mr-1 border ${
-        selectedCategory === key
-          ? 'bg-primary border-primary'
-          : 'bg-background-secondary border-border'
-      }`}
-      onPress={() => setSelectedCategory(key)}
-    >
-      <Text
-        className={`text-sm ${
-          selectedCategory === key
-            ? 'text-on-primary font-medium'
-            : 'text-text-secondary'
-        }`}
-      >
-        {t(labelKey)}
-      </Text>
-    </TouchableOpacity>
-  );
+  const categoryTabItems: TextTabItem[] = CATEGORY_TABS.map(({ key, labelKey }) => ({
+    key,
+    label: t(labelKey),
+  }));
 
-  const renderSortChip = ({ key, labelKey }: { key: SortOption; labelKey: string }) => (
-    <TouchableOpacity
-      key={key}
-      className={`px-2 py-1 rounded mr-1 ${
-        selectedSort === key ? 'bg-primary/20' : ''
-      }`}
-      onPress={() => setSelectedSort(key)}
-    >
-      <Text
-        className={`text-sm ${
-          selectedSort === key
-            ? 'text-primary font-medium'
-            : 'text-text-secondary'
-        }`}
-      >
-        {t(labelKey)}
-      </Text>
-    </TouchableOpacity>
-  );
+  const sortMenuOptions: SortMenuOption<SortOption>[] = SORT_OPTIONS.map(({ key, labelKey }) => ({
+    key,
+    label: t(labelKey),
+  }));
 
-  const renderCoachCard = ({ item, index }: { item: StoreAgent; index: number }) => (
-    <TouchableOpacity
-      testID={`coach-card-${index}`}
-      className="rounded-lg p-3 mb-3"
-      style={cardStyle}
-      onPress={() => navigateToCoachDetail(item)}
-    >
-      <View className="flex-row justify-between items-center mb-1">
-        {/* The accent is the tint; the label takes the ink bound to it. A hue
-            drawn on a tint of itself measures under AA in light. */}
-        <View
-          testID="category-badge"
-          className="px-2 py-0.5 rounded"
-          style={{ backgroundColor: `${categoryAccent(colors, item.category)}20` }}
-        >
-          <Text
-            className="text-xs font-medium"
-            style={{ color: categoryInk(colors, item.category) }}
-          >
-            {t(coachCategoryLabelKey(item.category))}
-          </Text>
-        </View>
-        <Text testID="install-count" className="text-xs text-text-secondary">
-          {t(item.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
-            count: item.install_count,
-          })}
-        </Text>
-      </View>
-
-      <Text className="text-lg font-semibold text-text-primary mb-1" numberOfLines={1}>
-        {item.title}
-      </Text>
-
-      {item.description && (
-        <Text className="text-sm text-text-secondary mb-2 leading-5" numberOfLines={2}>
-          {item.description}
-        </Text>
-      )}
-
-      {item.tags.length > 0 && (
-        <View className="flex-row flex-wrap items-center">
-          {item.tags.slice(0, 3).map((tag) => (
-            <View key={tag} className="bg-background-primary px-2 py-0.5 rounded mr-1 mb-1">
-              <Text className="text-xs text-text-secondary">{tag}</Text>
-            </View>
-          ))}
-          {item.tags.length > 3 && (
-            <Text className="text-xs text-text-secondary ml-1">+{item.tags.length - 3}</Text>
-          )}
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+  const openSortMenu = () => {
+    presentSortMenu<SortOption>({
+      options: sortMenuOptions,
+      onChange: setSelectedSort,
+      cancelLabel: t('common.cancel'),
+      title: t('discover.sortByLabel'),
+    });
+  };
 
   const renderEmptyState = () => (
     // testID because the copy inside is translated: an e2e flow asserting the
@@ -274,12 +199,12 @@ export function StoreScreen() {
     // carries one; this was the gap that made the search flow unassertable.
     <View className="flex-1 justify-center items-center py-16" testID="store-empty-state">
       <Text className="text-lg font-semibold text-text-primary mb-1">
-        {searchQuery ? t('app.noAgentsFound') : t('app.noAgentsAvailable')}
+        {searchQuery ? t('discover.noAgentsFound') : t('app.noAgentsAvailable')}
       </Text>
       <Text className="text-base text-text-secondary text-center">
         {searchQuery
           ? t('app.noAgentsMatch', { query: searchQuery })
-          : t('app.noPublishedAgents')}
+          : t('discover.noPublishedAgents')}
       </Text>
     </View>
   );
@@ -302,12 +227,28 @@ export function StoreScreen() {
   );
 
   // The search field is the system's, in the native header: under the large
-  // title on iOS 18, in the bottom toolbar on iOS 26, in the app bar on Android.
-  const headerSearch = (
+  // title on iOS 18, in the bottom toolbar on iOS 26, in the app bar on
+  // Android. The sliders button opens the sort menu that used to be an
+  // always-visible chip row under its own band.
+  const headerOptions = (
     <Stack.Screen
       options={{
+        headerRight: () => (
+          <HeaderActions>
+            <TouchableOpacity
+              className="w-10 h-10 items-center justify-center"
+              onPress={openSortMenu}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={t('discover.sortByLabel')}
+              testID="discover-sort-button"
+            >
+              <Feather name="sliders" size={20} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </HeaderActions>
+        ),
         headerSearchBarOptions: {
-          placeholder: t('app.searchAgents'),
+          placeholder: t('discover.searchAgentsPlaceholder'),
           autoCapitalize: 'none',
           hideWhenScrolling: false,
           onChangeText: (event) => handleSearch(event.nativeEvent.text),
@@ -320,10 +261,10 @@ export function StoreScreen() {
   if (isLoading && coaches.length === 0) {
     return (
       <View className="flex-1 bg-background-primary" testID="store-screen">
-        {headerSearch}
+        {headerOptions}
         <View className="flex-1 justify-center items-center" testID="loading-indicator">
           <ActivityIndicator size="large" color={colors.tokens.primary} />
-          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgents')}</Text>
+          <Text className="mt-3 text-text-secondary text-base">{t('discover.loadingAgents')}</Text>
         </View>
       </View>
     );
@@ -331,38 +272,31 @@ export function StoreScreen() {
 
   return (
     <View className="flex-1 bg-background-primary" testID="store-screen">
-      {headerSearch}
+      {headerOptions}
 
-      {/* Category Filters */}
-      <View className="border-b border-border-faint">
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={CATEGORY_FILTERS}
-          keyExtractor={(item) => item.key}
-          renderItem={({ item }) => renderCategoryChip(item)}
-          contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
-        />
-      </View>
-
-      {/* Sort Options */}
-      <View className="flex-row items-center px-3 py-1 bg-background-secondary">
-        <Text className="text-sm text-text-secondary mr-2">{t('app.sortBy')}</Text>
-        {SORT_OPTIONS.map((option) => renderSortChip(option))}
-      </View>
+      {/* Category, as one scrollable row of text tabs — the two bordered chip
+          bands (category pills, sort chips) are gone. */}
+      <TextTabs
+        testID="discover-category-tabs"
+        items={categoryTabItems}
+        value={selectedCategory}
+        onChange={(key) => setSelectedCategory(key as AgentCategory | 'all')}
+      />
 
       {/* Error Display */}
       {error && renderError()}
 
-      {/* Coach List with FlashList for optimized performance */}
+      {/* Coach list, a hairline row per listing, with FlashList for optimized performance */}
       <FlashList
         testID="coach-list"
         data={coaches}
         keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => renderCoachCard({ item, index })}
+        renderItem={({ item, index }) => (
+          <DiscoverRow agent={item} index={index} onPress={navigateToCoachDetail} />
+        )}
         // The system header and tab bar inset the list themselves.
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: spacing.md }}
+        contentContainerStyle={{ paddingVertical: spacing.sm }}
         ListEmptyComponent={renderEmptyState}
         onEndReached={loadMoreCoaches}
         onEndReachedThreshold={0.5}
@@ -385,4 +319,3 @@ export function StoreScreen() {
     </View>
   );
 }
-

@@ -14,6 +14,11 @@ jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', display_name: 'Jean' } }),
 }));
 jest.mock('../../../hooks/useProfileTypeChosen');
+jest.mock('../../../hooks/useOnboardingProgress', () => ({
+  useOnboardingProgress: () => [
+    { id: 'profile_type', labelKey: 'onboarding.stepAboutYou', status: 'current' },
+  ],
+}));
 jest.mock('../../../services/api', () => ({
   userApi: {
     setCoachingPersona: jest.fn(),
@@ -33,8 +38,9 @@ describe('OnboardingProfileTypeScreen', () => {
     (useProfileTypeChosen as jest.Mock).mockReturnValue({ markChosen: mockMarkChosen });
   });
 
-  it('renders both the athlete and coach choices', () => {
+  it('renders both the athlete and coach choices, under the progress hairline', () => {
     render(<OnboardingProfileTypeScreen />);
+    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
     expect(screen.getByText("I'm an athlete")).toBeTruthy();
     expect(screen.getByText('I coach others')).toBeTruthy();
   });

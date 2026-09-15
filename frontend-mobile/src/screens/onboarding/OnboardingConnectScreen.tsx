@@ -9,6 +9,7 @@ import {
   View,
   Text,
   ScrollView,
+  StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -17,8 +18,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { PROVIDER_COLORS, useThemeColors } from '../../constants/theme';
-import { Card, Button } from '../../components/ui';
+import { useThemeColors } from '../../constants/theme';
+import { Button } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
+import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
@@ -27,6 +30,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import type { ExtendedProviderStatus } from '../../types';
 import { useProviderSkipped } from '../../hooks/useProviderSkipped';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 
@@ -52,6 +56,7 @@ export function OnboardingConnectScreen() {
   const queryClient = useQueryClient();
   const { isAuthenticated, user, logout } = useAuth();
   const { skip } = useProviderSkipped(user?.id);
+  const progress = useOnboardingProgress('connect_provider');
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -237,55 +242,60 @@ export function OnboardingConnectScreen() {
       );
   })();
 
-  const renderProvider = (provider: ExtendedProviderStatus) => {
-    // Provider display config (colors, icons, descriptions). Unknown ids fall
-    // back to a neutral outline-grey tile so the screen never crashes on an
-    // unexpected payload.
-    const config: Record<string, { color: string; icon: string; description: string }> = {
-      sciotte: { color: PROVIDER_COLORS.strava, icon: 'S', description: t('app.provRunCycleSwim') },
-      sciotte_garmin: { color: PROVIDER_COLORS.garmin, icon: 'G', description: t('app.provActivitiesHealth') },
-      whoop: { color: PROVIDER_COLORS.whoop, icon: 'W', description: t('app.provRecoveryStrainSleep') },
-      intervals_icu: { color: PROVIDER_COLORS.intervals_icu, icon: 'I', description: t('app.provEnduranceWellness') },
+  // The one line under a provider's name — same descriptions the old
+  // letter-tile row showed, now paired with `ProviderGlyph`'s brand mark
+  // instead of a colored square. An unknown id gets the generic line so the
+  // screen never crashes on an unexpected payload.
+  const providerDescription = (providerId: string): string => {
+    const descriptions: Record<string, string> = {
+      sciotte: t('app.provRunCycleSwim'),
+      sciotte_garmin: t('app.provActivitiesHealth'),
+      whoop: t('app.provRecoveryStrainSleep'),
+      intervals_icu: t('app.provEnduranceWellness'),
     };
-    const c = config[provider.provider] ?? { color: colors.tokens.outline, icon: '?', description: t('app.provFitnessData') };
+    return descriptions[providerId] ?? t('app.provFitnessData');
+  };
+
+  const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
 
     return (
-      <Card key={provider.provider} className="mb-3">
-        <View className="flex-row items-center">
-          <View
-            className="w-11 h-11 rounded-xl items-center justify-center mr-3"
-            style={{ backgroundColor: c.color }}
-          >
-            <Text className="text-xl font-bold text-on-surface">{c.icon}</Text>
-          </View>
-          <View className="flex-1 mr-3">
-            <Text className="text-base font-semibold text-text-primary">{provider.display_name}</Text>
-            <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{c.description}</Text>
+      <View key={provider.provider} className="flex-row items-center px-4">
+        <View className="w-6 items-center mr-3.5">
+          <ProviderGlyph providerId={provider.provider} label={provider.display_name} />
+        </View>
+        {/* The hairline sits on this inner column, so it insets past the glyph to the text. */}
+        <View
+          className={`flex-1 flex-row items-center min-h-[52px] ${last ? '' : 'border-b border-border-faint'}`}
+          style={last ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
+        >
+          <View className="flex-1 min-w-0 py-2 mr-3">
+            <Text className="text-base text-text-primary">{provider.display_name}</Text>
+            <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
+              {providerDescription(provider.provider)}
+            </Text>
           </View>
           {isConnected ? (
-            <View className="bg-success/15 px-3 py-1.5 rounded-full">
-              <Text className="text-xs text-success font-semibold">{t('app.connected')}</Text>
+            <View className="flex-row items-center gap-2">
+              <View className="w-2 h-2 rounded-full bg-success" />
+              <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
             </View>
+          ) : isConnecting ? (
+            <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${provider.provider}`} />
           ) : (
-            <TouchableOpacity
-              className="px-5 py-2 rounded-full"
-              style={{ backgroundColor: c.color }}
+            <Text
+              className="text-md font-medium text-primary"
               onPress={() => handleConnect(provider)}
-              disabled={isConnecting}
-              activeOpacity={0.7}
+              accessibilityRole="button"
               accessibilityLabel={`Connect ${provider.display_name}`}
+              testID={`provider-action-${provider.provider}`}
             >
-              {isConnecting ? (
-                <ActivityIndicator size="small" color={colors.tokens.onPrimary} />
-              ) : (
-                <Text className="text-sm font-semibold text-on-surface">{t('app.connect')}</Text>
-              )}
-            </TouchableOpacity>
+              {t('app.connect')}
+            </Text>
           )}
         </View>
-      </Card>
+      </View>
     );
   };
 
@@ -331,14 +341,15 @@ export function OnboardingConnectScreen() {
     <SafeAreaView className="flex-1 bg-background-primary" testID="onboarding-screen">
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
         <View className="mb-6 mt-4">
+          <OnboardingProgressBar steps={progress} />
           <Text
-            className="text-3xl font-bold text-text-primary mb-3"
+            className="mt-4 text-3xl font-display text-left text-text-primary mb-3"
             accessibilityRole="header"
           >
             {user?.display_name ? t('onboarding.welcomeNamed', { name: user.display_name }) : t('app.welcomeToDravr')}
           </Text>
           <Text className="text-base text-text-secondary leading-6">
-            {t('app.obConnectBlurb')}
+            {t('onboarding.connectProviderIntro')}
           </Text>
         </View>
 
@@ -347,7 +358,11 @@ export function OnboardingConnectScreen() {
             <ActivityIndicator size="large" color={colors.tokens.primary} />
           </View>
         ) : (
-          visibleProviders.map(renderProvider)
+          <View>
+            {visibleProviders.map((provider, index) =>
+              renderProvider(provider, index === visibleProviders.length - 1),
+            )}
+          </View>
         )}
 
         {connectError && (
@@ -376,12 +391,12 @@ export function OnboardingConnectScreen() {
           </Text>
         </View>
 
-        <View className="mt-8">
+        <View className="mt-8 items-center">
           <Button
             title={t('common.logout')}
-            variant="secondary"
+            variant="ghost"
             onPress={() => void logout()}
-            fullWidth
+            testID="onboarding-logout-link"
           />
         </View>
       </ScrollView>

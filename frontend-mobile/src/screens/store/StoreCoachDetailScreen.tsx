@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
@@ -19,6 +20,7 @@ import { trackMobile } from '../../services/analytics';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useAuth } from '../../contexts/AuthContext';
 import { PostInstallHint } from './PostInstallHint';
+import { Section, Row } from '../../components/ui';
 import type { StoreAgent, StoreAgentDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { coachCategoryLabelKey } from '@pierre/shared-constants';
@@ -42,6 +44,9 @@ interface InstalledCopy {
 export function StoreCoachDetailScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  // Still used by the action bar's Edit/Installed buttons below — the two
+  // stacked prompt/system-prompt/metadata blocks lost their card fill per
+  // Boreal v2.2 Phase 5 (P5.3), but the action bar itself is out of that scope.
   const cardStyle = useCardStyle();
   const router = useRouter();
   const { agentId } = useLocalSearchParams<{ agentId: string }>();
@@ -96,11 +101,11 @@ export function StoreCoachDetailScreen() {
     }
   };
 
-  // t('app.openChat') on the post-install hint: a fresh thread. The hint hands over
-  // the `/agent add @handle` draft the athlete types there.
-  const handleOpenChat = () => {
+  // t('discover.openChat') on the post-install hint: a fresh thread, its
+  // composer pre-filled with the `/agent add @handle` draft the hint taught.
+  const handleOpenChat = (draft: string) => {
     setPostInstall(null);
-    router.push(threadHref());
+    router.push(threadHref(undefined, { draft }));
   };
 
   const handleEdit = () => {
@@ -145,7 +150,7 @@ export function StoreCoachDetailScreen() {
       <View className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color={colors.tokens.primary} />
-          <Text className="mt-3 text-text-secondary text-base">{t('app.loadingAgentDetails')}</Text>
+          <Text className="mt-3 text-text-secondary text-base">{t('discover.loadingAgentDetails')}</Text>
         </View>
       </View>
     );
@@ -155,12 +160,12 @@ export function StoreCoachDetailScreen() {
     return (
       <View className="flex-1 bg-background-primary">
         <View className="flex-1 justify-center items-center p-6">
-          <Text className="text-lg text-text-secondary mb-3">{t('app.agentNotFound')}</Text>
+          <Text className="text-lg text-text-secondary mb-3">{t('discover.agentNotFound')}</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary rounded-lg"
             onPress={() => router.push('/(app)/(tabs)/(discover)')}
           >
-            <Text className="text-on-primary text-base font-medium">{t('app.goBack')}</Text>
+            <Text className="text-on-primary text-base font-medium">{t('discover.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -212,7 +217,7 @@ export function StoreCoachDetailScreen() {
         {/* Tags */}
         {coach.tags.length > 0 && (
           <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.tags')}</Text>
+            <Text className="text-sm font-semibold text-text-secondary mb-2">{t('discover.tagsSection')}</Text>
             <View className="flex-row flex-wrap">
               {coach.tags.map((tag) => (
                 <View
@@ -231,38 +236,27 @@ export function StoreCoachDetailScreen() {
           </View>
         )}
 
-        {/* Sample Prompts */}
+        {/* Sample Prompts, as a hairline list — no card, no per-item radius. */}
         {coach.sample_prompts.length > 0 && (
-          <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.samplePrompts')}</Text>
-            {coach.sample_prompts.map((prompt) => (
-              <View
-                key={prompt}
-                className="p-3 rounded-xl mb-2 overflow-hidden"
-                style={{
-                  ...cardStyle,
-                  borderRadius: 12,
-                  borderColor: colors.border.default,
-                }}
-              >
-                <Text className="text-base text-text-primary leading-5">{prompt}</Text>
-              </View>
-            ))}
+          <View className="mt-2">
+            <Section title={t('discover.samplePrompts')}>
+              {coach.sample_prompts.map((prompt, index) => (
+                <View
+                  key={prompt}
+                  className={`px-4 py-3 ${index < coach.sample_prompts.length - 1 ? 'border-b border-border-faint' : ''}`}
+                  style={index < coach.sample_prompts.length - 1 ? { borderBottomWidth: StyleSheet.hairlineWidth } : undefined}
+                >
+                  <Text className="text-base text-text-primary leading-5">{prompt}</Text>
+                </View>
+              ))}
+            </Section>
           </View>
         )}
 
         {/* System Prompt Preview */}
-        <View className="px-4 py-3">
-          <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.systemPrompt')}</Text>
-          <View
-            className="rounded-xl overflow-hidden"
-            style={{
-              ...cardStyle,
-              borderRadius: 12,
-              borderColor: `${categoryFill}30`,
-            }}
-          >
-            <View className="p-3">
+        <View className="mt-8">
+          <Section title={t('app.systemPrompt')}>
+            <View className="px-4">
               <Text className="text-sm text-text-secondary leading-5 font-mono" numberOfLines={10}>
                 {coach.system_prompt}
               </Text>
@@ -272,36 +266,25 @@ export function StoreCoachDetailScreen() {
                 </Text>
               )}
             </View>
-          </View>
+          </Section>
         </View>
 
         {/* Metadata */}
-        <View className="px-4 py-3">
-          <Text className="text-sm font-semibold text-text-secondary mb-2">{t('app.details')}</Text>
-          <View
-            className="rounded-xl overflow-hidden"
-            style={{
-              ...cardStyle,
-              borderRadius: 12,
-              borderColor: colors.border.default,
-            }}
-          >
-            <View className="flex-row justify-between items-center px-4 py-3 border-b border-border-faint">
-              <Text className="text-sm text-text-secondary">{t('app.tokenCount')}</Text>
-              <Text className="text-sm text-text-primary font-medium">{coach.token_count}</Text>
-            </View>
+        <View className="mt-8">
+          <Section title={t('discover.detailsSection')}>
+            <Row title={t('discover.tokenCount')} value={String(coach.token_count)} compact last={!coach.published_at} />
             {coach.published_at && (
-              <View className="flex-row justify-between items-center px-4 py-3">
-                <Text className="text-sm text-text-secondary">{t('app.published')}</Text>
-                <Text className="text-sm text-text-primary font-medium">
-                  {new Date(coach.published_at).toLocaleDateString()}
-                </Text>
-              </View>
+              <Row
+                title={t('discover.publishedOn')}
+                value={new Date(coach.published_at).toLocaleDateString()}
+                compact
+                last
+              />
             )}
-          </View>
+          </Section>
         </View>
 
-        {/* Scrolls the last card clear of the action bar below. */}
+        {/* Scrolls the last section clear of the action bar below. */}
         <View style={{ height: 96 }} />
       </ScrollView>
 

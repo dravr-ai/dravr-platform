@@ -7,10 +7,14 @@
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button, Input } from '../../components/ui';
+import { Feather } from '@expo/vector-icons';
+import { Button, Input, Row } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 import { ONBOARDING_SPORTS as SPORTS, SPORT_LABEL_KEY } from '@pierre/shared-constants';
 
@@ -27,8 +31,10 @@ const STORAGE_PREFIX = 'dravr.about_you_done.';
  */
 export function OnboardingAboutYouScreen() {
   const { t } = useTranslation();
+  const colors = useThemeColors();
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
+  const progress = useOnboardingProgress('about_you');
   const [sport, setSport] = useState('');
   const [goal, setGoal] = useState('');
   const [northStar, setNorthStar] = useState('');
@@ -54,72 +60,76 @@ export function OnboardingAboutYouScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-surface">
-      <ScrollView contentContainerClassName="px-6 py-10" keyboardShouldPersistTaps="handled">
-        <Text className="text-2xl font-bold text-on-surface text-center">
-          {t('app.obTellMeTitle')}
-        </Text>
-        <Text className="mt-3 text-sm text-on-surface-variant text-center">
-          {t('app.obThreeQuestions')}
-        </Text>
+      <ScrollView contentContainerClassName="py-10" keyboardShouldPersistTaps="handled">
+        <View className="px-4">
+          <OnboardingProgressBar steps={progress} />
+          <Text className="mt-4 text-3xl font-display text-left text-on-surface">
+            {t('onboarding.tellMeAboutTraining')}
+          </Text>
+          <Text className="mt-3 text-sm text-on-surface-variant">
+            {t('onboarding.aboutYouHint')}
+          </Text>
 
-        <Text className="mt-8 text-sm font-medium text-on-surface">{t('app.obSportQuestion')}</Text>
-        <View className="mt-3 flex-row flex-wrap gap-2">
-          {SPORTS.map((option) => {
+          <Text className="mt-8 text-sm font-medium text-on-surface">{t('onboarding.primarySportLabel')}</Text>
+        </View>
+
+        <View className="mt-3">
+          {SPORTS.map((option, index) => {
             const selected = sport === option;
             return (
-              <Pressable
+              <Row
                 key={option}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
+                title={t(SPORT_LABEL_KEY[option])}
+                trailing={selected ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined}
+                showChevron={false}
                 onPress={() => setSport(selected ? '' : option)}
-                className={`rounded-full border px-4 py-2 ${
-                  selected ? 'border-primary bg-primary' : 'border-outline-variant bg-surface-container-low'
-                }`}
-              >
-                <Text className={selected ? 'text-on-primary text-sm' : 'text-on-surface text-sm'}>
-                  {t(SPORT_LABEL_KEY[option])}
-                </Text>
-              </Pressable>
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                last={index === SPORTS.length - 1}
+                testID={`sport-row-${option}`}
+              />
             );
           })}
         </View>
 
-        <Text className="mt-6 text-sm font-medium text-on-surface">
-          {t('app.obGoalQuestion')}
-        </Text>
-        {/*
-          The question above is the label, so `Input` renders without one: its
-          own label is an uppercase eyebrow, which suits a field name but shouts
-          a conversational prompt. Spacing is pinned to what the raw field used
-          so the shared component changes the stroke, not the rhythm.
-        */}
-        <Input
-          value={goal}
-          onChangeText={setGoal}
-          placeholder={t('app.obGoalPlaceholder')}
-          containerStyle={{ marginTop: 8, marginBottom: 0 }}
-        />
+        <View className="px-4">
+          <Text className="mt-6 text-sm font-medium text-on-surface">
+            {t('onboarding.goalLabel')}
+          </Text>
+          {/*
+            The question above is the label, so `Input` renders without one: its
+            own label is an uppercase eyebrow, which suits a field name but shouts
+            a conversational prompt. Spacing is pinned to what the raw field used
+            so the shared component changes the stroke, not the rhythm.
+          */}
+          <Input
+            value={goal}
+            onChangeText={setGoal}
+            placeholder={t('onboarding.goalPlaceholder')}
+            containerStyle={{ marginTop: 8, marginBottom: 0 }}
+          />
 
-        <Text className="mt-6 text-sm font-medium text-on-surface">
-          {t('app.obWhyMatters')}
-        </Text>
-        <Input
-          value={northStar}
-          onChangeText={setNorthStar}
-          placeholder={t('app.obWhyPlaceholder')}
-          multiline
-          numberOfLines={3}
-          containerStyle={{ marginTop: 8, marginBottom: 0 }}
-        />
-        <Text className="mt-1.5 text-xs text-on-surface-variant">
-          {t('app.obWhyHint')}
-        </Text>
+          <Text className="mt-6 text-sm font-medium text-on-surface">
+            {t('onboarding.northStarLabel')}
+          </Text>
+          <Input
+            value={northStar}
+            onChangeText={setNorthStar}
+            placeholder={t('onboarding.northStarPlaceholder')}
+            multiline
+            numberOfLines={3}
+            containerStyle={{ marginTop: 8, marginBottom: 0 }}
+          />
+          <Text className="mt-1.5 text-xs text-on-surface-variant">
+            {t('app.obWhyHint')}
+          </Text>
 
-        <View className="mt-8 gap-3">
-          <Button title={saving ? t('app.saving') : t('app.continue')} onPress={() => void finish('complete')} disabled={saving} />
-          <Pressable onPress={() => void finish('skipped')} disabled={saving} accessibilityRole="button">
-            <Text className="text-center text-sm text-on-surface-variant">{t('app.skipForNow')}</Text>
-          </Pressable>
+          <View className="mt-8 gap-3">
+            <Button title={saving ? t('app.saving') : t('app.continue')} onPress={() => void finish('complete')} disabled={saving} />
+            <Pressable onPress={() => void finish('skipped')} disabled={saving} accessibilityRole="button">
+              <Text className="text-center text-sm text-on-surface-variant">{t('app.skipForNow')}</Text>
+            </Pressable>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>

@@ -5,8 +5,8 @@
 // ABOUTME: The same read model the coach's ambient context uses - one room across every surface
 
 import React from 'react';
-import { ActivityIndicator, Text, View, type ViewStyle } from 'react-native';
-import { useCardStyle, useThemeColors } from '../../constants/theme';
+import { ActivityIndicator, Text, View } from 'react-native';
+import { useThemeColors } from '../../constants/theme';
 import { useGroupTranscript } from '../../hooks/useGroups';
 import { useTranslation } from '@pierre/i18n';
 
@@ -21,20 +21,20 @@ interface GroupTranscriptSectionProps {
  * Entries arrive consent-filtered from the server: an unconsented member stays
  * on the roster while their words are withheld — the same rule the pipeline
  * applies before the coach reasons over the room.
+ *
+ * No card: this mounts inside `GroupInfoSheet`'s Room `CollapsibleSection`,
+ * whose own header already reads "Room" — an inner heading repeating that
+ * word made sense as a card's own label but is redundant once flattened, so
+ * it is dropped here rather than carried into a plain view.
  */
 export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const sectionCardStyle: ViewStyle = {
-    borderRadius: 12,
-    padding: 14,
-    ...useCardStyle(),
-  };
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
   if (isLoading) {
     return (
-      <View style={sectionCardStyle} testID="group-transcript-loading">
+      <View className="items-center py-4" testID="group-transcript-loading">
         <ActivityIndicator />
       </View>
     );
@@ -42,7 +42,7 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
 
   if (isError || !transcript) {
     return (
-      <View style={sectionCardStyle}>
+      <View className="py-4">
         <Text className="text-sm" style={{ color: colors.text.tertiary, textAlign: 'center' }}>
           {t('app.roomTranscriptFailed')}
         </Text>
@@ -51,10 +51,7 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
   }
 
   return (
-    <View style={sectionCardStyle} testID="group-transcript">
-      <Text className="text-base font-semibold" style={{ color: colors.text.primary, marginBottom: 8 }}>
-        {t('app.room')}
-      </Text>
+    <View testID="group-transcript">
       {transcript.entries.length === 0 ? (
         <Text className="text-sm" style={{ color: colors.text.tertiary }}>
           {t('app.roomEmpty')}

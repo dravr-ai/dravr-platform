@@ -1,0 +1,85 @@
+# ABOUTME: The notification center from the chat tab's bell — row ids, a swipe that reveals delete, the same delete behind a long-press, and "mark all read" clearing the unread signal
+# ABOUTME: Needs at least one notification for the seeded tester; none ships by default (the same gap Memory's own 08-memory.yaml has for facts), so this pins the feed rather than assuming it
+
+appId: ai.dravr.app
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# The bell sits in the chat list's header (NotificationBellButton).
+- assertVisible:
+    id: "notification-bell"
+- tapOn:
+    id: "notification-bell"
+
+- extendedWaitUntil:
+    visible:
+      id: "notification-center-screen"
+    timeout: 10000
+
+# At least one row is on screen. Every row's swipe wrapper carries the
+# "-swipe" suffix, so this id also anchors every step below it.
+- extendedWaitUntil:
+    visible:
+      id: "notification-row-.*-swipe$"
+    timeout: 15000
+
+# Swiping the row left reveals its one destructive action.
+- swipe:
+    from:
+      id: "notification-row-.*-swipe$"
+    direction: LEFT
+- assertVisible:
+    id: "notification-row-.*-swipe-action-delete$"
+
+# Close the swipe without completing the delete, so the long-press twin below
+# still has a row to act on.
+- swipe:
+    from:
+      id: "notification-row-.*-swipe$"
+    direction: RIGHT
+
+# The long-press twin offers the same one action, through the platform's own
+# menu — an action sheet on iOS, a dialog on Android (presentNotificationMenu).
+- longPressOn:
+    id: "notification-row-.*-swipe$"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertVisible: "Delete|Supprimer"
+      - tapOn: "Cancel|Annuler"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertVisible: "Delete notification|Supprimer la notification"
+      - tapOn: "Cancel|Annuler"
+
+# The row survived both the swipe and the menu's cancel — neither path deleted it.
+- assertVisible:
+    id: "notification-row-.*-swipe$"
+
+# "Mark all read" is the ink header action, shown only while something is
+# unread; tapping it clears that signal and the action itself disappears —
+# the same `unreadCount` the bell's own badge reads, which carries no test id
+# of its own to assert on directly (Boreal v2.2 Phase 5, P5.8).
+- assertVisible:
+    id: "mark-all-read"
+- tapOn:
+    id: "mark-all-read"
+- extendedWaitUntil:
+    notVisible:
+      id: "mark-all-read"
+    timeout: 10000
+
+- tapOn:
+    id: "notifications-back"
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 10000

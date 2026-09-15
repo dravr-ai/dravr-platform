@@ -1,5 +1,5 @@
 // ABOUTME: Registration screen for new user signup
-// ABOUTME: Resting card on the app canvas — its fill and hairline follow the athlete's colour scheme
+// ABOUTME: Plain page on the app canvas — no card shell; BrandLockup is the product's own mark, not an icon tile
 
 import React, { useState } from 'react';
 import {
@@ -16,7 +16,7 @@ import { useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
-import { spacing, useCardStyle } from '../../constants/theme';
+import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
@@ -83,101 +83,97 @@ export function RegisterScreen() {
     registerAction.execute();
   };
 
-  const cardStyle: ViewStyle = {
-    ...useCardStyle(),
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
   const submitButtonStyle: ViewStyle = {
     marginTop: spacing.md,
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary">
+    <SafeAreaView className="flex-1 bg-background-primary" testID="register-screen">
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets
         >
-          {/* Card container */}
-          <View style={cardStyle}>
-            <View className="px-6 py-8">
-              {/* Header */}
-              <View className="items-center mb-6">
-                {/* The product's own mark. This was a gradient square holding a
-                    bold "P" — the Pierre-era monogram, on a fixed fill, with
-                    body ink over it. Three things wrong at once: the wrong
-                    brand, a colour that ignored the athlete's scheme, and an
-                    ink not bound to its ground. `BrandLockup` is the one
-                    lockup both clients draw. */}
-                <View className="mb-3">
-                  <BrandLockup size={36} testID="register-lockup" />
-                </View>
-                <Text className="text-xl font-bold text-text-primary mb-1">{t('app.createAccount')}</Text>
-                <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  {t('app.joinDravrBlurb')}
-                </Text>
+          <View className="px-6 py-8">
+            {/* Header */}
+            <View className="items-center mb-6">
+              {/* The product's own mark. This was a gradient square holding a
+                  bold "P" — the Pierre-era monogram, on a fixed fill, with
+                  body ink over it. Three things wrong at once: the wrong
+                  brand, a colour that ignored the athlete's scheme, and an
+                  ink not bound to its ground. `BrandLockup` is the one
+                  lockup both clients draw. */}
+              <View className="mb-3">
+                <BrandLockup size={36} testID="register-lockup" />
               </View>
+              <Text className="text-xl font-bold text-text-primary mb-1">{t('app.createAccount')}</Text>
+              <Text className="text-sm text-text-secondary text-center leading-[20px]">
+                {t('app.joinDravrBlurb')}
+              </Text>
+            </View>
 
-              {/* Registration Form */}
-              <View className="mb-4">
-                <Input
-                  label={t('app.displayName')}
-                  placeholder={t('app.howShouldWeCallYou')}
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  autoCapitalize="words"
-                  error={errors.displayName}
-                />
+            {/* Registration Form */}
+            <View className="mb-4">
+              <Input
+                label={t('app.displayName')}
+                placeholder={t('app.howShouldWeCallYou')}
+                value={displayName}
+                onChangeText={setDisplayName}
+                autoCapitalize="words"
+                error={errors.displayName}
+                testID="register-display-name-input"
+              />
 
-                <Input
-                  label={t('common.email')}
-                  placeholder="you@example.com"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  error={errors.email}
-                />
+              <Input
+                label={t('common.email')}
+                placeholder="you@example.com"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                error={errors.email}
+                testID="register-email-input"
+              />
 
-                <Input
-                  label={t('common.password')}
-                  placeholder={t('app.minEightChars')}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  showPasswordToggle
-                  error={errors.password}
-                />
+              <Input
+                label={t('common.password')}
+                placeholder={t('app.minEightChars')}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                showPasswordToggle
+                error={errors.password}
+                testID="register-password-input"
+              />
 
-                <Input
-                  label={t('app.confirmPassword')}
-                  placeholder={t('app.reenterPassword')}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  showPasswordToggle
-                  error={errors.confirmPassword}
-                />
+              <Input
+                label={t('app.confirmPassword')}
+                placeholder={t('app.reenterPassword')}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                showPasswordToggle
+                error={errors.confirmPassword}
+                testID="register-confirm-password-input"
+              />
 
-                <Button
-                  title={t('app.createAccount')}
-                  onPress={handleRegister}
-                  loading={registerAction.isLoading}
-                  fullWidth
-                  style={submitButtonStyle}
-                />
-              </View>
+              <Button
+                title={t('app.createAccount')}
+                onPress={handleRegister}
+                loading={registerAction.isLoading}
+                fullWidth
+                style={submitButtonStyle}
+                testID="register-submit-button"
+              />
+            </View>
 
-              {/* Login Link */}
-              <View className="flex-row justify-center items-center gap-1 pt-2">
-                <Text className="text-sm text-text-secondary">{t('app.alreadyHaveAccount')}</Text>
-                <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary">{t('common.login')}</Text>
-                </TouchableOpacity>
-              </View>
+            {/* Login Link */}
+            <View className="flex-row justify-center items-center gap-1 pt-2">
+              <Text className="text-sm text-text-secondary">{t('app.alreadyHaveAccount')}</Text>
+              <TouchableOpacity onPress={() => router.replace('/(auth)/login')} testID="register-login-link">
+                <Text className="text-sm font-semibold text-primary">{t('common.login')}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>

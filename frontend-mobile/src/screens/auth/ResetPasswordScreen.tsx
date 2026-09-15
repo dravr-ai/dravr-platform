@@ -1,5 +1,5 @@
 // ABOUTME: Password reset screen for entering the emailed reset code and new password
-// ABOUTME: Resting card on the app canvas — its fill and hairline follow the athlete's colour scheme
+// ABOUTME: Plain page on the app canvas — no card shell, a headline is enough
 
 import React, { useState } from 'react';
 import {
@@ -11,16 +11,14 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
-import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
+import { spacing } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 
 export function ResetPasswordScreen() {
   const { t } = useTranslation();
-  const colors = useThemeColors();
   const router = useRouter();
   const { email } = useLocalSearchParams<{ email: string }>();
   const [code, setCode] = useState('');
@@ -88,12 +86,6 @@ export function ResetPasswordScreen() {
     router.push('/(auth)/forgot-password');
   };
 
-  const cardStyle: ViewStyle = {
-    ...useCardStyle(),
-    borderRadius: 16,
-    overflow: 'hidden',
-  };
-
   const submitButtonStyle: ViewStyle = {
     marginTop: spacing.md,
   };
@@ -110,78 +102,73 @@ export function ResetPasswordScreen() {
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets
         >
-          <View style={cardStyle}>
-            <View className="px-6 py-8">
-              {/* Header */}
-              <View className="items-center mb-6">
-                <View className="w-14 h-14 rounded-xl items-center justify-center mb-3 bg-success/20">
-                  <Ionicons name="shield-checkmark-outline" size={28} color={colors.success} />
-                </View>
-                <Text className="text-xl font-bold text-text-primary mb-1">
-                  {t('app.enterResetCode')}
-                </Text>
-                <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  {t('app.sentResetCodeTo', { email })}
-                </Text>
-              </View>
+          <View className="px-6 py-8">
+            {/* Header */}
+            <View className="items-center mb-6">
+              <Text className="text-xl font-bold text-text-primary mb-1">
+                {t('app.enterResetCode')}
+              </Text>
+              <Text className="text-sm text-text-secondary text-center leading-[20px]">
+                {t('app.sentResetCodeTo', { email })}
+              </Text>
+            </View>
 
-              {/* Form */}
-              <View className="mb-4">
-                <Input
-                  label={t('app.resetCode')}
-                  placeholder={t('app.pasteCodeFromEmail')}
-                  value={code}
-                  onChangeText={setCode}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoFocus
-                  error={errors.code}
-                  testID="reset-code-input"
-                />
+            {/* Form */}
+            <View className="mb-4">
+              <Input
+                label={t('app.resetCode')}
+                placeholder={t('app.pasteCodeFromEmail')}
+                value={code}
+                onChangeText={setCode}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                error={errors.code}
+                testID="reset-code-input"
+              />
 
-                <Input
-                  label={t('app.newPassword')}
-                  placeholder={t('app.minEightChars')}
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
-                  showPasswordToggle
-                  error={errors.newPassword}
-                  testID="new-password-input"
-                />
+              <Input
+                label={t('app.newPassword')}
+                placeholder={t('app.minEightChars')}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                showPasswordToggle
+                error={errors.newPassword}
+                testID="new-password-input"
+              />
 
-                <Input
-                  label={t('app.confirmNewPassword')}
-                  placeholder={t('app.reenterPassword')}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  showPasswordToggle
-                  returnKeyType="go"
-                  onSubmitEditing={handleSubmit}
-                  error={errors.confirmPassword}
-                  testID="confirm-password-input"
-                />
+              <Input
+                label={t('app.confirmNewPassword')}
+                placeholder={t('app.reenterPassword')}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                showPasswordToggle
+                returnKeyType="go"
+                onSubmitEditing={handleSubmit}
+                error={errors.confirmPassword}
+                testID="confirm-password-input"
+              />
 
-                <Button
-                  title={t('app.resetPassword')}
-                  onPress={handleSubmit}
-                  loading={isLoading}
-                  fullWidth
-                  style={submitButtonStyle}
-                  testID="reset-password-button"
-                />
-              </View>
+              <Button
+                title={t('app.resetPassword')}
+                onPress={handleSubmit}
+                loading={isLoading}
+                fullWidth
+                style={submitButtonStyle}
+                testID="reset-password-button"
+              />
+            </View>
 
-              {/* Actions */}
-              <View className="flex-row justify-between items-center pt-2">
-                <TouchableOpacity onPress={handleResendCode}>
-                  <Text className="text-sm text-text-tertiary">{t('app.resendCode')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
-                  <Text className="text-sm font-semibold text-primary">{t('app.backToSignIn')}</Text>
-                </TouchableOpacity>
-              </View>
+            {/* Actions */}
+            <View className="flex-row justify-between items-center pt-2">
+              <TouchableOpacity onPress={handleResendCode}>
+                <Text className="text-sm font-semibold text-primary">{t('app.resendCode')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
+                <Text className="text-sm font-semibold text-primary">{t('app.backToSignIn')}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </ScrollView>

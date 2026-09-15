@@ -5,11 +5,11 @@
 // ABOUTME: Everything the retired Groups tab held, re-homed where Telegram puts it: behind the chat header
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Share, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
-import { CollapsibleSection, Input } from '../../components/ui';
+import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import {
@@ -39,6 +39,17 @@ const INVITE_LIFETIME_DAYS = 7;
 
 /** Where a shared invite code sends someone; the web app re-homes it into chat. */
 const INVITE_LINK_BASE = 'https://app.dravr.ai/groups/join';
+
+/**
+ * `Row` pays its own 16px side inset for a full-bleed pane. This sheet is
+ * not full-bleed: `ConversationInfoSheet` (a sibling lane's file) mounts it
+ * inside a non-`flush` `ui/Sheet`, which already pays that inset for the
+ * whole panel — so a bare `Row` here would stack to 32px. Wrapping a `Row`
+ * in this cancels the panel's inset locally, the same net effect `<Sheet
+ * flush>` gets other callers (`ChatScreen`, `ConnectionsScreen`) by passing
+ * a prop this lane's files cannot touch.
+ */
+const CANCEL_PANEL_INSET: ViewStyle = { marginHorizontal: -16 };
 
 export interface GroupInfoSheetProps {
   /** The group this thread is scoped to. */
@@ -308,7 +319,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           {isLoadingMembers ? (
             <ActivityIndicator size="small" color={colors.pierre.violet} />
           ) : (
-            members.map((member) => (
+            members.map((member, index) => (
               <MemberRow
                 key={member.id}
                 member={member}
@@ -318,6 +329,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 onChangeRole={handleChangeRole}
                 isRemoving={removingMemberId === member.user_id}
                 isChangingRole={roleChangingUserId === member.user_id}
+                last={index === members.length - 1}
               />
             ))
           )}
@@ -325,49 +337,44 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
 
         {isAdmin && (
           <CollapsibleSection title={`Invites (${activeInvites.length})`} testID="group-info-invites">
-            <TouchableOpacity
-              className="flex-row items-center py-2"
-              onPress={handleShareInvite}
-              disabled={isCreatingInvite}
-              accessibilityRole="button"
-              testID="group-info-create-invite"
-            >
-              {isCreatingInvite ? (
-                <ActivityIndicator size="small" color={colors.pierre.violet} />
-              ) : (
-                <Feather name="share" size={18} color={colors.pierre.violet} />
-              )}
-              <Text className="text-base text-text-primary ml-3">{t('app.createShareInvite')}</Text>
-            </TouchableOpacity>
+            <View style={CANCEL_PANEL_INSET}>
+              <Row
+                title={t('app.createShareInvite')}
+                onPress={handleShareInvite}
+                trailing={isCreatingInvite ? <ActivityIndicator size="small" color={colors.pierre.violet} /> : undefined}
+                last={false}
+                testID="group-info-create-invite"
+              />
+            </View>
 
             {isLoadingInvites ? (
-              <ActivityIndicator size="small" color={colors.pierre.violet} />
+              <View className="px-4">
+                <ActivityIndicator size="small" color={colors.pierre.violet} />
+              </View>
             ) : activeInvites.length === 0 ? (
-              <Text className="text-sm text-text-tertiary py-2" testID="group-invites-empty">
+              <Text className="text-sm text-text-tertiary py-2 px-4" testID="group-invites-empty">
                 {t('app.noActiveInvites')}
               </Text>
             ) : (
-              activeInvites.map((invite) => (
-                <View
-                  key={invite.id}
-                  className="flex-row items-center py-2.5 border-b border-border-faint"
-                  testID={`group-invite-${invite.id}`}
-                >
-                  <View className="flex-1 pr-3">
-                    <Text className="text-sm font-mono tabular-nums text-text-primary">{invite.code}</Text>
-                    <Text className="text-xs text-text-tertiary mt-0.5">
-                      {invite.kind === 'coach' ? t('humanCoach.invite') : t('app.memberInvite')} · used {invite.use_count}×
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    className="px-3 py-1.5 rounded-md bg-error/20"
-                    onPress={() => handleDeactivateInvite(invite.id, invite.code)}
-                    testID={`deactivate-invite-${invite.id}`}
-                  >
-                    <Text className="text-error text-sm font-semibold">{t('app.deactivate')}</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
+              <View style={CANCEL_PANEL_INSET}>
+                {activeInvites.map((invite, index) => (
+                  <Row
+                    key={invite.id}
+                    title={invite.code}
+                    subtitle={`${invite.kind === 'coach' ? t('humanCoach.invite') : t('app.memberInvite')} · used ${invite.use_count}×`}
+                    trailing={
+                      <Button
+                        title={t('app.deactivate')}
+                        variant="danger"
+                        onPress={() => handleDeactivateInvite(invite.id, invite.code)}
+                        testID={`deactivate-invite-${invite.id}`}
+                      />
+                    }
+                    last={index === activeInvites.length - 1}
+                    testID={`group-invite-${invite.id}`}
+                  />
+                ))}
+              </View>
             )}
           </CollapsibleSection>
         )}
@@ -412,48 +419,44 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 onChangeText={setDescriptionDraft}
                 testID="group-description-input"
               />
-              <TouchableOpacity
-                className="flex-row items-center justify-center py-2.5 rounded-xl mb-3"
-                style={{ backgroundColor: colors.pierre.violet }}
+              <Button
+                title={t('common.save')}
                 onPress={() => void saveIdentity()}
                 disabled={isUpdatingGroup || (nameDraft === null && descriptionDraft === null)}
-                accessibilityRole="button"
+                fullWidth
+                style={{ marginBottom: 12 }}
                 testID="group-save-identity"
-              >
-                <Text className="text-sm font-semibold" style={{ color: colors.tokens.onPrimary }}>
-                  {t('common.save')}
-                </Text>
-              </TouchableOpacity>
+              />
 
-              <View className="flex-row items-center justify-between py-3 border-b border-border-faint">
-                <View className="flex-1 pr-3">
-                  <Text className="text-sm font-semibold text-text-primary">{t('app.peerDataSharing')}</Text>
-                  <Text className="text-xs text-text-tertiary mt-1">
-                    {t('app.peerCompareBlurb')}
-                  </Text>
-                </View>
-                <Switch
-                  value={group.peer_data_sharing}
-                  onValueChange={(value) => void setGroupFlag({ peer_data_sharing: value })}
-                  disabled={isUpdatingGroup}
-                  trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
-                  testID="group-peer-sharing-switch"
+              <View style={CANCEL_PANEL_INSET}>
+                <Row
+                  title={t('app.peerDataSharing')}
+                  subtitle={t('app.peerCompareBlurb')}
+                  trailing={
+                    <Switch
+                      value={group.peer_data_sharing}
+                      onValueChange={(value) => void setGroupFlag({ peer_data_sharing: value })}
+                      disabled={isUpdatingGroup}
+                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      testID="group-peer-sharing-switch"
+                    />
+                  }
+                  testID="group-peer-sharing-row"
                 />
-              </View>
-
-              <View className="flex-row items-center justify-between py-3 border-b border-border-faint">
-                <View className="flex-1 pr-3">
-                  <Text className="text-sm font-semibold text-text-primary">{t('app.replyOnMentionOnly')}</Text>
-                  <Text className="text-xs text-text-tertiary mt-1">
-                    {t('app.mentionOnlyOffNote')}
-                  </Text>
-                </View>
-                <Switch
-                  value={group.respond_mode === 'mentions'}
-                  onValueChange={(value) => void setGroupFlag({ respond_mode: value ? 'mentions' : 'all' })}
-                  disabled={isUpdatingGroup}
-                  trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
-                  testID="group-respond-mode-switch"
+                <Row
+                  title={t('app.replyOnMentionOnly')}
+                  subtitle={t('app.mentionOnlyOffNote')}
+                  trailing={
+                    <Switch
+                      value={group.respond_mode === 'mentions'}
+                      onValueChange={(value) => void setGroupFlag({ respond_mode: value ? 'mentions' : 'all' })}
+                      disabled={isUpdatingGroup}
+                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      testID="group-respond-mode-switch"
+                    />
+                  }
+                  last={!myMembership}
+                  testID="group-respond-mode-row"
                 />
               </View>
             </>
@@ -463,21 +466,21 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               each athlete still decides whether their own training data is
               part of it, and this is the only in-app place to say so. */}
           {myMembership && (
-            <View className="flex-row items-center justify-between py-3" testID="peer-consent-card">
-              <View className="flex-1 pr-3">
-                <Text className="text-sm font-semibold text-text-primary">{t('app.shareMyTrainingData')}</Text>
-                <Text className="text-xs text-text-tertiary mt-1">
-                  {group?.peer_data_sharing
-                    ? t('app.shareTrainingBlurb')
-                    : t('app.groupSharingOffNote')}
-                </Text>
-              </View>
-              <Switch
-                value={myMembership.peer_sharing_consent}
-                onValueChange={(value) => void handleConsentChange(value)}
-                disabled={isSavingConsent}
-                trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
-                testID="peer-consent-switch"
+            <View style={CANCEL_PANEL_INSET} testID="peer-consent-card">
+              <Row
+                title={t('app.shareMyTrainingData')}
+                subtitle={group?.peer_data_sharing ? t('app.shareTrainingBlurb') : t('app.groupSharingOffNote')}
+                trailing={
+                  <Switch
+                    value={myMembership.peer_sharing_consent}
+                    onValueChange={(value) => void handleConsentChange(value)}
+                    disabled={isSavingConsent}
+                    trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                    testID="peer-consent-switch"
+                  />
+                }
+                last
+                testID="peer-consent-row"
               />
             </View>
           )}
@@ -517,41 +520,27 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       </View>
 
       {!isOwner && (
-        <TouchableOpacity
-          className="flex-row items-center justify-center py-3 rounded-xl gap-2 border border-error/30 mt-2"
+        <Button
+          title={t('app.leaveGroupLower')}
           onPress={handleLeave}
-          disabled={isLeaving}
-          accessibilityRole="button"
+          loading={isLeaving}
+          variant="danger"
+          fullWidth
+          style={{ marginTop: 8 }}
           testID="leave-group-button"
-        >
-          {isLeaving ? (
-            <ActivityIndicator size="small" color={colors.error} />
-          ) : (
-            <>
-              <Feather name="log-out" size={18} color={colors.error} />
-              <Text className="text-base font-semibold text-error">{t('app.leaveGroupLower')}</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        />
       )}
 
       {isOwner && (
-        <TouchableOpacity
-          className="flex-row items-center justify-center py-3 rounded-xl gap-2 border border-error/30 mt-2"
+        <Button
+          title={t('app.archiveGroup')}
           onPress={handleDelete}
-          disabled={isDeleting}
-          accessibilityRole="button"
+          loading={isDeleting}
+          variant="danger"
+          fullWidth
+          style={{ marginTop: 8 }}
           testID="archive-group-button"
-        >
-          {isDeleting ? (
-            <ActivityIndicator size="small" color={colors.error} />
-          ) : (
-            <>
-              <Feather name="archive" size={18} color={colors.error} />
-              <Text className="text-base font-semibold text-error">{t('app.archiveGroup')}</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        />
       )}
     </ScrollView>
   );

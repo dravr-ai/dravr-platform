@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The card shown after an agent is installed from Discover — teaches /agent add @handle and @handle
-// ABOUTME: Dismissible; t('app.openChat') hands the /agent add draft to the caller and starts a conversation
+// ABOUTME: Dismissible; t('discover.openChat') hands the /agent add draft to the caller and starts a conversation
 
 import React from 'react';
 import { View, Text } from 'react-native';
@@ -32,17 +32,17 @@ export function PostInstallHint({ agentTitle, handle, onOpenChat, onDismiss }: P
     <View testID="post-install-hint" accessibilityRole="summary" accessibilityLiveRegion="polite">
       <Card variant="elevated">
         <Text className="text-base font-semibold text-text-primary mb-1" testID="post-install-title">
-          {'“'}{agentTitle}{'”'} is in your agents
+          {t('discover.postInstallTitle', { agentTitle })}
         </Text>
         <Text className="text-sm text-text-secondary leading-5" testID="post-install-body">
-          {t('app.useItInAnyChat')}{' '}
+          {t('discover.postInstallUseHint')}{' '}
           <Text className="font-mono" style={{ color: colors.pierre.violet }}>{draft}</Text>
           {' — or mention '}
           <Text className="font-mono" style={{ color: colors.pierre.violet }}>{mention}</Text>
           {' for one turn'}
         </Text>
         <View className="flex-row gap-2 mt-3">
-          <Button title={t('app.openChat')} onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
+          <Button title={t('discover.openChat')} onPress={() => onOpenChat(draft)} testID="post-install-open-chat" />
           <Button title={t('app.dismiss')} variant="secondary" onPress={onDismiss} testID="post-install-dismiss" />
         </View>
       </Card>

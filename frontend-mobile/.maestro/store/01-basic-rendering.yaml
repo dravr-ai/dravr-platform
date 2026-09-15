@@ -34,12 +34,12 @@ appId: ai.dravr.app
       - assertVisible:
           id: ".*:id/search_button"
 
-# Test: should show category filters
+# Test: should show category text tabs
 - assertVisible: "All"
 - assertVisible: "Training"
 - assertVisible: "Nutrition"
 
-# Test: should show sort options
-- assertVisible: "Popular"
-- assertVisible: "Newest"
-- assertVisible: "A-Z"
+# Test: sort lives behind the header's sliders button, not an inline chip row
+- assertVisible:
+    id: "discover-sort-button"
+- assertNotVisible: "Sort by:"

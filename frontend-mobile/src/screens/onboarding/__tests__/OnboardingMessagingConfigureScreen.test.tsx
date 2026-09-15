@@ -15,6 +15,11 @@ jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id
 jest.mock('../../../hooks/useMessagingOnboarding', () => ({
   useMessagingOnboarding: jest.fn(),
 }));
+jest.mock('../../../hooks/useOnboardingProgress', () => ({
+  useOnboardingProgress: () => [
+    { id: 'messaging_configure', labelKey: 'onboarding.stepLink', status: 'current' },
+  ],
+}));
 jest.mock('../../../services/api', () => ({
   messagingApi: { initLink: jest.fn(), listLinks: jest.fn() },
 }));
@@ -79,13 +84,14 @@ describe('OnboardingMessagingConfigureScreen', () => {
     listLinks.mockReset().mockResolvedValue([]);
   });
 
-  it('leads a phone straight to the open button, with no QR to scan', async () => {
+  it('leads a phone straight to the open button, with no QR to scan, under the progress hairline', async () => {
     renderScreen();
     // The button is the whole flow on a phone: the deep link carries the pairing
     // code, so one tap opens Telegram with it already in hand.
     expect(await screen.findByText('Open Telegram')).toBeTruthy();
     // A QR here would ask the athlete to scan the screen they are holding.
     expect(screen.queryByTestId('messaging-qr')).toBeNull();
+    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
   });
 
   it('offers the QR handoff on a tablet, where the chat app may live elsewhere', async () => {

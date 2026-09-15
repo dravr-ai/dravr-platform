@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { ActionSheetIOS } from 'react-native';
 
 // Per-file expo-router mock override with spyable router methods
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
@@ -52,6 +53,21 @@ const createMockStoreCoach = (overrides: Partial<StoreAgent> = {}): StoreAgent =
   ...overrides,
 });
 
+/** The rows the platform sheet last offered, and a way to pick one by label. */
+function presentedSortMenu() {
+  const spy = ActionSheetIOS.showActionSheetWithOptions as unknown as jest.Mock;
+  expect(spy).toHaveBeenCalled();
+  const [options, callback] = spy.mock.calls[spy.mock.calls.length - 1] as [
+    { options: string[]; cancelButtonIndex?: number },
+    (index: number) => void,
+  ];
+  return {
+    labels: options.options,
+    cancelButtonIndex: options.cancelButtonIndex,
+    pick: (label: string) => callback(options.options.indexOf(label)),
+  };
+}
+
 describe('StoreScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -61,6 +77,7 @@ describe('StoreScreen', () => {
     mockRouter.navigate.mockClear();
     mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
     mockListCoaches.mockResolvedValue({ agents: [] });
+    jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => undefined);
   });
 
   describe('rendering', () => {
@@ -86,15 +103,18 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should render sort options', async () => {
-      const { getByText } = render(
+    it('offers the sort choices behind the header button, not an inline chip row', async () => {
+      const { getByTestId, queryByText } = render(
         <StoreScreen />
       );
       await waitFor(() => {
-        expect(getByText('Popular')).toBeTruthy();
-        expect(getByText('Newest')).toBeTruthy();
-        expect(getByText('A-Z')).toBeTruthy();
+        expect(getByTestId('discover-sort-button')).toBeTruthy();
       });
+      // The always-visible "Sort by:" row and its chips are gone.
+      expect(queryByText('Sort by:')).toBeNull();
+
+      fireEvent.press(getByTestId('discover-sort-button'));
+      expect(presentedSortMenu().labels).toEqual(['Popular', 'Newest', 'A-Z', 'Cancel']);
     });
 
     it('puts the search field in the native header', async () => {
@@ -150,57 +170,57 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should show category badge on agent cards', async () => {
+    it('should show the category dot on agent rows', async () => {
       const agents = [
         createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as AgentCategory }),
       ];
       mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
-      const { getByText, getAllByText } = render(
+      const { getByTestId } = render(
         <StoreScreen />
       );
 
       await waitFor(() => {
-        expect(getAllByText('Training').length).toBeGreaterThan(0);
+        expect(getByTestId('category-badge').props.accessibilityLabel).toBe('Training');
       });
     });
 
-    it('should show tags on agent cards', async () => {
+    it('should show the install action on agent rows', async () => {
+      // Tags moved to the detail page (D7): the row itself carries only the
+      // glyph, name, category dot, description, install count and this action.
       const agents = [
         createMockStoreCoach({ id: '1', title: 'Tagged Coach', tags: ['beginner', 'cardio'] }),
       ];
       mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
-      const { getByText } = render(
+      const { getByTestId } = render(
         <StoreScreen />
       );
 
       await waitFor(() => {
-        expect(getByText('beginner')).toBeTruthy();
-        expect(getByText('cardio')).toBeTruthy();
+        expect(getByTestId('install-action-0')).toHaveTextContent('Install');
       });
     });
   });
 
   describe('filtering', () => {
-    it('should filter by category when chip is pressed', async () => {
+    it('should filter by category when a tab is pressed', async () => {
       const agents = [
         createMockStoreCoach({ id: '1', title: 'Training Coach', category: 'training' as AgentCategory }),
       ];
       mockBrowseStoreCoaches.mockResolvedValue({ agents, total: 1 });
 
-      const { getByText, getAllByText } = render(
+      const { getByTestId } = render(
         <StoreScreen />
       );
 
       await waitFor(() => {
-        expect(getAllByText('Training').length).toBeGreaterThan(0);
+        expect(getByTestId('discover-category-tabs-training')).toBeTruthy();
       });
 
-      // Clear previous calls and press Training filter
+      // Clear previous calls and press the Training tab
       mockBrowseStoreCoaches.mockClear();
-      // The chip comes before the cards, whose badges carry the same word.
-      fireEvent.press(getAllByText('Training')[0]);
+      fireEvent.press(getByTestId('discover-category-tabs-training'));
 
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(
@@ -212,18 +232,17 @@ describe('StoreScreen', () => {
     it('should clear category filter when All is pressed', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
 
-      const { getByText, getAllByText } = render(
+      const { getByTestId } = render(
         <StoreScreen />
       );
 
       // Wait for initial load
       await waitFor(() => {
-        expect(getByText('All')).toBeTruthy();
+        expect(getByTestId('discover-category-tabs-all')).toBeTruthy();
       });
 
       // First select a category and wait for the load triggered by that
-      // The chip comes before the cards, whose badges carry the same word.
-      fireEvent.press(getAllByText('Training')[0]);
+      fireEvent.press(getByTestId('discover-category-tabs-training'));
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(
           expect.objectContaining({ category: 'training' })
@@ -232,7 +251,7 @@ describe('StoreScreen', () => {
 
       // Then clear with All
       mockBrowseStoreCoaches.mockClear();
-      fireEvent.press(getByText('All'));
+      fireEvent.press(getByTestId('discover-category-tabs-all'));
 
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(
@@ -255,19 +274,20 @@ describe('StoreScreen', () => {
       });
     });
 
-    it('should change sort when option is pressed', async () => {
+    it('should change sort when a menu option is picked', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ agents: [], total: 0 });
 
-      const { getByText } = render(
+      const { getByTestId } = render(
         <StoreScreen />
       );
 
       await waitFor(() => {
-        expect(getByText('Newest')).toBeTruthy();
+        expect(getByTestId('discover-sort-button')).toBeTruthy();
       });
 
       mockBrowseStoreCoaches.mockClear();
-      fireEvent.press(getByText('Newest'));
+      fireEvent.press(getByTestId('discover-sort-button'));
+      presentedSortMenu().pick('Newest');
 
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(

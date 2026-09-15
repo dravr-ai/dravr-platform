@@ -8,10 +8,14 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
-import { Button } from '../../components/ui';
+import { Feather } from '@expo/vector-icons';
+import { Button, Row } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
 /** Web-matching storage key prefix for this step. */
@@ -26,8 +30,10 @@ const STORAGE_PREFIX = 'dravr.parq_done.';
  */
 export function OnboardingParqScreen() {
   const { t } = useTranslation();
+  const colors = useThemeColors();
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
+  const progress = useOnboardingProgress('parq');
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
@@ -70,49 +76,47 @@ export function OnboardingParqScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-surface">
-      <ScrollView contentContainerClassName="px-6 py-10">
-        <Text className="text-2xl font-bold text-on-surface text-center">{t('onboarding.parqHeading')}</Text>
-        <Text className="mt-3 text-sm text-on-surface-variant text-center">
-          {t('onboarding.parqIntro')}
-        </Text>
-
-        <View className="mt-8 gap-3">
-          {questions.map((q) => (
-            <View
-              key={q.id}
-              className="rounded-lg border border-outline-variant bg-surface-container-low px-4 py-3"
-            >
-              <Text className="text-sm text-on-surface">{q.text}</Text>
-              <View className="mt-3 flex-row gap-2">
-                {[
-                  { label: t('common.no'), value: false },
-                  { label: t('common.yes'), value: true },
-                ].map(({ label, value }) => {
-                  const selected = answers[q.id] === value;
-                  return (
-                    <Pressable
-                      key={label}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      onPress={() => setAnswers((prev) => ({ ...prev, [q.id]: value }))}
-                      className={`rounded-md border px-4 py-1.5 ${
-                        selected ? 'border-primary bg-primary' : 'border-outline-variant bg-surface'
-                      }`}
-                    >
-                      <Text
-                        className={selected ? 'text-on-primary text-xs' : 'text-on-surface-variant text-xs'}
-                      >
-                        {label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ))}
+      <ScrollView contentContainerClassName="py-10">
+        <View className="px-4">
+          <OnboardingProgressBar steps={progress} />
+          <Text className="mt-4 text-3xl font-display text-left text-on-surface">{t('onboarding.parqHeading')}</Text>
+          <Text className="mt-3 text-sm text-on-surface-variant">
+            {t('onboarding.parqIntro')}
+          </Text>
         </View>
 
-        <View className="mt-8 gap-3">
+        <View className="mt-8">
+          {questions.map((q, index) => {
+            const noSelected = answers[q.id] === false;
+            const yesSelected = answers[q.id] === true;
+            return (
+              <View key={q.id} className={index === questions.length - 1 ? '' : 'mb-5'}>
+                <Text className="px-4 pb-2 text-sm text-on-surface">{q.text}</Text>
+                <Row
+                  title={t('common.no')}
+                  trailing={noSelected ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined}
+                  showChevron={false}
+                  onPress={() => setAnswers((prev) => ({ ...prev, [q.id]: false }))}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: noSelected }}
+                  testID={`parq-${q.id}-no`}
+                />
+                <Row
+                  title={t('common.yes')}
+                  trailing={yesSelected ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined}
+                  showChevron={false}
+                  onPress={() => setAnswers((prev) => ({ ...prev, [q.id]: true }))}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: yesSelected }}
+                  last
+                  testID={`parq-${q.id}-yes`}
+                />
+              </View>
+            );
+          })}
+        </View>
+
+        <View className="px-4 mt-8 gap-3">
           <Button
             title={saving ? t('app.saving') : allAnswered ? t('app.continue') : t('onboarding.parqAnswerAll')}
             onPress={() => void finish('complete')}

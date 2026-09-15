@@ -18,6 +18,11 @@ jest.mock('../../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'dravr://o
 jest.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, user: { id: 'u1', display_name: 'Jean' }, logout: jest.fn() }),
 }));
+jest.mock('../../../hooks/useOnboardingProgress', () => ({
+  useOnboardingProgress: () => [
+    { id: 'connect_provider', labelKey: 'onboarding.stepConnect', status: 'current' },
+  ],
+}));
 jest.mock('../../../services/api', () => ({
   oauthApi: { getProvidersStatus: jest.fn(), initMobileOAuth: jest.fn() },
 }));
@@ -83,6 +88,15 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
     fireEvent.press(connect);
 
     expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
+  });
+
+  it('renders the provider row as a brand glyph + ink action, under the progress hairline', async () => {
+    renderScreen();
+
+    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
+    expect(await screen.findByTestId('provider-action-sciotte')).toHaveTextContent('Connect');
+    // The demoted Logout is its own quiet link, not the old full-width Button.
+    expect(screen.getByTestId('onboarding-logout-link')).toBeTruthy();
   });
 
   it('does NOT fall back when the user cancels the auth sheet', async () => {

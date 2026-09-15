@@ -26,15 +26,6 @@ jest.mock('../src/services/api', () => ({
   },
 }));
 
-// Mock @expo/vector-icons
-jest.mock('@expo/vector-icons', () => {
-  const View = require('react-native').View;
-  return {
-    Ionicons: (props: Record<string, unknown>) =>
-      require('react').createElement(View, { testID: `icon-${props.name}` }),
-  };
-});
-
 import { ForgotPasswordScreen } from '../src/screens/auth/ForgotPasswordScreen';
 
 describe('ForgotPasswordScreen', () => {
@@ -73,6 +64,11 @@ describe('ForgotPasswordScreen', () => {
     it('should render back to sign in link', () => {
       const { getByText } = renderComponent();
       expect(getByText('Back to sign in')).toBeTruthy();
+    });
+
+    it('renders no icon tile — a headline is enough', () => {
+      const { queryByTestId } = renderComponent();
+      expect(queryByTestId('icon-lock-closed-outline')).toBeNull();
     });
   });
 

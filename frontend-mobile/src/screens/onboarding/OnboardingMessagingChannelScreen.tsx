@@ -8,9 +8,12 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { AvailableChannel } from '@pierre/api-client';
-import { Card, Button } from '../../components/ui';
+import type { OnboardingProgressItem } from '@pierre/shared-constants';
+import { Button } from '../../components/ui';
+import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMessagingOnboarding } from '../../hooks/useMessagingOnboarding';
+import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useTranslation } from '@pierre/i18n';
 
 /**
@@ -22,6 +25,7 @@ export function OnboardingMessagingChannelScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const messaging = useMessagingOnboarding(user?.id, true);
+  const progress = useOnboardingProgress('messaging_channel');
   const [choosing, setChoosing] = useState<string | null>(null);
 
   const handleSelect = async (channel: string) => {
@@ -30,11 +34,13 @@ export function OnboardingMessagingChannelScreen() {
     await messaging.chooseChannel(channel);
   };
 
-  const heading = user?.display_name ? t('app.obAlmostThereGreeting', { name: user.display_name }) : t('app.almostThere');
+  const heading = user?.display_name
+    ? t('app.obAlmostThereGreeting', { name: user.display_name })
+    : t('onboarding.almostThere');
 
   return (
-    <Shell heading={heading}>
-      <Text className="mt-3 text-sm text-on-surface-variant text-center">
+    <Shell heading={heading} progress={progress}>
+      <Text className="mt-3 text-sm text-on-surface-variant">
         {t('app.whereToChat')}
       </Text>
       <View className="mt-6 gap-4">
@@ -101,18 +107,23 @@ function ChannelCard({
   );
 }
 
-function Shell({ heading, children }: { heading?: string; children: React.ReactNode }) {
+function Shell({
+  heading,
+  children,
+  progress,
+}: {
+  heading?: string;
+  children: React.ReactNode;
+  progress: OnboardingProgressItem[];
+}) {
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="messaging-channel-screen">
       <ScrollView contentContainerClassName="px-5 py-8">
-        <Card>
-          <View className="px-2 py-2">
-            {heading ? (
-              <Text className="text-2xl font-bold text-on-surface text-center">{heading}</Text>
-            ) : null}
-            {children}
-          </View>
-        </Card>
+        <OnboardingProgressBar steps={progress} />
+        {heading ? (
+          <Text className="mt-4 text-3xl font-display text-left text-on-surface">{heading}</Text>
+        ) : null}
+        {children}
       </ScrollView>
     </SafeAreaView>
   );

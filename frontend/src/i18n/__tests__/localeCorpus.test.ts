@@ -225,8 +225,26 @@ describe('client locale corpus', () => {
     // was deleted with the four strings only it read (`app.connectAProvider`,
     // `app.connectedCheck`, `app.connectFirstBlurb`, `app.connectingProvider`),
     // -4.
+    // 2325 since Boreal v2.2 Phase 5 (Discover, onboarding and groups) paid
+    // down three more `app.*`/domain-namespace duplications the same way
+    // Phase 4 paid down `providers.expired`'s siblings: the phone's Discover
+    // screens dropped 21 `app.*` keys for their byte-identical `discover.*`
+    // twins (`app.installAgent`, `app.sortBy`, `app.tags`… — the row/detail
+    // page/editor restyle touched every call site anyway) and gained two,
+    // `discover.install` (the row's bare action word — `app.installAgent`
+    // read "Install Agent," too long for a 64pt row) and
+    // `discover.postInstallTitle` (a hardcoded, untranslated English string
+    // found mid-migration in `PostInstallHint`, now a real key in all five
+    // locales); onboarding dropped 13 `app.ob*` flat keys for the newer
+    // `onboarding.*` namespace web already reads (`app.obTellMeTitle`,
+    // `obSportQuestion`, `obAnalyzing`… — the eight name-interpolated
+    // `obGreeting`/`obHint` siblings stayed, since web still reads them and
+    // no `onboarding.*` twin exists for their wording); groups dropped 5
+    // `app.*` keys (`thisWeek`, `weeklyReport`, `concerns`, `highlights`,
+    // `recommendations`) for the `groups.*` twins that already existed and
+    // needed no new key. -39, +2, net -37.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2362);
+    expect(reference).toHaveLength(2325);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

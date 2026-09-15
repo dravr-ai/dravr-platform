@@ -5,9 +5,9 @@
 // ABOUTME: Admin-only section gated on the tenant tier flag the digest scheduler sweeps on
 
 import React from 'react';
-import { View, Text, ActivityIndicator, type ViewStyle } from 'react-native';
+import { View, Text, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useCardStyle, useThemeColors } from '../../constants/theme';
+import { useThemeColors } from '../../constants/theme';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '../../types';
 import { useTranslation } from '@pierre/i18n';
@@ -36,6 +36,13 @@ interface GroupInsightsSectionProps {
  * Both are computed server-side from the same member fitness snapshots the
  * chat coach sees, and had no caller outside the digest scheduler: an admin
  * could read the numbers only if a digest happened to be delivered to them.
+ *
+ * No card: this mounts inside `GroupInfoSheet`'s Analytics `CollapsibleSection`,
+ * under the mono stat row that is the section's real "table of numbers" — this
+ * component is prose (the report) and per-member rows (the flags), so it loses
+ * its card fill and reads as a continuation of that section rather than a box
+ * of its own. The severity badge on each flag row stays a chip (a legitimate
+ * small status mark), not a card.
  */
 export function GroupInsightsSection({
   groupId,
@@ -44,10 +51,6 @@ export function GroupInsightsSection({
 }: GroupInsightsSectionProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const sectionCardStyle: ViewStyle = {
-    borderRadius: 12,
-    ...useCardStyle(),
-  };
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
   const { flags, isLoading: isFlagsLoading } = useGroupHealthFlags(groupId, enabled);
@@ -71,7 +74,7 @@ export function GroupInsightsSection({
 
   if (!weeklyDigestEnabled) {
     return (
-      <View className="p-4 mb-4" style={sectionCardStyle} testID="group-insights-tier-locked">
+      <View className="mt-4" testID="group-insights-tier-locked">
         <Text className="text-text-primary text-sm font-semibold">{t('app.weeklyReport')}</Text>
         <Text className="text-text-tertiary text-xs mt-1">
           {t('app.weeklyReportGated')}
@@ -82,24 +85,24 @@ export function GroupInsightsSection({
 
   if (isReportLoading || isFlagsLoading) {
     return (
-      <View className="p-4 mb-4" style={sectionCardStyle} testID="group-insights-loading">
+      <View className="mt-4" testID="group-insights-loading">
         <ActivityIndicator size="small" color={colors.pierre.violet} />
       </View>
     );
   }
 
   return (
-    <View testID="group-insights-section">
+    <View className="mt-4" testID="group-insights-section">
       {report && (
-        <View className="p-4 mb-4" style={sectionCardStyle}>
-          <Text className="text-text-primary text-base font-bold mb-2">{t('app.thisWeek')}</Text>
+        <View className="mb-4">
+          <Text className="text-text-primary text-sm font-semibold mb-2">{t('groups.thisWeek')}</Text>
           <Text className="text-text-secondary text-sm" testID="group-report-summary">
             {report.summary}
           </Text>
 
           {report.highlights.length > 0 && (
             <View className="mt-3">
-              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('app.highlights')}</Text>
+              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.highlights')}</Text>
               {report.highlights.map((highlight) => (
                 <View key={highlight} className="flex-row items-start mt-1" testID="group-report-highlight">
                   <Feather name="check-circle" size={12} color={colors.pierre.activity} />
@@ -111,7 +114,7 @@ export function GroupInsightsSection({
 
           {report.concerns.length > 0 && (
             <View className="mt-3">
-              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('app.concerns')}</Text>
+              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.concerns')}</Text>
               {report.concerns.map((concern) => (
                 <View key={concern} className="flex-row items-start mt-1" testID="group-report-concern">
                   <Feather name="alert-triangle" size={12} color={colors.error} />
@@ -123,7 +126,7 @@ export function GroupInsightsSection({
 
           {report.recommendations.length > 0 && (
             <View className="mt-3">
-              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('app.recommendations')}</Text>
+              <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.recommendations')}</Text>
               {report.recommendations.map((recommendation) => (
                 <View
                   key={recommendation}
@@ -139,8 +142,8 @@ export function GroupInsightsSection({
         </View>
       )}
 
-      <View className="p-4 mb-4" style={sectionCardStyle}>
-        <Text className="text-text-primary text-base font-bold mb-2">
+      <View>
+        <Text className="text-text-primary text-sm font-semibold mb-2">
           {t('groups.healthFlagsCount', { n: flags.length })}
         </Text>
         {flags.length === 0 ? (
