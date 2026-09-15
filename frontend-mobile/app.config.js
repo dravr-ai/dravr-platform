@@ -66,6 +66,13 @@ module.exports = {
         'Dravr uses speech recognition to transcribe your voice messages into text queries.',
       NSPhotoLibraryUsageDescription:
         'Dravr needs access to your photo library to allow selecting images for profile customization and activity attachments.',
+      // Dravr never calls a location API — RouteView.tsx frames a route's own
+      // bounds, never the device's position (see its Camera usage). This key
+      // exists only because @maplibre/maplibre-react-native links CoreLocation
+      // for its (unused) live-position display capability; Apple's static
+      // binary scan requires the purpose string regardless (ITMS-90683).
+      NSLocationWhenInUseUsageDescription:
+        'Dravr may use your location to show your position on a training route map.',
     },
   },
   android: {
