@@ -196,13 +196,39 @@ else
 fi
 
 # ============================================================================
+# TIER 5: Design System Validation
+# ----------------------------------------------------------------------------
+# Boreal v2.2 Phase 6: the same compile-free token/primitive gate the
+# top-level pre-push-validate.sh calls for web (its Tier 5b) — mirrored here
+# so a developer running this script standalone against mobile-only work
+# still gets it, not only a full `pre-push-validate.sh` run.
+# ============================================================================
+echo ""
+echo "🎨 Tier 5: Design System Validation"
+echo "------------------------------------"
+echo -n "Checking design-system-validation.sh... "
+
+if DESIGN_OUT="$("$PROJECT_ROOT/scripts/ci/design-system-validation.sh" 2>&1)"; then
+    echo "✅"
+    PASSED=$((PASSED + 1))
+else
+    echo "❌"
+    FAILED=$((FAILED + 1))
+    echo ""
+    echo "$DESIGN_OUT"
+    echo ""
+    echo "Run 'bash scripts/ci/design-system-validation.sh' from the repo root to see details."
+    exit 1
+fi
+
+# ============================================================================
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
 echo "======================================="
 echo "Mobile Pre-Push Validation Complete"
 echo "======================================="
-echo "Checks passed: $PASSED/6"
+echo "Checks passed: $PASSED/7"
 echo "Duration:      ${DURATION}s"
 echo ""
 

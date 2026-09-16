@@ -99,6 +99,7 @@ describe('NotificationCenterScreen', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   it('shows the unread dot only on an unread row', async () => {
@@ -158,6 +159,16 @@ describe('NotificationCenterScreen', () => {
   });
 
   it('groups the feed by day — today, yesterday, and an older day spelled out', async () => {
+    // A fixed noon-UTC "now" — never near a local-midnight boundary — so the
+    // 26h/72h offsets below land on the intended calendar day regardless of
+    // the host's timezone or the real wall-clock time the suite runs at.
+    // Un-mocked, this test read the CI runner's real Date.now(): whenever
+    // that happened to fall within ~02:00 of UTC midnight, "26 hours ago"
+    // crossed two calendar-day boundaries instead of one and "yesterday"
+    // silently became a dated label, failing only in that window.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
+
     const today = createNotification({ id: 'today-1', created_at: new Date().toISOString() });
     const yesterdayIso = new Date(Date.now() - 26 * 3_600_000).toISOString();
     const yesterday = createNotification({ id: 'yesterday-1', created_at: yesterdayIso });

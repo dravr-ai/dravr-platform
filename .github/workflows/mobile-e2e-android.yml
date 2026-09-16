@@ -313,10 +313,13 @@ jobs:
           # empty state. It passed locally only because that stack has a live LLM. The
           # server log is now uploaded on failure so the next look can confirm this
           # rather than infer it.
-          # visual/01-authentication is deliberately absent: it asserts password-input is
-          # visible after typing into it, which is correct and which carnet#353 (the
-          # keyboard covers the field on a short screen) makes fail. It returns when that
-          # lands — the flow is right, the app is not.
+          # visual/01-authentication was deleted (Boreal v2.2 Phase 6): its render checks
+          # are now covered by visual/00-capture.yaml, and its one behavioral assertion —
+          # wrong credentials keep the athlete on the login screen — moved to
+          # login/07-invalid-credentials.yaml without the password-input-visible-after-
+          # typing check that carnet#353 (keyboard covers the field on a short screen)
+          # made fail; that check did not survive the move. login/07 is not in this
+          # critical subset — adding it is a separate call, not made here.
           echo "Running critical-path subset with per-test retry..."
           CRITICAL_TESTS="login/01-show-login-screen.yaml login/02-show-email-password-inputs.yaml login/06-successful-login.yaml settings/06-hallucinated-stats.yaml chat/01-basic-visibility.yaml store/04-search-functionality.yaml store/10-pull-to-refresh.yaml voice-input/01-button-visibility.yaml"
 

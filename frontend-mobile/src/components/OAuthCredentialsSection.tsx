@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, Alert, Modal, ActivityIndicator, FlatList, Pressable } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useThemeColors } from '../constants/theme';
 import { Button, Input, Section } from './ui';
 import { ProviderGlyph } from './ProviderGlyph';
@@ -299,7 +300,7 @@ export function OAuthCredentialsSection() {
                     </View>
                     <Text className="flex-1 text-base text-text-primary">{item.name}</Text>
                     {selectedProvider?.id === item.id && (
-                      <Text className="text-lg text-primary">{'✓'}</Text>
+                      <Feather name="check" size={18} color={colors.tokens.primary} />
                     )}
                   </Pressable>
                 )}

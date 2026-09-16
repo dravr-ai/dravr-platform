@@ -42,7 +42,7 @@ describe('Row', () => {
     expect(tall.getByTestId('row-inner').props.className).toContain('flex-row');
     expect(tall.getByTestId('row-inner').props.className).toContain('items-center');
     const compact = render(<Row title="Version" compact testID="row" />);
-    expect(compact.getByTestId('row-inner').props.className).toContain('min-h-[44px]');
+    expect(compact.getByTestId('row-inner').props.className).toContain('min-h-11');
     expect(compact.getByTestId('row-inner').props.className).not.toContain('min-h-[52px]');
   });
 

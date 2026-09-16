@@ -74,7 +74,7 @@ export function Row({
     <View
       className={[
         'flex-row items-center',
-        compact ? 'min-h-[44px]' : 'min-h-[52px]',
+        compact ? 'min-h-11' : 'min-h-[52px]',
         last ? '' : 'border-b border-border-faint',
       ]
         .filter(Boolean)

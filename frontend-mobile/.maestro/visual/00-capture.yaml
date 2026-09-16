@@ -1,0 +1,164 @@
+# ABOUTME: Captures the eight vault-generator surfaces (chat list, thread, thread-empty, settings, connections, discover, notifications, memory) as screenshots for the design vault
+# ABOUTME: One run captures one scheme; see the SCHEME comment below for how a runner produces both
+
+appId: ai.dravr.app
+
+# This flow is scheme-parameterized, not scheme-native. Maestro has no
+# OS-level appearance switch of its own, and no flow in this repo sets one
+# today (checked by grep across .maestro/ before writing this). But the app
+# itself ships an explicit, persisted AppearancePref independent of the
+# simulator/emulator's OS setting — Settings > Profile > Appearance,
+# `appearance-option-<pref>` (Boreal v2.2 Phase 4) — and this flow drives
+# that instead, so every capture is deterministically in SCHEME regardless
+# of what the device is set to. The design note's Status section records the
+# same idea tried once already, as a throwaway: the 2026-09-15 Phase 4 walk
+# "ran [08-memory.yaml] as a temporary two-file flow (one scheme pass
+# parameterised by prefix) and did not commit it". This file is that flow,
+# generalized to all eight surfaces and made permanent, as one file with one
+# env var rather than two near-duplicate ones — a runner produces both
+# schemes with two invocations:
+#
+#   maestro test .maestro/visual/00-capture.yaml -e SCHEME=light
+#   maestro test .maestro/visual/00-capture.yaml -e SCHEME=dark
+#
+# SCHEME must be "light" or "dark" — it is spliced directly into the
+# `appearance-option-<SCHEME>` testID and into every screenshot's filename
+# prefix, so a typo fails the tap rather than silently mislabeling a file.
+# `bun run maestro:visual` (and CI) run this file once, with the env default
+# below (light); a full capture needs the second, explicit `-e SCHEME=dark`
+# invocation, the same way any other scheme-varying suite in this repo would
+# be run twice rather than fanned out automatically — there is no mechanism
+# here for one `maestro test` invocation to iterate env values, and adding
+# one is out of this lane's scope.
+env:
+  SCHEME: "light"
+
+---
+# Launch and login
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# Set the app's own appearance preference before capturing anything, so every
+# screenshot below is actually in SCHEME regardless of the simulator's OS
+# setting. The picker lives in Settings > Profile (Boreal v2.2 Phase 4).
+- runFlow:
+    file: ../helpers/navigate-to-settings.yaml
+- tapOn:
+    id: "settings-pane-profile"
+- extendedWaitUntil:
+    visible:
+      id: "profile-screen"
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: "appearance-option-${SCHEME}"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "appearance-option-${SCHEME}"
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+
+# Surface: settings — the root pane list, already in SCHEME.
+- takeScreenshot: "${SCHEME}-settings"
+
+# Surface: connections
+- tapOn:
+    id: "settings-pane-connections"
+- extendedWaitUntil:
+    visible:
+      id: "connections-screen"
+    timeout: 10000
+- assertVisible:
+    id: "provider-row-sciotte"
+- takeScreenshot: "${SCHEME}-connections"
+- runFlow:
+    file: ../helpers/go-back.yaml
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+
+# Surface: memory. The row sits below the fold on a short screen, same as
+# settings/08-memory.yaml's own approach to it.
+- scrollUntilVisible:
+    element:
+      id: "settings-pane-memory"
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: "settings-pane-memory"
+- extendedWaitUntil:
+    visible:
+      id: "memory-screen"
+    timeout: 10000
+- takeScreenshot: "${SCHEME}-memory"
+# Memory is an app-level modal, not a push: its header carries the native
+# Close button (testID "back-button"), not a back chevron.
+- tapOn:
+    id: "back-button"
+- extendedWaitUntil:
+    visible:
+      id: "settings-screen"
+    timeout: 10000
+
+# Surface: discover
+- runFlow:
+    file: ../helpers/navigate-to-discover.yaml
+- takeScreenshot: "${SCHEME}-discover"
+
+# Surface: chat list — the tab the app lands on after login.
+- tapOn:
+    text: "Discussion|Chat"
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 10000
+- takeScreenshot: "${SCHEME}-chat-list"
+
+# Surface: notifications, reached from the chat list's bell.
+- tapOn:
+    id: "notification-bell"
+- extendedWaitUntil:
+    visible:
+      id: "notification-center-screen"
+    timeout: 10000
+- takeScreenshot: "${SCHEME}-notifications"
+- tapOn:
+    id: "notifications-back"
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 10000
+
+# Surface: thread, empty — a fresh conversation before anything is sent.
+- runFlow:
+    file: ../helpers/new-chat.yaml
+- extendedWaitUntil:
+    visible:
+      id: "chat-empty-state"
+    timeout: 10000
+- takeScreenshot: "${SCHEME}-thread-empty"
+
+# Surface: thread, populated. One real round trip so the athlete bubble and
+# the agent's prose are both actually on screen — the same live-backend
+# pattern chat/04-send-message-response.yaml already runs in CI. No seeded
+# conversation exists for mobiletest@pierre.dev to reuse instead (checked
+# against crates/pierre-seeders/src/demo_data.rs).
+- runFlow:
+    file: ../helpers/send-chat-message.yaml
+    env:
+      MESSAGE: "Comment se presente ma semaine ?"
+- runFlow:
+    file: ../helpers/wait-for-response.yaml
+- extendedWaitUntil:
+    visible:
+      id: "messages-list"
+    timeout: 15000
+- takeScreenshot: "${SCHEME}-thread"

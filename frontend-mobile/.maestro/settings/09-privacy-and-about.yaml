@@ -1,5 +1,5 @@
-# ABOUTME: Visual tests that the Settings screen reaches its Privacy and About panes
-# ABOUTME: Privacy is where the analytics-consent control lives since the social tab was retired
+# ABOUTME: The Settings screen reaches its Privacy and About panes; Privacy carries the analytics-consent control
+# ABOUTME: Relocated from visual/08-settings-privacy.yaml (Boreal v2.2 Phase 6); a specific-control assertion, not a render check, so it does not fold into visual/00-capture.yaml (which does not visit either pane)
 
 appId: ai.dravr.app
 
