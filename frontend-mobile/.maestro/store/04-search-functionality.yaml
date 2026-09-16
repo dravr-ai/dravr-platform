@@ -17,10 +17,17 @@ appId: ai.dravr.app
 # The seeded store publishes system agents, so a first card is a precondition
 # this environment guarantees. Assert it rather than guarding on it: if it is
 # missing the store is broken and every assertion below is meaningless.
+#
+# 30s, not 10s: this is a network round trip (browse + translate + grade)
+# through Android's 10.0.2.2 emulator NAT alias, the same shape of wait
+# login.yaml:55-58 gives 45s and login.yaml:75-78 gives 60s for a comparable
+# reason. 10s failed this wait on every Android CI run regardless of the row
+# implementation across several redesigns — under-provisioned, not a bug in
+# the row or the data path.
 - extendedWaitUntil:
     visible:
       id: "coach-card-0"
-    timeout: 10000
+    timeout: 30000
 
 # A term no agent title or description can match must empty the list. This is
 # the assertion the flow existed for and never made: waiting for `coach-list`

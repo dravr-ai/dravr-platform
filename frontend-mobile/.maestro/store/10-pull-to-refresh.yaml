@@ -15,10 +15,17 @@ appId: ai.dravr.app
     file: ../helpers/navigate-to-discover.yaml
 
 # A card before the refresh, so the assertion after it means something.
+#
+# 30s, not 10s: this is a network round trip (browse + translate + grade)
+# through Android's 10.0.2.2 emulator NAT alias, the same shape of wait
+# login.yaml:55-58 gives 45s and login.yaml:75-78 gives 60s for a comparable
+# reason. 10s failed this wait on every Android CI run regardless of the row
+# implementation across several redesigns — under-provisioned, not a bug in
+# the row or the data path.
 - extendedWaitUntil:
     visible:
       id: "coach-card-0"
-    timeout: 10000
+    timeout: 30000
 
 # Pull down from the top of the list to trigger the refresh.
 - swipe:
@@ -27,10 +34,11 @@ appId: ai.dravr.app
 
 # The catalogue is back after refetching. Waiting on `coach-list` alone would
 # have passed with an empty list, which is what a broken refresh looks like.
+# Same 30s margin as the pre-refresh wait above, for the same reason.
 - extendedWaitUntil:
     visible:
       id: "coach-card-0"
-    timeout: 10000
+    timeout: 30000
 - runFlow:
     when:
       platform: iOS
