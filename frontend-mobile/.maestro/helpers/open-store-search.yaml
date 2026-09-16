@@ -8,36 +8,36 @@ appId: ai.dravr.app
     when:
       platform: iOS
     commands:
-      - tapOn: "Search agents...|Rechercher des agents…"
+      # The corpus spells both placeholders with three periods
+      # (packages/i18n discover.searchAgentsPlaceholder); `.` matches them.
+      - tapOn: "Search agents...|Rechercher des agents..."
 - runFlow:
     when:
       platform: Android
     commands:
-      # Three runs have ended with Expo Go's developer menu on screen and no
-      # app view in the tree, each time with the tap before it reported
-      # COMPLETED -- first on :id/search_button, then on the magnifier's
-      # contentDescription. What none of them established is whether the menu
-      # is a consequence of the tap or was already there: Maestro dumps the
-      # hierarchy only on failure, and the failure came after.
-      #
-      # This screenshot and this assertion answer that. The assertion is one
-      # the flow wants anyway -- you cannot search a screen that is not in
-      # front of you -- and when the sheet is up the app views are absent
-      # from the tree, so it fails there and dumps the tree at that moment.
+      # You cannot search a screen that is not in front of you, and when Expo
+      # Go's developer menu is up the app's views are absent from the tree, so
+      # this fails there and dumps the tree at that moment.
       - assertVisible:
           id: "store-screen"
-      # Tap the magnifier by position, not by any selector. The selector is
-      # what has been wrong all along: `.*:id/search_button` and the
-      # contentDescription both resolved to Expo Go's own chrome, and tapping
-      # it raises the developer menu. The run that proved it is c8804f8f7 --
-      # the assertVisible above PASSED, so the app's views were in the tree and
-      # the menu was not, and the menu is in the tree captured right after the
-      # tap. A point inside this app's app bar cannot match Expo Go's chrome.
+      # Expo Go (SDK 55) draws a floating "Tools" button over the app at the
+      # top-right corner, and on CI's 320x640 emulator its touch container
+      # spans x=232..304, y=16..110 -- the same corner as the app bar's
+      # magnifier, `:id/search_button` at x=272..320, y=28..76. Anything that
+      # lands in the overlap opens the developer menu instead of the search
+      # field: tapping the id (centre x=296) did, and so did the point
+      # `92%,8%` (x=294) in run 35099882108, whose failure hierarchy holds the
+      # menu and whose earlier dump holds the overlay's bounds.
       #
-      # The magnifier sits at the trailing edge of the Discover app bar, the
-      # row carrying the large title.
+      # So tap the magnifier's trailing sliver, right of the overlay: x=313 is
+      # inside the magnifier and 9px clear of the overlay's edge.
       - tapOn:
-          point: "92%,8%"
+          point: "98%,8%"
+      # The expanded SearchView exposes its EditText as `:id/search_src_text`.
+      # Wait on that id, not on the placeholder: the hint depends on the app
+      # language, and the id proves the field expanded and took focus, which
+      # is what the caller's `eraseText`/`inputText` need.
       - extendedWaitUntil:
-          visible: "Search agents...|Rechercher des agents…"
+          visible:
+            id: ".*:id/search_src_text"
           timeout: 10000
