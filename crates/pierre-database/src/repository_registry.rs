@@ -21,9 +21,9 @@ use crate::repositories::{
     PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
     RecoveryRepository, ResumableTurnRepository, RosterRepository, RouteSummaryRepository,
-    SecurityRepository, SeederRepository, ShortLinkRepository, SleepRepository,
-    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
-    ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    SecurityRepository, SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository,
+    SleepRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
+    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
     UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
@@ -84,6 +84,8 @@ pub struct RepositoryRegistry {
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
     pub security: Arc<dyn SecurityRepository>,
+    /// First-party refresh tokens — the credential a device holds between JWTs
+    pub session_refresh_tokens: Arc<dyn SessionRefreshTokenRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
     /// Procedural coaching memory: learned `trigger -> intervention` playbooks + pending advice
@@ -209,6 +211,7 @@ impl RepositoryRegistry {
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
+            session_refresh_tokens: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),
@@ -279,6 +282,7 @@ impl RepositoryRegistry {
             provider_connections: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
+            session_refresh_tokens: db.clone(),
             seeder: db.clone(),
             playbooks: db.clone(),
             training_plans: db.clone(),

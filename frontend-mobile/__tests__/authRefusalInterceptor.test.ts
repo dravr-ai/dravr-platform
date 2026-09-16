@@ -118,6 +118,191 @@ async function harness(reply: StubbedReply) {
   return { adapter, client, clear, signedOut };
 }
 
+/** The refresh token a signed-in phone holds, and the successor an exchange answers with. */
+const STORED_REFRESH_TOKEN = 'refresh-token-1';
+const ROTATED_REFRESH_TOKEN = 'refresh-token-2';
+const FRESH_TOKEN = 'jwt-after-exchange';
+
+/** What the token endpoint answers when the exchange succeeds. */
+const EXCHANGE_OK: StubbedReply = {
+  status: 200,
+  data: {
+    access_token: FRESH_TOKEN,
+    token_type: 'Bearer',
+    expires_in: 86400,
+    refresh_token: ROTATED_REFRESH_TOKEN,
+    csrf_token: 'csrf-after-exchange',
+    user: { user_id: 'u1', email: 'athlete@example.com' },
+  },
+};
+
+/** What it answers when the token was revoked, replayed or has expired. */
+const EXCHANGE_REFUSED: StubbedReply = {
+  status: 400,
+  data: { error: 'invalid_grant', error_description: 'Invalid or expired refresh token' },
+};
+
+/**
+ * A transport that decides per request, so one test can hold a refusal, an
+ * exchange and a retry. Records every request it saw, body included, so the
+ * test can read what the client sent to the token endpoint.
+ */
+function scriptedTransport(
+  decide: (config: InternalAxiosRequestConfig) => StubbedReply
+): { adapter: AxiosAdapter; seen: InternalAxiosRequestConfig[] } {
+  const seen: InternalAxiosRequestConfig[] = [];
+  const adapter: AxiosAdapter = async (config) => {
+    seen.push(config);
+    return stubTransport(decide(config))(config);
+  };
+  return { adapter, seen };
+}
+
+/**
+ * A harness whose phone also holds a refresh token, against a transport that
+ * answers each request from `decide`.
+ */
+async function refreshHarness(decide: (config: InternalAxiosRequestConfig) => StubbedReply) {
+  const adapter = createMobileAdapter({
+    asyncStorage: fakeAsyncStorage(),
+    secureStorage: fakeSecureStore(),
+    baseURL: 'http://127.0.0.1:8081',
+  });
+  await adapter.authStorage.setToken(STORED_TOKEN);
+  await adapter.authStorage.setRefreshToken(STORED_REFRESH_TOKEN);
+  const clear = jest.spyOn(adapter.authStorage, 'clear');
+  const signedOut = jest.fn();
+  adapter.authFailure.subscribe(signedOut);
+
+  const client = createAxiosClient(adapter);
+  const transport = scriptedTransport(decide);
+  client.defaults.adapter = transport.adapter;
+
+  return { adapter, client, clear, signedOut, seen: transport.seen };
+}
+
+const isExchange = (config: InternalAxiosRequestConfig) =>
+  config.method === 'post' && config.url === '/oauth/token';
+
+const bearerOf = (config: InternalAxiosRequestConfig) =>
+  String(new AxiosHeaders(config.headers).get('Authorization') ?? '');
+
+describe('the refresh-token exchange behind a 401 on the mobile adapter', () => {
+  it('exchanges the refresh token, stores the successor and retries with the fresh JWT', async () => {
+    const { adapter, client, clear, signedOut, seen } = await refreshHarness((config) => {
+      if (isExchange(config)) return EXCHANGE_OK;
+      // The retry carries the fresh JWT; the first attempt, the stale one.
+      return bearerOf(config) === `Bearer ${FRESH_TOKEN}`
+        ? { status: 200, data: { conversations: ['c1'] } }
+        : { status: 401, data: { code: 'AuthExpired', message: 'Token expired' } };
+    });
+
+    const response = await client.get('/api/chat/conversations');
+
+    expect(response.data).toEqual({ conversations: ['c1'] });
+    expect(seen.map((c) => c.url)).toEqual([
+      '/api/chat/conversations',
+      '/oauth/token',
+      '/api/chat/conversations',
+    ]);
+    // The exchange is the RFC 6749 §6 form, carrying the token the phone held.
+    const exchange = seen[1];
+    expect(String(exchange.data)).toBe(
+      `grant_type=refresh_token&refresh_token=${STORED_REFRESH_TOKEN}`
+    );
+    // The successor replaced the token just spent; the phone is still signed in.
+    expect(await adapter.authStorage.getToken()).toBe(FRESH_TOKEN);
+    expect(await adapter.authStorage.getRefreshToken()).toBe(ROTATED_REFRESH_TOKEN);
+    expect(await adapter.authStorage.getCsrfToken()).toBe('csrf-after-exchange');
+    expect(clear).not.toHaveBeenCalled();
+    expect(signedOut).not.toHaveBeenCalled();
+  });
+
+  it('signs out when the server refuses the exchange', async () => {
+    const { adapter, client, clear, signedOut, seen } = await refreshHarness((config) =>
+      isExchange(config)
+        ? EXCHANGE_REFUSED
+        : { status: 401, data: { code: 'AuthExpired', message: 'Token expired' } }
+    );
+
+    await expect(client.get('/api/chat/conversations')).rejects.toMatchObject({
+      response: { status: 401 },
+    });
+
+    // One attempt, then the session ends — the 400 from the token endpoint
+    // never re-enters the interceptor as a refusal to recover from.
+    expect(seen.filter(isExchange)).toHaveLength(1);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(signedOut).toHaveBeenCalledTimes(1);
+    expect(await adapter.authStorage.getToken()).toBeNull();
+    expect(await adapter.authStorage.getRefreshToken()).toBeNull();
+  });
+
+  it('runs one exchange for concurrent 401s and retries every request', async () => {
+    const { client, clear, signedOut, seen } = await refreshHarness((config) => {
+      if (isExchange(config)) return EXCHANGE_OK;
+      return bearerOf(config) === `Bearer ${FRESH_TOKEN}`
+        ? { status: 200, data: { url: config.url } }
+        : { status: 401, data: { code: 'AuthExpired', message: 'Token expired' } };
+    });
+
+    // A cold start fires several requests at once; each gets a 401 on the
+    // stale JWT. The server revokes a refresh token as it exchanges it, so a
+    // second exchange of the same token would read as a replay and kill the
+    // session all of them were trying to save.
+    const [a, b, c] = await Promise.all([
+      client.get('/api/chat/conversations'),
+      client.get('/api/user/profile'),
+      client.get('/api/notifications'),
+    ]);
+
+    expect([a.data, b.data, c.data]).toEqual([
+      { url: '/api/chat/conversations' },
+      { url: '/api/user/profile' },
+      { url: '/api/notifications' },
+    ]);
+    expect(seen.filter(isExchange)).toHaveLength(1);
+    expect(clear).not.toHaveBeenCalled();
+    expect(signedOut).not.toHaveBeenCalled();
+  });
+
+  it('retries once: a 401 on the fresh JWT ends the session instead of looping', async () => {
+    const { client, clear, signedOut, seen } = await refreshHarness((config) =>
+      isExchange(config)
+        ? EXCHANGE_OK
+        : { status: 401, data: { code: 'AuthInvalid', message: 'Account suspended' } }
+    );
+
+    await expect(client.get('/api/chat/conversations')).rejects.toMatchObject({
+      response: { status: 401 },
+    });
+
+    expect(seen.map((c) => c.url)).toEqual([
+      '/api/chat/conversations',
+      '/oauth/token',
+      '/api/chat/conversations',
+    ]);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(signedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('never exchanges for a 403, whose grant a re-minted JWT would repeat', async () => {
+    const { client, clear, signedOut, seen } = await refreshHarness(() => ({
+      status: 403,
+      headers: { 'www-authenticate': INSUFFICIENT_SCOPE_CHALLENGE },
+      data: { code: 'PermissionDenied', message: 'This token cannot write activities' },
+    }));
+
+    await expect(client.post('/api/activities', {})).rejects.toMatchObject({
+      response: { status: 403 },
+    });
+
+    expect(seen.filter(isExchange)).toHaveLength(0);
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(signedOut).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('the shared response interceptor on the mobile adapter', () => {
   it('clears the session and signals sign-in on a 401', async () => {
     const { adapter, client, clear, signedOut } = await harness({

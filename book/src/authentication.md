@@ -62,11 +62,30 @@ curl -H "Authorization: Bearer <jwt_token>" \
 
 Default: 24 hours (configurable via `JWT_EXPIRY_HOURS`)
 
-Refresh before expiry:
+A signed-in client renews a still-valid token with `GET /api/auth/session`, which answers with a fresh JWT. That is how the web app's session slides from one page load to the next.
+
+### Refresh Tokens
+
+A device that may stay closed for longer than a JWT lasts asks for a refresh token at login by requesting the `offline_access` scope:
+
 ```bash
-curl -X POST http://localhost:8081/api/auth/refresh \
-  -H "Authorization: Bearer <current_token>"
+curl -X POST http://localhost:8081/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password&username=user@example.com&password=SecurePass123!&scope=offline_access"
+# {"access_token":"...","refresh_token":"...","expires_in":86400,...}
 ```
+
+Once the JWT has expired, the refresh token buys a new one:
+
+```bash
+curl -X POST http://localhost:8081/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token&refresh_token=<refresh_token>"
+```
+
+Every exchange rotates the token: the response carries a successor and the one presented is dead. Presenting a rotated-out token again revokes the whole chain, so a copied credential stops working the moment the real device has moved on. Refresh tokens last `REFRESH_TOKEN_EXPIRY_DAYS` (default 30) from their last exchange, are revoked by `POST /api/auth/logout` when the body names one, and are all revoked when the password changes. The server stores only an HMAC of each token.
+
+The mobile app requests `offline_access` and exchanges the token on its own, from the shared API client, the first time a request answers 401. The web app never requests one; its session is the httpOnly cookie.
 
 ## API Key Authentication
 
@@ -314,7 +333,7 @@ when token expires, user must:
 1. login again to get new jwt token
 2. update claude code configuration with new token
 
-automatic refresh not implemented in most mcp clients (requires manual re-login).
+automatic refresh not implemented in most mcp clients (requires manual re-login). a client that can hold a secret may instead log in with `scope=offline_access` and exchange the refresh token it receives — see [Refresh Tokens](#refresh-tokens).
 
 ### Connecting to Fitness Providers
 

@@ -384,9 +384,9 @@ Traditional rest endpoints for web applications.
 ### Authentication Endpoints
 
 - `POST /api/auth/register` - user registration (admin-provisioned)
-- `POST /api/auth/login` - user login
-- `POST /api/auth/logout` - logout
-- `POST /api/auth/refresh` - refresh jwt token
+- `POST /oauth/token` - login (`grant_type=password`) and refresh-token exchange (`grant_type=refresh_token`)
+- `POST /api/auth/logout` - logout, revoking the refresh token named in the body
+- `GET /api/auth/session` - renew a still-valid session
 
 ### Provider OAuth Endpoints
 

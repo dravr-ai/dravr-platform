@@ -142,7 +142,7 @@ impl TestServer {
             },
             auth: AuthConfig {
                 jwt_expiry_hours: 24,
-                enable_refresh_tokens: false,
+                refresh_token_expiry_days: 30,
                 ..AuthConfig::default()
             },
             oauth: OAuthConfig::default(),

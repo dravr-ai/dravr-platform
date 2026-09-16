@@ -240,25 +240,34 @@ pub struct UserStatsResponse {
     pub days_active: i64,
 }
 
-/// Refresh token request
+/// Logout request body.
+///
+/// Optional: the web app logs out with no body, because its session is the
+/// cookie the response clears. A device holding a refresh token names it
+/// here so the server revokes it rather than leaving a live credential
+/// behind on a phone that just said goodbye.
 #[derive(Debug, Deserialize)]
-pub struct RefreshTokenRequest {
-    /// Current JWT token to refresh
-    pub token: String,
-    /// User ID for validation
-    pub user_id: String,
+pub struct LogoutRequest {
+    /// The refresh token this device holds, to revoke with its whole family.
+    pub refresh_token: Option<String>,
 }
 
-/// `OAuth2` ROPC (Resource Owner Password Credentials) token request
-/// Per RFC 6749 Section 4.3 - uses form-encoded body
+/// `OAuth2` token request for first-party clients — RFC 6749 §4.3 password
+/// grant and §6 refresh grant, form-encoded.
+///
+/// `username` and `password` belong to the password grant and
+/// `refresh_token` to the refresh grant, so each is optional here and the
+/// handler requires the ones its grant needs.
 #[derive(Debug, Deserialize)]
 pub struct OAuth2TokenRequest {
-    /// Grant type - must be "password" for ROPC
+    /// Grant type - `password` for ROPC, `refresh_token` to exchange one
     pub grant_type: String,
     /// User's email address (RFC calls this "username")
-    pub username: String,
+    pub username: Option<String>,
     /// User's password
-    pub password: String,
+    pub password: Option<String>,
+    /// The refresh token to exchange, for the `refresh_token` grant
+    pub refresh_token: Option<String>,
     /// `OAuth2` client identifier (optional for first-party clients)
     pub client_id: Option<String>,
     /// `OAuth2` client secret (optional for public clients)

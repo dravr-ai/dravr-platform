@@ -204,7 +204,7 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -324,7 +324,7 @@ fn create_test_server_config() -> Arc<ServerConfig> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {

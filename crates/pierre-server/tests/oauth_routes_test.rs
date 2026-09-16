@@ -58,7 +58,7 @@ async fn test_email_validation() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -274,7 +274,7 @@ async fn test_password_validation() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -462,7 +462,7 @@ async fn test_duplicate_user_registration() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -641,7 +641,7 @@ async fn test_login_with_correct_credentials() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -874,7 +874,7 @@ async fn test_login_with_wrong_password() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -1061,7 +1061,7 @@ async fn test_login_with_non_existent_user() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {

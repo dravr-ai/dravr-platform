@@ -980,7 +980,7 @@ mod persona_voice_tests {
     fn power_reply_bare_numbers_below_floor_fails() {
         let bare = "CTL 47.8. TSB +4. ACWR 1.08. Monotony 1.3.";
         let err = assert_has_framework_citation_per_numeric(bare, 0.7).unwrap_err();
-        assert!(err.cited_count == 0);
+        assert_eq!(err.cited_count, 0);
         assert!(err.numeric_count >= 4);
     }
 

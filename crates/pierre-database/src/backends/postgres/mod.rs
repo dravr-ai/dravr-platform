@@ -81,6 +81,8 @@ pub mod route_summaries;
 pub mod security;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
+/// First-party refresh tokens — the credential a device holds between JWTs (Postgres)
+pub mod session_refresh_tokens;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`PostgreSQL`)
 pub mod short_links;
 /// Store listings repository implementation (marketplace publishing workflow)

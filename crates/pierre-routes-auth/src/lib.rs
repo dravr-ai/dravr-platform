@@ -110,9 +110,9 @@ pub use sciotte::{
 pub use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, ConnectionStatus,
     FirebaseLoginRequest, ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest,
-    LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
+    LoginResponse, LogoutRequest, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
     OAuthAuthorizationResponse, OAuthStatus, ProviderStatus, ProvidersStatusResponse,
-    RefreshTokenRequest, RegisterRequest, RegisterResponse, SessionResponse, UpdateProfileRequest,
+    RegisterRequest, RegisterResponse, SessionResponse, UpdateProfileRequest,
     UpdateProfileResponse, UserInfo, UserStatsResponse,
 };
 
@@ -202,7 +202,6 @@ impl AuthRoutes {
             .route("/api/auth/firebase", post(login::handle_firebase_login))
             .route("/api/auth/logout", post(login::handle_logout))
             .route("/api/auth/session", get(login::handle_session))
-            .route("/api/auth/refresh", post(login::handle_refresh))
             .route("/api/user/profile", put(login::handle_update_profile))
             .route(
                 "/api/user/change-password",

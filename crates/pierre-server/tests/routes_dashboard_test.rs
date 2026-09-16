@@ -211,7 +211,7 @@ impl DashboardTestSetup {
             },
             auth: AuthConfig {
                 jwt_expiry_hours: 24,
-                enable_refresh_tokens: false,
+                refresh_token_expiry_days: 30,
                 ..AuthConfig::default()
             },
             oauth: OAuthConfig {
@@ -688,7 +688,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {

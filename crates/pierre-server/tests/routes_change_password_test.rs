@@ -197,6 +197,59 @@ async fn test_change_password_can_login_with_new_password() {
 }
 
 #[tokio::test]
+async fn test_change_password_revokes_every_refresh_token() {
+    let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
+    let (jwt_token, email) = setup
+        .create_user_with_token()
+        .await
+        .expect("Failed to create user");
+    let routes = setup.routes();
+
+    // A phone logged in under the old password holds a refresh token.
+    let login_request = [
+        ("grant_type", "password"),
+        ("username", email.as_str()),
+        ("password", "password123"),
+        ("scope", "offline_access"),
+    ];
+    let login_response = AxumTestRequest::post("/oauth/token")
+        .form(&login_request)
+        .send(routes.clone())
+        .await;
+    assert_eq!(login_response.status(), 200);
+    let login_body: serde_json::Value = login_response.json();
+    let refresh_token = login_body["refresh_token"]
+        .as_str()
+        .expect("offline_access login carries a refresh token")
+        .to_owned();
+
+    let change_password_request = json!({
+        "current_password": "password123",
+        "new_password": "NewSecurePass456"
+    });
+    let response = AxumTestRequest::put("/api/user/change-password")
+        .header("Authorization", &format!("Bearer {}", jwt_token))
+        .json(&change_password_request)
+        .send(routes.clone())
+        .await;
+    assert_eq!(response.status(), 200);
+
+    // The password change is how a stolen password gets rotated, so the
+    // session that phone held ends with it.
+    let refresh_request = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token.as_str()),
+    ];
+    let refresh_response = AxumTestRequest::post("/oauth/token")
+        .form(&refresh_request)
+        .send(routes)
+        .await;
+    assert_eq!(refresh_response.status(), 400);
+    let refresh_body: serde_json::Value = refresh_response.json();
+    assert_eq!(refresh_body["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
 async fn test_change_password_wrong_current_password() {
     let setup = ChangePasswordTestSetup::new().await.expect("Setup failed");
     let (jwt_token, _email) = setup

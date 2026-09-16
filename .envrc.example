@@ -87,7 +87,7 @@ export BACKUP_DIRECTORY="./backups"
 # ============================================================================
 
 export JWT_EXPIRY_HOURS="24"
-# export ENABLE_REFRESH_TOKENS="false"   # Enable JWT refresh tokens
+# export REFRESH_TOKEN_EXPIRY_DAYS="30"   # How long a phone can stay closed and still open signed in
 
 # Admin Token Cache Configuration
 # Cache validated admin tokens to reduce database lookups (seconds)

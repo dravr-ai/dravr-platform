@@ -193,6 +193,10 @@ pub use oauth2_server::{
     DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
 };
 
+// First-party refresh tokens — the credential a device holds between JWTs
+mod session_refresh_token;
+pub use session_refresh_token::SessionRefreshToken;
+
 // User MCP token types for AI client authentication
 mod user_mcp_token;
 pub use user_mcp_token::{

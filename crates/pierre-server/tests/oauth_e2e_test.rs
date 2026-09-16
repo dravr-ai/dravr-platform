@@ -205,7 +205,7 @@ async fn test_oauth_flow_through_mcp() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -534,7 +534,7 @@ async fn test_oauth_callback_error_handling() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -820,7 +820,7 @@ async fn test_oauth_state_csrf_protection() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -1035,7 +1035,7 @@ async fn test_connection_status_tracking() {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {

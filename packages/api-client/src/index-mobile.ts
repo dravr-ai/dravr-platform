@@ -222,7 +222,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
   const axios = createAxiosClient(adapter);
 
   return {
-    auth: createAuthApi(axios, adapter.authStorage),
+    auth: createAuthApi(axios, adapter.authStorage, adapter.platform),
     chat: createChatApi(axios, adapter),
     coaches: createCoachesApi(axios),
     oauth: createOAuthApi(axios),

@@ -44,12 +44,14 @@ async function captureUserTimezone(): Promise<void> {
 /**
  * Trade the stored JWT for a fresh one and persist it.
  *
- * The server issues 24-hour tokens (`JWT_EXPIRY_HOURS`) and no refresh token,
- * so a stored session only outlives a day if the app renews it while the
- * token is still valid. `GET /api/auth/session` accepts the bearer and answers
- * with a new token, user and CSRF token — the same call the web client makes
- * on every page load, which is why a browser session slides and a phone
- * session used to end at the first request after the 24-hour mark.
+ * The server issues 24-hour tokens (`JWT_EXPIRY_HOURS`). While the stored one
+ * is still valid, `GET /api/auth/session` accepts it and answers with a new
+ * token, user and CSRF token — the same call the web client makes on every
+ * page load, which is why a browser session slides. Once it has lapsed, the
+ * shared API client exchanges the refresh token the login stored in the
+ * keychain and retries this same call, so a phone closed for a week opens
+ * signed in; only a refresh token the server no longer honours (a month
+ * unused, a logout, a password change) ends here on the login screen.
  *
  * Resolves to the server's view of the user, or null when the renewal did not
  * complete: the phone must open offline and Cloud Run cold starts take

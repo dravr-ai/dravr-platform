@@ -11,7 +11,6 @@ use anyhow::Result;
 use pierre_database::database::oauth_notifications::OAuthNotification;
 use pierre_sse::manager::SseManager;
 use reqwest::Client;
-use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -140,51 +139,16 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
     Ok(())
 }
 
-/// Test MCP client token refresh with SSE notifications
+/// Test MCP client OAuth notification delivery over SSE
 #[tokio::test]
 async fn test_mcp_client_oauth_notification_flow() -> Result<()> {
     println!("🔄 Testing MCP client OAuth notification flow");
 
     let resources = common::create_test_server_resources().await?;
-    let (user_id, user) = common::create_test_user(&resources.agent.database).await?;
+    let (user_id, _user) = common::create_test_user(&resources.agent.database).await?;
 
     // Create SSE manager
     let sse_manager = Arc::new(SseManager::new(100));
-
-    // Test token refresh endpoint (simulates MCP client auto-refresh)
-    let jwks_manager = common::get_shared_test_jwks();
-    let initial_token = resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &jwks_manager)?;
-    println!("✅ Initial JWT token generated");
-
-    let client = Client::new();
-    let refresh_request = json!({
-        "token": initial_token,
-        "user_id": user_id.to_string()
-    });
-
-    // Test refresh endpoint (would be called by MCP client)
-    let refresh_url = "http://127.0.0.1:8081/api/auth/refresh";
-    println!("🔄 Testing token refresh for MCP client");
-
-    let refresh_response = client.post(refresh_url).json(&refresh_request).send().await;
-
-    match refresh_response {
-        Ok(resp) if resp.status().is_success() => {
-            println!("✅ Token refresh successful for MCP client");
-        }
-        Ok(resp) => {
-            println!(
-                "ℹ️ Token refresh response: {} (server may not be running)",
-                resp.status()
-            );
-        }
-        Err(e) => {
-            println!("ℹ️ Token refresh test skipped (server not running): {e}");
-        }
-    }
 
     // Test SSE connection for real-time notifications
     let mut receiver = sse_manager.register_notification_stream(user_id).await;

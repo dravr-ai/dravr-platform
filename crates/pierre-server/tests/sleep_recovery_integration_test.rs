@@ -139,7 +139,7 @@ fn create_test_config() -> Arc<ServerConfig> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: create_test_oauth_config(),

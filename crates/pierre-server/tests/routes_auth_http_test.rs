@@ -425,111 +425,192 @@ async fn test_login_missing_fields() {
 }
 
 // ============================================================================
-// POST /api/auth/refresh - Token Refresh Tests
+// POST /oauth/token - Refresh Token Tests (offline_access + refresh_token grant)
 // ============================================================================
 
-#[tokio::test]
-async fn test_refresh_token_success() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-
-    // Create test user and generate token
-    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
-        .await
-        .expect("Failed to create test user");
-
-    let jwt_token = setup
-        .resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &setup.resources.auth.jwks_manager)
-        .expect("Failed to generate JWT");
-
-    let routes = setup.routes();
-
-    let refresh_request = json!({
-        "token": jwt_token,
-        "user_id": user_id.to_string()
-    });
-
-    let response = AxumTestRequest::post("/api/auth/refresh")
-        .json(&refresh_request)
-        .send(routes)
+/// Log the shared test user in the way the mobile app does — asking for a
+/// refresh token — and return the JSON body.
+async fn login_with_offline_access(setup: &AuthTestSetup, email: &str) -> serde_json::Value {
+    let login_request = [
+        ("grant_type", "password"),
+        ("username", email),
+        ("password", "password123"),
+        ("scope", "offline_access"),
+    ];
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&login_request)
+        .send(setup.routes())
         .await;
-
     assert_eq!(response.status(), 200);
-
-    let body: serde_json::Value = response.json();
-    assert!(body["jwt_token"].is_string());
-    assert!(body["expires_at"].is_string());
-    assert!(body["user"]["user_id"].is_string());
+    response.json()
 }
 
-#[tokio::test]
-async fn test_refresh_token_invalid_token() {
-    let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
-
-    let refresh_request = json!({
-        "token": "invalid_jwt_token",
-        "user_id": uuid::Uuid::new_v4().to_string()
-    });
-
-    let response = AxumTestRequest::post("/api/auth/refresh")
-        .json(&refresh_request)
-        .send(routes)
+/// Exchange a refresh token at the token endpoint.
+async fn exchange(setup: &AuthTestSetup, refresh_token: &str) -> (u16, serde_json::Value) {
+    let refresh_request = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+    ];
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&refresh_request)
+        .send(setup.routes())
         .await;
-
-    assert_eq!(response.status(), 401);
+    let status = response.status();
+    (status, response.json())
 }
 
 #[tokio::test]
-async fn test_refresh_token_user_id_mismatch() {
+async fn test_login_with_offline_access_returns_a_refresh_token() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
-
-    // Create test user and generate token
     let (_, user) = common::create_test_user(&setup.resources.agent.database)
         .await
         .expect("Failed to create test user");
 
-    let jwt_token = setup
-        .resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &setup.resources.auth.jwks_manager)
-        .expect("Failed to generate JWT");
+    let body = login_with_offline_access(&setup, &user.email).await;
 
-    let routes = setup.routes();
-
-    let refresh_request = json!({
-        "token": jwt_token,
-        "user_id": uuid::Uuid::new_v4().to_string()  // Different user_id
-    });
-
-    let response = AxumTestRequest::post("/api/auth/refresh")
-        .json(&refresh_request)
-        .send(routes)
-        .await;
-
-    assert_eq!(response.status(), 401);
+    assert!(body["access_token"].is_string());
+    let refresh_token = body["refresh_token"]
+        .as_str()
+        .expect("offline_access login carries a refresh token");
+    // 32 random bytes, base64url without padding.
+    assert_eq!(refresh_token.len(), 43);
 }
 
 #[tokio::test]
-async fn test_refresh_token_missing_fields() {
+async fn test_login_without_offline_access_returns_no_refresh_token() {
     let setup = AuthTestSetup::new().await.expect("Setup failed");
-    let routes = setup.routes();
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
 
-    let refresh_request = json!({
-        "token": "some_token"
-        // Missing user_id
-    });
+    let login_request = [
+        ("grant_type", "password"),
+        ("username", user.email.as_str()),
+        ("password", "password123"),
+    ];
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&login_request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
 
-    let response = AxumTestRequest::post("/api/auth/refresh")
-        .json(&refresh_request)
-        .send(routes)
+    let body: serde_json::Value = response.json();
+    assert!(body["access_token"].is_string());
+    // The web app never asked, so nothing exchangeable was written for it.
+    assert!(body.get("refresh_token").is_none());
+}
+
+#[tokio::test]
+async fn test_refresh_grant_rotates_the_token_and_kills_a_replayed_family() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let login = login_with_offline_access(&setup, &user.email).await;
+    let first = login["refresh_token"].as_str().unwrap().to_owned();
+    let login_jwt = login["access_token"].as_str().unwrap().to_owned();
+
+    // Exchange: a new JWT, the same user, and a successor token.
+    let (status, refreshed) = exchange(&setup, &first).await;
+    assert_eq!(status, 200, "{refreshed}");
+    let refreshed_jwt = refreshed["access_token"].as_str().unwrap();
+    assert_ne!(refreshed_jwt, login_jwt, "the exchange mints a new JWT");
+    assert_eq!(refreshed["token_type"].as_str(), Some("Bearer"));
+    assert!(refreshed["expires_in"].as_i64().unwrap() > 0);
+    assert!(refreshed["csrf_token"].is_string());
+    assert_eq!(
+        refreshed["user"]["user_id"].as_str(),
+        Some(user_id.to_string().as_str())
+    );
+    assert_eq!(
+        refreshed["user"]["email"].as_str(),
+        Some(user.email.as_str())
+    );
+    let second = refreshed["refresh_token"].as_str().unwrap().to_owned();
+    assert_ne!(second, first, "the exchange rotates the refresh token");
+
+    // The token just exchanged is dead.
+    let (status, replay) = exchange(&setup, &first).await;
+    assert_eq!(status, 400);
+    assert_eq!(replay["error"].as_str(), Some("invalid_grant"));
+
+    // And replaying it revoked its successor: a copied credential stops
+    // working the moment the real device has moved on.
+    let (status, successor) = exchange(&setup, &second).await;
+    assert_eq!(status, 400);
+    assert_eq!(successor["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
+async fn test_refresh_grant_with_unknown_token_is_invalid_grant() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let (status, body) = exchange(&setup, "never-issued").await;
+
+    assert_eq!(status, 400);
+    assert_eq!(body["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
+async fn test_refresh_grant_without_token_is_invalid_request() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&[("grant_type", "refresh_token")])
+        .send(setup.routes())
         .await;
 
-    // Should fail validation
-    assert_ne!(response.status(), 200);
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"].as_str(), Some("invalid_request"));
+}
+
+#[tokio::test]
+async fn test_password_grant_without_credentials_is_invalid_request() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::post("/oauth/token")
+        .form(&[("grant_type", "password"), ("username", "user@example.com")])
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 400);
+    let body: serde_json::Value = response.json();
+    assert_eq!(body["error"].as_str(), Some("invalid_request"));
+}
+
+#[tokio::test]
+async fn test_logout_revokes_the_presented_refresh_token() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (_, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+
+    let login = login_with_offline_access(&setup, &user.email).await;
+    let refresh_token = login["refresh_token"].as_str().unwrap().to_owned();
+
+    // No bearer: a phone whose JWT already lapsed can still log out.
+    let response = AxumTestRequest::post("/api/auth/logout")
+        .json(&json!({ "refresh_token": refresh_token }))
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let (status, body) = exchange(&setup, &refresh_token).await;
+    assert_eq!(status, 400);
+    assert_eq!(body["error"].as_str(), Some("invalid_grant"));
+}
+
+#[tokio::test]
+async fn test_logout_without_a_body_still_clears_the_cookie_session() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+
+    let response = AxumTestRequest::post("/api/auth/logout")
+        .send(setup.routes())
+        .await;
+
+    assert_eq!(response.status(), 200);
 }
 
 // ============================================================================
@@ -646,7 +727,7 @@ async fn test_all_auth_endpoints_registered() {
     let endpoints = vec![
         ("/api/auth/register", "POST"),
         ("/oauth/token", "POST"), // OAuth2 ROPC replaces /api/auth/login
-        ("/api/auth/refresh", "POST"),
+        ("/api/auth/logout", "POST"),
         ("/api/oauth/status", "GET"),
     ];
 

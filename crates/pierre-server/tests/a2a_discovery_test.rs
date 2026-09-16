@@ -260,15 +260,21 @@ fn test_advertised_token_url_is_the_client_credentials_route() {
         "the OAuth2 authorization server no longer dispatches client_credentials"
     );
 
-    // The ROPC bridge is a different route and accepts only the password
-    // grant, so advertising it would be a protocol-level dead end.
+    // The first-party token route is a different route and serves only the
+    // password and refresh_token grants, so advertising it would be a
+    // protocol-level dead end.
     assert!(
         ROPC_ROUTES.contains(r#".route("/oauth/token", post(login::handle_oauth2_token))"#),
         "the ROPC bridge route moved; re-verify which route serves client_credentials"
     );
     assert!(
-        ROPC_HANDLER.contains(r#"if request.grant_type != "password""#),
-        "the ROPC bridge no longer restricts itself to the password grant"
+        ROPC_HANDLER.contains(r#""password" => {"#)
+            && ROPC_HANDLER.contains(r#""refresh_token" => {"#),
+        "the first-party token handler no longer dispatches by grant_type as expected"
+    );
+    assert!(
+        !ROPC_HANDLER.contains(r#""client_credentials""#),
+        "the first-party token handler now names client_credentials; re-verify the card"
     );
     assert_ne!(
         path, "/oauth/token",

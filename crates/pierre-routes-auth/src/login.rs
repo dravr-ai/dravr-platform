@@ -12,7 +12,6 @@ use axum::{
 };
 use serde_json::json;
 use std::str::FromStr;
-use tokio::task;
 use tracing::{debug, error, field, field::Empty, info, warn, Span};
 
 use pierre_routes_admin::auth::service::AdminAuthService;
@@ -27,8 +26,8 @@ use pierre_core::models::{CoachingPersona, ColorScheme, UserStatus, SUPPORTED_LO
 
 use pierre_auth::dto::auth::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
-    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, OAuth2ErrorResponse,
-    OAuth2TokenRequest, OAuth2TokenResponse, RefreshTokenRequest, RegisterRequest,
+    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, LoginResponse, LogoutRequest,
+    OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse, RegisterRequest,
     RegisterResponse, SessionResponse, UpdateCoachingPersonaRequest, UpdateLocaleRequest,
     UpdateProfileRequest, UpdateProfileResponse, UpdateThemeRequest, UserInfo, UserStatsResponse,
 };
@@ -289,65 +288,25 @@ pub async fn handle_firebase_login(
     }
 }
 
-/// Handle token refresh
-#[tracing::instrument(
-    skip(resources, request),
-    fields(route = "token_refresh", user_id = %request.user_id, success = Empty)
-)]
-pub async fn handle_refresh(
-    State(resources): State<AuthRoutesContext>,
-    Json(request): Json<RefreshTokenRequest>,
-) -> Result<Response, AppError> {
-    let auth_service = AuthService::new(
-        resources.auth_manager.clone(),
-        resources.jwks_manager.clone(),
-        resources.config.clone(),
-        resources.data.clone(),
-    );
-
-    match auth_service.refresh_token(request).await {
-        Ok(mut response) => {
-            // Clone JWT for cookie (also included in JSON response for API clients)
-            let jwt_token = response
-                .jwt_token
-                .clone() // Safe: JWT string ownership for cookie
-                .ok_or_else(|| AppError::internal("JWT token missing from refresh response"))?;
-
-            // Parse user ID for CSRF token generation
-            let user_id = uuid::Uuid::parse_str(&response.user.user_id)
-                .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
-
-            // Generate new CSRF token (stateless HMAC — no server storage)
-            let csrf_token = resources
-                .csrf_manager
-                .generate_token(user_id)
-                .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
-
-            // Set response CSRF token
-            response.csrf_token.clone_from(&csrf_token);
-
-            // Build response with secure cookies
-            let mut headers = HeaderMap::new();
-
-            // Set httpOnly auth cookie (24 hour expiry to match JWT)
-            set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
-
-            // Set CSRF cookie (24 hour expiry to match CSRF token TTL)
-            set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
-
-            Ok((StatusCode::OK, headers, Json(response)).into_response())
-        }
-        Err(e) => {
-            error!("Token refresh failed: {}", e);
-            Err(e)
-        }
-    }
-}
-
 /// Handle user logout
-pub async fn handle_logout() -> Result<Response, AppError> {
-    // Yield to allow async context (required for Axum handler)
-    task::yield_now().await;
+///
+/// Clears the cookies a web session lives in. A device that holds a refresh
+/// token names it in the body, and its whole family is revoked here: the
+/// phone forgets the token, and after this so does the server, so a copy
+/// taken from the phone earlier stops working too. Revocation is by the
+/// token alone, which the presenter had to hold, so no bearer is required —
+/// a client whose JWT already lapsed can still log out.
+pub async fn handle_logout(
+    State(resources): State<AuthRoutesContext>,
+    request: Option<Json<LogoutRequest>>,
+) -> Result<Response, AppError> {
+    if let Some(presented) = request.and_then(|Json(body)| body.refresh_token) {
+        resources
+            .repos
+            .session_refresh_tokens
+            .revoke_token_family(&presented, chrono::Utc::now())
+            .await?;
+    }
 
     // Build response with cleared cookies
     let mut headers = HeaderMap::new();
@@ -589,6 +548,13 @@ pub async fn handle_change_password(
             AppError::internal(format!("Failed to update password: {e}"))
         })?;
 
+    // Every device session minted under the old password ends with it.
+    resources
+        .repos
+        .session_refresh_tokens
+        .revoke_user_tokens(user_id, chrono::Utc::now())
+        .await?;
+
     Span::current().record("success", true);
     info!(user_id = %user_id, "User password changed successfully");
 
@@ -652,6 +618,14 @@ pub async fn handle_complete_reset(
             warn!(error = %e, "Failed to invalidate remaining reset tokens");
             AppError::internal(format!("Failed to cleanup reset tokens: {e}"))
         })?;
+
+    // A reset is how a stolen password gets rotated, so every device session
+    // minted under the old one ends here as well.
+    resources
+        .repos
+        .session_refresh_tokens
+        .revoke_user_tokens(user_id, chrono::Utc::now())
+        .await?;
 
     info!(user_id = %user_id, "Password reset completed via one-time token");
 
@@ -809,14 +783,18 @@ pub async fn handle_user_stats(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle `OAuth2` ROPC (Resource Owner Password Credentials) token request
+/// Handle the first-party `OAuth2` token request.
 ///
-/// This endpoint implements RFC 6749 Section 4.3 for MCP and CLI clients
-/// that need to obtain tokens without a browser-based OAuth flow.
+/// Two grants. RFC 6749 §4.3, the password grant, is how every first-party
+/// client and any MCP or CLI caller without a browser logs in; adding
+/// `scope=offline_access` asks for a refresh token alongside the JWT. RFC
+/// 6749 §6, the refresh grant, exchanges that token for a fresh JWT and a
+/// successor token once the JWT has lapsed.
 ///
 /// Request format: `application/x-www-form-urlencoded`
 /// ```text
-/// grant_type=password&username=user@example.com&password=secret
+/// grant_type=password&username=user@example.com&password=secret&scope=offline_access
+/// grant_type=refresh_token&refresh_token=...
 /// ```
 ///
 /// Response format: RFC 6749 Section 5.1 compliant JSON
@@ -846,7 +824,8 @@ pub async fn handle_oauth2_token(
                 error: "invalid_request".to_owned(),
                 error_description: Some(
                     "The request is missing a required parameter or is otherwise malformed. \
-                     Expected form fields: grant_type, username, password."
+                     Expected form fields: grant_type, then username and password or \
+                     refresh_token."
                         .to_owned(),
                 ),
             };
@@ -854,30 +833,9 @@ pub async fn handle_oauth2_token(
         }
     };
     Span::current().record("grant_type", field::display(&request.grant_type));
-    Span::current().record("username", field::display(&request.username));
-
-    // Validate grant_type
-    if request.grant_type != "password" {
-        let error_response = OAuth2ErrorResponse {
-            error: "unsupported_grant_type".to_owned(),
-            error_description: Some(format!(
-                "Grant type '{}' is not supported. Use 'password' for ROPC.",
-                request.grant_type
-            )),
-        };
-        return Ok((StatusCode::BAD_REQUEST, Json(error_response)).into_response());
+    if let Some(username) = request.username.as_deref() {
+        Span::current().record("username", field::display(&username));
     }
-
-    // Delegate to existing login logic
-    let login_request = LoginRequest {
-        email: request.username,
-        password: request.password,
-        // OAuth2 ROPC bridge does not carry a timezone — the
-        // password-flow client (web/mobile) sends it on its own
-        // /auth/login call; ROPC callers are server-to-server and
-        // typically agnostic.
-        timezone: None,
-    };
 
     let auth_service = AuthService::new(
         resources.auth_manager.clone(),
@@ -886,63 +844,90 @@ pub async fn handle_oauth2_token(
         resources.data.clone(),
     );
 
-    match auth_service.login(login_request).await {
-        Ok(response) => {
-            let jwt_token = response
-                .jwt_token
-                .clone()
-                .ok_or_else(|| AppError::internal("JWT token missing from login response"))?;
-
-            // Parse expiration to calculate expires_in
-            let expires_at = chrono::DateTime::parse_from_rfc3339(&response.expires_at)
-                .map_or_else(
-                    |_| chrono::Utc::now() + chrono::Duration::hours(24),
-                    |dt| dt.with_timezone(&chrono::Utc),
-                );
-            let expires_in = (expires_at - chrono::Utc::now()).num_seconds();
-
-            // Generate CSRF token for web clients (stateless HMAC — no server storage)
-            let user_id = uuid::Uuid::parse_str(&response.user.user_id)
-                .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
-            let csrf_token = resources
-                .csrf_manager
-                .generate_token(user_id)
-                .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
-
-            // notify: record tenant/user on the current span so the NotifyLayer can
-            // attribute the user.login event without the call site re-passing IDs.
-            // tenant_id is optional on UserInfo; only record when present so the
-            // routing layer sees an empty field rather than a literal "None".
-            Span::current().record("user_id", field::display(&user_id));
-            if let Some(tenant_id) = response.user.tenant_id.as_deref() {
-                Span::current().record("tenant_id", field::display(&tenant_id));
-            }
-            // Warm the identity cache before emitting so the NotifyLayer enricher
-            // can attach this user's email to the user.login event itself.
-            cache_user_email(&user_id.to_string(), &response.user.email);
-            info!(
-                target: "notify",
-                event = "user.login",
-                "user authenticated"
-            );
-
-            let oauth2_response = OAuth2TokenResponse {
-                access_token: jwt_token.clone(),
-                token_type: "Bearer".to_owned(),
-                expires_in,
-                refresh_token: None,
-                scope: request.scope,
-                // Pierre extensions for frontend compatibility
-                user: Some(response.user),
-                csrf_token: Some(csrf_token.clone()),
+    // Each grant resolves to the login-shaped response plus the refresh token
+    // the client walks away with, or to the service error the tail maps to
+    // an RFC 6749 §5.2 error body.
+    let outcome = match request.grant_type.as_str() {
+        "password" => {
+            let (Some(email), Some(password)) = (request.username, request.password) else {
+                return Ok(oauth2_error(
+                    "invalid_request",
+                    "The password grant needs both username and password.",
+                ));
             };
+            let login_request = LoginRequest {
+                email,
+                password,
+                // OAuth2 ROPC bridge does not carry a timezone — the
+                // password-flow client (web/mobile) sends it on its own
+                // /auth/login call; ROPC callers are server-to-server and
+                // typically agnostic.
+                timezone: None,
+            };
+            match auth_service.login(login_request).await {
+                Ok(response) => {
+                    let user_id = uuid::Uuid::parse_str(&response.user.user_id)
+                        .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
 
-            // Build response with secure cookies for web clients
-            let mut headers = HeaderMap::new();
-            set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
-            set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
+                    // notify: record tenant/user on the current span so the NotifyLayer can
+                    // attribute the user.login event without the call site re-passing IDs.
+                    // tenant_id is optional on UserInfo; only record when present so the
+                    // routing layer sees an empty field rather than a literal "None".
+                    Span::current().record("user_id", field::display(&user_id));
+                    if let Some(tenant_id) = response.user.tenant_id.as_deref() {
+                        Span::current().record("tenant_id", field::display(&tenant_id));
+                    }
+                    // Warm the identity cache before emitting so the NotifyLayer enricher
+                    // can attach this user's email to the user.login event itself.
+                    cache_user_email(&user_id.to_string(), &response.user.email);
+                    info!(
+                        target: "notify",
+                        event = "user.login",
+                        "user authenticated"
+                    );
 
-            Ok((StatusCode::OK, headers, Json(oauth2_response)).into_response())
+                    // A refresh token only for the client that asked for one.
+                    // The web app never does: its session is the cookie, and a
+                    // token it would discard is a live credential in a table.
+                    let refresh_token = if requests_offline_access(request.scope.as_deref()) {
+                        Some(
+                            auth_service
+                                .issue_refresh_token(user_id, response.user.tenant_id.clone())
+                                .await?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok((response, refresh_token))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        "refresh_token" => {
+            let Some(presented) = request.refresh_token else {
+                return Ok(oauth2_error(
+                    "invalid_request",
+                    "The refresh_token grant needs refresh_token.",
+                ));
+            };
+            auth_service
+                .refresh_session(&presented)
+                .await
+                .map(|session| (session.login, Some(session.refresh_token)))
+        }
+        other => {
+            return Ok(oauth2_error(
+                "unsupported_grant_type",
+                &format!(
+                    "Grant type '{other}' is not supported. Use 'password' or 'refresh_token'."
+                ),
+            ));
+        }
+    };
+
+    match outcome {
+        Ok((response, refresh_token)) => {
+            issue_tokens(&resources, response, refresh_token, request.scope)
         }
         Err(e) => {
             // Map to OAuth2 error format based on error code
@@ -973,6 +958,79 @@ pub async fn handle_oauth2_token(
             Ok((status, Json(error_response)).into_response())
         }
     }
+}
+
+/// The scope a client requests to receive a refresh token alongside its JWT.
+///
+/// `OpenID` Connect Core §11's name for "I will need to act while the user is
+/// away", which is exactly what a phone closed for a week is.
+const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
+
+/// Whether a password grant asked for a refresh token.
+fn requests_offline_access(scope: Option<&str>) -> bool {
+    scope.is_some_and(|scope| {
+        scope
+            .split_ascii_whitespace()
+            .any(|part| part == OFFLINE_ACCESS_SCOPE)
+    })
+}
+
+/// An RFC 6749 §5.2 error body for a request the handler refused before any
+/// grant ran.
+fn oauth2_error(error: &str, description: &str) -> Response {
+    let error_response = OAuth2ErrorResponse {
+        error: error.to_owned(),
+        error_description: Some(description.to_owned()),
+    };
+    (StatusCode::BAD_REQUEST, Json(error_response)).into_response()
+}
+
+/// Turn a login-shaped response into the RFC 6749 §5.1 token response, with
+/// the CSRF token and cookies a web client needs. The password and refresh
+/// grants both end here, so a session minted either way looks the same.
+fn issue_tokens(
+    resources: &AuthRoutesContext,
+    response: LoginResponse,
+    refresh_token: Option<String>,
+    scope: Option<String>,
+) -> Result<Response, AppError> {
+    let jwt_token = response
+        .jwt_token
+        .ok_or_else(|| AppError::internal("JWT token missing from login response"))?;
+
+    // Parse expiration to calculate expires_in
+    let expires_at = chrono::DateTime::parse_from_rfc3339(&response.expires_at).map_or_else(
+        |_| chrono::Utc::now() + chrono::Duration::hours(24),
+        |dt| dt.with_timezone(&chrono::Utc),
+    );
+    let expires_in = (expires_at - chrono::Utc::now()).num_seconds();
+
+    // Generate CSRF token for web clients (stateless HMAC — no server storage)
+    let user_id = uuid::Uuid::parse_str(&response.user.user_id)
+        .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
+    let csrf_token = resources
+        .csrf_manager
+        .generate_token(user_id)
+        .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
+
+    // Build response with secure cookies for web clients
+    let mut headers = HeaderMap::new();
+    set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
+    set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
+
+    let oauth2_response = OAuth2TokenResponse {
+        access_token: jwt_token,
+        token_type: "Bearer".to_owned(),
+        expires_in,
+        refresh_token,
+        scope,
+        // Pierre extensions for frontend compatibility
+        user: Some(response.user),
+        csrf_token: Some(csrf_token),
+    };
+
+    Span::current().record("success", true);
+    Ok((StatusCode::OK, headers, Json(oauth2_response)).into_response())
 }
 
 /// Handle analytics consent update for authenticated users

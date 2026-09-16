@@ -17,17 +17,25 @@ use std::sync::LazyLock;
 pub struct AuthConfig {
     /// JWT expiry time in hours
     pub jwt_expiry_hours: u64,
-    /// Enable JWT refresh tokens
-    pub enable_refresh_tokens: bool,
+    /// How long a first-party refresh token stays exchangeable, in days.
+    ///
+    /// The mobile app holds one between JWTs, so this is how long a phone can
+    /// stay closed and still open signed in. Each exchange issues a successor
+    /// with a fresh lifetime; the family only ends on logout, password change,
+    /// or a replayed token.
+    pub refresh_token_expiry_days: i64,
     /// Admin token cache TTL in seconds (default: 300 = 5 minutes)
     pub admin_token_cache_ttl_secs: u64,
 }
+
+/// Default refresh-token lifetime, the same 30 days the `OAuth2` server gives its own.
+const DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS: i64 = 30;
 
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
             admin_token_cache_ttl_secs: 300, // 5 minutes
         }
     }
@@ -49,11 +57,13 @@ impl AuthConfig {
                     .max(0),
             )
             .unwrap_or(24),
-            enable_refresh_tokens: env_var_or("ENABLE_REFRESH_TOKENS", "false")
-                .parse()
-                .map_err(|e| {
-                    AppError::invalid_input(format!("Invalid ENABLE_REFRESH_TOKENS value: {e}"))
-                })?,
+            // Clamped to at least one day: a zero-day token would expire
+            // before the login response reached the phone.
+            refresh_token_expiry_days: env::var("REFRESH_TOKEN_EXPIRY_DAYS")
+                .ok()
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS)
+                .max(1),
             admin_token_cache_ttl_secs: env::var("ADMIN_TOKEN_CACHE_TTL_SECS")
                 .ok()
                 .and_then(|s| s.parse().ok())

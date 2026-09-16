@@ -179,9 +179,10 @@ describe('AuthContext', () => {
     });
   });
 
-  // The server issues 24-hour tokens and no refresh token, so a session only
-  // outlives a day if the app trades the stored token for a fresh one while it
-  // is still valid. These pin that trade on cold start and on foreground.
+  // The server issues 24-hour tokens, and the shared API client exchanges the
+  // refresh token behind this call once one has lapsed. These pin the
+  // provider's half: that the trade happens on cold start and on foreground,
+  // and what it does with the answer.
   describe('session restore on cold start', () => {
     const storedUser = {
       user_id: '123',

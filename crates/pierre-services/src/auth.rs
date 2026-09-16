@@ -6,15 +6,17 @@
 
 use std::sync::Arc;
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use chrono::Utc;
+use rand::RngCore as _;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::dto::auth::{
-    FirebaseLoginRequest, LoginRequest, LoginResponse, RefreshTokenRequest, RegisterRequest,
-    RegisterResponse, UserInfo,
+    FirebaseLoginRequest, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse, UserInfo,
 };
 use pierre_auth::firebase::{FirebaseAuth, FirebaseClaims};
 use pierre_config::environment::ServerConfig;
@@ -22,7 +24,8 @@ use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    default_locale, CoachingPersona, PreApprovedEmail, Tenant, TenantId, User, UserStatus, UserTier,
+    default_locale, CoachingPersona, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User,
+    UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use pierre_runtime_context::DataContext;
@@ -31,12 +34,22 @@ use pierre_runtime_context::DataContext;
 // AuthService — domain logic for user authentication and registration
 // ---------------------------------------------------------------------------
 
+/// What a refresh-token exchange yields: the same response a login gives,
+/// plus the successor token the device must hold from now on.
+#[derive(Debug)]
+pub struct RefreshedSession {
+    /// Fresh JWT, expiry and user, exactly as a login answers.
+    pub login: LoginResponse,
+    /// The successor refresh token. The one that was presented is dead.
+    pub refresh_token: String,
+}
+
 /// Authentication service encapsulating business logic for user lifecycle
 ///
-/// Handles registration, credential login, Firebase SSO login, token refresh,
-/// tenant provisioning, and approval-status determination. Accepts narrow
-/// Rust types rather than HTTP framework extractors so it can be called
-/// from REST, MCP, or A2A entry points.
+/// Handles registration, credential login, Firebase SSO login, refresh-token
+/// issue and exchange, tenant provisioning, and approval-status
+/// determination. Accepts narrow Rust types rather than HTTP framework
+/// extractors so it can be called from REST, MCP, or A2A entry points.
 #[derive(Clone)]
 pub struct AuthService {
     auth_manager: Arc<AuthManager>,
@@ -247,33 +260,12 @@ impl AuthService {
             request.email, user.id
         );
 
+        let user_info = self.user_info(&user, tenant_id_for_response).await;
         Ok(LoginResponse {
             jwt_token: Some(jwt_token),
             csrf_token: String::new(), // Will be set by HTTP handler
             expires_at: expires_at.to_rfc3339(),
-            user: UserInfo {
-                id: user.id.to_string(),
-                user_id: user.id.to_string(),
-                email: user.email.clone(),
-                display_name: user.display_name,
-                is_admin: user.is_admin,
-                role: user.role.as_str().to_owned(),
-                user_status: user.user_status.to_string(),
-                tenant_id: tenant_id_for_response,
-                // `.ok()` maps a failed lookup to None — "we did not resolve it" —
-                // rather than false, which would claim the address is unconfirmed.
-                email_verified: self
-                    .data
-                    .repos()
-                    .email_verification
-                    .is_verified(user.id)
-                    .await
-                    .ok(),
-                created_at: user.created_at.to_rfc3339(),
-                locale: user.locale.clone(),
-                coaching_persona: user.coaching_persona.as_str().to_owned(),
-                manages_roster: user.manages_roster,
-            },
+            user: user_info,
         })
     }
 
@@ -778,124 +770,175 @@ impl AuthService {
 
         tracing::info!(user_id = %user.id, provider = %provider, "Firebase login successful");
 
+        let user_info = self.user_info(user, tenant_id_for_response).await;
         Ok(LoginResponse {
             jwt_token: Some(jwt_token),
             csrf_token: String::new(),
             expires_at: expires_at.to_rfc3339(),
-            user: UserInfo {
-                id: user.id.to_string(),
-                user_id: user.id.to_string(),
-                email: user.email.clone(),
-                display_name: user.display_name.clone(),
-                is_admin: user.is_admin,
-                role: user.role.as_str().to_owned(),
-                user_status: user.user_status.to_string(),
-                tenant_id: tenant_id_for_response,
-                // `.ok()` maps a failed lookup to None — "we did not resolve it" —
-                // rather than false, which would claim the address is unconfirmed.
-                email_verified: self
-                    .data
-                    .repos()
-                    .email_verification
-                    .is_verified(user.id)
-                    .await
-                    .ok(),
-                created_at: user.created_at.to_rfc3339(),
-                locale: user.locale.clone(),
-                coaching_persona: user.coaching_persona.as_str().to_owned(),
-                manages_roster: user.manages_roster,
-            },
+            user: user_info,
         })
     }
 
-    /// Handle token refresh
+    /// Open a refresh-token family for a device that just logged in.
     ///
-    /// Validates the existing JWT, verifies user identity, checks account
-    /// status, and issues a fresh token with updated expiry.
+    /// The JWT the login minted lasts `JWT_EXPIRY_HOURS`; this is what the
+    /// device holds past that. It is returned once, in plaintext, and stored
+    /// only as its HMAC. `tenant_id` is the tenant the login resolved, so the
+    /// JWTs a refresh mints later carry the same one.
     ///
     /// # Errors
-    /// Returns error if refresh token is invalid or token generation fails
-    pub async fn refresh_token(&self, request: RefreshTokenRequest) -> AppResult<LoginResponse> {
-        info!("Token refresh attempt for user with refresh token");
+    /// Returns an error if the RNG fails or the token cannot be stored.
+    pub async fn issue_refresh_token(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: Option<String>,
+    ) -> AppResult<String> {
+        let now = Utc::now();
+        let record = SessionRefreshToken {
+            family_id: uuid::Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id,
+            created_at: now,
+            expires_at: now + self.refresh_token_lifetime(),
+        };
+        self.store_refresh_token(&record).await
+    }
 
-        // Extract user from refresh token using RS256 validation
-        let token_claims = self
-            .auth_manager
-            .validate_token(&request.token, &self.jwks_manager)
-            .map_err(|_| AppError::auth_invalid("Invalid or expired token"))?;
-        let user_id = uuid::Uuid::parse_str(&token_claims.sub)
-            .map_err(|e| AppError::auth_invalid(format!("Invalid token format: {e}")))?;
+    /// Exchange a refresh token for a fresh JWT and its own successor.
+    ///
+    /// The presented token is consumed in the same statement that reads it,
+    /// so it works exactly once; the successor joins the same family. A token
+    /// that no longer exchanges but is still on record was rotated out and
+    /// then presented again — the shape a stolen credential takes once the
+    /// legitimate device has moved on — and revokes its whole family, live
+    /// successor included. Every failure answers the same `AuthInvalid` so a
+    /// caller cannot tell an expired token from a foreign one.
+    ///
+    /// # Errors
+    /// Returns `AuthInvalid` for an unknown, expired, revoked or replayed
+    /// token, `AccountSuspended` for a suspended user, and a database error
+    /// when the exchange cannot be recorded.
+    pub async fn refresh_session(&self, presented: &str) -> AppResult<RefreshedSession> {
+        let now = Utc::now();
+        let repos = self.data.repos();
+        let Some(record) = repos
+            .session_refresh_tokens
+            .consume_token(presented, now)
+            .await?
+        else {
+            let revoked = repos
+                .session_refresh_tokens
+                .revoke_token_family(presented, now)
+                .await?;
+            if revoked > 0 {
+                warn!(
+                    revoked,
+                    "Refresh token replayed after rotation; its family is revoked"
+                );
+            }
+            return Err(AppError::auth_invalid("Invalid or expired refresh token"));
+        };
 
-        // Validate that the user_id matches the one in the request
-        let request_user_id = uuid::Uuid::parse_str(&request.user_id)?;
-        if user_id != request_user_id {
-            return Err(AppError::auth_invalid("User ID mismatch"));
-        }
-
-        // Get user from database
-        let user = self
-            .data
-            .repos()
+        let user = repos
             .users
-            .get_global(user_id)
+            .get_global(record.user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
 
-        // Block suspended users from refreshing tokens.
-        // Pending users can refresh so the frontend can poll for status changes.
+        // A suspended account cannot extend its session; a pending one can,
+        // so the app keeps polling for the approval.
         Self::reject_if_suspended(&user)?;
 
-        // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
-        let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
-        let tenant_id_for_response = active_tenant_id.clone();
+        // The tenant the login resolved. A session opened before the user had
+        // one resolves it now, the way a login would.
+        let tenant_id = match record.tenant_id {
+            Some(tenant_id) => Some(tenant_id),
+            None => self.ensure_user_has_tenant(&user).await?,
+        };
 
-        // Generate new JWT token using RS256 with active_tenant_id
-        let new_jwt_token = self
+        let jwt_token = self
             .auth_manager
-            .generate_token_with_tenant(&user, &self.jwks_manager, active_tenant_id)
+            .generate_token_with_tenant(&user, &self.jwks_manager, tenant_id.clone())
             .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
-        let expires_at =
-            chrono::Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+        let expires_at = now + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
 
-        // Update last active timestamp
-        self.data
-            .repos()
+        let successor = SessionRefreshToken {
+            family_id: record.family_id,
+            user_id: user.id,
+            tenant_id: tenant_id.clone(),
+            created_at: now,
+            expires_at: now + self.refresh_token_lifetime(),
+        };
+        let refresh_token = self.store_refresh_token(&successor).await?;
+
+        repos
             .users
             .update_last_active(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
 
-        info!("Token refreshed successfully for user: {}", user.id);
+        info!(user_id = %user.id, "Session refreshed");
 
-        Ok(LoginResponse {
-            jwt_token: Some(new_jwt_token),
-            csrf_token: String::new(), // Will be set by HTTP handler
-            expires_at: expires_at.to_rfc3339(),
-            user: UserInfo {
-                id: user.id.to_string(),
-                user_id: user.id.to_string(),
-                email: user.email.clone(),
-                display_name: user.display_name,
-                is_admin: user.is_admin,
-                role: user.role.as_str().to_owned(),
-                user_status: user.user_status.to_string(),
-                tenant_id: tenant_id_for_response,
-                // `.ok()` maps a failed lookup to None — "we did not resolve it" —
-                // rather than false, which would claim the address is unconfirmed.
-                email_verified: self
-                    .data
-                    .repos()
-                    .email_verification
-                    .is_verified(user.id)
-                    .await
-                    .ok(),
-                created_at: user.created_at.to_rfc3339(),
-                locale: user.locale.clone(),
-                coaching_persona: user.coaching_persona.as_str().to_owned(),
-                manages_roster: user.manages_roster,
+        let user_info = self.user_info(&user, tenant_id).await;
+        Ok(RefreshedSession {
+            login: LoginResponse {
+                jwt_token: Some(jwt_token),
+                csrf_token: String::new(), // Will be set by HTTP handler
+                expires_at: expires_at.to_rfc3339(),
+                user: user_info,
             },
+            refresh_token,
         })
+    }
+
+    /// How long a freshly issued refresh token stays exchangeable.
+    fn refresh_token_lifetime(&self) -> chrono::Duration {
+        chrono::Duration::days(self.config.auth.refresh_token_expiry_days)
+    }
+
+    /// Mint a token, store its record, and hand the plaintext back.
+    ///
+    /// 32 bytes of OS randomness, base64url without padding: the same
+    /// strength as the `OAuth2` server's refresh tokens, in a form that travels
+    /// in a form field or a header unchanged.
+    async fn store_refresh_token(&self, record: &SessionRefreshToken) -> AppResult<String> {
+        let mut bytes = [0u8; 32];
+        rand::rng().fill_bytes(&mut bytes);
+        let token = URL_SAFE_NO_PAD.encode(bytes);
+        self.data
+            .repos()
+            .session_refresh_tokens
+            .store_token(&token, record)
+            .await?;
+        Ok(token)
+    }
+
+    /// The user as a login or refresh response describes them.
+    async fn user_info(&self, user: &User, tenant_id: Option<String>) -> UserInfo {
+        UserInfo {
+            id: user.id.to_string(),
+            user_id: user.id.to_string(),
+            email: user.email.clone(),
+            display_name: user.display_name.clone(),
+            is_admin: user.is_admin,
+            role: user.role.as_str().to_owned(),
+            user_status: user.user_status.to_string(),
+            tenant_id,
+            // `.ok()` maps a failed lookup to None — "we did not resolve it" —
+            // rather than false, which would claim the address is unconfirmed.
+            email_verified: self
+                .data
+                .repos()
+                .email_verification
+                .is_verified(user.id)
+                .await
+                .ok(),
+            created_at: user.created_at.to_rfc3339(),
+            locale: user.locale.clone(),
+            coaching_persona: user.coaching_persona.as_str().to_owned(),
+            manages_roster: user.manages_roster,
+        }
     }
 
     /// Validate email format

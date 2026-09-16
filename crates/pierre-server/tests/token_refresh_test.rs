@@ -1,5 +1,5 @@
-// ABOUTME: Tests JWT token refresh functionality in MCP client and server
-// ABOUTME: Validates automatic token refresh, expiry detection, and refresh endpoint integration
+// ABOUTME: Tests the JWT expiry detection the MCP client's automatic refresh relies on
+// ABOUTME: Pins the claim layout a client parses and the environment variables that tune its refresh
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,96 +10,10 @@
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::DateTime;
-use reqwest::Client;
-use serde_json::json;
 use serial_test::serial;
-use std::{env, time::Duration};
+use std::env;
 
 mod common;
-
-#[tokio::test]
-async fn test_token_refresh_endpoint() -> Result<()> {
-    println!("🔄 Testing JWT token refresh endpoint");
-
-    // Start server with fresh resources
-    let resources = common::create_test_server_resources().await?;
-
-    // Create test user
-    let (user_id, user) = common::create_test_user(&resources.agent.database).await?;
-
-    // Generate initial JWT token
-    let initial_token = resources
-        .auth
-        .auth_manager
-        .generate_token(&user, &resources.auth.jwks_manager)?;
-    println!("Generated initial JWT token");
-
-    // Simulate token refresh request
-    let client = Client::new();
-    let refresh_request = json!({
-        "token": initial_token,
-        "user_id": user_id.to_string()
-    });
-
-    // Test refresh endpoint via HTTP
-    let server_auth_url = "http://127.0.0.1:8081/api/auth/refresh";
-
-    // Note: This test assumes server is running at 8081
-    // In a real integration test, we'd start the server here
-    println!("🔍 Testing refresh endpoint: {server_auth_url}");
-
-    let response = client
-        .post(server_auth_url)
-        .header("Content-Type", "application/json")
-        .json(&refresh_request)
-        .timeout(Duration::from_secs(5))
-        .send()
-        .await;
-
-    match response {
-        Ok(resp) if resp.status().is_success() => {
-            let refresh_response: serde_json::Value = resp.json().await?;
-            println!("Token refresh successful");
-            let token_preview = refresh_response
-                .get("jwt_token")
-                .and_then(|v| v.as_str())
-                .unwrap_or("none");
-            let preview_len = 50.min(token_preview.len());
-            println!(
-                "   New token received: {}...",
-                &token_preview[..preview_len]
-            );
-
-            // Verify new token is different from old token
-            let new_token = refresh_response.get("jwt_token").unwrap().as_str().unwrap();
-            assert_ne!(
-                initial_token, new_token,
-                "New token should be different from initial token"
-            );
-        }
-        Ok(resp) => {
-            let status = resp.status();
-            let error_text = resp.text().await.unwrap_or_default();
-            println!("Token refresh failed: {status} - {error_text}");
-
-            if status == 404 {
-                println!(
-                    "    Server might not be running at 8081. This is expected in unit tests."
-                );
-                println!("    To test fully, run: cargo run --bin pierre-mcp-server");
-                return Ok(()); // Don't fail the test for missing server
-            }
-        }
-        Err(e) => {
-            println!(" Connection failed: {e}");
-            println!("    Server not running at 8081. This is expected in unit tests.");
-            return Ok(()); // Don't fail the test for missing server
-        }
-    }
-
-    println!(" Token refresh test completed");
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_jwt_token_parsing() -> Result<()> {

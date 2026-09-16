@@ -19,8 +19,6 @@ export const ENDPOINTS = {
     LOGOUT: '/api/auth/logout',
     /** User registration */
     REGISTER: '/api/auth/register',
-    /** Token refresh */
-    REFRESH: '/api/auth/refresh',
     /** Restore session from httpOnly cookie */
     SESSION: '/api/auth/session',
     /** Self-service forgot password (send reset code) */

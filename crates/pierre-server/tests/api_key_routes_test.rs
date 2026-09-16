@@ -113,7 +113,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     },
                     auth: AuthConfig {
                         jwt_expiry_hours: 24,
-                        enable_refresh_tokens: false,
+                        refresh_token_expiry_days: 30,
                         ..AuthConfig::default()
                     },
                     oauth: OAuthConfig {

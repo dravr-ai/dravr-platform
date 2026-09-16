@@ -27,6 +27,7 @@ direnv allow  # or: source .envrc
 | `HTTP_PORT` | `8081` | Server port |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
 | `JWT_EXPIRY_HOURS` | `24` | JWT token expiration |
+| `REFRESH_TOKEN_EXPIRY_DAYS` | `30` | Lifetime of the refresh token the mobile app exchanges for new JWTs |
 | `PIERRE_RSA_KEY_SIZE` | `4096` | RSA key size (2048 for dev, 4096 for prod) |
 
 ## Database

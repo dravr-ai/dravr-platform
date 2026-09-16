@@ -6,8 +6,18 @@
 
 import type { AxiosInstance } from 'axios';
 import type { User, LoginResponse, RegisterResponse, FirebaseLoginResponse, SessionResponse } from '@pierre/shared-types';
-import type { AuthStorage } from '../types/platform';
+import type { AuthStorage, PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
+
+/**
+ * The scope a login sends to receive a refresh token alongside its JWT.
+ *
+ * OpenID Connect's name for "I will need to act while the user is away".
+ * Only the mobile app asks: it keeps the token in the device keychain and
+ * exchanges it when the JWT lapses. The web app's session is the httpOnly
+ * cookie, and a token it would discard is a live credential in a table.
+ */
+const OFFLINE_ACCESS_SCOPE = 'offline_access';
 
 export interface LoginCredentials {
   email: string;
@@ -26,8 +36,15 @@ export interface FirebaseLoginData {
 
 /**
  * Creates the auth API methods bound to an axios instance.
+ *
+ * `platform` decides whether a login asks for a refresh token: the phone
+ * can hold one, the browser has its cookie.
  */
-export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
+export function createAuthApi(
+  axios: AxiosInstance,
+  authStorage: AuthStorage,
+  platform: PlatformAdapter['platform']
+) {
   return {
     /**
      * Login with email and password.
@@ -37,6 +54,9 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
       formData.append('grant_type', 'password');
       formData.append('username', credentials.email);
       formData.append('password', credentials.password);
+      if (platform === 'mobile') {
+        formData.append('scope', OFFLINE_ACCESS_SCOPE);
+      }
 
       const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData.toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -84,10 +104,15 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
 
     /**
      * Logout the current user.
+     *
+     * A device holding a refresh token hands it back so the server revokes
+     * it; otherwise the token would stay exchangeable for a month after the
+     * phone forgot it. The web app has none and sends an empty body.
      */
     async logout(): Promise<void> {
       try {
-        await axios.post(ENDPOINTS.AUTH.LOGOUT);
+        const refreshToken = await authStorage.getRefreshToken();
+        await axios.post(ENDPOINTS.AUTH.LOGOUT, refreshToken ? { refresh_token: refreshToken } : undefined);
       } finally {
         // Always clear local auth data
         await authStorage.clear();

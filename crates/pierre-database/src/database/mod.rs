@@ -89,6 +89,8 @@ pub mod rsa_keys;
 pub mod security_repository;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
+/// First-party refresh tokens — the credential a device holds between JWTs
+pub mod session_refresh_tokens;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`SQLite`)
 pub mod short_links;
 /// Store listings for agent publishing workflow

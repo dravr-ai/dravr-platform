@@ -10,7 +10,20 @@ import type { AxiosInstance, AxiosResponse, AxiosError, InternalAxiosRequestConf
 // Handle both ESM and CJS imports (for test environment compatibility)
 const axios = axiosModule.default ?? axiosModule;
 import type { PlatformAdapter, ApiClientOptions } from '../types/platform';
-import { readHeader, recoverFromRefusal } from './auth-challenge';
+import { readHeader, recoverFromRefusal, refusalRecovery } from './auth-challenge';
+import { createSessionRefresher } from './session-refresh';
+
+/**
+ * A request config that remembers whether it already rode a refresh.
+ *
+ * axios keeps unknown config keys through its merge, so the flag survives
+ * from the failed request to its retry. One retry per request: a 401 on the
+ * retried request means the fresh JWT was refused too, and the session ends
+ * rather than looping.
+ */
+interface RefreshAwareConfig extends InternalAxiosRequestConfig {
+  retriedAfterRefresh?: boolean;
+}
 
 /**
  * Creates an axios instance configured with the platform adapter.
@@ -28,6 +41,8 @@ export function createAxiosClient(adapter: PlatformAdapter): AxiosInstance {
       ...httpConfig.defaultHeaders,
     },
   });
+
+  const refreshSession = createSessionRefresher(instance, authStorage);
 
   // Request interceptor: Add auth token and CSRF token
   instance.interceptors.request.use(
@@ -89,12 +104,28 @@ export function createAxiosClient(adapter: PlatformAdapter): AxiosInstance {
       // Clearing the session and marking the error are one step, so an app-wide
       // error surface can ask whether this refusal is already being recovered
       // instead of guessing from a symptom.
-      await recoverFromRefusal(
-        { authStorage, authFailure },
-        error.response?.status ?? 0,
-        readHeader(error.response?.headers, 'www-authenticate'),
-        error
-      );
+      //
+      // A 401 first tries the refresh token: the JWT lasts a day and a phone
+      // holds a refresh token for a month, so the first request after the
+      // day is the ordinary way a session continues, not the end of it. The
+      // retry carries the fresh JWT because the request interceptor reads
+      // storage again. A 403 never refreshes — a first-party JWT re-minted
+      // from the same session carries the same grant, so the scope it was
+      // refused would be refused again.
+      const status = error.response?.status ?? 0;
+      const challenge = readHeader(error.response?.headers, 'www-authenticate');
+      const config = error.config as RefreshAwareConfig | undefined;
+      if (
+        status === 401 &&
+        config !== undefined &&
+        !config.retriedAfterRefresh &&
+        refusalRecovery(status, challenge) === 'reauthenticate' &&
+        (await refreshSession())
+      ) {
+        config.retriedAfterRefresh = true;
+        return instance.request(config);
+      }
+      await recoverFromRefusal({ authStorage, authFailure }, status, challenge, error);
       return Promise.reject(error);
     }
   );

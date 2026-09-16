@@ -28,9 +28,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
-use pierre_routes_auth::{
-    AuthService, LoginRequest, OAuthService, RefreshTokenRequest, RegisterRequest,
-};
+use pierre_routes_auth::{AuthService, LoginRequest, OAuthService, RegisterRequest};
 use serial_test::serial;
 use std::{env, sync::Arc};
 use uuid::Uuid;
@@ -198,7 +196,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -503,7 +501,7 @@ async fn test_user_login_success() -> Result<()> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -809,7 +807,7 @@ async fn test_token_refresh_success() -> Result<()> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -1000,20 +998,36 @@ async fn test_token_refresh_success() -> Result<()> {
         .jwt_token
         .ok_or_else(|| anyhow::anyhow!("JWT token not found in login response"))?;
 
-    // Test token refresh
-    let refresh_request = RefreshTokenRequest {
-        token: original_token.clone(),
-        user_id: user_id.clone(),
-    };
+    // The login opens a refresh-token family; the exchange rotates it.
+    let first = auth_routes
+        .issue_refresh_token(user_uuid, login_response.user.tenant_id.clone())
+        .await?;
+    let refreshed = auth_routes.refresh_session(&first).await?;
 
-    let refresh_response = auth_routes.refresh_token(refresh_request).await?;
-
-    // Token refresh should return a valid token (may be same or different depending on implementation)
-    assert!(refresh_response
+    let renewed_jwt = refreshed
+        .login
         .jwt_token
-        .as_ref()
-        .is_some_and(|t| !t.is_empty()));
-    assert_eq!(refresh_response.user.email, "refresh@example.com");
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("JWT token not found in refresh response"))?;
+    assert!(!renewed_jwt.is_empty());
+    assert_ne!(renewed_jwt, original_token, "a refresh mints a new JWT");
+    assert_eq!(refreshed.login.user.email, "refresh@example.com");
+    assert_eq!(refreshed.login.user.user_id, user_id);
+    assert_ne!(
+        refreshed.refresh_token, first,
+        "the exchange rotates the token"
+    );
+
+    // The token just exchanged is dead...
+    assert!(auth_routes.refresh_session(&first).await.is_err());
+    // ...and presenting it again was a replay, which killed its successor too.
+    assert!(
+        auth_routes
+            .refresh_session(&refreshed.refresh_token)
+            .await
+            .is_err(),
+        "a replayed token revokes the whole family"
+    );
 
     Ok(())
 }
@@ -1023,12 +1037,7 @@ async fn test_token_refresh_invalid_token() -> Result<()> {
     common::init_server_config();
     let auth_routes = create_test_auth_routes().await?;
 
-    let refresh_request = RefreshTokenRequest {
-        token: "invalid.jwt.token".to_owned(),
-        user_id: Uuid::new_v4().to_string(),
-    };
-
-    let result = auth_routes.refresh_token(refresh_request).await;
+    let result = auth_routes.refresh_session("never-issued-token").await;
 
     assert!(result.is_err());
 
@@ -1036,7 +1045,7 @@ async fn test_token_refresh_invalid_token() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_token_refresh_mismatched_user() -> Result<()> {
+async fn test_token_refresh_suspended_user() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
@@ -1060,7 +1069,7 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -1246,16 +1255,18 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
     };
 
     let login_response = auth_routes.login(login_request).await?;
+    let refresh_token = auth_routes
+        .issue_refresh_token(user_id, login_response.user.tenant_id.clone())
+        .await?;
 
-    // Try to refresh with different user ID
-    let refresh_request = RefreshTokenRequest {
-        token: login_response
-            .jwt_token
-            .ok_or_else(|| anyhow::anyhow!("JWT token not found in login response"))?,
-        user_id: Uuid::new_v4().to_string(), // Different user ID
-    };
+    // Suspension ends the session at the next exchange, not the next login.
+    database
+        .repositories()
+        .users
+        .update_status(user_id, UserStatus::Suspended, None)
+        .await?;
 
-    let result = auth_routes.refresh_token(refresh_request).await;
+    let result = auth_routes.refresh_session(&refresh_token).await;
 
     assert!(result.is_err());
 
@@ -1586,7 +1597,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {
@@ -1779,14 +1790,10 @@ async fn test_complete_auth_flow() -> Result<()> {
     let login_response = auth_routes.login(login_request).await?;
 
     // 3. Refresh token
-    let refresh_request = RefreshTokenRequest {
-        token: login_response
-            .jwt_token
-            .ok_or_else(|| anyhow::anyhow!("JWT token not found in login response"))?,
-        user_id: user_id.to_string(),
-    };
-
-    let refresh_response = auth_routes.refresh_token(refresh_request).await?;
+    let refresh_token = auth_routes
+        .issue_refresh_token(user_id, login_response.user.tenant_id.clone())
+        .await?;
+    let refresh_response = auth_routes.refresh_session(&refresh_token).await?.login;
 
     // 4. Check OAuth connection status
     let connections = oauth_routes.get_connection_status(user_id).await?;
@@ -1923,7 +1930,7 @@ async fn test_concurrent_logins() -> Result<()> {
         },
         auth: AuthConfig {
             jwt_expiry_hours: 24,
-            enable_refresh_tokens: false,
+            refresh_token_expiry_days: 30,
             ..AuthConfig::default()
         },
         oauth: OAuthConfig {

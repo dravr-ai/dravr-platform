@@ -523,20 +523,18 @@ async fn handle_pre_session_commands(
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");
         handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await
-    } else if let Some(otp_response) = handle_otp_flow(
-        resources,
-        tenant_id,
-        channel_type,
-        channel,
-        &message.sender_id,
-        &message.content,
-    )
-    .await
-    {
+    } else {
+        let otp_response = handle_otp_flow(
+            resources,
+            tenant_id,
+            channel_type,
+            channel,
+            &message.sender_id,
+            &message.content,
+        )
+        .await?;
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "otp_flow");
         otp_response
-    } else {
-        return None;
     };
 
     reply.thread_id = thread_id;

@@ -153,11 +153,11 @@ EXPO_PUBLIC_API_URL=http://192.168.1.100:8081
 
 ### Authentication Flow
 
-1. User registers or logs in via OAuth 2.0
-2. JWT token stored securely in AsyncStorage
+1. User registers or logs in via the OAuth 2.0 password grant, asking for `offline_access`
+2. JWT and refresh token stored in the device keychain (expo-secure-store); user profile in AsyncStorage
 3. CSRF token included for state-changing requests
-4. Automatic token refresh on expiration
-5. Auth failure triggers logout and navigation to login
+4. A still-valid JWT is renewed on launch and foreground; a lapsed one is replaced by exchanging the refresh token on the first 401, single-flight, then the request is retried
+5. A refused exchange (a month unused, logout, password change) clears the session and navigates to login
 
 ### WebSocket Streaming
 
