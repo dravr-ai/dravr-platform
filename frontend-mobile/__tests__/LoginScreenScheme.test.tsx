@@ -109,6 +109,20 @@ describe('the phone login follows the appearance setting', () => {
     expect(joined).not.toContain('\n');
   });
 
+  it('fits the viewport at rest: centred content, no scroll indicator', async () => {
+    // The screen scrolled on every phone and showed the track beside it,
+    // because its gaps summed past the viewport (xl paddings, an xl hero
+    // margin, a py-7 sheet). The ScrollView stays for the keyboard-open
+    // case only, so it must centre what fits and hide the indicator.
+    await AsyncStorage.setItem(APPEARANCE_KEY, 'light');
+    const screen = renderInTheme();
+
+    await waitFor(() => expect(screen.getByTestId('login-scroll-view')).toBeTruthy());
+    const scroll = screen.getByTestId('login-scroll-view');
+    expect(scroll.props.showsVerticalScrollIndicator).toBe(false);
+    expect(scroll.props.contentContainerStyle).toMatchObject({ flexGrow: 1, justifyContent: 'center' });
+  });
+
   it('carries no hardcoded brand fill that would ignore the setting', async () => {
     // The screen shipped a `#00241a → #0d3b2e` gradient and a card pinned to
     // BOREAL_LIGHT, so dark mode never reached it. Both grounds must differ

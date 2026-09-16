@@ -167,23 +167,31 @@ export function LoginScreen() {
     overflow: 'hidden',
   };
 
-  const submitButtonStyle: ViewStyle = { marginTop: spacing.md };
+  const submitButtonStyle: ViewStyle = { marginTop: spacing.sm };
 
   return (
     <View className="flex-1" testID="login-screen" style={{ backgroundColor: pageGround }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
+        {/* The whole screen fits a phone's viewport at rest, so the content
+            centres in whatever height is left and nothing scrolls until the
+            keyboard takes its half. The ScrollView is there for that case
+            only, which is why it shows no indicator: a visible track beside
+            a screen that fits reads as content below the fold. Every gap
+            here is one ladder step (sm/md), not the xl/lg the web aside can
+            afford at desktop height. */}
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
           automaticallyAdjustKeyboardInsets
           testID="login-scroll-view"
         >
           {/* Editorial hero band — brand moment at the top */}
-          <View style={{ marginTop: spacing.md, marginBottom: spacing.xl }}>
+          <View style={{ marginBottom: spacing.md }}>
             {/* One lockup component, the same one the chat tab header wears —
                 the mark and the wordmark are not re-specified per screen. */}
-            <View style={{ marginBottom: spacing.lg }}>
+            <View style={{ marginBottom: spacing.md }}>
               <BrandLockup size={40} testID="login-lockup" />
             </View>
             {/* One sentence, one pair of keys — the same two the web aside
@@ -205,8 +213,8 @@ export function LoginScreen() {
               the live palette, so the whole screen follows the athlete's
               appearance setting. */}
           <View style={cardStyle} testID="login-card">
-            <View className="px-6 py-7">
-              <View className="mb-5">
+            <View className="px-6 py-5">
+              <View className="mb-4">
                 <Text className="font-display text-2xl mb-1" style={{ color: tokens.onSurface }}>
                   {t('common.login')}
                 </Text>
@@ -264,7 +272,7 @@ export function LoginScreen() {
                 {/* Google Sign-In - only show when Firebase is configured */}
                 {isFirebaseEnabled() && (
                   <>
-                    <View className="flex-row items-center my-5">
+                    <View className="flex-row items-center my-4">
                       <View
                         style={{ flex: 1, height: 1, backgroundColor: colors.border.default }}
                       />
@@ -311,7 +319,7 @@ export function LoginScreen() {
               </View>
 
               {/* Register Link */}
-              <View className="flex-row justify-center items-center gap-1 pt-4">
+              <View className="flex-row justify-center items-center gap-1 pt-3">
                 <Text className="text-sm" style={{ color: tokens.onSurfaceVariant }}>
                   {t('app.noAccountYet')}
                 </Text>
@@ -328,7 +336,7 @@ export function LoginScreen() {
               the web aside's — no tracked caps, which v2 retired. */}
           <View
             className="flex-row items-center justify-center"
-            style={{ gap: spacing.sm, marginTop: spacing.xl }}
+            style={{ gap: spacing.sm, marginTop: spacing.md }}
           >
             {[t('app.activity'), t('app.nutrition'), t('app.recovery'), t('app.mobility')].map((pillar, i) => (
               <React.Fragment key={pillar}>
