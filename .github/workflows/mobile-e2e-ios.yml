@@ -250,7 +250,7 @@ jobs:
       - name: Seed system agents for Maestro tests
         run: |
           ./target/release/pierre-cli seed agents \
-            --agents-dir "${{ github.workspace }}/contremaitre/prompts/coaches"
+            --agents-dir "${{ github.workspace }}/contremaitre/prompts/agents"
         env:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-test.db"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="

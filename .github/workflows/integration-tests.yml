@@ -128,7 +128,7 @@ jobs:
         # hard-gate hides the app UI the persona spec drives.
         run: |
           ./target/release/pierre-cli user create --email admin@example.com --password AdminPassword123 --super-admin --force
-          ./target/release/pierre-cli seed agents --agents-dir ../dravr-contremaitre/prompts/coaches
+          ./target/release/pierre-cli seed agents --agents-dir ../dravr-contremaitre/prompts/agents
           ./target/release/pierre-cli seed demo-data --days 30
           ./target/release/pierre-cli seed synthetic-activities --email webtest@pierre.dev --provider strava --count 30 --days 30
         env:
