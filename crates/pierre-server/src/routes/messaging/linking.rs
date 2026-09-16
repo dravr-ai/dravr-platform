@@ -368,6 +368,8 @@ fn qr_svg_for(url: &str) -> Option<String> {
 ///
 /// Initiates channel linking by generating a verification code and returning
 /// a platform-specific linking URL. Requires JWT authentication.
+///
+/// LIMITATION(registre#439): `init_channel_link` reads the config and writes link state under the caller's tenant, which the bot's `consume_link_state` never reads.
 pub async fn init_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
@@ -546,6 +548,8 @@ pub async fn link_callback(
 /// GET /api/messaging/links
 ///
 /// Lists all linked channels for the authenticated user.
+///
+/// LIMITATION(registre#439): `list_channel_links` reads the caller's tenant, but ingress writes every bot-made link under the bot's tenant.
 pub async fn list_channel_links(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
@@ -582,6 +586,8 @@ pub async fn list_channel_links(
 /// DELETE /api/messaging/links/:channel
 ///
 /// Unlinks a channel for the authenticated user.
+///
+/// LIMITATION(registre#439): `delete_channel_link` deletes under the caller's tenant, so a bot-made link answers `ChannelNotLinked`.
 pub async fn delete_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,

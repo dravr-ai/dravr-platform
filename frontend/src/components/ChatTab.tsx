@@ -154,6 +154,7 @@ export default function ChatTab({
   const showConnectBanner = providersLoaded && !hasConnectedProvider;
 
   // Fetch messages for selected conversation
+  // LIMITATION(registre#440): `chat.messages` reads the caller's own conversation, so a channel group thread omits every other member's turns.
   const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: Message[]; feedback?: MessageFeedbackEntry[] }>({
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),

@@ -165,6 +165,8 @@ const fn channel_display_name(channel: ChannelType) -> &'static str {
 /// returns credentials — unlike `list_channel_configs`, which is the admin
 /// surface. Requires a valid session.
 ///
+/// LIMITATION(registre#439): `list_available_channels` reads configs under the caller's tenant; the env-seeded bot config exists only under the admin's tenant.
+///
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, no tenant can be resolved, or a

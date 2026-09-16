@@ -164,6 +164,7 @@ export function useMessages(): MessagesState & MessagesActions {
     }
   }, []);
 
+  // LIMITATION(registre#440): `loadMessages` reads the caller's own conversation, so a channel group thread omits every other member's turns.
   const loadMessages = useCallback(async (conversationId: string) => {
     try {
       setError(null);
