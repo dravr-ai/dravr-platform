@@ -1,9 +1,9 @@
 // ABOUTME: Unit tests for AuthContext
-// ABOUTME: Tests authentication state management, login, logout, and registration
+// ABOUTME: Tests session restore and renewal on launch, login, logout, and registration
 
 import React from 'react';
 import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
-import { Text, TouchableOpacity } from 'react-native';
+import { AppState, Text, TouchableOpacity, type AppStateStatus } from 'react-native';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { authApi, onAuthFailure } from '../src/services/api';
 
@@ -12,6 +12,7 @@ jest.mock('../src/services/api', () => ({
   authApi: {
     initializeAuth: jest.fn(),
     getStoredUser: jest.fn(),
+    getSession: jest.fn(),
     login: jest.fn(),
     logout: jest.fn(),
     register: jest.fn(),
@@ -19,6 +20,9 @@ jest.mock('../src/services/api', () => ({
   },
   onAuthFailure: jest.fn(() => jest.fn()),
 }));
+
+/** What the transport raises when the phone is offline: no response at all. */
+const NETWORK_ERROR = Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' });
 
 // Mock the firebase module to prevent WebBrowser initialization errors in tests
 jest.mock('../src/firebase', () => ({
@@ -59,8 +63,31 @@ function TestAuthConsumer() {
 }
 
 describe('AuthContext', () => {
+  let warnSpy: jest.SpyInstance;
+  // Captured for every test, not just the one that drives it: jest-expo's
+  // AppState hands back no subscription, so the provider's foreground
+  // listener would throw on unmount without a stand-in.
+  let appStateListeners: ((status: AppStateStatus) => void)[] = [];
+  let appStateSpy: jest.SpyInstance;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    // Unless a test says otherwise the phone is offline, so the launch-time
+    // renewal fails on the transport and the stored session stands.
+    (authApi.getSession as jest.Mock).mockRejectedValue(NETWORK_ERROR);
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    appStateListeners = [];
+    appStateSpy = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((_type, listener) => {
+        appStateListeners.push(listener as (status: AppStateStatus) => void);
+        return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>;
+      });
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    appStateSpy.mockRestore();
   });
 
   describe('useAuth hook', () => {
@@ -149,6 +176,150 @@ describe('AuthContext', () => {
 
       expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
       consoleSpy.mockRestore();
+    });
+  });
+
+  // The server issues 24-hour tokens and no refresh token, so a session only
+  // outlives a day if the app trades the stored token for a fresh one while it
+  // is still valid. These pin that trade on cold start and on foreground.
+  describe('session restore on cold start', () => {
+    const storedUser = {
+      user_id: '123',
+      email: 'stored@example.com',
+      display_name: 'Stored Name',
+      is_admin: false,
+      role: 'user',
+      user_status: 'active',
+    };
+    const renewedSession = {
+      user: { ...storedUser, display_name: 'Renewed Name' },
+      access_token: 'fresh-jwt',
+      csrf_token: 'fresh-csrf',
+    };
+
+    function RestoreConsumer() {
+      const { user, isAuthenticated, isLoading } = useAuth();
+      return (
+        <>
+          <Text testID="loading">{isLoading ? 'loading' : 'loaded'}</Text>
+          <Text testID="authenticated">{isAuthenticated ? 'authenticated' : 'not-authenticated'}</Text>
+          <Text testID="display-name">{user?.display_name ?? 'no-user'}</Text>
+        </>
+      );
+    }
+
+    it('restores the stored session and persists the renewed token', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(storedUser);
+      (authApi.getSession as jest.Mock).mockResolvedValue(renewedSession);
+      (authApi.storeAuth as jest.Mock).mockResolvedValue(undefined);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <RestoreConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('loading').children[0]).toBe('loaded');
+      });
+      expect(getByTestId('authenticated').children[0]).toBe('authenticated');
+
+      // The renewed token is what the next cold start will read.
+      await waitFor(() => {
+        expect(authApi.storeAuth).toHaveBeenCalledWith('fresh-jwt', 'fresh-csrf', renewedSession.user);
+      });
+      expect(authApi.getSession).toHaveBeenCalledTimes(1);
+      // And the server's view of the user replaces the stored copy.
+      await waitFor(() => {
+        expect(getByTestId('display-name').children[0]).toBe('Renewed Name');
+      });
+      expect(authApi.login).not.toHaveBeenCalled();
+    });
+
+    it('keeps the stored session when the renewal fails on the transport', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(storedUser);
+      (authApi.getSession as jest.Mock).mockRejectedValue(NETWORK_ERROR);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <RestoreConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(authApi.getSession).toHaveBeenCalledTimes(1);
+      });
+      expect(getByTestId('loading').children[0]).toBe('loaded');
+      // Offline is not signed out: the stored user still gates the app stack.
+      expect(getByTestId('authenticated').children[0]).toBe('authenticated');
+      expect(getByTestId('display-name').children[0]).toBe('Stored Name');
+      expect(authApi.storeAuth).not.toHaveBeenCalled();
+    });
+
+    it('does not ask the server for a session when nothing is stored', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <RestoreConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('loading').children[0]).toBe('loaded');
+      });
+      expect(getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      expect(authApi.getSession).not.toHaveBeenCalled();
+    });
+
+    it('renews again when the app returns to the foreground', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(true);
+      (authApi.getStoredUser as jest.Mock).mockResolvedValue(storedUser);
+      (authApi.getSession as jest.Mock).mockResolvedValue(renewedSession);
+      (authApi.storeAuth as jest.Mock).mockResolvedValue(undefined);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <RestoreConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('display-name').children[0]).toBe('Renewed Name');
+      });
+      expect(authApi.getSession).toHaveBeenCalledTimes(1);
+      expect(appStateListeners.length).toBeGreaterThan(0);
+
+      // Backgrounding renews nothing; only the return to the foreground does.
+      await act(async () => {
+        appStateListeners.forEach((listener) => listener('background'));
+      });
+      expect(authApi.getSession).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        appStateListeners.forEach((listener) => listener('active'));
+      });
+      await waitFor(() => {
+        expect(authApi.getSession).toHaveBeenCalledTimes(2);
+      });
+      expect(authApi.storeAuth).toHaveBeenLastCalledWith('fresh-jwt', 'fresh-csrf', renewedSession.user);
+    });
+
+    it('does not subscribe to the foreground while signed out', async () => {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
+
+      const { getByTestId } = render(
+        <AuthProvider>
+          <RestoreConsumer />
+        </AuthProvider>
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('loading').children[0]).toBe('loaded');
+      });
+      expect(appStateListeners).toHaveLength(0);
     });
   });
 

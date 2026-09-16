@@ -1,7 +1,8 @@
 // ABOUTME: Authentication context provider for Dravr Mobile app
-// ABOUTME: Manages user auth state, login/logout, and persists tokens with AsyncStorage
+// ABOUTME: Restores the stored session on launch, renews its token against the server, and owns login/logout
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
 import type { User, FirebaseLoginResponse } from '../types';
@@ -40,17 +41,48 @@ async function captureUserTimezone(): Promise<void> {
   }
 }
 
+/**
+ * Trade the stored JWT for a fresh one and persist it.
+ *
+ * The server issues 24-hour tokens (`JWT_EXPIRY_HOURS`) and no refresh token,
+ * so a stored session only outlives a day if the app renews it while the
+ * token is still valid. `GET /api/auth/session` accepts the bearer and answers
+ * with a new token, user and CSRF token — the same call the web client makes
+ * on every page load, which is why a browser session slides and a phone
+ * session used to end at the first request after the 24-hour mark.
+ *
+ * Resolves to the server's view of the user, or null when the renewal did not
+ * complete: the phone must open offline and Cloud Run cold starts take
+ * seconds, so a transport failure keeps the stored session as it is. A 401
+ * needs no handling here — the shared response interceptor has already
+ * cleared storage and fired `onAuthFailure`, which drops the user below.
+ */
+async function renewSession(): Promise<User | null> {
+  try {
+    const session = await authApi.getSession();
+    await authApi.storeAuth(session.access_token, session.csrf_token, session.user);
+    return session.user;
+  } catch (err) {
+    console.warn('Session renewal failed; keeping the stored session:', err);
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize auth state from storage
+  // Restore the session from storage, then renew it. The stored user gates the
+  // navigator as soon as it is read — renewal happens after `isLoading` drops,
+  // so a cold start never waits on the network.
   useEffect(() => {
+    let cancelled = false;
     const initAuth = async () => {
+      let storedUser: User | null = null;
       try {
         const hasToken = await authApi.initializeAuth();
         if (hasToken) {
-          const storedUser = await authApi.getStoredUser();
+          storedUser = await authApi.getStoredUser();
           if (storedUser) {
             setUser(storedUser);
           }
@@ -60,10 +92,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } finally {
         setIsLoading(false);
       }
+      if (!storedUser) return;
+      const renewed = await renewSession();
+      if (renewed && !cancelled) {
+        setUser(renewed);
+      }
     };
 
     initAuth();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // A phone can sit in the background for days without a cold start, so the
+  // launch-time renewal alone would let the token lapse. Renew again whenever
+  // the app returns to the foreground while signed in. Keyed on the boolean,
+  // not the user object, so a renewal does not re-subscribe.
+  const signedIn = user !== null;
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    const subscription = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state !== 'active') return;
+      void renewSession().then((renewed) => {
+        if (renewed) {
+          setUser(renewed);
+        }
+      });
+    });
+    return () => subscription.remove();
+  }, [signedIn]);
 
   // Listen for auth failures (401 responses)
   useEffect(() => {
