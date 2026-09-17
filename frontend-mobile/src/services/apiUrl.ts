@@ -9,9 +9,14 @@ import { Platform } from 'react-native';
  * Resolve the Pierre API base URL.
  *
  * Precedence:
- * 1. `EXPO_PUBLIC_API_URL` env var (tunnel mode, staging, prod).
+ * 1. `EXPO_PUBLIC_API_URL` env var (tunnel mode, and every EAS build profile).
  * 2. Android emulator fallback (`10.0.2.2` routes to host loopback).
  * 3. `localhost:8081` for iOS Simulator + web dev.
+ *
+ * LIMITATION(registre#450): `EXPO_PUBLIC_API_URL` carries the dev Cloud Run host in the
+ * `production` EAS profile as well as `preview`, because `infra/environments/prod/` has no
+ * database and its terraform apply is gated `if: false` — the `dev` project is the only live
+ * environment, so a TestFlight build and an internal build read and write the same system.
  *
  * Exported as a plain function so both the REST axios client and the
  * AG-UI SSE consumer resolve the same value at call time — keeping
