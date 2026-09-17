@@ -502,8 +502,10 @@ describe('ChatTab header info drawer', () => {
     getConversations.mockResolvedValue({
       conversations: [
         {
+          // The server names a room's thread after the room; the header
+          // prints that stored title, as the list row and the phone do.
           id: CONVERSATION_ID,
-          title: 'Sunday long run',
+          title: 'Sunday Riders',
           agent_id: COACH_ID,
           group_id: 'group-7',
           group_name: 'Sunday Riders',

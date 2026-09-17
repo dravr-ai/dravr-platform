@@ -66,7 +66,8 @@ mod reset_locale {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RouterLlm};
     use pierre_contremaitre::messaging_strings::{
-        DEFAULT_LOCALE, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
+        DEFAULT_LOCALE, KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM,
+        KEY_RESET_WALK_INTERRUPTED,
     };
     use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
     use serial_test::serial;
@@ -250,9 +251,7 @@ mod reset_locale {
             .expect("the primed session names its conversation");
 
         // Rename the thread being left, so the title assertion below can tell
-        // "named itself" from "inherited what it replaced" — a fresh messaging
-        // thread is titled after its channel, which is what the primed one was
-        // already called.
+        // "named itself" from "inherited what it replaced".
         e2e.resources
             .common
             .repos
@@ -304,15 +303,31 @@ mod reset_locale {
         );
         // The fresh thread names itself. Inheriting the old title left the
         // list with rows an athlete could not tell apart (observed on dev,
-        // 2026-09-02); on a channel the thread has only ever been named after
-        // the channel it arrived on.
+        // 2026-09-02). A thread with neither a room nor an agent — the
+        // member's home tenant seeds no system agent — takes the dated stamp
+        // in the athlete's `en` locale, never the channel's machine name.
         assert_eq!(
             previous.title, "Ancienne discussion",
             "the archived thread keeps the name it had"
         );
-        assert_eq!(
-            fresh.title, "Messaging: telegram",
-            "a channel thread names itself after its channel; it must not inherit the title it replaced"
+        assert!(
+            fresh.agent_id.is_none(),
+            "fixture precondition: no agent to name the fresh thread after"
+        );
+        let prefix = e2e.resources.mcp.messaging_strings_registry.render(
+            KEY_NEW_CONVERSATION_TITLE_PREFIX,
+            "en",
+            &[],
+        );
+        assert!(
+            fresh.title.starts_with(&format!("{prefix} ")),
+            "a thread with nothing to be named after takes the dated stamp in the athlete's locale: {:?}",
+            fresh.title
+        );
+        assert!(
+            !fresh.title.starts_with("Messaging:"),
+            "no thread is named after its channel any more: {:?}",
+            fresh.title
         );
     }
 }

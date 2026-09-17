@@ -13,7 +13,6 @@ import {
   deriveKind,
   filterRows,
   formatListTimestamp,
-  defaultConversationTitle,
   initialsFor,
   previewFor,
   sortRowsByActivity,
@@ -53,8 +52,9 @@ describe('deriveKind', () => {
     expect(deriveKind(conversation())).toBe('plain');
   });
 
-  it('reads a channel from the legacy "Messaging: <channel>" title too', () => {
-    expect(deriveKind(conversation({ title: 'Messaging: whatsapp', channel_type: 'web' }))).toBe(
+  it('reads the channel from the column alone; the title names no channel', () => {
+    expect(deriveKind(conversation({ title: 'Telegram', channel_type: 'web' }))).toBe('plain');
+    expect(deriveKind(conversation({ title: 'Trail Coach', channel_type: 'whatsapp' }))).toBe(
       'channel',
     );
   });
@@ -254,6 +254,58 @@ describe('buildConversationRow', () => {
     expect(row.kind).toBe('channel');
     expect(row.channel).toEqual({ channel: 'telegram', label: 'Telegram' });
   });
+
+  it('prints the stored title as-is and its initials, whatever the thread is with', () => {
+    // The server names a thread after its room or its agent; the row derives
+    // nothing. A Telegram DM titled with its agent reads the agent.
+    const dm = buildConversationRow(
+      conversation({
+        title: 'Ultra-Endurance Cycling Workout Builder',
+        channel_type: 'telegram',
+        agent_id: 'coach-1',
+        agent_handle: 'ultra-cycling-workout-builder',
+        agent_title: 'Ultra-Endurance Cycling Workout Builder',
+      }),
+      LABELS,
+      NOW,
+    );
+    expect(dm.title).toBe('Ultra-Endurance Cycling Workout Builder');
+    expect(dm.initials).toBe('UC');
+    // A Telegram room titled with the room's name reads the room.
+    const room = buildConversationRow(
+      conversation({ title: 'Vélo dimanche', group_id: 'g1', group_name: 'Vélo dimanche', channel_type: 'telegram' }),
+      LABELS,
+      NOW,
+    );
+    expect(room.title).toBe('Vélo dimanche');
+    expect(room.initials).toBe('VD');
+  });
+
+  it('drops the handle when the title already names the agent, and keeps it otherwise', () => {
+    const named = buildConversationRow(
+      conversation({ title: 'Trail Coach', agent_id: 'coach-1', agent_handle: 'trail', agent_title: 'Trail Coach' }),
+      LABELS,
+      NOW,
+    );
+    expect(named.agentHandle).toBeNull();
+    expect(named.agentTitle).toBe('Trail Coach');
+
+    const renamed = buildConversationRow(
+      conversation({ title: 'Bloc hivernal', agent_id: 'coach-1', agent_handle: 'trail', agent_title: 'Trail Coach' }),
+      LABELS,
+      NOW,
+    );
+    expect(renamed.agentHandle).toBe('trail');
+
+    // A room keeps its agent's handle: the agent is a participant of it, not
+    // the thing the row is named after.
+    const room = buildConversationRow(
+      conversation({ title: 'Harricana', group_id: 'g1', group_name: 'Harricana', agent_id: 'coach-1', agent_handle: 'trail', agent_title: 'Trail Coach' }),
+      LABELS,
+      NOW,
+    );
+    expect(room.agentHandle).toBe('trail');
+  });
 });
 
 describe('sortRowsByActivity', () => {
@@ -324,11 +376,6 @@ describe('locale-aware formatting', () => {
     expect(formatListTimestamp(new Date(2026, 7, 26).toISOString(), 'fr', NOW)).toMatch(/^mer/);
     expect(formatListTimestamp(new Date(2026, 7, 20).toISOString(), 'fr', NOW)).toMatch(/^20 août/);
     expect(formatListTimestamp(new Date(2026, 7, 27, 9, 5).toISOString(), 'fr', NOW)).toBe('09:05');
-  });
-
-  it('titles a fresh thread with the prefix, the day and the 24-hour time', () => {
-    expect(defaultConversationTitle('Chat', NOW, 'en-US')).toBe('Chat Aug 27 16:18');
-    expect(defaultConversationTitle('Discussion', NOW, 'fr')).toBe('Discussion 27 août 16:18');
   });
 
   it('spells You, Coach and the untitled fallback from the labels it is handed', () => {

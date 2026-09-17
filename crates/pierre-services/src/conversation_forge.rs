@@ -1,5 +1,5 @@
-// ABOUTME: Forges a fresh chat conversation for an athlete — agent binding, channel stamp, guided flow
-// ABOUTME: One ceremony for every caller: the messaging self-heal, and the /reset command on any surface
+// ABOUTME: Forges a fresh chat conversation for an athlete — agent binding, counterpart title, channel stamp, guided flow
+// ABOUTME: One ceremony for every caller: the messaging self-heal, /reset on any surface, and the title rule REST create shares
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,16 @@
 //! Two callers need the same five steps and must not drift apart: the
 //! messaging ingress, when a session's `pierre_conversation_id` cannot be
 //! reused, and `/reset`, when the athlete asks for a clean thread. Both want a
-//! row bound to the right agent, stamped with the surface it was opened from,
-//! and — for an athlete who has told us nothing yet — carrying the guided walk
-//! that stands in for the web signup form.
+//! row bound to the right agent, titled after who the athlete is talking to,
+//! stamped with the surface it was opened from, and — for an athlete who has
+//! told us nothing yet — carrying the guided walk that stands in for the web
+//! signup form.
+//!
+//! The title rule ([`counterpart_title`]) is public on its own because the
+//! REST create route names a thread the same way without running the rest of
+//! the ceremony: the room's name, else the bound agent's title, else a dated
+//! stamp. The stored title is what every list row and thread header prints,
+//! on both clients, so it has to be meaningful the moment the row exists.
 //!
 //! Everything here is a repository call, which is why it can live below both
 //! callers rather than in either one.
@@ -20,7 +27,7 @@ use chrono::{DateTime, Utc};
 use pierre_config::environment::LlmProviderType;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CoverageMap, GuidedFlow, OnboardingState, TenantId};
-use pierre_database::repositories::ChatRepository;
+use pierre_database::repositories::{AgentsRepository, ChatRepository, TenantRepository};
 use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -31,10 +38,19 @@ use crate::intake::is_outstanding;
 /// Which agent the fresh conversation binds to.
 #[derive(Debug, Clone, Copy)]
 pub enum ForgeAgent<'a> {
-    /// The athlete's tenant-level selected agent, or none when they have not
-    /// picked one. What a messaging thread uses: the session carries no agent
-    /// of its own, so the selection is the only answer available.
+    /// The athlete's tenant-level selected agent, else the tenant's first
+    /// system agent. What a messaging DM uses: the session carries no agent
+    /// of its own, and a DM with no agent at all is answered by the house
+    /// prompt with nothing to name it after, so the room bind's fallback
+    /// applies to a DM too.
     Selected,
+    /// The athlete's tenant-level selected agent, or none. What a room
+    /// member's row uses — the row a room session forges, whether the group
+    /// is attached now or retrofitted on a later turn. The room's own agent
+    /// lives on the group and answers there, and a system agent bound to the
+    /// member's row would shadow the selected-agent rung every
+    /// athlete-scoped read (`/plan`) resolves through.
+    SelectedInRoom,
     /// The agent named here, carried from the thread being replaced. What
     /// `/reset` uses in the app, so an athlete resetting a conversation with
     /// one agent does not silently land on another.
@@ -51,8 +67,10 @@ pub struct ForgeParams<'a> {
     /// the channel's — pass the tenant the caller's *conversation* lives in,
     /// never the caller's own, or every later turn reads an empty thread.
     pub tenant_id: TenantId,
-    /// Title the conversation list will show.
-    pub title: &'a str,
+    /// What the row is called when it has neither a room nor an agent to be
+    /// named after — the dated stamp in the surface's language. See
+    /// [`counterpart_title`] for the rule that runs first.
+    pub title_fallback: &'a str,
     /// Model to run the thread on. `None` falls back to `PIERRE_LLM_MODEL`.
     pub model: Option<&'a str>,
     /// Which agent to bind.
@@ -93,7 +111,7 @@ pub async fn forge_conversation(
     let ForgeParams {
         user_id,
         tenant_id,
-        title,
+        title_fallback,
         model,
         agent,
         group_id,
@@ -103,9 +121,19 @@ pub async fn forge_conversation(
     } = params;
 
     let agent_id = match agent {
-        ForgeAgent::Selected => selected_agent_id(repos, tenant_id, user_id).await,
+        ForgeAgent::Selected => selected_or_system_agent_for(repos, tenant_id, user_id).await,
+        ForgeAgent::SelectedInRoom => selected_agent_id(repos, tenant_id, user_id).await,
         ForgeAgent::Explicit(id) => id.map(str::to_owned),
     };
+    let title = counterpart_title(
+        repos,
+        tenant_id,
+        user_id,
+        group_id,
+        agent_id.as_deref(),
+        title_fallback,
+    )
+    .await;
 
     let model = match model {
         Some(m) => m.to_owned(),
@@ -119,7 +147,7 @@ pub async fn forge_conversation(
         .create_conversation(
             user_id,
             tenant_id,
-            title,
+            &title,
             &model,
             agent_id.as_deref(),
             group_id,
@@ -147,8 +175,9 @@ pub async fn forge_conversation(
 
 /// The athlete's tenant-level selected agent, or `None`.
 ///
-/// A lookup failure reads as "no coach": the thread is still usable, the
-/// attribution panels simply skip it.
+/// What a room row binds: the selection alone, never a system agent, so the
+/// member's row shadows nothing (see [`ForgeAgent::SelectedInRoom`]). A
+/// lookup failure reads as "no selection".
 pub async fn selected_agent_id(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -160,6 +189,113 @@ pub async fn selected_agent_id(
         .get_selected_agent(tenant_id, parsed)
         .await
         .ok()?
+}
+
+/// The athlete's tenant-level selected agent, else the tenant's first system
+/// agent, else `None`.
+///
+/// One answer for every place a 1:1 thread is bound to an agent without the
+/// athlete naming one: the DM forge, the room bootstrap and the per-turn
+/// rebind. A lookup failure reads as "no agent" — the thread is still usable
+/// on the house prompt, the attribution panels simply skip it — and a tenant
+/// with no system agent at all is the only way the answer stays empty.
+pub async fn selected_or_system_agent(
+    tenants: &dyn TenantRepository,
+    agents: &dyn AgentsRepository,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> Option<String> {
+    if let Ok(Some(selected)) = tenants.get_selected_agent(tenant_id, user_id).await {
+        return Some(selected);
+    }
+    agents
+        .list_system_agents(tenant_id)
+        .await
+        .ok()?
+        .first()
+        .map(|agent| agent.id.to_string())
+}
+
+/// [`selected_or_system_agent`] over the registry, for a textual user id.
+pub async fn selected_or_system_agent_for(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: &str,
+) -> Option<String> {
+    let parsed = Uuid::parse_str(user_id).ok()?;
+    selected_or_system_agent(
+        repos.tenants.as_ref(),
+        repos.agents.as_ref(),
+        tenant_id,
+        parsed,
+    )
+    .await
+}
+
+/// The title a conversation is stored under: the room's name, else the bound
+/// agent's title, else `fallback`.
+///
+/// A row with a room is the room, whoever answers in it; a 1:1 thread is the
+/// agent the athlete talks to — on Telegram the DM with the bot carries the
+/// bot's name on every thread, so the agent is the one fact that tells two
+/// rows apart. Both clients print this value as-is, so the lookups happen
+/// here, once, rather than in every list and header. A lookup that fails
+/// falls through to the next tier rather than failing the forge.
+pub async fn counterpart_title(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: &str,
+    group_id: Option<&str>,
+    agent_id: Option<&str>,
+    fallback: &str,
+) -> String {
+    let group_name = match group_id {
+        Some(id) => repos
+            .groups
+            .get_group(id, tenant_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|group| group.name),
+        None => None,
+    };
+    let agent_title = match (agent_id, Uuid::parse_str(user_id).ok()) {
+        (Some(id), Some(user)) => agent_title(repos, id, user, tenant_id).await,
+        _ => None,
+    };
+    forged_title(group_name.as_deref(), agent_title.as_deref(), fallback)
+}
+
+/// The bound agent's title, when the athlete can see the agent.
+///
+/// `get_by_id` answers for the athlete's own agents and every system agent,
+/// which is the set a conversation can be bound to.
+pub async fn agent_title(
+    repos: &RepositoryRegistry,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Option<String> {
+    repos
+        .agents
+        .get_by_id(agent_id, user_id, tenant_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|agent| agent.title)
+}
+
+/// The pure title rule behind [`counterpart_title`]: room, else agent, else
+/// the fallback. A blank name at any tier counts as absent.
+#[must_use]
+pub fn forged_title(group_name: Option<&str>, agent_title: Option<&str>, fallback: &str) -> String {
+    fn present(name: Option<&str>) -> Option<&str> {
+        name.map(str::trim).filter(|name| !name.is_empty())
+    }
+    present(group_name)
+        .or_else(|| present(agent_title))
+        .unwrap_or(fallback)
+        .to_owned()
 }
 
 /// Best-effort `agent_assignments.use_count++` through the shared recorder,
@@ -336,25 +472,17 @@ pub async fn repoint_messaging_session(
     Ok(true)
 }
 
-/// The title a freshly forged messaging conversation carries.
+/// The title a conversation falls back to when it has neither a room nor an
+/// agent to be named after.
 ///
-/// Named after the channel because that is all a messaging thread has: there
-/// is no list to disambiguate it in and no title the athlete typed.
+/// The moment it started, in the reader's language: the localized prefix, the
+/// short date, the 24-hour time — `Chat Sep 16 14:03`, `Discussion 16 sept.
+/// 14:03`. The one dated form for every surface: the messaging forge, `/reset`
+/// and the REST create route all stamp it, and no client invents its own. A
+/// thread must not inherit the title of the thread it replaced: `/reset`
+/// three times would otherwise leave three identically named rows in the list
+/// with nothing to tell them apart.
 #[must_use]
-pub fn messaging_title(channel_type: &str) -> String {
-    format!("Messaging: {channel_type}")
-}
-
-/// The title a freshly forged in-app conversation carries.
-///
-/// The moment it started, in the reader's language — the same shape the "+"
-/// button stamps client-side (`defaultConversationTitle`: the localized
-/// prefix, the short date, the 24-hour time). A server-forged thread needs
-/// its own because it never passes through that button, and it must not
-/// inherit the title of the thread it replaced: `/reset` three times would
-/// otherwise leave three identically named rows in the list with nothing to
-/// tell them apart.
-#[must_use]
-pub fn in_app_title(prefix: &str, now: DateTime<Utc>) -> String {
+pub fn dated_title(prefix: &str, now: DateTime<Utc>) -> String {
     format!("{prefix} {}", now.format("%b %-d %H:%M"))
 }

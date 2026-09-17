@@ -9,7 +9,7 @@ import { clsx } from 'clsx';
 import { Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
 import type { ConversationRowModel } from '@pierre/chat-utils';
 import { IconButton, Input } from '../ui';
-import { avatarSlotClass } from './avatarSlots';
+import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
 
 interface ConversationItemProps {
@@ -181,10 +181,13 @@ const ConversationItem = memo(function ConversationItem({
   // `z-index: auto` is painted in DOM order, which put the next row on top.
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // A room's avatar is a square, an agent's a circle; the glyph and the
+  // accessible name beside it carry the same fact in words.
   const avatar = (
     <div
       className={clsx(
-        'flex h-9 w-9 flex-shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold',
+        'flex h-9 w-9 flex-shrink-0 select-none items-center justify-center text-xs font-semibold',
+        avatarShapeClass(row.kind === 'group' ? 'square' : 'circle'),
         avatarSlotClass(row.avatarSlot),
       )}
       data-testid="conversation-avatar"

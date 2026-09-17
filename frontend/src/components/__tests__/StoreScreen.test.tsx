@@ -485,10 +485,9 @@ describe('StoreScreen', () => {
 
       await user.click(screen.getByRole('button', { name: 'Open chat' }));
 
+      // No title: the server names the thread, the same way for every client.
       await waitFor(() => {
-        expect(chatApi.createConversation).toHaveBeenCalledWith(
-          expect.objectContaining({ title: expect.stringMatching(/^Chat /) }),
-        );
+        expect(chatApi.createConversation).toHaveBeenCalledWith({});
       });
       await waitFor(() => {
         expect(mockOnNavigate).toHaveBeenCalledWith('chat/conv-new');

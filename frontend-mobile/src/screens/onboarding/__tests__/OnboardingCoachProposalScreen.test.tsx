@@ -113,11 +113,8 @@ describe('OnboardingCoachProposalScreen', () => {
 
     await waitFor(() => expect(recordUsage).toHaveBeenCalledWith('agent-1'));
     await waitFor(() => expect(markSeen).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(createConversation).toHaveBeenCalledWith(
-        expect.objectContaining({ agent_id: 'agent-1', title: 'Coach Ada' }),
-      ),
-    );
+    // No title: the server names the thread after the agent it is bound to.
+    await waitFor(() => expect(createConversation).toHaveBeenCalledWith({ agent_id: 'agent-1' }));
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(
         expect.objectContaining({ params: { conversationId: 'conv-1' } }),

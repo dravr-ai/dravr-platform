@@ -126,10 +126,32 @@ describe('ConversationItem anatomy', () => {
     expect(badge).toHaveAccessibleName('From Telegram');
   });
 
-  it('derives the channel badge from a Messaging: title when the column is not populated', () => {
-    renderRow(conversation({ title: 'Messaging: whatsapp', channel_type: 'web' }));
+  it('prints the stored title as-is, and draws a room as a square and an agent as a circle', () => {
+    // The server names a Telegram DM after its agent; the row derives nothing
+    // from the title, and the handle is not repeated beside a title that is it.
+    renderRow(
+      conversation({
+        title: 'Trail Coach',
+        channel_type: 'telegram',
+        agent_id: 'coach-1',
+        agent_handle: 'trail',
+        agent_title: 'Trail Coach',
+        last_message: null,
+      }),
+    );
+    expect(screen.getByTestId('conversation-title')).toHaveTextContent('Trail Coach');
+    expect(screen.getByTestId('conversation-avatar')).toHaveTextContent('TC');
+    expect(screen.getByTestId('conversation-avatar')).toHaveClass('rounded-full');
+    expect(screen.getByTestId('conversation-preview').textContent?.trim()).toBe('');
+  });
 
-    expect(screen.getByTestId('conversation-channel-badge')).toHaveTextContent('WhatsApp');
+  it('draws a room avatar as a 12px-radius square', () => {
+    renderRow(conversation({ title: 'Sunday Riders', group_id: 'group-1', group_name: 'Sunday Riders' }));
+
+    const avatar = screen.getByTestId('conversation-avatar');
+    expect(avatar).toHaveClass('rounded-xl');
+    expect(avatar).not.toHaveClass('rounded-full');
+    expect(avatar).toHaveTextContent('SR');
   });
 
   it('shows neither glyph nor badge for a plain in-app thread', () => {

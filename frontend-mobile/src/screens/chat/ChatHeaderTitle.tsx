@@ -53,6 +53,7 @@ export function ChatHeaderTitle({ currentConversation, providerStatus, onTitlePr
             initials={initialsFor(title)}
             slot={avatarSlot(currentConversation)}
             size={32}
+            shape={currentConversation.group_id ? 'square' : 'circle'}
             testID="chat-header-avatar"
           />
         </View>

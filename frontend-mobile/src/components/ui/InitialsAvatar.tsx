@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: An initials circle on one of the six avatar slot colours — the list row, the thread header, a member row
+// ABOUTME: An initials avatar on one of the six avatar slot colours — a circle for a person or an agent, a 12-radius square for a room
 // ABOUTME: The slot comes from @pierre/chat-utils avatarSlot, so the same thread is the same colour on web and mobile
 
 import React from 'react';
@@ -59,8 +59,22 @@ export function avatarSlotColors(colors: ThemeColors): readonly string[] {
   return avatarSlotPairs(colors).map((pair) => pair.fill);
 }
 
-/** Alpha suffix that tints the circle behind the initials. */
+/** Alpha suffix that tints the avatar behind the initials. */
 const TINT_ALPHA = '33';
+
+/**
+ * What the avatar stands for. A circle is one counterpart — a person or an
+ * agent; a square is many — a room. The same convention as Fluent 2 and
+ * GitLab Pajamas, and the inverse of Primer's, which gives the square to bots.
+ */
+export type AvatarShape = 'circle' | 'square';
+
+/**
+ * The corner of a square avatar: the floating-card step of the radius ladder
+ * (DESIGN.md §10), which is what "full for a person or an agent, 12 for a room"
+ * pins in the Tokens note.
+ */
+export const ROOM_AVATAR_RADIUS = 12;
 
 export interface InitialsAvatarProps {
   /** Up to two letters, already upper-cased by `initialsFor`. */
@@ -69,11 +83,18 @@ export interface InitialsAvatarProps {
   slot: number;
   /** Diameter in points; the standard list row uses 40. */
   size?: number;
+  /** A circle for a person or an agent, a square for a room. */
+  shape?: AvatarShape;
   testID?: string;
 }
 
-/** The circle every conversation-shaped surface draws before a title. */
-export function InitialsAvatar({ initials, slot, size = 40, testID }: InitialsAvatarProps) {
+/**
+ * The avatar every conversation-shaped surface draws before a title.
+ *
+ * Shape reaches no screen reader, so it only ever reinforces what the row says
+ * in words — the kind glyph and the accessible label carry the fact.
+ */
+export function InitialsAvatar({ initials, slot, size = 40, shape = 'circle', testID }: InitialsAvatarProps) {
   const colors = useThemeColors();
   const palette = avatarSlotPairs(colors);
   const { fill, ink } = palette[((slot % AVATAR_SLOTS) + AVATAR_SLOTS) % AVATAR_SLOTS];
@@ -86,7 +107,7 @@ export function InitialsAvatar({ initials, slot, size = 40, testID }: InitialsAv
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
+        borderRadius: shape === 'square' ? ROOM_AVATAR_RADIUS : size / 2,
         backgroundColor: `${fill}${TINT_ALPHA}`,
         alignItems: 'center',
         justifyContent: 'center',

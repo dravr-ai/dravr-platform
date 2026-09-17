@@ -17,7 +17,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useTranslation } from '@pierre/i18n';
-import { defaultConversationTitle } from '@pierre/chat-utils';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { useRouter } from 'expo-router';
 import { useConversations } from '../chat/useConversations';
@@ -34,7 +33,7 @@ import { threadHref } from '../../navigation/routes';
  * cache, which routes the user on to chat.
  */
 export function OnboardingCoachProposalScreen() {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { markSeen } = useCoachProposalSeen(user?.id);
   const progress = useOnboardingProgress('coach_proposal');
@@ -56,7 +55,7 @@ export function OnboardingCoachProposalScreen() {
     retry: 1,
   });
 
-  const handleStart = async (agentId: string, agentTitle: string) => {
+  const handleStart = async (agentId: string) => {
     setSelecting(agentId);
     try {
       await coachesApi.recordUsage(agentId);
@@ -65,14 +64,11 @@ export function OnboardingCoachProposalScreen() {
     }
     // « Démarrer » means start talking to this coach: the step is done, and
     // the athlete lands inside a thread bound to the coach rather than on
-    // the list. Marking the step first lets the layout leave onboarding.
+    // the list. Marking the step first lets the layout leave onboarding. The
+    // server names the thread after the coach.
     await markSeen();
     try {
-      const conversation = await createConversation({
-        agent_id: agentId,
-        title:
-          agentTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
-      });
+      const conversation = await createConversation({ agent_id: agentId });
       router.push(threadHref(conversation.id));
     } catch {
       // The list still opens; the "+" starts the thread.
@@ -172,7 +168,7 @@ export function OnboardingCoachProposalScreen() {
             proposed={proposed}
             selecting={selecting === proposed.agent.id}
             disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.agent.id, proposed.agent.title)}
+            onStart={() => void handleStart(proposed.agent.id)}
           />
         ))}
       </View>

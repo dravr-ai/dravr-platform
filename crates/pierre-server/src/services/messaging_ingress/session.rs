@@ -19,12 +19,15 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use pierre_contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
+    KEY_NEW_CONVERSATION_TITLE_PREFIX,
 };
 use pierre_core::errors::AppError;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
-    forge_conversation, messaging_title, selected_agent_id, ForgeAgent, ForgeParams,
+    agent_title, dated_title, forge_conversation, selected_agent_id, selected_or_system_agent_for,
+    ForgeAgent, ForgeParams,
 };
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
 
@@ -112,17 +115,24 @@ pub(super) async fn forge_fresh_session_conversation(
         channel_type = %channel_type,
         "Session pierre_conversation_id missing or unreachable; self-healing with a fresh conversation"
     );
-    let title = messaging_title(channel_type);
+    let title_fallback = fresh_title_fallback(resources, user_id).await;
     let new_id = forge_conversation(
         &resources.common.repos,
         ForgeParams {
             user_id,
             tenant_id,
-            title: &title,
+            title_fallback: &title_fallback,
             model: None,
             // A messaging session carries no agent of its own, so the
-            // athlete's tenant-level selection is the only answer available.
-            agent: ForgeAgent::Selected,
+            // athlete's tenant-level selection is the answer — with the
+            // system-agent fallback on a DM only. A room session's row is
+            // forged ungrouped here and retrofitted on the next turn, and
+            // must not carry a system agent in the meantime.
+            agent: if is_direct_message {
+                ForgeAgent::Selected
+            } else {
+                ForgeAgent::SelectedInRoom
+            },
             group_id: None,
             channel_type,
             selection_source: AgentSelectionSource::MessagingSession,
@@ -132,6 +142,21 @@ pub(super) async fn forge_fresh_session_conversation(
     .await?;
     db.set_session_conversation(session_id, &new_id).await?;
     Ok(new_id)
+}
+
+/// The dated stamp a forged thread falls back to when it has neither a room
+/// nor an agent to be named after, in the athlete's stored language.
+async fn fresh_title_fallback(resources: &ServerContext, user_id: &str) -> String {
+    let locale = match Uuid::parse_str(user_id) {
+        Ok(user) => resolve_user_locale(resources.common.repos.users.as_ref(), user).await,
+        Err(_) => DEFAULT_LOCALE.to_owned(),
+    };
+    let prefix = resources.mcp.messaging_strings_registry.render(
+        KEY_NEW_CONVERSATION_TITLE_PREFIX,
+        &locale,
+        &[],
+    );
+    dated_title(&prefix, Utc::now())
 }
 
 /// Whether the sender of an unaddressed room message is mid guided walk on
@@ -359,7 +384,10 @@ async fn resume_existing_session(
 /// Web chat binds an agent per conversation, so it must not be rebound; a
 /// messaging channel has no such choice to make — one thread, one selection —
 /// and the selection is the athlete's latest word on who they are talking to.
-/// Deselection clears the binding for the same reason.
+/// On a DM, deselection falls back to the tenant's system agent, the same
+/// answer a fresh forge gives, so the thread never returns to having no agent
+/// at all; a room row takes the selection alone, as its forge did, because
+/// the room's own agent lives on the group.
 ///
 /// Best-effort, like the group retrofit beside it: a lookup failure leaves the
 /// existing binding in place rather than dropping the turn. It is logged at
@@ -371,19 +399,23 @@ async fn rebind_conversation_agent(
     user_id: &str,
     conversation_id: &str,
 ) {
-    let selected = selected_agent_id(&resources.common.repos, tenant_id, user_id).await;
-    let chat = resources.common.repos.chat.as_ref();
-
-    let current = match chat
+    let repos = &resources.common.repos;
+    let (current, title, in_room) = match repos
+        .chat
         .get_conversation(conversation_id, user_id, tenant_id)
         .await
     {
-        Ok(Some(conv)) => conv.agent_id,
+        Ok(Some(conv)) => (conv.agent_id, conv.title, conv.group_id.is_some()),
         Ok(None) => return,
         Err(e) => {
             warn!(error = %e, conversation_id, "coach rebind: conversation unreadable");
             return;
         }
+    };
+    let selected = if in_room {
+        selected_agent_id(repos, tenant_id, user_id).await
+    } else {
+        selected_or_system_agent_for(repos, tenant_id, user_id).await
     };
     if current == selected {
         return;
@@ -398,6 +430,56 @@ async fn rebind_conversation_agent(
         selected.as_deref(),
     )
     .await;
+    restamp_agent_title(
+        resources,
+        tenant_id,
+        user_id,
+        conversation_id,
+        &title,
+        current.as_deref(),
+        selected.as_deref(),
+    )
+    .await;
+}
+
+/// Keep a thread named after the agent it is bound to across a rebind.
+///
+/// The stored title is what both clients print, and a forged 1:1 thread is
+/// titled with its agent's name. A title the athlete typed is left alone; only
+/// a title that still reads as the previous agent's name follows the new one.
+/// Best-effort like the rebind itself: a lookup failure leaves the old name,
+/// which is stale, not wrong.
+async fn restamp_agent_title(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    user_id: &str,
+    conversation_id: &str,
+    title: &str,
+    previous: Option<&str>,
+    selected: Option<&str>,
+) {
+    let (Some(previous), Some(selected), Ok(user)) = (previous, selected, Uuid::parse_str(user_id))
+    else {
+        return;
+    };
+    let repos = &resources.common.repos;
+    if agent_title(repos, previous, user, tenant_id)
+        .await
+        .as_deref()
+        != Some(title)
+    {
+        return;
+    }
+    let Some(new_title) = agent_title(repos, selected, user, tenant_id).await else {
+        return;
+    };
+    if let Err(e) = repos
+        .chat
+        .update_conversation_title(conversation_id, user_id, tenant_id, &new_title)
+        .await
+    {
+        warn!(error = %e, conversation_id, "coach rebind: title kept the previous agent's name");
+    }
 }
 
 /// Write the rebind and record the switch. Split from its caller only because
@@ -492,15 +574,23 @@ async fn open_new_session(
     )
     .await;
 
-    let title = messaging_title(channel_type);
+    let title_fallback = fresh_title_fallback(resources, &user_id).await;
     let conversation_id = forge_conversation(
         &resources.common.repos,
         ForgeParams {
             user_id: &user_id,
             tenant_id,
-            title: &title,
+            title_fallback: &title_fallback,
             model: None,
-            agent: ForgeAgent::Selected,
+            // A DM takes the selection with the system-agent fallback; a
+            // room member's row the selection alone — whether or not the
+            // group resolved above, since `is_direct_message` is what says
+            // which kind of thread this is.
+            agent: if is_direct_message {
+                ForgeAgent::Selected
+            } else {
+                ForgeAgent::SelectedInRoom
+            },
             group_id: group_id_opt.as_deref(),
             channel_type,
             selection_source: AgentSelectionSource::MessagingSession,

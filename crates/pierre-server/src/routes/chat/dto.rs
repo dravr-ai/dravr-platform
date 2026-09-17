@@ -145,8 +145,11 @@ fn encode_blocks(blocks: &[photograveur::RenderBlock]) -> Option<String> {
 /// Request to create a new conversation
 #[derive(Debug, Deserialize)]
 pub struct CreateConversationRequest {
-    /// Conversation title
-    pub title: String,
+    /// Conversation title. Omitted or blank, the server names the thread the
+    /// way every forged thread is named: the group's name, else the agent's
+    /// title, else a dated stamp in the caller's language.
+    #[serde(default)]
+    pub title: Option<String>,
     /// LLM model to use (optional, defaults to provider's default model)
     #[serde(default)]
     pub model: Option<String>,
@@ -222,8 +225,8 @@ pub struct ConversationSummaryResponse {
     #[serde(default)]
     pub group_name: Option<String>,
     /// Channel of origin (`web`/`mobile` for in-app, `telegram`/`whatsapp`/…
-    /// for messaging). The client prefers this durable signal for the channel
-    /// badge and falls back to parsing the `Messaging: <channel>` title.
+    /// for messaging). The one signal behind the client's channel glyph; the
+    /// title carries no channel.
     pub channel_type: Option<String>,
     /// The newest `user`/`assistant` row, shaped for the row preview; absent
     /// for an empty conversation.

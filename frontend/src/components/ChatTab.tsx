@@ -12,7 +12,6 @@ import { track } from '../services/analytics';
 import {
   avatarSlot,
   COMMAND_FINISH_REASON,
-  defaultConversationTitle,
   initialsFor,
   providerStatusLine,
   statusForProgress,
@@ -104,7 +103,7 @@ export default function ChatTab({
   pendingComposerAction,
   onPendingComposerActionConsumed,
 }: ChatTabProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
@@ -216,11 +215,13 @@ export default function ChatTab({
   const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? pendingCoachId);
   const activeCoachTitle = activeCoach?.title ?? null;
 
-  // What the header names: the group, the agent, or the thread's own title.
+  // What the header names: the thread's stored title, which the server
+  // already spells as the group, the agent, or the moment it started — the
+  // same string the list row and the phone's header print. Before a thread
+  // exists, the agent about to be talked to, else a new conversation.
   const headerTitle = useMemo<string>(() => {
-    if (activeConversation?.group_name) return activeConversation.group_name;
-    if (activeCoachTitle) return activeCoachTitle;
-    return activeConversation?.title?.trim() || t('app.newConversation');
+    if (activeConversation) return activeConversation.title?.trim() || t('app.newConversation');
+    return activeCoachTitle || t('app.newConversation');
   }, [activeConversation, activeCoachTitle, t]);
 
   // The line under the name: the agent's handle, or what the agent can see.
@@ -264,19 +265,13 @@ export default function ChatTab({
   // Mutations. Takes an optional coach ID; the server resolves the
   // agent's system prompt at runtime from the coaches table.
   const createConversation = useMutation<{ id: string }, Error, string | void>({
-    mutationFn: (agentId) => {
-      // Named for the moment it starts, in the viewer's language and on the
-      // same 24-hour clock the list row shows; a rename replaces it.
-      const defaultTitle = defaultConversationTitle(
-        t('chat.newConversationTitlePrefix'),
-        new Date(),
-        language,
-      );
-      return chatApi.createConversation({
-        title: defaultTitle,
+    // The server names the thread — after its agent when one is attached,
+    // else for the moment it starts in the viewer's language; a rename
+    // replaces that. The stored title is what both clients print.
+    mutationFn: (agentId) =>
+      chatApi.createConversation({
         agent_id: agentId || pendingCoachId || undefined,
-      });
-    },
+      }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       onSelectConversation(data.id);
@@ -862,6 +857,7 @@ export default function ChatTab({
         subtitle={headerSubtitle}
         initials={initialsFor(headerTitle)}
         avatarSlot={activeConversation ? avatarSlot(activeConversation) : 0}
+        avatarShape={activeConversation?.group_id ? 'square' : 'circle'}
         onOpenInfo={() => {
           setInfoOpensParticipants(false);
           setInfoOpen(true);

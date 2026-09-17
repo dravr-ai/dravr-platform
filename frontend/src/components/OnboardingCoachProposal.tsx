@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ProposedAgent } from '@pierre/shared-types';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
-import { defaultConversationTitle } from '@pierre/chat-utils';
 import { chatApi, coachesApi } from '../services/api';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
@@ -37,7 +36,7 @@ export default function OnboardingCoachProposal({
   userDisplayName?: string | null;
   onComplete: () => void;
 }) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const [selecting, setSelecting] = useState<string | null>(null);
 
   // A sport as the profile spells it, in the athlete's language when the
@@ -55,7 +54,7 @@ export default function OnboardingCoachProposal({
     retry: 1,
   });
 
-  const handleStart = async (agentId: string, agentTitle: string) => {
+  const handleStart = async (agentId: string) => {
     setSelecting(agentId);
     try {
       // Mark the chosen agent as used so it surfaces first on the dashboard.
@@ -65,12 +64,10 @@ export default function OnboardingCoachProposal({
     }
     try {
       // « Démarrer » means start talking to this agent: open a thread bound to
-      // it and land inside it. The dashboard reads `#chat/<id>` when it mounts,
-      // so the hash is set before onboarding hands over to it.
-      const conversation = await chatApi.createConversation({
-        agent_id: agentId,
-        title: agentTitle || defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
-      });
+      // it and land inside it. The server names the thread after the agent.
+      // The dashboard reads `#chat/<id>` when it mounts, so the hash is set
+      // before onboarding hands over to it.
+      const conversation = await chatApi.createConversation({ agent_id: agentId });
       window.location.hash = `#chat/${encodeURIComponent(conversation.id)}`;
     } catch {
       // The dashboard still opens; the "+" beside the chat starts the thread.
@@ -160,7 +157,7 @@ export default function OnboardingCoachProposal({
             proposed={proposed}
             selecting={selecting === proposed.agent.id}
             disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.agent.id, proposed.agent.title)}
+            onStart={() => void handleStart(proposed.agent.id)}
           />
         ))}
       </div>

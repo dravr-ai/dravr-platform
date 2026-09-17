@@ -523,7 +523,7 @@ async fn test_pg_set_session_conversation_repoints_session() {
         .create_conversation(
             &user_id,
             tenant_id,
-            "Messaging: telegram",
+            "Telegram coach",
             "gemini-2.0-flash-exp",
             None,
             None,

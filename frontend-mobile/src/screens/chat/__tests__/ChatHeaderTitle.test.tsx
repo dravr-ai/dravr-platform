@@ -61,7 +61,7 @@ describe('ChatHeaderTitle subtitle', () => {
    * The provider line is a fallback, not an addition: a thread that already
    * names its group or its coach keeps saying that, exactly as web does.
    */
-  it('yields to the group name', () => {
+  it('yields to the group name, and draws the room avatar as a square', () => {
     renderHeader(
       conversation({ group_id: 'g-1', group_name: 'Sunday Long Run' }),
       'No provider connected',
@@ -69,6 +69,18 @@ describe('ChatHeaderTitle subtitle', () => {
 
     expect(screen.getByTestId('chat-header-group')).toHaveTextContent('Sunday Long Run');
     expect(screen.queryByTestId('chat-header-provider-status')).toBeNull();
+    expect(
+      screen.getByTestId('chat-header-avatar', { includeHiddenElements: true }).props.style,
+    ).toEqual(expect.objectContaining({ borderRadius: 12 }));
+  });
+
+  it('draws a 1:1 thread avatar as a circle and prints the stored title', () => {
+    renderHeader(conversation({ title: 'Trail Coach', agent_handle: 'trail' }), null);
+
+    expect(screen.getByTestId('chat-title')).toHaveTextContent('Trail Coach');
+    expect(
+      screen.getByTestId('chat-header-avatar', { includeHiddenElements: true }).props.style,
+    ).toEqual(expect.objectContaining({ borderRadius: 16 }));
   });
 
   it('yields to the coach handle', () => {

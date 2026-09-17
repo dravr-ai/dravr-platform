@@ -202,6 +202,227 @@ mod agent_rebind_tests {
         .await
     }
 
+    async fn conversation_title(
+        resources: &ServerContext,
+        conversation_id: &str,
+    ) -> Option<String> {
+        optional_text(
+            &resources.agent.database,
+            "SELECT title FROM chat_conversations WHERE id = $1",
+            conversation_id,
+        )
+        .await
+    }
+
+    /// A system agent in `tenant_id`, created by `user_id` — not selected.
+    async fn system_agent(
+        resources: &ServerContext,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        title: &str,
+    ) -> String {
+        resources
+            .common
+            .repos
+            .agents
+            .create_system_agent(
+                user_id,
+                tenant_id,
+                &CreateSystemAgentRequest {
+                    title: title.to_owned(),
+                    description: None,
+                    system_prompt: format!("Tu es {title}."),
+                    category: AgentCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: AgentVisibility::Global,
+                },
+            )
+            .await
+            .unwrap()
+            .id
+            .to_string()
+    }
+
+    /// One private-chat Telegram turn from `sender_id`.
+    async fn dm_turn(resources: &Arc<ServerContext>, secret: &str, update_id: i64, text: &str) {
+        let router = MessagingRoutes::routes(Arc::clone(resources));
+        let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
+            .header("content-type", "application/json")
+            .header("x-telegram-bot-api-secret-token", secret)
+            .json(&json!({
+                "update_id": update_id,
+                "message": {
+                    "message_id": update_id,
+                    "from": { "id": 78, "first_name": "Fallback" },
+                    "chat": { "id": 78, "type": "private" },
+                    "text": text
+                }
+            }))
+            .send(router)
+            .await;
+        assert_eq!(resp.status_code(), StatusCode::OK);
+    }
+
+    /// A DM is 1 athlete + 1 agent. An athlete who never picked one used to
+    /// get a thread with no agent at all — answered by the house prompt, with
+    /// nothing to name the row after — because only the room bootstrap fell
+    /// back to the tenant's system agent. The forge, the rebind and the stored
+    /// title all follow that fallback now.
+    #[tokio::test]
+    #[serial]
+    async fn a_dm_with_no_selection_takes_the_system_agent_and_its_name() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+
+        let mock = MockLlm::new();
+        let calls = mock.counter();
+        let resources = create_test_server_resources_with_llm(Arc::new(mock))
+            .await
+            .unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+
+        let (user_id, tenant_id) =
+            create_user_with_own_tenant(&resources, "fallback_athlete@example.com").await;
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(
+                user_id,
+                tenant_id,
+                "synthetic",
+                &ConnectionType::Synthetic,
+                None,
+            )
+            .await
+            .unwrap();
+        let tg_secret = "fallback_tg_secret";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some(tg_secret),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("12345:FALLBACK_BOT"),
+            is_active: true,
+        })
+        .await
+        .unwrap();
+        db.create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &user_id.to_string(),
+            channel_type: "telegram",
+            channel_user_id: "78",
+            display_name: Some("Fallback Sender"),
+        })
+        .await
+        .unwrap();
+
+        // The tenant's one system agent — present, never selected.
+        let house = system_agent(&resources, user_id, tenant_id, "Agent Maison").await;
+
+        // Turn 1 — opens the session with no selection: the thread binds to
+        // the system agent and is named after it.
+        dm_turn(&resources, tg_secret, 8001, "Salut").await;
+        assert!(
+            wait_for_turns(&calls, 1).await,
+            "first turn never reached the LLM"
+        );
+        let conversation_id = session_conversation_id(&resources, user_id)
+            .await
+            .expect("turn 1 must have opened a conversation");
+        assert_eq!(
+            conversation_agent(&resources, &conversation_id)
+                .await
+                .as_deref(),
+            Some(house.as_str()),
+            "a DM forged with no selection must bind the tenant's system agent, as a room does"
+        );
+        assert_eq!(
+            conversation_title(&resources, &conversation_id)
+                .await
+                .as_deref(),
+            Some("Agent Maison"),
+            "a 1:1 thread is titled with its agent's name, which is what both clients print"
+        );
+
+        // The athlete picks a second agent; the same thread follows, name
+        // included.
+        let picked = system_agent(&resources, user_id, tenant_id, "Agent Marathon").await;
+        resources
+            .common
+            .repos
+            .agents
+            .activate_agent(&picked, user_id, tenant_id)
+            .await
+            .unwrap()
+            .expect("activation must resolve the agent");
+        dm_turn(&resources, tg_secret, 8002, "Analyse ma charge").await;
+        assert!(
+            wait_for_turns(&calls, 2).await,
+            "second turn never reached the LLM"
+        );
+        assert_eq!(
+            conversation_agent(&resources, &conversation_id)
+                .await
+                .as_deref(),
+            Some(picked.as_str())
+        );
+        assert_eq!(
+            conversation_title(&resources, &conversation_id)
+                .await
+                .as_deref(),
+            Some("Agent Marathon"),
+            "a title that named the previous agent follows the rebind"
+        );
+
+        // A title the athlete typed is theirs: the next rebind leaves it.
+        resources
+            .common
+            .repos
+            .chat
+            .update_conversation_title(
+                &conversation_id,
+                &user_id.to_string(),
+                tenant_id,
+                "Bloc hivernal",
+            )
+            .await
+            .unwrap();
+
+        // Deselecting no longer strands the thread without an agent: it falls
+        // back to the tenant's system agent, the newest first, like a forge.
+        assert!(resources
+            .common
+            .repos
+            .agents
+            .deactivate_agent(user_id, tenant_id)
+            .await
+            .unwrap());
+        dm_turn(&resources, tg_secret, 8003, "Et maintenant ?").await;
+        assert!(
+            wait_for_turns(&calls, 3).await,
+            "third turn never reached the LLM"
+        );
+        let after_deselect = conversation_agent(&resources, &conversation_id).await;
+        assert!(
+            after_deselect.is_some(),
+            "deselection must fall back to a system agent, never to no agent"
+        );
+        assert_eq!(
+            conversation_title(&resources, &conversation_id)
+                .await
+                .as_deref(),
+            Some("Bloc hivernal"),
+            "a typed title is never restamped"
+        );
+    }
+
     /// One nullable text column selected by `sql` with `$1` bound to `bind`,
     /// on whichever backend the test database is.
     async fn optional_text(db: &Database, sql: &str, bind: &str) -> Option<String> {

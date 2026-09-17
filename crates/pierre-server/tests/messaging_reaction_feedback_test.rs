@@ -68,7 +68,7 @@ async fn deliver_a_reply(chat_id: &str, channel_user_id: &str) -> Delivered {
         .common
         .repos
         .chat
-        .create_conversation(&user_id, tenant_id, "Messaging: telegram", "", None, None)
+        .create_conversation(&user_id, tenant_id, "Telegram coach", "", None, None)
         .await
         .unwrap();
     let conversation_id = conversation.id.clone();

@@ -68,7 +68,8 @@ describe('OnboardingCoachProposal', () => {
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(recordUsage).toHaveBeenCalledWith('coach-trail');
-    expect(createConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail', title: 'Trail Coach' });
+    // No title: the server names the thread after the agent it is bound to.
+    expect(createConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
     expect(window.location.hash).toBe('#chat/conv-9');
   });
 

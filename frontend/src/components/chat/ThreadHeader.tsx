@@ -7,7 +7,7 @@
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 import { ArrowLeft, ChevronDown } from 'lucide-react';
-import { avatarSlotClass } from './avatarSlots';
+import { avatarShapeClass, avatarSlotClass, type AvatarShape } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
 
 interface ThreadHeaderProps {
@@ -16,6 +16,8 @@ interface ThreadHeaderProps {
   subtitle?: string | null;
   initials: string;
   avatarSlot: number;
+  /** A circle for an agent, a 12-radius square for a room — `avatarShapeClass`. */
+  avatarShape?: AvatarShape;
   onOpenInfo: () => void;
   /** Present only where the list is hidden behind the thread. */
   onBack?: () => void;
@@ -27,6 +29,7 @@ export default function ThreadHeader({
   subtitle,
   initials,
   avatarSlot,
+  avatarShape = 'circle',
   onOpenInfo,
   onBack,
   actions,
@@ -58,8 +61,10 @@ export default function ThreadHeader({
       >
         <span
           aria-hidden="true"
+          data-testid="thread-avatar"
           className={clsx(
-            'flex h-7 w-7 shrink-0 select-none items-center justify-center rounded-full text-xs font-semibold',
+            'flex h-7 w-7 shrink-0 select-none items-center justify-center text-xs font-semibold',
+            avatarShapeClass(avatarShape),
             avatarSlotClass(avatarSlot),
           )}
         >

@@ -92,9 +92,17 @@ export function conversationRowLabels(
 export interface ConversationRowModel {
   id: string;
   kind: ConversationKind;
-  /** The title as displayed — never empty. */
+  /**
+   * The title as displayed — never empty. The stored title, which the server
+   * names after the room or the agent the thread is with, or the athlete
+   * renamed; the untitled label when it carries none.
+   */
   title: string;
-  /** The attached coach's catalogue handle, without the `@`, when it has one. */
+  /**
+   * The attached coach's catalogue handle, without the `@`, when it has one
+   * and the title does not already name that coach — a 1:1 thread titled with
+   * its agent's name would otherwise print the agent twice on one line.
+   */
   agentHandle: string | null;
   /** The attached coach's title, when the coach still exists. */
   agentTitle: string | null;
@@ -200,10 +208,10 @@ export function previewFor(
  * the date beyond that — with the year only once it is not this one.
  *
  * The clock is always 24-hour `HH:mm`, whatever the locale, so the row agrees
- * with the title {@link defaultConversationTitle} stamps; the weekday and the
- * month are spelled by `Intl` in `locale`. `now` is injectable so a test can
- * pin the buckets. An unparseable stamp yields an empty string rather than
- * `Invalid Date` in a row.
+ * with the dated title the server stamps on a thread with nothing to be named
+ * after; the weekday and the month are spelled by `Intl` in `locale`. `now`
+ * is injectable so a test can pin the buckets. An unparseable stamp yields an
+ * empty string rather than `Invalid Date` in a row.
  */
 export function formatListTimestamp(iso: string, locale: string, now: Date = new Date()): string {
   const date = new Date(iso);
@@ -220,27 +228,14 @@ export function formatListTimestamp(iso: string, locale: string, now: Date = new
 }
 
 /**
- * The title a client gives a conversation it creates before any message
- * names it: `prefix` and the moment of creation, e.g. `Chat Sep 1 16:18` or
- * `Discussion 1 sept. 16:18`.
- *
- * The date and the clock are formatted separately and joined with a space
- * rather than as one `Intl` date-time, which would put a locale comma between
- * them. The clock is 24-hour, the same clock the list row shows, so a title
- * and its row never disagree about the hour.
- */
-export function defaultConversationTitle(prefix: string, now: Date, locale: string): string {
-  const day = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(now);
-  return `${prefix} ${day} ${clock24(now, locale)}`;
-}
-
-/**
  * Build the row for one list entry.
  *
- * Last activity is the newest message when there is one and the
- * conversation's own `updated_at` otherwise, so a renamed empty thread still
- * sorts and stamps sensibly. `labels` carries the reader's locale and the
- * three words the row cannot spell on its own (see
+ * The title is the stored one: the server names a thread after its room or
+ * its agent when it is created, and a rename replaces that, so the row has
+ * nothing to derive. Last activity is the newest message when there is one
+ * and the conversation's own `updated_at` otherwise, so a renamed empty
+ * thread still sorts and stamps sensibly. `labels` carries the reader's
+ * locale and the three words the row cannot spell on its own (see
  * {@link CONVERSATION_ROW_LABEL_KEYS}).
  */
 export function buildConversationRow(
@@ -249,12 +244,13 @@ export function buildConversationRow(
   now: Date = new Date(),
 ): ConversationRowModel {
   const title = conversation.title?.trim() || labels.untitled;
+  const agentTitle = conversation.agent_title?.trim() || null;
   const lastActivityAt = conversation.last_message?.created_at ?? conversation.updated_at;
   return {
     id: conversation.id,
     kind: deriveKind(conversation),
     title,
-    agentHandle: conversation.agent_handle || null,
+    agentHandle: title === agentTitle ? null : conversation.agent_handle || null,
     agentTitle: conversation.agent_title || null,
     groupName: conversation.group_name || null,
     channel: resolveChannelOrigin(conversation),

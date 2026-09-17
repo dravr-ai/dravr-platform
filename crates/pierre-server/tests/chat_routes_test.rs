@@ -10,8 +10,10 @@
 mod common;
 mod helpers;
 
-use common::{create_test_server_resources, create_test_user};
+use common::{create_test_server_resources, create_test_user, create_test_user_with_plan};
 use helpers::axum_test::AxumTestRequest;
+use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_NEW_CONVERSATION_TITLE_PREFIX};
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationListResponse, ConversationResponse};
 
 use axum::http::StatusCode;
@@ -86,6 +88,87 @@ async fn test_create_conversation_without_agent_defaults_to_none() {
     assert_eq!(conv.title, "Fitness Chat");
     assert_eq!(conv.model, "gemini-1.5-pro");
     assert!(conv.agent_id.is_none());
+}
+
+/// A client that sends no title gets one the way every forged thread does:
+/// the agent's title when one is attached, else the dated stamp in the
+/// caller's language. The clients stopped inventing their own so the stored
+/// title is the one both of them print.
+#[tokio::test]
+async fn test_create_conversation_without_title_is_named_by_the_server() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user, tenant_id) =
+        create_test_user_with_plan(&resources.agent.database, "named@example.com", "starter")
+            .await
+            .unwrap();
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_token(&user, &resources.auth.jwks_manager)
+        .unwrap();
+    let auth_token = format!("Bearer {token}");
+    let agent = resources
+        .common
+        .repos
+        .agents
+        .create_system_agent(
+            user_id,
+            tenant_id,
+            &CreateSystemAgentRequest {
+                title: "Agent Marathon".to_owned(),
+                description: None,
+                system_prompt: "Tu es un coach marathon.".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec![],
+                sample_prompts: vec![],
+                visibility: AgentVisibility::Global,
+            },
+        )
+        .await
+        .unwrap();
+    let prefix = resources.mcp.messaging_strings_registry.render(
+        KEY_NEW_CONVERSATION_TITLE_PREFIX,
+        DEFAULT_LOCALE,
+        &[],
+    );
+    let router = ChatRoutes::routes(resources);
+
+    let with_agent = AxumTestRequest::post("/api/chat/conversations")
+        .header("authorization", &auth_token)
+        .json(&json!({ "agent_id": agent.id.to_string() }))
+        .send(router.clone())
+        .await;
+    assert_eq!(with_agent.status_code(), StatusCode::CREATED);
+    let conv: ConversationResponse = with_agent.json();
+    assert_eq!(
+        conv.title, "Agent Marathon",
+        "a thread opened with an agent is named after it"
+    );
+
+    let without_agent = AxumTestRequest::post("/api/chat/conversations")
+        .header("authorization", &auth_token)
+        .json(&json!({}))
+        .send(router.clone())
+        .await;
+    assert_eq!(without_agent.status_code(), StatusCode::CREATED);
+    let conv: ConversationResponse = without_agent.json();
+    assert!(
+        conv.title.starts_with(&format!("{prefix} ")),
+        "a thread with nothing to be named after takes the dated stamp: {:?}",
+        conv.title
+    );
+
+    let typed = AxumTestRequest::post("/api/chat/conversations")
+        .header("authorization", &auth_token)
+        .json(&json!({ "agent_id": agent.id.to_string(), "title": "Bloc hivernal" }))
+        .send(router)
+        .await;
+    assert_eq!(typed.status_code(), StatusCode::CREATED);
+    let conv: ConversationResponse = typed.json();
+    assert_eq!(
+        conv.title, "Bloc hivernal",
+        "a typed title wins over the rule"
+    );
 }
 
 #[tokio::test]

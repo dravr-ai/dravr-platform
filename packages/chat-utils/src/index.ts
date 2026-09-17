@@ -17,12 +17,11 @@ export { COMMAND_FINISH_REASON, transcriptBlocks } from './blocks';
 export { splitActivityContent, countActivities } from './activity';
 
 // Cross-surface conversation rendering helpers (web + mobile parity):
-// hide tool-plumbing rows, strip residual tool XML, derive channel badges.
+// hide tool-plumbing rows, strip residual tool XML, label the channel.
 export {
   isToolPlumbingMessage,
   filterDisplayMessages,
   stripToolScaffolding,
-  deriveMessageChannel,
   resolveChannelOrigin,
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';
@@ -41,7 +40,6 @@ export {
   avatarSlot,
   previewFor,
   formatListTimestamp,
-  defaultConversationTitle,
   buildConversationRow,
   sortRowsByActivity,
   filterRows,

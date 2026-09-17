@@ -691,7 +691,7 @@ async fn test_set_conversation_channel_surfaces_in_list() {
         .create_conversation(
             fx.athlete(),
             tenant_id,
-            "Messaging: telegram",
+            "Telegram coach",
             "gemini-1.5-flash",
             None,
             None,

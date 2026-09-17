@@ -790,7 +790,7 @@ compared — an unread count, a token total, a time in a row — are
 
 | | Value |
 |---|---|
-| Radii | 4 chips · 8 buttons and fields · 12 floating cards · 20 a sheet's top and the composer field · full avatars and badges (`2xl` = `xl`, so nothing sits between a card and a sheet) |
+| Radii | 4 chips · 8 buttons and fields · 12 floating cards and a room's avatar · 20 a sheet's top and the composer field · full for a person's or an agent's avatar and for badges (`2xl` = `xl`, so nothing sits between a card and a sheet). A circle is one counterpart, a square is many — the Fluent 2 / GitLab convention; shape reaches no screen reader, so the kind glyph and the row's accessible name carry the same fact in words |
 | Hairlines | the web's three, verbatim: `border-border-faint` (.26 light / .14 dark) inside a list, `border-border` (.40 / .22) at pane edges and fields, `border-border-strong` (.55 / .34) on a control's outline; `StyleSheet.hairlineWidth` |
 | Scrim | one, `bg-scrim/60` — `#1a1c1b` in light, black in dark |
 | Shadow | `shadow-floating` only, for what floats; a resting surface is lifted by its hairline |
@@ -800,7 +800,7 @@ compared — an unread count, a token total, a time in a row — are
 | Gradients | none on a resting surface; `expo-linear-gradient` exists for the Sciotte modal's brand sweeps and the two functional edge fades of `ScrollFadeContainer` |
 | Sheet | one, `ui/Sheet`: `bg-scrim/60` behind a `rounded-t-3xl` panel on the secondary ground, no drag pill, content as sections; a dialog (`PromptDialog`, and the OAuth-credentials add form in `OAuthCredentialsSection`) keeps a centred panel on the secondary ground — `rounded-2xl` under its own 8/16 shadow for the prompt, `rounded-xl` and flat for the form |
 | Composer | a bar in the layout, never an overlay: hairline top, paper ground, the field 40 / radius 20 on `surface-container`, the left slot empty, the mic, a 32 send circle filled in `primary` only while there is text; the keyboard is met through `KeyboardAvoidingView`, so the list pays no clearance for it |
-| Rows | a chat row 72 with a 48 avatar and one count capsule (22, 13 / 600 mono, `@` prefixed for a mention), its hairline inset to the text; a message's actions live behind a long-press action sheet, and only the time sits under the prose |
+| Rows | a chat row 72 with a 48 avatar and one count capsule (22, 13 / 600 mono, `@` prefixed for a mention), its hairline inset to the text; the title is the stored one, which the server names after the room, else the agent, else the moment the thread started, so a row reads who it is with and the `@handle` only appears beside a title that is not already the agent; a message's actions live behind a long-press action sheet, and only the time sits under the prose |
 | Empty state | `ui/EmptyState`: one 13 sentence on the secondary ink and, when there is something to do, one inline `primary` link — no icon, no card, no filled button |
 | Settings row | `ui/Row`: 52 tall, 44 compact for a fact row; the title 16 on the left, the hint 13 tertiary inline on the right and truncated before the title gives, then an 18 chevron when the row navigates; the value slot `font-mono tabular-nums`; the faint hairline on the inner column so it insets to the text, none on the last row |
 | Section | `ui/Section`: a 13 / 600 title, an optional 13 secondary description, the content 12 below, no fill and no border; 32 between sections, paid by the parent |

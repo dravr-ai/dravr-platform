@@ -14,8 +14,7 @@ use pierre_core::models::OnboardingState;
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::agent_selection::AgentSelectionSource;
 use pierre_services::conversation_forge::{
-    forge_conversation, in_app_title, messaging_title, repoint_messaging_session, ForgeAgent,
-    ForgeParams,
+    dated_title, forge_conversation, repoint_messaging_session, ForgeAgent, ForgeParams,
 };
 use tracing::{info, warn};
 
@@ -58,19 +57,15 @@ impl CommandHandler for ResetHandler {
         let interrupted_walk =
             OnboardingState::from_column(previous.onboarding_state.as_deref()).is_some();
 
-        // The fresh thread names itself. Carrying the old title forward left
-        // the list with rows an athlete could not tell apart, and on a
-        // messaging channel the thread has only ever been named after its
-        // channel.
+        // The fresh thread names itself after its room or its agent, like
+        // every forged thread; the dated stamp only when it has neither.
+        // Carrying the old title forward left the list with rows an athlete
+        // could not tell apart.
         let in_app = matches!(ctx.channel_type.as_str(), "web" | "mobile");
-        let title = if in_app {
-            in_app_title(
-                &reg.render(KEY_NEW_CONVERSATION_TITLE_PREFIX, locale, &[]),
-                Utc::now(),
-            )
-        } else {
-            messaging_title(&ctx.channel_type)
-        };
+        let title_fallback = dated_title(
+            &reg.render(KEY_NEW_CONVERSATION_TITLE_PREFIX, locale, &[]),
+            Utc::now(),
+        );
 
         let new_id = forge_conversation(
             repos,
@@ -81,7 +76,7 @@ impl CommandHandler for ResetHandler {
                 // caller's would leave every later turn reading an empty
                 // thread.
                 tenant_id: ctx.conversation_tenant_id,
-                title: &title,
+                title_fallback: &title_fallback,
                 model: Some(&previous.model),
                 // The thread being replaced already names the agent the
                 // athlete was talking to; a reset changes the thread, not who

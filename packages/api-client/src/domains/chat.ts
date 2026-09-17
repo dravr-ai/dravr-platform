@@ -163,6 +163,9 @@ async function recoverFromRefusedTurn(
 }
 
 export interface CreateConversationOptions {
+  /** A title the athlete typed. Omitted, the server names the thread after
+   *  its group, else its agent, else the moment it started, in the athlete's
+   *  language — so no client invents a title of its own. */
   title?: string;
   model?: string;
   /** Coach to attach to the conversation; the coach's system_prompt

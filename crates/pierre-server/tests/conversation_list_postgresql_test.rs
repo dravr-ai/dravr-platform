@@ -227,7 +227,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     // Three threads of three kinds, oldest first.
     let telegram = repos
         .chat
-        .create_conversation(&athlete, tenant, "Messaging: telegram", "gpt-4", None, None)
+        .create_conversation(&athlete, tenant, "Telegram coach", "gpt-4", None, None)
         .await
         .unwrap();
     assert!(repos

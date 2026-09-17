@@ -1,5 +1,5 @@
 // ABOUTME: Cross-surface conversation helpers shared by web + mobile chat UIs
-// ABOUTME: Filters tool plumbing rows, strips residual tool XML, derives channel badges
+// ABOUTME: Filters tool plumbing rows, strips residual tool XML, labels the channel a thread came from
 
 import type { Message, MessageRole } from '@pierre/shared-types';
 
@@ -75,12 +75,6 @@ export interface MessageChannelOrigin {
   label: string;
 }
 
-// Messaging-ingress conversations are titled `Messaging: <channel>` by the
-// backend (services/messaging_ingress/session.rs). That title prefix is the
-// only client-visible signal of a conversation's channel origin — there is no
-// dedicated `channel` field on the conversation API.
-const MESSAGING_TITLE_REGEX = /^Messaging:\s*([a-z0-9_-]+)\s*$/i;
-
 // Channels whose canonical casing isn't just a capitalized first letter.
 const CHANNEL_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   whatsapp: 'WhatsApp',
@@ -88,61 +82,31 @@ const CHANNEL_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   sms: 'SMS',
 };
 
-/**
- * Derive a messaging-channel origin from a conversation title.
- *
- * Messaging-origin conversations are created with the title
- * `"Messaging: <channel>"` (e.g. `"Messaging: telegram"`). Returns the channel
- * slug and a display label, or `null` for an ordinary web/app conversation
- * (which shows no channel badge). The match is case-insensitive and tolerant
- * of surrounding whitespace.
- *
- * @example
- * deriveMessageChannel('Messaging: telegram') // { channel: 'telegram', label: 'Telegram' }
- * deriveMessageChannel('Messaging: whatsapp') // { channel: 'whatsapp', label: 'WhatsApp' }
- * deriveMessageChannel('Chat Jun 7 11:15 AM') // null
- */
-export function deriveMessageChannel(
-  title: string | null | undefined,
-): MessageChannelOrigin | null {
-  if (!title) return null;
-  const match = title.match(MESSAGING_TITLE_REGEX);
-  if (!match) return null;
-  const channel = match[1].toLowerCase();
-  const label =
-    CHANNEL_LABEL_OVERRIDES[channel] ??
-    channel.charAt(0).toUpperCase() + channel.slice(1);
-  return { channel, label };
-}
-
 // In-app origins stored in `chat_conversations.channel_type` (NOT NULL DEFAULT
 // 'web'). These are not external messaging channels, so they get no badge.
 const IN_APP_CHANNELS: ReadonlySet<string> = new Set(['web', 'mobile', '']);
 
 /**
- * Resolve a conversation's messaging-channel origin for the channel badge.
+ * Resolve a conversation's messaging-channel origin for the channel glyph.
  *
- * Prefers the **durable** `channel_type` column (stamped by messaging-ingress
- * at creation; survives a later title rename or `/reset`), and falls back to
- * parsing the `"Messaging: <channel>"` {@link deriveMessageChannel | title} for
- * conversations created before the column was populated (or not yet
- * backfilled). Returns `null` for an ordinary in-app (`web`/`mobile`) chat,
- * which shows no badge.
+ * The durable `channel_type` column is the one signal: messaging-ingress
+ * stamps it at creation and it survives a rename or `/reset`. The title
+ * carries no channel — it names the room or the agent the thread is with —
+ * so there is nothing to parse. Returns `null` for an ordinary in-app
+ * (`web`/`mobile`) chat, which shows no glyph.
  *
  * @example
- * resolveChannelOrigin({ channel_type: 'telegram', title: 'My plan' })   // { channel: 'telegram', label: 'Telegram' }
- * resolveChannelOrigin({ channel_type: 'web', title: 'Messaging: slack' }) // { channel: 'slack', label: 'Slack' } (fallback)
- * resolveChannelOrigin({ channel_type: 'web', title: 'Chat Jun 7' })      // null
+ * resolveChannelOrigin({ channel_type: 'telegram' }) // { channel: 'telegram', label: 'Telegram' }
+ * resolveChannelOrigin({ channel_type: 'whatsapp' }) // { channel: 'whatsapp', label: 'WhatsApp' }
+ * resolveChannelOrigin({ channel_type: 'web' })      // null
  */
 export function resolveChannelOrigin(
-  conversation: { title?: string | null; channel_type?: string | null },
+  conversation: { channel_type?: string | null },
 ): MessageChannelOrigin | null {
   const channel = conversation.channel_type?.trim().toLowerCase();
-  if (channel && !IN_APP_CHANNELS.has(channel)) {
-    const label =
-      CHANNEL_LABEL_OVERRIDES[channel] ??
-      channel.charAt(0).toUpperCase() + channel.slice(1);
-    return { channel, label };
-  }
-  return deriveMessageChannel(conversation.title);
+  if (!channel || IN_APP_CHANNELS.has(channel)) return null;
+  const label =
+    CHANNEL_LABEL_OVERRIDES[channel] ??
+    channel.charAt(0).toUpperCase() + channel.slice(1);
+  return { channel, label };
 }

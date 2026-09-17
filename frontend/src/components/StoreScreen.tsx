@@ -15,7 +15,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
 import PostInstallHint from './discover/PostInstallHint';
 import { useTranslation } from '@pierre/i18n';
-import { defaultConversationTitle, initialsFor } from '@pierre/chat-utils';
+import { initialsFor } from '@pierre/chat-utils';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 
 // Category filter options
@@ -96,7 +96,7 @@ interface StoreScreenProps {
 
 
 export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedAgentId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
@@ -236,12 +236,8 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   // tab. The hint hands over the `/agent add @handle` draft the athlete types
   // there.
   const openChat = useMutation({
-    // The same title the chat tab gives a fresh thread: the viewer's language,
-    // the list row's 24-hour clock.
-    mutationFn: () =>
-      chatApi.createConversation({
-        title: defaultConversationTitle(t('chat.newConversationTitlePrefix'), new Date(), language),
-      }),
+    // The server names the thread, the way it names one the chat tab opens.
+    mutationFn: () => chatApi.createConversation({}),
     onSuccess: (conversation) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       setActionError(null);

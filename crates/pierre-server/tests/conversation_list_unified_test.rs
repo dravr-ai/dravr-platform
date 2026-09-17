@@ -336,7 +336,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
         .unwrap();
 
     // Three threads of three kinds, oldest first.
-    let telegram = create_conversation(&fx, json!({ "title": "Messaging: telegram" })).await;
+    let telegram = create_conversation(&fx, json!({ "title": "Telegram coach" })).await;
     assert!(repos
         .chat
         .set_conversation_channel(

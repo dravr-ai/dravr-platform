@@ -90,7 +90,7 @@ async fn setup() -> Result<RoomFixture> {
         .create_conversation(
             &walker_id.to_string(),
             channel_tenant,
-            "Messaging: telegram",
+            "Telegram coach",
             "gemini-2.0-flash",
             None,
             None,

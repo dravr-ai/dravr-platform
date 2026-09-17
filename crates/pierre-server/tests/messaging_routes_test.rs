@@ -1181,14 +1181,7 @@ mod messaging_routes_tests {
             .common
             .repos
             .chat
-            .create_conversation(
-                &user_a_id,
-                tenant_id,
-                "Messaging: telegram",
-                "gpt-4",
-                None,
-                None,
-            )
+            .create_conversation(&user_a_id, tenant_id, "Telegram coach", "gpt-4", None, None)
             .await
             .unwrap();
         let stale_conversation_id = prior_conversation.id.clone();

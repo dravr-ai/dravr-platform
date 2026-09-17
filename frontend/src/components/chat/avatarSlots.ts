@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The avatar palette of the conversation list, one design token per shared avatar slot
+// ABOUTME: The avatar palette of the conversation list, one design token per shared avatar slot, and the avatar's shape
 // ABOUTME: Kept beside the row rather than in it so the row module exports a component and nothing else
 
 import { AVATAR_SLOT_HUES, AVATAR_SLOTS, type AvatarSlotHue } from '@pierre/chat-utils';
@@ -44,4 +44,22 @@ export const AVATAR_SLOT_CLASSES: readonly string[] = AVATAR_SLOT_HUES.map((hue)
  */
 export function avatarSlotClass(slot: number): string {
   return AVATAR_SLOT_CLASSES[((slot % AVATAR_SLOTS) + AVATAR_SLOTS) % AVATAR_SLOTS];
+}
+
+/**
+ * What the avatar stands for. A circle is one counterpart — a person or an
+ * agent; a square is many — a room. The same convention as Fluent 2 and
+ * GitLab Pajamas, and the inverse of Primer's, which gives the square to bots.
+ * The phone's `InitialsAvatar` takes the same two values.
+ */
+export type AvatarShape = 'circle' | 'square';
+
+/**
+ * The corner class for a shape: full for a person or an agent, `xl` (12px,
+ * the floating-card step of the ladder) for a room — DESIGN.md §2 radii.
+ * Shape reaches no screen reader, so it only reinforces the kind glyph and
+ * the accessible name beside it.
+ */
+export function avatarShapeClass(shape: AvatarShape): string {
+  return shape === 'square' ? 'rounded-xl' : 'rounded-full';
 }

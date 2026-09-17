@@ -16,13 +16,16 @@ use axum::{
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use chrono::Utc;
 use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
 use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
+use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
+use pierre_services::conversation_forge::{counterpart_title, dated_title};
 use pierre_services::locale::resolve_user_locale;
 
 use super::common::{get_tenant_id, verify_group_membership};
@@ -107,11 +110,36 @@ pub async fn create_conversation(
         verify_group_membership(&resources, gid, auth.user_id, tenant_id).await?;
     }
 
+    // A title the caller typed wins; otherwise the thread is named the way a
+    // forged one is — the group, the agent, or the dated stamp — so the row
+    // both clients print says who it is with from its first moment.
+    let title = match request.title.as_deref().map(str::trim) {
+        Some(typed) if !typed.is_empty() => typed.to_owned(),
+        _ => {
+            let locale =
+                resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
+            let prefix = resources.mcp.messaging_strings_registry.render(
+                KEY_NEW_CONVERSATION_TITLE_PREFIX,
+                &locale,
+                &[],
+            );
+            counterpart_title(
+                &resources.common.repos,
+                tenant_id,
+                &user_id_str,
+                request.group_id.as_deref(),
+                request.agent_id.as_deref(),
+                &dated_title(&prefix, Utc::now()),
+            )
+            .await
+        }
+    };
+
     let result = create_conversation_row(
         resources.common.repos.chat.as_ref(),
         &user_id_str,
         tenant_id,
-        &request.title,
+        &title,
         request.model.as_deref(),
         request.agent_id.as_deref(),
         request.group_id.as_deref(),

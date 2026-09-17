@@ -65,11 +65,12 @@ export interface ConversationRowProps {
 }
 
 /**
- * The Telegram-shaped row: a 48 pt initials avatar, the kind glyph for a
- * group or a channel thread, the title at 600 while something is unread and
- * 500 once read, the coach's `@handle`, the one-line preview, the relative
- * time on the right, and one count capsule that takes the `@` when that
- * unread is a mention.
+ * The Telegram-shaped row: a 48 pt initials avatar — a circle for an agent, a
+ * square for a room — the kind glyph for a group or a channel thread, the
+ * title at 600 while something is unread and 500 once read, the coach's
+ * `@handle` when the title does not already name the coach, the one-line
+ * preview, the relative time on the right, and one count capsule that takes
+ * the `@` when that unread is a mention.
  *
  * The hairline sits on the text column, not the touchable, so the divider
  * is inset to the text and the avatars stand in an unbroken column.
@@ -80,6 +81,9 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
   const unread = row.unreadCount > 0;
   const mentioned = unread && previewMentionsSomeone(row.preview);
   const glyph = KIND_GLYPH[row.kind];
+  // Shape reaches no screen reader (WCAG 1.3.3), so the row's own label says
+  // what kind of thread it is, in words, before the title.
+  const spokenTitle = glyph ? `${t(glyph.labelKey)}, ${row.title}` : row.title;
 
   const leftActions: SwipeAction[] = [
     {
@@ -108,10 +112,16 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
         onLongPress={() => onLongPress(row)}
         delayLongPress={300}
         accessibilityRole="button"
-        accessibilityLabel={unread ? t('app.openRowUnread', { title: row.title, count: row.unreadCount }) : t('app.openRow', { title: row.title })}
+        accessibilityLabel={unread ? t('app.openRowUnread', { title: spokenTitle, count: row.unreadCount }) : t('app.openRow', { title: spokenTitle })}
         testID={`conversation-row-${row.id}`}
       >
-        <InitialsAvatar initials={row.initials} slot={row.avatarSlot} size={48} testID={`conversation-avatar-${row.id}`} />
+        <InitialsAvatar
+          initials={row.initials}
+          slot={row.avatarSlot}
+          size={48}
+          shape={row.kind === 'group' ? 'square' : 'circle'}
+          testID={`conversation-avatar-${row.id}`}
+        />
 
         {/*
           The column stretches to the row's height so its bottom hairline is

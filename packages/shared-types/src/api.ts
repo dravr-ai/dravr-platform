@@ -25,6 +25,9 @@ export interface ConversationLastMessage {
 /** A conversation in the chat system */
 export interface Conversation {
   id: string;
+  /** What every list row and thread header prints: the server names a new
+   *  thread after its group, else its agent, else the moment it started, and
+   *  a rename replaces that. */
   title: string | null;
   /** Model used for this conversation */
   model?: string;
@@ -46,9 +49,9 @@ export interface Conversation {
   /** Number of messages in conversation */
   message_count: number;
   /** Channel of origin: `web`/`mobile` for an in-app chat, or a messaging
-   *  channel (`telegram`/`whatsapp`/…). Durable badge signal that survives a
-   *  title rename; the client prefers it and falls back to the title prefix
-   *  (see `resolveChannelOrigin` in `@pierre/chat-utils`). */
+   *  channel (`telegram`/`whatsapp`/…). The one signal behind the channel
+   *  glyph (see `resolveChannelOrigin` in `@pierre/chat-utils`); the title
+   *  names the room or the agent, never the channel. */
   channel_type?: string | null;
   /** When conversation was created */
   created_at: string;

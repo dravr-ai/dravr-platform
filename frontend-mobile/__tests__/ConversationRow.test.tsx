@@ -84,8 +84,9 @@ describe('ConversationRow', () => {
     expect(renderRow(model).getByTestId('conversation-preview-conv-1')).toHaveTextContent('You: How was the run?');
   });
 
-  it('shows the group glyph and the coach voice in a group row', () => {
+  it('shows the group glyph and the coach voice in a group row, and draws its avatar as a square', () => {
     const model = row({
+      title: 'Harricana',
       group_id: 'group-1',
       group_name: 'Harricana',
       agent_title: 'Coach Tempo',
@@ -94,6 +95,35 @@ describe('ConversationRow', () => {
     const { getByTestId } = renderRow(model);
     expect(getByTestId('conversation-kind-conv-1').props.accessibilityLabel).toBe('Group chat');
     expect(getByTestId('conversation-preview-conv-1')).toHaveTextContent('Coach Tempo: Bloc 3 starts Monday');
+    // A room is a 12-radius square where an agent is a circle (Fluent 2,
+    // GitLab: circle = one, square = many). Shape reaches no screen reader,
+    // so the row's own label says the kind in words before the title.
+    const avatar = getByTestId('conversation-avatar-conv-1', { includeHiddenElements: true });
+    expect(avatar.props.style).toEqual(expect.objectContaining({ width: 48, height: 48, borderRadius: 12 }));
+    expect(avatar).toHaveTextContent('H');
+    expect(getByTestId('conversation-row-conv-1').props.accessibilityLabel).toBe('Open Group chat, Harricana');
+  });
+
+  it('prints the stored title as-is for a Telegram DM named after its agent, with no handle beside it', () => {
+    // The server names the thread; the row derives nothing. `MT` from
+    // "Messaging: telegram" is what every row read before.
+    const model = row({
+      title: 'Ultra-Endurance Cycling Workout Builder',
+      channel_type: 'telegram',
+      agent_id: 'coach-1',
+      agent_handle: 'ultra-cycling-workout-builder',
+      agent_title: 'Ultra-Endurance Cycling Workout Builder',
+    });
+    const { getByTestId, queryByTestId } = renderRow(model);
+    expect(getByTestId('conversation-title-conv-1')).toHaveTextContent('Ultra-Endurance Cycling Workout Builder');
+    expect(getByTestId('conversation-avatar-conv-1', { includeHiddenElements: true })).toHaveTextContent('UC');
+    expect(getByTestId('conversation-avatar-conv-1', { includeHiddenElements: true }).props.style).toEqual(
+      expect.objectContaining({ borderRadius: 24 }),
+    );
+    expect(queryByTestId('conversation-handle-conv-1')).toBeNull();
+    expect(getByTestId('conversation-row-conv-1').props.accessibilityLabel).toBe(
+      'Open Messaging chat, Ultra-Endurance Cycling Workout Builder',
+    );
   });
 
   it('shows the channel glyph, and no channel pill, for a messaging-origin thread', () => {
@@ -104,7 +134,7 @@ describe('ConversationRow', () => {
     expect(queryByText('Telegram')).toBeNull();
   });
 
-  it('shows the coach handle beside the title of a coach thread', () => {
+  it('shows the coach handle beside the title of a coach thread the athlete renamed', () => {
     const model = row({ agent_id: 'coach-1', agent_handle: 'coach-tempo', agent_title: 'Coach Tempo' });
     expect(renderRow(model).getByTestId('conversation-handle-conv-1')).toHaveTextContent('@coach-tempo');
   });

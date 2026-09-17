@@ -113,9 +113,10 @@ describe('OnboardingCoachProposalScreen', () => {
   });
 
   // A coach the store shipped without a title used to open a thread named "",
-  // which the list then drew as an untitled row. Web has fallen back to the
-  // clock-shaped default since the messenger cutover; mobile does now too.
-  it('names the thread by the clock when the coach has no title', async () => {
+  // which the list then drew as an untitled row. The screen sends no title at
+  // all now: the server names the thread after the coach, and falls back to
+  // the dated stamp itself when the coach has no title to give.
+  it('sends no title even when the coach has none; the server names the thread', async () => {
     mockGetProposal.mockResolvedValue({
       ...PROPOSAL,
       agents: [{ ...PROPOSAL.agents[0], agent: { ...PROPOSAL.agents[0].agent, title: '' } }],
@@ -125,10 +126,7 @@ describe('OnboardingCoachProposalScreen', () => {
     fireEvent.press(await findByText('Start'));
 
     await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
-    expect(mockCreateConversation.mock.calls[0][0]).toEqual({
-      agent_id: 'coach-trail',
-      title: expect.stringMatching(/^Chat .+ \d{2}:\d{2}$/),
-    });
+    expect(mockCreateConversation.mock.calls[0][0]).toEqual({ agent_id: 'coach-trail' });
   });
 
   it('« Start » records the choice, completes the step, then lands the athlete in a thread bound to the coach', async () => {
@@ -141,7 +139,7 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(mockRecordUsage).toHaveBeenCalledWith('coach-trail');
     expect(mockMarkSeen).toHaveBeenCalledTimes(1);
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail', title: 'Trail Coach' });
+    expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
     expect(mockRouter.push).toHaveBeenCalledWith({
       pathname: CHAT_THREAD_ROUTE,
       params: { conversationId: 'conv-9' },
@@ -167,7 +165,7 @@ describe('OnboardingCoachProposalScreen', () => {
       fireEvent.press(await findByText('Start'));
 
       await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
-      expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail', title: 'Trail Coach' });
+      expect(mockCreateConversation).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
       // Node reports an orphaned rejection only after the microtask queue
       // drains; a macrotask boundary lets that report land before we look.
       await new Promise<void>((resolve) => setTimeout(resolve, 0));

@@ -26,7 +26,9 @@ export interface ConversationsState {
  * 1:1 chat, whatever coach persona it carries.
  */
 export interface CreateConversationParams {
-  title: string;
+  /** A title the athlete typed. Omitted, the server names the thread after
+   *  its group, else its agent, else the moment it started. */
+  title?: string;
   agent_id?: string;
   group_id?: string;
 }

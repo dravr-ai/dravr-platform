@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Sends the first line of a new thread and pins the title the screen gives it
-// ABOUTME: The thread is named for the moment it starts, not for whatever was typed into it
+// ABOUTME: Sends the first line of a new thread and pins that the screen leaves the naming to the server
+// ABOUTME: The thread is named after its agent or the moment it starts, never for whatever was typed into it
 
 import React from 'react';
 import { KeyboardAvoidingView } from 'react-native';
@@ -130,7 +130,7 @@ describe('ChatScreen new-thread title', () => {
     mockSendTurn.mockResolvedValue(null);
   });
 
-  it('names a new thread for the moment it starts, not for the line that opened it', async () => {
+  it('leaves the naming of a new thread to the server, never to the line that opened it', async () => {
     // The header's unread badge is a real query; give it a client rather than
     // mocking the bell away, so the screen renders the way it ships.
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -151,14 +151,15 @@ describe('ChatScreen new-thread title', () => {
     fireEvent.press(getByTestId('send-button'));
 
     await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledTimes(1));
-    const { title } = mockCreateConversation.mock.calls[0][0] as { title: string };
+    const params = mockCreateConversation.mock.calls[0][0] as { title?: string };
 
-    // `Chat Sep 2 16:18` — the prefix in the athlete's language, the day, and
-    // the same 24-hour clock the conversation row shows.
-    expect(title).toMatch(/^Chat .+ \d{2}:\d{2}$/);
-    // The old title was the first line truncated to 50 characters, which is
-    // what a thread named after its own question looks like.
-    expect(title).not.toContain('seuil');
+    // No title at all: the server names the thread after its agent, else for
+    // the moment it starts in the athlete's language, and both clients print
+    // that stored title. The old title was the first line truncated to 50
+    // characters, which is what a thread named after its own question looks
+    // like; the one after that was a dated stamp each client spelled itself.
+    expect(params).toEqual({});
+    expect(params.title).toBeUndefined();
 
     // The line itself is still the turn, sent on the thread that was created.
     expect(mockSendTurn).toHaveBeenCalledWith(
