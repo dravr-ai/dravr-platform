@@ -797,9 +797,12 @@ fn build_system_prompt(locale: &str, frozen_date: Option<&str>) -> String {
     //
     // This block used to be a hand-rolled English sentence — "The user is
     // writing in `es`. Reply in `es` ...". Once every turn was graded on its
-    // language (carnet#162), four of the five locales in
-    // `rendering_richtext_telegram` came back in English at confidence 1.00
-    // against exactly that sentence. Which is the carnet#159 finding restated:
+    // language (carnet#162), four of the five locales of the `/privacy`
+    // scenario this lane then carried came back in English at confidence
+    // 1.00 against exactly that sentence (that scenario has since left the
+    // lane: `/privacy` is a slash command the deterministic smoke covers, and
+    // this driver hands it to the model as a bare token). Which is the
+    // carnet#159 finding restated:
     // an English instruction to write Spanish is one more English sentence on
     // a pile of English, and it loses. The shipped directive is authored in
     // the target language and says what to do with the English tool output it

@@ -1,5 +1,5 @@
-// ABOUTME: E2E tests for messaging slash commands
-// ABOUTME: Tests /help, /status, /logout, /group commands via Telegram webhook flow
+// ABOUTME: Messaging slash commands past recognition — what /logout, /privacy, /group and
+// ABOUTME: /agent change in the database, over the Telegram webhook and by direct handler execute()
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -211,35 +211,6 @@ mod command_tests {
     // ════════════════════════════════════════════════════════════════
 
     #[tokio::test]
-    async fn test_help_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, body) = send_command(&router, "/help", 1).await;
-        assert_eq!(status, StatusCode::OK);
-        // The webhook returns 200 OK — the command response is sent asynchronously
-        assert!(body["status"].as_str().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_help_alias() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/?", 2).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_status_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/status", 3).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
     async fn test_logout_command() {
         let resources = create_test_server_resources().await.unwrap();
         let (router, _user_id, tenant_id) = setup_linked_user(&resources).await;
@@ -336,71 +307,6 @@ mod command_tests {
     }
 
     #[tokio::test]
-    async fn test_group_list_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/group", 5).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_group_alias() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/groups", 6).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_group_status_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        // This will return OK even though user has no groups
-        // (the handler returns a "not a member" error which is caught and sent as text)
-        let (status, _) = send_command(&router, "/group status", 7).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_group_members_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/group members", 8).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_group_invite_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/group invite", 9).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_group_leave_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/group leave", 10).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_group_status_alias() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/gs", 11).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
     async fn test_unknown_command_short_circuits() {
         let resources = create_test_server_resources().await.unwrap();
         let (router, ..) = setup_linked_user(&resources).await;
@@ -431,52 +337,15 @@ mod command_tests {
         assert!(stored > 0, "Regular message should be stored for LLM");
     }
 
-    #[tokio::test]
-    async fn test_command_case_insensitive() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/HELP", 14).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_command_with_extra_spaces() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/group   status", 15).await;
-        // May or may not match depending on matcher — at minimum should not crash
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_privacy_status_command() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        let (status, _) = send_command(&router, "/privacy", 20).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_privacy_status_alias() {
-        let resources = create_test_server_resources().await.unwrap();
-        let (router, ..) = setup_linked_user(&resources).await;
-
-        // Verify the 2-word alias `/privacy status` routes to PrivacyStatusHandler
-        let (status, _) = send_command(&router, "/privacy status", 21).await;
-        assert_eq!(status, StatusCode::OK);
-    }
-
     // ────────────────────────────────────────────────────────────────
     // Direct handler unit tests
     //
-    // The webhook-based tests above only verify HTTP 200 OK. For
-    // `/privacy on` and `/privacy off`, we also need to verify the
-    // database is actually updated. We call the handler's execute()
-    // directly with a constructed PlatformCommandContext, bypassing
-    // the command matcher and webhook layer.
+    // Recognition and the ledgered reply of every catalog spelling are
+    // `command_smoke_e2e_test`'s matrix. For `/privacy on` and
+    // `/privacy off` the question is whether the database is actually
+    // updated, so the handler's execute() is called directly with a
+    // constructed PlatformCommandContext, bypassing the command matcher
+    // and webhook layer.
     // ────────────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -1697,11 +1566,11 @@ mod command_tests {
     //
     // The Telegram webhook returns 200 OK and dispatches the command reply
     // asynchronously, so the rendered text never appears in the webhook
-    // response — the `test_group_*_command` webhook tests above can only
-    // assert the status code, and they run against a user with no groups
-    // (the empty / "not a member" branch). To exercise the populated paths
-    // and assert on the actual reply body, we invoke each handler directly,
-    // matching the `StatusHandler` pattern in `messaging_locale_test`.
+    // response — `command_smoke_e2e_test` reads it from the outbound ledger,
+    // against a member with no groups (the empty / "not a member" branch).
+    // To exercise the populated paths and assert on the actual reply body,
+    // we invoke each handler directly, matching the `StatusHandler` pattern
+    // in `messaging_locale_test`.
 
     use pierre_commands::group::{
         GroupConsentHandler, GroupInviteHandler, GroupListHandler, GroupMembersHandler,

@@ -32,7 +32,9 @@ use pierre_core::errors::AppError;
 use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
-use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
+use pierre_core::models::agents::{
+    Agent, AgentCategory, AgentVisibility, CreateSystemAgentRequest,
+};
 use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
 use pierre_core::models::{ConnectionType, OnboardingState, Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::factory::Database;
@@ -220,6 +222,9 @@ pub struct Member {
 pub struct CommandE2e {
     pub resources: Arc<ServerContext>,
     pub llm: Arc<RouterLlm>,
+    /// The bot tenant's owner — the admin a system agent under that tenant
+    /// is created by.
+    pub bot_owner: Uuid,
     pub bot_tenant: TenantId,
     update_id: AtomicI64,
     sender_seq: AtomicI64,
@@ -318,7 +323,7 @@ impl CommandE2e {
         let _seed =
             TelegramTransport::with_bot_identity("unused-secret".to_owned(), BOT_ID, BOT_USERNAME);
 
-        let (_bot_owner, bot_tenant) = create_user_with_own_tenant(
+        let (bot_owner, bot_tenant) = create_user_with_own_tenant(
             &resources,
             &format!("cmd_e2e_bot_{}@example.com", Uuid::new_v4()),
         )
@@ -344,6 +349,7 @@ impl CommandE2e {
         Arc::new(Self {
             resources,
             llm,
+            bot_owner,
             bot_tenant,
             update_id: AtomicI64::new(1_000),
             sender_seq: AtomicI64::new(7_000),
@@ -404,6 +410,40 @@ impl CommandE2e {
         let body: Value = resp.json();
         assert_eq!(status, StatusCode::OK, "webhook rejected: {body}");
         WebhookOutcome { status, body }
+    }
+
+    /// A system agent under `tenant`, created by `owner`: the FK a coaching
+    /// group needs, and the agent the channel-group bootstrap picks when a
+    /// supergroup first speaks (`create_test_server_resources` seeds none).
+    pub async fn seed_coach_agent(&self, owner: Uuid, tenant: TenantId, title: &str) -> Agent {
+        self.resources
+            .common
+            .repos
+            .agents
+            .create_system_agent(
+                owner,
+                tenant,
+                &CreateSystemAgentRequest {
+                    title: title.to_owned(),
+                    description: None,
+                    system_prompt: "You are a concise test coach.".to_owned(),
+                    category: AgentCategory::Training,
+                    tags: vec![],
+                    sample_prompts: vec![],
+                    visibility: AgentVisibility::Global,
+                },
+            )
+            .await
+            .unwrap()
+    }
+
+    /// An UNADDRESSED supergroup text from the raw channel sender `sender`
+    /// in `chat_id` — bound to a room or not, linked or not. The primitive
+    /// every room send builds on; `RoomE2e` names the chat and the member.
+    pub async fn send_group_text(&self, sender: i64, chat_id: i64, text: &str) -> WebhookOutcome {
+        let message_id = self.update_id.fetch_add(1, Ordering::SeqCst);
+        self.post_update(group_message(sender, chat_id, message_id, text))
+            .await
     }
 
     /// A signed Telegram DM turn from `m` (private chat, chat id == sender).
@@ -573,6 +613,33 @@ impl CommandE2e {
         }
     }
 
+    /// The distinct `tenant_id`s the `direction` ledger rows of `session_id`
+    /// were written under — the tenancy of a DM unit, read back from the
+    /// rows themselves.
+    pub async fn ledger_tenants_for_session(
+        &self,
+        session_id: &str,
+        direction: &str,
+    ) -> Vec<String> {
+        const SQL: &str = "SELECT DISTINCT tenant_id FROM messaging_messages \
+             WHERE session_id = $1 AND direction = $2";
+        match self.resources.agent.database.as_ref() {
+            Database::SQLite(db) => sqlx::query_scalar(SQL)
+                .bind(session_id)
+                .bind(direction)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => sqlx::query_scalar(SQL)
+                .bind(session_id)
+                .bind(direction)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+        }
+    }
+
     /// Poll (≤30s) until `want` outbound ledger rows carry `needle`.
     pub async fn wait_outbound_containing(&self, needle: &str, want: i64) -> i64 {
         for _ in 0..1200 {
@@ -636,6 +703,21 @@ impl CommandE2e {
     }
 }
 
+/// A plain Telegram supergroup text message: the update every room send
+/// wraps in a signed webhook.
+fn group_message(sender: i64, chat_id: i64, message_id: i64, text: &str) -> Value {
+    json!({
+        "message_id": message_id,
+        "from": { "id": sender, "first_name": "Member" },
+        "chat": {
+            "id": chat_id,
+            "type": "supergroup",
+            "title": "Command E2e Group"
+        },
+        "text": text
+    })
+}
+
 impl RoomE2e {
     /// Bind a fresh supergroup: a system agent + a `CoachingGroup` pre-bound
     /// to `chat_id` under the bot tenant in `mode`, with `owner` enrolled.
@@ -646,25 +728,8 @@ impl RoomE2e {
         owner: &Member,
     ) -> Self {
         let agent = base
-            .resources
-            .common
-            .repos
-            .agents
-            .create_system_agent(
-                owner.user_id,
-                base.bot_tenant,
-                &CreateSystemAgentRequest {
-                    title: "Command E2e Coach".to_owned(),
-                    description: None,
-                    system_prompt: "You are a concise test coach.".to_owned(),
-                    category: AgentCategory::Training,
-                    tags: vec![],
-                    sample_prompts: vec![],
-                    visibility: AgentVisibility::Global,
-                },
-            )
-            .await
-            .unwrap();
+            .seed_coach_agent(owner.user_id, base.bot_tenant, "Command E2e Coach")
+            .await;
 
         let group_id = Uuid::new_v4();
         let now = Utc::now();
@@ -725,31 +790,35 @@ impl RoomE2e {
             .unwrap();
     }
 
-    fn group_message(&self, m: &Member, message_id: i64, text: &str) -> Value {
-        let sender: i64 = m.channel_user_id.parse().unwrap();
-        json!({
-            "message_id": message_id,
-            "from": { "id": sender, "first_name": "Member" },
-            "chat": {
-                "id": self.chat_id,
-                "type": "supergroup",
-                "title": "Command E2e Group"
-            },
-            "text": text
-        })
-    }
-
     /// An UNADDRESSED room message — plain supergroup text, no mention.
     pub async fn send_room(&self, m: &Member, text: &str) -> WebhookOutcome {
-        let message_id = self.base.update_id.fetch_add(1, Ordering::SeqCst);
-        self.base
-            .post_update(self.group_message(m, message_id, text))
+        self.send_room_from(m.channel_user_id.parse().unwrap(), text)
             .await
+    }
+
+    /// An UNADDRESSED room message from a raw channel sender id — the way
+    /// to speak as someone who holds no channel link.
+    pub async fn send_room_from(&self, sender: i64, text: &str) -> WebhookOutcome {
+        self.base.send_group_text(sender, self.chat_id, text).await
     }
 
     /// An ADDRESSED room message: `@bot_username text`.
     pub async fn send_room_addressed(&self, m: &Member, text: &str) -> WebhookOutcome {
         self.send_room(m, &format!("@{BOT_USERNAME} {text}")).await
+    }
+
+    /// An ADDRESSED room message of the other shape canot recognises: a
+    /// reply to one of the bot's own messages, no mention in the text.
+    pub async fn send_room_reply_to_bot(&self, m: &Member, text: &str) -> WebhookOutcome {
+        let sender: i64 = m.channel_user_id.parse().unwrap();
+        let message_id = self.base.update_id.fetch_add(1, Ordering::SeqCst);
+        let mut message = group_message(sender, self.chat_id, message_id, text);
+        message["reply_to_message"] = json!({
+            "message_id": message_id - 1,
+            "from": { "id": BOT_ID, "is_bot": true, "first_name": "Dravr" },
+            "text": "Solid week so far."
+        });
+        self.base.post_update(message).await
     }
 
     /// A slash command in the room. Slash commands bypass the ambient gate by

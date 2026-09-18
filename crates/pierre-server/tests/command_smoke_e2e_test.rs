@@ -1,5 +1,5 @@
 // ABOUTME: Catalog-driven e2e smoke — every slash command answers content over the real wire, DM and room
-// ABOUTME: Two lanes: DM (ledgered reply, zero LLM) and room (delivery matches the room-visibility contract)
+// ABOUTME: DM lane covers every spelling (aliases, case, spacing); room lane the room-visibility contract
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,6 +16,12 @@
 //! ledger — the record of what the athlete was told — and must never fall
 //! through to the LLM, and in a room its delivery must match the
 //! room-visibility contract the ingress enforces.
+//!
+//! The DM lane walks every SPELLING the catalog declares — the canonical
+//! command and each alias — and the normalisation probe walks the two the
+//! matcher accepts on top (`/HELP`, `/group   status`), so a channel that
+//! hands the text through untouched is proven on every input the athlete
+//! can type, not only the canonical one.
 //!
 //! Two load-bearing preconditions, uniform across the matrix:
 //!
@@ -46,14 +52,13 @@ mod command_smoke {
     use pierre_mcp_server::services::messaging_ingress::slash_reply_should_be_private;
     use serial_test::serial;
     use std::env;
+    use std::iter::once;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
 
     const ROOM_CHAT_BASE: i64 = -100_822_000;
 
-    #[tokio::test(flavor = "multi_thread")]
-    #[serial]
-    async fn every_command_answers_ledgered_content_in_a_dm_without_an_llm() {
+    async fn start() -> Arc<CommandE2e> {
         env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
         let llm = RouterLlm::new();
         let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
@@ -61,6 +66,52 @@ mod command_smoke {
             .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&["OK."]);
+        e2e
+    }
+
+    /// The DM contract for one spelling of a command: a fresh member primed
+    /// with `/status`, then `text` — recognized as a command, answered with a
+    /// real, non-empty ledger row, and never reaching the LLM.
+    async fn assert_dm_answers_ledgered_content(e2e: &CommandE2e, text: &str) {
+        let member = e2e.linked_member(false).await;
+
+        // Prime: forge the session and the baseline ledger row.
+        let prime = e2e.send_dm(&member, "/status").await;
+        assert_eq!(
+            prime.messages_stored(),
+            0,
+            "the /status prime must dispatch as a command"
+        );
+        let session = e2e
+            .session_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the prime must forge a DM session");
+        let baseline = e2e.wait_outbound_for_session(&session, 1).await;
+
+        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
+        let ack = e2e.send_dm(&member, text).await;
+        assert_eq!(
+            ack.messages_stored(),
+            0,
+            "`{text}` was not recognized as a command in a DM"
+        );
+
+        // The reply is real, non-empty, and on the ledger.
+        e2e.wait_outbound_for_session(&session, baseline + 1).await;
+
+        // Slash replies are deterministic: a command that fell through to
+        // the LLM is a routing regression, not a slower answer.
+        assert_eq!(
+            e2e.llm.turn_calls.load(Ordering::SeqCst),
+            turns_before,
+            "`{text}` must not reach the LLM in a DM"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn every_command_spelling_answers_ledgered_content_in_a_dm_without_an_llm() {
+        let e2e = start().await;
 
         let definitions = load_command_catalog(&commands_dir()).definitions;
         assert!(
@@ -68,62 +119,49 @@ mod command_smoke {
             "no command definitions loaded — the matrix would pass vacuously"
         );
 
+        // Every spelling gets its own member: a command mutates the very
+        // state the lane observes (`/logout` severs the link its `/unlink`
+        // alias would then need), so spellings cannot share one.
         let mut checked = 0_usize;
         for def in &definitions {
-            let member = e2e.linked_member(false).await;
-
-            // Prime: forge the session and the baseline ledger row.
-            let prime = e2e.send_dm(&member, "/status").await;
-            assert_eq!(
-                prime.messages_stored(),
-                0,
-                "the /status prime must dispatch as a command"
-            );
-            let session = e2e
-                .session_id(&member, member.home_tenant, &member.channel_user_id)
-                .await
-                .expect("the prime must forge a DM session");
-            let baseline = e2e.wait_outbound_for_session(&session, 1).await;
-
-            let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
-            let ack = e2e.send_dm(&member, &def.command).await;
-            assert_eq!(
-                ack.messages_stored(),
-                0,
-                "`{}` was not recognized as a command in a DM",
-                def.command
-            );
-
-            // The reply is real, non-empty, and on the ledger.
-            e2e.wait_outbound_for_session(&session, baseline + 1).await;
-
-            // Slash replies are deterministic: a command that fell through to
-            // the LLM is a routing regression, not a slower answer.
-            assert_eq!(
-                e2e.llm.turn_calls.load(Ordering::SeqCst),
-                turns_before,
-                "`{}` must not reach the LLM in a DM",
-                def.command
-            );
-            checked += 1;
+            for spelling in once(&def.command).chain(&def.aliases) {
+                assert_dm_answers_ledgered_content(&e2e, spelling).await;
+                checked += 1;
+            }
         }
-        assert_eq!(
-            checked,
-            definitions.len(),
-            "every definition must be checked"
+        assert!(
+            checked > definitions.len(),
+            "the catalog declares aliases — a matrix without them is not the full one"
         );
+    }
+
+    /// The matcher's own normalisation, proven on the wire with content:
+    /// the key is matched case-insensitively (`/HELP`), and a run of spaces
+    /// after a command still separates its argument (`/group   status`
+    /// reaches `/group` with `status` as its argument, and is answered).
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn recognition_survives_upper_case_and_extra_spaces() {
+        let e2e = start().await;
+
+        let definitions = load_command_catalog(&commands_dir()).definitions;
+        let help = definitions
+            .iter()
+            .find(|d| d.name == "help")
+            .expect("the catalog declares /help");
+        let group_status = definitions
+            .iter()
+            .find(|d| d.name == "group-status")
+            .expect("the catalog declares /group status");
+
+        assert_dm_answers_ledgered_content(&e2e, &help.command.to_uppercase()).await;
+        assert_dm_answers_ledgered_content(&e2e, &group_status.command.replace(' ', "   ")).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn every_command_honours_the_room_visibility_contract() {
-        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
-        let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
-        let e2e = CommandE2e::start(resources, llm).await;
-        e2e.llm.set_turn_replies(&["OK."]);
+        let e2e = start().await;
 
         let definitions = load_command_catalog(&commands_dir()).definitions;
         assert!(
