@@ -238,7 +238,7 @@ Adding a service for any of the extractable modules is: ship a thin binary that 
 
 ### Hot-reloadable prompts
 
-System prompts and agent personas don't ship in the binary. They live in [`dravr-contremaitre`](https://github.com/dravr-ai/dravr-contremaitre) under `prompts/coaches/<category>/<slug>/<locale>.md`, and the server hot-reloads them on startup and on webhook from the contremaitre repo. Editing an agent prompt is a content change, not a deploy.
+System prompts and agent personas don't ship in the binary. They live in [`dravr-contremaitre`](https://github.com/dravr-ai/dravr-contremaitre) under `prompts/agents/<category>/<slug>/<locale>.md`, and the server hot-reloads them on startup and on webhook from the contremaitre repo. Editing an agent prompt is a content change, not a deploy.
 
 ### Streaming via AG-UI
 

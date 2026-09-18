@@ -13,7 +13,7 @@ cleanup_policy_dry_run = false
 # versions of each package — it bounds how fast the age rule can reach the head
 # of a package, but it says nothing about which digest is deployed, which is why
 # the deployed-<env> tag carries that guarantee instead (applied by
-# publish-images.yml, enforme-bump.yml and photograveur-bump.yml). The stale
+# publish-images.yml and the satellite-bump.yml spine). The stale
 # window is the lever that actually prunes superseded SHA-tagged CI builds.
 #
 # These values MIRROR THE LIVE REPOSITORY as verified 2026-08-31, rather than

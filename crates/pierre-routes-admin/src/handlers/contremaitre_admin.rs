@@ -405,7 +405,7 @@ async fn handle_promote_agent(
         .agents
         .get_system_agent_any_tenant(&agent_id)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("Coach {agent_id}")))?;
+        .ok_or_else(|| AppError::not_found(format!("Agent {agent_id}")))?;
 
     // Build markdown content from agent fields
     let markdown = build_agent_markdown(&agent);
@@ -419,8 +419,8 @@ async fn handle_promote_agent(
         .replace(' ', "-")
         .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
     let category = agent.category.as_str().to_lowercase();
-    let path = format!("prompts/coaches/{category}/{slug}/en.md");
-    let message = format!("Promote coach: {}", agent.title);
+    let path = format!("prompts/agents/{category}/{slug}/en.md");
+    let message = format!("Promote agent: {}", agent.title);
 
     // Commit to GitHub (create new file)
     let client = config.github_client();
@@ -430,12 +430,12 @@ async fn handle_promote_agent(
                 agent_id,
                 path,
                 commit_sha = sha,
-                "Coach promoted to contremaitre"
+                "Agent promoted to contremaitre"
             );
             Some(sha)
         }
         Err(e) => {
-            warn!(agent_id, error = %e, "Failed to promote coach to contremaitre");
+            warn!(agent_id, error = %e, "Failed to promote agent to contremaitre");
             return Err(AppError::new(
                 ErrorCode::ExternalServiceError,
                 format!("Failed to commit to GitHub: {e}"),

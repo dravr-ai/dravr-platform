@@ -12,8 +12,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { X, ExternalLink } from 'lucide-react-native';
-import { useThemeColors } from '../../constants/theme';
+import { useTheme, useThemeColors } from '../../constants/theme';
 import {
+  NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   formatNotificationTime,
 } from '../../../../packages/shared-constants/src/notifications';
@@ -38,6 +39,7 @@ export function NotificationDetailModal({
 }: NotificationDetailModalProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
+  const { scheme } = useTheme();
   const modalShadow: ViewStyle = {
     shadowColor: colors.text.primary,
     shadowOffset: { width: 0, height: 8 },
@@ -49,6 +51,7 @@ export function NotificationDetailModal({
   if (!notification) return null;
 
   const meta = NOTIFICATION_CATEGORY_META[notification.category];
+  const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][notification.category];
   // Show the generic "View Details" deep-link only when the payload resolves
   // to a screen AND there's no more specific action button (a coach "Reply"
   // already routes to the thread, so a second button would be redundant).
@@ -77,9 +80,9 @@ export function NotificationDetailModal({
             <View className="flex-row items-center">
               <View
                 className="w-2.5 h-2.5 rounded-full mr-2"
-                style={{ backgroundColor: meta.color }}
+                style={{ backgroundColor: categoryColor }}
               />
-              <Text className="text-xs font-semibold" style={{ color: meta.color }}>
+              <Text className="text-xs font-semibold" style={{ color: categoryColor }}>
                 {t(meta.labelKey)}
               </Text>
             </View>

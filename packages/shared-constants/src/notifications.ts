@@ -1,6 +1,7 @@
 // ABOUTME: Shared notification constants and utilities for web and mobile
-// ABOUTME: Category metadata (colors, labels, icon names), time formatting, preference merging
+// ABOUTME: Category metadata (scheme-aware hues, labels, icon names), time formatting, preference merging
 
+import type { ColorScheme } from './design-system';
 import type {
   NotificationCategory,
   NotificationPreferenceItem,
@@ -12,14 +13,14 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 
 /** Category display metadata shared across all frontends */
 export interface NotificationCategoryMeta {
-  /** Human-readable label */
   /** Corpus key for the category name; the client resolves it. */
   labelKey: string;
-  /** Hex color for the category badge/dot */
-  color: string;
   /** Lucide icon name (both web and mobile use lucide) */
   iconName: string;
 }
+
+/** One hex per category, for one scheme. */
+export type NotificationCategoryColors = Record<NotificationCategory, string>;
 
 /**
  * Canonical category metadata for notification rendering.
@@ -28,24 +29,59 @@ export interface NotificationCategoryMeta {
  * reminders) are their own taxonomy, not the four fitness pillars
  * (activity/nutrition/recovery/mobility) — `training` and `recovery` share a
  * name with a pillar but not a source: three of the seven categories here
- * (coach, achievement, ai, reminders) have no pillar equivalent at all, and
- * `PILLAR_COLORS` is scheme-aware (a light and a dark half) while every hex
- * below is one flat value used as-is in both themes. These are this
- * taxonomy's own swatches, chosen to read on the app's `surface` in either
- * scheme — not pulled from `PILLAR_COLORS`, and not meant to be.
+ * (coach, achievement, ai, reminders) have no pillar equivalent at all. These
+ * are this taxonomy's own swatches — not pulled from `PILLAR_COLORS`, and not
+ * meant to be — but they follow its scheme-paired shape, for the reason that
+ * shape exists.
  */
 // `labelKey` rather than `label`: this metadata is shared with mobile and
 // rendered on an athlete screen, so the words come from the corpus. They
 // shipped as English strings here, which is why no scan of the frontend
 // components ever saw them.
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
-  training: { labelKey: 'notifPrefs.catTraining', color: '#3c6658', iconName: 'dumbbell' },     // deep sage
-  recovery: { labelKey: 'notifPrefs.catRecovery', color: '#5e7a82', iconName: 'heart' },        // muted slate
-  coach: { labelKey: 'notifPrefs.catAgent', color: '#00241a', iconName: 'message-circle' },     // near-black forest green
-  achievement: { labelKey: 'notifPrefs.catAchievement', color: '#8f6a2e', iconName: 'trophy' }, // warm bronze
-  system: { labelKey: 'notifPrefs.catSystem', color: '#717974', iconName: 'settings' },          // neutral grey
-  ai: { labelKey: 'notifPrefs.catAi', color: '#0d3b2e', iconName: 'brain' },           // dark forest green
-  reminders: { labelKey: 'notifPrefs.catReminders', color: '#7a4d5e', iconName: 'clock' },      // aged rose
+  training: { labelKey: 'notifPrefs.catTraining', iconName: 'dumbbell' },
+  recovery: { labelKey: 'notifPrefs.catRecovery', iconName: 'heart' },
+  coach: { labelKey: 'notifPrefs.catAgent', iconName: 'message-circle' },
+  achievement: { labelKey: 'notifPrefs.catAchievement', iconName: 'trophy' },
+  system: { labelKey: 'notifPrefs.catSystem', iconName: 'settings' },
+  ai: { labelKey: 'notifPrefs.catAi', iconName: 'brain' },
+  reminders: { labelKey: 'notifPrefs.catReminders', iconName: 'clock' },
+} as const;
+
+/**
+ * The category hues, per scheme.
+ *
+ * These began as one flat hex per category, described as "chosen to read on
+ * the app's `surface` in either scheme". That held while the only consumer was
+ * the web panel's 8px dot. Mobile then painted the category *word* in the same
+ * hex, and on the dark canvas (`#11130f`) the near-black forest greens landed
+ * at 1.13:1 (coach) and 1.50:1 (ai) — the label was the canvas. Every value
+ * here now clears 4.5:1 against its own scheme's surface; `recovery` and
+ * `system` moved on the light side too, where they sat at 4.34 and 4.25.
+ *
+ * Paired like `PILLARS` and read the same way: index by the athlete's scheme
+ * rather than reaching for one half, because a consumer that takes one and
+ * hard-codes the other is how a palette drifts.
+ */
+export const NOTIFICATION_CATEGORY_COLORS: Record<ColorScheme, NotificationCategoryColors> = {
+  light: {
+    training: '#3c6658',    // deep sage
+    recovery: '#4e6c74',    // muted slate
+    coach: '#00241a',       // near-black forest green
+    achievement: '#896429', // warm bronze
+    system: '#5f6762',      // neutral grey
+    ai: '#0d3b2e',          // dark forest green
+    reminders: '#7a4d5e',   // aged rose
+  },
+  dark: {
+    training: '#7fae9b',    // deep sage, lifted for dark surfaces
+    recovery: '#8fb3bc',    // muted slate, lifted
+    coach: '#5cc9a3',       // forest green, lifted
+    achievement: '#d4a95e', // warm bronze, lifted
+    system: '#a6aea8',      // neutral grey, lifted
+    ai: '#48b391',          // dark forest green, lifted
+    reminders: '#c896a6',   // aged rose, lifted
+  },
 } as const;
 
 /** All notification categories in display order */

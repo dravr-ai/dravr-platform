@@ -356,13 +356,21 @@ pub const AGENT_INSTALL_COUNT_RESYNC: &str = "UPDATE store_listings SET install_
 
 /// One `UPDATE` per athlete-side pointer that names the agent by *slug*.
 ///
-/// These three predate the id-keyed pointers and none of them carries a
-/// foreign key, so a retired slug leaves them pointing at a name the
-/// catalogue no longer knows: the athlete's learned playbooks, the advice
-/// waiting to be delivered, and the training plan that was built for them.
-/// `$1` is the successor's slug, `$2` the retired one.
-pub const AGENT_SLUG_REWRITES: [&str; 3] = [
+/// These predate the id-keyed pointers and none of them carries a foreign
+/// key, so a retired slug leaves them pointing at a name the catalogue no
+/// longer knows: the athlete's learned playbooks, the advice waiting to be
+/// delivered, the training plan that was built for them, and the workouts
+/// already pushed to their calendar. `$1` is the successor's slug, `$2` the
+/// retired one.
+///
+/// `prescribed_workouts.agent_id` is spelled `agent_id` but holds a slug:
+/// both writers pass one (`plan_calendar_push` the plan's `agent_slug`,
+/// `endurance_workouts` the turn's resolved slug) into a `TEXT` column. It
+/// belongs here rather than with the id-keyed rewrites, where `$2` is a
+/// `Uuid` and would match nothing.
+pub const AGENT_SLUG_REWRITES: [&str; 4] = [
     "UPDATE coaching_playbooks SET agent_slug = $1 WHERE agent_slug = $2",
     "UPDATE pending_advice SET agent_slug = $1 WHERE agent_slug = $2",
     "UPDATE training_plans SET agent_slug = $1 WHERE agent_slug = $2",
+    "UPDATE prescribed_workouts SET agent_id = $1 WHERE agent_id = $2",
 ];

@@ -15,9 +15,10 @@
 # moved this pin, while check-satellite-drift.sh's lane table claimed
 # "tronc-bump.yml (lockstep)" owned it and suppressed its drift on that basis.
 #
-# This lane is what actually moves it. dravr-stripe pins dravr-tronc in its own root,
-# so a stripe release that moved tronc will split the lockfile here — the spine stands
-# down on that and names tronc's lane, which is the correct outcome rather than a
+# This lane is what actually moves it. dravr-stripe carried a dravr-tronc pin in its
+# own root until v0.1.15; while it did, a stripe release that moved tronc would split
+# the lockfile here — the spine stands down on that and names tronc's lane, which is
+# the correct outcome rather than a
 # branch that can never merge.
 #
 # Shipping is not optional and not automatic. publish-images.yml deploys the platform

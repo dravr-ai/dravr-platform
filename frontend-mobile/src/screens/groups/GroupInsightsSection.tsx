@@ -75,7 +75,7 @@ export function GroupInsightsSection({
   if (!weeklyDigestEnabled) {
     return (
       <View className="mt-4" testID="group-insights-tier-locked">
-        <Text className="text-text-primary text-sm font-semibold">{t('app.weeklyReport')}</Text>
+        <Text className="text-text-primary text-sm font-semibold">{t('groups.weeklyReport')}</Text>
         <Text className="text-text-tertiary text-xs mt-1">
           {t('app.weeklyReportGated')}
         </Text>

@@ -46,11 +46,7 @@
 
 use serde::Serialize;
 
-/// How far ahead the rail writes, in weeks.
-///
-/// The same fortnight the plan card shows and the prompt block renders: what
-/// the athlete acts on, rather than a season they cannot yet judge.
-pub const FORTNIGHT_WEEKS: usize = 2;
+use crate::training_plan_render::ACTIVE_WEEKS;
 
 /// Whether a guided interview owns this conversation.
 ///
@@ -193,6 +189,6 @@ pub fn decide_fortnight(walk: WalkReading, inputs: Option<&FortnightInputs>) -> 
         };
     }
     FortnightVerdict::Write {
-        weeks: FORTNIGHT_WEEKS,
+        weeks: ACTIVE_WEEKS,
     }
 }

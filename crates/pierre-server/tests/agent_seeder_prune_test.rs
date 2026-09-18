@@ -1,5 +1,5 @@
 // ABOUTME: The agent seeder deletes catalogue-owned agents whose markdown directory is gone
-// ABOUTME: A merged agent hands its conversations, groups, installs and slug-keyed plans to its successor
+// ABOUTME: A merged agent hands its conversations, groups, installs, plans and pushed workouts over
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,9 +14,10 @@ use std::path::Path;
 
 use chrono::Utc;
 use pierre_core::models::groups::GroupRespondMode;
+use pierre_core::models::workout_template::{CalendarEventSource, PrescribedWorkout};
 use pierre_core::models::{
     AgentCategory, AgentVisibility, CoachingGroup, CreateAgentRequest, CreateSystemAgentRequest,
-    TenantId,
+    SportType, TenantId,
 };
 use pierre_database::repositories::training_plans::{PlanOwner, SaveTrainingPlanParams};
 use pierre_database::RepositoryRegistry;
@@ -456,6 +457,90 @@ async fn a_merged_agent_hands_its_conversation_and_group_to_its_successor() {
         group_agent(&repos, group, tenant).await,
         kept,
         "the group continues with the successor"
+    );
+}
+
+/// A workout this agent already pushed to the athlete's calendar.
+///
+/// `prescribed_workouts.agent_id` is spelled like an id and holds a slug —
+/// both production writers pass one — so the hand-over reaches it through the
+/// slug rewrites, not the id-keyed ones.
+async fn workout_pushed_by(
+    repos: &RepositoryRegistry,
+    user: Uuid,
+    tenant: TenantId,
+    slug: &str,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    repos
+        .prescribed_workouts
+        .upsert_prescribed_workout(&PrescribedWorkout {
+            id,
+            tenant_id: tenant.as_uuid(),
+            user_id: user,
+            agent_id: Some(slug.to_owned()),
+            template_slug: Some("tempo-45".to_owned()),
+            sport: SportType::Run,
+            prescribed_for_date: Utc::now().date_naive(),
+            provider: "intervals_icu".to_owned(),
+            provider_event_id: Some("evt-1".to_owned()),
+            external_id: Some("dravr-1".to_owned()),
+            source: CalendarEventSource::Prescription,
+            plan_week_id: None,
+            replaces_id: None,
+            payload_hash: Some("hash-1".to_owned()),
+            payload_json: "{}".to_owned(),
+            status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    id
+}
+
+/// The agent named on a pushed workout, as the ledger carries it.
+async fn workout_agent(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user: Uuid,
+    id: Uuid,
+) -> Option<String> {
+    repos
+        .prescribed_workouts
+        .get_prescribed_workout(tenant, user, id)
+        .await
+        .unwrap()
+        .and_then(|row| row.agent_id)
+}
+
+#[tokio::test]
+async fn a_merged_agent_hands_the_workouts_it_pushed_to_its_successor() {
+    let (repos, admin, tenant) = seeded_repos().await;
+    let checkout = TempDir::new().unwrap();
+    write_agent(checkout.path(), KEPT, None);
+    write_agent(checkout.path(), RETIRED, None);
+    assert!(seed(&repos, checkout.path(), false).await);
+    let pushed = workout_pushed_by(&repos, admin, tenant, RETIRED).await;
+    assert_eq!(
+        workout_agent(&repos, tenant, admin, pushed)
+            .await
+            .as_deref(),
+        Some(RETIRED),
+        "the fixture is written against the agent about to retire"
+    );
+
+    write_agent(checkout.path(), KEPT, Some(RETIRED));
+    remove_agent(checkout.path(), RETIRED);
+    assert!(seed(&repos, checkout.path(), false).await);
+
+    assert_eq!(
+        workout_agent(&repos, tenant, admin, pushed)
+            .await
+            .as_deref(),
+        Some(KEPT),
+        "the workout on the athlete's calendar names the successor, not a slug \
+         the catalogue no longer knows"
     );
 }
 

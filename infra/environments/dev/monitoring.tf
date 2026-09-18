@@ -184,19 +184,17 @@ resource "google_logging_metric" "oauth_launches_abandoned" {
 
   description = "Counts sweeper passes that found at least one OAuth launch expired without ever completing — a redirect went out to the provider and no callback ever came back. Each log line is one sweep, carrying how many launches it reaped and the per-provider breakdown. Added 2026-09-11 after the 2026-09-10 outage where connecting Strava returned a blank popup: the authorize URL was valid and answered 200, the flow never returned, and nothing we measured could see it."
 
-  # Matched on the marker substring alone, deliberately. The two sibling metrics
-  # in this directory also pin `labels."rust.target"`, which is tighter — but the
-  # sweeper is landing in a parallel change and guessing its module path would
-  # produce a filter that matches nothing while looking perfectly healthy. The
-  # marker is unambiguous enough to stand on its own; tighten it once the
-  # emitting module is real.
+  # Pinned to the emitting module like the two sibling metrics in this
+  # directory, so a marker substring logged from anywhere else cannot read as
+  # an OAuth outage.
   #
-  # Severity is not pinned either, following the identity-leak metric: the
+  # Severity is deliberately not pinned, following the identity-leak metric: the
   # message is definitive, and a metric that keeps counting after someone
   # re-levels the log line is worth more than one that silently stops.
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"
+    labels."rust.target"="pierre_services::oauth_launch_sweeper"
     jsonPayload.message=~"oauth launches expired without completing"
   EOT
 

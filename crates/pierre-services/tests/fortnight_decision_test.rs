@@ -9,8 +9,9 @@
 
 use pierre_services::fortnight::{
     decide_fortnight, CoverageReading, DeclineReason, FortnightInputs, FortnightVerdict,
-    ReadinessReading, WalkReading, FORTNIGHT_WEEKS,
+    ReadinessReading, WalkReading,
 };
+use pierre_services::training_plan_render::ACTIVE_WEEKS;
 
 /// Every case below is an athlete with nothing else running; the walk arm has
 /// its own tests, because it is the one reading that comes from the
@@ -34,7 +35,7 @@ fn a_plan_running_out_with_an_open_ladder_is_written() {
     assert_eq!(
         decide_fortnight(idle(), Some(&ready_to_write())),
         FortnightVerdict::Write {
-            weeks: FORTNIGHT_WEEKS
+            weeks: ACTIVE_WEEKS
         }
     );
 }
@@ -108,7 +109,7 @@ fn an_athlete_with_no_ladder_is_not_treated_as_blocked() {
     assert_eq!(
         decide_fortnight(idle(), Some(&inputs)),
         FortnightVerdict::Write {
-            weeks: FORTNIGHT_WEEKS
+            weeks: ACTIVE_WEEKS
         }
     );
 }

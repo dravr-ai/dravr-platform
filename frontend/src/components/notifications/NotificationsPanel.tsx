@@ -13,6 +13,7 @@ import {
   useNotificationActions,
 } from '../../hooks/useNotifications';
 import {
+  NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
   formatNotificationTime,
@@ -172,9 +173,15 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                     />
                   )}
 
-                  {/* Category — its pillar as a dot beside the word, never a coloured chip */}
+                  {/* Category — its pillar as a dot beside the word, never a coloured chip.
+                      The light half by name: this panel renders on a light surface,
+                      and the word beside the dot takes its ink from the theme. */}
                   <div className="inline-flex flex-shrink-0 items-center gap-1.5 pt-0.5 text-xs text-on-surface-variant whitespace-nowrap">
-                    <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ backgroundColor: meta.color }} />
+                    <span
+                      aria-hidden="true"
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: NOTIFICATION_CATEGORY_COLORS.light[item.category] }}
+                    />
                     {t(meta.labelKey)}
                   </div>
 

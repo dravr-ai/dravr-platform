@@ -3,12 +3,13 @@
 
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { useThemeColors } from '../../constants/theme';
+import { useTheme, useThemeColors } from '../../constants/theme';
 // Relative import for Jest/Metro compatibility — `@pierre/shared-constants`
 // has no jest moduleNameMapper entry, unlike its `@pierre/*` siblings.
 import {
   formatCollapsedCount,
   formatNotificationTime,
+  NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem } from '@pierre/shared-types';
@@ -30,9 +31,13 @@ export interface NotificationRowProps {
  */
 export function NotificationRow({ item, onPress, onLongPress }: NotificationRowProps) {
   const colors = useThemeColors();
+  const { scheme } = useTheme();
   const { t } = useTranslation();
   const isUnread = !item.read_at;
   const meta = NOTIFICATION_CATEGORY_META[item.category];
+  // The word is text, not the web panel's 8px dot, so it takes the hue for
+  // the athlete's own scheme.
+  const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][item.category];
   const collapsedLabel = formatCollapsedCount(item.collapsed_count);
 
   return (
@@ -65,7 +70,7 @@ export function NotificationRow({ item, onPress, onLongPress }: NotificationRowP
           <View className="flex-row items-baseline flex-shrink" style={{ gap: 6, minWidth: 0 }}>
             <Text
               className="text-sm font-medium"
-              style={{ color: meta.color }}
+              style={{ color: categoryColor }}
               testID="notification-category"
             >
               {t(meta.labelKey)}

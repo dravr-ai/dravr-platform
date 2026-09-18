@@ -32,8 +32,7 @@ use pierre_core::models::{
 };
 use pierre_memory::{FactSource, UserFact};
 use pierre_services::athlete_clock::athlete_today;
-use pierre_services::fortnight::FORTNIGHT_WEEKS;
-use pierre_services::training_plan_render::select_active_weeks;
+use pierre_services::training_plan_render::fortnight_is_covered;
 
 use super::onboarding::{calibration_conditions, season_conditions};
 use crate::ChatPipelineContext;
@@ -336,10 +335,7 @@ pub async fn render_fortnight(
                     tracing::warn!(error = %e, "fortnight wrap-up could not read the plan weeks");
                     Vec::new()
                 });
-            select_active_weeks(&weeks, today, FORTNIGHT_WEEKS)
-                .weeks
-                .len()
-                >= FORTNIGHT_WEEKS
+            fortnight_is_covered(&weeks, today)
         }
         Ok(None) => false,
         Err(e) => {

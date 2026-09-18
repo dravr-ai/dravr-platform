@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NOTIFICATION_CATEGORIES } from '@pierre/shared-constants';
 import type { NotificationPreferenceItem } from '@pierre/shared-types';
 import NotificationSettingsTab from '../NotificationSettingsTab';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 const getPreferences = vi.fn();
 const updatePreference = vi.fn();
@@ -41,9 +42,11 @@ function renderTab() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={client}>
-      <NotificationSettingsTab />
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={client}>
+        <NotificationSettingsTab />
+      </QueryClientProvider>
+    </ThemeProvider>,
   );
 }
 

@@ -71,12 +71,11 @@ pub enum GuidedFlow {
     Season,
     /// The fortnight rail — the next two weeks of an existing plan.
     ///
-    /// The odd one out: it is never *active*. Its platform half — read the
-    /// plan, decide whether two weeks can be written — happens inside the
-    /// `/fortnight` handler and is over before the athlete reads the reply,
-    /// so the command writes the marker already retired. The variant exists
-    /// to name which brief the next turn carries, which is the only thing a
-    /// retired marker is ever asked.
+    /// The odd one out in *where* its work happens: the platform half — read
+    /// the plan, decide whether two weeks can be written — is over inside the
+    /// `/fortnight` handler, before the athlete reads the reply. The marker is
+    /// still written ACTIVE, because the athlete negotiates the weeks after
+    /// they are drafted, and it is cleared once the rail's turns are spent.
     Fortnight,
 }
 

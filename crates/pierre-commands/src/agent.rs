@@ -430,11 +430,11 @@ impl CommandHandler for AgentAssignHandler {
         let agent_id = ctx
             .args
             .first()
-            .ok_or_else(|| AppError::invalid_input("Usage: /agent assign <coach_id> <group_id>"))?;
+            .ok_or_else(|| AppError::invalid_input("Usage: /agent assign <agent_id> <group_id>"))?;
         let group_id = ctx
             .args
             .get(1)
-            .ok_or_else(|| AppError::invalid_input("Usage: /agent assign <coach_id> <group_id>"))?;
+            .ok_or_else(|| AppError::invalid_input("Usage: /agent assign <agent_id> <group_id>"))?;
 
         // Validate both IDs are valid UUIDs
         let _ = parse_uuid(agent_id)?;

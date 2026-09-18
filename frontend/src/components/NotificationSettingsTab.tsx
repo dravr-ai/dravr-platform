@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
   mergeNotificationPreferences,
@@ -14,6 +15,7 @@ import {
 import type { NotificationCategory } from '@pierre/shared-types';
 import { Section, Select } from './ui';
 import { useNotificationPreferences } from '../hooks/useNotifications';
+import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
 
 /**
@@ -85,6 +87,9 @@ function capLabel(choice: number | null, t: (key: string, opts?: Record<string, 
  */
 export default function NotificationSettingsTab() {
   const { t } = useTranslation();
+  // The dot takes the hue paired with the athlete's scheme: the map is total,
+  // so a category never falls back to the text ink.
+  const { scheme } = useTheme();
   const { preferences, isLoading, isError, updatePreference, isUpdating } =
     useNotificationPreferences();
   const [expanded, setExpanded] = useState<NotificationCategory | null>(null);
@@ -128,7 +133,7 @@ export default function NotificationSettingsTab() {
                   <div className="flex items-center gap-3 mb-1">
                     <span
                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: meta?.color ?? 'currentColor' }}
+                      style={{ backgroundColor: NOTIFICATION_CATEGORY_COLORS[scheme][pref.category] }}
                       aria-hidden="true"
                     />
                     <h3 className="text-sm font-medium text-on-surface">

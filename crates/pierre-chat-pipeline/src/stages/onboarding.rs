@@ -337,8 +337,8 @@ fn next_target(state: &OnboardingState, dossier: &Dossier) -> Option<GuidedTarge
         )
         .map(GuidedTarget::Season),
         // Unreachable: `resolve` returns before this for an intake, precisely so
-        // that `None` here is never read as "the walk is finished", and a
-        // fortnight marker is never active so no turn resolves against it.
+        // that `None` here is never read as "the walk is finished", and the
+        // fortnight arm above returns before any turn reaches here.
         // Kept exhaustive rather than wildcarded so a fourth platform-driven
         // flow has to make the same decision deliberately.
         GuidedFlow::Intake | GuidedFlow::Fortnight => None,

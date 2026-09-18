@@ -17,9 +17,9 @@ use pierre_messaging::commands::CommandResponse;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::fortnight::{
     decide_fortnight, CoverageReading, DeclineReason, FortnightInputs, FortnightVerdict,
-    WalkReading, FORTNIGHT_WEEKS,
+    WalkReading,
 };
-use pierre_services::training_plan_render::{resolve_plan_agent_slug, select_active_weeks};
+use pierre_services::training_plan_render::{fortnight_is_covered, resolve_plan_agent_slug};
 use tracing::{info, warn};
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -39,7 +39,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// refuses nothing on that ground rather than treating an unread ladder as
 /// consent.
 ///
-/// The go-ahead is not the end of the rail. It leaves a retired
+/// The go-ahead is not the end of the rail. It leaves an ACTIVE
 /// [`GuidedFlow::Fortnight`] marker on the conversation, and the turn after it
 /// carries the brief that names the gather, the two weeks and the save — the
 /// only thing that makes the reply's promise true. It is written before the
@@ -127,11 +127,7 @@ impl CommandHandler for FortnightHandler {
                     // already written: the same selection the card and the
                     // prompt block make, so all three agree about which two
                     // weeks "the fortnight" is.
-                    coverage: if select_active_weeks(&weeks, today, FORTNIGHT_WEEKS)
-                        .weeks
-                        .len()
-                        >= FORTNIGHT_WEEKS
-                    {
+                    coverage: if fortnight_is_covered(&weeks, today) {
                         CoverageReading::Covered
                     } else {
                         CoverageReading::RunningOut

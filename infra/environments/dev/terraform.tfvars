@@ -124,7 +124,7 @@ enable_photograveur_service = true
 # resolved in-process and never touches this service.
 backend_photograveur = true
 
-# The moving tag, matching sciotte, because photograveur-bump.yml now owns when it
+# The moving tag, matching sciotte, because bump-photograveur.yml now owns when it
 # moves: the image is built and :latest advanced only after main has merged the
 # matching pin, and the deploy asserts the serving digest is the one it built and
 # scanned. Terraform sets this at creation and then ignores it (the cloud_run module

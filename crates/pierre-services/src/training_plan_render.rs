@@ -83,6 +83,17 @@ impl SelectedWeek<'_> {
     }
 }
 
+/// Whether the athlete's fortnight is already written.
+///
+/// The `/fortnight` rail's go-ahead and its wrap-up re-check both ask this,
+/// and both used to spell it as `select_active_weeks(..).weeks.len() >= N`
+/// against their own copy of N. Two spellings of one question is how "already
+/// covered" stops agreeing with the fortnight the card shows.
+#[must_use]
+pub fn fortnight_is_covered(weeks: &[PlanWeek], today: NaiveDate) -> bool {
+    select_active_weeks(weeks, today, ACTIVE_WEEKS).weeks.len() >= ACTIVE_WEEKS
+}
+
 /// Which stored weeks are still live, and how many were held back.
 pub struct WeekSelection<'a> {
     /// The selected weeks in calendar order, at most `limit` of them.

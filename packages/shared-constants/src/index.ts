@@ -48,6 +48,7 @@ export type { DesignSystem, BorealTokens, ColorScheme } from './design-system';
 
 // Notification constants (category metadata, time formatting)
 export {
+  NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
@@ -58,7 +59,7 @@ export {
   formatCollapsedCount,
 } from './notifications';
 
-export type { NotificationCategoryMeta } from './notifications';
+export type { NotificationCategoryColors, NotificationCategoryMeta } from './notifications';
 
 // Slash-command palette matching (one rule for both composers), and the
 // command drafts every client affordance hands to the composer

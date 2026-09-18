@@ -9,7 +9,10 @@ import { ActionSheetIOS, Alert } from 'react-native';
 import { render, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { dayLabelFor } from '@pierre/chat-utils';
-import { NOTIFICATION_CATEGORY_META } from '@pierre/shared-constants';
+import {
+  NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CATEGORY_COLORS,
+} from '@pierre/shared-constants';
 import type { NotificationItem } from '@pierre/shared-types';
 
 jest.mock('expo-router', () =>
@@ -137,16 +140,50 @@ describe('NotificationCenterScreen', () => {
     const recoveryLabel = within(getByTestId('notification-row-n-recovery')).getByTestId(
       'notification-category',
     );
-    expect(trainingLabel.props.style).toEqual(
-      expect.objectContaining({ color: NOTIFICATION_CATEGORY_META.training.color }),
+    // Scheme-agnostic on purpose: the row takes its hue from the athlete's
+    // active scheme, so the assertion is that both words come from the SAME
+    // scheme's map and are different hues within it — not that either matches
+    // one half the harness happens to render.
+    const trainingColor = (trainingLabel.props.style as { color: string }).color;
+    const recoveryColor = (recoveryLabel.props.style as { color: string }).color;
+    const scheme = (['light', 'dark'] as const).find(
+      (candidate) => NOTIFICATION_CATEGORY_COLORS[candidate].training === trainingColor,
     );
-    expect(recoveryLabel.props.style).toEqual(
-      expect.objectContaining({ color: NOTIFICATION_CATEGORY_META.recovery.color }),
-    );
-    expect(NOTIFICATION_CATEGORY_META.training.color).not.toEqual(
-      NOTIFICATION_CATEGORY_META.recovery.color,
-    );
+    expect(scheme).toBeDefined();
+    expect(recoveryColor).toBe(NOTIFICATION_CATEGORY_COLORS[scheme!].recovery);
+    expect(trainingColor).not.toEqual(recoveryColor);
   });
+
+  // `--color-surface` from global.css, which `bg-background-primary` resolves
+  // to and the category word sits on.
+  const SURFACE = { light: '#f7f6f2', dark: '#11130f' } as const;
+
+  /** WCAG 2.1 relative luminance. */
+  function luminance(hex: string): number {
+    const channels = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+    const linear = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  }
+
+  function contrast(a: string, b: string): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  // The category word is text, so it owes 4.5:1 against the surface it sits
+  // on. One flat hex per category could not pay that in both schemes: the
+  // near-black forest greens landed at 1.13:1 (coach) and 1.50:1 (ai) on the
+  // dark canvas, where the label was the canvas.
+  it.each(['light', 'dark'] as const)(
+    'paints every category word at 4.5:1 or better on the %s surface',
+    (scheme) => {
+      const failures = NOTIFICATION_CATEGORIES.filter(
+        (category) => contrast(NOTIFICATION_CATEGORY_COLORS[scheme][category], SURFACE[scheme]) < 4.5,
+      );
+      expect(failures).toEqual([]);
+      expect(NOTIFICATION_CATEGORIES.length).toBe(7);
+    },
+  );
 
   it('prints the row time in mono, tabular figures', async () => {
     mockUseNotificationFeed.mockReturnValue(loadedFeed([createNotification()]));

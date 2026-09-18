@@ -588,6 +588,30 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-satellite-drift.sh" ]] \
     echo ""
 fi
 
+# ----------------------------------------------------------------------------
+# Tier 1k: i18n key resolution (compile-free, ~1s)
+# ----------------------------------------------------------------------------
+#
+# The locale corpus test compares the five locales to each other, so a key
+# deleted from all five stays in parity while every caller renders the raw key
+# to the athlete. `app.weeklyReport` shipped that way as the literal heading of
+# the mobile group insights panel, in every language, because the commit that
+# moved it to `groups.weeklyReport` repointed its sibling in the same file and
+# missed it. This closes the other direction: a literal key a client asks for
+# must exist in the catalogue.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh" ]] \
+    && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+       | grep -qE '^(frontend|frontend-mobile)/src/.*\.tsx?$|^packages/i18n/'; then
+    echo "Tier 1k: i18n key resolution"
+    echo "----------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh"; then
+        echo ""
+        echo "FAIL: a client asks for a translation key the catalogue does not carry!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

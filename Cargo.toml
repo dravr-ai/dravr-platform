@@ -55,8 +55,8 @@ photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag
 # Time-series storage backend.
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.4" }
 
-# Provider capture. Moves with dravr-enforme, which pins it too -- see
-# enforme-bump.yml for why the two pins can never move apart.
+# Provider capture. Moves with dravr-enforme, which pins it too -- see its
+# companions stanza in satellites.toml for why the two pins can never move apart.
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.12.0" }
 
 # Billing capability, gated behind the billing-stripe feature.

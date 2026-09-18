@@ -81,7 +81,7 @@ interface InstalledCopy {
 
 interface StoreScreenProps {
   /**
-   * Dashboard route navigator, `tab[/subview]`. t('app.openChat') on the post-install
+   * Dashboard route navigator, `tab[/subview]`. t('discover.openChat') on the post-install
    * hint starts a conversation and routes to `chat/<conversationId>`; closing
    * the edit sheet opened by route returns to `discover`.
    */
@@ -232,7 +232,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     },
   });
 
-  // t('app.openChat') on the post-install hint: a fresh conversation, then the chat
+  // t('discover.openChat') on the post-install hint: a fresh conversation, then the chat
   // tab. The hint hands over the `/agent add @handle` draft the athlete types
   // there.
   const openChat = useMutation({
