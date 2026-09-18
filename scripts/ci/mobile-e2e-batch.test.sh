@@ -164,11 +164,25 @@ else
     fail "the report names the attempt it judged"; sed 's/^/      /' "$CASE_STDOUT"
 fi
 
-# The reset between the two attempts, in order.
-order=$(grep -E 'simctl terminate|curl|simctl launch|simctl openurl|launchctl list' "$SHIM_LOG" \
-    | sed -E 's/^(xcrun simctl [a-z]+|curl|xcrun simctl spawn SIM-UDID launchctl list).*/\1/' | uniq | tr '\n' ' ')
+# The reset between the two attempts, in order. Each shim line is reduced to
+# one token by a case statement rather than a sed alternation: GNU sed takes
+# the first alternative that matches and BSD sed the longest, so the same
+# regex names the launchctl line differently on a Linux runner and a Mac.
+reset_order() {
+    local line order=""
+    while IFS= read -r line; do
+        case "$line" in
+            "xcrun simctl terminate "*) order="$order terminate" ;;
+            "curl "*) order="$order metro-status" ;;
+            "xcrun simctl launch "*) order="$order launch" ;;
+            "xcrun simctl openurl "*) order="$order openurl" ;;
+            *"launchctl list"*) order="$order wait-for-process" ;;
+        esac
+    done < "$SHIM_LOG"
+    printf '%s\n' "$order" | tr -s ' ' '\n' | sed '/^$/d' | uniq | tr '\n' ' '
+}
 expect "reset order: terminate, Metro status, launch, openurl, wait for the process" \
-    "$order" "xcrun simctl terminate curl xcrun simctl launch xcrun simctl openurl xcrun simctl spawn SIM-UDID launchctl list "
+    "$(reset_order)" "terminate metro-status launch openurl wait-for-process "
 expect "Metro is asked for /status, not the root" "$(grep -c '8082/status' "$SHIM_LOG")" 1
 expect "the deep link is the flow helper's" "$(grep -c 'openurl SIM-UDID exp://127.0.0.1:8082' "$SHIM_LOG")" 1
 expect "maestro is given the simulator" "$(grep -c 'maestro test --device SIM-UDID' "$SHIM_LOG")" 2
