@@ -20,6 +20,21 @@
 # On a conflict the tool is blocked ONCE (exit 2, stderr reaches the model) naming the live
 # peer that holds the issue. Once told, the session is accountable and later edits pass: a
 # permanent block would be a deadlock over an issue that may only have been mentioned.
+#
+# WHO WROTE THE PROMPT is checked here, not in the prompt hook, because only here can it be.
+# A `/loop` or ScheduleWakeup re-fire is a prompt the model wrote for itself, and it names
+# whatever the model was thinking about: session dravr-platform-7f (2026-09-18) put carnet#436
+# into its own wakeup text, the prompt hook armed it as if ChefFamille had typed it, and this
+# hook claimed it on the next redirect — 67 minutes held, the human never having typed the
+# number. The prompt text carries no marker and the payload's `source` field is not emitted
+# yet, but the transcript entry for the prompt (found by the `prompt=<prompt_id>` line the
+# prompt hook now records) says `promptSource: "system"`, `isMeta: true`,
+# `scheduledTaskId: …` — and that entry is written before the model's first tool call, which
+# a resumed headless probe confirmed while also showing it is NOT there when the prompt hook
+# runs. So: the list is consumed, the entry is read, and a machine-authored prompt claims
+# nothing and says so once. An entry that cannot be found claims as before: the transcript
+# path can be absent or translated in a cloud session, and a check that silently stops every
+# claim is the failure that cost three hours on 2026-09-02.
 set -uo pipefail
 
 CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
@@ -86,8 +101,32 @@ if [ -z "$(find "$pending" -mmin -60 2>/dev/null)" ]; then
 fi
 
 nums=$(tr -d ' \r' < "$pending" | grep -E '^[0-9]+$' | sort -un || true)
+prompt_id=$(grep -m1 '^prompt=' "$pending" 2>/dev/null | cut -d= -f2- || true)
 rm -f "$pending"                      # consumed: act once, never on every later edit
 [ -n "$nums" ] || exit 0
+
+# The prompt that armed this list: was it typed? The transcript entry with this promptId is
+# a `user` line whose content is a string (tool results are arrays). `promptSource` is
+# "typed" or "queued" for the composer, "sdk" for -p, "system" for a peer message, a task
+# notification, a usage-limit continuation or a scheduled wakeup; the last two also carry
+# `isMeta: true`, and a wakeup carries `scheduledTaskId`. Positive evidence of a machine
+# author refuses the claim; anything else, including an entry that cannot be found, claims.
+transcript=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+if [ -n "$prompt_id" ] && [ -n "$transcript" ] && [ -r "$transcript" ]; then
+    author=$(jq -rR --arg id "$prompt_id" '
+        fromjson? | select(.type == "user" and .promptId == $id and (.message.content | type) == "string")
+        | [(.promptSource // ""), ((.isMeta // false) | tostring), ((.scheduledTaskId // "") | tostring)]
+        | join("\t")' "$transcript" 2>/dev/null | head -1 || true)
+    IFS=$'\t' read -r p_source p_meta p_sched <<< "${author:-}"
+    if [ "${p_source:-}" = system ] || [ "${p_meta:-}" = true ] || [ -n "${p_sched:-}" ]; then
+        if [ -n "${p_sched:-}" ]; then origin="a scheduled wakeup this session wrote for itself"
+        else origin="a machine-injected prompt (peer message, task result or auto-continuation)"; fi
+        echo "carnet: NOT claimed — $(printf 'carnet#%s ' $nums | sed 's/ $//') came from $origin, not from ChefFamille."
+        echo "  A mention is not an assignment. If you are meant to work it, take it deliberately:"
+        echo "  .agents/skills/carnet/carnet.sh claim <n>"
+        exit 0
+    fi
+fi
 
 ledger="$CFG/carnet-claims/$sid.jsonl"
 warned="$CFG/carnet-claims/warned/$sid.txt"

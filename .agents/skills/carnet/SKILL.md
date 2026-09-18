@@ -81,7 +81,12 @@ Add `--dry-run` to any of them to see the `gh` calls without making them.
   question about an issue never reaches a write tool and never claims. A `Bash` call counts
   as an edit only when the command looks like one (a redirect into a file, `sed -i`, `mv`,
   `git commit`, …), because a session that edits through bash would otherwise never claim.
-  If a live peer holds the issue it blocks that one tool call and names them.
+  If a live peer holds the issue it blocks that one tool call and names them. Before
+  claiming it asks the transcript **who wrote the prompt** that named the issue: a
+  `/loop` or ScheduleWakeup re-fire is text the model wrote for itself, and a peer message
+  or task result is text no human wrote, so a list armed by any of those claims nothing and
+  prints `carnet: NOT claimed — carnet#N came from a scheduled wakeup …` instead. Take it
+  deliberately if it is yours: `carnet.sh claim <n>`.
 - **SessionEnd** (`hooks/session-end-release.sh`): releases everything this session still
   holds, from its ledger under `$CLAUDE_CONFIG_DIR/carnet-claims/`. Zero calls when nothing
   is held.
@@ -92,9 +97,20 @@ almost always — it runs before every edit in every session.
 
 **What it deliberately does not do.** It never claims from a prompt alone, so asking about an
 issue is free. It never steals. It forgets a pending list an hour old, so an issue mentioned
-long ago is not claimed by an unrelated edit. It never claims from a peer message or a
-background task result. And it never blocks twice for the same issue: a permanent block would
-deadlock a session over an issue that was only mentioned in passing.
+long ago is not claimed by an unrelated edit. It never claims from a peer message, a
+background task result, or a wakeup prompt the session scheduled for itself. And it never
+blocks twice for the same issue: a permanent block would deadlock a session over an issue that
+was only mentioned in passing.
+
+**A wakeup you write is not an assignment you received.** When you schedule a wakeup
+(`/loop`, `ScheduleWakeup`), the prompt that comes back is yours, and the hooks now know it:
+the prompt hook cannot tell at submit time (Claude Code 2.1.276 sends no `source` yet and the
+transcript entry is written after the hook runs), so it records the prompt id, and the claim
+hook reads that entry — `promptSource: "system"`, `isMeta: true`, `scheduledTaskId` — before
+claiming. dravr-platform-7f (2026-09-18) wrote "comment the eight coach_id strings on
+carnet#436" into its own wakeup and held #436 for 67 minutes, ChefFamille never having typed
+the number. Do not put issue numbers into a wakeup prompt as a to-do list for yourself; and
+if you are told a claim was refused because the prompt was a wakeup, that is the hook working.
 
 ## A peer naming an issue is not assigning it
 

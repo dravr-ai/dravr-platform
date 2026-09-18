@@ -416,6 +416,28 @@ printf '{"prompt":"e8 said <cross-session-message>I hold carnet#42</cross-sessio
     | bash "$here/hooks/prompt-status.sh" >/dev/null
 assert_grep "a quoted envelope mid-prompt is still the user" '^42$' "$pending_dir_h/$ME.txt"
 
+# The session is a machine author too. A /loop or ScheduleWakeup re-fire is a prompt the model
+# wrote for itself, and it names whatever the model was thinking about: dravr-platform-7f put
+# carnet#436 into its own wakeup on 2026-09-18 and held it for 67 minutes, the human never
+# having typed the number. The payload's `source` field says so once Claude Code emits it.
+reset; rm -rf "$pending_dir_h"
+printf '{"prompt":"Continue the plan; comment the eight strings on carnet#42","session_id":"%s","source":"loop_wakeup"}' "$ME" \
+    | bash "$here/hooks/prompt-status.sh" > "$tmp/hookw"
+assert_grep "wakeup (source field): still prints the status line" '^carnet#42' "$tmp/hookw"
+assert_grep "wakeup (source field): says a wakeup is not an assignment" 'scheduled wakeup -- NOT by your user' "$tmp/hookw"
+[ -f "$pending_dir_h/$ME.txt" ] && bad "wakeup (source field): armed the pending list" || ok "wakeup (source field): arms nothing"
+reset; rm -rf "$pending_dir_h"
+printf '{"prompt":"go fix carnet#42","session_id":"%s","source":"user"}' "$ME" | bash "$here/hooks/prompt-status.sh" >/dev/null
+assert_grep "source=user: arms" '^42$' "$pending_dir_h/$ME.txt"
+
+# Until `source` arrives the prompt hook cannot tell, so it records WHICH prompt armed the list
+# and auto-claim.sh asks the transcript, where the entry exists by then.
+reset; rm -rf "$pending_dir_h"
+printf '{"prompt":"go fix carnet#42","session_id":"%s","prompt_id":"aaaaaaaa-1111-2222-3333-444444444444"}' "$ME" \
+    | bash "$here/hooks/prompt-status.sh" >/dev/null
+assert_grep "typed prompt: pending list records the prompt id" '^prompt=aaaaaaaa-1111-2222-3333-444444444444$' "$pending_dir_h/$ME.txt"
+assert_grep "typed prompt: and the issue" '^42$' "$pending_dir_h/$ME.txt"
+
 reset
 mkdir -p "$tmp/cfg/carnet-claims"
 printf '{"kind":"identity","v":1,"session":"%s","name":"Ender","user":"ender","host":"%s","pid":1}\n{"kind":"claim","tracker":"dravr-ai/dravr-carnet","issue":42,"at":"2026-09-02T10:00:00Z"}\n' "$PEER" "$HOST" > "$tmp/cfg/carnet-claims/$PEER.jsonl"
@@ -550,6 +572,50 @@ touch -t 202001010000 "$pending_dir/$ME.txt"
 auto_claim "$(edit_payload)"
 assert_eq "an hour-old list is dropped, not claimed" "$(wc -c < "$S/calls.log" | tr -d ' ')" 0
 [ -f "$pending_dir/$ME.txt" ] && bad "stale list removed" || ok "stale list removed"
+
+# Who wrote the prompt that armed the list. The transcript entry with that promptId says:
+# `promptSource` "typed"/"queued" for the composer, "system" for a peer message, a task
+# notification or a scheduled wakeup; the wakeup also carries `isMeta` and `scheduledTaskId`.
+# Shapes copied from live transcripts (2.1.276). A garbage line must not break the lookup.
+T1=aaaaaaaa-0000-0000-0000-00000000typed; W1=bbbbbbbb-0000-0000-0000-0000000wakeup; N1=cccccccc-0000-0000-0000-000000notify
+cat > "$tmp/transcript.jsonl" <<EOT
+this line is not json
+{"type":"user","promptId":"$T1","promptSource":"typed","message":{"role":"user","content":"go fix carnet#42"}}
+{"type":"user","promptId":"$T1","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"ok"}]}}
+{"type":"system","subtype":"scheduled_task_fire","content":"Claude resuming /loop wakeup"}
+{"type":"user","promptId":"$W1","isMeta":true,"promptSource":"system","scheduledTaskId":"191a64c7","message":{"role":"user","content":"Continue the plan; comment on carnet#42"}}
+{"type":"user","promptId":"$N1","promptSource":"system","message":{"role":"user","content":"<task-notification>filed carnet#42</task-notification>"}}
+EOT
+edit_payload_t() { printf '{"tool_name":"Edit","session_id":"%s","transcript_path":"%s","tool_input":{"file_path":"/x"}}' "$ME" "$tmp/transcript.jsonl"; }
+
+reset; set_pending "prompt=$W1" 42
+auto_claim "$(edit_payload_t)"
+assert_eq "a wakeup-armed list: allows the tool" "$rc" 0
+assert_no_grep "a wakeup-armed list: claims nothing" 'labels\[\]=in-progress' "$S/calls.log"
+assert_grep "a wakeup-armed list: says so, naming the issue" '^carnet: NOT claimed — carnet#42 came from a scheduled wakeup' "$tmp/ac.out"
+assert_grep "a wakeup-armed list: says how to take it deliberately" 'carnet.sh claim <n>' "$tmp/ac.out"
+[ -f "$pending_dir/$ME.txt" ] && bad "a wakeup-armed list is consumed" || ok "a wakeup-armed list is consumed"
+
+reset; set_pending "prompt=$N1" 42
+auto_claim "$(edit_payload_t)"
+assert_no_grep "a task-notification-armed list: claims nothing" 'labels\[\]=in-progress' "$S/calls.log"
+assert_grep "a task-notification-armed list: names the machine origin" 'came from a machine-injected prompt' "$tmp/ac.out"
+
+reset; set_pending "prompt=$T1" 42
+auto_claim "$(edit_payload_t)"
+assert_grep "a typed-prompt list still claims" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
+
+# Fail open, not closed: a check that cannot see the entry must not silently stop every
+# claim (the 2026-09-02 failure mode). Unknown id, or no transcript in the payload, claims.
+reset; set_pending "prompt=dddddddd-0000-0000-0000-00000unknown" 42
+auto_claim "$(edit_payload_t)"
+assert_grep "an id the transcript lacks claims as before" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
+reset; set_pending "prompt=$W1" 42
+auto_claim "$(edit_payload)"
+assert_grep "no transcript_path in the payload claims as before" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
+reset; set_pending 42
+auto_claim "$(edit_payload_t)"
+assert_grep "a list without a prompt line (older hook) claims as before" 'issues/42/labels -X POST -f labels\[\]=in-progress' "$S/calls.log"
 
 # ================================================== PreToolUse wiring
 # The script above is only half the mechanism. `.claude/settings.json` is what Claude Code
