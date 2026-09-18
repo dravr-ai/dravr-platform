@@ -31,3 +31,7 @@ dist-ssr
 
 # Design sweep captures — regenerate with the visual spec, never committed
 design-sweep/
+
+# Dev-only font cache for scripts/generate-brand-assets.py (the OG wordmark face).
+# The generated PNGs are committed; the face is fetched on demand.
+scripts/.fontcache/

@@ -2,10 +2,11 @@
 # ABOUTME: Dev-only asset tool — not wired into the build or CI. Needs Pillow; the PNGs are committed.
 
 import sys
+import urllib.request
 from pathlib import Path
 
 try:
-    from PIL import Image, ImageChops
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
 except ImportError:
     sys.exit("Pillow is required: pip install Pillow")
 
@@ -45,6 +46,24 @@ FILL = {
     "apple-touch-icon.png": (180, 0.82),
 }
 
+# The share card a link preview renders: the lockup on paper, nothing else. Not
+# square, so it is built by og_card() rather than by the FILL loop above.
+OG = (1200, 630)
+OG_MARK = 300          # the mark's edge on the card
+OG_WORDMARK = 76       # cap height of DRAVR beneath it
+OG_TRACKING = 0.15     # --tracking-brand, the wordmark's one tracked value
+
+# Pillow needs the wordmark face as a file, and Schibsted Grotesk is a webfont
+# here — nothing installs it. Look for a local copy first, then cache Google's
+# variable TTF next to this script. The cache is gitignored; the PNG it produces
+# is what gets committed.
+WORDMARK_FACE = "Schibsted Grotesk"
+WORDMARK_URL = (
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/"
+    "schibstedgrotesk/SchibstedGrotesk%5Bwght%5D.ttf"
+)
+FONT_CACHE = Path(__file__).resolve().parent / ".fontcache"
+
 
 def ink_mask(image: Image.Image) -> Image.Image:
     """Alpha for the mark: the master is dark ink on a near-white field."""
@@ -75,6 +94,61 @@ def on_paper(mask: Image.Image, edge: int, fill: float) -> Image.Image:
     return canvas
 
 
+def wordmark_font(size: int) -> ImageFont.FreeTypeFont:
+    """Schibsted Grotesk SemiBold at `size`, from a local copy or Google's TTF."""
+    for candidate in (
+        Path.home() / "Library" / "Fonts" / "SchibstedGrotesk[wght].ttf",
+        Path("/Library/Fonts/SchibstedGrotesk[wght].ttf"),
+        FONT_CACHE / "SchibstedGrotesk.ttf",
+    ):
+        if candidate.is_file():
+            return _semibold(candidate, size)
+
+    FONT_CACHE.mkdir(parents=True, exist_ok=True)
+    cached = FONT_CACHE / "SchibstedGrotesk.ttf"
+    print(f"fetching {WORDMARK_FACE} → {cached}")
+    urllib.request.urlretrieve(WORDMARK_URL, cached)
+    return _semibold(cached, size)
+
+
+def _semibold(path: Path, size: int) -> ImageFont.FreeTypeFont:
+    font = ImageFont.truetype(str(path), size)
+    try:
+        font.set_variation_by_axes([600])
+    except OSError:
+        pass  # a static SemiBold cut has no axes to set
+    return font
+
+
+def og_card(mask: Image.Image) -> Image.Image:
+    """The 1200x630 share card: the forest mark over a tracked DRAVR, on paper."""
+    card = Image.new("RGB", OG, SURFACE)
+    mark = tinted(mask, INKS["ink"], OG_MARK)
+
+    font = wordmark_font(OG_WORDMARK)
+    draw = ImageDraw.Draw(card)
+    tracking = round(OG_WORDMARK * OG_TRACKING)
+    # Pillow has no letter-spacing, so the wordmark is drawn a glyph at a time.
+    advances = [round(draw.textlength(ch, font=font)) for ch in "DRAVR"]
+    word_w = sum(advances) + tracking * (len(advances) - 1)
+    _, top, _, bottom = draw.textbbox((0, 0), "DRAVR", font=font)
+    word_h = bottom - top
+
+    gap = round(OG_MARK * 0.12)
+    block_h = OG_MARK + gap + word_h
+    y = (OG[1] - block_h) // 2
+
+    card.paste(mark, ((OG[0] - OG_MARK) // 2, y), mark)
+
+    x = (OG[0] - word_w) // 2
+    baseline_y = y + OG_MARK + gap - top
+    for ch, advance in zip("DRAVR", advances):
+        draw.text((x, baseline_y), ch, font=font, fill=INKS["ink"])
+        x += advance + tracking
+
+    return card
+
+
 def main() -> None:
     master = Image.open(MASTER).convert("RGB")
     mask = ink_mask(master)
@@ -88,7 +162,12 @@ def main() -> None:
     for filename, (edge, fill) in FILL.items():
         on_paper(mask, edge, fill).save(PUBLIC / filename, optimize=True)
 
-    print(f"regenerated {len(INKS) * len(MARK_SIZES)} marks and {len(FILL)} icons from {MASTER.name}")
+    og_card(mask).save(PUBLIC / "og.png", optimize=True)
+
+    print(
+        f"regenerated {len(INKS) * len(MARK_SIZES)} marks, {len(FILL)} icons "
+        f"and the {OG[0]}x{OG[1]} share card from {MASTER.name}"
+    )
 
 
 if __name__ == "__main__":
