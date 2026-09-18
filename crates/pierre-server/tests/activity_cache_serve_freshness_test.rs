@@ -34,9 +34,9 @@ use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use pierre_core::models::{ActivityBuilder, ConnectionType, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType};
 use pierre_database::repositories::BackfillCoverage;
-use pierre_tool_runtime::activity_fetch::before_bounds_a_closed_window;
+use pierre_tool_runtime::activity_fetch::{before_bounds_a_closed_window, merge_live_head};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -254,5 +254,85 @@ fn a_window_ending_now_is_an_open_head_not_a_closed_window() {
     assert!(
         before_bounds_a_closed_window(Some(now - one_year), now),
         "\"my 2022 runs\" is a closed window and must keep skipping the top-up"
+    );
+}
+
+/// A live row replaces the cached copy of the same activity.
+///
+/// Observed 2026-09-18: the capture had just been fixed to read elevation, a
+/// "cette semaine" turn triggered the stale-head refresh, and the live read came
+/// back with 811 m on the athlete's 26 km trail run. The merge kept the cached
+/// copy — scraped before the fix, no elevation — because its id was already in
+/// the window, and appended only the one activity the cache had never seen. The
+/// coach answered "non dispo" on twelve of thirteen rows from a scrape that had
+/// returned all thirteen.
+#[test]
+fn a_live_row_replaces_the_cached_copy_of_the_same_activity() {
+    let start = Utc::now() - Duration::days(3);
+    let cached_copy = ActivityBuilder::new(
+        "20194413415",
+        "Trop technique mais gros fuuuuun!",
+        SportType::TrailRunning,
+        start,
+        22_929,
+        "sciotte",
+    )
+    .distance_meters(26_190.0)
+    .build();
+    let older_cached = ActivityBuilder::new(
+        "20100000001",
+        "Début!",
+        SportType::TrailRunning,
+        start - Duration::days(3),
+        8_701,
+        "sciotte",
+    )
+    .distance_meters(14_940.0)
+    .build();
+
+    let live_copy = ActivityBuilder::new(
+        "20194413415",
+        "Trop technique mais gros fuuuuun!",
+        SportType::TrailRunning,
+        start,
+        22_929,
+        "sciotte",
+    )
+    .distance_meters(26_190.0)
+    .elevation_gain(811.0)
+    .build();
+    let never_seen = ActivityBuilder::new(
+        "20231181975",
+        "Retour!",
+        SportType::MountainBike,
+        start + Duration::days(3),
+        5_385,
+        "sciotte",
+    )
+    .distance_meters(16_540.0)
+    .elevation_gain(331.0)
+    .build();
+
+    let mut served = vec![cached_copy, older_cached];
+    merge_live_head(&mut served, vec![never_seen, live_copy]);
+
+    assert_eq!(served.len(), 3, "one replaced in place, one appended");
+    let ids: Vec<&str> = served.iter().map(Activity::id).collect();
+    assert_eq!(
+        ids,
+        ["20231181975", "20194413415", "20100000001"],
+        "newest first after the merge"
+    );
+    assert_eq!(
+        served[1].elevation_gain(),
+        Some(811.0),
+        "the live read is strictly newer than the cached copy; keeping the cached \
+         one is what told the athlete elevation was unavailable"
+    );
+    assert_eq!(served[0].elevation_gain(), Some(331.0));
+    assert_eq!(
+        served[2].elevation_gain(),
+        None,
+        "a cached row the live read did not return is left exactly as it was"
     );
 }

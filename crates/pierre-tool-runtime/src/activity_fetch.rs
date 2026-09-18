@@ -12,7 +12,7 @@
 //! owns that single path so neither re-implements it.
 
 use std::cmp::{Ordering, Reverse};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::sync::Arc;
 
@@ -438,9 +438,36 @@ pub async fn refresh_stale_head(
         return;
     };
 
-    let seen: HashSet<String> = served.iter().map(|a| a.id().to_owned()).collect();
-    let added = live.into_iter().filter(|a| !seen.contains(a.id()));
-    served.extend(added);
+    merge_live_head(served, live);
+}
+
+/// Fold a live provider read into a cache-served window: the live row wins.
+///
+/// A row the provider just returned is strictly newer than the cached copy of
+/// the same activity, so it replaces that copy rather than being dropped as a
+/// duplicate. Keeping the cached copy meant a turn that paid for a scrape
+/// answered from the rows the scrape had just superseded: on 2026-09-18 a live
+/// read returned 811 m of climb for a 26 km trail run, the cached copy carried
+/// none, and the coach told the athlete elevation was "non dispo" for every
+/// outing but the one activity the cache had never seen. The write-through had
+/// already stored the fresh rows, so only that turn was wrong — which is what
+/// made it look like the capture itself was still broken.
+///
+/// Ids the window has never seen are appended, as before. `pub` so the merge
+/// is exercisable by the integration test suite, like
+/// [`before_bounds_a_closed_window`].
+pub fn merge_live_head(served: &mut Vec<Activity>, live: Vec<Activity>) {
+    let position: HashMap<String, usize> = served
+        .iter()
+        .enumerate()
+        .map(|(index, activity)| (activity.id().to_owned(), index))
+        .collect();
+    for fresh in live {
+        match position.get(fresh.id()) {
+            Some(&index) => served[index] = fresh,
+            None => served.push(fresh),
+        }
+    }
     served.sort_by_key(|a| Reverse(a.start_date()));
 }
 
