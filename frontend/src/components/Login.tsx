@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState, useEffect } from 'react';
-import { useAsyncAction, classifyApiError } from '@pierre/ui-logic';
+import { useAsyncAction, classifyApiError, describeLoginFailure } from '@pierre/ui-logic';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -20,39 +20,6 @@ interface LoginProps {
   onNavigateToRegister?: () => void;
   onNavigateToForgotPassword?: () => void;
   prefilledEmail?: string;
-}
-
-/**
- * Turn a failed sign-in into a sentence the athlete can act on.
- *
- * The sign-in form is the one screen where a 401 means "wrong password"
- * rather than "your session expired", so it maps that kind itself instead of
- * taking the shared default.
- *
- * Before this, an offline device produced the same message as a rejected
- * password: the request never reached a server, so there was no
- * `response.data.error`, and the code fell through to a hardcoded English
- * t('auth.loginFailed'). An athlete in a tunnel was told their credentials were wrong.
- */
-function describeLoginFailure(
-  err: unknown,
-  online: boolean,
-  t: (key: string) => string,
-): string {
-  const { kind } = classifyApiError(err, { online });
-  if (kind === 'credentials' || kind === 'unauthorized' || kind === 'validation') {
-    return t('auth.invalidCredentials');
-  }
-  if (kind === 'offline') {
-    return t('errors.offline');
-  }
-  if (kind === 'network' || kind === 'timeout') {
-    return t('errors.network');
-  }
-  if (kind === 'server') {
-    return t('errors.serverError');
-  }
-  return t('auth.loginFailed');
 }
 
 /**
@@ -100,7 +67,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   // Delegate email/password login loading lifecycle to @pierre/ui-logic
   const loginAction = useAsyncAction({
     action: () => login(email, password),
-    onError: (err: unknown) => setError(describeLoginFailure(err, online, t)),
+    onError: (err: unknown) => setError(describeLoginFailure(err, { online, t })),
     successResetDelay: 0,
     errorResetDelay: 0,
   });

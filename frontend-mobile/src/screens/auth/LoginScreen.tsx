@@ -30,7 +30,7 @@ import {
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeLoginFailure } from '@pierre/ui-logic';
 
 /**
  * The catalogue key for a Google sign-in failure.
@@ -115,17 +115,15 @@ export function LoginScreen() {
       // Navigation is handled by auth state change in root layout auth gating
       // If user is pending, the auth guard redirects to PendingApproval screen
     } catch (error) {
-      // Classified from the response's status, never from axios's prose. The
-      // prose match this replaces was English-only three ways over: it compared
-      // a translated string against axios's own "Network Error" so that branch
-      // could never fire, it labelled every 400 as bad credentials including
-      // ordinary validation failures, and its fallback showed the raw
-      // `error.message` to the athlete. The Google path above was migrated for
+      // The same classifier the web form uses, keyed on the response's status
+      // and transport state, never on axios's English prose: a validation 400
+      // is not announced as a wrong password, a wrong password is named as one,
+      // and the body of this dialog is translated like its title. The prose
+      // match this replaces compared a translated string against axios's own
+      // "Network Error" (so that branch could never fire) and showed the raw
+      // error.message to the athlete. The Google path above was migrated for
       // the same reason under carnet#207; this is the other half.
-      Alert.alert(
-        t('app.loginFailedTitle'),
-        describeApiError(error, { t, fallbackKey: 'auth.loginFailed' }),
-      );
+      Alert.alert(t('app.loginFailedTitle'), describeLoginFailure(error, { t }));
     } finally {
       setIsLoading(false);
     }

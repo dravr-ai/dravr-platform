@@ -269,3 +269,41 @@ export function describeApiError(
   }
   return opts.t(opts.fallbackKey);
 }
+
+/**
+ * Turn a failed sign-in into a sentence the athlete can act on.
+ *
+ * The sign-in form is the one screen where a 401 means "wrong password"
+ * rather than "your session expired", so it maps that kind itself instead of
+ * taking the shared default. Shared by the web form and the phone's login
+ * screen: the phone used to keep its own copy that matched on axios's English
+ * prose (`error.message.includes('400')`), so every 400 — an ordinary
+ * validation failure included — read as bad credentials, in English, under
+ * French chrome (carnet#354). One classifier, one wording table.
+ *
+ * Before the classifier, an offline device produced the same message as a
+ * rejected password: the request never reached a server, so there was no
+ * `response.data.error`, and the code fell through to a hardcoded English
+ * "login failed". An athlete in a tunnel was told their credentials were wrong.
+ * `online` is optional because React Native has no `navigator.onLine`; absent,
+ * a dead request reads as a network error rather than as "offline".
+ */
+export function describeLoginFailure(
+  err: unknown,
+  opts: { online?: boolean; t: ApiErrorTranslate },
+): string {
+  const { kind } = classifyApiError(err, { online: opts.online });
+  if (kind === 'credentials' || kind === 'unauthorized' || kind === 'validation') {
+    return opts.t('auth.invalidCredentials');
+  }
+  if (kind === 'offline') {
+    return opts.t('errors.offline');
+  }
+  if (kind === 'network' || kind === 'timeout') {
+    return opts.t('errors.network');
+  }
+  if (kind === 'server') {
+    return opts.t('errors.serverError');
+  }
+  return opts.t('auth.loginFailed');
+}
