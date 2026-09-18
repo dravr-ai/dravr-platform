@@ -1,5 +1,5 @@
 // ABOUTME: In-tree DummyProvider for the BillingProvider trait — drives tests + local dev only
-// ABOUTME: Returns deterministic example.test URLs and forges a stub event from the webhook body
+// ABOUTME: Returns deterministic example.test URLs and refuses every inbound webhook
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,36 +7,27 @@
 //! # Dummy billing provider
 //!
 //! Reference impl of [`BillingProvider`] that returns deterministic,
-//! example-domain URLs and accepts any signed body. Production binaries
-//! must wire a real provider (`dravr-stripe`, `dravr-revenuecat`, …) —
-//! this impl exists so the platform compiles, tests run, and local
-//! development works without a billing vendor configured.
+//! example-domain URLs. Production binaries wire a real provider
+//! (`dravr-stripe`, `dravr-revenuecat`, …) when its secrets are present;
+//! this impl is what runs otherwise, so the platform compiles, tests run,
+//! and local development works without a billing vendor configured.
 //!
-//! The webhook parser expects a JSON body shaped like:
-//!
-//! ```json
-//! {
-//!   "id": "evt_test_1",
-//!   "type": "subscription.upserted",
-//!   "data": {
-//!     "provider_customer_id": "cus_dummy_1",
-//!     "provider_subscription_id": "sub_dummy_1",
-//!     "tenant_id": "<uuid>",
-//!     "user_id": "<uuid>",
-//!     "plan_tier": "professional",
-//!     "status": "active"
-//!   }
-//! }
-//! ```
-
-use async_trait::async_trait;
-use serde_json::Value;
+//! It has no signing secret, so it has no webhook it can verify — and a
+//! webhook it cannot verify is one it must not apply. `parse_webhook`
+//! refuses every body. The receiver at `/webhooks/{provider}` is mounted
+//! whenever this provider is active, which includes any deployment whose
+//! Stripe secrets are absent, and it writes `users.tier` and
+//! `tenants.plan` for whatever ids the event names: until 2026-09-18 this
+//! parser decoded an unsigned body straight into that write, so an
+//! anonymous caller could set any user's tier (carnet#454). Tests that
+//! need a billing event drive `dispatch_billing_event` directly.
 
 use crate::billing::{
-    BillingEvent, BillingProvider, CheckoutRequest, CheckoutResponse, EventEnvelope, Invoice,
-    PortalRequest, PortalResponse, SubscriptionEventPayload, WebhookPayload,
+    BillingProvider, CheckoutRequest, CheckoutResponse, EventEnvelope, Invoice, PortalRequest,
+    PortalResponse, WebhookPayload,
 };
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 
 /// Slug used for `/webhooks/dummy` and the `subscriptions.provider` column.
 pub const DUMMY_PROVIDER_NAME: &str = "dummy";
@@ -81,78 +72,15 @@ impl BillingProvider for DummyProvider {
         })
     }
 
-    async fn parse_webhook(&self, payload: WebhookPayload<'_>) -> AppResult<EventEnvelope> {
-        let event: Value = serde_json::from_slice(payload.body)
-            .map_err(|e| AppError::invalid_input(format!("dummy webhook body not JSON: {e}")))?;
-
-        let event_id = event
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("dummy webhook missing 'id'"))?
-            .to_owned();
-        let event_type = event
-            .get("type")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("dummy webhook missing 'type'"))?
-            .to_owned();
-        let data = event
-            .get("data")
-            .ok_or_else(|| AppError::invalid_input("dummy webhook missing 'data'"))?;
-
-        let normalized = match event_type.as_str() {
-            "subscription.upserted" => {
-                BillingEvent::SubscriptionUpserted(Box::new(parse_subscription_payload(data)?))
-            }
-            "subscription.canceled" => BillingEvent::SubscriptionCanceled {
-                provider_subscription_id: required_str(data, "provider_subscription_id")?,
-                canceled_at: None,
-            },
-            "subscription.payment_failed" => BillingEvent::PaymentFailed {
-                provider_subscription_id: required_str(data, "provider_subscription_id")?,
-            },
-            _ => BillingEvent::Ignored,
-        };
-
-        Ok(EventEnvelope {
-            event_id,
-            event_type,
-            event: normalized,
-        })
+    async fn parse_webhook(&self, _payload: WebhookPayload<'_>) -> AppResult<EventEnvelope> {
+        Err(AppError::auth_invalid(
+            "the dummy billing provider verifies no webhook signature; inbound webhooks are refused",
+        ))
     }
 
     async fn list_invoices(&self, _provider_customer_id: &str) -> AppResult<Vec<Invoice>> {
         Ok(Vec::new())
     }
-}
-
-fn required_str(data: &Value, key: &str) -> AppResult<String> {
-    data.get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| AppError::invalid_input(format!("dummy webhook data missing '{key}'")))
-}
-
-fn parse_subscription_payload(data: &Value) -> AppResult<SubscriptionEventPayload> {
-    Ok(SubscriptionEventPayload {
-        provider_customer_id: required_str(data, "provider_customer_id")?,
-        provider_subscription_id: data
-            .get("provider_subscription_id")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        tenant_id: required_str(data, "tenant_id")?,
-        user_id: required_str(data, "user_id")?,
-        plan_tier: required_str(data, "plan_tier")?,
-        status: required_str(data, "status")?,
-        current_period_start: None,
-        current_period_end: None,
-        cancel_at_period_end: data
-            .get("cancel_at_period_end")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        canceled_at: None,
-        trial_end: None,
-        metadata: data.get("metadata").cloned(),
-    })
 }
 
 #[cfg(test)]
@@ -164,6 +92,7 @@ fn parse_subscription_payload(data: &Value) -> AppResult<SubscriptionEventPayloa
 )]
 mod tests {
     use super::*;
+    use crate::errors::ErrorCode;
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -186,14 +115,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parse_webhook_decodes_subscription_upserted() {
+    async fn parse_webhook_refuses_an_unsigned_upsert() {
         let p = DummyProvider::new();
         let body = br#"{
             "id": "evt_1",
             "type": "subscription.upserted",
             "data": {
                 "provider_customer_id": "cus_1",
-                "provider_subscription_id": "sub_1",
                 "tenant_id": "11111111-1111-1111-1111-111111111111",
                 "user_id": "22222222-2222-2222-2222-222222222222",
                 "plan_tier": "professional",
@@ -201,22 +129,13 @@ mod tests {
             }
         }"#;
         let headers = HashMap::new();
-        let env = p
+        let err = p
             .parse_webhook(WebhookPayload {
                 headers: &headers,
                 body,
             })
             .await
-            .unwrap();
-        assert_eq!(env.event_id, "evt_1");
-        assert_eq!(env.event_type, "subscription.upserted");
-        match env.event {
-            BillingEvent::SubscriptionUpserted(payload) => {
-                assert_eq!(payload.provider_customer_id, "cus_1");
-                assert_eq!(payload.plan_tier, "professional");
-                assert_eq!(payload.status, "active");
-            }
-            other => panic!("expected SubscriptionUpserted, got {other:?}"),
-        }
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::AuthInvalid);
     }
 }
