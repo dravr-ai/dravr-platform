@@ -5,7 +5,6 @@ import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
@@ -17,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme, useThemeColors } from '../../contexts/ThemeContext';
-import { Button, Input } from '../../components/ui';
+import { Button, FormScrollView, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
 import { PROVIDER_COLORS, spacing } from '../../constants/theme';
 import {
@@ -185,11 +184,9 @@ export function LoginScreen() {
             a screen that fits reads as content below the fold. Every gap
             here is one ladder step (sm/md), not the xl/lg the web aside can
             afford at desktop height. */}
-        <ScrollView
+        <FormScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }}
-          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          automaticallyAdjustKeyboardInsets
           testID="login-scroll-view"
         >
           {/* Editorial hero band — brand moment at the top */}
@@ -360,7 +357,7 @@ export function LoginScreen() {
               </React.Fragment>
             ))}
           </View>
-        </ScrollView>
+        </FormScrollView>
       </SafeAreaView>
     </View>
   );

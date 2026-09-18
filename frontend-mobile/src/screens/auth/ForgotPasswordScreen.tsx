@@ -5,14 +5,13 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   Alert,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { authApi } from '../../services/api';
-import { Button, Input } from '../../components/ui';
+import { Button, FormScrollView, Input } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
@@ -61,15 +60,13 @@ export function ForgotPasswordScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="forgot-password-screen">
-        <ScrollView
+        <FormScrollView
           contentContainerStyle={{
             flexGrow: 1,
             justifyContent: 'center',
             paddingHorizontal: spacing.lg,
             paddingVertical: spacing.xl,
           }}
-          keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets
         >
           <View className="px-6 py-8">
             {/* Header */}
@@ -115,7 +112,7 @@ export function ForgotPasswordScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
+        </FormScrollView>
     </SafeAreaView>
   );
 }

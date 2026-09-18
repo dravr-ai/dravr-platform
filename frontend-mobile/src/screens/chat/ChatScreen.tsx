@@ -12,9 +12,8 @@ import {
   TouchableOpacity,
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useHeaderHeight } from '@react-navigation/elements';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -439,13 +438,18 @@ export function ChatScreen() {
     <View className="flex-1 bg-background-primary" testID="chat-screen">
       {/*
         The list, the progress strip, the usage banner and the composer bar
-        are one column; the keyboard shortens it through the layout. Android
-        runs edge-to-edge and resizes the window itself, so only iOS pads.
+        are one column; the keyboard shortens it through the layout. Both
+        platforms pad: Android runs edge-to-edge, where the window no longer
+        resizes for the keyboard, so this is the keyboard-controller view
+        that reads the IME inset itself (the same tracker the auth forms use)
+        rather than React Native's, which the composer sat behind the
+        keyboard under. The native header is above this column on both
+        platforms, so both offset by its height.
       */}
       <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
+        style={{ flex: 1 }}
+        behavior="padding"
+        keyboardVerticalOffset={headerHeight}
       >
         {/*
           The native header: the system back chevron, the thread's avatar and

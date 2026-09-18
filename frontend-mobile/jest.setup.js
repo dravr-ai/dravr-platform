@@ -209,6 +209,12 @@ jest.mock('react-native-safe-area-context', () => {
   };
 });
 
+// Mock react-native-keyboard-controller with the mock the library ships:
+// KeyboardProvider renders as a plain host element, KeyboardAwareScrollView as
+// a ScrollView and KeyboardAvoidingView as a View, so a form's keyboard
+// mechanism is visible in the tree and the native tracker is never needed.
+jest.mock('react-native-keyboard-controller', () => require('react-native-keyboard-controller/jest'));
+
 // Mock expo-linear-gradient
 jest.mock('expo-linear-gradient', () => {
   const React = require('react');

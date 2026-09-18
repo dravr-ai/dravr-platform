@@ -25,6 +25,8 @@ export { TextTabs } from './TextTabs';
 export type { TextTabItem, TextTabsProps } from './TextTabs';
 // The scroll container that insets itself for the native header and tab bar.
 export { PaneScrollView } from './PaneScrollView';
+// The scroll container that keeps the focused field of a form above the keyboard.
+export { FormScrollView, FORM_KEYBOARD_GAP } from './FormScrollView';
 export { AppearanceToggleButton } from './AppearanceToggleButton';
 export { OnboardingProgressBar } from './OnboardingProgressBar';
 export type { OnboardingProgressBarProps } from './OnboardingProgressBar';

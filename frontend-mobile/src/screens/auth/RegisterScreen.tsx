@@ -5,8 +5,6 @@ import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
-
-  ScrollView,
   TouchableOpacity,
   Alert,
   type TextInput,
@@ -15,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../../contexts/AuthContext';
-import { Button, Input } from '../../components/ui';
+import { Button, FormScrollView, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
 import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
@@ -97,10 +95,8 @@ export function RegisterScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="register-screen">
-        <ScrollView
+        <FormScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
-          keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets
         >
           <View className="px-6 py-8">
             {/* Header */}
@@ -198,7 +194,7 @@ export function RegisterScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
+        </FormScrollView>
     </SafeAreaView>
   );
 }

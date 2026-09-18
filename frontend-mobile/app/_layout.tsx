@@ -12,6 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import Toast from 'react-native-toast-message';
 import { useFonts, SchibstedGrotesk_600SemiBold } from '@expo-google-fonts/schibsted-grotesk';
 import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
@@ -290,17 +291,21 @@ export default function RootLayout() {
   // ThemeProvider sits above auth + query so its preference resolution runs
   // independent of the auth state. StatusBar appearance follows the resolved
   // scheme so the system clock/battery glyphs stay legible in both modes.
+  // KeyboardProvider is the native keyboard tracker every FormScrollView reads;
+  // it sits above the navigators so a form on any route can find it.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
         <SafeAreaProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <QueryProvider>
-                <RootShell />
-              </QueryProvider>
-            </AuthProvider>
-          </ThemeProvider>
+          <KeyboardProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <QueryProvider>
+                  <RootShell />
+                </QueryProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </KeyboardProvider>
         </SafeAreaProvider>
       </ErrorBoundary>
     </GestureHandlerRootView>
