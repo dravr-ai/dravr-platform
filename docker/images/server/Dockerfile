@@ -170,11 +170,27 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 # is not needed at runtime.
 ARG COPILOT_CLI_VERSION=1.0.82
 ARG CLAUDE_CODE_CLI_VERSION=2.1.258
+# The copilot binary is a Node SEA bootstrap: on first run it extracts its
+# package (app.js + prebuilds/linux-x64/runtime.node, ~150 MB) into
+# $COPILOT_PKG_CACHE_HOME/pkg and skips the extraction whenever that directory
+# already carries `.extraction-complete`. Without a shared cache the build-time
+# `copilot --version` below extracts under /root while the server runs as
+# appuser, so every cold instance re-extracted the package into its in-memory
+# filesystem on the first `copilot --acp` spawn (150,136 KB measured; embacle
+# budgets 20-25 s for it). A world-readable path lets the build fill the cache
+# once for every user. COPILOT_AUTO_UPDATE=false keeps the loader from
+# selecting or downloading any version other than the pinned one at runtime.
+# See carnet#466.
+ENV COPILOT_PKG_CACHE_HOME=/opt/copilot-pkg
+ENV COPILOT_AUTO_UPDATE=false
 RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
     && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
     && copilot --version \
+    && test -f "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/.extraction-complete" \
+    && test -s "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/runtime.node" \
+    && chmod -R a+rX /opt/copilot-pkg \
     && claude --version \
     && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"
 
