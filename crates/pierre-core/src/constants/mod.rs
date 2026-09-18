@@ -526,6 +526,11 @@ pub mod api_provider_limits {
 
     /// Strava specific limits
     pub mod strava {
+        /// Estimated rate-limit block duration (seconds).
+        ///
+        /// Strava publishes a 15-minute rolling window, so a caller that has
+        /// exhausted it is clear again within one window.
+        pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 900;
         /// Default activities per page
         pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 30;
         /// Maximum activities per request
@@ -534,6 +539,8 @@ pub mod api_provider_limits {
 
     /// WHOOP API limits
     pub mod whoop {
+        /// Estimated rate-limit block duration (seconds).
+        pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 60;
         /// Default workouts per page request
         pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 25;
         /// Maximum workouts per single API request
@@ -542,6 +549,8 @@ pub mod api_provider_limits {
 
     /// COROS API limits
     pub mod coros {
+        /// Estimated rate-limit block duration (seconds).
+        pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 60;
         /// Default workouts per page request
         pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 25;
         /// Maximum workouts per single API request
@@ -550,6 +559,11 @@ pub mod api_provider_limits {
 
     /// Fitbit API limits
     pub mod fitbit {
+        /// Estimated rate-limit block duration (seconds).
+        ///
+        /// Fitbit's quota is hourly, so an exhausted caller waits for the next
+        /// hour boundary rather than a short backoff.
+        pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 3600;
         /// Default activities per page request
         pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 100;
         /// Maximum activities per single API request

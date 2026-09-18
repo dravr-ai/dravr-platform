@@ -19,7 +19,7 @@ use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{TenantId, UserOAuthToken};
-use pierre_providers::utils::refresh_oauth_token;
+use pierre_providers::utils::{refresh_oauth_token, ClientAuth, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -368,11 +368,15 @@ async fn live_access_token(
     };
     match refresh_oauth_token(
         api_client(),
-        token_url,
-        &creds.client_id,
-        &creds.client_secret,
-        &refresh,
-        backend,
+        &RefreshRequest {
+            token_url,
+            client_id: &creds.client_id,
+            client_secret: &creds.client_secret,
+            refresh_token: &refresh,
+            provider_name: backend,
+            client_auth: ClientAuth::FormFields,
+            extra_form: &[],
+        },
     )
     .await
     {

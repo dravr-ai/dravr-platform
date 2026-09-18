@@ -52,7 +52,7 @@ use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
-use pierre_core::admin::jwt::JwtSigner;
+use pierre_core::admin::jwt::{JwtSigner, JwtVerifier};
 use pierre_core::constants::service_names::{ADMIN_API, PIERRE_MCP_SERVER};
 use pierre_core::errors::{AppError, AppResult};
 
@@ -502,5 +502,11 @@ impl Default for JwksManager {
 impl JwtSigner for JwksManager {
     fn sign_token(&self, claims: &serde_json::Value) -> AppResult<String> {
         self.sign_admin_token(claims)
+    }
+}
+
+impl JwtVerifier for JwksManager {
+    fn verify_token(&self, token: &str) -> AppResult<serde_json::Value> {
+        self.verify_admin_token(token)
     }
 }

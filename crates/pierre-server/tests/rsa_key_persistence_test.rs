@@ -13,11 +13,11 @@ use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
+use pierre_core::admin::AdminJwtManager;
 use pierre_core::admin::TokenScope;
 use pierre_core::models::User;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database};
-use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 

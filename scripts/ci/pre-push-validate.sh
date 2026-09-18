@@ -333,6 +333,28 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
 fi
 
 # ============================================================================
+# TIER 1e-pair: mirrored SQLite/Postgres repository files (compile-free)
+# ============================================================================
+# pierre-database implements each repository trait twice, once per backend.
+# Where the two files each carry their own SQL, an edit lands on one and not
+# the other and nothing local catches it: cargo check, clippy, the test suite
+# and every tier above run SQLite, so the Postgres half is first exercised in
+# CI (~25 min later) or in production. Two sessions shipped that break on the
+# same day, 2026-09-03. Fails a push that adds or edits a mirrored pair whose
+# statements are still written twice; reports the standing stock (carnet#436)
+# without failing on it, since the conversion is incremental by design.
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
+    echo "Tier 1e-pair: backend-pair duplication check"
+    echo "------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-backend-pairs.sh" "$BASE_REF"; then
+        echo ""
+        echo "FAIL: backend-pair check failed!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1e: Changed server-test clippy (compiles ONLY what this push touched)
 # ============================================================================
 # A new or edited file under crates/pierre-server/tests compiles into no local

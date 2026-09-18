@@ -38,6 +38,8 @@ pub mod health;
 pub mod mcp_tasks;
 /// Repository traits for inbound/outbound messaging channel persistence.
 pub mod messaging;
+/// Shared SQL and body for the reaction → chat-message lookup both backends serve.
+pub mod messaging_reactions;
 /// Repository traits for mobility (yoga and stretching) persistence.
 pub mod mobility;
 /// Repository traits for `OAuth` and system notification persistence.
@@ -68,6 +70,8 @@ pub mod training_plans;
 pub mod usage;
 /// Repository trait for durable per-user onboarding step completion state.
 pub mod user_onboarding;
+/// Shared statements and bodies for the single-column preference writes on the users row.
+pub mod user_preferences;
 /// Repository traits for user accounts, profiles, password resets, impersonation, physiological profile.
 pub mod users;
 /// Repository traits for weather cache persistence.

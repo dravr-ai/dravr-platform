@@ -11,7 +11,7 @@ mod common;
 
 use chrono::{Duration, Utc};
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
-use pierre_routes_admin::auth::jwt::AdminJwtManager;
+use pierre_core::admin::{AdminJwtManager, TokenScope};
 
 #[test]
 fn test_jwt_generation_and_validation() {
@@ -25,7 +25,7 @@ fn test_jwt_generation_and_validation() {
             "test_token_123",
             "test_service",
             &permissions,
-            &pierre_core::admin::TokenScope {
+            &TokenScope {
                 is_super_admin: false,
                 expires_at: Some(Utc::now() + Duration::hours(1)),
                 tenant_id: None,
@@ -57,7 +57,7 @@ fn test_expired_token_rejection() {
             "expired_token",
             "test_service",
             &permissions,
-            &pierre_core::admin::TokenScope {
+            &TokenScope {
                 is_super_admin: false,
                 expires_at: Some(Utc::now() - Duration::hours(1)), // Expired 1 hour ago
                 tenant_id: None,
@@ -84,7 +84,7 @@ fn test_super_admin_token() {
             "super_admin_token",
             "admin_service",
             &permissions,
-            &pierre_core::admin::TokenScope {
+            &TokenScope {
                 is_super_admin: true,
                 expires_at: None,
                 tenant_id: None,

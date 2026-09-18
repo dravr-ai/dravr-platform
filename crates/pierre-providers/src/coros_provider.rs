@@ -61,7 +61,7 @@ use serde::Deserialize;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 // ============================================================================
 // COROS API Response Structures
@@ -284,7 +284,20 @@ impl CorosProvider {
             endpoint.trim_start_matches('/')
         );
 
-        let result = self.execute_api_request(&url, &access_token).await;
+        let retry_config = utils::RetryConfig {
+            estimated_block_duration_secs:
+                api_provider_limits::coros::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
+            ..utils::RetryConfig::default()
+        };
+        let result = utils::api_request_with_retry(
+            &self.client,
+            &url,
+            &access_token,
+            oauth_providers::COROS,
+            &retry_config,
+            utils::no_vendor_error,
+        )
+        .await;
 
         // Record success/failure for circuit breaker
         match &result {
@@ -293,76 +306,6 @@ impl CorosProvider {
         }
 
         result
-    }
-
-    /// Execute the actual API request (separated for circuit breaker wrapping)
-    async fn execute_api_request<T>(&self, url: &str, access_token: &str) -> AppResult<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let response = self
-            .client
-            .get(url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("COROS", format!("Failed to send request: {e}"))
-            })?;
-
-        let status = response.status();
-        debug!("COROS API response status: {status}");
-
-        if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(Self::handle_api_error(status, &text));
-        }
-
-        response.json().await.map_err(|e| {
-            AppError::external_service("COROS", format!("Failed to parse API response: {e}"))
-        })
-    }
-
-    /// Handle non-success API responses
-    fn handle_api_error(status: reqwest::StatusCode, text: &str) -> AppError {
-        error!(
-            "COROS API request failed - status: {status}, body_length: {} bytes",
-            text.len()
-        );
-
-        if let Some(auth) = utils::auth_error_for_status(status, oauth_providers::COROS) {
-            return auth;
-        }
-
-        let status_code = status.as_u16();
-
-        // Check for rate limiting
-        if status_code == 429 {
-            let err = ProviderError::RateLimitExceeded {
-                provider: oauth_providers::COROS.to_owned(),
-                retry_after_secs: 60,
-                limit_type: "API rate limit".to_owned(),
-            };
-            return AppError::external_service("COROS", err.to_string());
-        }
-
-        // Check for auth errors
-        if status_code == 401 {
-            let err = ProviderError::AuthenticationFailed {
-                provider: oauth_providers::COROS.to_owned(),
-                reason: "Access token expired or invalid".to_owned(),
-            };
-            return AppError::external_service("COROS", err.to_string());
-        }
-
-        debug!("COROS API error response body: {text}");
-        let err = ProviderError::ApiError {
-            provider: oauth_providers::COROS.to_owned(),
-            status_code,
-            message: format!("COROS API request failed with status {status}"),
-            retryable: status_code >= 500,
-        };
-        AppError::external_service("COROS", err.to_string())
     }
 
     /// Convert COROS sport type ID to our `SportType` enum
@@ -619,26 +562,11 @@ impl FitnessProvider for CorosProvider {
     }
 
     async fn is_authenticated(&self) -> bool {
-        if let Some(creds) = self.credentials.read().await.as_ref() {
-            if creds.access_token.is_some() {
-                // Check if token is expired
-                if let Some(expires_at) = creds.expires_at {
-                    return Utc::now() < expires_at;
-                }
-                return true;
-            }
-        }
-        false
+        let credentials = self.credentials.read().await;
+        utils::is_authenticated(&credentials)
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            access_token: String,
-            refresh_token: Option<String>,
-            expires_in: i64,
-        }
-
         // Check if refresh is needed and extract credentials
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
@@ -671,55 +599,23 @@ impl FitnessProvider for CorosProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        info!("Refreshing COROS access token");
-
-        // Prepare token refresh request
-        let params = [
-            ("client_id", credentials.client_id.as_str()),
-            ("client_secret", credentials.client_secret.as_str()),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &refresh_token),
-        ];
-
-        let response = self
-            .client
-            .post(&self.config.token_url)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service(
-                    "COROS",
-                    format!("Failed to send token refresh request: {e}"),
-                )
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let err = ProviderError::AuthenticationFailed {
-                provider: oauth_providers::COROS.to_owned(),
-                reason: format!("token refresh failed with status: {status}"),
-            };
-            return Err(AppError::external_service("COROS", err.to_string()));
-        }
-
-        let token_response: TokenResponse = response.json().await.map_err(|e| {
-            AppError::external_service(
-                "COROS",
-                format!("Failed to parse token refresh response: {e}"),
-            )
-        })?;
-
-        let expires_at = Utc::now() + chrono::Duration::seconds(token_response.expires_in);
-
-        let new_credentials = OAuth2Credentials {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            access_token: Some(token_response.access_token),
-            refresh_token: token_response.refresh_token.or(Some(refresh_token)),
-            expires_at: Some(expires_at),
-            scopes: credentials.scopes,
-        };
+        let mut new_credentials = utils::refresh_oauth_token(
+            &self.client,
+            &utils::RefreshRequest {
+                token_url: &self.config.token_url,
+                client_id: &credentials.client_id,
+                client_secret: &credentials.client_secret,
+                refresh_token: &refresh_token,
+                provider_name: oauth_providers::COROS,
+                client_auth: utils::ClientAuth::FormFields,
+                extra_form: &[],
+            },
+        )
+        .await?;
+        // The exchange reports neither, so carry both across: COROS omits the
+        // refresh token when it is unchanged, and scopes are not re-issued.
+        new_credentials.refresh_token = new_credentials.refresh_token.or(Some(refresh_token));
+        new_credentials.scopes = credentials.scopes;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 

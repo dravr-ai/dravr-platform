@@ -194,6 +194,13 @@ jobs:
       - name: Turn Envelope Convergence
         run: ./scripts/ci/check-turn-envelope.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+      # pierre-database implements each repository trait twice, once per backend,
+      # and every local gate runs SQLite — so an edit that lands on one side and
+      # not the other is first seen here. Fails a newly duplicated pair; reports
+      # the pairs still awaiting conversion (carnet#436) without failing on them.
+      - name: Backend Pair Duplication
+        run: ./scripts/ci/check-backend-pairs.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+
       # The pre-push tier is not a backstop on its own: a fresh worktree has no
       # core.hooksPath until someone sets it, so the hook is silently absent
       # exactly when a new checkout is most likely to push. Same shape as the two
@@ -209,13 +216,14 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces, satellite pins)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces, satellite pins)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
           ./scripts/ci/check-migration-versions.test.sh
           ./scripts/ci/check-migration-immutability.test.sh
           ./scripts/ci/check-moved-symbols.test.sh
+          ./scripts/ci/check-backend-pairs.test.sh
           ./scripts/ci/worktree-lib.test.sh
           ./scripts/ci/dev-process-scope.test.sh
           ./scripts/ci/tunnel-env-lib.test.sh

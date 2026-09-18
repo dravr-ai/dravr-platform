@@ -326,6 +326,7 @@ impl GarminProvider {
             &access_token,
             "Garmin",
             &retry_config,
+            utils::no_vendor_error,
         )
         .await;
 
@@ -623,11 +624,15 @@ impl FitnessProvider for GarminProvider {
 
         let mut new_credentials = utils::refresh_oauth_token(
             &self.client,
-            &self.config.token_url,
-            &credentials.client_id,
-            &credentials.client_secret,
-            &refresh_token,
-            "Garmin",
+            &utils::RefreshRequest {
+                token_url: &self.config.token_url,
+                client_id: &credentials.client_id,
+                client_secret: &credentials.client_secret,
+                refresh_token: &refresh_token,
+                provider_name: "Garmin",
+                client_auth: utils::ClientAuth::FormFields,
+                extra_form: &[],
+            },
         )
         .await?;
 

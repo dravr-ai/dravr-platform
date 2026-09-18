@@ -60,7 +60,7 @@ async fn test_enterprise_security_model() -> Result<()> {
     // Verify that:
     // 1. Admin token system is available
     use pierre_core::admin::models::{AdminPermission, AdminPermissions};
-    use pierre_routes_admin::auth::jwt::AdminJwtManager;
+    use pierre_core::admin::{AdminJwtManager, TokenScope};
 
     // 2. Admin permissions include ProvisionKeys
     let admin_perms = AdminPermissions::default_admin();
@@ -73,7 +73,7 @@ async fn test_enterprise_security_model() -> Result<()> {
         "test_admin",
         "test_service",
         &admin_perms,
-        &pierre_core::admin::TokenScope {
+        &TokenScope {
             is_super_admin: false,
             expires_at: None,
             tenant_id: None,

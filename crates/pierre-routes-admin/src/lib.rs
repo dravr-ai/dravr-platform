@@ -1,5 +1,5 @@
 // ABOUTME: Admin route group — programmatic /admin/* (admin-token JWT) + cookie-auth /api/admin/*
-// ABOUTME: Owns AdminApiContext, AdminRoutes, AdminAuthService, AdminJwtManager — decoupled from pierre-server
+// ABOUTME: Owns AdminApiContext, AdminRoutes, AdminAuthService — decoupled from pierre-server
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -25,7 +25,7 @@
 //! `Arc<ServerContext>` as the layer state.
 //!
 //! Admin token JWT validation lives in [`auth::AdminAuthService`] /
-//! [`auth::jwt::AdminJwtManager`]; these are re-exported from
+//! [`pierre_core::admin::AdminJwtManager`]; these are re-exported from
 //! `pierre-server`'s `admin` module for callers that still use the old
 //! path (notably `routes::auth::login::handle_register`).
 

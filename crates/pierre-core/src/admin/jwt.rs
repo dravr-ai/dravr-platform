@@ -1,5 +1,5 @@
 // ABOUTME: JWT signing trait and admin token management for authentication
-// ABOUTME: Provides JwtSigner abstraction, AdminJwtManager for token generation/hashing, and TokenGenerationConfig
+// ABOUTME: Provides the JwtSigner/JwtVerifier seam, AdminJwtManager for token minting, validation and hashing, and TokenGenerationConfig
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -31,6 +31,28 @@ impl<T: JwtSigner> JwtSigner for Arc<T> {
     }
 }
 
+/// Trait for verifying JWT tokens signed by a [`JwtSigner`].
+///
+/// The verification half of the same seam: the concrete JWKS key management
+/// stays in the auth crate, and admin token validation here takes any
+/// verifier, so minting and validating read their claim semantics from one
+/// place instead of two.
+pub trait JwtVerifier: Send + Sync {
+    /// Verify a token's RS256 signature and its standard claims (issuer,
+    /// audience, expiry) and return the decoded claims as JSON.
+    ///
+    /// # Errors
+    /// Returns an error if the signature, key id, issuer, audience or expiry
+    /// does not check out.
+    fn verify_token(&self, token: &str) -> AppResult<serde_json::Value>;
+}
+
+impl<T: JwtVerifier> JwtVerifier for Arc<T> {
+    fn verify_token(&self, token: &str) -> AppResult<serde_json::Value> {
+        (**self).verify_token(token)
+    }
+}
+
 // --- Admin JWT utilities (behind `admin-jwt` feature) ---
 
 #[cfg(feature = "admin-jwt")]
@@ -43,7 +65,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "admin-jwt")]
-use crate::admin::models::{AdminPermission, AdminPermissions};
+use crate::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
 #[cfg(feature = "admin-jwt")]
 use crate::constants::service_names;
 #[cfg(feature = "admin-jwt")]
@@ -147,6 +169,47 @@ impl AdminJwtManager {
         jwks_manager
             .sign_token(&claims_value)
             .map_err(|e| AppError::internal(format!("Failed to generate RS256 admin JWT: {e}")))
+    }
+
+    /// Validate and decode an admin JWT using RS256.
+    ///
+    /// # Errors
+    /// Returns an error if the token is invalid, expired, or has the wrong
+    /// type.
+    pub fn validate_token(
+        &self,
+        token: &str,
+        verifier: &dyn JwtVerifier,
+    ) -> AppResult<ValidatedAdminToken> {
+        let raw = verifier.verify_token(token).map_err(|e| {
+            AppError::auth_invalid(format!("RS256 admin JWT validation failed: {e}"))
+        })?;
+        let claims: AdminTokenClaims = serde_json::from_value(raw)
+            .map_err(|e| AppError::auth_invalid(format!("Malformed admin JWT claims: {e}")))?;
+
+        if claims.token_type != "admin" {
+            return Err(AppError::auth_invalid(format!(
+                "Invalid token type: {}",
+                claims.token_type
+            )));
+        }
+
+        let now = u64::try_from(Utc::now().timestamp().max(0)).unwrap_or(0);
+        if claims.exp < now {
+            return Err(AppError::auth_expired());
+        }
+
+        let user_info = serde_json::to_value(&claims)
+            .map_err(|e| AppError::internal(format!("JSON serialization failed: {e}")))?;
+
+        Ok(ValidatedAdminToken {
+            token_id: claims.sub,
+            service_name: claims.service_name,
+            permissions: AdminPermissions::new(claims.permissions),
+            is_super_admin: claims.is_super_admin,
+            tenant_id: claims.tenant_id,
+            user_info: Some(user_info),
+        })
     }
 
     /// Generate token prefix for identification

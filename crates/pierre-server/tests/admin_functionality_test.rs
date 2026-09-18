@@ -22,7 +22,8 @@ use chrono::Utc;
 use pierre_core::admin::models::{
     AdminAction, AdminPermission, AdminPermissions, AdminTokenUsage, CreateAdminTokenRequest,
 };
-use pierre_routes_admin::auth::{jwt::AdminJwtManager, service::AdminAuthService};
+use pierre_core::admin::{AdminJwtManager, TokenScope};
+use pierre_routes_admin::auth::service::AdminAuthService;
 
 const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_token_creation_in_tests";
 use serial_test::serial;
@@ -43,7 +44,7 @@ async fn test_admin_jwt_manager_basic_operations() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        &pierre_core::admin::TokenScope {
+        &TokenScope {
             is_super_admin: false,
             expires_at: None,
             tenant_id: None,
@@ -81,7 +82,7 @@ async fn test_admin_jwt_with_expiration() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        &pierre_core::admin::TokenScope {
+        &TokenScope {
             is_super_admin: true,
             expires_at: Some(expires_at),
             tenant_id: None,
@@ -396,7 +397,7 @@ async fn test_admin_token_security_features() -> Result<()> {
         "test_security",
         "security_service",
         &AdminPermissions::default_admin(),
-        &pierre_core::admin::TokenScope {
+        &TokenScope {
             is_super_admin: false,
             expires_at: None,
             tenant_id: None,
@@ -529,6 +530,86 @@ async fn test_admin_super_admin_privileges() -> Result<()> {
     assert!(token
         .permissions
         .has_permission(&AdminPermission::ManageUsers));
+
+    Ok(())
+}
+
+/// A token minted through the repository (`AdminRepository::create_token`)
+/// must validate through `AdminAuthService` with the same identity,
+/// permissions, tenant and super-admin flag it was minted with. Minting and
+/// validation read their claim semantics from one `AdminJwtManager`; this is
+/// the round trip that proves the two halves agree.
+#[tokio::test]
+#[serial]
+async fn test_admin_token_minted_by_repository_validates_through_service() -> Result<()> {
+    let db = common::create_test_database().await?;
+    let repos = db.repositories();
+    let jwks_manager = common::get_shared_test_jwks();
+    let auth_service = AdminAuthService::new(
+        repos.admin.clone(),
+        jwks_manager.clone(),
+        AdminAuthService::DEFAULT_CACHE_TTL_SECS,
+    );
+
+    let scoped = repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "round_trip_service".to_owned(),
+                service_description: None,
+                permissions: Some(vec![
+                    AdminPermission::ProvisionKeys,
+                    AdminPermission::ListKeys,
+                ]),
+                is_super_admin: false,
+                expires_in_days: Some(7),
+                tenant_id: Some("tenant-round-trip".to_owned()),
+            },
+            TEST_JWT_SECRET,
+            &jwks_manager,
+        )
+        .await?;
+    let validated = auth_service
+        .authenticate(&scoped.jwt_token, Some("127.0.0.1"))
+        .await?;
+    assert_eq!(validated.token_id, scoped.token_id);
+    assert_eq!(validated.service_name, "round_trip_service");
+    assert!(!validated.is_super_admin);
+    assert_eq!(validated.tenant_id.as_deref(), Some("tenant-round-trip"));
+    assert!(validated
+        .permissions
+        .has_permission(&AdminPermission::ProvisionKeys));
+    assert!(validated
+        .permissions
+        .has_permission(&AdminPermission::ListKeys));
+    assert!(!validated
+        .permissions
+        .has_permission(&AdminPermission::RevokeKeys));
+
+    let super_admin = repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "round_trip_super".to_owned(),
+                service_description: None,
+                permissions: None,
+                is_super_admin: true,
+                expires_in_days: None,
+                tenant_id: None,
+            },
+            TEST_JWT_SECRET,
+            &jwks_manager,
+        )
+        .await?;
+    let validated = auth_service
+        .authenticate(&super_admin.jwt_token, Some("127.0.0.1"))
+        .await?;
+    assert_eq!(validated.token_id, super_admin.token_id);
+    assert!(validated.is_super_admin);
+    assert_eq!(validated.tenant_id, None);
+    assert!(validated
+        .permissions
+        .has_permission(&AdminPermission::RevokeKeys));
 
     Ok(())
 }

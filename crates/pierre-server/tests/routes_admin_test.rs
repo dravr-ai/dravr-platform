@@ -260,7 +260,7 @@ impl AdminTestSetup {
 
         // Create expired token with the same JWT secret
         use pierre_core::admin::models::AdminPermissions;
-        use pierre_routes_admin::auth::jwt::AdminJwtManager;
+        use pierre_core::admin::AdminJwtManager;
         let expired_permissions = AdminPermissions::new(vec![AdminPermission::ProvisionKeys]);
 
         let expired_token_id = format!("admin_{}", Uuid::new_v4().simple());

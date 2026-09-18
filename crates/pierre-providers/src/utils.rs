@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+
 use crate::errors::{AppError, AppResult};
 use crate::http_client::SharedHttpClient;
 use chrono::{TimeZone, Utc};
@@ -210,20 +213,29 @@ pub fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppErro
 ///
 /// # Errors
 ///
+/// `vendor_error` reads a non-success body before the generic mapping does, so
+/// a provider keeps its own error vocabulary (Strava's 404 → `NotFound`,
+/// Fitbit's `errors[].errorType`, Whoop's 404 → `NoDataAvailable`). Return
+/// `None` — or pass [`no_vendor_error`] — to take the generic mapping.
+///
+/// # Errors
+///
 /// Returns an error if:
 /// - No access token is available
 /// - All retry attempts are exhausted
 /// - Network request fails
 /// - Response parsing fails
-pub async fn api_request_with_retry<T>(
+pub async fn api_request_with_retry<T, F>(
     client: &SharedHttpClient,
     url: &str,
     access_token: &str,
     provider_name: &str,
     retry_config: &RetryConfig,
+    vendor_error: F,
 ) -> AppResult<T>
 where
     T: for<'de> Deserialize<'de>,
+    F: Fn(StatusCode, &str) -> Option<AppError>,
 {
     info!("Starting {provider_name} API request to: {url}");
 
@@ -255,6 +267,12 @@ where
 
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
+            // The vendor's own reading of the failure first: a body that names
+            // a missing resource, an expired token or a scope gap carries more
+            // than the status code does, and only the provider can decode it.
+            if let Some(err) = vendor_error(status, &text) {
+                return Err(err);
+            }
             return Err(api_error(status, &text, provider_name));
         }
 
@@ -264,6 +282,43 @@ where
             AppError::external_service(provider_name, format!("Failed to parse API response: {e}"))
         });
     }
+}
+
+/// The generic error mapping, for a provider whose failures carry nothing the
+/// status code does not already say.
+#[must_use]
+pub const fn no_vendor_error(_status: StatusCode, _body: &str) -> Option<AppError> {
+    None
+}
+
+/// Where a token-refresh request carries its client credentials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientAuth {
+    /// `client_id` and `client_secret` as fields of the form body — the
+    /// `OAuth2` default, and what Strava, Garmin and Coros expect.
+    FormFields,
+    /// `Authorization: Basic base64(client_id:client_secret)`, with the two
+    /// fields omitted from the body — what Fitbit requires.
+    BasicHeader,
+}
+
+/// One `OAuth2` refresh, with the vendor differences the standard flow leaves open.
+#[derive(Debug, Clone, Copy)]
+pub struct RefreshRequest<'a> {
+    /// The provider's token endpoint.
+    pub token_url: &'a str,
+    /// Registered client identifier.
+    pub client_id: &'a str,
+    /// Registered client secret.
+    pub client_secret: &'a str,
+    /// The stored refresh token being exchanged.
+    pub refresh_token: &'a str,
+    /// Provider slug, used for logs and for the error's `provider` field.
+    pub provider_name: &'a str,
+    /// Where the client credentials travel.
+    pub client_auth: ClientAuth,
+    /// Fields the vendor requires beyond the four standard ones.
+    pub extra_form: &'a [(&'a str, &'a str)],
 }
 
 /// Standard token refresh response structure
@@ -283,6 +338,12 @@ pub struct TokenRefreshResponse {
 
 /// Refresh `OAuth2` access token using refresh token
 ///
+/// `client_auth` decides where the client credentials travel — in the form
+/// body, or as an HTTP Basic header — and `extra_form` carries the fields a
+/// vendor requires beyond the four standard ones (Whoop's `scope=offline`,
+/// without which it consumes the single-use refresh token and returns nothing
+/// to replace it, so the next refresh fails).
+///
 /// # Errors
 ///
 /// Returns an error if:
@@ -291,32 +352,49 @@ pub struct TokenRefreshResponse {
 /// - Response parsing fails
 pub async fn refresh_oauth_token(
     client: &SharedHttpClient,
-    token_url: &str,
-    client_id: &str,
-    client_secret: &str,
-    refresh_token: &str,
-    provider_name: &str,
+    request: &RefreshRequest<'_>,
 ) -> AppResult<OAuth2Credentials> {
+    let RefreshRequest {
+        token_url,
+        client_id,
+        client_secret,
+        refresh_token,
+        provider_name,
+        client_auth,
+        extra_form,
+    } = *request;
     info!("Refreshing {provider_name} access token");
 
-    let params = [
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-    ];
+    let mut params: Vec<(&str, &str)> = match client_auth {
+        ClientAuth::FormFields => vec![
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ],
+        // The credentials travel in the header instead; repeating them in the
+        // body is what Fitbit rejects.
+        ClientAuth::BasicHeader => vec![
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ],
+    };
+    params.extend_from_slice(extra_form);
 
-    let response = client
-        .post(token_url)
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| {
-            AppError::external_service(
-                provider_name,
-                format!("Failed to send token refresh request: {e}"),
-            )
-        })?;
+    let mut post = client.post(token_url);
+    if matches!(client_auth, ClientAuth::BasicHeader) {
+        let encoded = Engine::encode(&BASE64_STANDARD, format!("{client_id}:{client_secret}"));
+        post = post
+            .header("Authorization", format!("Basic {encoded}"))
+            .header("Content-Type", "application/x-www-form-urlencoded");
+    }
+
+    let response = post.form(&params).send().await.map_err(|e| {
+        AppError::external_service(
+            provider_name,
+            format!("Failed to send token refresh request: {e}"),
+        )
+    })?;
 
     if !response.status().is_success() {
         let status = response.status();

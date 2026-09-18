@@ -12,8 +12,8 @@ mod common;
 use anyhow::Result;
 use pierre_auth::key_management::KeyManager;
 use pierre_core::admin::models::CreateAdminTokenRequest;
+use pierre_core::admin::AdminJwtManager;
 use pierre_database::database::test_utils::create_test_db_with_key;
-use pierre_routes_admin::auth::jwt::AdminJwtManager;
 use serial_test::serial;
 use std::env;
 

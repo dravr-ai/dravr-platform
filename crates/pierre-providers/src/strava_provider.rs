@@ -29,7 +29,7 @@ use crate::strava_types::{
 };
 use crate::utils;
 use async_trait::async_trait;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::fmt::Write;
 use std::sync::OnceLock;
@@ -138,19 +138,15 @@ impl StravaProvider {
         })
     }
 
-    /// Handle non-success API responses
-    ///
-    /// The 404 arm is Strava-specific (it parses the body to name the missing
-    /// resource); everything else — including the 401 → re-auth mapping — is the
-    /// shared behaviour in [`utils::api_error`].
-    fn handle_api_error(status: reqwest::StatusCode, text: &str, url: &str) -> AppError {
-        if status.as_u16() == 404 {
-            if let Some(not_found_err) = Self::parse_not_found_error(text, url) {
-                return AppError::external_service("Strava", not_found_err.to_string());
-            }
+    /// Strava names the missing resource in a 404 body, which says more than
+    /// the status code does; everything else — including the 401 → re-auth
+    /// mapping — is the shared behaviour in [`utils::api_error`].
+    fn missing_resource(status: reqwest::StatusCode, text: &str, url: &str) -> Option<AppError> {
+        if status.as_u16() != 404 {
+            return None;
         }
-
-        utils::api_error(status, text, oauth_providers::STRAVA)
+        Self::parse_not_found_error(text, url)
+            .map(|err| AppError::external_service(oauth_providers::STRAVA, err.to_string()))
     }
 
     /// Retrieve the current access token from credentials
@@ -194,7 +190,20 @@ impl StravaProvider {
             endpoint.trim_start_matches('/')
         );
 
-        let result = self.execute_api_request::<T>(&url, &access_token).await;
+        let retry_config = utils::RetryConfig {
+            estimated_block_duration_secs:
+                api_provider_limits::strava::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
+            ..utils::RetryConfig::default()
+        };
+        let result = utils::api_request_with_retry(
+            &self.client,
+            &url,
+            &access_token,
+            oauth_providers::STRAVA,
+            &retry_config,
+            |status, text| Self::missing_resource(status, text, &url),
+        )
+        .await;
 
         // Record success/failure for circuit breaker
         match &result {
@@ -203,53 +212,6 @@ impl StravaProvider {
         }
 
         result
-    }
-
-    /// Execute the actual API request (separated for circuit breaker wrapping)
-    async fn execute_api_request<T>(&self, url: &str, access_token: &str) -> AppResult<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let response = self.send_authenticated_request(url, access_token).await?;
-        self.parse_response(response, url).await
-    }
-
-    /// Send authenticated HTTP request to Strava API
-    async fn send_authenticated_request(
-        &self,
-        url: &str,
-        access_token: &str,
-    ) -> AppResult<reqwest::Response> {
-        info!("Making HTTP GET request to: {url}");
-
-        self.client
-            .get(url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("Strava", format!("Failed to send request: {e}"))
-            })
-    }
-
-    /// Parse Strava API response or handle errors
-    async fn parse_response<T>(&self, response: reqwest::Response, url: &str) -> AppResult<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let status = response.status();
-        info!("Received HTTP response with status: {status}");
-
-        if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(Self::handle_api_error(status, &text, url));
-        }
-
-        info!("Parsing JSON response from Strava API");
-        response.json().await.map_err(|e| {
-            error!("Failed to parse JSON response: {e}");
-            AppError::external_service("Strava", format!("Failed to parse API response: {e}"))
-        })
     }
 
     /// Convert Strava activity response to internal Activity model
@@ -603,26 +565,11 @@ impl FitnessProvider for StravaProvider {
     }
 
     async fn is_authenticated(&self) -> bool {
-        if let Some(creds) = self.credentials.read().await.as_ref() {
-            if creds.access_token.is_some() {
-                // Check if token is expired
-                if let Some(expires_at) = creds.expires_at {
-                    return Utc::now() < expires_at;
-                }
-                return true;
-            }
-        }
-        false
+        let credentials = self.credentials.read().await;
+        utils::is_authenticated(&credentials)
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            access_token: String,
-            refresh_token: String,
-            expires_at: i64,
-        }
-
         // Check if refresh is needed and extract credentials
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
@@ -655,53 +602,23 @@ impl FitnessProvider for StravaProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        info!("Refreshing Strava access token");
-
-        // Prepare token refresh request
-        let params = [
-            ("client_id", credentials.client_id.as_str()),
-            ("client_secret", credentials.client_secret.as_str()),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &refresh_token),
-        ];
-
-        let response = self
-            .client
-            .post(&self.config.token_url)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service(
-                    "Strava",
-                    format!("Failed to send token refresh request: {e}"),
-                )
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let err = ProviderError::AuthenticationFailed {
-                provider: oauth_providers::STRAVA.to_owned(),
-                reason: format!("token refresh failed with status: {status}"),
-            };
-            return Err(AppError::external_service("Strava", err.to_string()));
-        }
-
-        let token_response: TokenResponse = response.json().await.map_err(|e| {
-            AppError::external_service(
-                "Strava",
-                format!("Failed to parse token refresh response: {e}"),
-            )
-        })?;
-
-        let new_credentials = OAuth2Credentials {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            access_token: Some(token_response.access_token),
-            refresh_token: Some(token_response.refresh_token),
-            expires_at: Utc.timestamp_opt(token_response.expires_at, 0).single(),
-            scopes: credentials.scopes,
-        };
+        let mut new_credentials = utils::refresh_oauth_token(
+            &self.client,
+            &utils::RefreshRequest {
+                token_url: &self.config.token_url,
+                client_id: &credentials.client_id,
+                client_secret: &credentials.client_secret,
+                refresh_token: &refresh_token,
+                provider_name: oauth_providers::STRAVA,
+                client_auth: utils::ClientAuth::FormFields,
+                extra_form: &[],
+            },
+        )
+        .await?;
+        // Strava always rotates the refresh token and reports an absolute
+        // `expires_at`, which the exchange prefers; scopes are not re-issued.
+        new_credentials.refresh_token = new_credentials.refresh_token.or(Some(refresh_token));
+        new_credentials.scopes = credentials.scopes;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 

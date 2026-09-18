@@ -48,7 +48,7 @@ require_fixture() {
 # so it is stubbed by its inputs instead — a package test file for its count
 # guard and a `bun` on PATH for the two scripts it runs.
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
-check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh \
+check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
 pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh"
 
 make_repo() {

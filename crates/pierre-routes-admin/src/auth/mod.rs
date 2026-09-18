@@ -1,5 +1,5 @@
-// ABOUTME: Admin token authentication module — JWT issuance/validation + middleware
-// ABOUTME: Owns AdminAuthService, AdminJwtManager, TokenGenerationConfig, admin_auth_middleware
+// ABOUTME: Admin token authentication module — AdminAuthService + Axum middleware over the pierre-core JWT manager
+// ABOUTME: Re-exports AdminJwtManager and TokenGenerationConfig from pierre_core::admin so one implementation mints and validates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,12 +10,12 @@
 //! Admin services can authenticate using JWT tokens to provision, revoke, and
 //! manage API keys for users.
 
-/// Admin JWT token generation and validation.
-pub mod jwt;
 /// Admin authentication service + Axum middleware.
 pub mod service;
 
-pub use jwt::{AdminJwtManager, TokenGenerationConfig};
+/// Admin JWT minting, validation and hashing — one implementation, shared with the
+/// repository layer that stores the minted token.
+pub use pierre_core::admin::{AdminJwtManager, TokenGenerationConfig};
 pub use service::AdminAuthService;
 
 /// Admin authentication middleware (`pub mod middleware`-shaped).

@@ -40,7 +40,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 // ============================================================================
 // WHOOP API Response Structures
@@ -281,7 +281,20 @@ impl WhoopProvider {
             endpoint.trim_start_matches('/')
         );
 
-        let result = self.execute_api_request(&url, &access_token).await;
+        let retry_config = utils::RetryConfig {
+            estimated_block_duration_secs:
+                api_provider_limits::whoop::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
+            ..utils::RetryConfig::default()
+        };
+        let result = utils::api_request_with_retry(
+            &self.client,
+            &url,
+            &access_token,
+            oauth_providers::WHOOP,
+            &retry_config,
+            Self::no_data_for_period,
+        )
+        .await;
 
         // Record success/failure for circuit breaker
         match &result {
@@ -292,84 +305,19 @@ impl WhoopProvider {
         result
     }
 
-    /// Execute the actual API request (separated for circuit breaker wrapping)
-    async fn execute_api_request<T>(&self, url: &str, access_token: &str) -> AppResult<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        info!("WHOOP API request: GET {url}");
-
-        let response = self
-            .client
-            .get(url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("WHOOP", format!("Failed to send request: {e}"))
-            })?;
-
-        let status = response.status();
-        let final_url = response.url().clone();
-        info!("WHOOP API response: {status} (final URL: {final_url})");
-
-        if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(Self::handle_api_error(status, &text));
-        }
-
-        response.json().await.map_err(|e| {
-            AppError::external_service("WHOOP", format!("Failed to parse API response: {e}"))
-        })
-    }
-
-    /// Handle non-success API responses
-    fn handle_api_error(status: reqwest::StatusCode, text: &str) -> AppError {
-        error!("WHOOP API request failed - status: {status}, body: {text}");
-
-        if let Some(auth) = utils::auth_error_for_status(status, oauth_providers::WHOOP) {
-            return auth;
-        }
-
-        let status_code = status.as_u16();
-
-        // Check for rate limiting
-        if status_code == 429 {
-            let err = ProviderError::RateLimitExceeded {
-                provider: oauth_providers::WHOOP.to_owned(),
-                retry_after_secs: 60, // Default to 60 seconds
-                limit_type: "API rate limit".to_owned(),
-            };
-            return AppError::external_service("WHOOP", err.to_string());
-        }
-
-        // Check for auth errors
-        if status_code == 401 {
-            let err = ProviderError::AuthenticationFailed {
-                provider: oauth_providers::WHOOP.to_owned(),
-                reason: "Access token expired or invalid".to_owned(),
-            };
-            return AppError::external_service("WHOOP", err.to_string());
-        }
-
-        // 404 means no data found for the requested resource/time range
-        if status_code == 404 {
+    /// WHOOP answers 404 when the strap has nothing for the window asked
+    /// about, which is an empty result rather than a failure — the generic
+    /// mapping would render it as an API error the athlete cannot act on.
+    fn no_data_for_period(status: reqwest::StatusCode, _body: &str) -> Option<AppError> {
+        (status.as_u16() == 404).then(|| {
             let err = ProviderError::NoDataAvailable {
                 provider: oauth_providers::WHOOP.to_owned(),
                 message: "No data available from WHOOP for the requested time period. \
                           Your WHOOP strap may not have synced yet."
                     .to_owned(),
             };
-            return AppError::external_service("WHOOP", err.to_string());
-        }
-
-        let err = ProviderError::ApiError {
-            provider: oauth_providers::WHOOP.to_owned(),
-            status_code,
-            message: format!("WHOOP API request failed with status {status}"),
-            retryable: status_code >= 500,
-        };
-        AppError::external_service("WHOOP", err.to_string())
+            AppError::external_service(oauth_providers::WHOOP, err.to_string())
+        })
     }
 
     /// Convert WHOOP sport ID to our `SportType` enum
@@ -622,26 +570,11 @@ impl FitnessProvider for WhoopProvider {
     }
 
     async fn is_authenticated(&self) -> bool {
-        if let Some(creds) = self.credentials.read().await.as_ref() {
-            if creds.access_token.is_some() {
-                // Check if token is expired
-                if let Some(expires_at) = creds.expires_at {
-                    return Utc::now() < expires_at;
-                }
-                return true;
-            }
-        }
-        false
+        let credentials = self.credentials.read().await;
+        utils::is_authenticated(&credentials)
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            access_token: String,
-            refresh_token: Option<String>,
-            expires_in: i64,
-        }
-
         // Check if refresh is needed and extract credentials
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
@@ -674,60 +607,27 @@ impl FitnessProvider for WhoopProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        info!("Refreshing WHOOP access token");
-
-        // Prepare token refresh request. WHOOP rotates refresh tokens and only
-        // returns a new one when `scope=offline` is sent on the refresh; without
-        // it the single-use refresh token is consumed but not replaced, so the
-        // next refresh fails with HTTP 400 invalid_request. The rotated refresh
-        // token is persisted below via token_response.refresh_token.
-        let params = [
-            ("client_id", credentials.client_id.as_str()),
-            ("client_secret", credentials.client_secret.as_str()),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &refresh_token),
-            ("scope", "offline"),
-        ];
-
-        let response = self
-            .client
-            .post(&self.config.token_url)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service(
-                    "WHOOP",
-                    format!("Failed to send token refresh request: {e}"),
-                )
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let err = ProviderError::AuthenticationFailed {
-                provider: oauth_providers::WHOOP.to_owned(),
-                reason: format!("token refresh failed with status: {status}"),
-            };
-            return Err(AppError::external_service("WHOOP", err.to_string()));
-        }
-
-        let token_response: TokenResponse = response.json().await.map_err(|e| {
-            AppError::external_service(
-                "WHOOP",
-                format!("Failed to parse token refresh response: {e}"),
-            )
-        })?;
-
-        let expires_at = Utc::now() + chrono::Duration::seconds(token_response.expires_in);
-
-        let new_credentials = OAuth2Credentials {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            access_token: Some(token_response.access_token),
-            refresh_token: token_response.refresh_token.or(Some(refresh_token)),
-            expires_at: Some(expires_at),
-            scopes: credentials.scopes,
-        };
+        // WHOOP rotates refresh tokens and only returns a new one when
+        // `scope=offline` is sent on the refresh; without it the single-use
+        // refresh token is consumed but not replaced, so the next refresh
+        // fails with HTTP 400 invalid_request.
+        let mut new_credentials = utils::refresh_oauth_token(
+            &self.client,
+            &utils::RefreshRequest {
+                token_url: &self.config.token_url,
+                client_id: &credentials.client_id,
+                client_secret: &credentials.client_secret,
+                refresh_token: &refresh_token,
+                provider_name: oauth_providers::WHOOP,
+                client_auth: utils::ClientAuth::FormFields,
+                extra_form: &[("scope", "offline")],
+            },
+        )
+        .await?;
+        // The rotated refresh token is kept when WHOOP sends one; scopes are
+        // not re-issued by the exchange, so carry the stored set across.
+        new_credentials.refresh_token = new_credentials.refresh_token.or(Some(refresh_token));
+        new_credentials.scopes = credentials.scopes;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 

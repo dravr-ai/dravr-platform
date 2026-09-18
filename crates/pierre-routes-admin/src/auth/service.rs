@@ -26,7 +26,7 @@ use pierre_core::admin::models::{
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::AdminRepository;
 
-use super::jwt::AdminJwtManager;
+use pierre_core::admin::AdminJwtManager;
 
 /// Admin authentication service
 #[derive(Clone)]

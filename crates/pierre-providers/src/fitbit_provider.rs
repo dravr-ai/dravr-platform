@@ -24,15 +24,13 @@ use crate::models::{
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::utils;
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::from_str;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 /// Fitbit API base URL
 const FITBIT_API_BASE: &str = "https://api.fitbit.com/1";
@@ -280,51 +278,29 @@ impl FitbitProvider {
     }
 
     /// Handle non-success API responses
-    fn handle_api_error(status: reqwest::StatusCode, text: &str, url: &str) -> AppError {
-        error!(
-            "Fitbit API request failed - status: {status}, url: {url}, body_length: {} bytes",
-            text.len()
-        );
-
-        if let Some(auth) = utils::auth_error_for_status(status, oauth_providers::FITBIT) {
-            return auth;
-        }
-
-        // Try to parse Fitbit error response
-        if let Ok(error_response) = from_str::<FitbitErrorResponse>(text) {
-            if let Some(errors) = error_response.errors {
-                if let Some(first_error) = errors.into_iter().next() {
-                    let error_type = first_error.error_type.unwrap_or_default();
-                    let message = first_error.message.unwrap_or_default();
-
-                    // Handle specific error types
-                    if error_type == "expired_token" {
-                        return AppError::external_service(
-                            "Fitbit",
-                            "Access token expired. Please refresh token.".to_owned(),
-                        );
-                    }
-
-                    if error_type == "insufficient_scope" {
-                        return AppError::external_service(
-                            "Fitbit",
-                            format!("Insufficient permissions: {message}"),
-                        );
-                    }
-
-                    return AppError::external_service("Fitbit", message);
-                }
-            }
-        }
-
-        debug!("Fitbit API error response body: {text}");
-        let err = ProviderError::ApiError {
-            provider: oauth_providers::FITBIT.to_owned(),
-            status_code: status.as_u16(),
-            message: format!("Fitbit API request failed with status {status}"),
-            retryable: status.as_u16() >= 500,
-        };
-        AppError::external_service("Fitbit", err.to_string())
+    /// Fitbit names the failure in its `errors[]` body — an expired token, a
+    /// scope the grant does not carry, or a message worth showing — which the
+    /// status code alone does not say. Everything else, the 401 → re-auth
+    /// mapping included, is the shared behaviour in [`utils::api_error`].
+    fn vendor_error(_status: reqwest::StatusCode, text: &str) -> Option<AppError> {
+        let first_error = from_str::<FitbitErrorResponse>(text)
+            .ok()?
+            .errors?
+            .into_iter()
+            .next()?;
+        let error_type = first_error.error_type.unwrap_or_default();
+        let message = first_error.message.unwrap_or_default();
+        Some(match error_type.as_str() {
+            "expired_token" => AppError::external_service(
+                oauth_providers::FITBIT,
+                "Access token expired. Please refresh token.".to_owned(),
+            ),
+            "insufficient_scope" => AppError::external_service(
+                oauth_providers::FITBIT,
+                format!("Insufficient permissions: {message}"),
+            ),
+            _ => AppError::external_service(oauth_providers::FITBIT, message),
+        })
     }
 
     /// Make authenticated API request with circuit breaker protection
@@ -353,7 +329,20 @@ impl FitbitProvider {
             endpoint.trim_start_matches('/')
         );
 
-        let result = self.execute_api_request(&url, &access_token).await;
+        let retry_config = utils::RetryConfig {
+            estimated_block_duration_secs:
+                api_provider_limits::fitbit::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS,
+            ..utils::RetryConfig::default()
+        };
+        let result = utils::api_request_with_retry(
+            &self.client,
+            &url,
+            &access_token,
+            oauth_providers::FITBIT,
+            &retry_config,
+            Self::vendor_error,
+        )
+        .await;
 
         // Record success/failure for circuit breaker
         match &result {
@@ -362,53 +351,6 @@ impl FitbitProvider {
         }
 
         result
-    }
-
-    /// Execute the actual API request (separated for circuit breaker wrapping)
-    async fn execute_api_request<T>(&self, url: &str, access_token: &str) -> AppResult<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let response = self.send_authenticated_request(url, access_token).await?;
-        self.parse_response(response, url).await
-    }
-
-    /// Send authenticated HTTP request to Fitbit API
-    async fn send_authenticated_request(
-        &self,
-        url: &str,
-        access_token: &str,
-    ) -> AppResult<reqwest::Response> {
-        debug!("Making HTTP GET request to: {url}");
-
-        self.client
-            .get(url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("Fitbit", format!("Failed to send request: {e}"))
-            })
-    }
-
-    /// Parse Fitbit API response or handle errors
-    async fn parse_response<T>(&self, response: reqwest::Response, url: &str) -> AppResult<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let status = response.status();
-        debug!("Received HTTP response with status: {status}");
-
-        if !status.is_success() {
-            let text = response.text().await.unwrap_or_default();
-            return Err(Self::handle_api_error(status, &text, url));
-        }
-
-        debug!("Parsing JSON response from Fitbit API");
-        response.json().await.map_err(|e| {
-            error!("Failed to parse JSON response: {e}");
-            AppError::external_service("Fitbit", format!("Failed to parse API response: {e}"))
-        })
     }
 
     /// Convert Fitbit activity type ID to our `SportType` enum
@@ -618,26 +560,11 @@ impl FitnessProvider for FitbitProvider {
     }
 
     async fn is_authenticated(&self) -> bool {
-        if let Some(creds) = self.credentials.read().await.as_ref() {
-            if creds.access_token.is_some() {
-                // Check if token is expired
-                if let Some(expires_at) = creds.expires_at {
-                    return Utc::now() < expires_at;
-                }
-                return true;
-            }
-        }
-        false
+        let credentials = self.credentials.read().await;
+        utils::is_authenticated(&credentials)
     }
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
-        #[derive(Deserialize)]
-        struct TokenResponse {
-            access_token: String,
-            refresh_token: Option<String>,
-            expires_in: i64,
-        }
-
         // Check if refresh is needed and extract credentials
         let (needs_refresh, credentials) = {
             let guard = self.credentials.read().await;
@@ -670,58 +597,25 @@ impl FitnessProvider for FitbitProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        info!("Refreshing Fitbit access token");
-
-        // Fitbit requires Basic auth for token refresh
-        let auth_value = Engine::encode(
-            &BASE64_STANDARD,
-            format!("{}:{}", credentials.client_id, credentials.client_secret),
-        );
-
-        let params = [
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &refresh_token),
-        ];
-
-        let response = self
-            .client
-            .post(&self.config.token_url)
-            .header("Authorization", format!("Basic {auth_value}"))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service(
-                    "Fitbit",
-                    format!("Failed to send token refresh request: {e}"),
-                )
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let err = ProviderError::AuthenticationFailed {
-                provider: oauth_providers::FITBIT.to_owned(),
-                reason: format!("token refresh failed with status: {status}"),
-            };
-            return Err(AppError::external_service("Fitbit", err.to_string()));
-        }
-
-        let token_response: TokenResponse = response.json().await.map_err(|e| {
-            AppError::external_service(
-                "Fitbit",
-                format!("Failed to parse token refresh response: {e}"),
-            )
-        })?;
-
-        let new_credentials = OAuth2Credentials {
-            client_id: credentials.client_id,
-            client_secret: credentials.client_secret,
-            access_token: Some(token_response.access_token),
-            refresh_token: token_response.refresh_token.or(Some(refresh_token)),
-            expires_at: Some(Utc::now() + chrono::Duration::seconds(token_response.expires_in)),
-            scopes: credentials.scopes,
-        };
+        // Fitbit authenticates the refresh with an HTTP Basic header and
+        // rejects the client credentials repeated in the body.
+        let mut new_credentials = utils::refresh_oauth_token(
+            &self.client,
+            &utils::RefreshRequest {
+                token_url: &self.config.token_url,
+                client_id: &credentials.client_id,
+                client_secret: &credentials.client_secret,
+                refresh_token: &refresh_token,
+                provider_name: oauth_providers::FITBIT,
+                client_auth: utils::ClientAuth::BasicHeader,
+                extra_form: &[],
+            },
+        )
+        .await?;
+        // Fitbit omits the refresh token when it is unchanged, and the
+        // exchange does not re-issue scopes.
+        new_credentials.refresh_token = new_credentials.refresh_token.or(Some(refresh_token));
+        new_credentials.scopes = credentials.scopes;
 
         *self.credentials.write().await = Some(new_credentials.clone());
 
