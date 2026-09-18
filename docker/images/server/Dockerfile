@@ -126,7 +126,11 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # 49 fixed HIGH/CRITICAL findings from one Debian batch gated the dev deploy
 # on 2026-09-14, on a commit that touched no Docker file; the failed run
 # echoes "apt security epoch: 2026-09-06".
-ARG APT_SECURITY_EPOCH=2026-09-14
+# chromium 153.0.8010.47-2~deb13u1 (CVE-2026-87534 and 43 more, four
+# CRITICAL) gated two consecutive dev deploys on 2026-09-18 — 104403e56 and
+# b3ff27888, the first touching no Docker file; both runs echo "apt security
+# epoch: 2026-09-14" and report 152.0.7977.82-1~deb13u1 installed.
+ARG APT_SECURITY_EPOCH=2026-09-18
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
