@@ -126,27 +126,41 @@ impl ActivityMergeStrategy for AllProvidersMerge {
         // Merge all successful results
         let mut all_activities = Vec::new();
         let mut provider_count = 0u32;
-        for (provider_name, maybe_activities) in results {
-            if let Some(activities) = maybe_activities {
+        for (provider_name, maybe_fetched) in results {
+            if let Some(fetched) = maybe_fetched {
                 info!(
                     user_id = %user_id,
                     provider = %provider_name,
-                    count = activities.len(),
+                    count = fetched.activities.len(),
+                    head_complete = fetched.head_complete,
                     "Snapshot: fetched from provider"
                 );
                 // Write-through: persist the freshly fetched activities keyed by
                 // the connection provider name so subsequent chat turns serve
                 // them from cache instead of re-fetching (stale-while-revalidate).
-                write_through_activity_cache(
-                    auth_service,
-                    user_id,
-                    tenant_id,
-                    &provider_name,
-                    &activities,
-                    activity_cache_retention_days(),
-                )
-                .await;
-                all_activities.extend(activities);
+                // A capture missing its head is served but never persisted: the
+                // upsert and the fetch mark would stamp it fresh, and the days
+                // it lacks would read as a quiet week — the same gate
+                // `fetch_provider_head` applies (carnet#149, carnet#151).
+                if fetched.head_complete {
+                    write_through_activity_cache(
+                        auth_service,
+                        user_id,
+                        tenant_id,
+                        &provider_name,
+                        &fetched.activities,
+                        activity_cache_retention_days(),
+                    )
+                    .await;
+                } else {
+                    warn!(
+                        user_id = %user_id,
+                        provider = %provider_name,
+                        count = fetched.activities.len(),
+                        "Snapshot: capture is missing the list head; served without write-through"
+                    );
+                }
+                all_activities.extend(fetched.activities);
                 provider_count += 1;
             }
         }
@@ -364,16 +378,23 @@ pub fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> We
     }
 }
 
+/// One provider's answer to the snapshot fetch, with whether its capture
+/// reached the list head. Only a complete capture may be written through.
+struct FetchedActivities {
+    activities: Vec<Activity>,
+    head_complete: bool,
+}
+
 /// Try authenticating with one provider and fetching its activities.
 ///
-/// Returns `Some(activities)` on success, `None` if auth or fetch fails.
+/// Returns `Some` on success, `None` if auth or fetch fails.
 async fn try_fetch_from_provider(
     auth_service: &AuthService,
     provider_name: &str,
     user_id: Uuid,
     tenant_id_str: &str,
     params: &ActivityQueryParams,
-) -> Option<Vec<Activity>> {
+) -> Option<FetchedActivities> {
     let provider = auth_service
         .create_authenticated_provider(provider_name, user_id, Some(tenant_id_str))
         .await
@@ -395,7 +416,10 @@ async fn try_fetch_from_provider(
         .filter(|a| !a.is_empty())?;
 
     debug!(user_id = %user_id, provider = %provider_name, count = activities.len(), "Snapshot: fetched");
-    Some(activities)
+    Some(FetchedActivities {
+        activities,
+        head_complete: provider.head_complete(),
+    })
 }
 
 /// Collect the distinct tenants in which a member actually holds a provider

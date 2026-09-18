@@ -595,6 +595,21 @@ pub async fn fetch_provider_head(
 
     let activities = provider.get_activities_with_params(params).await?;
 
+    // A capture whose head the provider never saw is served, not persisted.
+    // The write-through moves every row's `synced_at` and the fetch mark to
+    // now, and `DataFreshness` then reads the days it missed as a quiet week
+    // — the masking carnet#149 paid for. Leaving the cache untouched keeps the
+    // next ask a live fetch, which is the only thing that can fill the head.
+    if !provider.head_complete() {
+        warn!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            count = activities.len(),
+            "fetch_provider_head: capture is missing the list head; served without write-through"
+        );
+        return Ok(activities);
+    }
+
     // Warm the stale-while-revalidate cache so the next outage serves these.
     if let Ok(tenant) = TenantId::parse_str(tenant_id) {
         write_through_activity_cache(

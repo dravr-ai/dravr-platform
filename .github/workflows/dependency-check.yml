@@ -117,7 +117,8 @@ jobs:
           # 2026-09-14 scheduled run ("SyntaxError: Invalid left-hand side
           # expression in postfix operation"), and since crate names and
           # advisory text come from the dependency graph it is an injection
-          # surface in a job holding `issues: write`, not only a crash.
+          # surface in a job holding `issues: write`, not only a crash
+          # (carnet#432: cargo-edit quotes flags as `--incompatible`).
           COMPATIBLE: ${{ steps.compatible.outputs.COMPATIBLE }}
           INCOMPATIBLE: ${{ steps.incompatible.outputs.INCOMPATIBLE }}
           AUDIT: ${{ steps.audit.outputs.AUDIT }}

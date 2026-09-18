@@ -11,9 +11,22 @@
 # The score is min() over caps. A cap is a fact that makes "done" false; each one prints its own
 # evidence and its own remedy, so the number is never a verdict without a reason.
 #
-# Portability: shared through the repo like carnet.sh — macOS bash 3.2 (no associative arrays,
-# no mapfile), BSD sed, jq, git. `gh` is used only in full mode; --cheap touches no network,
-# because the Stop hook runs on the hot path of every turn and hosts kill a hook at ~10s.
+# Portability: shared through the repo like carnet.sh, and it runs on a developer's macOS and in
+# a Linux container alike — macOS bash 3.2 (no associative arrays, no mapfile), sed, jq, git.
+# `gh` is used only in full mode; --cheap touches no network, because the Stop hook runs on the
+# hot path of every turn and hosts kill a hook at ~10s.
+#
+# Where the two platforms' tools disagree, the rule is one spelling both accept — or, failing
+# that, a fallback chain ordered so the FIRST form is the one that fails cleanly on the other
+# platform. Never a uname branch, and never an order chosen by habit: `a || b` is only a
+# fallback when `a` actually reports failure, and the stat case below is the counter-example
+# that has to be read before adding another pair.
+#   - mktemp: an explicit "$TMPDIR/name.XXXXXX" template, never `-t <prefix>`. BSD invents the
+#     X's from a bare prefix and GNU refuses it ("too few X's in template"), which made every
+#     run in a Linux container die on line one before a single fact was measured.
+#   - stat: `stat -c %Y` (GNU) falling back to `stat -f %m` (BSD), in that order and validated
+#     as digits — see file_mtime, where the reverse order silently succeeded on GNU.
+#   - date: parsing a stamp is `date -j -u -f` (BSD) falling back to `date -u -d` (GNU).
 set -uo pipefail
 
 CHEAP=0
@@ -49,7 +62,6 @@ command -v jq  >/dev/null 2>&1 || die "jq is required"
 CFG=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 LEDGER_DIR="$CFG/carnet-claims"
 SESSION_ID=${CLAUDE_CODE_SESSION_ID:-}
-SESSION_PID=${CLAUDE_PID:-}
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "run this inside a git checkout"
 GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)
@@ -300,21 +312,31 @@ owned_unpushed() {
     printf '%s' "$owned"
 }
 
+# Epoch mtime of a file, or 0 when it cannot be read.
+#
+# The BSD spelling must NOT be tried first. On GNU, `-f` is --file-system and `%m` is read as
+# another FILE operand, so `stat -f %m <file>` SUCCEEDS — printing multi-line human text that
+# begins `File: "…"` — and a `|| stat -c %Y` fallback behind it never runs. That text then
+# reached an arithmetic expansion, where `File:` is a bare word: every Linux run printed
+# `File: unbound variable` twice and measured the fetch age as garbage, which in turn made
+# `[ "$(fetch_age)" -gt 300 ]` fail with "integer expression expected".
+#
+# So: GNU spelling first, BSD second, and the answer is used only once it is all digits —
+# because the lesson of the original is that an exit status alone did not distinguish the two.
+file_mtime() {
+    local m
+    m=$(stat -c %Y "$1" 2>/dev/null) || m=$(stat -f %m "$1" 2>/dev/null) || m=""
+    case $m in
+        '' | *[!0-9]*) printf '%s' 0 ;;
+        *) printf '%s' "$m" ;;
+    esac
+}
+
 # Seconds since the last fetch, or a large number when there has never been one.
 fetch_age() {
     local f="$GIT_DIR/FETCH_HEAD"
     [ -f "$f" ] || { printf '%s' 999999; return 0; }
-    # GNU stat is tried FIRST and the result is checked for digits, because the
-    # two stats disagree in a way `||` cannot catch: `-f` means "format" on BSD
-    # but "--file-system" on GNU, where it EXITS 0 while printing filesystem
-    # prose. Under the old BSD-first order that prose reached `$(( ))` on every
-    # Linux box and aborted the run with "File: unbound variable".
-    local mtime
-    mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
-    case "$mtime" in
-        ''|*[!0-9]*) mtime=0 ;;
-    esac
-    printf '%s' "$(( $(date +%s) - mtime ))"
+    printf '%s' "$(( $(date +%s) - $(file_mtime "$f") ))"
 }
 
 check_unpushed() {

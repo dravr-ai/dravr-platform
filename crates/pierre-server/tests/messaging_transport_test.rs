@@ -1003,15 +1003,25 @@ mod telegram {
     }
 
     #[tokio::test]
-    async fn test_parse_missing_message_field() {
+    async fn test_parse_unhandled_update_type() {
         let transport = make_transport();
+        // A chat-membership change is an update shape the transport does not
+        // turn into a message. `edited_message` is deliberately NOT the
+        // example here: an edit that adds the bot's mention is dispatched
+        // (carnet#21), so it is not an "ignored" shape.
         let payload = serde_json::json!({
             "update_id": 12345,
-            "edited_message": { "text": "edited" }
+            "my_chat_member": {
+                "chat": {"id": -100_123, "type": "supergroup"},
+                "from": {"id": 456},
+                "date": 1_700_000_000,
+                "old_chat_member": {"status": "left"},
+                "new_chat_member": {"status": "member"}
+            }
         });
         let body = serde_json::to_vec(&payload).unwrap();
         let result = transport.parse_inbound(&HeaderMap::new(), &body).await;
-        // Updates without message or callback_query are silently ignored
+        // Update types the transport does not handle are silently ignored
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }

@@ -137,6 +137,26 @@ pub struct RemoteAthleteProfile {
     pub profile_picture_url: Option<String>,
 }
 
+/// What `GET /api/activities` answers with: the scraped rows and whether the
+/// service read the list's head.
+///
+/// `head_complete` is `false` when sciotte's fresh-head fetch failed and the
+/// newest rows may be missing from `activities` (carnet#151). A service
+/// predating the field omits it; `true` is assumed then, which is what every
+/// consumer did before the field existed.
+#[derive(Debug, Deserialize)]
+pub struct RemoteActivityList {
+    /// The scraped rows, newest first.
+    pub activities: Vec<SciotteActivity>,
+    /// Whether the newest rows the site shows are in `activities`.
+    #[serde(default = "head_complete_when_unstated")]
+    pub head_complete: bool,
+}
+
+const fn head_complete_when_unstated() -> bool {
+    true
+}
+
 /// Query knobs for a remote activity fetch. Mirrors the `ActivityParams`
 /// subset the scraper service honours.
 #[derive(Debug, Clone, Default)]
@@ -540,8 +560,9 @@ impl RemoteSciotteClient {
 
     /// GET `/api/activities` — scrape the activity list for `session_id`.
     ///
-    /// Returns the raw upstream [`SciotteActivity`] rows; the caller maps them
-    /// with `convert_activity`, so there is no duplicate DTO logic.
+    /// Returns the raw upstream [`SciotteActivity`] rows and whether the
+    /// service read the list's head; the caller maps the rows with
+    /// `convert_activity`, so there is no duplicate DTO logic.
     ///
     /// # Errors
     ///
@@ -553,11 +574,7 @@ impl RemoteSciotteClient {
         &self,
         session_id: &str,
         query: &RemoteActivityQuery,
-    ) -> AppResult<Vec<SciotteActivity>> {
-        #[derive(Deserialize)]
-        struct ActivitiesResponse {
-            activities: Vec<SciotteActivity>,
-        }
+    ) -> AppResult<RemoteActivityList> {
         let mut req = self
             .request(reqwest::Method::GET, "/api/activities")
             .await?
@@ -588,11 +605,9 @@ impl RemoteSciotteClient {
         if !resp.status().is_success() {
             return Err(scrape_failure("activities", resp).await);
         }
-        Ok(resp
-            .json::<ActivitiesResponse>()
+        resp.json::<RemoteActivityList>()
             .await
-            .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))?
-            .activities)
+            .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))
     }
 
     /// GET `/api/athlete` — scrape the athlete profile for `session_id`.

@@ -3911,6 +3911,7 @@ dependencies = [
 name = "pierre-external"
 version = "0.3.0"
 dependencies = [
+ "axum",
  "pierre-cache",
  "pierre-core",
  "reqwest 0.12.28",

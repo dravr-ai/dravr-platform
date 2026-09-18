@@ -12,6 +12,27 @@ FAIL=0
 
 ok()   { printf '  ✅ %s\n' "$1"; PASS=$((PASS + 1)); }
 bad()  { printf '  ❌ %s\n' "$1"; FAIL=$((FAIL + 1)); }
+die()  { printf '\n  💥 %s\n\n' "$1" >&2; exit 2; }
+
+# Every case runs as `( cd "$R" && … )`, and in bash `cd ""` SUCCEEDS — it stays where it is.
+# So a fixture path that came back empty did not fail any case: it silently pointed all of them
+# at whatever checkout the harness was launched from, and the suite committed to it and tried
+# to push it. `mktemp -d -t <prefix>` is what produced that empty path on GNU (BSD invents the
+# X's from a bare prefix, GNU refuses it), and `|| exit 1` did not save it either, because
+# inside `$(…)` exit leaves only the subshell.
+#
+# The spelling is fixed in new_repo. This is the belt: no case runs until the path is a real git
+# repository of our own making.
+require_sandbox() { # <path>
+    [ -n "${1:-}" ] || die "fixture repo path is empty — refusing to run the suite against the real checkout"
+    [ -d "$1/.git" ] || die "fixture repo '$1' is not a git repository — refusing to run"
+    # Matched on the SHAPE new_repo builds, not on a re-derived temp root: TMPDIR is spelled
+    # differently on the two platforms and the guard must not be the thing that breaks one.
+    case $1 in
+        */bilan-test.*/work) : ;;
+        *) die "fixture repo '$1' is not one of ours — refusing to run" ;;
+    esac
+}
 # Every case here runs --cheap for speed, and --cheap now carries a standing cap at 9 saying it
 # is not a completion verdict. So "clean" is asserted as "no cap other than that one" rather
 # than as a score of 10, which cheap can no longer reach by construction.
@@ -28,7 +49,7 @@ new_repo() {
     # GNU rejects it ("too few X's in template"). That failure was not merely
     # noisy — with no sandbox created, the git commands below ran against the
     # REAL repository and committed to it.
-    root=$(mktemp -d "${TMPDIR:-/tmp}/bilan-test.XXXXXX") || exit 1
+    root=$(mktemp -d "${TMPDIR:-/tmp}/bilan-test.XXXXXX") || return 1
     remote="$root/remote.git"
     git init -q --bare "$remote"
     git init -q "$root/work"
@@ -56,7 +77,7 @@ run() { # <repo> [args...]
         bash "$BILAN" --cheap --json "$@" 2>/dev/null )
 }
 
-CFG=$(mktemp -d "${TMPDIR:-/tmp}/bilan-cfg.XXXXXX") || exit 1
+CFG=$(mktemp -d "${TMPDIR:-/tmp}/bilan-cfg.XXXXXX") || die "mktemp -d failed for the config dir"
 SID="00000000-0000-0000-0000-00000000test"
 trap 'rm -rf "$CFG"' EXIT
 
@@ -73,6 +94,7 @@ measurable
 
 # ---- clean repo scores 10
 R=$(new_repo)
+require_sandbox "$R"
 baseline_now "$R"
 out=$(run "$R")
 check "clean repo has no real cap" 0 "$(real_caps "$out")"
@@ -145,7 +167,7 @@ rm -f "$CFG/carnet-claims/$SID.jsonl"
 # half alone still caps, which is what stops a bug being relabelled out of the score. These three
 # cases are the whole contract, and they need the full run: --cheap cannot consult the tracker, so
 # it keeps the cap, which is the safe direction and is asserted last.
-STUB=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh.XXXXXX") || exit 1
+STUB=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh.XXXXXX") || die "mktemp -d failed for the gh stub"
 cat > "$STUB/gh" <<'GH'
 #!/usr/bin/env bash
 # Smallest gh that can answer the filed-issue path. Every issue is OPEN; only 2001 is labelled
@@ -370,7 +392,11 @@ check "a stack this session started does cap at 9" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.cap==9) | select(.evidence | test("this session started"))] | length')"
 check "and names only the new one" 0 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("this session started")) | select(.evidence | test("peer-server"))] | length')"
-rm -rf "$R/logs" "$R/bin"; rm -f "$CFG/bilan/"*.baseline*
+# ${R:?} and ${CFG:?}, never a bare "$R": an empty fixture path here is `rm -rf /logs /bin`,
+# the destructive twin of the empty-path bug that once ran this whole suite in the real
+# checkout. require_sandbox above should make it unreachable; this is what makes it harmless
+# if it ever is reached.
+rm -rf "${R:?}/logs" "${R:?}/bin"; rm -f "${CFG:?}/bilan/"*.baseline*
 baseline_now "$R"        # leave a clean starting point: with none, the next case's own edit
                          # is created before the baseline and correctly reads as inherited
 
@@ -393,10 +419,35 @@ check "and the ledger is left intact when it cannot be checked" 1 \
     "$(grep -c '"issue":236' "$sweep_ledger")"
 rm -f "$sweep_ledger"
 
+# ---------------------------------------------------------------- portability
+# These pin the two spellings that made every Linux run useless, because both failed in ways
+# that did NOT look like failure.
+#
+# `stat -f %m` is the BSD form. On GNU, -f is --file-system and %m is read as another FILE
+# operand, so the call SUCCEEDS with human text beginning `File: "…"`; a `|| stat -c %Y` behind
+# it never ran, and the text reached an arithmetic expansion as the bare word `File:`. The
+# assertion is therefore on the VALUE, not on the exit status — a status check is exactly what
+# missed it.
+mtime_of() { ( cd "$R" && bash -c "source <(sed -n '/^file_mtime/,/^}/p' \"$BILAN\"); file_mtime \"$1\"" ); }
+mt=$(mtime_of "$R/a.txt")
+check "file_mtime returns digits on this platform, not the other stat's prose" 1 \
+    "$(printf '%s' "$mt" | grep -cE '^[0-9]+$')"
+check "and it is the file's real mtime" "$(perl -e 'print ((stat($ARGV[0]))[9])' "$R/a.txt" 2>/dev/null || python3 -c 'import os,sys;print(int(os.stat(sys.argv[1]).st_mtime))' "$R/a.txt")" "$mt"
+check "a file that is not there reads as 0, never as empty" 0 "$(mtime_of "$R/does-not-exist")"
+
+# The harness's own guard. `mktemp -d -t <prefix>` returns empty on GNU, `|| exit 1` inside
+# `$(…)` exits only the subshell, and `cd ""` SUCCEEDS in bash — so the suite once ran every
+# case in the developer's real checkout, committed to it and tried to push. Nothing about that
+# printed a failure until the push was refused.
+check "the sandbox guard refuses an empty fixture path" 2 \
+    "$( ( require_sandbox "" ) >/dev/null 2>&1; echo $? )"
+check "and refuses a path outside the fixtures, such as the real checkout" 2 \
+    "$( ( require_sandbox "$HERE" ) >/dev/null 2>&1; echo $? )"
+
 # A worktree someone is still working in is not abandoned work. A session's own cwd is not the
 # signal — every session here sits in the main checkout and reaches a worktree by path — so
 # liveness is a live process inside it, or a file edited recently.
-live_dir=$(mktemp -d "${TMPDIR:-/tmp}/bilan-live.XXXXXX") || exit 1
+live_dir=$(mktemp -d "${TMPDIR:-/tmp}/bilan-live.XXXXXX") || die "mktemp -d failed for the liveness fixture"
 touch "$live_dir/just-edited.txt"
 check "a directory edited moments ago reads as in use" 0 \
     "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"

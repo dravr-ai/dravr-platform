@@ -843,8 +843,16 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // Only rows a PROVIDER produced are written through — never rows this
             // table produced, and never a sibling's rows filed under a dead primary.
-            // `write_through_served_window` carries both reasons.
-            if dead_primary.is_none() && !served_from_cache && context.tenant_id.is_some() {
+            // `write_through_served_window` carries both reasons. A capture whose
+            // head the provider never saw is served but not persisted either: the
+            // upsert would stamp it fresh and disarm `refresh_stale_head`, the
+            // gate `fetch_provider_head` applies (carnet#149, carnet#151).
+            let head_complete = provider.as_ref().is_none_or(|p| p.head_complete());
+            if dead_primary.is_none()
+                && !served_from_cache
+                && head_complete
+                && context.tenant_id.is_some()
+            {
                 write_through_served_window(
                     &context.resources,
                     context.user_id,

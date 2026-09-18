@@ -377,6 +377,18 @@ pub trait FitnessProvider: Send + Sync {
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>>;
 
+    /// Whether the most recent [`Self::get_activities_with_params`] on this
+    /// provider read the newest activities its source shows.
+    ///
+    /// `true` for every API provider: their list endpoint is the head. A
+    /// scraped source can hand back a capture whose head it never saw —
+    /// sciotte's Strava walk carries complete weeks, and the in-progress week
+    /// comes from one best-effort fetch that can fail — and reports `false`
+    /// so the caller declines to stamp that capture as fresh (carnet#151).
+    fn head_complete(&self) -> bool {
+        true
+    }
+
     /// Get user's activities with cursor-based pagination (recommended)
     ///
     /// This method provides efficient, consistent pagination using opaque cursors.
@@ -681,6 +693,10 @@ impl FitnessProvider for TenantProvider {
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
         self.inner.get_activities_with_params(params).await
+    }
+
+    fn head_complete(&self) -> bool {
+        self.inner.head_complete()
     }
 
     async fn get_activities_cursor(

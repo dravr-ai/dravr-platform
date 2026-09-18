@@ -21,5 +21,11 @@ serde_json = "1.0"
 tokio = { version = "1.50", features = ["sync"] }
 tracing = "0.1"
 
+[dev-dependencies]
+# The USDA detail-shape tests stand up a local HTTP fixture and drive the
+# client against it, so the multi-threaded runtime and a minimal router.
+axum = { version = "0.8", features = ["json", "query", "tokio", "http1"], default-features = false }
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "net"] }
+
 [lints]
 workspace = true

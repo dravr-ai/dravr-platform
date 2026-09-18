@@ -166,10 +166,75 @@ struct FoodDetailsResponse {
     serving_size_unit: Option<String>,
 }
 
+/// One `foodNutrients` entry of a food-detail response, in either shape the
+/// API ships.
+///
+/// The `full` format nests the nutrient's identity under `nutrient`; the
+/// `abridged` format flattens it onto the entry as `nutrientId` /
+/// `nutrientNumber` / `nutrientName` / `unitName`. Every field is optional so
+/// one struct deserializes both, and [`Self::into_nutrient`] decides whether
+/// an entry named a nutrient at all — an entry that named none is the signal
+/// [`UsdaClient::get_food_details`] fails on, rather than a nutrient that is
+/// silently missing from every later lookup.
 #[derive(Debug, Deserialize)]
 struct FoodNutrientResponse {
     nutrient: Option<NutrientInfo>,
+    #[serde(rename = "nutrientId")]
+    nutrient_id: Option<u32>,
+    #[serde(rename = "nutrientNumber")]
+    nutrient_number: Option<String>,
+    #[serde(rename = "nutrientName")]
+    nutrient_name: Option<String>,
+    #[serde(rename = "unitName")]
+    unit_name: Option<String>,
     amount: Option<f64>,
+}
+
+impl FoodNutrientResponse {
+    /// The nutrient this entry names, or `None` when neither shape carries an
+    /// identity the lookups can key on.
+    fn into_nutrient(self) -> Option<FoodNutrient> {
+        let amount = self.amount.unwrap_or(0.0);
+        if let Some(nested) = self.nutrient {
+            return Some(FoodNutrient {
+                nutrient_id: nested.id,
+                nutrient_name: nested.name,
+                unit_name: nested.unit_name,
+                amount,
+            });
+        }
+        let nutrient_id = self
+            .nutrient_id
+            .or_else(|| nutrient_id_from_number(self.nutrient_number.as_deref()?))?;
+        Some(FoodNutrient {
+            nutrient_id,
+            nutrient_name: self.nutrient_name?,
+            unit_name: self.unit_name.unwrap_or_default(),
+            amount,
+        })
+    }
+}
+
+/// USDA nutrient numbers (the legacy `nutrientNumber` strings the abridged
+/// shape carries) paired with the nutrient ids the platform's lookups key on.
+/// Covers the nutrients [`FoodNutrient`] consumers read; an abridged entry
+/// carrying a number outside this table is one no lookup asks for.
+const NUTRIENT_NUMBER_TO_ID: &[(&str, u32)] = &[
+    ("203", 1003), // Protein
+    ("204", 1004), // Total lipid (fat)
+    ("205", 1005), // Carbohydrate, by difference
+    ("208", 1008), // Energy (kcal)
+    ("269", 2000), // Sugars, total
+    ("291", 1079), // Fiber, total dietary
+    ("307", 1093), // Sodium
+    ("606", 1258), // Fatty acids, total saturated
+];
+
+fn nutrient_id_from_number(number: &str) -> Option<u32> {
+    NUTRIENT_NUMBER_TO_ID
+        .iter()
+        .find(|(known, _)| *known == number.trim())
+        .map(|(_, id)| *id)
 }
 
 #[derive(Debug, Deserialize)]
@@ -391,12 +456,17 @@ impl UsdaClient {
             limiter.record_request();
         }
 
-        // Make API request
+        // Make API request. `format=full` asks for the nested-nutrient shape
+        // explicitly: the endpoint's default flipped to the abridged shape
+        // once and every nutrient lookup went silently empty (carnet#423).
         let url = format!("{}/food/{fdc_id}", self.config.base_url);
         let response = self
             .http_client
             .get(&url)
-            .query(&[("api_key", &self.config.api_key)])
+            .query(&[
+                ("api_key", self.config.api_key.as_str()),
+                ("format", "full"),
+            ])
             .timeout(Duration::from_secs(self.config.request_timeout_secs))
             .send()
             .await
@@ -419,20 +489,26 @@ impl UsdaClient {
             AppError::external_service("USDA API", format!("JSON parse error: {e}"))
         })?;
 
-        // Convert response to our format
+        // Convert response to our format. A non-empty nutrient list in which
+        // no entry names a nutrient is a response shape this client cannot
+        // read, and it fails here: passed through, it deserializes cleanly,
+        // every lookup misses, and the recipe path sums calories to zero four
+        // layers away from the cause.
+        let entry_count = details_response.food_nutrients.len();
         let food_nutrients: Vec<FoodNutrient> = details_response
             .food_nutrients
             .into_iter()
-            .filter_map(|n| {
-                let nutrient = n.nutrient?;
-                Some(FoodNutrient {
-                    nutrient_id: nutrient.id,
-                    nutrient_name: nutrient.name,
-                    unit_name: nutrient.unit_name,
-                    amount: n.amount.unwrap_or(0.0),
-                })
-            })
+            .filter_map(FoodNutrientResponse::into_nutrient)
             .collect();
+        if entry_count > 0 && food_nutrients.is_empty() {
+            return Err(AppError::external_service(
+                "USDA API",
+                format!(
+                    "food {fdc_id} detail carried {entry_count} foodNutrients entries but none \
+                     named a nutrient (no nested `nutrient`, no `nutrientId`/`nutrientNumber`)"
+                ),
+            ));
+        }
 
         let food_details = FoodDetails {
             fdc_id: details_response.fdc_id,

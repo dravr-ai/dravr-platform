@@ -19,6 +19,7 @@ use dravr_sciotte::models::{
     Split as SciotteSplit, SportType as SciotteSportType,
 };
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -95,6 +96,10 @@ pub struct SciotteProvider {
     config: ProviderConfig,
     session: RwLock<Option<AuthSession>>,
     provider_name: &'static str,
+    /// Whether the last list scrape read the list's head, as the service
+    /// reported it. Starts `true`: nothing has been fetched, so nothing is
+    /// known to be missing.
+    head_complete: AtomicBool,
 }
 
 impl SciotteProvider {
@@ -105,6 +110,7 @@ impl SciotteProvider {
             config,
             session: RwLock::new(None),
             provider_name,
+            head_complete: AtomicBool::new(true),
         }
     }
 
@@ -455,16 +461,30 @@ impl FitnessProvider for SciotteProvider {
                 SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name(),
             )
             .await?;
-        let sciotte_activities = remote
+        let list = remote
             .get_activities(&session.session_id, &query)
             .await
             .map_err(|e| self.tag_remote_auth(e))?;
-        let activities: Vec<Activity> = sciotte_activities.iter().map(convert_activity).collect();
-        info!(
-            count = activities.len(),
-            "Sciotte scrape completed (remote service)"
-        );
+        self.head_complete
+            .store(list.head_complete, Ordering::Relaxed);
+        let activities: Vec<Activity> = list.activities.iter().map(convert_activity).collect();
+        if list.head_complete {
+            info!(
+                count = activities.len(),
+                "Sciotte scrape completed (remote service)"
+            );
+        } else {
+            warn!(
+                count = activities.len(),
+                "Sciotte scrape completed without the list head: the fresh-head fetch failed, \
+                 so the newest activities may be missing from this capture"
+            );
+        }
         Ok(activities)
+    }
+
+    fn head_complete(&self) -> bool {
+        self.head_complete.load(Ordering::Relaxed)
     }
 
     async fn get_activities_cursor(

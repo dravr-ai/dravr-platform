@@ -1261,25 +1261,18 @@ async fn test_validate_recipe_with_api_key() -> Result<()> {
         return Ok(());
     }
 
-    // LIMITATION(registre#423): the calorie total is not asserted while USDA's
-    // food-detail endpoint ships its abridged shape. `/fdc/v1/food/{fdcId}` now
-    // returns foodNutrients entries as {amount, id, type} with no nested
-    // `nutrient` object, and FoodNutrientResponse::nutrient is an Option — so it
-    // deserializes cleanly, every nutrient lookup misses, and the sum is zero.
-    // /foods/search is unaffected, which is why the API looks healthy from
-    // outside. Reproduced locally with a valid key and full quota, so this is a
-    // contract change rather than a flake. Everything above still runs: auth,
-    // dispatch, matching, and the validated/nutrition_per_serving shape.
+    // A matched ingredient with zero calories is a parse failure, not a
+    // degraded API: the client asks the detail endpoint for its nested shape
+    // and fails closed on a nutrient list that names no nutrient, so a detail
+    // response it cannot read surfaces as an unmatched ingredient above, never
+    // as a silent zero here (carnet#423).
     let calories = result["nutrition_per_serving"]["calories"]
         .as_f64()
         .expect("calories must be reported as a number");
-    if calories <= 0.0 {
-        println!(
-            "Skipping the calorie assertion - USDA matched {matched} ingredients but the \
-             detail endpoint returned no nutrient values (registre#423)"
-        );
-        return Ok(());
-    }
+    assert!(
+        calories > 0.0,
+        "USDA matched {matched} ingredients but reported zero calories"
+    );
     assert!(result["validation_completeness"].as_f64().is_some());
 
     Ok(())
