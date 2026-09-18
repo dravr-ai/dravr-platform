@@ -93,8 +93,16 @@ printf '\nbilan tests\n\n'
 measurable
 
 # ---- clean repo scores 10
-R=$(new_repo)
-require_sandbox "$R"
+# The guard runs in a command substitution, so its `exit 2` ends only that subshell and the
+# caller sees an empty path — the same shape that once aimed the whole suite at the live
+# checkout. `|| exit 2` on the assignment is what carries the refusal into the script.
+fixture() {
+    local p; p=$(new_repo) || p=""
+    require_sandbox "$p"
+    printf '%s' "$p"
+}
+
+R=$(fixture) || exit 2
 baseline_now "$R"
 out=$(run "$R")
 check "clean repo has no real cap" 0 "$(real_caps "$out")"
@@ -443,6 +451,14 @@ check "the sandbox guard refuses an empty fixture path" 2 \
     "$( ( require_sandbox "" ) >/dev/null 2>&1; echo $? )"
 check "and refuses a path outside the fixtures, such as the real checkout" 2 \
     "$( ( require_sandbox "$HERE" ) >/dev/null 2>&1; echo $? )"
+# The refusal has to leave the command substitution it runs in. A guard that only exits its
+# own subshell prints the refusal and hands back an empty path, and the suite then runs every
+# case in the live checkout anyway — reproduced with an unwritable TMPDIR before `|| exit 2`
+# was on the assignment. Same shape as the real call site, with a new_repo that cannot create.
+check "a fixture that cannot be created stops the suite, not only the guard's subshell" 2 \
+    "$( ( new_repo() { return 1; }; R=$(fixture) || exit 2; echo continued ) >/dev/null 2>&1; echo $? )"
+check "and nothing after the fixture runs" "" \
+    "$( ( new_repo() { return 1; }; R=$(fixture) || exit 2; echo continued ) 2>/dev/null )"
 
 # A worktree someone is still working in is not abandoned work. A session's own cwd is not the
 # signal — every session here sits in the main checkout and reaches a worktree by path — so
