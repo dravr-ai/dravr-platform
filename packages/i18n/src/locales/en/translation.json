@@ -883,7 +883,7 @@
     "connectProvider": "Connect my account",
     "conversationActions": "Conversation actions",
     "conversationDeleted": "Conversation deleted",
-    "conversationLimitBody": "You've reached your limit of {{limit}} active conversations. Delete or archive one from the sidebar to start a new chat.",
+    "conversationLimitBody": "You've reached your limit of {{limit}} active conversations. Delete one from the sidebar to start a new chat.",
     "conversationLimitTitle": "Conversation limit reached",
     "conversationTitle": "Conversation title",
     "conversations": "Conversations",
@@ -1282,9 +1282,10 @@
       "description": "Enable analytics consent"
     },
     "reset": {
-      "confirm": "🔄 New conversation started — fresh slate. Your previous thread stays archived.",
-      "description": "Start a fresh conversation, keeping the old one archived",
-      "walk_interrupted": "\n\nYour profile walk was in progress — send `/pillars` to resume."
+      "confirm": "🔄 New conversation started — fresh slate. Your previous thread stays in your list.",
+      "description": "Start a fresh conversation, keeping the old one in your list",
+      "walk_interrupted": "\n\nYour profile walk was in progress — send `/pillars` to resume.",
+      "quota": "You already have {0} conversations open, the maximum for your plan. Delete one in the app before starting another."
     },
     "season": {
       "complete_header": "Season walk done — I captured {0} of {1} answers.",

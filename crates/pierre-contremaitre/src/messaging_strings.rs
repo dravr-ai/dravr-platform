@@ -484,6 +484,10 @@ pub const KEY_LOGOUT_CONFIRM_PROMPT: &str = "commands.logout.confirm_prompt";
 /// Key: `/reset` (`/nouveau`) confirmation after rotating the session onto a
 /// fresh conversation. No template args.
 pub const KEY_RESET_CONFIRM: &str = "commands.reset.confirm";
+/// Key: `/reset` refused because the athlete already owns the cap of
+/// conversations — the previous thread stays, so a rotation would be one
+/// more. `{0}` = the cap.
+pub const KEY_RESET_QUOTA: &str = "commands.reset.quota";
 
 // ── /privacy command keys ─────────────────────────────────────────────────
 

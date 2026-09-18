@@ -243,8 +243,12 @@ describe('client locale corpus', () => {
     // `app.*` keys (`thisWeek`, `weeklyReport`, `concerns`, `highlights`,
     // `recommendations`) for the `groups.*` twins that already existed and
     // needed no new key. -39, +2, net -37.
+    // 2326 once `/reset` counted against the conversation cap like the "+"
+    // button: `commands.reset.quota` is the refusal the athlete hears on
+    // every surface, with the cap interpolated, in place of the error's wire
+    // text. +1.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2325);
+    expect(reference).toHaveLength(2326);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

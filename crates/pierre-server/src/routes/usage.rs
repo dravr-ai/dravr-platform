@@ -22,7 +22,6 @@ use serde::Serialize;
 
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
-use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
@@ -30,6 +29,7 @@ use pierre_runtime_context::{
     default_admin_config, resolve_tenant, tenant::require, AdminConfigLookup, ConfigLookupScope,
     TenantMode,
 };
+use pierre_services::conversation_forge::max_active_conversations;
 use pierre_services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Usage status response containing all quota information
@@ -148,16 +148,9 @@ impl UsageRoutes {
             .await
             .unwrap_or(0);
 
-        let max_conversations = admin_config
-            .get_value(
-                "usage_quotas.max_active_conversations",
-                ConfigLookupScope::user(&user_id_str, &tenant_id_str),
-            )
-            .await
-            .ok()
-            .flatten()
-            .and_then(|v| v.as_i64())
-            .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS);
+        // `0` is the unlimited value; both clients print it as such.
+        let max_conversations =
+            max_active_conversations(admin_config, &user_id_str, tenant_id).await;
 
         let agent_count_val = i64::from(
             resources

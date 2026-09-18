@@ -99,7 +99,12 @@ export function AccountScreen() {
       { label: t('app.agents'), value: `${usageData.resources.agents} / ${usageData.resources.max_agents}` },
       {
         label: t('app.conversations'),
-        value: `${usageData.resources.conversations} / ${usageData.resources.max_conversations}`,
+        // `max_conversations` of 0 is the server's unlimited value.
+        value: `${usageData.resources.conversations} / ${
+          usageData.resources.max_conversations === 0
+            ? t('app.unlimited')
+            : usageData.resources.max_conversations
+        }`,
       },
     ];
   }, [usageData, t]);

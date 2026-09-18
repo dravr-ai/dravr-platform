@@ -883,7 +883,7 @@
     "connectProvider": "Mein Konto verbinden",
     "conversationActions": "Aktionen der Unterhaltung",
     "conversationDeleted": "Unterhaltung gelöscht",
-    "conversationLimitBody": "Du hast dein Limit von {{limit}} aktiven Unterhaltungen erreicht. Lösche oder archiviere eine in der Seitenleiste, um einen neuen Chat zu starten.",
+    "conversationLimitBody": "Du hast dein Limit von {{limit}} aktiven Unterhaltungen erreicht. Lösche eine in der Seitenleiste, um einen neuen Chat zu starten.",
     "conversationLimitTitle": "Unterhaltungslimit erreicht",
     "conversationTitle": "Titel der Unterhaltung",
     "conversations": "Unterhaltungen",
@@ -1282,9 +1282,10 @@
       "description": "In anonyme Statistiken einwilligen"
     },
     "reset": {
-      "confirm": "🔄 Neue Unterhaltung gestartet — wir fangen frisch an. Dein bisheriger Verlauf bleibt archiviert.",
-      "description": "Ein neues Gespräch beginnen; das alte bleibt archiviert",
-      "walk_interrupted": "\n\nDein Profil war in Arbeit — schreib `/pillars`, um weiterzumachen."
+      "confirm": "🔄 Neue Unterhaltung gestartet — wir fangen frisch an. Dein bisheriger Verlauf bleibt in deiner Liste.",
+      "description": "Ein neues Gespräch beginnen; das alte bleibt in deiner Liste",
+      "walk_interrupted": "\n\nDein Profil war in Arbeit — schreib `/pillars`, um weiterzumachen.",
+      "quota": "Du hast bereits {0} offene Unterhaltungen, das Maximum deines Tarifs. Lösche eine in der App, bevor du eine neue beginnst."
     },
     "season": {
       "complete_header": "Saison-Durchgang abgeschlossen — ich habe {0} von {1} Antworten erfasst.",

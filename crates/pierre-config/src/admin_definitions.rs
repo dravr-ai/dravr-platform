@@ -18,7 +18,7 @@ use pierre_core::constants::tool_execution::{
 };
 
 use crate::admin_types::{boot_env, config_env, ConfigDataType, EnvBinding, ParameterRange};
-use crate::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
+use crate::constants::usage_quotas::{DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS};
 
 /// Default configuration definitions with metadata.
 ///
@@ -1835,12 +1835,13 @@ pub fn register_usage_quotas<S: BuildHasher>(defs: &mut HashMap<String, Paramete
         ParameterDefinition {
             key: "usage_quotas.max_active_conversations".to_owned(),
             display_name: "Max Active Conversations".to_owned(),
-            description: "Maximum concurrent active conversations per user".to_owned(),
+            description: "Maximum concurrent active conversations per user; 0 lifts the cap"
+                .to_owned(),
             category: "usage_quotas".to_owned(),
             data_type: ConfigDataType::Integer,
             default_value: serde_json::json!(DEFAULT_MAX_ACTIVE_CONVERSATIONS),
             valid_range: Some(ParameterRange {
-                min: serde_json::json!(1),
+                min: serde_json::json!(UNLIMITED_CONVERSATIONS),
                 max: serde_json::json!(50),
                 step: Some(1.0),
             }),

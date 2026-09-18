@@ -1442,7 +1442,10 @@ Authorization: Bearer <your-token-here>`}
                                 <div>
                                   <p className="text-xs text-outline mb-1">{t('settingsUi.conversations')}</p>
                                   <p className="text-sm font-medium text-on-surface">
-                                    {usageData.resources.conversations} / {usageData.resources.max_conversations}
+                                    {usageData.resources.conversations} /{' '}
+                                    {usageData.resources.max_conversations === 0
+                                      ? t('app.unlimited')
+                                      : usageData.resources.max_conversations}
                                   </p>
                                 </div>
                               </div>

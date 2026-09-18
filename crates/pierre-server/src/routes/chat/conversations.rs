@@ -18,14 +18,15 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use chrono::Utc;
 use pierre_chat_pipeline::stages::persistence::create_conversation as create_conversation_row;
-use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
+use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
-use pierre_services::conversation_forge::{counterpart_title, dated_title};
+use pierre_services::conversation_forge::{
+    counterpart_title, dated_title, enforce_conversation_quota,
+};
 use pierre_services::locale::resolve_user_locale;
 
 use super::common::{get_tenant_id, verify_group_membership};
@@ -70,38 +71,18 @@ pub async fn create_conversation(
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let user_id_str = auth.user_id.to_string();
 
-    // Enforce max_active_conversations. Degrade to the registered
-    // default when admin config is unavailable rather than skipping the
-    // limit entirely.
-    let admin_config: &dyn AdminConfigLookup = match resources.agent.admin_config.as_deref() {
-        Some(c) => c,
-        None => default_admin_config(),
-    };
-    let max_conversations = admin_config
-        .get_value(
-            "usage_quotas.max_active_conversations",
-            ConfigLookupScope::user(&user_id_str, &tenant_id.to_string()),
-        )
-        .await
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_i64())
-        .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS);
-
-    let current_count = resources
-        .common
-        .repos
-        .chat
-        .count_conversations(&user_id_str, tenant_id)
-        .await?;
-    if current_count >= max_conversations {
-        return Err(AppError::quota_exceeded(
-            "max_active_conversations",
-            current_count,
-            max_conversations,
-            "",
-        ));
-    }
+    // Enforce max_active_conversations — the same check `/reset` runs.
+    enforce_conversation_quota(
+        &resources.common.repos,
+        resources
+            .agent
+            .admin_config
+            .as_deref()
+            .map(|c| c as &dyn AdminConfigLookup),
+        &user_id_str,
+        tenant_id,
+    )
+    .await?;
 
     // Verify group membership when caller asks to attach a group_id —
     // a user can only create a conversation scoped to a group they belong to,

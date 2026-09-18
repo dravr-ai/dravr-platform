@@ -12,6 +12,7 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user, create_test_user_with_plan};
 use helpers::axum_test::AxumTestRequest;
+use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
 use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_NEW_CONVERSATION_TITLE_PREFIX};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationListResponse, ConversationResponse};
@@ -397,6 +398,65 @@ async fn test_create_conversation_invalid_token() {
 
     // Should fail with 401 Unauthorized
     assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+// ============================================================================
+// Conversation cap
+// ============================================================================
+
+/// The "+" button is refused at the registered cap with the numbers the
+/// toast prints — `details.limit` is what the client interpolates, and
+/// `details.current` is the owned-thread count the sidebar lets the athlete
+/// delete from.
+#[tokio::test]
+async fn test_create_conversation_refuses_the_thread_past_the_default_cap() {
+    let (router, auth_token) = setup_test_environment().await;
+    let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
+
+    for i in 1..=cap {
+        let response = AxumTestRequest::post("/api/chat/conversations")
+            .header("authorization", &auth_token)
+            .json(&json!({ "title": format!("Conv {i}"), "model": "gemini-1.5-flash" }))
+            .send(router.clone())
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::CREATED,
+            "thread {i} of {cap} is within the cap"
+        );
+    }
+
+    let refused = AxumTestRequest::post("/api/chat/conversations")
+        .header("authorization", &auth_token)
+        .json(&json!({ "title": "One too many", "model": "gemini-1.5-flash" }))
+        .send(router.clone())
+        .await;
+    assert_eq!(refused.status_code(), StatusCode::TOO_MANY_REQUESTS);
+    let body: serde_json::Value = refused.json();
+    assert_eq!(body["code"], "QuotaExceeded", "{body}");
+    assert_eq!(
+        body["details"]["limit_type"], "max_active_conversations",
+        "{body}"
+    );
+    assert_eq!(
+        body["details"]["limit"], DEFAULT_MAX_ACTIVE_CONVERSATIONS,
+        "{body}"
+    );
+    assert_eq!(
+        body["details"]["current"], DEFAULT_MAX_ACTIVE_CONVERSATIONS,
+        "{body}"
+    );
+
+    let listed: ConversationListResponse = AxumTestRequest::get("/api/chat/conversations?limit=50")
+        .header("authorization", &auth_token)
+        .send(router)
+        .await
+        .json();
+    assert_eq!(
+        listed.conversations.len(),
+        cap,
+        "the refused thread must not exist, and every counted thread is in the sidebar"
+    );
 }
 
 // ============================================================================

@@ -65,8 +65,9 @@ fn the_catalogue_matches_only_the_explicit_reset_forms() {
 mod reset_locale {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RouterLlm};
+    use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
     use pierre_contremaitre::messaging_strings::{
-        DEFAULT_LOCALE, KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM,
+        DEFAULT_LOCALE, KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_QUOTA,
         KEY_RESET_WALK_INTERRUPTED,
     };
     use pierre_messaging::rich_text::{parse_markdown, render_rich_text};
@@ -328,6 +329,105 @@ mod reset_locale {
             !fresh.title.starts_with("Messaging:"),
             "no thread is named after its channel any more: {:?}",
             fresh.title
+        );
+    }
+
+    /// `/reset` asks for one more thread and leaves the previous one, so it
+    /// is refused at the cap exactly like the "+" button — the session keeps
+    /// its conversation and the athlete hears the quota line, not a reset
+    /// confirmation. Before this, every reset forged past the cap and the
+    /// app's "+" was the first place that said no.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reset_at_the_cap_is_refused_and_keeps_the_session_where_it_was() {
+        env::set_var("PIERRE_LLM_MODEL", "gemini-2.0-flash-exp");
+        let llm = RouterLlm::new();
+        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
+            .await
+            .unwrap();
+        let e2e = CommandE2e::start(resources, llm).await;
+
+        let (member, session, baseline) = primed_en_member(&e2e).await;
+        let before = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the primed session names its conversation");
+
+        // The primed DM thread is one owned row; fill the rest of the cap.
+        let chat = e2e.resources.common.repos.chat.as_ref();
+        let user = member.user_id.to_string();
+        let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
+        for i in 1..cap {
+            chat.create_conversation(
+                &user,
+                member.home_tenant,
+                &format!("Fill {i}"),
+                "m",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            chat.count_conversations(&user, member.home_tenant)
+                .await
+                .unwrap(),
+            DEFAULT_MAX_ACTIVE_CONVERSATIONS,
+            "fixture precondition: the athlete owns exactly the cap"
+        );
+
+        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
+        let ack = e2e.send_dm(&member, "/reset").await;
+        assert_eq!(
+            ack.messages_stored(),
+            0,
+            "/reset must dispatch as a command"
+        );
+        e2e.wait_outbound_for_session(&session, baseline + 1).await;
+        assert_eq!(
+            e2e.llm.turn_calls.load(Ordering::SeqCst),
+            turns_before,
+            "a refused /reset must not reach the LLM"
+        );
+
+        let after = e2e
+            .conversation_id(&member, member.home_tenant, &member.channel_user_id)
+            .await
+            .expect("the session still names a conversation");
+        assert_eq!(before, after, "a refused /reset must not move the session");
+        assert_eq!(
+            chat.count_conversations(&user, member.home_tenant)
+                .await
+                .unwrap(),
+            DEFAULT_MAX_ACTIVE_CONVERSATIONS,
+            "a refused /reset must not forge a thread"
+        );
+
+        let reg = &e2e.resources.mcp.messaging_strings_registry;
+        let quota_line = reg.render(
+            KEY_RESET_QUOTA,
+            "en",
+            &[&DEFAULT_MAX_ACTIVE_CONVERSATIONS.to_string()],
+        );
+        assert!(
+            quota_line.contains(&DEFAULT_MAX_ACTIVE_CONVERSATIONS.to_string()),
+            "the refusal names the cap: {quota_line:?}"
+        );
+        let confirm = reg.render(KEY_RESET_CONFIRM, "en", &[]);
+        let bodies: Vec<String> = e2e
+            .outbound_bodies_for_session(&session)
+            .await
+            .into_iter()
+            .skip(usize::try_from(baseline).unwrap())
+            .collect();
+        assert!(
+            bodies.iter().any(|b| b.contains(&quota_line)),
+            "the athlete hears the quota line {quota_line:?}; ledgered after the prime: {bodies:?}"
+        );
+        assert!(
+            !bodies.iter().any(|b| b.contains(&confirm)),
+            "a refused /reset must not confirm a rotation; ledgered after the prime: {bodies:?}"
         );
     }
 }

@@ -883,7 +883,7 @@
     "connectProvider": "Connecter mon compte",
     "conversationActions": "Actions de la conversation",
     "conversationDeleted": "Conversation supprimée",
-    "conversationLimitBody": "Tu as atteint ta limite de {{limit}} conversations actives. Supprime ou archive une conversation dans la barre latérale pour en démarrer une nouvelle.",
+    "conversationLimitBody": "Tu as atteint ta limite de {{limit}} conversations actives. Supprime une conversation dans la barre latérale pour en démarrer une nouvelle.",
     "conversationLimitTitle": "Limite de conversations atteinte",
     "conversationTitle": "Titre de la conversation",
     "conversations": "Conversations",
@@ -1282,9 +1282,10 @@
       "description": "Donner le consentement aux statistiques anonymes"
     },
     "reset": {
-      "confirm": "🔄 Nouvelle conversation démarrée — on repart à neuf. Ton historique précédent reste archivé.",
-      "description": "Démarrer une nouvelle conversation, l'ancienne reste archivée",
-      "walk_interrupted": "\n\nTon profil était en cours — écris `/pillars` pour reprendre."
+      "confirm": "🔄 Nouvelle conversation démarrée — on repart à neuf. Ton historique précédent reste dans ta liste.",
+      "description": "Démarrer une nouvelle conversation, l'ancienne reste dans ta liste",
+      "walk_interrupted": "\n\nTon profil était en cours — écris `/pillars` pour reprendre.",
+      "quota": "Tu as déjà {0} conversations ouvertes, le maximum de ton forfait. Supprime-en une dans l'app avant d'en démarrer une nouvelle."
     },
     "season": {
       "complete_header": "Marche de saison terminée — j'ai capté {0} réponses sur {1}.",

@@ -7,14 +7,16 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
-    KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
+    KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_QUOTA,
+    KEY_RESET_WALK_INTERRUPTED,
 };
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::OnboardingState;
 use pierre_messaging::commands::CommandResponse;
 use pierre_services::agent_selection::AgentSelectionSource;
 use pierre_services::conversation_forge::{
-    dated_title, forge_conversation, repoint_messaging_session, ForgeAgent, ForgeParams,
+    dated_title, enforce_conversation_quota, forge_conversation, repoint_messaging_session,
+    ForgeAgent, ForgeParams,
 };
 use tracing::{info, warn};
 
@@ -66,6 +68,36 @@ impl CommandHandler for ResetHandler {
             &reg.render(KEY_NEW_CONVERSATION_TITLE_PREFIX, locale, &[]),
             Utc::now(),
         );
+
+        // The athlete is asking for one more thread and the previous one
+        // stays: a reset counts against the cap exactly like the "+" button,
+        // or every reset would consume a slot the app then refuses to give
+        // back.
+        if let Err(e) = enforce_conversation_quota(
+            repos,
+            ctx.ctx.admin_config().as_deref(),
+            &user_id,
+            ctx.conversation_tenant_id,
+        )
+        .await
+        {
+            if e.code != ErrorCode::QuotaExceeded {
+                return Err(e);
+            }
+            // The refusal carries the cap it applied; the athlete hears that
+            // number in their own language, never the error's wire text.
+            let cap = e
+                .details
+                .as_deref()
+                .and_then(|d| d.get("limit"))
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default();
+            return Ok(CommandResponse::text(reg.render(
+                KEY_RESET_QUOTA,
+                locale,
+                &[&cap.to_string()],
+            )));
+        }
 
         let new_id = forge_conversation(
             repos,

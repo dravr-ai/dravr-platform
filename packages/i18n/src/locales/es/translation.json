@@ -883,7 +883,7 @@
     "connectProvider": "Conectar mi cuenta",
     "conversationActions": "Acciones de la conversación",
     "conversationDeleted": "Conversación eliminada",
-    "conversationLimitBody": "Has alcanzado tu límite de {{limit}} conversaciones activas. Elimina o archiva una desde la barra lateral para empezar un chat nuevo.",
+    "conversationLimitBody": "Has alcanzado tu límite de {{limit}} conversaciones activas. Elimina una desde la barra lateral para empezar un chat nuevo.",
     "conversationLimitTitle": "Límite de conversaciones alcanzado",
     "conversationTitle": "Título de la conversación",
     "conversations": "Conversaciones",
@@ -1282,9 +1282,10 @@
       "description": "Dar el consentimiento a las estadísticas anónimas"
     },
     "reset": {
-      "confirm": "🔄 Nueva conversación iniciada — empezamos de cero. Tu conversación anterior queda archivada.",
-      "description": "Iniciar una conversación nueva; la anterior queda archivada",
-      "walk_interrupted": "\n\nTu perfil estaba en curso — escribe `/pillars` para continuar."
+      "confirm": "🔄 Nueva conversación iniciada — empezamos de cero. Tu conversación anterior sigue en tu lista.",
+      "description": "Iniciar una conversación nueva; la anterior sigue en tu lista",
+      "walk_interrupted": "\n\nTu perfil estaba en curso — escribe `/pillars` para continuar.",
+      "quota": "Ya tienes {0} conversaciones abiertas, el máximo de tu plan. Elimina una en la app antes de empezar otra."
     },
     "season": {
       "complete_header": "Recorrido de temporada listo — capté {0} de {1} respuestas.",

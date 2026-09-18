@@ -24,11 +24,15 @@
 //! callers rather than in either one.
 
 use chrono::{DateTime, Utc};
+use pierre_config::constants::usage_quotas::{
+    DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS,
+};
 use pierre_config::environment::LlmProviderType;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CoverageMap, GuidedFlow, OnboardingState, TenantId};
 use pierre_database::repositories::{AgentsRepository, ChatRepository, TenantRepository};
 use pierre_database::RepositoryRegistry;
+use pierre_runtime_context::{default_admin_config, AdminConfigLookup, ConfigLookupScope};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -92,6 +96,71 @@ pub struct ForgeParams<'a> {
     /// the web wizard tells us who they are. It still only fires for an
     /// athlete who has answered nothing anywhere — see [`start_guided_flow`].
     pub guided_flow: bool,
+}
+
+/// The `usage_quotas.max_active_conversations` key every quota read names.
+pub const MAX_ACTIVE_CONVERSATIONS_KEY: &str = "usage_quotas.max_active_conversations";
+
+/// The conversation cap in force for one athlete.
+///
+/// Resolved user → tenant → global, with the registered default when the
+/// lookup fails or the key is unset. [`UNLIMITED_CONVERSATIONS`] (`0`) means
+/// no cap.
+pub async fn max_active_conversations(
+    admin_config: &dyn AdminConfigLookup,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> i64 {
+    admin_config
+        .get_value(
+            MAX_ACTIVE_CONVERSATIONS_KEY,
+            ConfigLookupScope::user(user_id, &tenant_id.to_string()),
+        )
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_i64())
+        .unwrap_or(DEFAULT_MAX_ACTIVE_CONVERSATIONS)
+}
+
+/// Refuse one more thread for an athlete already at their cap.
+///
+/// The cap counts the conversations the athlete *owns* in the tenant, the
+/// same rows the sidebar lets them delete, so the toast's advice is
+/// actionable. It runs wherever the athlete asks for a fresh thread — the
+/// REST create and `/reset` — but not where the messaging ingress forges one
+/// to repair a session or answer a first contact: refusing there leaves the
+/// channel dead, with no sidebar to delete from.
+///
+/// # Errors
+///
+/// [`AppError::quota_exceeded`] with `limit_type` `max_active_conversations`
+/// when the count has reached the cap; the database error when the count
+/// itself fails. An [`UNLIMITED_CONVERSATIONS`] cap never refuses.
+pub async fn enforce_conversation_quota(
+    repos: &RepositoryRegistry,
+    admin_config: Option<&dyn AdminConfigLookup>,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> AppResult<()> {
+    // Degrade to the registered defaults when admin config is not wired
+    // into the running server, never to no cap.
+    let registered_defaults: &dyn AdminConfigLookup = default_admin_config();
+    let admin_config = admin_config.unwrap_or(registered_defaults);
+    let cap = max_active_conversations(admin_config, user_id, tenant_id).await;
+    if cap == UNLIMITED_CONVERSATIONS {
+        return Ok(());
+    }
+    let current = repos.chat.count_conversations(user_id, tenant_id).await?;
+    if current >= cap {
+        return Err(AppError::quota_exceeded(
+            "max_active_conversations",
+            current,
+            cap,
+            "",
+        ));
+    }
+    Ok(())
 }
 
 /// Create the conversation and return its id.

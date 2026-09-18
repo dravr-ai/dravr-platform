@@ -66,8 +66,15 @@ pub mod protocol;
 /// per call site.
 pub mod usage_quotas {
     /// Maximum concurrent active conversations per user. Mirrors the
-    /// `usage_quotas.max_active_conversations` parameter default.
+    /// `usage_quotas.max_active_conversations` parameter default. A value of
+    /// `0` lifts the cap (see [`UNLIMITED_CONVERSATIONS`]).
     pub const DEFAULT_MAX_ACTIVE_CONVERSATIONS: i64 = 10;
+    /// The `usage_quotas.max_active_conversations` value that means no cap.
+    ///
+    /// Written at user scope for an account that may open any number of
+    /// threads; the enforcement skips the count and `/api/usage` reports it
+    /// verbatim so both clients can print "unlimited" instead of `n / 0`.
+    pub const UNLIMITED_CONVERSATIONS: i64 = 0;
 }
 
 // ============================================================================

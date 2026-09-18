@@ -883,7 +883,7 @@
     "connectProvider": "Ligar a minha conta",
     "conversationActions": "Ações da conversa",
     "conversationDeleted": "Conversa eliminada",
-    "conversationLimitBody": "Atingiste o teu limite de {{limit}} conversas ativas. Elimina ou arquiva uma na barra lateral para começares uma nova.",
+    "conversationLimitBody": "Atingiste o teu limite de {{limit}} conversas ativas. Elimina uma na barra lateral para começares uma nova.",
     "conversationLimitTitle": "Limite de conversas atingido",
     "conversationTitle": "Título da conversa",
     "conversations": "Conversas",
@@ -1282,9 +1282,10 @@
       "description": "Dar o consentimento às estatísticas anónimas"
     },
     "reset": {
-      "confirm": "🔄 Nova conversa iniciada — recomeçando do zero. O teu histórico anterior fica arquivado.",
-      "description": "Começar uma conversa nova; a anterior fica arquivada",
-      "walk_interrupted": "\n\nO teu perfil estava em curso — escreve `/pillars` para retomar."
+      "confirm": "🔄 Nova conversa iniciada — recomeçando do zero. O teu histórico anterior fica na tua lista.",
+      "description": "Começar uma conversa nova; a anterior fica na tua lista",
+      "walk_interrupted": "\n\nO teu perfil estava em curso — escreve `/pillars` para retomar.",
+      "quota": "Já tens {0} conversas abertas, o máximo do teu plano. Elimina uma na app antes de começares outra."
     },
     "season": {
       "complete_header": "Percurso da época concluído — captei {0} de {1} respostas.",
