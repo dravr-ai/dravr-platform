@@ -21,6 +21,7 @@ on:
       - 'packages/shared-constants/**'
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
+      - 'scripts/ci/mobile-e2e-batch.sh'
       - '.github/workflows/mobile-e2e-android.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
@@ -334,43 +335,44 @@ jobs:
           fi
 
           if [ -n "$CRITICAL_TESTS" ]; then
-            # Critical mode: run each test individually with one retry on failure.
+            # Critical mode: run each test individually, up to three attempts.
+            # The attempts are the shared runner's (scripts/ci/mobile-e2e-batch.sh):
+            # between attempts it force-stops Expo Go, confirms Metro still
+            # answers /status and relaunches through the deep link, and it stops
+            # the lane (exit 2) when Metro is gone instead of burning two more
+            # 120 s login waits against a dead bundler. The iOS lane shares it;
+            # the retry-without-reset it replaces is carnet#443.
             TOTAL_FAILURES=0
             TOTAL_PASSED=0
             TEST_NUM=0
+            METRO_DEAD=false
             echo '<?xml version="1.0" encoding="UTF-8"?><testsuites>' > maestro-results-android.xml
-            MAX_RETRIES=2
+            MAX_ATTEMPTS=3
             for TEST in $CRITICAL_TESTS; do
               TEST_NUM=$((TEST_NUM + 1))
               echo ""
               echo "=== Test $TEST_NUM: $TEST ==="
               RESULT_FILE="maestro-android-test${TEST_NUM}.xml"
-              TEST_PASSED=false
-              for ATTEMPT in $(seq 0 $MAX_RETRIES); do
-                if [ "$ATTEMPT" -gt 0 ]; then
-                  DELAY=$((ATTEMPT * 10))
-                  echo "FAILED attempt $ATTEMPT, retrying in ${DELAY}s..."
-                  sleep "$DELAY"
-                fi
-                if $MAESTRO test ".maestro/$TEST" --format junit --output "$RESULT_FILE"; then
-                  if [ "$ATTEMPT" -eq 0 ]; then
-                    echo "PASSED"
-                  else
-                    echo "PASSED on retry $ATTEMPT"
-                  fi
-                  TOTAL_PASSED=$((TOTAL_PASSED + 1))
-                  TEST_PASSED=true
-                  break
-                fi
-              done
-              if [ "$TEST_PASSED" = "false" ]; then
-                echo "FAILED after $((MAX_RETRIES + 1)) attempts: $TEST"
+              TEST_RC=0
+              ../scripts/ci/mobile-e2e-batch.sh run --platform android --maestro "$MAESTRO" \
+                --label "$TEST" --attempts "$MAX_ATTEMPTS" \
+                --output "$RESULT_FILE" --summary "/tmp/maestro-android-test${TEST_NUM}.env" \
+                -- ".maestro/$TEST" || TEST_RC=$?
+              if [ "$TEST_RC" -eq 0 ]; then
+                TOTAL_PASSED=$((TOTAL_PASSED + 1))
+              else
+                echo "FAILED after $MAX_ATTEMPTS attempts: $TEST"
                 TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
-                echo "::warning::Android E2E FAILED after $((MAX_RETRIES + 1)) attempts: $TEST"
+                echo "::warning::Android E2E FAILED after $MAX_ATTEMPTS attempts: $TEST"
                 echo "=== Failure XML ==="
                 cat "$RESULT_FILE" 2>/dev/null || echo "No result file"
               fi
               sed -n '/<testsuite/,/<\/testsuite>/p' "$RESULT_FILE" >> maestro-results-android.xml 2>/dev/null || true
+              if [ "$TEST_RC" -eq 2 ]; then
+                echo "FAIL-FAST: Metro died during $TEST — the remaining flows cannot run."
+                METRO_DEAD=true
+                break
+              fi
             done
             echo '</testsuites>' >> maestro-results-android.xml
 
@@ -382,6 +384,9 @@ jobs:
             echo "- Total: $TEST_NUM" >> /tmp/android-summary.txt
             echo "- Passed: $TOTAL_PASSED" >> /tmp/android-summary.txt
             echo "- Failed: $TOTAL_FAILURES" >> /tmp/android-summary.txt
+            if [ "$METRO_DEAD" = "true" ]; then
+              echo "- Metro died mid-run: the flows after test $TEST_NUM were not run" >> /tmp/android-summary.txt
+            fi
             if [ "$TOTAL_FAILURES" -gt 0 ]; then
               echo "### Failed Tests" >> /tmp/android-summary.txt
               for f in maestro-android-test*.xml; do
@@ -485,6 +490,7 @@ jobs:
           path: |
             frontend-mobile/maestro-results*.xml
             frontend-mobile/maestro-android-test*.xml
+            frontend-mobile/maestro-attempts/
             frontend-mobile/.maestro/
             /tmp/android-crash.txt
             /tmp/pierre-server.log

@@ -21,6 +21,7 @@ on:
       - 'packages/shared-constants/**'
       - 'packages/shared-types/**'
       - 'packages/ui-logic/**'
+      - 'scripts/ci/mobile-e2e-batch.sh'
       - '.github/workflows/mobile-e2e-ios.yml'
   schedule:
     - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
@@ -574,27 +575,19 @@ jobs:
 
           echo ""
           echo "=== Running login screen smoke test (with retry) ==="
-          SMOKE_PASSED=false
-          for ATTEMPT in 1 2; do
-            echo "--- Smoke test attempt $ATTEMPT ---"
-            if $MAESTRO test --device "$SIMULATOR_UDID" \
-              .maestro/login/01-show-login-screen.yaml \
-              --format junit --output maestro-smoke-results.xml; then
-              SMOKE_PASSED=true
-              echo "Smoke test PASSED on attempt $ATTEMPT."
-              break
-            fi
-            echo "Attempt $ATTEMPT failed."
-            if [ "$ATTEMPT" -lt 2 ]; then
-              echo "Re-opening app and retrying in 15s..."
-              xcrun simctl openurl "$SIMULATOR_UDID" "exp://127.0.0.1:8082" 2>/dev/null || true
-              sleep 15
-            fi
-          done
+          # The retry is a real reset (terminate Expo Go, confirm Metro still
+          # serves, relaunch, wait for the process), not a re-opened deep link
+          # into whatever state the failed attempt left — see the runner's header
+          # and carnet#443. Exit 2 means Metro is gone, which no retry fixes.
+          SMOKE_RC=0
+          ../scripts/ci/mobile-e2e-batch.sh run --platform ios --maestro "$MAESTRO" \
+            --device "$SIMULATOR_UDID" --label "smoke" --attempts 2 \
+            --output maestro-smoke-results.xml --summary /tmp/maestro-smoke.env \
+            -- .maestro/login/01-show-login-screen.yaml || SMOKE_RC=$?
 
-          if [ "$SMOKE_PASSED" = "false" ]; then
+          if [ "$SMOKE_RC" -ne 0 ]; then
             echo ""
-            echo "SMOKE TEST FAILED after 2 attempts."
+            echo "SMOKE TEST FAILED after 2 attempts (runner rc=$SMOKE_RC)."
             echo ""
             echo "=== Diagnostics ==="
             echo "Xcode version: $(xcodebuild -version 2>&1 | head -1)"
@@ -665,46 +658,36 @@ jobs:
             # the run after it failed 06-successful-login at 4m13s with the
             # same assertion, in this loop, which had no retry — so the lane's
             # colour was decided by which step the flake hit, not by the app.
-            # The Android lane already retries each flow three times.
             #
-            # A retry only re-runs the batch; a flow that fails both times is
-            # still counted and still reds the lane.
+            # The runner resets the app between attempts (terminate, Metro
+            # status check, relaunch, wait) and judges the batch on its BEST
+            # attempt, so a retry that lands in a worse state cannot turn a
+            # 2-of-3 into a 0-of-3 fail-fast (carnet#443, run 35211561989). A
+            # flow that fails on every attempt is still counted and still reds
+            # the lane. Every attempt's junit is kept under maestro-attempts/.
+            # The runner counts a driver that exited non-zero without recording
+            # a failure as one, so the totals below never read a dead maestro
+            # as a clean batch.
             BATCH_RC=0
-            for BATCH_ATTEMPT in 1 2; do
-              BATCH_RC=0
-              $MAESTRO test --device "$SIMULATOR_UDID" $FLOW_ARGS \
-                --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || BATCH_RC=$?
-              if [ "$BATCH_RC" -eq 0 ]; then
-                break
-              fi
-              if [ "$BATCH_ATTEMPT" -lt 2 ]; then
-                echo "Batch $BATCH_NUM attempt $BATCH_ATTEMPT failed (rc=$BATCH_RC) — re-opening the app and retrying in 15s."
-                xcrun simctl openurl "$SIMULATOR_UDID" "exp://127.0.0.1:8082" 2>/dev/null || true
-                sleep 15
-              fi
-            done
-
-            # grep -c returns exit code 1 when no matches; assign separately to avoid
-            # || echo "0" appending a second line that breaks arithmetic.
-            BATCH_TESTS=$(grep -c '<testcase' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null) || BATCH_TESTS=0
-            BATCH_FAILS=$(grep -c '<failure' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null) || BATCH_FAILS=0
-            BATCH_PASSED=$((BATCH_TESTS - BATCH_FAILS))
-            echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_PASSED passed, $BATCH_FAILS failures (maestro rc=$BATCH_RC)"
-
-            # A driver that dies before writing junit leaves 0 tests and 0 failures, which
-            # every count below reads as "nothing went wrong". Maestro's own exit status is
-            # the only signal that separates that from a real pass, so a non-zero rc with
-            # no recorded failure is counted as one — otherwise the lane reports success
-            # for a batch in which no flow ran at all.
-            if [ "$BATCH_RC" -ne 0 ] && [ "$BATCH_FAILS" -eq 0 ]; then
-              echo "Batch $BATCH_NUM: maestro exited $BATCH_RC without recording a failure — counting it as one."
-              BATCH_FAILS=1
-              TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
-            fi
+            ../scripts/ci/mobile-e2e-batch.sh run --platform ios --maestro "$MAESTRO" \
+              --device "$SIMULATOR_UDID" --label "Batch $BATCH_NUM" --attempts 2 \
+              --output "maestro-results-batch${BATCH_NUM}.xml" \
+              --summary "/tmp/maestro-batch${BATCH_NUM}.env" \
+              -- $FLOW_ARGS || BATCH_RC=$?
+            # shellcheck source=/dev/null
+            . "/tmp/maestro-batch${BATCH_NUM}.env"
+            BATCH_TESTS=$TESTS
+            BATCH_PASSED=$PASSED
+            BATCH_FAILS=$FAILS
+            echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_PASSED passed, $BATCH_FAILS failures (attempt $BEST_ATTEMPT of $ATTEMPTS_RUN, maestro rc=$RC)"
             TOTAL_FAILURES=$((TOTAL_FAILURES + BATCH_FAILS))
             TOTAL_PASSED=$((TOTAL_PASSED + BATCH_PASSED))
 
             # Fail-fast: stop early if the environment is clearly broken.
+            if [ "$BATCH_RC" -eq 2 ]; then
+              echo "FAIL-FAST: Metro died during batch $BATCH_NUM — the remaining batches cannot run."
+              break
+            fi
             if [ "$BATCH_PASSED" -eq 0 ] && [ "$BATCH_TESTS" -gt 0 ]; then
               echo "FAIL-FAST: Batch $BATCH_NUM had $BATCH_TESTS tests but 0 passed."
               break
@@ -814,6 +797,7 @@ jobs:
           name: maestro-test-results-ios
           path: |
             frontend-mobile/maestro-results*.xml
+            frontend-mobile/maestro-attempts/
             frontend-mobile/.maestro/
             /tmp/pre-maestro-screenshot.png
             /tmp/post-maestro-screenshot.png

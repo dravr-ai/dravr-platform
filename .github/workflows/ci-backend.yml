@@ -216,7 +216,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces, satellite pins)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, lockfile duplicates, twin surfaces, satellite pins, mobile e2e batch)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -233,6 +233,7 @@ jobs:
           ./scripts/ci/check-lockfile-duplicates.test.sh
           ./scripts/ci/check-twin-surfaces.test.sh
           ./scripts/ci/satellite-pin.test.sh
+          ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # The dev scripts decide which processes a stop may kill and which files a
@@ -242,7 +243,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
