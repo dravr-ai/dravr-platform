@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use axum::routing::{get, post};
@@ -16,12 +17,37 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
+/// The id of the one canned ride the mock scraper serves.
+// Shared across test binaries; any single binary may use only part of it.
+#[allow(dead_code)]
+pub const MOCK_SCRAPER_RIDE_ID: &str = "15551234567";
+
 /// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
-/// import always succeeds and the activity list serves one canned ride.
+/// import always succeeds and the activity list serves one canned ride whose
+/// capture reached the list head.
 /// Returns the base URL for `DRAVR_SCIOTTE_REMOTE_URL`.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
 pub async fn spawn_mock_scraper() -> String {
+    spawn_mock_scraper_serving(
+        Arc::new(AtomicBool::new(true)),
+        "2026-08-10T12:00:00Z".to_owned(),
+    )
+    .await
+}
+
+/// [`spawn_mock_scraper`] with the capture's `head_complete` verdict and the
+/// ride's start instant under the caller's control.
+///
+/// `head_complete` is read on every `/api/activities` answer, so one scraper
+/// can first play a capture whose head sciotte never saw and then, flipped,
+/// one that reached it — the two halves of the write-through gate.
+// Shared across test binaries; any single binary may use only part of it.
+#[allow(dead_code)]
+pub async fn spawn_mock_scraper_serving(
+    head_complete: Arc<AtomicBool>,
+    ride_start: String,
+) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -33,19 +59,20 @@ pub async fn spawn_mock_scraper() -> String {
         )
         .route(
             "/api/activities",
-            get(|| async {
+            get(move || async move {
                 Json(json!({
                     "count": 1,
                     "activities": [{
-                        "id": "15551234567",
+                        "id": MOCK_SCRAPER_RIDE_ID,
                         "name": "Sortie vélo matinale",
                         "sport_type": "ride",
-                        "start_date": "2026-08-10T12:00:00Z",
+                        "start_date": ride_start,
                         "duration_seconds": 2700,
                         "provider": "strava",
                         "distance_meters": 21000.0,
                         "elevation_gain": 250.0
-                    }]
+                    }],
+                    "head_complete": head_complete.load(Ordering::SeqCst)
                 }))
             }),
         );

@@ -38,7 +38,23 @@
 
 set -euo pipefail
 
-BASE_REF="${1:-origin/main}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# One resolution rule for every diff-scoped gate: an explicit base, else
+# $GATE_BASE_REF, else origin/main — and HEAD~1 whenever that base is missing or
+# is HEAD itself. CI passes `github.event.before`, which is all-zeros on a
+# branch's first push and unreachable after a force-push beyond the fetch depth;
+# locally, a fresh worktree may have no origin/main at all. Handed straight to
+# `git diff`, each of those fails the diff, and a swallowed failure reads as
+# "nothing touched" — the disarmed shape the house gate rule forbids.
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$SCRIPT_DIR/gate-base-ref.sh"
+
+if ! BASE_REF="$(resolve_gate_base_ref "${1:-}")"; then
+    echo "❌ backend-pairs: HEAD is a root commit — there is no base to diff against."
+    echo "FAIL: scan verified nothing."
+    exit 1
+fi
 
 DB_ROOT="crates/pierre-database/src"
 SQLITE_DIR="$DB_ROOT/database"
@@ -97,15 +113,24 @@ is_converged() {
     trait_file="$(trait_module_for "$name")"
     [[ -n "$trait_file" ]] || return 1
     grep -qE '^pub\(crate\) const [A-Z0-9_]+_SQL|^macro_rules! [a-z0-9_]+_sql' "$trait_file" || return 1
-    local side
+    local side stripped
     for side in "$SQLITE_DIR/$name" "$PG_DIR/$name"; do
         # An impl that still spells out its own statements has not converged,
         # whatever else it imports. Matched on statement shape rather than on
-        # the bare keyword, and with comment lines dropped first, so a clause
+        # the bare keyword, and with comments dropped first, so a clause
         # named in prose or passed as a macro literal ("FOR UPDATE SKIP
-        # LOCKED") is not mistaken for a second copy of the SQL.
-        if sed -E 's|//.*||' "$side" \
-            | grep -qiE '(INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO[[:space:]]+[a-z_]|SELECT[[:space:]].*[[:space:]]FROM[[:space:]]+[a-z_]|UPDATE[[:space:]]+[a-z_]+[[:space:]]+SET[[:space:]]|DELETE[[:space:]]+FROM[[:space:]]+[a-z_])'; then
+        # LOCKED") is not mistaken for a second copy of the SQL. Two shapes:
+        # a statement inline in a string literal, and the raw-string layout
+        # the crate writes its SQL in, where each clause opens its own line —
+        # `SELECT` with its `FROM` on the next line, `UPDATE t SET` closing a
+        # line. That second shape is matched on a statement keyword at line
+        # start, which Rust source never puts there outside a SQL literal.
+        # The file is read into a variable first: with pipefail, `grep -q`
+        # closing its end of a pipe early would surface as SIGPIPE from sed
+        # and the match would be lost.
+        stripped="$(sed -E 's|//.*||' "$side")"
+        if grep -qiE '(INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO[[:space:]]+[a-z_]|SELECT[[:space:]].*[[:space:]]FROM[[:space:]]+[a-z_]|UPDATE[[:space:]]+[a-z_]+[[:space:]]+SET[[:space:]]|DELETE[[:space:]]+FROM[[:space:]]+[a-z_])' <<< "$stripped" \
+            || grep -qiE '^[[:space:]]*(SELECT|INSERT[[:space:]]+(OR[[:space:]]+(REPLACE|IGNORE)[[:space:]]+)?INTO|UPDATE[[:space:]]+[a-z_]+|DELETE[[:space:]]+FROM)([[:space:]]|$)' <<< "$stripped"; then
             return 1
         fi
         grep -qE '_SQL|_sql!' "$side" || return 1
@@ -113,11 +138,17 @@ is_converged() {
     return 0
 }
 
-# Pairs this push adds or edits on either side.
+# Pairs this push adds or edits on either side. The diff's exit status is
+# checked on its own: a failed diff would otherwise leave `changed` empty and
+# the success marker would print over a push the scan never looked at.
+if ! changed_paths="$(git diff --no-renames --name-only --diff-filter=AM "$BASE_REF"...HEAD \
+        -- "$SQLITE_DIR/*.rs" "$PG_DIR/*.rs")"; then
+    echo "❌ backend-pairs: git diff against '$BASE_REF' failed."
+    echo "FAIL: scan verified nothing."
+    exit 1
+fi
 mapfile -t changed < <(
-    git diff --no-renames --name-only --diff-filter=AM "$BASE_REF"...HEAD \
-        -- "$SQLITE_DIR/*.rs" "$PG_DIR/*.rs" 2>/dev/null \
-    | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
+    printf '%s\n' "$changed_paths" | grep -v '^$' | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
 )
 
 fail=0

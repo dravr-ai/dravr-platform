@@ -280,8 +280,10 @@ impl FitbitProvider {
     /// Handle non-success API responses
     /// Fitbit names the failure in its `errors[]` body — an expired token, a
     /// scope the grant does not carry, or a message worth showing — which the
-    /// status code alone does not say. Everything else, the 401 → re-auth
-    /// mapping included, is the shared behaviour in [`utils::api_error`].
+    /// status code alone does not say. A 401 never reaches this hook:
+    /// [`utils::api_request_with_retry`] maps it to the re-auth error first,
+    /// so `expired_token` is only seen here on some other status. Everything
+    /// else is the shared behaviour in [`utils::api_error`].
     fn vendor_error(_status: reqwest::StatusCode, text: &str) -> Option<AppError> {
         let first_error = from_str::<FitbitErrorResponse>(text)
             .ok()?

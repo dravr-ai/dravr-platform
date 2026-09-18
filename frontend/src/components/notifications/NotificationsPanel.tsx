@@ -22,6 +22,7 @@ import {
 } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { useTheme } from '../../hooks/useTheme';
 
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
@@ -30,6 +31,10 @@ interface NotificationsPanelProps {
 
 export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
   const { t } = useTranslation();
+  // The dot takes the hue paired with the athlete's scheme: the panel follows
+  // the theme like every surface around it, and the map is total, so a
+  // category never falls back to the text ink.
+  const { scheme } = useTheme();
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory | 'all'>('all');
 
   const feedParams = selectedCategory === 'all'
@@ -174,13 +179,12 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                   )}
 
                   {/* Category — its pillar as a dot beside the word, never a coloured chip.
-                      The light half by name: this panel renders on a light surface,
-                      and the word beside the dot takes its ink from the theme. */}
+                      The word beside the dot takes its ink from the theme. */}
                   <div className="inline-flex flex-shrink-0 items-center gap-1.5 pt-0.5 text-xs text-on-surface-variant whitespace-nowrap">
                     <span
                       aria-hidden="true"
                       className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: NOTIFICATION_CATEGORY_COLORS.light[item.category] }}
+                      style={{ backgroundColor: NOTIFICATION_CATEGORY_COLORS[scheme][item.category] }}
                     />
                     {t(meta.labelKey)}
                   </div>

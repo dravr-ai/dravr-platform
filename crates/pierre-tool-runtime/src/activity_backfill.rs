@@ -28,7 +28,7 @@ use chrono::{Duration, TimeZone, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::BackfillCoverage;
-use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use tokio::time::sleep;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -304,13 +304,43 @@ pub(crate) async fn backfill_inline_and_serve(
 
 /// Outcome of authenticating + paging the provider for a backfill.
 enum BackfillFetch {
-    /// Activities fetched (possibly empty).
+    /// Activities fetched (possibly empty), from a capture whose head the
+    /// provider saw — the only kind the caller may persist.
     Activities(Vec<Activity>),
     /// The provider's session/token lapsed — the caller nudges the user to
     /// reconnect, since this detached path is otherwise silent.
     AuthRequired,
-    /// Any other (transient/unsupported) failure — logged, no nudge.
+    /// Any other (transient/unsupported) failure, a headless capture
+    /// included — logged, no nudge.
     Failed,
+}
+
+/// Classify a fetched capture by the provider's own verdict on its head.
+///
+/// A capture whose head the provider never saw (`FitnessProvider::head_complete`
+/// is `false`: a scraped walk that carries every complete week and missed the
+/// in-progress one) is declined on the same rule as every other write-through
+/// site. The upsert moves each row's `synced_at` to now, `latest_activity_sync`
+/// then reads Fresh, and `refresh_stale_head` stands down for hours while the
+/// week the capture missed is served as a quiet one (carnet#149); recording
+/// coverage on top would make the historical gate serve that window from cache
+/// without ever asking again. Nothing persisted and no coverage recorded is
+/// the `Failed` contract, so the next ask re-runs the window.
+fn capture_with_head(
+    job: &ActivityBackfillJob,
+    provider: &dyn FitnessProvider,
+    activities: Vec<Activity>,
+) -> BackfillFetch {
+    if provider.head_complete() {
+        return BackfillFetch::Activities(activities);
+    }
+    warn!(
+        user_id = %job.user_id,
+        provider = %job.provider_name,
+        count = activities.len(),
+        "Activity backfill: capture is missing the list head; not persisted so the next ask re-fetches"
+    );
+    BackfillFetch::Failed
 }
 
 /// Authenticate the provider and page its feed to the requested `after`,
@@ -355,7 +385,7 @@ async fn fetch_backfill_activities(
     };
 
     match provider.get_activities_with_params(&job.query_params).await {
-        Ok(activities) => BackfillFetch::Activities(activities),
+        Ok(activities) => capture_with_head(job, provider.as_ref(), activities),
         Err(e) => {
             // sciotte surfaces a lapsed session HERE (cookies existed at auth
             // time but the scrape redirected to sign-in) as

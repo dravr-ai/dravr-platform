@@ -33,14 +33,16 @@ EOF
     git -C "$root" add -A && git -C "$root" commit -qm base
 }
 
+# run_case <name> <expected exit> [<base ref>] — the base defaults to HEAD~1,
+# the shape the real check sees on a push.
 run_case() {
-    local name="$1" expected="$2" root
+    local name="$1" expected="$2" base="${3:-HEAD~1}" root
     root="$(mktemp -d)"
     scaffold "$root"
     "case_$name" "$root"
     git -C "$root" add -A && git -C "$root" commit -qm head
     local got=0
-    ( cd "$root" && "$CHECK" HEAD~1 >/dev/null 2>&1 ) || got=$?
+    ( cd "$root" && "$CHECK" "$base" >/dev/null 2>&1 ) || got=$?
     if [[ "$got" -eq "$expected" ]]; then
         echo "✅ $name (exit $got)"
         pass=$((pass + 1))
@@ -86,6 +88,35 @@ impl_locked_repository!(PostgresDatabase, "FOR UPDATE SKIP LOCKED "); // READ_ON
 EOF
 }
 
+# A converged pair whose Postgres shell regains statements of its own must
+# fail — the regression the gate exists for. Written in the crate's raw-string
+# layout, one clause per line, with the shared import still in place.
+case_converged_pair_regaining_sql_fails() {
+    local r="$1"
+    cat > "$r/crates/pierre-database/src/backends/postgres/converged.rs" <<'EOF'
+use crate::repositories::converged::PICK_ONE_SQL;
+impl_converged_repository!(PostgresDatabase);
+impl PostgresDatabase {
+    async fn count_seen(&self, user_id: &str) -> AppResult<i64> {
+        sqlx::query(
+            r"
+            SELECT COUNT(*) AS c
+            FROM user_onboarding
+            WHERE user_id = $1
+            ",
+        );
+        sqlx::query(
+            r"
+            UPDATE user_onboarding SET
+                status = 'seen'
+            WHERE user_id = $1
+            ",
+        );
+    }
+}
+EOF
+}
+
 # A file touched on only one backend, with no twin, is out of scope.
 case_unmirrored_file_is_ignored() {
     local r="$1"
@@ -98,6 +129,38 @@ run_case new_duplicate_pair_fails 1
 run_case editing_converged_pair_passes 0
 run_case lock_clause_literal_is_not_sql 0
 run_case unmirrored_file_is_ignored 0
+run_case converged_pair_regaining_sql_fails 1
+
+# A base the diff cannot resolve — the all-zeros sha CI passes on a branch's
+# first push, or a ref a fresh worktree lacks — must not read as "nothing
+# touched": the tip commit is still inspected and its duplicated pair refused.
+run_case new_duplicate_pair_fails 1 0000000000000000000000000000000000000000
+run_case new_duplicate_pair_fails 1 no-such-ref
+
+# Fail closed: a root commit has no base at all, so the scan cannot run.
+root="$(mktemp -d)"
+mkdir -p "$root/crates/pierre-database/src/database" \
+         "$root/crates/pierre-database/src/backends/postgres" \
+         "$root/crates/pierre-database/src/repositories"
+git -C "$root" init -q
+git -C "$root" config user.email t@t; git -C "$root" config user.name t
+# The pair is converged, so the only reason left to exit non-zero is the
+# missing base.
+cat > "$root/crates/pierre-database/src/repositories/converged.rs" <<'EOF'
+pub(crate) const PICK_ONE_SQL: &str = "SELECT a FROM t WHERE id = $1";
+EOF
+echo 'impl_converged_repository!(Database); // uses PICK_ONE_SQL' \
+    > "$root/crates/pierre-database/src/database/converged.rs"
+echo 'impl_converged_repository!(PostgresDatabase); // uses PICK_ONE_SQL' \
+    > "$root/crates/pierre-database/src/backends/postgres/converged.rs"
+git -C "$root" add -A && git -C "$root" commit -qm root
+got=0; out="$( cd "$root" && "$CHECK" origin/main 2>&1 )" || got=$?
+if [[ "$got" -eq 1 && "$out" == *"no base to diff against"* ]]; then
+    echo "✅ root_commit_fails_closed (exit 1)"; pass=$((pass + 1))
+else
+    echo "❌ root_commit_fails_closed: expected exit 1, got $got"; fail=$((fail + 1))
+fi
+rm -rf "$root"
 
 # Fail closed: the check must refuse to pass when the layout it scans is gone.
 root="$(mktemp -d)"; scaffold "$root"

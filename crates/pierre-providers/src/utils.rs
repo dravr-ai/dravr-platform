@@ -213,10 +213,15 @@ pub fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppErro
 ///
 /// # Errors
 ///
-/// `vendor_error` reads a non-success body before the generic mapping does, so
-/// a provider keeps its own error vocabulary (Strava's 404 → `NotFound`,
-/// Fitbit's `errors[].errorType`, Whoop's 404 → `NoDataAvailable`). Return
-/// `None` — or pass [`no_vendor_error`] — to take the generic mapping.
+/// A `401` is mapped by [`auth_error_for_status`] before anything else reads
+/// the response, so every provider routing through here reaches the reconnect
+/// path and no hook can shadow it — Fitbit answers a 401 with an `errors[]`
+/// body its hook would otherwise claim as a plain external-service error.
+/// `vendor_error` then reads any other non-success body before the generic
+/// mapping does, so a provider keeps its own error vocabulary (Strava's 404 →
+/// `NotFound`, Fitbit's `errors[].errorType`, Whoop's 404 →
+/// `NoDataAvailable`). Return `None` — or pass [`no_vendor_error`] — to take
+/// the generic mapping.
 ///
 /// # Errors
 ///
@@ -266,10 +271,16 @@ where
         }
 
         if !status.is_success() {
+            // A rejected credential is the one failure whose handling no
+            // provider owns: the athlete has to reconnect, whatever the body
+            // says about why.
+            if let Some(auth) = auth_error_for_status(status, provider_name) {
+                return Err(auth);
+            }
             let text = response.text().await.unwrap_or_default();
-            // The vendor's own reading of the failure first: a body that names
-            // a missing resource, an expired token or a scope gap carries more
-            // than the status code does, and only the provider can decode it.
+            // The vendor's own reading of the failure next: a body that names
+            // a missing resource or a scope gap carries more than the status
+            // code does, and only the provider can decode it.
             if let Some(err) = vendor_error(status, &text) {
                 return Err(err);
             }
