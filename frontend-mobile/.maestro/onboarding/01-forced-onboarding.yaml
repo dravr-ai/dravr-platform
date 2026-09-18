@@ -29,7 +29,7 @@ tags:
 
 # The welcome heading is unique to OnboardingConnectScreen — assert it to
 # guard against accidental renaming of the screen wrapper.
-- assertVisible: "Welcome"
+- assertVisible: "(?i)Welcome|Bienvenue"
 
 # Chat is NOT reachable: testID="conversations-screen" is the chat tab's
 # landing screen and "chat-screen" a thread over it. Their absence proves

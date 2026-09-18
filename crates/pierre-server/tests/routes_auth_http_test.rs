@@ -16,11 +16,14 @@
 mod common;
 mod helpers;
 
+use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
+use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::models::UserOAuthToken;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
 use serde_json::json;
@@ -712,6 +715,81 @@ async fn test_oauth_status_includes_all_providers() {
 
     assert!(providers.contains(&"strava".to_owned()));
     assert!(providers.contains(&"fitbit".to_owned()));
+}
+
+/// The third surface carnet#352 named. `/api/oauth/status` echoed every token
+/// row as connected, so the athlete whose only Garmin row was the OAuth one read
+/// exactly what the issue opened with: `{"provider":"garmin","connected":true}`,
+/// while every coach call failed against the mirror it is actually routed to.
+#[tokio::test]
+async fn oauth_status_does_not_report_a_bare_garmin_row_as_connected() {
+    let setup = AuthTestSetup::new().await.expect("Setup failed");
+    let (user_id, user) = common::create_test_user(&setup.resources.agent.database)
+        .await
+        .expect("Failed to create test user");
+    let tenants = setup
+        .resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("list tenants");
+    let tenant_id = tenants[0].id.to_string();
+
+    let seed = |provider: &str| {
+        UserOAuthToken::new(
+            user_id,
+            tenant_id.clone(),
+            provider.to_owned(),
+            "test_access_token".to_owned(),
+            Some("test_refresh_token".to_owned()),
+            Some(Utc::now() + Duration::hours(1)),
+            Some("read".to_owned()),
+        )
+    };
+    for provider in [oauth_providers::GARMIN, oauth_providers::STRAVA] {
+        setup
+            .resources
+            .common
+            .repos
+            .oauth_tokens
+            .upsert_token(&seed(provider))
+            .await
+            .expect("seed token");
+    }
+
+    let jwt_token = setup
+        .resources
+        .auth
+        .auth_manager
+        .generate_token(&user, &setup.resources.auth.jwks_manager)
+        .expect("Failed to generate JWT");
+
+    let response = AxumTestRequest::get("/api/oauth/status")
+        .header("authorization", &format!("Bearer {}", jwt_token))
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value = response.json();
+    let statuses = body.as_array().unwrap();
+    let connected: Vec<&str> = statuses
+        .iter()
+        .filter(|s| s["connected"].as_bool() == Some(true))
+        .map(|s| s["provider"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        connected,
+        vec![oauth_providers::STRAVA],
+        "strava's OAuth row serves fetches and reads connected; garmin's serves none: {body}"
+    );
+    assert!(
+        !statuses
+            .iter()
+            .any(|s| s["provider"].as_str() == Some(oauth_providers::GARMIN)),
+        "a garmin OAuth row must not surface on this endpoint at all: {body}"
+    );
 }
 
 // ============================================================================

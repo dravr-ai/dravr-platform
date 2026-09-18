@@ -8,7 +8,7 @@ name: "CI: Mobile E2E (Android)"
 
 on:
   push:
-    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
+    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'frontend-mobile/**'
       # Only the shared packages frontend-mobile depends on. `packages/**` would put

@@ -15,12 +15,12 @@ appId: ai.dravr.app
     file: ../helpers/navigate-to-discover.yaml
 
 # Test: should filter by Training category
-- tapOn: "Training"
-- assertVisible: "Training"
+- tapOn: "(?i)Training|Entraînement"
+- assertVisible: "(?i)Training|Entraînement"
 
 # Test: should filter by Nutrition category
-- tapOn: "Nutrition"
-- assertVisible: "Nutrition"
+- tapOn: "(?i)Nutrition"
+- assertVisible: "(?i)Nutrition"
 
 # Test: should filter by Recovery category (may be off-screen on Android)
 - scrollUntilVisible:
@@ -28,11 +28,11 @@ appId: ai.dravr.app
       text: "Recovery"
     direction: RIGHT
     timeout: 5000
-- tapOn: "Recovery"
+- tapOn: "(?i)Recovery|Récupération"
 - extendedWaitUntil:
     visible: "Recovery"
     timeout: 5000
 
 # Test: should reset filters when All is selected
-- tapOn: "All"
-- assertVisible: "All"
+- tapOn: "(?i)All|Tout"
+- assertVisible: "(?i)All|Tout"

@@ -66,7 +66,12 @@ if [ -z "$TRACKER" ] && [ -f "$REPO_ROOT/registre.toml" ]; then
     TRACKER=$(sed -n 's/^tracker[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/registre.toml" | head -1)
 fi
 
-CAPS=$(mktemp -t bilan) || die "mktemp failed"
+# `mktemp -t PREFIX` is BSD/macOS syntax. GNU coreutils reads the argument as a
+# template and rejects one without trailing X's ("too few X's in template"), so
+# this aborted on every Linux session — which is every cloud session, i.e. exactly
+# where a completion number is least likely to be checked by hand. An explicit
+# path with X's behaves identically on both.
+CAPS=$(mktemp "${TMPDIR:-/tmp}/bilan.XXXXXX") || die "mktemp failed"
 trap 'rm -f "$CAPS" "$NOTES"' EXIT
 
 cap() { # <cap> <icon> <evidence> <remedy>
@@ -77,7 +82,7 @@ cap() { # <cap> <icon> <evidence> <remedy>
 # reaches the score. Without this channel the only way to mention something was to cap on it,
 # which is how a peer's mid-edit file came to hold three sessions at 7 with nothing they could
 # do about it.
-NOTES=$(mktemp -t bilan-notes) || die "mktemp failed"
+NOTES=$(mktemp "${TMPDIR:-/tmp}/bilan-notes.XXXXXX") || die "mktemp failed"
 say_note() { printf '%s\n' "$1" >> "$NOTES"; }
 
 # ------------------------------------------------------------------ session facts
@@ -299,7 +304,17 @@ owned_unpushed() {
 fetch_age() {
     local f="$GIT_DIR/FETCH_HEAD"
     [ -f "$f" ] || { printf '%s' 999999; return 0; }
-    printf '%s' "$(( $(date +%s) - $(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0) ))"
+    # GNU stat is tried FIRST and the result is checked for digits, because the
+    # two stats disagree in a way `||` cannot catch: `-f` means "format" on BSD
+    # but "--file-system" on GNU, where it EXITS 0 while printing filesystem
+    # prose. Under the old BSD-first order that prose reached `$(( ))` on every
+    # Linux box and aborted the run with "File: unbound variable".
+    local mtime
+    mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+    case "$mtime" in
+        ''|*[!0-9]*) mtime=0 ;;
+    esac
+    printf '%s' "$(( $(date +%s) - mtime ))"
 }
 
 check_unpushed() {

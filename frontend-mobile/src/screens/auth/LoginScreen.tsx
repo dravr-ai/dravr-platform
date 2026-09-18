@@ -1,7 +1,7 @@
 // ABOUTME: Login screen with email/password and Google Sign-In authentication
 // ABOUTME: The phone's half of DESIGN.md §5 "Auth and onboarding" — tint page, white form sheet, both schemes
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  type TextInput,
   type ViewStyle,
   type TextStyle,
 } from 'react-native';
@@ -29,6 +30,7 @@ import {
 import { AntDesign } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 /**
  * The catalogue key for a Google sign-in failure.
@@ -98,6 +100,12 @@ export function LoginScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Chains focus from the email field to the password field: `returnKeyType`
+  // only relabels the return key, so without a ref to move the caret the
+  // athlete has to aim at the second field with the keyboard already up
+  // (carnet#353).
+  const passwordRef = useRef<TextInput>(null);
+
   const handleLogin = async () => {
     if (!validateForm()) return;
 
@@ -107,18 +115,17 @@ export function LoginScreen() {
       // Navigation is handled by auth state change in root layout auth gating
       // If user is pending, the auth guard redirects to PendingApproval screen
     } catch (error) {
-      let message = 'Login failed. Please try again.';
-      if (error instanceof Error) {
-        // Parse API error responses
-        if (error.message.includes('400') || error.message.includes('invalid')) {
-          message = 'Invalid email or password. Please check your credentials.';
-        } else if (error.message.includes(t('app.networkTitle'))) {
-          message = 'Network error. Please check your connection.';
-        } else {
-          message = error.message;
-        }
-      }
-      Alert.alert(t('app.loginFailedTitle'), message);
+      // Classified from the response's status, never from axios's prose. The
+      // prose match this replaces was English-only three ways over: it compared
+      // a translated string against axios's own "Network Error" so that branch
+      // could never fire, it labelled every 400 as bad credentials including
+      // ordinary validation failures, and its fallback showed the raw
+      // `error.message` to the athlete. The Google path above was migrated for
+      // the same reason under carnet#207; this is the other half.
+      Alert.alert(
+        t('app.loginFailedTitle'),
+        describeApiError(error, { t, fallbackKey: 'auth.loginFailed' }),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -234,10 +241,14 @@ export function LoginScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   error={errors.email}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  blurOnSubmit={false}
                   testID="email-input"
                 />
 
                 <Input
+                  ref={passwordRef}
                   label={t('common.password')}
                   placeholder={t('app.enterYourPassword')}
                   value={password}

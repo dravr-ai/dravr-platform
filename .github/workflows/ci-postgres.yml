@@ -1,10 +1,10 @@
-# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature/*; *_postgresql_test.rs smoke on fix|debug|claude|copilot prefixes.
+# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*; *_postgresql_test.rs smoke on fix|debug|claude|copilot prefixes.
 # ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
 name: "CI: Backend (PostgreSQL)"
 
 on:
   push:
-    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
+    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       # Any crate change runs the backend suite. The prior explicit list
       # silently dropped each newly-extracted crate (a recurring false-green),
@@ -214,11 +214,11 @@ jobs:
         # daily SQLite shards in ci-backend.yml, not here.
         #
         # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
-        # dispatch and feature/* refs run EVERY test file; the short-lived
+        # dispatch and feature/* or features/* refs run EVERY test file; the short-lived
         # prefixes (fix/*, debug/*, claude/*, copilot/*) run the
         # `*_postgresql_test.rs` smoke — the files whose failure shape is
         # PostgreSQL-only. A green run on those refs therefore means the
-        # smoke ran, not the suite: name the branch feature/* or dispatch
+        # smoke ran, not the suite: name the branch feature(s)/* or dispatch
         # this workflow for a full verdict on any ref (~21-24 min). Files are
         # partitioned round-robin across 4 shards; an empty selection fails
         # the job rather than reporting green over zero tests.
@@ -259,7 +259,7 @@ jobs:
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
-          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]] || [[ "${{ github.ref }}" == refs/heads/features/* ]]; then
             LANE="full suite"
             mapfile -t ALL_TESTS < <(
               find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -not -name '*_sqlite_test.rs' -printf '%f\n' \

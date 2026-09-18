@@ -159,29 +159,70 @@ jobs:
               # mode input. Taking whichever run started last would let that
               # strict subset conclude success and bury the cron's red — the
               # exact verdict this monitor exists to read.
+              #
+              # One exception, in one direction only: a NON-cron red that a
+              # LATER healthy cron run has already answered is superseded.
+              # Nothing ever re-runs a dispatch on its own, so without this a
+              # single hand-fired failure pins its lane red forever — five
+              # lanes sat that way for up to fifteen days (carnet#344, #370,
+              # #397, #412, #428), several of them bump lanes whose only way
+              # to clear the verdict was to fire a job that pushes to main.
+              # Those dispatches had failed against a target that has since
+              # moved: bump-embacle's died resolving embacle's feature set on
+              # 09-10 and the 09-14 cron then passed on the new pin.
+              #
+              # The cron is never suppressed by a dispatch — that burial is
+              # exactly what this monitor exists to prevent, and a dispatch is
+              # often a strict subset of the cron's coverage. Supersession runs
+              # the other way: the broad, scheduled, newer verdict answers the
+              # narrow, manual, older one. A non-cron red NEWER than the last
+              # cron still alarms, and a superseded run stays printed in the
+              # step summary rather than vanishing.
+              cron = latest.get("schedule")
+              cron_ok = cron is not None and cron["conclusion"] in HEALTHY
+              cron_started = (
+                  dt.datetime.fromisoformat(
+                      cron["run_started_at"].replace("Z", "+00:00")
+                  )
+                  if cron
+                  else None
+              )
+
               verdicts = []
+              superseded = []
+              offenders = []
               for event, run in latest.items():
-                  if run["conclusion"] not in HEALTHY:
-                      verdicts.append(f"red on {event} ({run['conclusion']})")
+                  if run["conclusion"] in HEALTHY:
+                      continue
+                  started = dt.datetime.fromisoformat(
+                      run["run_started_at"].replace("Z", "+00:00")
+                  )
+                  if event != "schedule" and cron_ok and cron_started > started:
+                      superseded.append(
+                          f"{event} ({run['conclusion']}) superseded by a later green cron"
+                      )
+                      continue
+                  verdicts.append(f"red on {event} ({run['conclusion']})")
+                  offenders.append(run)
 
               # Staleness is a question about the CRON specifically: has it
               # stopped firing? A dispatch cannot answer that, so it does not
               # reset the clock.
-              cron = latest.get("schedule")
               if cron:
-                  age = NOW - dt.datetime.fromisoformat(
-                      cron["run_started_at"].replace("Z", "+00:00")
-                  )
+                  age = NOW - cron_started
                   if age > STALE_AFTER:
                       verdicts.append(f"stale ({age.days}d since the last cron run)")
 
               shown = ", ".join(
                   f"{event}: {run['conclusion']}" for event, run in latest.items()
               )
-              rows.append((name, f, shown, ", ".join(verdicts) or "ok"))
+              note = ", ".join(verdicts) or "ok"
+              if superseded:
+                  note += " [" + "; ".join(superseded) + "]"
+              rows.append((name, f, shown, note))
               if verdicts:
                   worst = next(
-                      (r for r in latest.values() if r["conclusion"] not in HEALTHY),
+                      iter(offenders),
                       cron or next(iter(latest.values())),
                   )
                   reds.append({

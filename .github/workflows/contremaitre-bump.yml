@@ -153,7 +153,9 @@ jobs:
               "$(git diff --cached --numstat -- training_catalogue | wc -l | tr -d ' ') training catalogue file(s) changed")
           fi
           git commit -m "chore(contremaitre): bump dravr-contremaitre rev to ${SHORT_NEW}${CORPUS_NOTE}"
-          git push origin main
+          # main moves while this hourly lane runs, and a bare push then rejects
+          # non-fast-forward over a bump that was correct (carnet#383).
+          scripts/ci/push-to-branch-with-rebase.sh origin main
 
       - name: Validate the bump in CI
         # The push above uses the default GITHUB_TOKEN, and GitHub suppresses

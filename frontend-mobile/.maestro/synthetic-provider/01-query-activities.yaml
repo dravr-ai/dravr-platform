@@ -26,10 +26,20 @@ appId: ai.dravr.app
     id: "send-button"
 
 # Wait for response (thinking indicator disappears)
+# A live coaching turn was measured at ~32 s client-visible (the tool loop
+# finished at 29.5 s, then a capability-recovery pass added ~2.6 s), so the old
+# 30 s budget cut in below the real reply time. 45 s matches what
+# 05-performance-prediction already allowed and leaves ~40% headroom.
+#
+# This value is duplicated per flow rather than shared: `helpers/wait-for-response.yaml`
+# waits for the thinking indicator to APPEAR and then disappear, while these
+# flows only wait for it to disappear. Swapping them to the helper would add an
+# appear-wait that a fast `ci-test-model` reply can miss, so the shapes are kept
+# distinct and the budgets are kept in step by hand.
 - extendedWaitUntil:
     notVisible:
       id: "thinking-indicator"
-    timeout: 30000
+    timeout: 45000
 
 # Response should be received
 - assertVisible:

@@ -316,14 +316,14 @@ pierre's mcp server validates jwt on every request:
 | endpoint | auth required | notes |
 |----------|---------------|-------|
 | `POST /mcp` (initialize) | no | discovery only |
-| `POST /mcp` (tools/list) | no | returns filtered tool list based on auth state (see below) |
+| `POST /mcp` (tools/list) | yes | `401` + RFC 9728 challenge without a valid bearer; the list is filtered by identity (see below) |
 | `POST /mcp` (tools/call) | yes | requires valid jwt |
 | `POST /mcp` (prompts/list) | no | discovery only |
 | `POST /mcp` (resources/list) | no | discovery only |
 
-**tools/list visibility gating**: while `tools/list` does not *require* authentication, the response varies based on auth state. Unauthenticated clients see a curated subset of 17 public discovery tools. Authenticated users see the full set available to them based on role and tenant plan. See [MCP Tool Discovery](mcp-tool-discovery.md) for details.
+**tools/list visibility gating**: discovery is gated on the caller's authenticated identity. There is no unauthenticated tier -- a missing or invalid bearer is answered with `401` plus an RFC 9728 `WWW-Authenticate` challenge, never a downgrade to a public subset. An authenticated tenant member sees the tenant-filtered catalogue minus `ADMIN_ONLY`; a global `User.is_admin` sees every registered tool. See [MCP Tool Discovery](mcp-tool-discovery.md) for details.
 
-implementation: `src/mcp/mcp_request_processor.rs`
+implementation: `crates/pierre-server/src/mcp/host_seams.rs` (`PierreAuthHook`), `crates/pierre-server/src/routes/mcp.rs` (`bearer_token`)
 
 ### Token Expiry and Refresh
 

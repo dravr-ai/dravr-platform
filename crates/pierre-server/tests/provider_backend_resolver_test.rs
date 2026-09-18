@@ -152,6 +152,50 @@ fn mirror_backend_for_only_maps_strava_and_garmin() {
 }
 
 #[test]
+fn serving_backends_excludes_the_uncredentialed_garmin_oauth_backend() {
+    // The whole of carnet#352: a `garmin` row existed, so the status surfaces
+    // said connected, while every fetch was routed to `sciotte_garmin` and
+    // failed. Only a backend that can actually serve may count.
+    let garmin = backend_resolver::serving_backends("garmin");
+    assert_eq!(garmin, vec![oauth_providers::SCIOTTE_GARMIN]);
+    assert!(
+        !garmin.iter().any(|b| b == oauth_providers::GARMIN),
+        "the partner-gated Garmin OAuth backend is never routed to, so it must never read as connected"
+    );
+}
+
+#[test]
+fn serving_backends_accepts_either_strava_backend() {
+    // Strava is the opposite case: its OAuth backend is real and takes
+    // precedence, falling back to the mirror, so either row is genuinely usable.
+    let strava = backend_resolver::serving_backends("strava");
+    assert!(strava.iter().any(|b| b == oauth_providers::STRAVA));
+    assert!(strava.iter().any(|b| b == oauth_providers::SCIOTTE));
+}
+
+#[test]
+fn serving_backends_falls_back_to_the_provider_itself() {
+    // A provider with no mirror serves itself — returning an empty list here
+    // would silently read every such provider as disconnected.
+    assert_eq!(backend_resolver::serving_backends("fitbit"), vec!["fitbit"]);
+    assert_eq!(backend_resolver::serving_backends("whoop"), vec!["whoop"]);
+}
+
+#[test]
+fn serving_backends_answers_the_same_for_either_half_of_a_card() {
+    // A caller naming the mirror must get the card's answer, as with
+    // `backend_pair_for` — the two halves are one card.
+    assert_eq!(
+        backend_resolver::serving_backends("sciotte_garmin"),
+        backend_resolver::serving_backends("garmin")
+    );
+    assert_eq!(
+        backend_resolver::serving_backends("sciotte"),
+        backend_resolver::serving_backends("strava")
+    );
+}
+
+#[test]
 fn is_mirror_backend_identifies_internal_names() {
     assert!(backend_resolver::is_mirror_backend("sciotte"));
     assert!(backend_resolver::is_mirror_backend("sciotte_garmin"));
@@ -253,6 +297,70 @@ async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
     )
     .await;
     assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
+}
+
+#[tokio::test]
+async fn a_garmin_oauth_row_alone_never_reads_as_connected() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    // Exactly the reported state: the ONLY Garmin row is the OAuth one.
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+
+    let resolved = backend_resolver::resolve_backend(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        Some(tenant_id),
+        oauth_providers::GARMIN,
+    )
+    .await;
+
+    // The row the user HAS is not the backend the fetch WILL use.
+    assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
+    assert_ne!(resolved, oauth_providers::GARMIN);
+
+    // The coupling this issue was about: whatever `resolve_backend` picks must
+    // be a backend `serving_backends` counts, and the row that cannot serve
+    // must not be counted. Status and routing answer from the same table.
+    let serving = backend_resolver::serving_backends(oauth_providers::GARMIN);
+    assert!(
+        serving.iter().any(|b| b == &resolved),
+        "status must count the backend routing actually picks ({resolved})"
+    );
+    assert!(
+        !serving.iter().any(|b| b == oauth_providers::GARMIN),
+        "a garmin OAuth row alone must not read as connected — every fetch it implies fails"
+    );
+}
+
+/// The status half of carnet#352: `coalesced_status` served the tool surface and
+/// still fell through to the OAuth row for a Garmin athlete with no mirror,
+/// reporting `connected: true, backend: oauth` for a backend routing never picks.
+#[tokio::test]
+async fn coalesced_status_ignores_a_garmin_oauth_row_without_a_mirror() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+
+    let status = backend_resolver::coalesced_status(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        tenant_id,
+        oauth_providers::GARMIN,
+    )
+    .await;
+    assert_eq!(
+        status,
+        CoalescedStatus {
+            user_facing: oauth_providers::GARMIN,
+            connected: false,
+            backend_kind: BackendKind::None,
+        },
+        "a garmin OAuth row serves no fetch, so it must not read as connected"
+    );
 }
 
 #[tokio::test]

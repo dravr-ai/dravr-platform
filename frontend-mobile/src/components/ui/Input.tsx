@@ -1,7 +1,7 @@
 // ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md §5
 // ABOUTME: Matches the web Input so one component reads the same on both platforms
 
-import React, { useState } from 'react';
+import React, { forwardRef, useState } from 'react';
 import {
   View,
   TextInput,
@@ -27,16 +27,25 @@ interface InputProps extends Omit<TextInputProps, 'style'> {
   testID?: string;
 }
 
-export function Input({
-  label,
-  error,
-  containerStyle,
-  showPasswordToggle = false,
-  variant: _variant = 'default',
-  secureTextEntry,
-  testID,
-  ...props
-}: InputProps) {
+/**
+ * Forwards its ref to the inner `TextInput` so a screen can chain focus —
+ * `returnKeyType="next"` on one field moving the caret to the next. Without a
+ * ref there is no way to reach the underlying input, which is why the auth
+ * screens had no chaining at all (carnet#353).
+ */
+export const Input = forwardRef<TextInput, InputProps>(function Input(
+  {
+    label,
+    error,
+    containerStyle,
+    showPasswordToggle = false,
+    variant: _variant = 'default',
+    secureTextEntry,
+    testID,
+    ...props
+  },
+  ref,
+) {
   const { t } = useTranslation();
   const themeColors = useThemeColors();
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -94,6 +103,7 @@ export function Input({
       )}
       <View className="relative flex-row items-center">
         <TextInput
+          ref={ref}
           className="text-base"
           style={inputBaseStyle}
           placeholderTextColor={fieldColors.tertiary}
@@ -123,4 +133,4 @@ export function Input({
       )}
     </View>
   );
-}
+});

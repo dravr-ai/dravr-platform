@@ -5,7 +5,7 @@ name: "CI: Backend (Rust)"
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "debug/**", "feature/**", "fix/**", "claude/**", "copilot/**" ]
+    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/**'
       - 'migrations/**'
@@ -834,7 +834,7 @@ jobs:
           PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
 
   # The pierre-server test files THIS push added or edited, run immediately.
-  # The full server suite (~500 files) runs per-push on main and feature/*
+  # The full server suite (~500 files) runs per-push on main and feature(s)/*
   # (ci-postgres) and in coverage; a fix/debug/claude/copilot push runs only
   # the PG smoke besides this job, and even on main a file broken at birth
   # used to be reported an hour later. This job closes the

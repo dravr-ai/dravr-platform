@@ -24,7 +24,11 @@ check() { # <description> <expected> <actual>
 # A repo with an origin it can actually push to, so upstream-dependent caps are real.
 new_repo() {
     local root remote
-    root=$(mktemp -d -t bilan-test) || exit 1
+    # An explicit template with X's, because `mktemp -d -t PREFIX` is BSD-only:
+    # GNU rejects it ("too few X's in template"). That failure was not merely
+    # noisy — with no sandbox created, the git commands below ran against the
+    # REAL repository and committed to it.
+    root=$(mktemp -d "${TMPDIR:-/tmp}/bilan-test.XXXXXX") || exit 1
     remote="$root/remote.git"
     git init -q --bare "$remote"
     git init -q "$root/work"
@@ -52,7 +56,7 @@ run() { # <repo> [args...]
         bash "$BILAN" --cheap --json "$@" 2>/dev/null )
 }
 
-CFG=$(mktemp -d -t bilan-cfg)
+CFG=$(mktemp -d "${TMPDIR:-/tmp}/bilan-cfg.XXXXXX") || exit 1
 SID="00000000-0000-0000-0000-00000000test"
 trap 'rm -rf "$CFG"' EXIT
 
@@ -141,7 +145,7 @@ rm -f "$CFG/carnet-claims/$SID.jsonl"
 # half alone still caps, which is what stops a bug being relabelled out of the score. These three
 # cases are the whole contract, and they need the full run: --cheap cannot consult the tracker, so
 # it keeps the cap, which is the safe direction and is asserted last.
-STUB=$(mktemp -d -t bilan-gh) || exit 1
+STUB=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh.XXXXXX") || exit 1
 cat > "$STUB/gh" <<'GH'
 #!/usr/bin/env bash
 # Smallest gh that can answer the filed-issue path. Every issue is OPEN; only 2001 is labelled
@@ -392,7 +396,7 @@ rm -f "$sweep_ledger"
 # A worktree someone is still working in is not abandoned work. A session's own cwd is not the
 # signal — every session here sits in the main checkout and reaches a worktree by path — so
 # liveness is a live process inside it, or a file edited recently.
-live_dir=$(mktemp -d -t bilan-live)
+live_dir=$(mktemp -d "${TMPDIR:-/tmp}/bilan-live.XXXXXX") || exit 1
 touch "$live_dir/just-edited.txt"
 check "a directory edited moments ago reads as in use" 0 \
     "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" bash -c "source <(sed -n '/^worktree_is_live/,/^}/p' \"$BILAN\"); worktree_is_live \"$live_dir\"" ); echo $?)"

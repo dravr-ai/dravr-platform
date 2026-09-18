@@ -19,7 +19,7 @@ appId: ai.dravr.app
     id: "store-screen"
 
 # Test: should show Discover title
-- assertVisible: "Discover"
+- assertVisible: "(?i)Discover|Découvrir|Catalogue d'agents"
 
 # Test: should show search input
 - runFlow:
@@ -35,9 +35,9 @@ appId: ai.dravr.app
           id: ".*:id/search_button"
 
 # Test: should show category text tabs
-- assertVisible: "All"
-- assertVisible: "Training"
-- assertVisible: "Nutrition"
+- assertVisible: "(?i)All|Tout"
+- assertVisible: "(?i)Training|Entraînement"
+- assertVisible: "(?i)Nutrition"
 
 # Test: sort lives behind the header's sliders button, not an inline chip row
 - assertVisible:

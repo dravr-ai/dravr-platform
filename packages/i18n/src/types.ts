@@ -45,7 +45,6 @@ export interface TranslationKeys {
   auth: {
     signInWithGoogle: string;
     signInWithEmail: string;
-    emailRequired: string;
     passwordRequired: string;
     invalidEmail: string;
     invalidCredentials: string;

@@ -63,6 +63,39 @@ pub fn user_facing_name(backend: &str) -> &str {
     }
 }
 
+/// The backends whose token row actually makes a user-facing provider usable.
+///
+/// Connectedness is a ROUTING question, not a row-existence one, and the two
+/// answers differ for Garmin. `resolve_backend` sends every Garmin request to
+/// `sciotte_garmin` unconditionally — the raw `garmin` OAuth API is
+/// partner-gated and uncredentialed, so it is never routed to and a `garmin`
+/// row on its own serves nothing. A status surface that counted that row
+/// reported `connected: true, needs_reauth: false` while every coach data call
+/// failed with "Provider `sciotte_garmin` requires authentication" (carnet#352).
+///
+/// Strava is the opposite case and genuinely accepts either: its OAuth backend
+/// is real and takes precedence when a token exists, falling back to the
+/// mirror. Providers with no mirror serve themselves.
+///
+/// This lives here, beside `resolve_backend`, so the two cannot drift: a
+/// handler that re-invents the rule is how they drifted in the first place.
+#[must_use]
+pub fn serving_backends(provider: &str) -> Vec<String> {
+    // Accept either half of a coalesced card, as `backend_pair_for` does: a
+    // caller naming the mirror must get the same answer as one naming the card.
+    let user_facing = user_facing_name(provider);
+    match user_facing {
+        oauth_providers::STRAVA => vec![
+            oauth_providers::STRAVA.to_owned(),
+            oauth_providers::SCIOTTE.to_owned(),
+        ],
+        // Mirror only — see above.
+        oauth_providers::GARMIN => vec![oauth_providers::SCIOTTE_GARMIN.to_owned()],
+        // No mirror: the provider is its own only backend.
+        other => vec![other.to_owned()],
+    }
+}
+
 /// Every backend that can serve a user-facing provider, mirror included.
 ///
 /// `get_connection_status` coalesces a provider and its mirror into ONE card,
@@ -241,7 +274,16 @@ pub async fn coalesced_status(
         }
     }
 
-    if has_token_row(repos, user_id, tenant_id, user_facing).await {
+    // The OAuth row counts only when it is one of the backends that can serve
+    // this provider. Garmin's is not: `resolve_backend` routes every Garmin
+    // request to the mirror, so a bare `garmin` row reported `connected: true`
+    // here while every coach call failed (carnet#352). Same predicate the card
+    // uses, so this surface and `/api/providers` cannot disagree.
+    if serving_backends(user_facing)
+        .iter()
+        .any(|b| b == user_facing)
+        && has_token_row(repos, user_id, tenant_id, user_facing).await
+    {
         return CoalescedStatus {
             user_facing,
             connected: true,

@@ -235,7 +235,17 @@ pub async fn handle_oauth_status(
     let mut provider_statuses = vec![];
     let mut providers_seen = HashSet::new();
 
+    // A row the fetch path can never use is not a connection. Every Garmin
+    // fetch is routed to `sciotte_garmin`, so echoing a bare `garmin` row as
+    // connected here contradicted `/api/providers` and the coach alike
+    // (carnet#352). `serving_backends` is the single rule both surfaces read.
     for token in tokens {
+        if !backend_resolver::serving_backends(&token.provider)
+            .iter()
+            .any(|b| b == &token.provider)
+        {
+            continue;
+        }
         if providers_seen.insert(token.provider.clone()) {
             provider_statuses.push(OAuthStatus {
                 provider: token.provider,
@@ -294,9 +304,14 @@ pub async fn handle_providers_status(
 /// it here means the two clients cannot disagree with each other or with the
 /// server, and Garmin is covered by the same rule rather than a third copy.
 fn card_is_connected(card: &str, rows: &HashSet<String>) -> bool {
-    rows.contains(card)
-        || rows.contains(backend_resolver::user_facing_name(card))
-        || backend_resolver::mirror_backend_for(card).is_some_and(|mirror| rows.contains(mirror))
+    // Only a row for a backend that can actually SERVE the card counts. The
+    // previous rule accepted the card's own name, so a `garmin` OAuth row read
+    // as connected even though every Garmin fetch is routed to `sciotte_garmin`
+    // and failed (carnet#352). `serving_backends` is the same module
+    // `resolve_backend` lives in, so status and routing cannot drift again.
+    backend_resolver::serving_backends(card)
+        .iter()
+        .any(|backend| rows.contains(backend.as_str()))
 }
 
 /// Compute the provider catalogue + connection status for a user.

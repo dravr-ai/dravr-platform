@@ -33,7 +33,7 @@ appId: ai.dravr.app
     when:
       visible: "Install Agent"
     commands:
-      - tapOn: "Install Agent"
+      - tapOn: "(?i)Install Agent|Installer l'agent"
       - extendedWaitUntil:
           visible:
             id: "post-install-hint"
@@ -43,13 +43,13 @@ appId: ai.dravr.app
 - extendedWaitUntil:
     visible: "Uninstall"
     timeout: 10000
-- tapOn: "Uninstall"
+- tapOn: "(?i)Uninstall|Désinstaller"
 
 # Removal asks before it acts, and says so afterwards.
 - extendedWaitUntil:
     visible: "Uninstall Agent?"
     timeout: 3000
-- tapOn: "Uninstall"
+- tapOn: "(?i)Uninstall|Désinstaller"
 - extendedWaitUntil:
     visible: "Uninstalled"
     timeout: 5000

@@ -10,8 +10,11 @@ appId: ai.dravr.app
       id: "thinking-indicator"
     timeout: 5000
 
-# Wait for thinking indicator to disappear (response received)
+# Wait for thinking indicator to disappear (response received).
+# 45 s, not 30: a live turn was measured at ~32 s client-visible (tool loop
+# 29.5 s plus a ~2.6 s capability-recovery pass). Every synthetic-provider flow
+# carries its own copy of this budget, so the two move together.
 - extendedWaitUntil:
     notVisible:
       id: "thinking-indicator"
-    timeout: 30000
+    timeout: 45000

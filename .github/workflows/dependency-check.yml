@@ -108,16 +108,30 @@ jobs:
       - name: Create or update issue
         if: steps.check.outputs.has_updates == 'true'
         uses: actions/github-script@v9
+        env:
+          # Cargo's output reaches the script through the environment, never
+          # through `${{ }}`. An expression substitutes TEXTUALLY into the
+          # JavaScript source before it is parsed, so a backtick, a `${` or a
+          # `++` anywhere in an upgrade table or an advisory description is
+          # compiled as code rather than read as text. That is what killed the
+          # 2026-09-14 scheduled run ("SyntaxError: Invalid left-hand side
+          # expression in postfix operation"), and since crate names and
+          # advisory text come from the dependency graph it is an injection
+          # surface in a job holding `issues: write`, not only a crash.
+          COMPATIBLE: ${{ steps.compatible.outputs.COMPATIBLE }}
+          INCOMPATIBLE: ${{ steps.incompatible.outputs.INCOMPATIBLE }}
+          AUDIT: ${{ steps.audit.outputs.AUDIT }}
+          HAS_VULNS: ${{ steps.check.outputs.has_vulnerabilities }}
         with:
           script: |
             const title = '🔧 Dependency updates available';
             const label = 'dependencies';
 
             // Build issue body
-            const compatible = `${{ steps.compatible.outputs.COMPATIBLE }}`;
-            const incompatible = `${{ steps.incompatible.outputs.INCOMPATIBLE }}`;
-            const audit = `${{ steps.audit.outputs.AUDIT }}`;
-            const hasVulns = '${{ steps.check.outputs.has_vulnerabilities }}' === 'true';
+            const compatible = process.env.COMPATIBLE || '';
+            const incompatible = process.env.INCOMPATIBLE || '';
+            const audit = process.env.AUDIT || '';
+            const hasVulns = process.env.HAS_VULNS === 'true';
 
             const today = new Date().toISOString().split('T')[0];
 

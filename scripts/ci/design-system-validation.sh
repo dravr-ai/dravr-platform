@@ -41,7 +41,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 BASELINE_WEB_RAW_INPUT=30
 BASELINE_WEB_RAW_PALETTE=2
 BASELINE_MOBILE_RAW_PALETTE=0
-BASELINE_MOBILE_RAW_TEXTINPUT=14
+BASELINE_MOBILE_RAW_TEXTINPUT=12
 BASELINE_WEB_LEGACY_PIERRE=0
 # Boreal v2 (DESIGN.md §4, §5): backdrop blur belongs to overlays over
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
@@ -249,7 +249,14 @@ check_ratchet "web raw <input> outside components/ui" \
 # Mobile had no equivalent rule, which is how a modal kept hand-rolling boxed
 # fields and a hardcoded brand-blue CTA long after the primitive existed. The
 # bypass is the bug, not the platform.
-MOBILE_RAW_TEXTINPUT=$(grep -rn '<TextInput' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
+# JSX only. A bare `<TextInput` also matches the GENERIC TYPE PARAMETER in
+# `useRef<TextInput>(null)` and `RefObject<TextInput | null>`, which are not raw
+# fields — they are how a screen holds a ref to the primitive, which is the
+# supported way to chain focus. Counting them made the ratchet punish adding a
+# ref and it had already banked two of them (ChatInputBar, ChatScreen) into the
+# baseline. Requiring a non-identifier character before the `<` separates the
+# element from the type argument; the trailing class keeps `<TextInputFoo` out.
+MOBILE_RAW_TEXTINPUT=$(grep -rnE '(^|[^[:alnum:]_])<TextInput([[:space:]/>]|$)' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -v 'src/components/ui/' | wc -l | tr -d ' ')
 check_ratchet "mobile raw <TextInput> outside components/ui" \
     "$MOBILE_RAW_TEXTINPUT" "$BASELINE_MOBILE_RAW_TEXTINPUT" \

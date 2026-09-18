@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for GET /api/providers — a card reflects EITHER backend that serves it
-// ABOUTME: Pins carnet#255, where a connected Garmin athlete was reported as having no provider
+// ABOUTME: Pins carnet#255 (a Strava OAuth row lights the card) and carnet#352 (a dead Garmin row does not)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -95,24 +95,25 @@ fn card(cards: &[(String, bool)], name: &str) -> bool {
         .1
 }
 
-/// The carnet#255 regression: a `garmin` OAuth row must light the Garmin card,
-/// which is named `sciotte_garmin`. The raw `garmin` card is never served —
-/// Garmin's OAuth API is uncredentialed — so without coalescing this athlete
-/// has no card at all showing their connection.
+/// Coalescing stops at what the fetch path can use (carnet#352). Garmin's OAuth
+/// API is uncredentialed and `resolve_backend` sends every Garmin request to
+/// `sciotte_garmin`, so a bare `garmin` row serves nothing and must leave the
+/// card dark. Counting it read "Garmin connecté" in the chat header above a
+/// coach reply saying the connection had expired.
 #[tokio::test]
-async fn garmin_oauth_row_lights_the_garmin_card() {
+async fn garmin_oauth_row_alone_leaves_the_garmin_card_dark() {
     let (resources, user_id, tenant_id, user) = test_setup().await;
     register_connection(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
 
     let cards = provider_cards(&resources, &user).await;
 
     assert!(
-        card(&cards, oauth_providers::SCIOTTE_GARMIN),
-        "a garmin connection must show on the Garmin card: {cards:?}"
+        !card(&cards, oauth_providers::SCIOTTE_GARMIN),
+        "a garmin OAuth row serves no fetch, so the Garmin card must stay dark: {cards:?}"
     );
     assert!(
-        cards.iter().any(|(_, connected)| *connected),
-        "the athlete has a provider, so something must read as connected: {cards:?}"
+        !cards.iter().any(|(_, connected)| *connected),
+        "nothing can serve this athlete, so nothing may read as connected: {cards:?}"
     );
 }
 

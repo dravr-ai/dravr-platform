@@ -22,12 +22,12 @@ appId: ai.dravr.app
 # Test: the sort menu offers the three choices
 - tapOn:
     id: "discover-sort-button"
-- assertVisible: "Popular"
-- assertVisible: "Newest"
+- assertVisible: "(?i)Popular|Populaires"
+- assertVisible: "(?i)Newest|Plus récents"
 - assertVisible: "A-Z"
 
 # Test: picking Newest reloads the catalogue rather than crashing it
-- tapOn: "Newest"
+- tapOn: "(?i)Newest|Plus récents"
 - extendedWaitUntil:
     visible:
       id: "coach-card-0"

@@ -28,7 +28,7 @@ export function ChatPlusFlows({ flows }: ChatPlusFlowsProps) {
       <PromptDialog
         visible={flows.groupNamePromptVisible}
         title={t('app.newGroupChat')}
-        message="What is this group called?"
+        message={t('app.groupNamePrompt')}
         placeholder={t('app.groupNamePlaceholder')}
         submitText={t('app.create')}
         cancelText={t('common.cancel')}

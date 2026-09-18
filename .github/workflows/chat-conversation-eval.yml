@@ -13,10 +13,15 @@
 #    every push to chat-eval code.
 #
 # 2. **`live-llm`** — nightly + on-demand only. Runs the same
-#    scenarios end-to-end against the live chat pipeline with the
-#    configured LLM (Cloud Run dev config). Cost-bounded by the
-#    token-budget threshold the runner enforces per scenario; a
-#    failure is signal that the LLM drift caught a regression.
+#    scenarios end-to-end against the live chat pipeline with a real
+#    model. That model is a LOCAL OLLAMA the job provisions on the
+#    runner itself (`helpers/chat_scenario/live_driver.rs` builds an
+#    `OpenAiCompatibleConfig::ollama`, default `http://localhost:11434/v1`),
+#    not the deployed Cloud Run dev config — nothing here reaches a
+#    metered endpoint. Cost is therefore runner minutes, not tokens,
+#    which is why a local model's minutes-long turn is what the
+#    per-scenario budget is sized against; a failure is signal that
+#    LLM drift caught a regression.
 
 name: "Chat Eval: Conversation Scenarios"
 

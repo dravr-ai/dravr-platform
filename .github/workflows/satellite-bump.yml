@@ -612,7 +612,9 @@ jobs:
           # One second, on the tree about to be pushed.
           scripts/ci/check-lockfile-duplicates.sh
           git commit -m "chore(${SATELLITE}): integrate ${SATELLITE} ${PINNED} -> ${VERSION}"
-          git push origin main
+          # Same race as carnet#383: this lands on whatever main is NOW, so a
+          # commit arriving mid-job must be rebased onto, never forced over.
+          scripts/ci/push-to-branch-with-rebase.sh origin main
           # Squash gives the merge a new SHA, so the branch is dead the moment it
           # lands. Deleting it here keeps dead refs from accumulating per release.
           git push origin --delete "${BRANCH}"

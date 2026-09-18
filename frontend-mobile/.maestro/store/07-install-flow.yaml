@@ -37,11 +37,11 @@ appId: ai.dravr.app
     when:
       visible: "Uninstall"
     commands:
-      - tapOn: "Uninstall"
+      - tapOn: "(?i)Uninstall|Désinstaller"
       - extendedWaitUntil:
           visible: "Uninstall Agent?"
           timeout: 3000
-      - tapOn: "Uninstall"
+      - tapOn: "(?i)Uninstall|Désinstaller"
       - extendedWaitUntil:
           visible: "Uninstalled"
           timeout: 5000
@@ -52,7 +52,7 @@ appId: ai.dravr.app
 - extendedWaitUntil:
     visible: "Install Agent"
     timeout: 10000
-- tapOn: "Install Agent"
+- tapOn: "(?i)Install Agent|Installer l'agent"
 
 # The post-install hint replaces the old alert: it names the command that binds
 # the agent to any chat.
@@ -77,7 +77,7 @@ appId: ai.dravr.app
 # The listing is now an installed copy: editable, uninstallable
 - assertVisible:
     id: "edit-coach-button"
-- assertVisible: "Installed"
+- assertVisible: "(?i)Installed|Installé"
 
 # Open chat leaves the store for a fresh thread
 - tapOn:

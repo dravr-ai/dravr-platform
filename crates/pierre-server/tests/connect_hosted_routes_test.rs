@@ -204,6 +204,65 @@ async fn connect_page_merges_strava_oauth_connection_into_card() {
     );
 }
 
+/// Regression (carnet#352): a `garmin` OAuth row ALONE must not read as
+/// connected. `resolve_backend` routes every Garmin request to `sciotte_garmin`
+/// unconditionally, because the official Garmin API is partner-gated and
+/// uncredentialed — so an athlete holding only the OAuth row saw
+/// `connected: true, needs_reauth: false` on every status surface while each
+/// coach call failed with "Provider `sciotte_garmin` requires authentication".
+#[tokio::test]
+async fn connect_page_does_not_show_garmin_connected_on_an_oauth_row_alone() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    register_connection(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        !body.contains("\"connected\":true"),
+        "a garmin OAuth row serves no fetch, so no card may render connected: {body}"
+    );
+}
+
+/// The other half of the pair, so the fix above is a correction and not simply
+/// "Garmin is never connected": the mirror row is the one that actually serves,
+/// and it must read as connected.
+#[tokio::test]
+async fn connect_page_shows_garmin_connected_on_the_mirror_row() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+    let app = AuthRoutes::routes(resources.auth_routes_context());
+
+    let token = connect_token(&resources, user_id, tenant_id);
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(app)
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("\"connected\":true"),
+        "the sciotte_garmin row is the backend every Garmin fetch uses, so the card must show connected: {body}"
+    );
+}
+
 // ============================================================================
 // GET /api/providers/connect/oauth-init/{provider} — token gating
 // ============================================================================

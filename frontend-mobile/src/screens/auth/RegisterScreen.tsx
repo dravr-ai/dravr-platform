@@ -1,7 +1,7 @@
 // ABOUTME: Registration screen for new user signup
 // ABOUTME: Plain page on the app canvas — no card shell; BrandLockup is the product's own mark, not an icon tile
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  type TextInput,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -78,6 +79,13 @@ export function RegisterScreen() {
     errorResetDelay: 0,
   });
 
+  // Chains focus down the form: `returnKeyType` only relabels the return key,
+  // so without refs to move the caret the athlete must aim at each next field
+  // with the keyboard already covering it (carnet#353).
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
+
   const handleRegister = () => {
     if (!validateForm()) return;
     registerAction.execute();
@@ -121,10 +129,14 @@ export function RegisterScreen() {
                 onChangeText={setDisplayName}
                 autoCapitalize="words"
                 error={errors.displayName}
+                returnKeyType="next"
+                onSubmitEditing={() => emailRef.current?.focus()}
+                blurOnSubmit={false}
                 testID="register-display-name-input"
               />
 
               <Input
+                ref={emailRef}
                 label={t('common.email')}
                 placeholder="you@example.com"
                 value={email}
@@ -133,10 +145,14 @@ export function RegisterScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 error={errors.email}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                blurOnSubmit={false}
                 testID="register-email-input"
               />
 
               <Input
+                ref={passwordRef}
                 label={t('common.password')}
                 placeholder={t('app.minEightChars')}
                 value={password}
@@ -144,10 +160,14 @@ export function RegisterScreen() {
                 secureTextEntry
                 showPasswordToggle
                 error={errors.password}
+                returnKeyType="next"
+                onSubmitEditing={() => confirmRef.current?.focus()}
+                blurOnSubmit={false}
                 testID="register-password-input"
               />
 
               <Input
+                ref={confirmRef}
                 label={t('app.confirmPassword')}
                 placeholder={t('app.reenterPassword')}
                 value={confirmPassword}
@@ -155,6 +175,8 @@ export function RegisterScreen() {
                 secureTextEntry
                 showPasswordToggle
                 error={errors.confirmPassword}
+                returnKeyType="go"
+                onSubmitEditing={handleRegister}
                 testID="register-confirm-password-input"
               />
 

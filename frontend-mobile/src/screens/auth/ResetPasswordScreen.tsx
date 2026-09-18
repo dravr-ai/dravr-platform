@@ -1,13 +1,14 @@
 // ABOUTME: Password reset screen for entering the emailed reset code and new password
 // ABOUTME: Plain page on the app canvas — no card shell, a headline is enough
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
   Alert,
+  type TextInput,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -55,6 +56,12 @@ export function ResetPasswordScreen() {
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
+
+  // Chains focus down the form: `returnKeyType` only relabels the return key,
+  // so without refs to move the caret the athlete must aim at each next field
+  // with the keyboard already covering it (carnet#353).
+  const newPasswordRef = useRef<TextInput>(null);
+  const confirmRef = useRef<TextInput>(null);
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
@@ -124,10 +131,14 @@ export function ResetPasswordScreen() {
                 autoCorrect={false}
                 autoFocus
                 error={errors.code}
+                returnKeyType="next"
+                onSubmitEditing={() => newPasswordRef.current?.focus()}
+                blurOnSubmit={false}
                 testID="reset-code-input"
               />
 
               <Input
+                ref={newPasswordRef}
                 label={t('app.newPassword')}
                 placeholder={t('app.minEightChars')}
                 value={newPassword}
@@ -135,10 +146,14 @@ export function ResetPasswordScreen() {
                 secureTextEntry
                 showPasswordToggle
                 error={errors.newPassword}
+                returnKeyType="next"
+                onSubmitEditing={() => confirmRef.current?.focus()}
+                blurOnSubmit={false}
                 testID="new-password-input"
               />
 
               <Input
+                ref={confirmRef}
                 label={t('app.confirmNewPassword')}
                 placeholder={t('app.reenterPassword')}
                 value={confirmPassword}

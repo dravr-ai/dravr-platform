@@ -33,7 +33,7 @@ appId: ai.dravr.app
     id: "category-badge"
 - assertVisible:
     id: "install-count"
-- assertVisible: "System Prompt"
+- assertVisible: "(?i)System Prompt|Invite système|Consigne système"
 
 # Navigate back
 - runFlow:
