@@ -1,0 +1,32 @@
+# ABOUTME: Helper flow that gives the chat composer keyboard focus and proves it before anything is typed
+# ABOUTME: A tap that misses IME focus lets typed key codes reach the activity, where Expo's dev menu reads an "r" as reload (carnet#355)
+
+appId: ai.dravr.app
+
+---
+# Maestro types on Android one key code per character, straight at whatever
+# holds focus. When a tap on the composer lands before the field can take IME
+# focus, those key codes reach the activity instead of a text field, and the
+# Expo Go dev menu treats a lone "r" as its reload shortcut: the app restarts
+# mid-flow and the next assertion meets "Loading from …". Seen on API 35, never
+# on API 33 (carnet#355 item 4). So the composer is tapped until the hierarchy
+# reports it focused, and the assertion after the loop is what fails loudly if
+# it never does, rather than a reload failing some later step for no reason.
+- repeat:
+    times: 3
+    while:
+      notVisible:
+        id: "message-input"
+        focused: true
+    commands:
+      - tapOn:
+          id: "message-input"
+      - extendedWaitUntil:
+          visible:
+            id: "message-input"
+            focused: true
+          timeout: 3000
+          optional: true
+- assertVisible:
+    id: "message-input"
+    focused: true

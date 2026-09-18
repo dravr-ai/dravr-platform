@@ -15,8 +15,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Analyze training load
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Analyze my training load using synthetic data"
 - extendedWaitUntil:
     visible:

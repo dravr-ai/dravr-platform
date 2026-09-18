@@ -15,8 +15,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Get fitness score
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "What is my fitness score based on synthetic activities?"
 - extendedWaitUntil:
     visible:

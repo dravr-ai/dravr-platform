@@ -5,8 +5,8 @@ appId: ai.dravr.app
 
 ---
 # Type message in the input field
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: focus-message-input.yaml
 - inputText: ${MESSAGE}
 
 # Wait for send button to become enabled (testID switches from

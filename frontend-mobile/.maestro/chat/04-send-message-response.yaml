@@ -21,8 +21,8 @@ appId: ai.dravr.app
     timeout: 10000
 
 # Tap the input to focus it
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 
 # Type a message. inputText triggers onChangeText on RN controlled inputs,
 # enabling the send button via canSend check.

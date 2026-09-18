@@ -15,8 +15,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Query recent activities
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Show my recent activities from synthetic provider"
 - extendedWaitUntil:
     visible:

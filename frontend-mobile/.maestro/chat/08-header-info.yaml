@@ -51,8 +51,8 @@ appId: ai.dravr.app
     timeout: 10000
 
 # The composer's leading slot is empty; a typed "/" is the way into the command palette
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "/"
 - extendedWaitUntil:
     visible:

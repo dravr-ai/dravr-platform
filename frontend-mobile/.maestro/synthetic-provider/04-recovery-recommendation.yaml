@@ -15,8 +15,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Get recovery recommendation
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Do I need a rest day? Use synthetic data"
 - extendedWaitUntil:
     visible:

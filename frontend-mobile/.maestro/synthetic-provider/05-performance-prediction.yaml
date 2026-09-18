@@ -15,8 +15,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Get performance prediction
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Predict my 5K time based on synthetic training data"
 - extendedWaitUntil:
     visible:

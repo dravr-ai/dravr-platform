@@ -15,8 +15,8 @@ appId: ai.dravr.app
     file: ../helpers/new-chat.yaml
 
 # Test: should not interfere with manual text input
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Hello Pierre"
 
 # Voice button visibility depends on native speech recognition availability.
@@ -39,8 +39,8 @@ appId: ai.dravr.app
 - eraseText
 
 # Test: should keep voice button enabled with text in input
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Testing"
 
 # Verify input still works regardless of voice availability

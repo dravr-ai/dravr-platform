@@ -21,8 +21,8 @@ appId: ai.dravr.app
     timeout: 10000
 
 # Send a message first to create a conversation
-- tapOn:
-    id: "message-input"
+- runFlow:
+    file: ../helpers/focus-message-input.yaml
 - inputText: "Test message"
 
 # Wait for send button to become enabled (testID switches from
