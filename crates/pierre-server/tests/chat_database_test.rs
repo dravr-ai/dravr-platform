@@ -8,6 +8,7 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use chrono::Utc;
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupRespondMode};
 use pierre_core::models::{
@@ -1927,4 +1928,91 @@ async fn test_count_and_delete_all_keep_owner_semantics() {
         .await
         .unwrap()
         .is_some());
+}
+
+#[tokio::test]
+async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
+    // The operator console lists the newest conversations across every
+    // tenant. Each row it returns is the same row `get_conversation` returns
+    // to the athlete, rendered the same way on both engines: the timestamps
+    // are RFC 3339 with an offset, as every other conversation read gives
+    // them, and the ids are the strings the athlete's read carries.
+    let fx = open_fixture().await;
+    let tenant_id = test_tenant_id();
+    let created = fx
+        .chat()
+        .create_conversation(fx.athlete(), tenant_id, "Newest", "m", None, None)
+        .await
+        .unwrap();
+    let own_read = fx
+        .chat()
+        .get_conversation(&created.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let listed = fx.chat().get_recent_conversations_admin(5).await.unwrap();
+    let row = listed.iter().find(|c| c.id == created.id).unwrap();
+
+    assert_eq!(row.user_id, own_read.user_id);
+    assert_eq!(row.tenant_id, own_read.tenant_id);
+    assert_eq!(row.title, "Newest");
+    assert_eq!(row.agent_id, None);
+    assert_eq!(row.model, "m");
+    assert_eq!(row.group_id, None);
+    assert_eq!(row.channel_type, own_read.channel_type);
+    assert_eq!(row.created_at, own_read.created_at);
+    assert_eq!(row.updated_at, own_read.updated_at);
+    assert!(
+        chrono::DateTime::parse_from_rfc3339(&row.created_at).is_ok(),
+        "created_at is RFC 3339: {}",
+        row.created_at
+    );
+}
+
+#[tokio::test]
+async fn a_malformed_user_id_is_refused_as_invalid_input_on_every_read() {
+    // `user_id` is a uuid column on PostgreSQL, so a malformed id has always
+    // been refused there before the statement ran; SQLite's TEXT column used
+    // to match nothing and answer as if the caller were a stranger. Both
+    // engines now refuse it identically, as invalid input, on reads and on
+    // writes alike — a caller cannot tell "no such thread" from "that is not
+    // an id" on one backend and get an error on the other.
+    let fx = open_fixture().await;
+    let tenant_id = test_tenant_id();
+    let conv = fx
+        .chat()
+        .create_conversation(fx.athlete(), tenant_id, "Mine", "m", None, None)
+        .await
+        .unwrap();
+
+    let read = fx
+        .chat()
+        .get_conversation(&conv.id, "not-a-uuid", tenant_id)
+        .await;
+    let err = read.unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
+
+    let listed = fx
+        .chat()
+        .list_conversations("not-a-uuid", tenant_id, 10, 0)
+        .await;
+    let err = listed.unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
+
+    let renamed = fx
+        .chat()
+        .update_conversation_title(&conv.id, "not-a-uuid", tenant_id, "Theirs")
+        .await;
+    let err = renamed.unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
+
+    // The well-formed owner still reads their own thread, untouched.
+    let own = fx
+        .chat()
+        .get_conversation(&conv.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(own.title, "Mine");
 }

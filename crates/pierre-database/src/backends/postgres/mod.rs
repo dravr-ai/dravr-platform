@@ -31,8 +31,6 @@ mod agents_rows;
 pub mod api_key;
 /// Chat repository implementation
 pub mod chat;
-mod chat_listing;
-mod chat_read_markers;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
 /// Coaching group repository implementation (group CRUD, membership, invites)

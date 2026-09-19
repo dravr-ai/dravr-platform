@@ -22,6 +22,7 @@ pub mod agents;
 pub mod api_keys;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
+pub(crate) mod chat_backend;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
 /// Repository trait for athlete commitments swept against real activity data.

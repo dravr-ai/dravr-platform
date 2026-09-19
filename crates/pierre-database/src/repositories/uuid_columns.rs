@@ -18,6 +18,7 @@
 use std::fmt::Display;
 
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::uuid_utils::parse_uuid;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
@@ -42,6 +43,42 @@ impl TextUuid {
     /// Bind an optional id; `None` binds as SQL NULL.
     pub(crate) fn bind_opt(id: Option<Uuid>) -> Option<String> {
         id.map(|u| u.to_string())
+    }
+
+    /// Bind an id the caller holds as text: the column is TEXT, so the text
+    /// binds as it is — once it has been checked to be a uuid, so that a
+    /// malformed id is refused here exactly as [`NativeUuid`] refuses it,
+    /// rather than matching nothing on one backend and failing on the other.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error when the text is not a uuid.
+    pub(crate) fn bind_text(id: &str) -> AppResult<&str> {
+        parse_uuid(id).map(|_| id)
+    }
+
+    /// Bind an optional id held as text; `None` binds as SQL NULL.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error when the text is not a uuid.
+    pub(crate) fn bind_text_opt(id: Option<&str>) -> AppResult<Option<&str>> {
+        id.map(Self::bind_text).transpose()
+    }
+
+    /// Read a NOT NULL uuid column in the text form a wire DTO carries: the
+    /// stored text, as it is.
+    ///
+    /// # Errors
+    /// Returns a database error when the column is missing or NULL.
+    pub(crate) fn read_text(row: &SqliteRow, col: &str) -> AppResult<String> {
+        row.try_get(col).map_err(|e| uuid_column_error(col, e))
+    }
+
+    /// Read a nullable uuid column in the text form a wire DTO carries.
+    ///
+    /// # Errors
+    /// Returns a database error when the column is missing.
+    pub(crate) fn read_text_opt(row: &SqliteRow, col: &str) -> AppResult<Option<String>> {
+        row.try_get(col).map_err(|e| uuid_column_error(col, e))
     }
 
     /// Read a NOT NULL uuid column.
@@ -83,6 +120,40 @@ impl NativeUuid {
     /// Bind an optional id; `None` binds as SQL NULL.
     pub(crate) const fn bind_opt(id: Option<Uuid>) -> Option<Uuid> {
         id
+    }
+
+    /// Bind an id the caller holds as text: the column is `uuid`, so the
+    /// text is parsed first.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error when the text is not a uuid.
+    pub(crate) fn bind_text(id: &str) -> AppResult<Uuid> {
+        parse_uuid(id)
+    }
+
+    /// Bind an optional id held as text; `None` binds as SQL NULL.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error when the text is not a uuid.
+    pub(crate) fn bind_text_opt(id: Option<&str>) -> AppResult<Option<Uuid>> {
+        id.map(parse_uuid).transpose()
+    }
+
+    /// Read a NOT NULL uuid column in the text form a wire DTO carries: the
+    /// native uuid, rendered hyphenated.
+    ///
+    /// # Errors
+    /// Returns a database error when the column is missing, NULL, or not a uuid.
+    pub(crate) fn read_text(row: &PgRow, col: &str) -> AppResult<String> {
+        Self::read(row, col).map(|u| u.to_string())
+    }
+
+    /// Read a nullable uuid column in the text form a wire DTO carries.
+    ///
+    /// # Errors
+    /// Returns a database error when the column is missing or not a uuid.
+    pub(crate) fn read_text_opt(row: &PgRow, col: &str) -> AppResult<Option<String>> {
+        Self::read_opt(row, col).map(|u| u.map(|u| u.to_string()))
     }
 
     /// Read a NOT NULL uuid column.
