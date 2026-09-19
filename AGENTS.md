@@ -485,7 +485,10 @@ five releases in a week against a pin nobody moved (carnet#419).
 - **Adding a satellite**: a stanza in `satellites.toml`, a `bump-<name>.yml` caller
   (~30 lines; copy `bump-commere.yml`), and a `notify-platform-release.yml` producer
   half in the satellite repo. `DRAVR_PLATFORM_DISPATCH_TOKEN` is an org secret with
-  visibility `all` whose token reaches every `dravr-ai` repo, so no secret work.
+  visibility `all`, but the org is on GitHub's free plan, where an org secret reaches **public**
+  repos only. A private satellite needs a repo-level secret of the same name (enforme carries
+  one; canot's v0.4.29 announce ran with an empty token and exited 4 — carnet#472), or its
+  release never fires the lane and the pin moves only on the weekly cron.
 - **The version-shaped logic is `scripts/ci/satellite-pin.sh`**, tested by
   `satellite-pin.test.sh` against a fixture per pin shape. Change the rewriter there,
   not in YAML, and add the fixture — two rules it must keep: substitute **in place**
