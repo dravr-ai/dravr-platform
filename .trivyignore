@@ -34,53 +34,7 @@
 # from the official nginx:alpine image (nginx.org's unpatched r1) to alpine's own
 # patched nginx — see docker/images/frontend/Dockerfile.
 
-# server + sciotte images: adm-zip 0.5.17 (HIGH, CVE-2026-39244) arrives with the
-# GitHub Copilot CLI, pinned at 1.0.59 (newer CLIs regress the MCP bridge — see
-# memory/copilot CLI regression). It is not inside the npm tarball:
-# @github/copilot-linux-x64@1.0.59 ships four files (the SEA binary,
-# package.json, LICENSE.md, README.md). adm-zip lands when the CLI materializes
-# its sidecar tree at
-# $HOME/.copilot/pkg/<platform>/<cli-version>/foundry-local-sdk/node_modules/foundry-local-sdk/node_modules/adm-zip,
-# as a dependency of foundry-local-sdk 1.2.3; the `copilot --version` step in
-# both Dockerfiles triggers that during the image build.
-#
-# Exposure, stated plainly: on the server image the CLI is the PRIMARY chat
-# provider (PIERRE_LLM_PROVIDER=copilot_headless, infra/environments/dev/main.tf),
-# so it spawns on every coaching turn — not on a narrow vision-login path. On the
-# sciotte image it spawns for the vision-login LLM only.
-#
-# The suppression rests on adm-zip being unreachable, not on the CLI being
-# unreachable. adm-zip's risk is extracting untrusted archives, and its only call
-# site in foundry-local-sdk is script/install-utils.cjs — the npm install
-# lifecycle script, which downloads a .nupkg and calls extractEntryTo on it.
-# Nothing under foundry-local-sdk/dist (the runtime SDK) requires adm-zip, so a
-# chat turn never loads it. That archive is named from deps_versions.json and
-# fetched from a hard-coded feed list (api.nuget.org, then the ORT-Nightly Azure
-# DevOps feed): no part of the URL, the filename or the archive bytes derives
-# from athlete input, tool output or model output. Dravr runs remote Copilot
-# models and never enables Foundry Local, so the extraction path runs only when
-# the sidecar tree is first laid down.
-#
-# Checked against the published 1.0.59 tarball (file list) and against an
-# on-disk .copilot/pkg tree laid down by the CLI, reading foundry-local-sdk's
-# package.json, dist/ and script/install-utils.cjs. Re-do those three reads
-# before extending the date; a CLI release that starts calling adm-zip from
-# dist/ invalidates the argument.
-#
-# Remove when the CLI pin can advance to a release whose foundry-local-sdk
-# depends on adm-zip >= 0.6.1. On 2026-11-01 the entries expire and the scans
-# exit 1 again: re-verify the reachability argument above, then extend the date
-# or drop the entries.
-#
-# CVE-2026-77301 (GHSA-7q85-xj36-vmfc, HIGH, fixed in 0.6.1) is a second
-# advisory against the same adm-zip 0.5.17 copy: uncontrolled memory allocation
-# from an archive's declared uncompressed size, i.e. a denial of service while
-# extracting an untrusted archive. It reaches the same single call site as the
-# entry above — script/install-utils.cjs, the npm install lifecycle script that
-# extracts a .nupkg from a hard-coded feed — so the reachability argument is
-# unchanged: no chat turn loads adm-zip, and no archive it opens derives from
-# athlete, tool or model output. Published 2026-09-18; it failed the server
-# image gate on deploy run 35411406576 the same day, with the CLI still pinned
-# at 1.0.82. Same expiry as its sibling, same re-verification before extending.
-CVE-2026-39244 exp:2026-11-01
-CVE-2026-77301 exp:2026-11-01
+# No adm-zip entries remain: the copy that lived here (CVE-2026-39244 and
+# CVE-2026-77301, inside the foundry-local-sdk the Copilot CLI vendored into its
+# extracted package) left the images when the CLI pin advanced to 1.0.86, whose
+# bundle no longer ships foundry-local-sdk — see docker/images/server/Dockerfile.
