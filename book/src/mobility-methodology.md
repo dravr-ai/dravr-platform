@@ -53,9 +53,9 @@ This section provides a comprehensive mapping between MCP tools and their underl
 
 | Component | Purpose | Source File |
 |-----------|---------|-------------|
-| `MobilityManager` | CRUD operations for stretching/yoga data | `src/database/mobility.rs` |
-| `StretchingExercise` | Stretching exercise model with muscles/instructions | `src/database/mobility.rs` |
-| `YogaPose` | Yoga pose model with Sanskrit name/chakras/breath guidance | `src/database/mobility.rs` |
+| `MobilityRepository` | Catalogue reads for stretching/yoga data, one shared body emitted per backend | `crates/pierre-database/src/repositories/mobility.rs` |
+| `StretchingExercise` | Stretching exercise model with muscles/instructions | `crates/pierre-core/src/models/mobility.rs` |
+| `YogaPose` | Yoga pose model with Sanskrit name/chakras/breath guidance | `crates/pierre-core/src/models/mobility.rs` |
 | `ActivityMuscleMapping` | Maps activities to primary/secondary muscles stressed | `src/database/mobility.rs` |
 
 ### Algorithm Reference Summary

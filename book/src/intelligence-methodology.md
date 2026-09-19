@@ -298,12 +298,12 @@ All MCP tools use real calculations from foundation modules. The table below map
 
 | Tool Name | Algorithm/Intelligence | Implementation | Test Files |
 |-----------|------------------------|----------------|------------|
-| `list_stretches` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `get_stretch` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `list_yoga_poses` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `get_yoga_pose` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `get_mobility_routine` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `suggest_mobility_routine` | MobilityManager + sport-specific suggestions | `database/mobility.rs` | Database integration tests |
+| `list_stretches` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `get_stretch` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `list_yoga_poses` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `get_yoga_pose` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `get_mobility_routine` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `suggest_mobility_routine` | MobilityRepository + sport-specific suggestions | `repositories/mobility.rs` | Database integration tests |
 
 #### Recipe Tools (`src/tools/implementations/recipes.rs`)
 
