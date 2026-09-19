@@ -316,7 +316,11 @@ module "backend" {
       # PIERRE_LLM_TERTIARY_PROVIDER turns the secondary into a nested
       # Chain{Cohere, Gemini}, so retry classification cascades the same way
       # at each tier.
-      PIERRE_LLM_PROVIDER = "copilot_headless"
+      # copilot_sdk since 2026-09-19 (carnet#473): GitHub's Rust copilot-runtime
+      # over the SDK's stdio transport, through embacle's CopilotSdkRunner. The
+      # ACP adapter (copilot_headless) stays compiled in for the sciotte
+      # vision-login fallback until the soak ends and Phase 3 deletes it.
+      PIERRE_LLM_PROVIDER = "copilot_sdk"
       # Coaching model. Sonnet, not Opus: the coaching bench found raters could
       # not distinguish Opus output and it tied last on quality, while Opus is
       # the slowest model — slow enough that an Autopilot tool turn overruns the
@@ -398,6 +402,20 @@ module "backend" {
       # own cap + 1, which makes compaction the single authority on prompt
       # length instead of two mechanisms trimming the same vector.
       COPILOT_HEADLESS_MAX_HISTORY_TURNS = "41"
+
+      # The copilot_sdk knobs mirror the COPILOT_HEADLESS_* block above one for
+      # one — same reasons, same values: tools run inside the session over the
+      # registered MCP server; every other permission request is denied; the
+      # history window is the same 41 turns. The two timeouts below are the
+      # SDK's own: EMBACLE_SDK_PROMPT_TIMEOUT_SECS caps a whole turn (the
+      # runtime streams, so a long synthesis is not what trips it) and
+      # EMBACLE_SDK_SESSION_TIMEOUT_SECS caps the session handshake. The
+      # headless block now serves only the sciotte vision-login fallback.
+      COPILOT_SDK_MCP_TOOL_CALLING     = "true"
+      COPILOT_SDK_PERMISSION_POLICY    = "deny_all"
+      COPILOT_SDK_MAX_HISTORY_TURNS    = "41"
+      EMBACLE_SDK_PROMPT_TIMEOUT_SECS  = "300"
+      EMBACLE_SDK_SESSION_TIMEOUT_SECS = "60"
 
       # The IDLE detector. embacle wraps ONE `read_line` in this timeout
       # (copilot_headless.rs `read_message`), so it measures the gap BETWEEN two
