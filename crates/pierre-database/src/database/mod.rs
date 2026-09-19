@@ -153,10 +153,6 @@ pub use chat::{
     ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
 };
 pub use errors::{DatabaseError, DatabaseResult};
-pub use mobility::{
-    ActivityMuscleMapping, DifficultyLevel, ListStretchingFilter, ListYogaFilter, MobilityManager,
-    StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
-};
 pub use oauth_notifications::OAuthNotification;
 pub use pierre_core::models::a2a::{A2AUsage, A2AUsageStats};
 pub use pierre_core::models::{

@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use pierre_database::database::mobility::{
+use pierre_core::models::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
     YogaPoseType,
 };

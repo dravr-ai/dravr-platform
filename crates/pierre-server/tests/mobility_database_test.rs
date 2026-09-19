@@ -682,6 +682,137 @@ async fn test_list_yoga_multiple_filters() {
 }
 
 // ============================================================================
+// JSON-array column filters (muscle group, activity, recovery context)
+// ============================================================================
+
+/// The catalogue stores `primary_muscles`, `recommended_for_activities` and
+/// `recommended_for_recovery` as JSON-array text (`["hamstrings"]`), so a
+/// filter on one of them must match an element anywhere in the array, not
+/// only at its end.
+#[tokio::test]
+async fn test_list_stretching_by_muscle_group() {
+    let db = create_test_db().await.unwrap();
+
+    insert_test_stretch(&db, "stretch-1", "Hamstring A", "static", "beginner").await;
+    insert_test_stretch(&db, "stretch-2", "Hamstring B", "dynamic", "advanced").await;
+
+    let manager = db.repositories().mobility;
+
+    let primary = manager
+        .list_stretching_exercises(&ListStretchingFilter {
+            muscle_group: Some("hamstrings".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(primary.len(), 2);
+    assert_eq!(primary[0].name, "Hamstring A");
+    assert_eq!(primary[1].name, "Hamstring B");
+
+    let secondary = manager
+        .list_stretching_exercises(&ListStretchingFilter {
+            muscle_group: Some("calves".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(secondary.len(), 2);
+
+    let none = manager
+        .list_stretching_exercises(&ListStretchingFilter {
+            muscle_group: Some("quadriceps".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(none.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_stretching_by_activity_type() {
+    let db = create_test_db().await.unwrap();
+
+    insert_test_stretch(&db, "stretch-1", "Runner Stretch", "static", "beginner").await;
+
+    let manager = db.repositories().mobility;
+
+    let running = manager
+        .list_stretching_exercises(&ListStretchingFilter {
+            activity_type: Some("running".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].id, "stretch-1");
+
+    let cycling = manager
+        .list_stretching_exercises(&ListStretchingFilter {
+            activity_type: Some("cycling".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(cycling.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_yoga_by_recovery_context() {
+    let db = create_test_db().await.unwrap();
+
+    insert_test_pose(
+        &db,
+        "pose-1",
+        "Rest Day Pose",
+        "supine",
+        "beginner",
+        r#"["post_cardio", "rest_day"]"#,
+    )
+    .await;
+    insert_test_pose(
+        &db,
+        "pose-2",
+        "Morning Pose",
+        "standing",
+        "beginner",
+        r#"["morning"]"#,
+    )
+    .await;
+
+    let manager = db.repositories().mobility;
+
+    let post_cardio = manager
+        .list_yoga_poses(&ListYogaFilter {
+            recovery_context: Some("post_cardio".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(post_cardio.len(), 1);
+    assert_eq!(post_cardio[0].english_name, "Rest Day Pose");
+
+    let by_muscle = manager
+        .list_yoga_poses(&ListYogaFilter {
+            muscle_group: Some("calves".to_owned()),
+            recovery_context: Some("morning".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(by_muscle.len(), 1);
+    assert_eq!(by_muscle[0].english_name, "Morning Pose");
+
+    let by_activity = manager
+        .list_yoga_poses(&ListYogaFilter {
+            activity_type: Some("swimming".to_owned()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(by_activity.is_empty());
+}
+
+// ============================================================================
 // Round-Trip Tests (as_str -> parse)
 // ============================================================================
 

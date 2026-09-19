@@ -298,23 +298,23 @@ All MCP tools use real calculations from foundation modules. The table below map
 
 | Tool Name | Algorithm/Intelligence | Implementation | Test Files |
 |-----------|------------------------|----------------|------------|
-| `list_stretches` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `get_stretch` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `list_yoga_poses` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `get_yoga_pose` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `get_mobility_routine` | MobilityManager database operations | `database/mobility.rs` | Database integration tests |
-| `suggest_mobility_routine` | MobilityManager + sport-specific suggestions | `database/mobility.rs` | Database integration tests |
+| `list_stretches` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `get_stretch` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `list_yoga_poses` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `get_yoga_pose` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `get_mobility_routine` | MobilityRepository database operations | `repositories/mobility.rs` | Database integration tests |
+| `suggest_mobility_routine` | MobilityRepository + sport-specific suggestions | `repositories/mobility.rs` | Database integration tests |
 
 #### Recipe Tools (`src/tools/implementations/recipes.rs`)
 
 | Tool Name | Algorithm/Intelligence | Implementation | Test Files |
 |-----------|------------------------|----------------|------------|
-| `list_recipes` | RecipeManager + filtering | `database/recipes.rs` | `recipes_test.rs`, `recipe_tools_integration_test.rs` |
-| `get_recipe` | RecipeManager | `database/recipes.rs` | `recipes_test.rs` |
-| `search_recipes` | RecipeManager search | `database/recipes.rs` | `recipes_test.rs` |
-| `create_recipe` | RecipeManager + macro calculation | `intelligence/recipes/` | `recipe_tools_integration_test.rs` |
-| `update_recipe` | RecipeManager | `database/recipes.rs` | `recipe_tools_integration_test.rs` |
-| `delete_recipe` | RecipeManager | `database/recipes.rs` | `recipe_tools_integration_test.rs` |
+| `list_recipes` | RecipeRepository + filtering | `repositories/recipes.rs` | `recipe_repository_test.rs`, `recipe_tools_integration_test.rs` |
+| `get_recipe` | RecipeRepository | `repositories/recipes.rs` | `recipe_repository_test.rs` |
+| `search_recipes` | RecipeRepository search | `repositories/recipes.rs` | `recipe_repository_test.rs` |
+| `create_recipe` | RecipeRepository + macro calculation | `intelligence/recipes/` | `recipe_tools_integration_test.rs` |
+| `update_recipe` | RecipeRepository | `repositories/recipes.rs` | `recipe_tools_integration_test.rs` |
+| `delete_recipe` | RecipeRepository | `repositories/recipes.rs` | `recipe_tools_integration_test.rs` |
 | `scale_recipe` | Unit conversion + proportional scaling | `intelligence/recipes/` | `recipe_tools_integration_test.rs` |
 
 #### Fitness Config Tools (`src/tools/implementations/fitness_config.rs`)

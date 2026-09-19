@@ -12,9 +12,5 @@ mod agents_assignments;
 /// Direct `AgentsRepository` impl on `Database` (SQLite agents catalogue)
 mod agents_impl;
 mod agents_versions;
-/// Direct `MobilityRepository` impl on `Database` (SQLite stretching + yoga)
-mod mobility_impl;
-/// Direct `RecipeRepository` impl on `Database` (SQLite recipe persistence)
-mod recipes_impl;
 /// Direct `StoreListingsRepository` impl on `Database` (SQLite marketplace listings)
 mod store_listings_impl;
