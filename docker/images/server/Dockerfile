@@ -183,7 +183,7 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 #
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm
 # is not needed at runtime.
-ARG COPILOT_CLI_VERSION=1.0.82
+ARG COPILOT_CLI_VERSION=1.0.86
 ARG CLAUDE_CODE_CLI_VERSION=2.1.258
 # The copilot binary is a Node SEA bootstrap: on first run it extracts its
 # package (app.js + prebuilds/linux-x64/runtime.node, ~150 MB) into
