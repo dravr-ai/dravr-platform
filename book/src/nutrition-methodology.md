@@ -129,7 +129,7 @@ This section provides a comprehensive mapping between MCP tools and their underl
 | `RecipeConstraints` | Meal timing macro distribution (ISSN research) | `src/intelligence/recipes/models.rs` |
 | `MealTdeeProportions` | TDEE-based calorie allocation by meal timing | `src/config/intelligence/nutrition.rs` |
 | `UsdaClient` | FoodData Central API integration | `src/external/usda_client.rs` |
-| `RecipeManager` | Recipe CRUD operations | `src/database/recipes.rs` |
+| `RecipeRepository` | Recipe CRUD operations, one shared body emitted per backend | `crates/pierre-database/src/repositories/recipes.rs` |
 
 ### Algorithm Reference Summary
 
