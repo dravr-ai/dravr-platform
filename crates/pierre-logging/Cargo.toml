@@ -18,6 +18,8 @@ telemetry = [
     "dep:opentelemetry_sdk",
     "dep:opentelemetry-otlp",
     "dep:tracing-opentelemetry",
+    "dep:reqwest",
+    "dep:rustls",
 ]
 
 [dependencies]
@@ -40,8 +42,19 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 # for GHSA-w9wp-h8wv-79jx (unbounded allocation in W3C Baggage propagation).
 opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
 opentelemetry_sdk = { version = "0.32.1", features = ["trace", "metrics"], optional = true }
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client", "reqwest-rustls"], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"], optional = true }
 tracing-opentelemetry = { version = "0.33", optional = true }
+# The exporters' reqwest is 0.13, and its `rustls` feature (what otlp's
+# `reqwest-rustls` turns on) hard-wires aws-lc-rs as the crypto provider — a
+# second crypto library in the binary next to the ring every other TLS client
+# here links (carnet#471). `rustls-no-provider` keeps TLS and takes the provider
+# from the process default instead, which `build_telemetry` installs from
+# `rustls`'s ring backend before the first exporter builds its client: reqwest
+# 0.13 panics ("No provider set") rather than fall back to a compiled-in one.
+# Cargo features unify per crate, so this line is what removes aws-lc-rs from
+# the shipped binary; nothing in this crate calls reqwest directly.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 
 [lints]
 workspace = true

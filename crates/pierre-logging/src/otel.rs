@@ -23,6 +23,7 @@ use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{SdkTracer, SdkTracerProvider};
 use opentelemetry_sdk::Resource;
 use pierre_core::errors::{AppError, AppResult};
+use rustls::crypto::ring;
 use std::env;
 
 use crate::LoggingConfig;
@@ -90,6 +91,18 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
 
     // W3C Trace Context so spans chain across service boundaries.
     global::set_text_map_propagator(TraceContextPropagator::new());
+
+    // The exporters' reqwest is built with `rustls-no-provider` (Cargo.toml
+    // says why), and that build takes its TLS provider from the process
+    // default alone — reqwest 0.13 panics with "No provider set" instead of
+    // falling back to a compiled-in one. Ring is the provider every other TLS
+    // client in the binary links, so it is installed here, before the first
+    // exporter builds its client. `Err` means a peer installed the default
+    // first (rustls does so from crate features on its first `ClientConfig`),
+    // and with ring the only provider compiled in, that default is ring too.
+    if ring::default_provider().install_default().is_err() {
+        eprintln!("OpenTelemetry OTLP pipeline: rustls CryptoProvider already installed by a peer; keeping it");
+    }
 
     let span_exporter = SpanExporter::builder()
         .with_http()

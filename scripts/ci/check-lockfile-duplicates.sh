@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Refuses a Cargo.lock in which any dravr-ecosystem crate resolves more than once
-# ABOUTME: Compile-free — a text parse of the lockfile, so a bump lane can run it before it pushes
+# ABOUTME: Refuses a Cargo.lock in which a dravr-ecosystem crate resolves more than once, or a crate the
+# ABOUTME: release binary shed is back — a text parse of the lockfile, so a bump lane runs it pre-push
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -61,7 +61,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; NC='\033[0m'
 # workspace member has no `source` line and is reported as `path`, so a crate
 # that is both vendored in-tree and pulled from git still counts as two.
 # Any other table header ([metadata], [[patch.unused]]) closes the block.
-entries="$(awk '
+all_entries="$(awk '
   function flush() {
     if (in_pkg && name != "") {
       print name "\t" version "\t" (source == "" ? "path" : source)
@@ -77,9 +77,9 @@ entries="$(awk '
   in_pkg && /^version = "/ { version = unquote($0) }
   in_pkg && /^source = "/  { source = unquote($0) }
   END { flush() }
-' "$LOCK" \
-  | awk -F '\t' '$1 ~ /^(dravr-|embacle)/ || $3 ~ /^git\+https:\/\/github\.com\/dravr-ai\// { print }' \
-  | sort)"
+' "$LOCK" | sort)"
+entries="$(printf '%s\n' "$all_entries" \
+  | awk -F '\t' '$1 ~ /^(dravr-|embacle)/ || $3 ~ /^git\+https:\/\/github\.com\/dravr-ai\// { print }')"
 
 if [ -z "$entries" ]; then
   echo -e "${RED}❌ lockfile-duplicates: ${LOCK} holds no dravr-ecosystem crate — the scan found nothing to verify.${NC}"
@@ -104,3 +104,31 @@ if [ -n "$dups" ]; then
 fi
 
 echo -e "${GREEN}✅ lockfile-duplicates: ${scanned} dravr-ecosystem crate(s), each resolved exactly once${NC}"
+
+# --- crates the release binary does not link (carnet#471) ------------------------
+# Cargo resolves a second copy of a registry crate without a word, and each
+# copy links its own stack into the binary. `aws-lc-rs` is a whole second
+# crypto library beside the ring every TLS client here links; reqwest 0.13's
+# `rustls` feature pulls it in by default, so a reqwest 0.13 consumer builds
+# with `rustls-no-provider` instead. The release binary shed it on
+# 2026-09-18, and this keeps it shed per push — the fixture test runs the
+# guard against the real lockfile in the fast gate. A name here is exact.
+NEVER_LINKED="aws-lc-rs"
+
+shape_failed=0
+for name in $NEVER_LINKED; do
+  copies="$(printf '%s\n' "$all_entries" | awk -F '\t' -v n="$name" '$1 == n { print "       " $2 "  " $3 }')"
+  if [ -n "$copies" ]; then
+    echo "::error::${name} is back in the lockfile — the release binary does not link it (carnet#471):"
+    echo -e "  ${RED}❌ ${name}:${NC}"
+    printf '%s\n' "$copies"
+    shape_failed=1
+  fi
+done
+if [ "$shape_failed" -ne 0 ]; then
+  echo "   Find the consumer with \`cargo tree -i <crate> -e features\` and move it to the feature"
+  echo "   that leaves the crate out."
+  exit 1
+fi
+
+echo -e "${GREEN}✅ lockfile-never-linked: ${NEVER_LINKED} absent${NC}"

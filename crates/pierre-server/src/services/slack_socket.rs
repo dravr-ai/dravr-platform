@@ -247,7 +247,7 @@ async fn handle_events_api(
 
     if let Some(envelope_id) = envelope.get("envelope_id").and_then(|v| v.as_str()) {
         let ack = json!({ "envelope_id": envelope_id });
-        SinkExt::<Message>::send(ws, Message::Text(ack.to_string()))
+        SinkExt::<Message>::send(ws, Message::text(ack.to_string()))
             .await
             .map_err(|e| format!("ack send failed: {e}"))?;
     }

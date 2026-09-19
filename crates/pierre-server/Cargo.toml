@@ -288,7 +288,7 @@ http = "1.4"
 futures-util = "0.3"
 # WebSocket client for Slack Socket Mode ingress; `connect_async` opens a
 # TLS-protected WSS to Slack after `apps.connections.open` returns an URL.
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 eventsource-stream = "0.2"
 base64ct = "1.8"
 # Glob pattern matching for cache invalidation

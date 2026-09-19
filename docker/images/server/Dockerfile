@@ -41,13 +41,18 @@ RUN --mount=type=secret,id=git_token \
 
 # Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
 FROM chef AS builder
+# Both cargo invocations below use the release-lto profile (fat LTO) — the
+# one release.yml tags binaries with — instead of the thin-LTO `--release`
+# the image shipped until 2026-09-18. Fat LTO links the same code into a
+# smaller binary, and ci-backend.yml's release-binary job builds with this
+# exact invocation so the binary it sizes is the one that runs. carnet#471.
 COPY --from=planner /app/recipe.json recipe.json
 # Credential handling as in the planner stage: HOME is a tmpfs mount so the
 # rendered gitconfig never reaches this stage's layers.
 RUN --mount=type=secret,id=git_token \
     --mount=type=tmpfs,target=/root \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
-    && cargo chef cook --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" --recipe-path recipe.json
+    && cargo chef cook --profile release-lto --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" --recipe-path recipe.json
 
 # Build the server binary and pierre-cli (which now hosts all seeder subcommands).
 # Reruns only when source code changes.
@@ -57,12 +62,12 @@ COPY . .
 RUN --mount=type=secret,id=git_token \
     --mount=type=tmpfs,target=/root \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
-    && cargo build --release --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" \
+    && cargo build --profile release-lto --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" \
     --bin pierre-mcp-server \
     --bin pierre-cli
 
 # Verify binaries were built
-RUN ls -la target/release/pierre-mcp-server target/release/pierre-cli
+RUN ls -la target/release-lto/pierre-mcp-server target/release-lto/pierre-cli
 
 FROM --platform=linux/amd64 debian:trixie-slim
 
@@ -215,8 +220,8 @@ RUN useradd -m -u 1001 appuser \
     && chown -R appuser:appuser /app
 
 # Copy server binary, pierre-cli (seeders + admin tools), and entrypoint scripts
-COPY --from=builder /app/target/release/pierre-mcp-server /app/pierre-mcp-server
-COPY --from=builder /app/target/release/pierre-cli /app/pierre-cli
+COPY --from=builder /app/target/release-lto/pierre-mcp-server /app/pierre-mcp-server
+COPY --from=builder /app/target/release-lto/pierre-cli /app/pierre-cli
 COPY --from=builder /app/commands /app/commands
 # Eval harness golden fixtures — admin /admin/evals/fixtures browser walks
 # this directory at runtime. PIERRE_EVALS_FIXTURES_DIR (set below) points

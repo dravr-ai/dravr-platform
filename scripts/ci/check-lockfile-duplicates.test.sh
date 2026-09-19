@@ -255,6 +255,22 @@ expect "a lockfile with no ecosystem crate fails rather than passing vacuously" 
 # --- 9. unreadable path: misuse, distinct from a verdict -------------------------
 expect "a missing lockfile is misuse (exit 2)" "$(run_guard "$WORK/does-not-exist.lock")" 2
 
+# --- 10a. a shed crate returning --------------------------------------------------
+# aws-lc-rs is what reqwest 0.13's default `rustls` feature drags in; one
+# consumer enabling it puts a second crypto library back beside ring.
+f="$WORK/aws-lc.lock"
+plant "$f" <<'LOCK'
+[[package]]
+name = "aws-lc-rs"
+version = "1.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+LOCK
+code="$(run_guard "$f")"
+expect "aws-lc-rs back in the lockfile fails" "$code" 1
+grep -q "aws-lc-rs is back in the lockfile" "$OUT" || fail "aws-lc: failure output must name the crate"
+grep -q "1.18.1" "$OUT" || fail "aws-lc: failure output must name the version"
+
 # --- 10. the real lockfile --------------------------------------------------------
 # The tree this test ships in holds one entry per ecosystem crate. If this case
 # ever fails, main's lockfile is split and the output above names the crate.

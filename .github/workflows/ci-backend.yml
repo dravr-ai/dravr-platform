@@ -137,6 +137,10 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              # The gate's own definition and the image recipe it mirrors:
+              # a change to either must run the job it changes before main.
+              - '.github/workflows/ci-backend.yml'
+              - 'docker/images/server/Dockerfile'
 
       - name: Set outputs (schedule runs everything)
         id: set-outputs
@@ -981,16 +985,21 @@ jobs:
           free-disk-space: 'true'
 
       - name: Build release binary
-        run: cargo build --release --verbose
+        # The exact invocation of docker/images/server/Dockerfile's builder
+        # stage — profile, features, bin — so the binary this job sizes is the
+        # one the image ships. Until 2026-09-18 it built the thin-LTO
+        # default-feature binary (sqlite, no telemetry): a profile release.yml
+        # never tags and a feature set nothing deploys. carnet#471.
+        run: cargo build --profile release-lto --no-default-features --features "server-production,postgresql,sqlx/migrate,telemetry,gcp-kms" --bin pierre-mcp-server --verbose
         env:
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: "-C opt-level=3"
 
       - name: Verify release binary exists
         run: |
-          if [ -f "target/release/pierre-mcp-server" ]; then
+          if [ -f "target/release-lto/pierre-mcp-server" ]; then
             echo "Release binary built successfully"
-            ls -lh target/release/pierre-mcp-server
+            ls -lh target/release-lto/pierre-mcp-server
           else
             echo "Release binary not found"
             exit 1
@@ -998,7 +1007,7 @@ jobs:
 
       - name: Check release binary size
         run: |
-          BINARY_SIZE_BYTES=$(ls -l target/release/pierre-mcp-server | awk '{print $5}')
+          BINARY_SIZE_BYTES=$(stat -c %s target/release-lto/pierre-mcp-server)
           BINARY_SIZE_MB=$((BINARY_SIZE_BYTES / 1024 / 1024))
           # 80 until 2026-09-03, when main had been reporting exactly 80MB for
           # four consecutive green runs. The gate fails above the ceiling, so
@@ -1010,14 +1019,16 @@ jobs:
           # longer reflects the binary is the wrong trade. The band below still
           # gives ~4MB of warning before the next hard stop.
           #
-          # 95 since 2026-09-18: main had crept to 88MB on its own and the
-          # copilot_sdk provider brings github-copilot-sdk's generated protocol
-          # types (~3MB), which took the default-profile binary to 91MB. Raised
-          # on JF's call. Two known levers if the next ceiling is not to be a
-          # raise: the lockfile links reqwest 0.12+0.13 and tokio-tungstenite
-          # 0.24+0.29 (two HTTP/TLS stacks), and this gate and the Docker build
-          # use thin LTO while release.yml already ships fat LTO.
-          MAX_SIZE_MB=95
+          # Back to 90 on 2026-09-19, after one day at 95 (the copilot_sdk
+          # provider's ~3MB of generated protocol types had taken a thin-LTO,
+          # default-feature binary to 91MB). The raise was paying for two
+          # mistakes in this job, not for the code: it built a profile
+          # release.yml never tagged and a feature set nothing deployed. The
+          # build step above now uses the image's fat-LTO invocation, which
+          # measured 83MB for the shipped binary (the same tree links 82.2 →
+          # 66.0MB locally, −20%), and the lockfile no longer carries a second
+          # rustls provider or a second tungstenite. carnet#471 has the numbers.
+          MAX_SIZE_MB=90
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.
@@ -1043,7 +1054,7 @@ jobs:
           # successfully". The exit status IS the smoke test, so read it — and
           # require the version line too, because a binary that exits 0 having
           # printed nothing has verified nothing.
-          version_out="$(timeout 5 target/release/pierre-mcp-server --version 2>&1)" || {
+          version_out="$(timeout 5 target/release-lto/pierre-mcp-server --version 2>&1)" || {
             status=$?
             echo "::error::Release binary failed its smoke test (exit ${status}):"
             echo "$version_out"
