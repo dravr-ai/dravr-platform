@@ -282,7 +282,7 @@ Setting `PIERRE_LLM_PROVIDER=cli` triggers automatic discovery of the best avail
 
 ### Provider Readiness Checks
 
-When a CLI provider is created, Pierre spawns a background readiness check to verify the CLI tool is installed and authenticated. Readiness status is surfaced through the `ProviderReadiness` type. The two Copilot providers prove readiness on their first turn — the ACP handshake, or the SDK's protocol handshake with the runtime — rather than by probing a binary.
+When a CLI provider is created, Pierre spawns a background readiness check to verify the CLI tool is installed and authenticated, and logs a warning naming the runner when it is not. The two Copilot providers prove readiness on their first turn — the ACP handshake, or the SDK's protocol handshake with the runtime — rather than by probing a binary.
 
 ### Default Models per Provider
 
@@ -339,14 +339,24 @@ export PIERRE_LLM_FALLBACK_ENABLED=true
 # Configure the fallback provider
 export PIERRE_LLM_FALLBACK_PROVIDER=gemini
 
-# Configure the fallback model
-export PIERRE_LLM_FALLBACK_MODEL=gemini-2.5-pro
+# The model the fallback provider runs on (its own namespace, not the primary's)
+export PIERRE_LLM_FALLBACK_PROVIDER_MODEL=gemini-2.5-pro
 
 # Wait time before attempting fallback (default: 10 seconds)
 export PIERRE_LLM_FALLBACK_WAIT_SECS=10
 ```
 
 Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK_WAIT_SECS` before switching to the fallback provider. Both the primary and fallback providers must be fully configured (API keys set, etc.).
+
+### Runtime fallback chain
+
+`PIERRE_LLM_RUNTIME_FALLBACK=true` keeps every configured tier alive and walks them per request instead of switching once at boot: the primary, then `PIERRE_LLM_FALLBACK_PROVIDER`, then `PIERRE_LLM_TERTIARY_PROVIDER` when set. The chain is embacle's `FallbackProvider` under `ResponsePolicy::strict()`:
+
+- a **provider fault** (timeout, vendor error, auth failure, runner crash, unavailable model) moves the request to the next tier; a deterministic rejection (a malformed request, a quota refusal, a config error) propagates unchanged, because a second tier would reject it the same way;
+- an `Ok` that carries neither prose nor a tool call is treated as a failed tier;
+- each tier resolves its own model: the forwarded request drops the primary's `model`, so `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` / `PIERRE_LLM_TERTIARY_PROVIDER_MODEL` are what the later tiers run on.
+
+The platform contributes `ChainObserver` (`crates/pierre-llm/src/chain_observer.rs`): it consults the chain guard before the primary (GitHub budget headroom from the rate-limit probe, and a 3-failure / 60 s circuit breaker on the primary's faults) and emits `embacle.fallback_triggered`, `llm.circuit_opened` and `llm.circuit_closed`. Only the primary is measured — a later tier's failure never opens the circuit, and its success never closes it. The chain reports its primary's `name()` and `capabilities()`: `llm_usage.provider` and the price table are keyed on that name, and the tool loop routes on those capabilities.
 
 ---
 
@@ -414,7 +424,10 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 |----------|-------------|---------|
 | `PIERRE_LLM_FALLBACK_ENABLED` | Enable automatic fallback on failure | `false` |
 | `PIERRE_LLM_FALLBACK_PROVIDER` | Fallback provider type | - |
-| `PIERRE_LLM_FALLBACK_MODEL` | Model for the fallback provider | - |
+| `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` | Model the fallback provider runs on | - |
+| `PIERRE_LLM_RUNTIME_FALLBACK` | Walk the tiers per request instead of switching at boot | `false` |
+| `PIERRE_LLM_TERTIARY_PROVIDER` | Third tier of the runtime chain | - |
+| `PIERRE_LLM_TERTIARY_PROVIDER_MODEL` | Model the tertiary provider runs on | - |
 | `PIERRE_LLM_FALLBACK_WAIT_SECS` | Seconds to wait before activating fallback | `10` |
 
 ### Provider Capabilities
@@ -596,14 +609,16 @@ println!("{}", response.content);
 ### Explicit Provider Selection
 
 ```rust
-// Force Gemini
-let provider = ChatProvider::gemini()?;
+use pierre_llm::config::LlmProviderType;
+use pierre_llm::{ChatProvider, EmbacleProvider};
 
-// Force Groq
-let provider = ChatProvider::groq()?;
+// Force Gemini, on the model the environment configures
+let gemini = EmbacleProvider::from_provider_type(LlmProviderType::Gemini, None).await?;
 
-// Force Local
-let provider = ChatProvider::local()?;
+// Force Groq, on an explicit model
+let groq = EmbacleProvider::from_provider_type(LlmProviderType::Groq, Some("llama-3.3-70b-versatile")).await?;
+
+let provider = ChatProvider::Embacle(gemini);
 ```
 
 ### Streaming Responses
@@ -811,13 +826,13 @@ LLM provider code lives in the `pierre-llm` workspace crate, with re-exports in 
 crates/pierre-llm/src/
 ├── lib.rs                # Trait definitions, types, registry, exports
 ├── config.rs             # LLM configuration and provider selection
-├── provider.rs           # ChatProvider enum (runtime selector)
-├── cli_llm_provider.rs   # Embacle-based CLI/SDK provider facade
-├── pricing.rs            # Token cost calculation
-├── gemini.rs             # Google Gemini implementation
-├── groq.rs               # Groq LPU implementation
-├── openai_compatible.rs  # Generic OpenAI-compatible provider (Ollama, vLLM, LocalAI)
-├── sse_parser.rs         # SSE stream parser for streaming responses
+├── provider.rs           # ChatProvider enum (runtime selector) and the chain assembly
+├── embacle_provider.rs   # The one facade over every embacle runner, chain included
+├── chain_observer.rs     # FallbackObserver: chain guard + notify events
+├── chain_guard.rs        # GitHub budget headroom + circuit breaker state
+├── http_env.rs           # embacle's HTTP providers from env or tenant credentials
+├── tool_types.rs         # Tool / FunctionCall / ChatResponseWithTools
+├── tool_bridge.rs        # Platform tool shapes <-> embacle ToolDefinition / ToolCallRequest
 └── prompts/
     ├── mod.rs            # System prompts (pierre_system.md)
     ├── coach_generation.md
@@ -890,19 +905,9 @@ impl LlmProvider for MyProvider {
 }
 ```
 
-2. **Add to ChatProvider enum** in `crates/pierre-llm/src/provider.rs`:
+2. **Implement it in embacle** rather than here when it is an HTTP API or a CLI runner: every production provider is an embacle `LlmProvider` (Gemini, Cohere, Groq, OpenRouter and the OpenAI-compatible endpoints live behind embacle's `http-api` feature), and `EmbacleProvider::from_runner` presents it behind the platform trait — so the pricing table, the fallback chain and the tool bridge all apply to it without a variant of its own.
 
-```rust
-pub enum ChatProvider {
-    Gemini(GeminiProvider),
-    Groq(GroqProvider),
-    Local(OpenAiCompatibleProvider),
-    Cli(CliLlmProvider),
-    MyProvider(MyProvider),  // Add variant
-}
-```
-
-3. **Update LLM config** in `crates/pierre-llm/src/config.rs`
+3. **Add its `LlmProviderType`** in `crates/pierre-llm/src/config.rs` and its construction arm in `http_env.rs` (HTTP) or `EmbacleProvider::from_provider_type` (everything else)
 
 4. **Register tests** in `tests/llm_test.rs`
 

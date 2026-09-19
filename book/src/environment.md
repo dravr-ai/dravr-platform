@@ -245,9 +245,9 @@ When the primary provider fails or is rate-limited, Pierre can automatically swi
 # Enable automatic fallback (disabled by default)
 export PIERRE_LLM_FALLBACK_ENABLED=true
 
-# Fallback provider and model
+# Fallback provider, and the model it runs on (its own namespace, not the primary's)
 export PIERRE_LLM_FALLBACK_PROVIDER=gemini
-export PIERRE_LLM_FALLBACK_MODEL=gemini-2.5-pro
+export PIERRE_LLM_FALLBACK_PROVIDER_MODEL=gemini-2.5-pro
 
 # Seconds to wait before activating fallback (default: 10)
 export PIERRE_LLM_FALLBACK_WAIT_SECS=10

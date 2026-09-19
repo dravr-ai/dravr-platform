@@ -22,7 +22,7 @@ use std::sync::Arc;
 use pierre_llm::{ChatProvider, McpServerConfig, TokenUsage, Tool};
 use pierre_services::chat_stream::TurnEventSink;
 
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 
 use crate::llm_call_record::LlmCallRecorder;
@@ -355,6 +355,34 @@ impl ToolLoopResult {
             ),
         )
     }
+}
+
+/// Whether a headless (Copilot) turn's error re-runs the turn against the
+/// chain's tail.
+///
+/// The headless loop converses with the chain's head directly, so embacle's
+/// fall-through policy never sees its errors; this is that policy's `AppError`
+/// image — the codes `ErrorKind::is_provider_fault` maps to
+/// (`ResourceUnavailable` for a timeout or an unavailable model,
+/// `ExternalServiceError` for a vendor fault, `AuthInvalid` for an auth
+/// failure, `InternalError` for a runner bug or a missing binary) plus the
+/// platform's own auth and availability codes (`ExternalAuthFailed`,
+/// `AuthExpired`, `ExternalServiceUnavailable`). Deterministic failures — a
+/// rejected request (`InvalidInput`), a quota refusal (`RateLimitExceeded`), a
+/// config error — do not reroute: a second tier would answer them the same
+/// way, and the athlete would see its rejection instead of the real one.
+#[must_use]
+pub fn reroutes_headless_turn(error: &AppError) -> bool {
+    matches!(
+        error.code,
+        ErrorCode::ExternalAuthFailed
+            | ErrorCode::ExternalServiceUnavailable
+            | ErrorCode::ExternalServiceError
+            | ErrorCode::ResourceUnavailable
+            | ErrorCode::AuthInvalid
+            | ErrorCode::AuthExpired
+            | ErrorCode::InternalError
+    )
 }
 
 /// The identifier a tool call is recorded under.

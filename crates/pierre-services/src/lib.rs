@@ -227,6 +227,9 @@ pub mod playbook_render;
 /// Training-plan prompt-block renderer.
 pub mod training_plan_render;
 
+/// The tenant-aware pricing registry over embacle's price table, and the
+/// usage-row cost adapters.
+pub mod pricing;
 /// Startup hook that loads `cat_llm_pricing` rows from
 /// `admin_config_overrides` into the process-wide pricing registry.
 pub mod pricing_loader;

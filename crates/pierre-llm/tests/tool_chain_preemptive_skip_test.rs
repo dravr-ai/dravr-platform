@@ -6,14 +6,14 @@
 
 //! Copilot's session-token exchange shares the 5000/hr GitHub core pool, so a
 //! near-exhausted budget is a strong predictor that the *next* primary call
-//! fails with `Authentication required`. `complete()` reads that signal before
-//! every request; `complete_with_tools` did not, and spent the failing call
-//! anyway.
+//! fails with `Authentication required`. The chain observer reads that signal
+//! before every request, and `complete_with_tools` rides the same chain as
+//! `complete()`, so the doomed primary call is never spent on either path.
 //!
 //! `CHAIN_GUARD` is process-global, so this file holds exactly one test: any
 //! second test in the same binary would run against a budget this one has
 //! already pushed below threshold, and would be rerouted for reasons it never
-//! asked for. The healthy-budget case is covered in `tool_chain_fallback_test`,
+//! asked for. The healthy-budget cases are embacle's `fallback_policy` tests,
 //! whose binary never touches the guard's rate-limit state.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -22,11 +22,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD, GITHUB_BUDGET_THRESHOLD};
-use pierre_llm::errors::AppError;
-use pierre_llm::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
+use embacle::types::{
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
+    RunnerError,
 };
+use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD, GITHUB_BUDGET_THRESHOLD};
+use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
 
 /// Answers with a fixed line and counts how many times it was asked.
 struct Counted {
@@ -37,45 +38,45 @@ struct Counted {
 }
 
 impl Counted {
-    fn new(label: &'static str, answer: &'static str) -> (Arc<Self>, Arc<AtomicUsize>) {
+    fn new(label: &'static str, answer: &'static str) -> (Self, Arc<AtomicUsize>) {
         let calls = Arc::new(AtomicUsize::new(0));
-        let provider = Arc::new(Self {
+        let provider = Self {
             label,
             answer,
             calls: Arc::clone(&calls),
             models: vec!["test-model".to_owned()],
-        });
+        };
         (provider, calls)
     }
 }
 
 #[async_trait::async_trait]
-impl LlmProvider for Counted {
+impl EmbacleLlmProvider for Counted {
     fn name(&self) -> &'static str {
         self.label
     }
 
-    fn display_name(&self) -> &'static str {
+    fn display_name(&self) -> &str {
         self.label
     }
 
     fn capabilities(&self) -> LlmCapabilities {
-        LlmCapabilities::FUNCTION_CALLING
+        LlmCapabilities::FUNCTION_CALLING | LlmCapabilities::SYSTEM_MESSAGES
     }
 
-    fn default_model(&self) -> &'static str {
-        "test-model"
+    fn default_model(&self) -> &str {
+        &self.models[0]
     }
 
     fn available_models(&self) -> &[String] {
         &self.models
     }
 
-    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(ChatResponse {
             content: self.answer.to_owned(),
-            model: "test-model".to_owned(),
+            model: self.models[0].clone(),
             usage: None,
             finish_reason: Some("stop".to_owned()),
             warnings: None,
@@ -83,13 +84,11 @@ impl LlmProvider for Counted {
         })
     }
 
-    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
-        Err(AppError::invalid_input(
-            "the counted provider answers only complete()",
-        ))
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, RunnerError> {
+        Err(RunnerError::internal("not streamed in this test"))
     }
 
-    async fn health_check(&self) -> Result<bool, AppError> {
+    async fn health_check(&self) -> Result<bool, RunnerError> {
         Ok(true)
     }
 }
@@ -108,12 +107,13 @@ async fn a_low_github_budget_skips_the_primary_on_the_tool_calling_path() {
 
     let (primary, primary_calls) = Counted::new("primary", "should not be reached");
     let (secondary, secondary_calls) = Counted::new("secondary", "Tu as couru 42 km ce mois-ci.");
-    let primary: Arc<dyn LlmProvider> = primary;
-    let secondary: Arc<dyn LlmProvider> = secondary;
-    let chain = ChatProvider::Chain {
-        primary: Box::new(ChatProvider::Custom(primary)),
-        secondary: Box::new(ChatProvider::Custom(secondary)),
-    };
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(vec![
+            EmbacleProvider::from_runner(Box::new(primary), "primary"),
+            EmbacleProvider::from_runner(Box::new(secondary), "secondary"),
+        ])
+        .expect("two tiers"),
+    );
 
     let request = ChatRequest::new(vec![
         ChatMessage::system("coach persona"),

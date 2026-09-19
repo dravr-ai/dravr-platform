@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The runtime fallback chain's empty-completion check lives in
-//! `ChatProvider::Chain::complete()`, and the headless (Copilot ACP) tool loop
-//! never goes through it: `run_react_tool_loop` pulls the primary runner out of
-//! the chain and calls it directly. So on the path production actually uses —
+//! The runtime fallback chain's empty-completion check lives in embacle's
+//! `FallbackProvider`, and the headless (Copilot ACP) tool loop never goes
+//! through it: `run_react_tool_loop` pulls the head's turn provider out of the
+//! chain and converses with it directly. So on the path production actually uses —
 //! `COPILOT_HEADLESS_MCP_TOOL_CALLING = "true"` in the dev Cloud Run env — an
 //! empty turn returned `Ok` and reached the athlete as the lost-turn apology,
 //! while the eval lane's path was already covered. `is_lost_turn` is the

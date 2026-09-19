@@ -1,4 +1,4 @@
-// ABOUTME: Process-wide guard state for ChatProvider::Chain primary protection
+// ABOUTME: Process-wide guard state protecting the runtime fallback chain's primary
 // ABOUTME: GitHub rate-limit headroom + circuit breaker for preemptive fallback
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,8 +6,8 @@
 
 //! # Chain Guard
 //!
-//! Shared state for two preemptive-fallback signals consulted by
-//! [`ChatProvider::Chain`]:
+//! Shared state for two preemptive-fallback signals consulted by the
+//! `EmbacleProvider` chain's observer (`chain_observer`):
 //!
 //! 1. **GitHub rate-limit headroom (Strategy A).** A separate periodic
 //!    probe (in pierre-server) calls `GET https://api.github.com/rate_limit`
@@ -70,7 +70,7 @@ const RATE_LIMIT_UNKNOWN: u64 = u64::MAX;
 /// Process-wide [`ChainGuard`] instance.
 ///
 /// Shared by the GitHub rate-limit probe (pierre-server) and the
-/// `ChatProvider::Chain` request path (pierre-llm). [`LazyLock`] for
+/// chain observer on the request path (pierre-llm). [`LazyLock`] for
 /// zero-config plumbing — first access on either side initialises
 /// the same instance.
 pub static CHAIN_GUARD: LazyLock<ChainGuard> = LazyLock::new(ChainGuard::new);

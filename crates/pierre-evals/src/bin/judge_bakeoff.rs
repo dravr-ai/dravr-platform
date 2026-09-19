@@ -26,11 +26,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use pierre_evals::judge::judge_claim;
-use pierre_llm::config::LlmModelConfig;
-use pierre_llm::{
-    ChatProvider, CohereProvider, GeminiProvider, LlmProvider, OpenAiCompatibleConfig,
-    OpenAiCompatibleProvider,
-};
+use pierre_llm::{http_env, ChatProvider, EmbacleProvider, LlmProvider, OpenAiCompatibleConfig};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
@@ -320,34 +316,26 @@ fn load_golden(path: &str) -> Result<Vec<GoldenRow>, String> {
 
 /// Build the provider for a candidate, returning a boxed trait object.
 async fn build_provider(kind: &Kind) -> Result<Box<dyn LlmProvider>, String> {
-    match kind {
-        Kind::Local(model) => {
-            let config = OpenAiCompatibleConfig::ollama(model);
-            let provider = OpenAiCompatibleProvider::new(config).map_err(|e| e.to_string())?;
-            Ok(Box::new(provider) as Box<dyn LlmProvider>)
-        }
+    let provider: EmbacleProvider = match kind {
+        Kind::Local(model) => http_env::local_provider(OpenAiCompatibleConfig::ollama(model)),
         Kind::Gemini(model) => {
             let key =
                 env::var("GEMINI_API_KEY").map_err(|_| "GEMINI_API_KEY not set".to_owned())?;
-            let cfg = LlmModelConfig {
-                default_model: (*model).to_owned(),
-                fallback_model: (*model).to_owned(),
-            };
-            Ok(Box::new(GeminiProvider::with_config(key, &cfg)) as Box<dyn LlmProvider>)
+            http_env::gemini_with_key(&key, Some((*model).to_owned())).map_err(|e| e.to_string())?
         }
         Kind::Cohere(model) => {
             let key =
                 env::var("COHERE_API_KEY").map_err(|_| "COHERE_API_KEY not set".to_owned())?;
-            Ok(
-                Box::new(CohereProvider::new(key).with_default_model((*model).to_owned()))
-                    as Box<dyn LlmProvider>,
-            )
+            http_env::cohere_with_key(key, Some((*model).to_owned()))
         }
-        Kind::Cli => ChatProvider::cli()
-            .await
-            .map(|p| Box::new(p) as Box<dyn LlmProvider>)
-            .map_err(|e| e.to_string()),
-    }
+        Kind::Cli => {
+            return ChatProvider::from_env()
+                .await
+                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
+                .map_err(|e| e.to_string())
+        }
+    };
+    Ok(Box::new(provider) as Box<dyn LlmProvider>)
 }
 
 /// Run every golden claim through one candidate and compute its metrics.

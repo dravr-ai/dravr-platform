@@ -88,6 +88,9 @@ tracing = "0.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [dev-dependencies]
+# The headless re-run classifies the AppError image of embacle's RunnerError
+# kinds; the test that pins it constructs those RunnerErrors directly.
+embacle = { version = "0.28.0" }
 # Validates a tool's declared outputSchema against the payload it actually
 # returns. Same version the chat pipeline validates structured replies with.
 jsonschema = { version = "0.46.5", default-features = false }

@@ -4,9 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::pricing::{PricingOverrideMap, GLOBAL_PRICING_REGISTRY};
+use embacle::pricing::ModelPricing;
 use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_database::repositories::LlmCredentialRepository;
-use pierre_llm::pricing::{ModelPricing, PricingOverrideMap, GLOBAL_PRICING_REGISTRY};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tracing::{info, warn};
@@ -14,7 +15,7 @@ use tracing::{info, warn};
 /// JSON shape that operators write into `admin_config_overrides.config_value`
 /// for `category = 'cat_llm_pricing'`.
 ///
-/// Keys mirror [`pierre_llm::pricing::ModelPricing`] but the JSON form is
+/// Keys mirror [`embacle::pricing::ModelPricing`] but the JSON form is
 /// a contract surface — operators edit it through the admin UI — so the
 /// fields are renamed for clarity in the audit log.
 #[derive(Debug, Deserialize)]
@@ -53,7 +54,7 @@ struct OverrideBuckets {
 }
 
 /// Load every `cat_llm_pricing` override row into the process-wide
-/// [`pierre_llm::pricing::GLOBAL_PRICING_REGISTRY`].
+/// [`crate::pricing::GLOBAL_PRICING_REGISTRY`].
 ///
 /// Override `config_key` is `<provider>.<model_prefix>` (e.g.
 /// `gemini.gemini-2.0-flash`). Tenant-scoped rows go into a per-tenant

@@ -27,7 +27,6 @@ async fn byo_key_resolves_provider_and_absence_falls_back() {
     let saved: Vec<(&str, Option<String>)> = [
         ("PIERRE_LLM_PROVIDER", "gemini"),
         ("PIERRE_LLM_DEFAULT_MODEL", "gemini-flash-latest"),
-        ("PIERRE_LLM_FALLBACK_MODEL", "gemini-flash-lite-latest"),
     ]
     .iter()
     .map(|(k, v)| {

@@ -22,8 +22,8 @@ use std::env;
 use std::fs;
 use std::time::Instant;
 
-use pierre_llm::config::LlmModelConfig;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, GeminiProvider, LlmProvider};
+use pierre_llm::config::LlmProviderType;
+use pierre_llm::{http_env, ChatMessage, ChatRequest, EmbacleProvider, LlmProvider};
 use serde::{Deserialize, Serialize};
 
 /// Sampling temperature for coaching generations (a touch of warmth/variety).
@@ -202,9 +202,7 @@ fn default_candidates() -> Vec<Candidate> {
 async fn build_provider(kind: &Kind) -> Result<Box<dyn LlmProvider>, String> {
     match kind {
         Kind::Copilot(model) => {
-            env::set_var("PIERRE_LLM_PROVIDER", "copilot_headless");
-            env::set_var("PIERRE_LLM_MODEL", model);
-            ChatProvider::cli()
+            EmbacleProvider::from_provider_type(LlmProviderType::CopilotHeadless, Some(model))
                 .await
                 .map(|p| Box::new(p) as Box<dyn LlmProvider>)
                 .map_err(|e| e.to_string())
@@ -212,11 +210,9 @@ async fn build_provider(kind: &Kind) -> Result<Box<dyn LlmProvider>, String> {
         Kind::Gemini(model) => {
             let key =
                 env::var("GEMINI_API_KEY").map_err(|_| "GEMINI_API_KEY not set".to_owned())?;
-            let cfg = LlmModelConfig {
-                default_model: (*model).to_owned(),
-                fallback_model: (*model).to_owned(),
-            };
-            Ok(Box::new(GeminiProvider::with_config(key, &cfg)) as Box<dyn LlmProvider>)
+            http_env::gemini_with_key(&key, Some((*model).to_owned()))
+                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
+                .map_err(|e| e.to_string())
         }
     }
 }

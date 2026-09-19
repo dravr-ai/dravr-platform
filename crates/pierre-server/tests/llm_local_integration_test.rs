@@ -32,8 +32,8 @@
 //! ```
 
 use pierre_llm::{
-    ChatMessage, ChatRequest, FunctionDeclaration, LlmCapabilities, LlmProvider,
-    OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
+    http_env, ChatMessage, ChatProvider, ChatRequest, FunctionDeclaration, LlmCapabilities,
+    OpenAiCompatibleConfig, Tool,
 };
 use serde_json::json;
 use std::env;
@@ -84,9 +84,15 @@ macro_rules! require_vllm {
 // =============================================================================
 
 /// Create a provider configured for Ollama with the recommended model
-fn create_ollama_provider() -> OpenAiCompatibleProvider {
-    let config = OpenAiCompatibleConfig::ollama("qwen2.5:14b-instruct");
-    OpenAiCompatibleProvider::new(config).expect("Provider should be created")
+fn create_ollama_provider() -> ChatProvider {
+    wrap(OpenAiCompatibleConfig::ollama("qwen2.5:14b-instruct"))
+}
+
+/// Present an `OpenAI`-compatible config the way production does: as the
+/// platform's `ChatProvider` over the embacle runner on the shared LLM client,
+/// so `complete_with_tools` takes the platform's `Tool` shape.
+fn wrap(config: OpenAiCompatibleConfig) -> ChatProvider {
+    ChatProvider::Embacle(http_env::local_provider(config))
 }
 
 /// Build a single-function Tool wrapper used by the fitness tool catalog below.
@@ -231,8 +237,9 @@ async fn test_ollama_server_health() {
 #[tokio::test]
 async fn test_vllm_server_health() {
     require_vllm!();
-    let config = OpenAiCompatibleConfig::vllm("meta-llama/Llama-3.1-8B-Instruct");
-    let provider = OpenAiCompatibleProvider::new(config).unwrap();
+    let provider = wrap(OpenAiCompatibleConfig::vllm(
+        "meta-llama/Llama-3.1-8B-Instruct",
+    ));
 
     let result = provider.health_check().await;
     assert!(
@@ -480,8 +487,7 @@ async fn test_local_llm_tool_calling_latency() {
 #[tokio::test]
 async fn test_local_llm_missing_model_error() {
     require_local_llm!();
-    let config = OpenAiCompatibleConfig::ollama("nonexistent-model:latest");
-    let provider = OpenAiCompatibleProvider::new(config).unwrap();
+    let provider = wrap(OpenAiCompatibleConfig::ollama("nonexistent-model:latest"));
 
     let request = ChatRequest::new(vec![ChatMessage::user("Hello")]);
 
@@ -501,13 +507,12 @@ async fn test_local_llm_server_not_running_error() {
         base_url: "http://localhost:59999/v1".to_owned(),
         api_key: None,
         default_model: "test".to_owned(),
-        fallback_model: "test".to_owned(),
         provider_name: "test".to_owned(),
         display_name: "Test".to_owned(),
         capabilities: LlmCapabilities::default(),
     };
 
-    let provider = OpenAiCompatibleProvider::new(config).unwrap();
+    let provider = wrap(config);
 
     let result = provider.health_check().await;
 

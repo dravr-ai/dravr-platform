@@ -101,6 +101,39 @@ impl LlmProviderType {
     }
 }
 
+/// The embacle HTTP API providers, as [`crate::http_env`] builds them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpProvider {
+    /// Google Gemini on `GEMINI_API_KEY`.
+    Gemini,
+    /// Groq on `GROQ_API_KEY`.
+    Groq,
+    /// Cohere on `COHERE_API_KEY`.
+    Cohere,
+    /// `OpenRouter` on `OPENROUTER_API_KEY`.
+    OpenRouter,
+    /// A local `OpenAI`-compatible endpoint on `LOCAL_LLM_*`.
+    Local,
+}
+
+/// The construction path an [`LlmProviderType`] takes, see
+/// [`LlmProviderType::construction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderConstruction {
+    /// A CLI subprocess runner, keyed on its embacle runner type.
+    Cli(CliRunnerType),
+    /// One of embacle's HTTP API providers, built by [`crate::http_env`].
+    HttpApi(HttpProvider),
+    /// The Copilot ACP turn provider (`copilot --acp`).
+    CopilotHeadless,
+    /// The Copilot SDK turn provider (`copilot-runtime --server --stdio`).
+    CopilotSdk,
+    /// The `OpenAI` API runner (`OPENAI_API_*`).
+    OpenAiApi,
+    /// The quota router: Claude Code in front, Copilot Headless behind.
+    Router,
+}
+
 impl LlmProviderType {
     /// Environment variable for model/version selection
     pub const MODEL_ENV_VAR: &'static str = "PIERRE_LLM_MODEL";
@@ -111,13 +144,8 @@ impl LlmProviderType {
     /// Environment variable for fallback provider selection
     pub const FALLBACK_PROVIDER_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_PROVIDER";
 
-    /// Environment variable for fallback model selection
-    pub const FALLBACK_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_MODEL";
-
     /// Environment variable for the fallback PROVIDER's model — applied only
-    /// to the runtime fallback chain's secondary provider. Distinct from
-    /// [`Self::FALLBACK_MODEL_ENV_VAR`], which is the intra-provider degraded
-    /// model used inside a single provider (e.g. Gemini Pro → Flash).
+    /// to the runtime fallback chain's secondary provider.
     ///
     /// Needed because providers can use different naming conventions for the
     /// same upstream model: GitHub Copilot exposes Anthropic models as
@@ -130,11 +158,9 @@ impl LlmProviderType {
     /// Environment variable for the tertiary provider in the runtime chain.
     ///
     /// When set alongside [`Self::RUNTIME_FALLBACK_ENV_VAR`]=true, the chain
-    /// becomes three-tier: primary -> secondary -> tertiary. The secondary
-    /// itself becomes a nested [`ChatProvider::Chain`] of (secondary,
-    /// tertiary), so a retryable error in the secondary cascades to the
-    /// tertiary using the same retry-classification rules already used at
-    /// the outer chain.
+    /// becomes three-tier: primary -> secondary -> tertiary, walked flat by
+    /// embacle's `FallbackProvider`, so a provider fault in the secondary
+    /// cascades to the tertiary under the same fall-through policy.
     ///
     /// Without this env var set, the chain stays two-tier and behavior is
     /// unchanged.
@@ -214,53 +240,49 @@ impl LlmProviderType {
         }
     }
 
+    /// How [`EmbacleProvider`](crate::EmbacleProvider) builds this provider.
+    ///
+    /// The CLI subprocess runners share one construction path keyed on their
+    /// embacle [`CliRunnerType`]; the HTTP APIs, the two Copilot turn
+    /// providers, the `OpenAI` API runner and the quota router each have a
+    /// bespoke one. The runtime fallback chain dispatches on this instead of
+    /// re-reading `PIERRE_LLM_PROVIDER`, so a secondary is built as the
+    /// FALLBACK provider and not as the primary a second time.
+    pub(crate) const fn construction(self) -> ProviderConstruction {
+        match self {
+            Self::ClaudeCode => ProviderConstruction::Cli(CliRunnerType::ClaudeCode),
+            Self::Copilot => ProviderConstruction::Cli(CliRunnerType::Copilot),
+            Self::CursorAgent => ProviderConstruction::Cli(CliRunnerType::CursorAgent),
+            Self::OpenCode => ProviderConstruction::Cli(CliRunnerType::OpenCode),
+            Self::GeminiCli => ProviderConstruction::Cli(CliRunnerType::GeminiCli),
+            Self::CodexCli => ProviderConstruction::Cli(CliRunnerType::CodexCli),
+            Self::GooseCli => ProviderConstruction::Cli(CliRunnerType::GooseCli),
+            Self::ClineCli => ProviderConstruction::Cli(CliRunnerType::ClineCli),
+            Self::ContinueCli => ProviderConstruction::Cli(CliRunnerType::ContinueCli),
+            Self::WarpCli => ProviderConstruction::Cli(CliRunnerType::WarpCli),
+            Self::KiroCli => ProviderConstruction::Cli(CliRunnerType::KiroCli),
+            Self::KiloCli => ProviderConstruction::Cli(CliRunnerType::KiloCli),
+            Self::Gemini => ProviderConstruction::HttpApi(HttpProvider::Gemini),
+            Self::Groq => ProviderConstruction::HttpApi(HttpProvider::Groq),
+            Self::Cohere => ProviderConstruction::HttpApi(HttpProvider::Cohere),
+            Self::OpenRouter => ProviderConstruction::HttpApi(HttpProvider::OpenRouter),
+            Self::Local => ProviderConstruction::HttpApi(HttpProvider::Local),
+            Self::CopilotHeadless => ProviderConstruction::CopilotHeadless,
+            Self::CopilotSdk => ProviderConstruction::CopilotSdk,
+            Self::OpenAiApi => ProviderConstruction::OpenAiApi,
+            // The router is several runners behind one provider, so it has no single
+            // CliRunnerType. Which one is live changes per turn, and the caller that
+            // needs the turn provider asks `as_turn_provider()` instead.
+            Self::Router => ProviderConstruction::Router,
+        }
+    }
+
     /// Get model name for embacle-based providers
     ///
     /// `PIERRE_LLM_MODEL` is the unified override for ALL providers (API and embacle).
     /// When set, it takes priority over provider-specific env vars (e.g. `COPILOT_SDK_MODEL`,
     /// `CLI_LLM_MODEL`). When not set, falls back to each runner's own default.
     /// Returns None for non-embacle providers.
-    /// Map an [`LlmProviderType`] to its corresponding embacle [`CliRunnerType`]
-    /// for the subprocess-CLI runners.
-    ///
-    /// Returns `None` for provider types that are not driven by an embacle
-    /// `CliRunnerType` dispatch — Gemini, Groq, Local, `OpenRouter` (each
-    /// construct directly from their own env vars), and `CopilotHeadless` /
-    /// `CopilotSdk` / `OpenAiApi` (which follow their own bespoke construction paths in
-    /// [`CliLlmProvider`]).
-    ///
-    /// Used by [`ChatProvider::create_fallback_provider`] to build the runtime
-    /// chain's secondary against a specific runner type instead of re-reading
-    /// `PIERRE_LLM_PROVIDER`.
-    pub(crate) fn cli_runner_type(self) -> Option<CliRunnerType> {
-        match self {
-            Self::ClaudeCode => Some(CliRunnerType::ClaudeCode),
-            Self::Copilot => Some(CliRunnerType::Copilot),
-            Self::CursorAgent => Some(CliRunnerType::CursorAgent),
-            Self::OpenCode => Some(CliRunnerType::OpenCode),
-            Self::GeminiCli => Some(CliRunnerType::GeminiCli),
-            Self::CodexCli => Some(CliRunnerType::CodexCli),
-            Self::GooseCli => Some(CliRunnerType::GooseCli),
-            Self::ClineCli => Some(CliRunnerType::ClineCli),
-            Self::ContinueCli => Some(CliRunnerType::ContinueCli),
-            Self::WarpCli => Some(CliRunnerType::WarpCli),
-            Self::KiroCli => Some(CliRunnerType::KiroCli),
-            Self::KiloCli => Some(CliRunnerType::KiloCli),
-            Self::Gemini
-            | Self::Groq
-            | Self::Local
-            | Self::OpenRouter
-            | Self::Cohere
-            | Self::CopilotHeadless
-            | Self::CopilotSdk
-            | Self::OpenAiApi
-            // The router is several runners behind one provider, so it has no single
-            // CliRunnerType. Which one is live changes per turn, and the caller that
-            // needs the turn provider asks `as_turn_provider()` instead.
-            | Self::Router => None,
-        }
-    }
-
     #[must_use]
     fn embacle_model_from_env(self) -> Option<String> {
         match self {
@@ -334,17 +356,6 @@ impl LlmProviderType {
             .ok()
             .filter(|s| !s.is_empty())
             .map(|s| Self::from_str_or_default(&s))
-    }
-
-    /// Get fallback model from environment
-    ///
-    /// Reads `PIERRE_LLM_FALLBACK_MODEL` - returns None if not set.
-    /// When fallback is triggered, uses this model or the default.
-    #[must_use]
-    pub fn fallback_model_from_env() -> Option<String> {
-        env::var(Self::FALLBACK_MODEL_ENV_VAR)
-            .ok()
-            .filter(|s| !s.is_empty())
     }
 
     /// Get the fallback provider's model from environment.
@@ -432,25 +443,19 @@ impl Display for LlmProviderType {
     }
 }
 
-/// LLM model configuration for all providers (Gemini, Groq, Local, `OpenRouter`)
+/// The platform's unified model configuration.
 ///
-/// Reads model names from environment variables:
-/// - `PIERRE_LLM_DEFAULT_MODEL`: Primary model to use
-/// - `PIERRE_LLM_FALLBACK_MODEL`: Fallback model when primary fails (rate limits, errors)
+/// Reads `PIERRE_LLM_DEFAULT_MODEL`, the model a Gemini primary and a BYO
+/// Gemini tenant without a stored model run on.
 #[derive(Debug, Clone)]
 pub struct LlmModelConfig {
     /// Default model to use for all requests
     pub default_model: String,
-    /// Fallback model when default model fails (rate limits, errors, unavailable)
-    pub fallback_model: String,
 }
 
 impl LlmModelConfig {
     /// Environment variable for default model
     pub const DEFAULT_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_DEFAULT_MODEL";
-
-    /// Environment variable for fallback model
-    pub const FALLBACK_MODEL_ENV_VAR: &'static str = "PIERRE_LLM_FALLBACK_MODEL";
 
     /// Load model configuration from environment variables
     ///
@@ -465,28 +470,12 @@ impl LlmModelConfig {
             )
         })?;
 
-        let fallback_model = env::var(Self::FALLBACK_MODEL_ENV_VAR).map_err(|_| {
-            format!(
-                "{} environment variable not set",
-                Self::FALLBACK_MODEL_ENV_VAR
-            )
-        })?;
-
-        Ok(Self {
-            default_model,
-            fallback_model,
-        })
+        Ok(Self { default_model })
     }
 
     /// Get the default model name
     #[must_use]
     pub fn default_model(&self) -> &str {
         &self.default_model
-    }
-
-    /// Get the fallback model name
-    #[must_use]
-    pub fn fallback_model(&self) -> &str {
-        &self.fallback_model
     }
 }

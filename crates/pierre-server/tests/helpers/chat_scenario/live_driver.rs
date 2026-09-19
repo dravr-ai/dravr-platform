@@ -43,8 +43,8 @@ use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::prompts::{PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT};
 use pierre_llm::{
-    ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
-    LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Tool,
+    http_env, ChatMessage, ChatProvider, ChatRequest, ChatResponseWithTools, FunctionCall,
+    FunctionDeclaration, LlmProvider, OpenAiCompatibleConfig, Tool,
 };
 use pierre_mcp_schema::ToolSchema;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -148,7 +148,7 @@ pub struct LiveScenarioDriver {
     /// grading whether the agent invokes the tool, and a prefetch would answer
     /// the question before it was asked.
     prefetch_allowed: bool,
-    provider: OpenAiCompatibleProvider,
+    provider: ChatProvider,
     /// Resolved tool catalog wrapped for the LLM's function-calling API.
     tools: Vec<Tool>,
     /// Underlying schemas, kept alongside [`Self::tools`] so the executor
@@ -207,8 +207,7 @@ impl LiveScenarioDriver {
                 config.base_url = base_url;
             }
         }
-        let provider = OpenAiCompatibleProvider::new(config)
-            .map_err(|e| format!("Failed to initialize Ollama provider: {e}"))?;
+        let provider = ChatProvider::Embacle(http_env::local_provider(config));
 
         let (tools, tool_names) = build_tool_catalog();
 

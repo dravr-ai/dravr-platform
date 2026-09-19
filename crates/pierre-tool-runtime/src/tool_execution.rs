@@ -32,8 +32,8 @@ use crate::llm_call_record::{
 };
 use crate::protocol::UniversalResponse;
 use crate::tool_loop_io::{
-    observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
-    ToolLoopTally, ToolRoundRecord,
+    observed_tool_name, reroutes_headless_turn, GuardianConfirmRequest, GuardianDenial,
+    ToolLoopParams, ToolLoopResult, ToolLoopTally, ToolRoundRecord,
 };
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
@@ -945,8 +945,8 @@ async fn run_react_tool_loop(
     if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
     } else if capabilities.supports_sdk_tool_calling() {
-        // Calls the primary runner directly, out of the runtime-fallback `Chain`,
-        // so neither of the chain's fallbacks fires here — not the retryable-error
+        // Converses with the chain's head directly, outside embacle's fallback
+        // walk, so neither of its fallbacks fires here — not the provider-fault
         // one, not the empty-completion one. Both re-created; see `is_lost_turn`.
         match run_headless_tool_loop(params, llm_messages).await {
             Ok(r) if r.is_lost_turn() => {
@@ -958,7 +958,7 @@ async fn run_react_tool_loop(
                 .await
             }
             Ok(result) => Ok(result),
-            Err(err) if pierre_llm::is_retryable_for_fallback(&err) => {
+            Err(err) if reroutes_headless_turn(&err) => {
                 run_headless_fallback(params, llm_messages, err).await
             }
             Err(err) => Err(err),
@@ -1202,29 +1202,29 @@ pub async fn run_planned_tool_loop(
     ))
 }
 
-/// Re-run a failed headless (Copilot ACP) turn against the runtime-fallback
-/// secondary provider.
+/// Re-run a failed headless (Copilot) turn against the runtime-fallback
+/// chain's tail.
 ///
-/// [`run_headless_tool_loop`] reaches past a fallback `Chain` to the primary
-/// runner, bypassing the chain's retryable-error fallback. When that primary
-/// call fails with a retryable error this re-runs the whole tool loop against
-/// the chain's secondary — routed by the secondary's own capabilities (native
-/// function calling for Cohere/Gemini), so the turn still produces a grounded
-/// answer. With no secondary configured the original error is returned
-/// unchanged, preserving behavior when runtime fallback is disabled.
+/// [`run_headless_tool_loop`] converses with the chain's head directly,
+/// bypassing embacle's fall-through. When that head call fails with a
+/// provider fault this re-runs the whole tool loop against the chain's tail —
+/// routed by the tail's own capabilities (native function calling for
+/// Cohere/Gemini), so the turn still produces a grounded answer. With no tail
+/// configured the original error is returned unchanged, preserving behavior
+/// when runtime fallback is disabled.
 async fn run_headless_fallback(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
     primary_err: AppError,
 ) -> Result<ToolLoopResult, AppError> {
-    let Some(secondary) = params.provider.fallback_secondary() else {
+    let Some(secondary) = params.provider.fallback_tail() else {
         return Err(primary_err);
     };
     warn!(
         primary = params.provider.name(),
         secondary = secondary.name(),
         error = %primary_err,
-        "Headless tool loop failed with retryable error; falling back to secondary provider"
+        "Headless tool loop failed with a provider fault; falling back to the chain's tail"
     );
     let fallback_params = ToolLoopParams {
         provider: secondary,
@@ -1232,8 +1232,8 @@ async fn run_headless_fallback(
         tools: params.tools,
         // The secondary picks its own model: the primary's model (e.g.
         // Copilot's `claude-opus-4.8`) is meaningless to Cohere/Gemini.
-        // Mirrors `request_for_secondary` nulling the model in the
-        // ChatProvider chain fallback.
+        // Mirrors `ResponsePolicy::strict().own_model_per_tier` clearing the
+        // model before each hop of the embacle chain.
         model: secondary.default_model(),
         user_id: params.user_id,
         tenant_id: params.tenant_id,
@@ -1265,13 +1265,13 @@ async fn run_headless_tool_loop(
     llm_messages: &[ChatMessage],
 ) -> Result<ToolLoopResult, AppError> {
     // The Copilot turn provider behind the ChatProvider, whichever transport it is
-    let cli_provider = params.provider.as_cli_provider().ok_or_else(|| {
+    let embacle_provider = params.provider.as_embacle_provider().ok_or_else(|| {
         AppError::internal(
-            "Headless tool loop requires a Copilot turn provider but provider is not a CLI provider",
+            "Headless tool loop requires a Copilot turn provider but provider is not an embacle provider",
         )
     })?;
 
-    let headless_runner = cli_provider.as_turn_provider().ok_or_else(|| {
+    let headless_runner = embacle_provider.as_turn_provider().ok_or_else(|| {
         AppError::internal(
             "Headless tool loop requires a Copilot turn provider but inner runner is a different type",
         )

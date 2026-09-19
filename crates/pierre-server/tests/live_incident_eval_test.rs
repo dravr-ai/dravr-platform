@@ -1889,7 +1889,7 @@ mod live_incident_eval {
         // `Custom` provider below and for the same reason: both leave it
         // grading something other than what it claims to.
         // `PIERRE_LLM_MODEL` is the highest-priority model override for every
-        // provider — `CliLlmProvider::build_headless` assigns it straight to
+        // provider — `EmbacleProvider::build_headless` assigns it straight to
         // `config.model` — so left unset, `common`'s default reaches the ACP
         // runner as a model id no backend serves. The turn still answers, from
         // whatever the CLI resolved instead; every call prices at 0.0 because

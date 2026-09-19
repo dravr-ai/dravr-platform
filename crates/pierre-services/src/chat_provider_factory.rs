@@ -21,10 +21,7 @@ use pierre_core::errors::AppError;
 use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD};
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
-use pierre_llm::{
-    ChatMessage, ChatProvider, ChatRequest, CohereProvider, GeminiProvider, GroqProvider,
-    LlmCapabilities, LlmProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider,
-};
+use pierre_llm::{http_env, ChatMessage, ChatProvider, ChatRequest, LlmProvider};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
@@ -597,15 +594,15 @@ fn log_recovery_transition(provider: &str, kind: ProbeKind, previous: LlmHealthS
 ///
 /// Used by the LLM-settings test endpoint after the caller has loaded
 /// credentials via [`pierre_auth::tenant::llm_manager::TenantLlmManager`] —
-/// this fn picks the right concrete pierre-llm provider for the credential's
+/// this fn picks the right embacle HTTP provider for the credential's
 /// `provider` field and applies any provider-specific knobs (default model,
-/// local-LLM base URL, etc.).
+/// local-LLM base URL, etc.) through [`pierre_llm::http_env`].
 ///
 /// # Errors
 ///
 /// Returns [`AppError::config`] when the credential references a provider
-/// (currently `OpenAi`, `Anthropic`) that pierre-llm doesn't yet expose as a
-/// `ChatProvider` variant.
+/// (currently `OpenAi`, `Anthropic`) that pierre-llm does not build a
+/// `ChatProvider` for.
 pub fn chat_provider_from_credentials(
     credentials: LlmCredentials,
 ) -> Result<ChatProvider, AppError> {
@@ -615,21 +612,18 @@ pub fn chat_provider_from_credentials(
     );
 
     match credentials.provider {
-        TenantLlmProvider::Gemini => {
-            let mut provider = GeminiProvider::new(&credentials.api_key)?;
-            if let Some(model) = credentials.default_model {
-                provider = provider.with_default_model(model);
-            }
-            Ok(ChatProvider::Gemini(provider))
-        }
-        TenantLlmProvider::Groq => Ok(ChatProvider::Groq(GroqProvider::new(credentials.api_key))),
-        TenantLlmProvider::Cohere => {
-            let mut provider = CohereProvider::new(credentials.api_key);
-            if let Some(model) = credentials.default_model {
-                provider = provider.with_default_model(model);
-            }
-            Ok(ChatProvider::Cohere(provider))
-        }
+        TenantLlmProvider::Gemini => Ok(ChatProvider::Embacle(http_env::gemini_with_key(
+            &credentials.api_key,
+            credentials.default_model,
+        )?)),
+        TenantLlmProvider::Groq => Ok(ChatProvider::Embacle(http_env::groq_with_key(
+            credentials.api_key,
+            credentials.default_model,
+        ))),
+        TenantLlmProvider::Cohere => Ok(ChatProvider::Embacle(http_env::cohere_with_key(
+            credentials.api_key,
+            credentials.default_model,
+        ))),
         TenantLlmProvider::Local => {
             let base_url = credentials
                 .base_url
@@ -637,23 +631,10 @@ pub fn chat_provider_from_credentials(
             let model = credentials
                 .default_model
                 .unwrap_or_else(|| "qwen2.5:14b-instruct".to_owned());
-            let config = OpenAiCompatibleConfig {
-                base_url,
-                api_key: if credentials.api_key.is_empty() {
-                    None
-                } else {
-                    Some(credentials.api_key)
-                },
-                default_model: model.clone(),
-                fallback_model: model,
-                provider_name: "local".to_owned(),
-                display_name: "Local LLM".to_owned(),
-                capabilities: LlmCapabilities::STREAMING
-                    | LlmCapabilities::FUNCTION_CALLING
-                    | LlmCapabilities::SYSTEM_MESSAGES,
-            };
-            let provider = OpenAiCompatibleProvider::new(config)?;
-            Ok(ChatProvider::Local(provider))
+            let api_key = Some(credentials.api_key).filter(|key| !key.is_empty());
+            Ok(ChatProvider::Embacle(http_env::local_from_credentials(
+                base_url, api_key, model,
+            )))
         }
         TenantLlmProvider::OpenAi | TenantLlmProvider::Anthropic => Err(AppError::config(format!(
             "{} provider is not yet supported. Use Gemini, Groq, Cohere, or Local.",

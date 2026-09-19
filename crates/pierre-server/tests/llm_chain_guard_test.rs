@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // ABOUTME: E2E tests for the global LLM chain guard — preemptive fallback when
-// ABOUTME: the GitHub-Models budget is low and circuit-breaking after retryable failures.
+// ABOUTME: the GitHub-Models budget is low and circuit-breaking after provider faults.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
@@ -10,20 +10,20 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use futures_util::stream;
-use pierre_core::errors::AppError;
-use pierre_llm::chain_guard::{CHAIN_GUARD, CIRCUIT_FAILURE_THRESHOLD, GITHUB_BUDGET_THRESHOLD};
-use pierre_llm::{
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
-    StreamChunk, TokenUsage,
+use embacle::types::{
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
+    RunnerError, StreamChunk, TokenUsage,
 };
+use futures_util::stream;
+use pierre_llm::chain_guard::{CHAIN_GUARD, CIRCUIT_FAILURE_THRESHOLD, GITHUB_BUDGET_THRESHOLD};
+use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider};
 use serial_test::serial;
 
-/// Mock provider with a configurable response and a per-call counter.
+/// Mock runner with a configurable response and a per-call counter.
 ///
 /// `mode == "ok"` returns success; any other value returns
-/// `AppError::auth_invalid` which `is_retryable_for_fallback` classifies as
-/// retryable (see `crates/pierre-llm/src/provider.rs:635-647`).
+/// `RunnerError::auth_failure`, which `ErrorKind::is_provider_fault`
+/// classifies as a fault the chain moves past (`ResponsePolicy::strict`).
 struct MockProvider {
     name: &'static str,
     mode: &'static str,
@@ -57,12 +57,12 @@ impl MockProvider {
 }
 
 #[async_trait]
-impl LlmProvider for MockProvider {
+impl EmbacleLlmProvider for MockProvider {
     fn name(&self) -> &'static str {
         self.name
     }
 
-    fn display_name(&self) -> &'static str {
+    fn display_name(&self) -> &str {
         self.name
     }
 
@@ -81,7 +81,7 @@ impl LlmProvider for MockProvider {
         &[]
     }
 
-    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if self.mode == "ok" {
             Ok(ChatResponse {
@@ -93,14 +93,14 @@ impl LlmProvider for MockProvider {
                 tool_calls: None,
             })
         } else {
-            Err(AppError::auth_invalid(format!(
-                "{} mock failure (retryable)",
+            Err(RunnerError::auth_failure(format!(
+                "{} mock failure (provider fault)",
                 self.name
             )))
         }
     }
 
-    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, RunnerError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         let name = self.name.to_owned();
         let s = stream::iter(vec![Ok(StreamChunk {
@@ -111,7 +111,7 @@ impl LlmProvider for MockProvider {
         Ok(Pin::from(Box::new(s)))
     }
 
-    async fn health_check(&self) -> Result<bool, AppError> {
+    async fn health_check(&self) -> Result<bool, RunnerError> {
         Ok(self.mode == "ok")
     }
 }
@@ -134,11 +134,12 @@ fn epoch_secs_in(offset_secs: i64) -> u64 {
     u64::try_from(target.max(0)).unwrap_or(0)
 }
 
-fn make_chain(primary: MockProvider, secondary: MockProvider) -> ChatProvider {
-    ChatProvider::Chain {
-        primary: Box::new(ChatProvider::Custom(Arc::new(primary))),
-        secondary: Box::new(ChatProvider::Custom(Arc::new(secondary))),
-    }
+fn tier(runner: impl EmbacleLlmProvider + 'static) -> EmbacleProvider {
+    EmbacleProvider::from_runner(Box::new(runner), "mock")
+}
+
+fn make_chain(tiers: Vec<EmbacleProvider>) -> ChatProvider {
+    ChatProvider::Embacle(EmbacleProvider::chain(tiers).expect("at least one tier"))
 }
 
 /// Sentinel recorded by [`ModelCapturingProvider`] before it is invoked.
@@ -176,12 +177,12 @@ impl ModelCapturingProvider {
 }
 
 #[async_trait]
-impl LlmProvider for ModelCapturingProvider {
+impl EmbacleLlmProvider for ModelCapturingProvider {
     fn name(&self) -> &'static str {
         self.name
     }
 
-    fn display_name(&self) -> &'static str {
+    fn display_name(&self) -> &str {
         self.name
     }
 
@@ -198,7 +199,7 @@ impl LlmProvider for ModelCapturingProvider {
         &[]
     }
 
-    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
         *self.seen_model.lock().unwrap() = Self::capture(request.model.as_deref());
         Ok(ChatResponse {
             content: format!("hello from {}", self.name),
@@ -210,7 +211,7 @@ impl LlmProvider for ModelCapturingProvider {
         })
     }
 
-    async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+    async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, RunnerError> {
         *self.seen_model.lock().unwrap() = Self::capture(request.model.as_deref());
         let s = stream::iter(vec![Ok(StreamChunk {
             delta: "hi".to_owned(),
@@ -220,7 +221,7 @@ impl LlmProvider for ModelCapturingProvider {
         Ok(Pin::from(Box::new(s)))
     }
 
-    async fn health_check(&self) -> Result<bool, AppError> {
+    async fn health_check(&self) -> Result<bool, RunnerError> {
         Ok(true)
     }
 }
@@ -238,10 +239,7 @@ async fn test_fallback_clears_primary_model_override_for_secondary() {
 
     let (primary, _primary_calls) = MockProvider::new_failing("mock-primary-fail");
     let (secondary, seen_model) = ModelCapturingProvider::new("mock-secondary-capture");
-    let chain = ChatProvider::Chain {
-        primary: Box::new(ChatProvider::Custom(Arc::new(primary))),
-        secondary: Box::new(ChatProvider::Custom(Arc::new(secondary))),
-    };
+    let chain = make_chain(vec![tier(primary), tier(secondary)]);
 
     // Stamp the primary's model onto the request, exactly as the chat pipeline
     // does via `ChatRequest::with_model(active_model)`.
@@ -285,7 +283,7 @@ async fn test_chain_preemptively_falls_back_when_guard_low() {
 
     let (primary, primary_calls) = MockProvider::new_ok("mock-primary");
     let (secondary, secondary_calls) = MockProvider::new_ok("mock-secondary");
-    let chain = make_chain(primary, secondary);
+    let chain = make_chain(vec![tier(primary), tier(secondary)]);
 
     let req = ChatRequest::new(vec![ChatMessage::user("hello")]);
     let response = chain.complete(&req).await.expect("chain should succeed");
@@ -311,7 +309,7 @@ async fn test_chain_preemptively_falls_back_when_guard_low() {
 
 #[tokio::test]
 #[serial(chain_guard)]
-async fn test_chain_opens_circuit_after_retryable_failures() {
+async fn test_chain_opens_circuit_after_provider_faults() {
     reset_chain_guard();
     assert!(
         !CHAIN_GUARD.is_circuit_open(),
@@ -320,7 +318,7 @@ async fn test_chain_opens_circuit_after_retryable_failures() {
 
     let (primary, primary_calls) = MockProvider::new_failing("mock-primary-fail");
     let (secondary, secondary_calls) = MockProvider::new_ok("mock-secondary-ok");
-    let chain = make_chain(primary, secondary);
+    let chain = make_chain(vec![tier(primary), tier(secondary)]);
 
     let req = ChatRequest::new(vec![ChatMessage::user("trigger fallback")]);
 
@@ -340,7 +338,7 @@ async fn test_chain_opens_circuit_after_retryable_failures() {
 
     assert!(
         CHAIN_GUARD.is_circuit_open(),
-        "circuit should be OPEN after {CIRCUIT_FAILURE_THRESHOLD} retryable failures"
+        "circuit should be OPEN after {CIRCUIT_FAILURE_THRESHOLD} provider faults"
     );
 
     let primary_count_when_open = primary_calls.load(Ordering::SeqCst);
@@ -360,6 +358,101 @@ async fn test_chain_opens_circuit_after_retryable_failures() {
         secondary_calls.load(Ordering::SeqCst),
         secondary_count_when_open + 1,
         "secondary must serve the post-open call"
+    );
+
+    reset_chain_guard();
+}
+
+/// The guard measures the primary only. In a three-tier chain a low budget
+/// skips tier 0 and asks tier 1; tier 2 is not consulted while tier 1 answers.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn test_three_tier_guard_skips_only_the_primary() {
+    reset_chain_guard();
+    CHAIN_GUARD.record_github_rate_limit(GITHUB_BUDGET_THRESHOLD - 1, epoch_secs_in(3_600));
+
+    let (primary, primary_calls) = MockProvider::new_ok("mock-primary");
+    let (secondary, secondary_calls) = MockProvider::new_ok("mock-secondary");
+    let (tertiary, tertiary_calls) = MockProvider::new_ok("mock-tertiary");
+    let chain = make_chain(vec![tier(primary), tier(secondary), tier(tertiary)]);
+
+    let req = ChatRequest::new(vec![ChatMessage::user("hello")]);
+    let response = chain.complete(&req).await.expect("the secondary answers");
+
+    assert!(response.content.contains("mock-secondary"));
+    assert_eq!(primary_calls.load(Ordering::SeqCst), 0, "tier 0 skipped");
+    assert_eq!(secondary_calls.load(Ordering::SeqCst), 1, "tier 1 asked");
+    assert_eq!(
+        tertiary_calls.load(Ordering::SeqCst),
+        0,
+        "tier 2 is not asked while tier 1 answers"
+    );
+
+    reset_chain_guard();
+}
+
+/// Tier 1's outcomes are not the primary's: its failures do not count toward
+/// the breaker and its successes do not close an open circuit.
+#[tokio::test]
+#[serial(chain_guard)]
+async fn test_tier_one_outcomes_do_not_touch_the_breaker() {
+    reset_chain_guard();
+
+    let (primary, primary_calls) = MockProvider::new_failing("mock-primary-fail");
+    let (secondary, secondary_calls) = MockProvider::new_failing("mock-secondary-fail");
+    let (tertiary, tertiary_calls) = MockProvider::new_ok("mock-tertiary-ok");
+    let chain = make_chain(vec![tier(primary), tier(secondary), tier(tertiary)]);
+
+    let req = ChatRequest::new(vec![ChatMessage::user("cascade")]);
+
+    // Two rounds: two primary faults and two secondary faults. Were the
+    // secondary's counted, four faults would already have opened the circuit.
+    for round in 0..CIRCUIT_FAILURE_THRESHOLD - 1 {
+        let response = chain
+            .complete(&req)
+            .await
+            .unwrap_or_else(|e| panic!("round {round} should cascade to the tertiary: {e:?}"));
+        assert!(response.content.contains("mock-tertiary-ok"));
+    }
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        CIRCUIT_FAILURE_THRESHOLD - 1
+    );
+    assert_eq!(
+        secondary_calls.load(Ordering::SeqCst),
+        CIRCUIT_FAILURE_THRESHOLD - 1
+    );
+    assert_eq!(
+        tertiary_calls.load(Ordering::SeqCst),
+        CIRCUIT_FAILURE_THRESHOLD - 1
+    );
+    assert!(
+        !CHAIN_GUARD.is_circuit_open(),
+        "tier 1 faults must not count toward the primary's breaker"
+    );
+
+    // The third primary fault opens it.
+    chain
+        .complete(&req)
+        .await
+        .expect("the tertiary still answers");
+    assert!(
+        CHAIN_GUARD.is_circuit_open(),
+        "three primary faults open the circuit"
+    );
+
+    // With the circuit open the primary is skipped; the secondary faults and
+    // the tertiary answers — and that success, on tier 2, leaves the circuit
+    // open. Only a primary success may close it.
+    let primary_count_when_open = primary_calls.load(Ordering::SeqCst);
+    chain.complete(&req).await.expect("the tertiary answers");
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        primary_count_when_open
+    );
+    assert!(
+        CHAIN_GUARD.is_circuit_open(),
+        "a later tier's success must not close the primary's circuit"
     );
 
     reset_chain_guard();

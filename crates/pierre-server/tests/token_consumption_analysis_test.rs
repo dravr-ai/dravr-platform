@@ -8,8 +8,8 @@
 #![allow(clippy::cast_possible_wrap)]
 #![allow(missing_docs)]
 
+use embacle::pricing::calculate_cost;
 use pierre_formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
-use pierre_llm::pricing::calculate_cost;
 use pierre_llm::prompts::{
     AGENT_GENERATION_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
 };

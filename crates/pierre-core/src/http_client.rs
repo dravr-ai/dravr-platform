@@ -1,5 +1,5 @@
 // ABOUTME: Shared HTTP client singletons with connection pooling for all outbound requests
-// ABOUTME: Provides api_client (30s) and llm_client (300s) to eliminate duplicate client creation
+// ABOUTME: Provides api_client (30s) and llm_inner_client (300s) to eliminate duplicate client creation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,8 +17,8 @@ use tracing::error;
 ///
 /// A `reqwest::Client` wrapped in `reqwest_middleware` so the `telemetry`
 /// feature can layer trace propagation on without changing this type.
-/// Consumers that store a clone of [`api_client`] / [`llm_client`] should hold
-/// this, not `reqwest::Client`.
+/// Consumers that store a clone of [`api_client`] should hold this, not
+/// `reqwest::Client`.
 pub type SharedHttpClient = ClientWithMiddleware;
 
 /// Request builder produced by [`SharedHttpClient`].
@@ -50,13 +50,8 @@ static API_CLIENT_TIMEOUTS: OnceLock<(u64, u64)> = OnceLock::new();
 /// Global shared HTTP client for data-provider API calls (Strava, Garmin, etc.)
 static API_CLIENT: OnceLock<ClientWithMiddleware> = OnceLock::new();
 
-/// Global shared HTTP client for LLM API calls (Gemini, Groq, `OpenAI`, etc.)
-static LLM_CLIENT: OnceLock<ClientWithMiddleware> = OnceLock::new();
-
-/// Inner `reqwest::Client` backing the LLM pool. Shares the same connection
-/// pool as [`llm_client`] (which is built from a clone of this client) and is
-/// exposed for consumers that require a raw `reqwest::Client` and cannot accept
-/// the middleware wrapper.
+/// The `reqwest::Client` behind every LLM API call. embacle's HTTP providers
+/// take a plain `reqwest::Client`, so this pool is handed out unwrapped.
 static LLM_INNER_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 /// Initialize the API client timeout configuration
@@ -82,23 +77,17 @@ pub fn api_client() -> &'static ClientWithMiddleware {
     })
 }
 
-/// Get the shared HTTP client for LLM API calls
+/// Get the shared `reqwest::Client` for LLM API calls.
 ///
 /// Uses connection pooling with longer timeouts (default: 300s request, 30s connect)
-/// suitable for LLM completion requests that can take minutes.
+/// suitable for LLM completion requests that can take minutes. It is not
+/// middleware-wrapped: embacle's providers accept only a `reqwest::Client`, so
+/// the outbound LLM call is traced by the `llm.request` span its caller opens
+/// rather than by the client middleware `api_client` rides.
 ///
 /// Timeouts are configurable via environment variables:
 /// - `LLM_CONNECT_TIMEOUT_SECS` (default: 30)
 /// - `LLM_REQUEST_TIMEOUT_SECS` (default: 300)
-pub fn llm_client() -> &'static ClientWithMiddleware {
-    LLM_CLIENT.get_or_init(|| wrap_client(llm_inner_client().clone()))
-}
-
-/// Get the raw `reqwest::Client` backing the LLM pool.
-///
-/// Shares the same connection pool and timeouts as [`llm_client`]. Use this for
-/// consumers that require a `reqwest::Client` and cannot accept the
-/// middleware-wrapped [`SharedHttpClient`].
 pub fn llm_inner_client() -> &'static reqwest::Client {
     LLM_INNER_CLIENT.get_or_init(|| {
         let connect_secs = env::var("LLM_CONNECT_TIMEOUT_SECS")

@@ -60,10 +60,10 @@ impl From<RunnerError> for AppError {
     fn from(err: RunnerError) -> Self {
         match err.kind {
             ErrorKind::Internal | ErrorKind::BinaryNotFound => Self::internal(err.message),
-            ErrorKind::ExternalService => Self::external_service("CLI runner", err.message),
+            ErrorKind::ExternalService => Self::external_service("LLM provider", err.message),
             ErrorKind::Timeout => Self::new(
                 ErrorCode::ResourceUnavailable,
-                format!("CLI runner timed out: {}", err.message),
+                format!("LLM provider timed out: {}", err.message),
             ),
             ErrorKind::AuthFailure => Self::auth_invalid(err.message),
             ErrorKind::Config => Self::config(err.message),
@@ -74,6 +74,12 @@ impl From<RunnerError> for AppError {
             ErrorKind::ContextLength => Self::new(
                 ErrorCode::InvalidInput,
                 format!("Prompt exceeds model context window: {}", err.message),
+            ),
+            // Caller-side and permanent: another provider would reject the
+            // same request the same way, so it never falls through a chain.
+            ErrorKind::InvalidRequest => Self::new(
+                ErrorCode::InvalidInput,
+                format!("Provider rejected the request: {}", err.message),
             ),
             ErrorKind::ModelUnavailable => Self::new(
                 ErrorCode::ResourceUnavailable,

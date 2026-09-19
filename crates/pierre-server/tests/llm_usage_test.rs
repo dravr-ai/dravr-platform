@@ -14,19 +14,19 @@
 
 use std::collections::HashMap;
 
+use embacle::pricing::{
+    calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, TokenCounts,
+};
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{ConversationTurnId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_llm::pricing::{
-    calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, PricingOverrideMap,
-    PricingRegistry, TokenCounts,
-};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;
 use pierre_mcp_server::config::admin::repository::SetOverrideParams;
 use pierre_mcp_server::config::admin::{AdminConfigManager, AdminConfigRepository};
+use pierre_services::pricing::{PricingOverrideMap, PricingRegistry};
 
 #[tokio::test]
 async fn test_insert_llm_usage() {
@@ -431,7 +431,7 @@ async fn test_admin_pricing_override() {
 async fn test_admin_pricing_loader_round_trip() {
     // Phase 2 — write a cat_llm_pricing override row, run the loader, then
     // verify GLOBAL_PRICING_REGISTRY returns the overridden price.
-    use pierre_llm::pricing::GLOBAL_PRICING_REGISTRY;
+    use pierre_services::pricing::GLOBAL_PRICING_REGISTRY;
     use pierre_services::pricing_loader;
 
     let db = create_test_db().await.unwrap();

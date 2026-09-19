@@ -1709,9 +1709,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.27.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6a3412ad2c49891b0d34bdaabb31d367652f96f7d5a9d33b067795eababd439"
+checksum = "e9df247ce39904b6af66bc4971d41705509c3754da891994333d9718f9fd8354"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1731,9 +1731,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.27.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15e113a750a47a4b7d43cbe0fd6385b34305625dbfad972eefef83c3d899ccba"
+checksum = "718561e6f8f6cd421b982a094b344b0e1f08c81edb2d248b44183a2fdd3c0145"
 dependencies = [
  "async-trait",
  "axum",
@@ -3685,6 +3685,7 @@ dependencies = [
  "chrono-tz",
  "dravr-contremaitre",
  "dravr-tronc",
+ "embacle",
  "embacle-tool-host",
  "futures-util",
  "jsonschema",
@@ -4013,20 +4014,16 @@ name = "pierre-llm"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "bitflags 2.11.1",
- "bytes",
  "chrono",
  "dravr-contremaitre",
  "embacle",
  "futures-util",
  "pierre-core",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
- "tokio-stream",
  "tracing",
- "uuid",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4430,6 +4427,7 @@ dependencies = [
  "dravr-equilibre",
  "dravr-riviere",
  "dravr-tronc",
+ "embacle",
  "futures-util",
  "hex",
  "pierre-agent-parser",
@@ -4501,6 +4499,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dravr-tronc",
+ "embacle",
  "futures-util",
  "jsonschema",
  "lru",

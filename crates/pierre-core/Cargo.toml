@@ -43,7 +43,7 @@ sqlx-postgres = ["sqlx-types", "sqlx/postgres"]
 # Provider error types (ProviderError with reqwest::Error)
 provider-errors = ["dep:reqwest"]
 
-# Shared HTTP client singletons (api_client, llm_client) and the GCP
+# Shared HTTP client singletons (api_client, llm_inner_client) and the GCP
 # access-token provider built on them (gcp_token, whose TokenProvider trait
 # is async and needs async-trait). reqwest-middleware wraps every shared
 # client so the return type is stable whether or not telemetry is compiled
@@ -114,7 +114,7 @@ async-trait = { version = "0.1", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # Optional: Embacle CLI LLM runner types (standalone library)
-embacle = { version = "0.27.0", optional = true }
+embacle = { version = "0.28.0", optional = true }
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging

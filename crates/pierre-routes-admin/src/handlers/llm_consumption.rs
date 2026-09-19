@@ -32,9 +32,9 @@ use pierre_core::models::usage::{
 };
 use pierre_core::models::{ConversationTurnId, TenantId, TURN_SUMMARY_CALL_TYPE};
 use pierre_database::database::llm_usage::LlmUsageGroupBy;
-use pierre_llm::pricing::cost_for_aggregate;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{tenant::require, MiddlewareCtx, TenantMode};
+use pierre_services::pricing::cost_for_aggregate;
 
 /// Minimum days parameter value
 const MIN_DAYS: u16 = 1;

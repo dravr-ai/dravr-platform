@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::pricing::cost_for_record;
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -13,7 +14,6 @@ use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
-use pierre_llm::pricing::cost_for_record;
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, error, info, warn};

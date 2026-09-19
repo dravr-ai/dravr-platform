@@ -25,8 +25,8 @@ use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::{
-    ChatProvider, ChatRequest, ChatResponse, ChatStream, CliLlmProvider, CopilotSdkConfig,
-    CopilotSdkRunner, HeadlessToolResponse, LlmCapabilities, LlmProvider, ObservedToolCall,
+    ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotSdkConfig, CopilotSdkRunner,
+    EmbacleProvider, HeadlessToolResponse, LlmCapabilities, LlmProvider, ObservedToolCall,
     StreamChunk, Tool,
 };
 use pierre_tool_runtime::protocol::UniversalExecutor;
@@ -105,7 +105,10 @@ fn copilot_sdk_builds_from_env_and_offers_the_turn_provider() {
     ]);
     let provider = Runtime::new()
         .expect("a runtime for the async builder")
-        .block_on(CliLlmProvider::from_env())
+        .block_on(EmbacleProvider::from_provider_type(
+            LlmProviderType::from_env(),
+            None,
+        ))
         .expect("the SDK provider builds without touching the runtime; the client starts lazily");
     drop(env);
 

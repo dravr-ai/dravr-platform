@@ -58,11 +58,11 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{TenantId, UserTier};
 use pierre_database::RepositoryRegistry;
-use pierre_llm::pricing::cost_for_aggregate;
 use pierre_middleware::tenant_path::TenantPath;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
 use pierre_runtime_context::DataContext;
 use pierre_services::admin_ops;
+use pierre_services::pricing::cost_for_aggregate;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 

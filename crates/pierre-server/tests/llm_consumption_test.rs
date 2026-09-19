@@ -7,11 +7,11 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use embacle::pricing::{calculate_cost, calculate_cost_with_cache};
 use pierre_core::models::ConversationTurnId;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_llm::pricing::{calculate_cost, calculate_cost_with_cache};
 
 /// Parameters for inserting test LLM usage data
 struct TestUsageParams<'a> {

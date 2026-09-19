@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for the LLM provider abstraction layer
-// ABOUTME: Tests capabilities, message handling, provider registry, and Gemini implementation
+// ABOUTME: Tests capabilities, message handling, provider registry, and provider-type parsing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,19 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_config::environment::LlmProviderType;
-use pierre_config::types::LlmModelConfig;
-use pierre_llm::{
-    ChatMessage, ChatRequest, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
-    LlmProviderRegistry, MessageRole,
-};
-
-/// Helper to create a test model config
-fn test_model_config() -> LlmModelConfig {
-    LlmModelConfig {
-        default_model: "test-model".to_owned(),
-        fallback_model: "test-model".to_owned(),
-    }
-}
+use pierre_llm::{ChatMessage, ChatRequest, LlmCapabilities, LlmProviderRegistry, MessageRole};
 
 // ============================================================================
 // LlmCapabilities Tests
@@ -103,69 +91,6 @@ fn test_registry_operations() {
 }
 
 // ============================================================================
-// GeminiProvider Tests
-// ============================================================================
-
-#[test]
-fn test_gemini_provider_metadata() {
-    let provider = GeminiProvider::with_config("test-key", &test_model_config());
-    assert_eq!(provider.name(), "gemini");
-    assert_eq!(provider.display_name(), "Google Gemini");
-    assert!(!provider.available_models().is_empty());
-}
-
-#[test]
-fn test_gemini_capabilities() {
-    let provider = GeminiProvider::with_config("test-key", &test_model_config());
-    let caps = provider.capabilities();
-    assert!(caps.supports_streaming());
-    assert!(caps.supports_function_calling());
-    assert!(caps.supports_vision());
-    assert!(caps.supports_system_messages());
-}
-
-#[test]
-fn test_gemini_debug_redacts_api_key() {
-    let provider = GeminiProvider::with_config("super-secret-key", &test_model_config());
-    let debug_output = format!("{provider:?}");
-    assert!(!debug_output.contains("super-secret-key"));
-    assert!(debug_output.contains("[REDACTED]"));
-}
-
-#[test]
-fn test_gemini_with_custom_model() {
-    let config = LlmModelConfig {
-        default_model: "gemini-2.5-pro".to_owned(),
-        fallback_model: "gemini-2.5-pro".to_owned(),
-    };
-    let provider = GeminiProvider::with_config("key", &config);
-    // Check via the trait method since default_model field is private
-    let debug_output = format!("{provider:?}");
-    assert!(debug_output.contains("gemini-2.5-pro"));
-}
-
-// ============================================================================
-// GroqProvider Tests
-// ============================================================================
-
-#[test]
-fn test_groq_provider_metadata() {
-    let provider = GroqProvider::new("test-key".to_owned());
-    assert_eq!(provider.name(), "groq");
-    assert_eq!(provider.display_name(), "Groq (Llama/Mixtral)");
-    assert!(!provider.available_models().is_empty());
-}
-
-#[test]
-fn test_groq_capabilities() {
-    let provider = GroqProvider::new("test-key".to_owned());
-    let caps = provider.capabilities();
-    assert!(caps.supports_streaming());
-    assert!(caps.supports_function_calling());
-    assert!(caps.supports_system_messages());
-}
-
-// ============================================================================
 // LlmProviderType Tests
 // ============================================================================
 
@@ -205,4 +130,27 @@ fn test_llm_provider_type_display() {
 #[test]
 fn test_llm_provider_type_env_var_name() {
     assert_eq!(LlmProviderType::ENV_VAR, "PIERRE_LLM_PROVIDER");
+}
+
+#[test]
+fn test_llm_provider_type_local_aliases() {
+    for alias in ["local", "ollama", "vllm", "localai"] {
+        assert_eq!(
+            LlmProviderType::from_str_or_default(alias),
+            LlmProviderType::Local,
+            "{alias} selects the local OpenAI-compatible provider"
+        );
+    }
+    assert_eq!(LlmProviderType::Local.to_string(), "local");
+}
+
+#[test]
+fn test_llm_provider_type_case_insensitive() {
+    for alias in ["LOCAL", "Ollama", "VLLM", "LocalAI"] {
+        assert_eq!(
+            LlmProviderType::from_str_or_default(alias),
+            LlmProviderType::Local,
+            "{alias} parses regardless of case"
+        );
+    }
 }

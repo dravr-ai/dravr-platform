@@ -121,7 +121,7 @@ pub fn init_server_config() {
         // and tests like messaging_commands_test::test_non_command_passes_through
         // panic. The placeholder is safe ONLY for a suite that calls no model:
         // PIERRE_LLM_MODEL is the highest-priority model override for every
-        // provider (`CliLlmProvider::build_headless` assigns it straight to
+        // provider (`EmbacleProvider::build_headless` assigns it straight to
         // `config.model`), so a suite that does reach one is handed a model id
         // no backend serves. A lane driving real providers must set the value
         // itself and refuse the placeholder — `live_incident_eval_test` does.
@@ -498,7 +498,7 @@ async fn create_test_server_resources_inner(
 /// [`create_test_server_resources_with_chat_provider`] takes a trait object and
 /// wraps it in [`ChatProvider::Custom`], which is right for a mock and wrong for
 /// anything that has to be recognised by variant. The headless tool loop reaches
-/// the Copilot ACP runner through `ChatProvider::as_cli_provider`, and `Custom`
+/// the Copilot ACP runner through `ChatProvider::as_embacle_provider`, and `Custom`
 /// answers `None` to that — so a test handing in a real CLI provider as a trait
 /// object gets "Headless tool loop requires a Copilot turn provider but
 /// provider is not a CLI provider" and silently exercises a different path than

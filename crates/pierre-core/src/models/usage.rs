@@ -70,9 +70,9 @@ pub struct LlmUsageRecord {
     pub tools_called: String,
     /// Execution time in milliseconds
     pub execution_time_ms: Option<i64>,
-    /// USD cost of this LLM call, populated at insert time via
-    /// [`pierre_llm::pricing::calculate_cost`]. Zero when pricing data
-    /// for the (provider, model) pair is not known.
+    /// USD cost of this LLM call, populated at insert time via the
+    /// `pierre_services::pricing` registry over `embacle::pricing`. Zero when
+    /// pricing data for the (provider, model) pair is not known.
     pub cost_usd: f64,
     /// 1-based position of this call within the owning `turn_id`. The
     /// first LLM call of a turn is `1`, the second `2`, and so on.
@@ -286,8 +286,8 @@ pub struct InsertLlmUsage<'a> {
     pub tools_called: &'a str,
     /// Execution time in milliseconds
     pub execution_time_ms: Option<i64>,
-    /// USD cost of this call (caller must precompute via
-    /// `pierre_llm::pricing::calculate_cost`). Zero for unknown models.
+    /// USD cost of this call (caller must precompute via the
+    /// `pierre_services::pricing` registry). Zero for unknown models.
     pub cost_usd: f64,
     /// 1-based position of this LLM call inside the owning turn.
     /// `Some(1)` for the first call, `Some(2)` for the second, etc.

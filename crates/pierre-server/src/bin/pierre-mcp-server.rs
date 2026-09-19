@@ -356,12 +356,6 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
                 required,
                 description: "Default Gemini model name (e.g., gemini-2.0-flash)",
             },
-            EnvValidation {
-                name: "PIERRE_LLM_FALLBACK_MODEL",
-                value: env::var("PIERRE_LLM_FALLBACK_MODEL").ok(),
-                required,
-                description: "Fallback Gemini model name (e.g., gemini-2.0-flash-lite)",
-            },
         ],
         LlmProviderType::Local => vec![EnvValidation {
             name: "LOCAL_LLM_BASE_URL",

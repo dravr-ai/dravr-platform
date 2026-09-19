@@ -14,11 +14,12 @@
 
 use std::sync::Arc;
 
+use embacle::pricing::TokenCounts;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{AddMessageParams, ConversationTurnId, TenantId};
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::repositories::ChatRepository;
-use pierre_llm::pricing::{TokenCounts, GLOBAL_PRICING_REGISTRY};
+use pierre_services::pricing::GLOBAL_PRICING_REGISTRY;
 use pierre_tool_runtime::llm_call_record::{LlmCallRecord, LlmCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolMessageRecorder, ToolRoundRecord};
