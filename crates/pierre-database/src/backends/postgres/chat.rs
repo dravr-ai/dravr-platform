@@ -716,14 +716,19 @@ impl ChatRepository for PostgresDatabase {
         &self,
         limit: i64,
     ) -> AppResult<Vec<ConversationRecord>> {
+        // The same columns `get_conversation` reads, rendered the same way:
+        // the timestamps are TIMESTAMPTZ decoded and written as RFC 3339,
+        // never TO_CHAR'd to a second-precision "Z" form only this listing
+        // would show.
         let rows = sqlx::query(
-            "SELECT id::TEXT, user_id::TEXT, tenant_id::TEXT, title, model, agent_id, session_id, \
-                    total_tokens, TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at, \
-                    TO_CHAR(updated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as updated_at, \
-                    group_id::TEXT, channel_type, onboarding_state \
-             FROM chat_conversations \
-             ORDER BY updated_at DESC \
-             LIMIT $1",
+            r"
+            SELECT id, user_id, tenant_id, title, model, agent_id, session_id,
+                   total_tokens, created_at, updated_at, group_id::TEXT AS group_id,
+                   channel_type, onboarding_state
+            FROM chat_conversations
+            ORDER BY updated_at DESC
+            LIMIT $1
+            ",
         )
         .bind(limit)
         .fetch_all(&self.pool)
@@ -732,6 +737,9 @@ impl ChatRepository for PostgresDatabase {
 
         rows.iter()
             .map(|row| {
+                let created_at: DateTime<Utc> = row.get("created_at");
+                let updated_at: DateTime<Utc> = row.get("updated_at");
+                let user_id_uuid: Uuid = row.get("user_id");
                 // See `get_conversation` — the new column is decoded fallibly so
                 // a type mismatch is an error, not a process abort.
                 let channel_type: String = row
@@ -739,15 +747,15 @@ impl ChatRepository for PostgresDatabase {
                     .map_err(|e| AppError::database(format!("decode channel_type: {e}")))?;
                 Ok(ConversationRecord {
                     id: row.get("id"),
-                    user_id: row.get("user_id"),
+                    user_id: user_id_uuid.to_string(),
                     tenant_id: row.get("tenant_id"),
                     title: row.get("title"),
                     model: row.get("model"),
                     agent_id: row.get("agent_id"),
                     session_id: row.get("session_id"),
                     total_tokens: row.get("total_tokens"),
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
+                    created_at: created_at.to_rfc3339(),
+                    updated_at: updated_at.to_rfc3339(),
                     group_id: row.get("group_id"),
                     channel_type,
                     onboarding_state: row.get("onboarding_state"),

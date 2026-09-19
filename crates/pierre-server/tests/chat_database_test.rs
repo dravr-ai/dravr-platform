@@ -1928,3 +1928,43 @@ async fn test_count_and_delete_all_keep_owner_semantics() {
         .unwrap()
         .is_some());
 }
+
+#[tokio::test]
+async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
+    // The operator console lists the newest conversations across every
+    // tenant. Each row it returns is the same row `get_conversation` returns
+    // to the athlete, rendered the same way on both engines: the timestamps
+    // are RFC 3339 with an offset, as every other conversation read gives
+    // them, and the ids are the strings the athlete's read carries.
+    let fx = open_fixture().await;
+    let tenant_id = test_tenant_id();
+    let created = fx
+        .chat()
+        .create_conversation(fx.athlete(), tenant_id, "Newest", "m", None, None)
+        .await
+        .unwrap();
+    let own_read = fx
+        .chat()
+        .get_conversation(&created.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let listed = fx.chat().get_recent_conversations_admin(5).await.unwrap();
+    let row = listed.iter().find(|c| c.id == created.id).unwrap();
+
+    assert_eq!(row.user_id, own_read.user_id);
+    assert_eq!(row.tenant_id, own_read.tenant_id);
+    assert_eq!(row.title, "Newest");
+    assert_eq!(row.agent_id, None);
+    assert_eq!(row.model, "m");
+    assert_eq!(row.group_id, None);
+    assert_eq!(row.channel_type, own_read.channel_type);
+    assert_eq!(row.created_at, own_read.created_at);
+    assert_eq!(row.updated_at, own_read.updated_at);
+    assert!(
+        chrono::DateTime::parse_from_rfc3339(&row.created_at).is_ok(),
+        "created_at is RFC 3339: {}",
+        row.created_at
+    );
+}
