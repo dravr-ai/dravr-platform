@@ -1,11 +1,12 @@
 // ABOUTME: Repository trait definitions for the chat conversation persistence domain
-// ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
+// ABOUTME: The statements written once with $n placeholders; chat_backend.rs emits the implementation per backend
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use pierre_core::errors::AppResult;
+use chrono::{DateTime, Utc};
+use pierre_core::errors::{AppError, AppResult};
 
 use pierre_core::models::AddMessageParams;
 use pierre_core::models::UpsertMessageFeedbackParams;
@@ -335,4 +336,449 @@ pub trait ChatRepository: Send + Sync {
         conversation_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<ConversationParticipant>>;
+}
+
+/// How many leading characters of the newest row travel with a list row.
+///
+/// The route shapes the preview (marker strip, whitespace collapse, 120
+/// characters); this bound keeps a thread whose last reply is a full training
+/// plan from shipping the whole plan to draw one line. An `i32`, because
+/// Postgres' `SUBSTR` takes an `int4` and `SQLite` takes either.
+pub(crate) const CONTENT_HEAD_CHARS: i32 = 512;
+
+/// The thirteen columns every conversation read returns, in the order
+/// `impl_chat_repository!`'s `conversation_from_row` reads them, aliased
+/// on `c` so the same list serves a joined read and a plain one.
+macro_rules! conversation_columns {
+    () => {
+        "c.id, c.user_id, c.tenant_id, c.title, c.model, c.agent_id, c.session_id, \
+         c.total_tokens, c.created_at, c.updated_at, c.group_id, c.channel_type, \
+         c.onboarding_state"
+    };
+}
+
+/// The ten columns every message read returns.
+macro_rules! message_columns {
+    () => {
+        "m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, \
+         m.model, m.finish_reason, m.content_blocks, m.created_at"
+    };
+}
+
+/// The nine columns every feedback read returns.
+macro_rules! feedback_columns {
+    () => {
+        "id, message_id, conversation_id, user_id, tenant_id, rating, comment, \
+         created_at, updated_at"
+    };
+}
+
+/// The membership predicate every participant-scoped read shares: the
+/// caller has a participant row on the conversation in the conversation's
+/// tenant, and the conversation is either in the caller's tenant or a
+/// group room. `$1` is the conversation, `$2` the caller, `$3` the tenant.
+///
+/// A GROUP row is authorized by the participant row rather than by the
+/// caller's tenant. Every other query in this crate gates on the CALLER's
+/// tenant, and a 1:1 thread still does here. A channel group cannot: its
+/// session and its conversation are stored under the channel/bot tenant on
+/// purpose, because a room's members may span tenants and its
+/// `coaching_group` must resolve to ONE row for all of them
+/// (`messaging_ingress/session.rs`, shipped 543c4c32f). Measured on deployed
+/// dev 2026-09-03: all 14 group conversations sat in the bot tenant and five
+/// of their six owners were not members of it, so every one of those rooms
+/// was invisible in web and mobile while working in Telegram. For a group
+/// row the participant row is the stronger statement anyway — it names this
+/// person on this thread, where a shared tenant only says they are in the
+/// same building. `p.tenant_id = c.tenant_id` keeps a stray cross-tenant
+/// membership from granting anything, and a non-participant still matches
+/// nothing at all. Writes are unchanged and still require the caller's tenant.
+macro_rules! participant_scope {
+    () => {
+        "p.user_id = $2 AND p.tenant_id = c.tenant_id \
+         AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)"
+    };
+}
+
+/// Insert the conversation row. `$n` placeholders throughout this module:
+/// sqlx accepts them on `SQLite` as well as Postgres. Ids the caller holds
+/// as text bind through the backend's codec (`user_id` and `group_id` are
+/// `uuid` columns on Postgres, TEXT on `SQLite`); timestamps bind as
+/// `DateTime<Utc>` on both, which sqlx-sqlite writes as the RFC 3339 text
+/// the columns hold there.
+pub(crate) const CREATE_CONVERSATION_SQL: &str = r"
+    INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, agent_id, group_id, total_tokens, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)";
+
+/// The owner's participant row, written in the same transaction as the
+/// conversation: every read path answers through the membership predicate,
+/// so a conversation without its owner row would be invisible to the
+/// athlete who just opened it.
+pub(crate) const CREATE_OWNER_PARTICIPANT_SQL: &str = r"
+    INSERT INTO conversation_participants (conversation_id, user_id, tenant_id, role, added_by, added_at)
+    VALUES ($1, $2, $3, $4, $2, $5)";
+
+/// One conversation, for a participant.
+pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     WHERE c.id = $1 \
+       AND (c.tenant_id = $3 OR c.group_id IS NOT NULL) \
+       AND EXISTS ( \
+         SELECT 1 FROM conversation_participants p \
+         WHERE p.conversation_id = c.id AND p.user_id = $2 \
+           AND p.tenant_id = c.tenant_id \
+       )"
+);
+
+/// One page of a participant's conversations plus the facts each row shows.
+///
+/// The statement asks the row-level questions inline — count of turns, count
+/// of unread turns, and the newest turn — as correlated scalar subqueries over
+/// `chat_messages`, each served by the `(conversation_id, created_at)` index.
+/// A `GROUP BY` over a `LEFT JOIN chat_messages` counted tool rows and could
+/// not say which row was newest; three scoped subqueries can.
+///
+/// `p` is the caller's own participant row, which is where their read marker
+/// lives: "unread" is a question about one participant, so it is answered
+/// from that row and never from the conversation.
+pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
+    SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
+           c.created_at, c.updated_at, c.group_id,
+           g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
+           (SELECT COUNT(*) FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')) AS message_count,
+           (SELECT COUNT(*) FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)) AS unread_count,
+           (SELECT SUBSTR(m.content, 1, $5) FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_content_head,
+           (SELECT m.role FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_role,
+           (SELECT m.created_at FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_created_at
+    FROM chat_conversations c
+    JOIN conversation_participants p ON p.conversation_id = c.id
+    LEFT JOIN coaching_groups g ON g.id = c.group_id
+    LEFT JOIN agents co ON co.id = c.agent_id
+    WHERE p.user_id = $1
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
+    ORDER BY c.updated_at DESC, c.id DESC
+    LIMIT $3 OFFSET $4";
+
+/// The participant's total — the same membership predicate as the page.
+pub(crate) const COUNT_PARTICIPATING_SQL: &str = r"
+    SELECT COUNT(*)
+    FROM chat_conversations c
+    JOIN conversation_participants p ON p.conversation_id = c.id
+    WHERE p.user_id = $1
+      AND p.tenant_id = c.tenant_id
+      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)";
+
+/// The instant a read marker should advance to, gated on membership.
+///
+/// Answers for a participant only — a stranger gets no row at all, which the
+/// caller reports as `false`. `$4` is the message the athlete has seen; when
+/// it is absent the newest `user`/`assistant` row is the target, and an empty
+/// conversation yields a `NULL` target with the membership row still present.
+pub(crate) const READ_TARGET_SQL: &str = concat!(
+    "SELECT ( \
+        SELECT MAX(m.created_at) FROM chat_messages m \
+        WHERE m.conversation_id = p.conversation_id \
+          AND (($4 IS NULL AND m.role IN ('user', 'assistant')) OR m.id = $4) \
+     ) AS target \
+     FROM conversation_participants p \
+     JOIN chat_conversations c ON c.id = p.conversation_id \
+     WHERE p.conversation_id = $1 AND ",
+    participant_scope!()
+);
+
+/// Advance the marker, never backwards: a stale client re-marking an older
+/// row leaves a newer marker where it is.
+pub(crate) const ADVANCE_READ_MARKER_SQL: &str = r"
+    UPDATE conversation_participants
+    SET last_read_at = $4
+    WHERE conversation_id = $1 AND user_id = $2
+      AND EXISTS (
+        SELECT 1 FROM chat_conversations c
+        WHERE c.id = conversation_participants.conversation_id
+          AND conversation_participants.tenant_id = c.tenant_id
+          AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
+      )
+      AND (last_read_at IS NULL OR last_read_at < $4)";
+
+/// Clear the marker (mark unread).
+pub(crate) const CLEAR_READ_MARKER_SQL: &str = r"
+    UPDATE conversation_participants
+    SET last_read_at = NULL
+    WHERE conversation_id = $1 AND user_id = $2
+      AND EXISTS (
+        SELECT 1 FROM chat_conversations c
+        WHERE c.id = conversation_participants.conversation_id
+          AND conversation_participants.tenant_id = c.tenant_id
+          AND (c.tenant_id = $3 OR c.group_id IS NOT NULL)
+      )";
+
+/// Rename a conversation, for a participant in the caller's tenant.
+pub(crate) const UPDATE_TITLE_SQL: &str = r"
+    UPDATE chat_conversations
+    SET title = $1, updated_at = $2
+    WHERE id = $3 AND tenant_id = $5
+      AND EXISTS (
+        SELECT 1 FROM conversation_participants p
+        WHERE p.conversation_id = chat_conversations.id AND p.user_id = $4 AND p.tenant_id = $5
+      )";
+
+/// Stamp a conversation's channel of origin, for a participant.
+pub(crate) const SET_CHANNEL_SQL: &str = r"
+    UPDATE chat_conversations
+    SET channel_type = $1
+    WHERE id = $2 AND tenant_id = $4
+      AND EXISTS (
+        SELECT 1 FROM conversation_participants p
+        WHERE p.conversation_id = chat_conversations.id AND p.user_id = $3 AND p.tenant_id = $4
+      )";
+
+/// Delete a conversation; owner-only, the messages cascade.
+pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
+    DELETE FROM chat_conversations
+    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
+
+/// Insert a message only when the caller is a participant of the
+/// conversation in this tenant.
+pub(crate) const ADD_MESSAGE_SQL: &str = r"
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12
+    WHERE EXISTS (
+        SELECT 1 FROM chat_conversations c
+        JOIN conversation_participants p ON p.conversation_id = c.id
+        WHERE c.id = $2 AND c.tenant_id = $11 AND p.user_id = $10 AND p.tenant_id = $11
+    )";
+
+/// Touch the conversation and add the message's tokens to its total.
+pub(crate) const BUMP_CONVERSATION_TOKENS_SQL: &str = r"
+    UPDATE chat_conversations
+    SET updated_at = $1, total_tokens = total_tokens + $2
+    WHERE id = $3 AND tenant_id = $4";
+
+/// Touch the conversation.
+pub(crate) const TOUCH_CONVERSATION_SQL: &str = r"
+    UPDATE chat_conversations
+    SET updated_at = $1
+    WHERE id = $2 AND tenant_id = $3";
+
+/// Every message of a conversation, oldest first, for a participant.
+pub(crate) const GET_MESSAGES_SQL: &str = concat!(
+    "SELECT ",
+    message_columns!(),
+    " FROM chat_messages m \
+     JOIN chat_conversations c ON m.conversation_id = c.id \
+     JOIN conversation_participants p ON p.conversation_id = c.id \
+     WHERE m.conversation_id = $1 AND ",
+    participant_scope!(),
+    " ORDER BY m.created_at ASC"
+);
+
+/// The newest `$4` messages of a conversation, newest first, for a
+/// participant; the caller reverses them.
+pub(crate) const GET_RECENT_MESSAGES_SQL: &str = concat!(
+    "SELECT ",
+    message_columns!(),
+    " FROM chat_messages m \
+     JOIN chat_conversations c ON m.conversation_id = c.id \
+     JOIN conversation_participants p ON p.conversation_id = c.id \
+     WHERE m.conversation_id = $1 AND ",
+    participant_scope!(),
+    " ORDER BY m.created_at DESC, m.id DESC \
+     LIMIT $4"
+);
+
+/// How many messages a conversation holds, for a participant.
+pub(crate) const MESSAGE_COUNT_SQL: &str = concat!(
+    "SELECT COUNT(*) \
+     FROM chat_messages m \
+     JOIN chat_conversations c ON m.conversation_id = c.id \
+     JOIN conversation_participants p ON p.conversation_id = c.id \
+     WHERE m.conversation_id = $1 AND ",
+    participant_scope!()
+);
+
+/// Insert keyed on (`message_id`, `user_id`); on a repeat rating, overwrite the
+/// rating + comment and bump `updated_at`. The WHERE EXISTS gate lands the row
+/// only when the message belongs to a conversation the caller participates
+/// in, in this tenant — a forged `message_id` never inserts.
+pub(crate) const UPSERT_FEEDBACK_SQL: &str = r"
+    INSERT INTO chat_message_feedback
+        (id, message_id, conversation_id, user_id, tenant_id, rating, comment, created_at, updated_at)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $8
+    WHERE EXISTS (
+        SELECT 1 FROM chat_messages m
+        JOIN chat_conversations c ON m.conversation_id = c.id
+        JOIN conversation_participants p ON p.conversation_id = c.id
+        WHERE m.id = $2 AND m.conversation_id = $3 AND p.user_id = $4 AND p.tenant_id = $5 AND c.tenant_id = $5
+    )
+    ON CONFLICT (message_id, user_id) DO UPDATE SET
+        rating = EXCLUDED.rating,
+        comment = EXCLUDED.comment,
+        updated_at = EXCLUDED.updated_at";
+
+/// The caller's feedback on one message: the canonical row, read back after
+/// an upsert because on conflict the stored id and `created_at` stay the
+/// original values.
+pub(crate) const GET_FEEDBACK_SQL: &str = concat!(
+    "SELECT ",
+    feedback_columns!(),
+    " FROM chat_message_feedback \
+     WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3"
+);
+
+/// Delete the caller's feedback on a message (thumbs toggle-off).
+pub(crate) const DELETE_FEEDBACK_SQL: &str = r"
+    DELETE FROM chat_message_feedback
+    WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3";
+
+/// All of the caller's feedback rows for a conversation.
+pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
+    "SELECT ",
+    feedback_columns!(),
+    " FROM chat_message_feedback \
+     WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3"
+);
+
+/// A user's own conversations in a tenant (owner semantics).
+pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
+    SELECT COUNT(*)
+    FROM chat_conversations
+    WHERE user_id = $1 AND tenant_id = $2";
+
+/// Delete a user's own conversations in a tenant (account cleanup).
+pub(crate) const DELETE_USER_CONVERSATIONS_SQL: &str = r"
+    DELETE FROM chat_conversations
+    WHERE user_id = $1 AND tenant_id = $2";
+
+/// The newest conversations across every tenant, for the operator console.
+pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     ORDER BY c.updated_at DESC \
+     LIMIT $1"
+);
+
+/// Conversations touched since an instant, across every tenant.
+pub(crate) const COUNT_ACTIVE_SINCE_SQL: &str =
+    "SELECT COUNT(*) FROM chat_conversations WHERE updated_at >= $1";
+
+/// Bind a conversation to its messaging session.
+pub(crate) const SET_SESSION_ID_SQL: &str = r"
+    UPDATE chat_conversations
+    SET session_id = $1
+    WHERE id = $2 AND tenant_id = $3";
+
+/// Replace the onboarding state unconditionally.
+pub(crate) const SET_ONBOARDING_STATE_SQL: &str = r"
+    UPDATE chat_conversations
+    SET onboarding_state = $1
+    WHERE id = $2 AND tenant_id = $3";
+
+/// Replace the onboarding state only when it still holds `$4`. `IS NOT
+/// DISTINCT FROM` is the NULL-safe equality both engines share: a
+/// conversation that carried no state matches only an absent `expected`,
+/// never any stored JSON.
+pub(crate) const CAS_ONBOARDING_STATE_SQL: &str = r"
+    UPDATE chat_conversations
+    SET onboarding_state = $1
+    WHERE id = $2 AND tenant_id = $3
+      AND onboarding_state IS NOT DISTINCT FROM $4";
+
+/// A user's onboarding states, newest activity first.
+pub(crate) const LIST_ONBOARDING_STATES_SQL: &str = r"
+    SELECT onboarding_state
+    FROM chat_conversations
+    WHERE user_id = $1 AND tenant_id = $2 AND onboarding_state IS NOT NULL
+    ORDER BY updated_at DESC
+    LIMIT $3";
+
+/// Bind a conversation to a coaching group, or unbind it.
+pub(crate) const SET_GROUP_ID_SQL: &str = r"
+    UPDATE chat_conversations
+    SET group_id = $1
+    WHERE id = $2 AND tenant_id = $3";
+
+/// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on
+/// both backends — agent ids are slugs, not uuids — so unlike `group_id`
+/// there is nothing to parse.
+pub(crate) const SET_AGENT_ID_SQL: &str = r"
+    UPDATE chat_conversations
+    SET agent_id = $1
+    WHERE id = $2 AND tenant_id = $3";
+
+/// Add a member, idempotently. `ON CONFLICT DO NOTHING` keeps an existing
+/// row (the owner's included) untouched; the WHERE EXISTS gate refuses a
+/// conversation outside this tenant instead of writing a dangling
+/// membership.
+pub(crate) const ADD_PARTICIPANT_SQL: &str = r"
+    INSERT INTO conversation_participants
+        (conversation_id, user_id, tenant_id, role, added_by, added_at)
+    SELECT $1, $2, $3, $4, $5, $6
+    WHERE EXISTS (
+        SELECT 1 FROM chat_conversations WHERE id = $1 AND tenant_id = $3
+    )
+    ON CONFLICT (conversation_id, user_id) DO NOTHING";
+
+/// One membership row.
+pub(crate) const GET_PARTICIPANT_SQL: &str = r"
+    SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
+    FROM conversation_participants
+    WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3";
+
+/// Remove a member; the owner's row is never removed.
+pub(crate) const REMOVE_PARTICIPANT_SQL: &str = r"
+    DELETE FROM conversation_participants
+    WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3 AND role = $4";
+
+/// Every participant of a conversation, owner first.
+pub(crate) const LIST_PARTICIPANTS_SQL: &str = r"
+    SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
+    FROM conversation_participants
+    WHERE conversation_id = $1 AND tenant_id = $2
+    ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, added_at ASC, user_id ASC";
+
+/// The error one column read raises.
+pub(crate) fn chat_column_error(column: &str, e: &sqlx::Error) -> AppError {
+    AppError::database(format!("chat column {column}: {e}"))
+}
+
+/// Read a timestamp column of either backend in the RFC 3339 text the wire
+/// DTOs carry: a TIMESTAMPTZ on Postgres, RFC 3339 text on `SQLite` that
+/// sqlx parses and this renders again — the same text, for a value this
+/// repository wrote.
+///
+/// # Errors
+/// Returns a database error naming the column when it cannot be decoded.
+pub(crate) fn stamp_column<R>(row: &R, column: &str) -> AppResult<String>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let at: DateTime<Utc> = row
+        .try_get(column)
+        .map_err(|e| chat_column_error(column, &e))?;
+    Ok(at.to_rfc3339())
+}
+
+/// Parse the RFC 3339 instant a caller hands the repository as text.
+///
+/// # Errors
+/// Returns an invalid-input error when the text is not an RFC 3339 instant.
+pub(crate) fn instant_from_rfc3339(since: &str) -> AppResult<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(since)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{since}': {e}")))
 }

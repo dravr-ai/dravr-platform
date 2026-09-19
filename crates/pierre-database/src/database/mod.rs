@@ -148,10 +148,8 @@ pub mod test_utils;
 pub use agents::{
     Agent, AgentCategory, CreateAgentRequest, ListAgentsFilter, PublishStatus, UpdateAgentRequest,
 };
-pub use chat::{
-    AddMessageParams, ChatManager, ConversationPage, ConversationParticipant, ConversationRecord,
-    ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
-};
+// The chat DTOs are canonical in pierre-core; re-exported here for the crates
+// that reach them by this path.
 pub use errors::{DatabaseError, DatabaseResult};
 pub use mobility::{
     ActivityMuscleMapping, DifficultyLevel, ListStretchingFilter, ListYogaFilter, MobilityManager,
@@ -159,6 +157,10 @@ pub use mobility::{
 };
 pub use oauth_notifications::OAuthNotification;
 pub use pierre_core::models::a2a::{A2AUsage, A2AUsageStats};
+pub use pierre_core::models::{
+    AddMessageParams, ConversationPage, ConversationParticipant, ConversationRecord,
+    ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
+};
 pub use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };
@@ -2273,229 +2275,6 @@ impl Database {
                 }))
             },
         )
-    }
-
-    // ================================
-    // Chat Conversations & Messages
-    // ================================
-
-    /// Create a new conversation (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database insert fails.
-    pub async fn chat_create_conversation_impl(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-        title: &str,
-        model: &str,
-        agent_id: Option<&str>,
-        group_id: Option<&str>,
-    ) -> AppResult<ConversationRecord> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .create_conversation(user_id, tenant_id, title, model, agent_id, group_id)
-            .await
-    }
-
-    /// Get a conversation by ID (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_get_conversation_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<ConversationRecord>> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .get_conversation(conversation_id, user_id, tenant_id)
-            .await
-    }
-
-    /// Update conversation title (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
-    pub async fn chat_update_conversation_title_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-        title: &str,
-    ) -> AppResult<bool> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .update_conversation_title(conversation_id, user_id, tenant_id, title)
-            .await
-    }
-
-    /// Stamp a conversation's channel of origin (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database update fails.
-    pub async fn chat_set_conversation_channel_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-        channel_type: &str,
-    ) -> AppResult<bool> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .set_conversation_channel(conversation_id, user_id, tenant_id, channel_type)
-            .await
-    }
-
-    /// Delete a conversation (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database delete fails.
-    pub async fn chat_delete_conversation_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .delete_conversation(conversation_id, user_id, tenant_id)
-            .await
-    }
-
-    /// Add a message to a conversation (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database insert fails.
-    pub async fn chat_add_message_impl(
-        &self,
-        params: &AddMessageParams<'_>,
-    ) -> AppResult<MessageRecord> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager.add_message(params).await
-    }
-
-    /// Get all messages for a conversation (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_get_messages_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<MessageRecord>> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .get_messages(conversation_id, user_id, tenant_id)
-            .await
-    }
-
-    /// Get recent messages (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_get_recent_messages_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-        limit: i64,
-    ) -> AppResult<Vec<MessageRecord>> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .get_recent_messages(conversation_id, user_id, tenant_id, limit)
-            .await
-    }
-
-    /// Get message count (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_get_message_count_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<i64> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .get_message_count(conversation_id, user_id, tenant_id)
-            .await
-    }
-
-    /// Upsert message feedback (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails, or `NotFound` if the
-    /// caller does not own the message's conversation.
-    pub async fn chat_upsert_message_feedback_impl(
-        &self,
-        params: &UpsertMessageFeedbackParams<'_>,
-    ) -> AppResult<MessageFeedbackRecord> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager.upsert_message_feedback(params).await
-    }
-
-    /// Delete message feedback (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database delete fails.
-    pub async fn chat_delete_message_feedback_impl(
-        &self,
-        message_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .delete_message_feedback(message_id, user_id, tenant_id)
-            .await
-    }
-
-    /// Get a conversation's feedback rows (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_get_conversation_feedback_impl(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<MessageFeedbackRecord>> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .get_conversation_feedback(conversation_id, user_id, tenant_id)
-            .await
-    }
-
-    /// Count conversations for a user (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_count_conversations_impl(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<i64> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager.count_conversations(user_id, tenant_id).await
-    }
-
-    /// Delete all conversations for a user (impl for trait)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails.
-    pub async fn chat_delete_all_user_conversations_impl(
-        &self,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<i64> {
-        let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .delete_all_user_conversations(user_id, tenant_id)
-            .await
     }
 }
 
