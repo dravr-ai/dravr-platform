@@ -84,13 +84,13 @@ impl MobilityManager {
         }
         if let Some(ref muscle) = filter.muscle_group {
             conditions.push("(primary_muscles LIKE ? OR secondary_muscles LIKE ?)".to_owned());
-            let pattern = format!("%\"{muscle}\"");
+            let pattern = format!("%\"{muscle}\"%");
             bind_values.push(pattern.clone());
             bind_values.push(pattern);
         }
         if let Some(ref activity) = filter.activity_type {
             conditions.push("recommended_for_activities LIKE ?".to_owned());
-            bind_values.push(format!("%\"{activity}\""));
+            bind_values.push(format!("%\"{activity}\"%"));
         }
 
         let where_clause = if conditions.is_empty() {
@@ -252,17 +252,17 @@ impl MobilityManager {
         }
         if let Some(ref muscle) = filter.muscle_group {
             conditions.push("(primary_muscles LIKE ? OR secondary_muscles LIKE ?)".to_owned());
-            let pattern = format!("%\"{muscle}\"");
+            let pattern = format!("%\"{muscle}\"%");
             bind_values.push(pattern.clone());
             bind_values.push(pattern);
         }
         if let Some(ref activity) = filter.activity_type {
             conditions.push("recommended_for_activities LIKE ?".to_owned());
-            bind_values.push(format!("%\"{activity}\""));
+            bind_values.push(format!("%\"{activity}\"%"));
         }
         if let Some(ref recovery) = filter.recovery_context {
             conditions.push("recommended_for_recovery LIKE ?".to_owned());
-            bind_values.push(format!("%\"{recovery}\""));
+            bind_values.push(format!("%\"{recovery}\"%"));
         }
 
         let where_clause = if conditions.is_empty() {

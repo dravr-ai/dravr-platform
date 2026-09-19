@@ -271,14 +271,14 @@ impl MobilityRepository for PostgresDatabase {
             conditions.push(format!(
                 "(primary_muscles ILIKE ${p1} OR secondary_muscles ILIKE ${p2})"
             ));
-            let pattern = format!("%\"{muscle}\"");
+            let pattern = format!("%\"{muscle}\"%");
             bind_values.push(pattern.clone());
             bind_values.push(pattern);
         }
         if let Some(ref activity) = filter.activity_type {
             bind_count += 1;
             conditions.push(format!("recommended_for_activities ILIKE ${bind_count}"));
-            bind_values.push(format!("%\"{activity}\""));
+            bind_values.push(format!("%\"{activity}\"%"));
         }
 
         let where_clause = if conditions.is_empty() {
@@ -431,19 +431,19 @@ impl MobilityRepository for PostgresDatabase {
             conditions.push(format!(
                 "(primary_muscles ILIKE ${p1} OR secondary_muscles ILIKE ${p2})"
             ));
-            let pattern = format!("%\"{muscle}\"");
+            let pattern = format!("%\"{muscle}\"%");
             bind_values.push(pattern.clone());
             bind_values.push(pattern);
         }
         if let Some(ref activity) = filter.activity_type {
             bind_count += 1;
             conditions.push(format!("recommended_for_activities ILIKE ${bind_count}"));
-            bind_values.push(format!("%\"{activity}\""));
+            bind_values.push(format!("%\"{activity}\"%"));
         }
         if let Some(ref recovery) = filter.recovery_context {
             bind_count += 1;
             conditions.push(format!("recommended_for_recovery ILIKE ${bind_count}"));
-            bind_values.push(format!("%\"{recovery}\""));
+            bind_values.push(format!("%\"{recovery}\"%"));
         }
 
         let where_clause = if conditions.is_empty() {
