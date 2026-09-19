@@ -295,6 +295,16 @@ impl CreateAdminTokenRequest {
     }
 }
 
+/// Service-name prefix of the super-admin token a device login mints.
+///
+/// The rest of the name is the email of the super-admin who approved the
+/// login in the browser, so the token carries an operator identity: a route
+/// whose audit row must name a *user* (`admin_config_overrides.created_by`
+/// references `users`) resolves that email, where a plain service token
+/// names no one. Written once here and read by the device grant and by
+/// [`ValidatedAdminToken::device_cli_operator_email`], never spelled twice.
+pub const DEVICE_CLI_SERVICE_PREFIX: &str = "device-cli:";
+
 /// Generated admin token response
 #[derive(Debug, Clone, Serialize)]
 pub struct GeneratedAdminToken {
@@ -494,6 +504,14 @@ pub struct ValidatedAdminToken {
 }
 
 impl ValidatedAdminToken {
+    /// The email of the super-admin who approved this token's device login,
+    /// when the token was minted by one (see [`DEVICE_CLI_SERVICE_PREFIX`]);
+    /// `None` for every other admin token.
+    #[must_use]
+    pub fn device_cli_operator_email(&self) -> Option<&str> {
+        self.service_name.strip_prefix(DEVICE_CLI_SERVICE_PREFIX)
+    }
+
     /// Check if the token has the required permission.
     ///
     /// Super admin tokens bypass permission checks.

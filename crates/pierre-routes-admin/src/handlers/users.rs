@@ -885,13 +885,14 @@ pub(crate) async fn handle_clear_user_tier_override(
 /// Resolve the acting operator's user id for the `allowed_by` audit column.
 ///
 /// A device-login token names the approving super-admin in its service name
-/// (`device-cli:<email>`, minted by the RFC 8628 token endpoint), and that is
+/// (`DEVICE_CLI_SERVICE_PREFIX` + email, minted by the RFC 8628 token
+/// endpoint), and that is
 /// the identity behind every `pierre-cli user allow`. Any other admin token is
 /// a service rather than a person, so `allowed_by` stays NULL — the column is
 /// nullable for exactly that case, and attributing a service's allow to some
 /// arbitrary admin account would fabricate an audit trail.
 async fn operator_user_id(repos: &RepositoryRegistry, token: &ValidatedAdminToken) -> Option<Uuid> {
-    let email = token.service_name.strip_prefix("device-cli:")?;
+    let email = token.device_cli_operator_email()?;
     match repos.users.get_by_email(email).await {
         Ok(user) => user.map(|u| u.id),
         Err(e) => {

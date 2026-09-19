@@ -25,11 +25,13 @@ use pierre_config::admin_types::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::require_admin;
+use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_runtime_context::ConfigLookupScope;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::info;
+use uuid::Uuid;
 
 /// Shared state for admin config routes
 #[derive(Clone)]
@@ -38,16 +40,36 @@ pub struct AdminConfigState {
     pub service: Arc<AdminConfigService>,
     /// Server resources for authentication
     pub resources: Arc<ServerContext>,
+    /// Validator for admin tokens — what `pierre-cli` holds after `auth login`.
+    pub admin_auth: AdminAuthService,
 }
 
 impl AdminConfigState {
     /// Create new admin config state
     #[must_use]
-    pub const fn new(service: Arc<AdminConfigService>, resources: Arc<ServerContext>) -> Self {
-        Self { service, resources }
+    pub const fn new(
+        service: Arc<AdminConfigService>,
+        resources: Arc<ServerContext>,
+        admin_auth: AdminAuthService,
+    ) -> Self {
+        Self {
+            service,
+            resources,
+            admin_auth,
+        }
     }
 
-    /// Authenticate user from authorization header or cookie, requiring admin privileges
+    /// Authenticate the caller, requiring admin privileges.
+    ///
+    /// Two credentials reach these routes. The admin console sends the
+    /// operator's own session (a user JWT, in the header or the `auth_token`
+    /// cookie). `pierre-cli` sends the super-admin *admin token* its device
+    /// login minted, which names no user by itself — so it is accepted only
+    /// when it carries the approving super-admin's email
+    /// ([`ValidatedAdminToken::device_cli_operator_email`]), resolved here to
+    /// the user every write is audited as. A service token minted by `token
+    /// generate` names no operator and is refused, whatever its permissions:
+    /// `admin_config_overrides.created_by` references `users`.
     async fn authenticate_admin(&self, headers: &HeaderMap) -> Result<AdminAuthInfo, AppError> {
         let auth_value =
             if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
@@ -60,21 +82,70 @@ impl AdminConfigState {
                 ));
             };
 
-        let auth = self
+        let user_id = match self
             .resources
             .auth
             .auth_middleware
             .authenticate_request(Some(&auth_value))
             .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
+        {
+            Ok(auth) => auth.user_id,
+            Err(user_jwt_error) => {
+                self.device_login_operator(&auth_value)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::auth_invalid(format!("Authentication failed: {user_jwt_error}"))
+                    })?
+            }
+        };
 
         // Verify admin privileges using centralized guard
-        let user = require_admin(auth.user_id, &self.resources.common.repos.users).await?;
+        let user = require_admin(user_id, &self.resources.common.repos.users).await?;
 
         Ok(AdminAuthInfo {
-            user_id: auth.user_id.to_string(),
+            user_id: user_id.to_string(),
             email: user.email,
         })
+    }
+
+    /// The super-admin behind a device-login admin token, or `None` when the
+    /// bearer is not an admin token at all (so the user-JWT error stands).
+    ///
+    /// # Errors
+    ///
+    /// An admin token that validates but is not super-admin, or names no
+    /// operator, is refused outright rather than falling through: the caller
+    /// did hold a real credential, and the message says what it lacks.
+    async fn device_login_operator(&self, auth_value: &str) -> AppResult<Option<Uuid>> {
+        let Some(token) = auth_value.strip_prefix("Bearer ") else {
+            return Ok(None);
+        };
+        let Ok(validated) = self.admin_auth.authenticate(token, None).await else {
+            return Ok(None);
+        };
+        if !validated.is_super_admin {
+            return Err(AppError::auth_invalid(
+                "Admin token is not super-admin; admin config needs a super-admin device login",
+            ));
+        }
+        let Some(email) = validated.device_cli_operator_email() else {
+            return Err(AppError::auth_invalid(
+                "Admin token names no operator; admin config writes are audited per user, so sign in with `pierre-cli auth login`",
+            ));
+        };
+        let operator = self
+            .resources
+            .common
+            .repos
+            .users
+            .get_by_email(email)
+            .await?
+            .ok_or_else(|| {
+                AppError::auth_invalid(
+                    "The super-admin who approved this device login no longer exists",
+                )
+            })?;
+        Ok(Some(operator.id))
     }
 }
 

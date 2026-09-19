@@ -783,6 +783,9 @@ impl ProviderToolRouter {
             // types (`ToolSelectionService`, `ToolRegistry`) and so are
             // mounted alongside the admin route group rather than baked into it.
             let auth_service = admin_context.auth_service.clone();
+            // The config routes take the same validator: `pierre-cli config`
+            // arrives with the admin token its device login minted.
+            let admin_auth_for_config = admin_context.auth_service.clone();
             let tool_selection_routes = ToolSelectionRoutes::routes(ToolSelectionContext {
                 tool_selection: resources.mcp.tool_selection.clone(),
             })
@@ -811,6 +814,7 @@ impl ProviderToolRouter {
                     let admin_config_state = Arc::new(AdminConfigState::new(
                         Arc::clone(admin_config),
                         Arc::clone(resources),
+                        admin_auth_for_config.clone(),
                     ));
                     admin_config_router(admin_config_state)
                 },

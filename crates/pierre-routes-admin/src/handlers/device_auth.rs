@@ -37,7 +37,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::info;
 
-use pierre_core::admin::models::{CreateAdminTokenRequest, ValidatedAdminToken};
+use pierre_core::admin::models::{
+    CreateAdminTokenRequest, ValidatedAdminToken, DEVICE_CLI_SERVICE_PREFIX,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::DeviceAuthorization;
 
@@ -292,7 +294,8 @@ async fn mint_approved_token(
     }
 
     let approver = approved_by.unwrap_or_else(|| "unknown".to_owned());
-    let request = CreateAdminTokenRequest::super_admin(format!("device-cli:{approver}"));
+    let request =
+        CreateAdminTokenRequest::super_admin(format!("{DEVICE_CLI_SERVICE_PREFIX}{approver}"));
     let minted = context
         .repos
         .admin
