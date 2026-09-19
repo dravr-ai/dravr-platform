@@ -1,8 +1,10 @@
 // ABOUTME: PlaybookRepository trait — persistence for procedural coaching memory (playbooks + pending advice)
-// ABOUTME: Dual SQLite/Postgres impls live in database/ and backends/postgres/. Tenant-scoped except where noted.
+// ABOUTME: Statements, row parsers and the impl body both backends emit; tenant-scoped except where noted.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+
+use std::cmp::Ordering;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -11,6 +13,7 @@ use pierre_memory::playbooks::{
     wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Intervention, LabelSource, MetricBaseline,
     OutcomeLabel, OutcomeMetric, PendingAdvice, Playbook, TriggerPattern,
 };
+use sqlx::Row;
 use uuid::Uuid;
 
 /// A freshly-observed outcome to fold into a playbook's counters.
@@ -419,3 +422,663 @@ pub(crate) fn pending_advice_from_row(row: PendingAdviceRow) -> AppResult<Pendin
         created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
     })
 }
+
+/// Upper bound on rows pulled for a single user's playbook list before the
+/// Rust-side confidence sort. A user accrues at most one playbook per distinct
+/// `(trigger, intervention)` pair, so this never truncates a real working set.
+pub(crate) const PLAYBOOK_FETCH_CEILING: i64 = 500;
+
+/// Wide SQL prefilter ceiling for archetype priors before the Rust confidence
+/// re-sort. Fetching by raw success count then re-ranking by Wilson confidence
+/// (and only then truncating to the caller's limit) keeps a high-confidence,
+/// lower-count prior from being dropped by the SQL `LIMIT`.
+pub(crate) const ARCHETYPE_PRIOR_FETCH_CEILING: i64 = 500;
+
+/// The `coaching_playbooks` counter upsert, returning the surviving row's id
+/// (the new id on insert, the existing one on conflict). Shared by
+/// `record_playbook_outcome` and `record_outcome_and_label` so the atomic
+/// `ON CONFLICT` increment is written once.
+///
+/// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
+/// Postgres, and every bind on these tables is a plain `&str`/`i64`, so one
+/// statement serves both backends. The increments name the target table:
+/// Postgres rejects the bare column as ambiguous against `excluded`, and
+/// `SQLite` accepts the qualified form. `RETURNING` is likewise common to
+/// both engines.
+pub(crate) const UPSERT_OUTCOME_SQL: &str = r"
+    INSERT INTO coaching_playbooks (
+        id, tenant_id, user_id, agent_slug, trigger_hash, intervention_hash,
+        trigger_json, intervention_json, outcome_metric_json,
+        success_count, failure_count, neutral_count, last_outcome_at, created_at, updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    ON CONFLICT(tenant_id, user_id, agent_slug, trigger_hash, intervention_hash)
+    DO UPDATE SET
+        success_count = coaching_playbooks.success_count + excluded.success_count,
+        failure_count = coaching_playbooks.failure_count + excluded.failure_count,
+        neutral_count = coaching_playbooks.neutral_count + excluded.neutral_count,
+        last_outcome_at = excluded.last_outcome_at,
+        updated_at = excluded.updated_at
+    RETURNING id
+";
+
+/// Mark one advice row labeled and back-link it to its playbook.
+pub(crate) const MARK_ADVICE_LABELED_SQL: &str = r"
+            UPDATE pending_advice
+            SET status = 'labeled', label = $1, label_source = $2, playbook_id = $3
+            WHERE id = $4 AND tenant_id = $5
+            ";
+
+/// The thirteen columns every playbook read returns, in the order
+/// [`playbook_row`] reads them.
+macro_rules! playbook_columns {
+    () => {
+        "id, tenant_id, user_id, agent_slug, trigger_json, intervention_json, \
+         outcome_metric_json, success_count, failure_count, neutral_count, \
+         last_outcome_at, created_at, updated_at"
+    };
+}
+
+/// A user's playbooks for one agent plus the agent-agnostic ones, most
+/// recently updated first, up to the prefilter ceiling.
+pub(crate) const LIST_PLAYBOOKS_SQL: &str = concat!(
+    "
+            SELECT ",
+    playbook_columns!(),
+    "
+            FROM coaching_playbooks
+            WHERE tenant_id = $1 AND user_id = $2 AND (agent_slug = $3 OR agent_slug = '')
+            ORDER BY updated_at DESC
+            LIMIT $4
+            "
+);
+
+/// Every playbook of a user across agent scopes, most recently updated
+/// first, up to the prefilter ceiling.
+pub(crate) const LIST_ALL_USER_PLAYBOOKS_SQL: &str = concat!(
+    "
+            SELECT ",
+    playbook_columns!(),
+    "
+            FROM coaching_playbooks
+            WHERE tenant_id = $1 AND user_id = $2
+            ORDER BY updated_at DESC
+            LIMIT $3
+            "
+);
+
+/// Insert an advice row only when no identical advice is already in flight,
+/// so an agent reaffirming the same recommendation across turns cannot
+/// enqueue two rows that both later record the same outcome.
+pub(crate) const INSERT_PENDING_ADVICE_SQL: &str = r"
+            INSERT INTO pending_advice (
+                id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
+                intervention_json, outcome_metric_json, baseline_json, due_by,
+                status, label, label_source, source_msg_id, created_at
+            )
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pending_advice
+                WHERE tenant_id = $2 AND user_id = $3 AND agent_slug = $4
+                  AND trigger_json = $6 AND intervention_json = $7
+                  AND status = 'pending'
+            )
+            ";
+
+/// Pending advice whose observation window has closed, oldest first: the
+/// background evaluator's cross-tenant scan.
+pub(crate) const DUE_PENDING_ADVICE_SQL: &str = r"
+            SELECT id, tenant_id, user_id, agent_slug, playbook_id, trigger_json,
+                   intervention_json, outcome_metric_json, baseline_json, due_by,
+                   status, label, label_source, source_msg_id, created_at
+            FROM pending_advice
+            WHERE status = 'pending' AND due_by <= $1
+            ORDER BY due_by ASC
+            LIMIT $2
+            ";
+
+/// Expire one advice row.
+pub(crate) const MARK_ADVICE_EXPIRED_SQL: &str =
+    "UPDATE pending_advice SET status = 'expired' WHERE id = $1 AND tenant_id = $2";
+
+/// The lean projection the archetype aggregation job groups in memory,
+/// across every tenant.
+pub(crate) const AGGREGATE_PLAYBOOK_ROWS_SQL: &str = r"
+            SELECT user_id, trigger_hash, intervention_hash, trigger_json,
+                   intervention_json, success_count, failure_count
+            FROM coaching_playbooks
+            ORDER BY id
+            LIMIT $1
+            ";
+
+/// Replace an archetype prior's aggregate counts wholesale.
+pub(crate) const UPSERT_ARCHETYPE_PRIOR_SQL: &str = r"
+            INSERT INTO archetype_priors (
+                archetype_key, trigger_hash, intervention_hash, trigger_json,
+                intervention_json, success_count, failure_count, distinct_user_count, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT(archetype_key, trigger_hash, intervention_hash)
+            DO UPDATE SET
+                success_count = excluded.success_count,
+                failure_count = excluded.failure_count,
+                distinct_user_count = excluded.distinct_user_count,
+                trigger_json = excluded.trigger_json,
+                intervention_json = excluded.intervention_json,
+                updated_at = excluded.updated_at
+            ";
+
+/// Drop one archetype prior bucket.
+pub(crate) const DELETE_ARCHETYPE_PRIOR_SQL: &str = r"DELETE FROM archetype_priors
+              WHERE archetype_key = $1 AND trigger_hash = $2 AND intervention_hash = $3";
+
+/// The archetype-prior read for a set of buckets, with `IN (...)` holding one
+/// `$n` placeholder per key and the prefilter ceiling as the final one. Only
+/// the placeholder list is built dynamically; every value stays bound.
+pub(crate) fn list_archetype_priors_sql(key_count: usize) -> String {
+    let placeholders = (1..=key_count)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ceiling_ph = key_count + 1;
+    format!(
+        r"
+            SELECT archetype_key, trigger_json, intervention_json,
+                   success_count, failure_count, distinct_user_count
+            FROM archetype_priors
+            WHERE archetype_key IN ({placeholders})
+            ORDER BY success_count DESC
+            LIMIT ${ceiling_ph}
+            "
+    )
+}
+
+/// Purge the pending advice that would re-materialise a playbook being
+/// forgotten: advice carries its own agent slug, trigger and intervention and
+/// is decoupled from `playbook_id`, so on maturation its upsert would
+/// re-insert the playbook.
+pub(crate) const PURGE_PLAYBOOK_ADVICE_SQL: &str = r"
+            DELETE FROM pending_advice
+            WHERE tenant_id = $1 AND user_id = $2
+              AND (agent_slug, trigger_json, intervention_json) IN (
+                  SELECT agent_slug, trigger_json, intervention_json
+                  FROM coaching_playbooks
+                  WHERE tenant_id = $1 AND user_id = $2 AND id = $3
+              )
+            ";
+
+/// Delete one of a user's playbooks.
+pub(crate) const DELETE_PLAYBOOK_SQL: &str =
+    "DELETE FROM coaching_playbooks WHERE tenant_id = $1 AND user_id = $2 AND id = $3";
+
+/// Read one column by name via `try_get` only, so a type or NULL surprise
+/// surfaces as a recoverable error naming the column rather than a panic.
+/// That matters on `SQLite`, whose type affinity can let a non-integer value
+/// land in an `INTEGER` column.
+fn column<'r, R, T>(row: &'r R, what: &str, name: &str) -> AppResult<T>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    T: sqlx::Type<R::Database> + sqlx::Decode<'r, R::Database>,
+{
+    row.try_get(name)
+        .map_err(|e| AppError::database(format!("{what} col {name}: {e}")))
+}
+
+/// Extract a [`PlaybookRow`] from a row of either backend.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn playbook_row<R>(r: &R) -> AppResult<PlaybookRow>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<i64>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let what = "playbook";
+    Ok(PlaybookRow {
+        id: column(r, what, "id")?,
+        tenant_id: column(r, what, "tenant_id")?,
+        user_id: column(r, what, "user_id")?,
+        agent_slug: column(r, what, "agent_slug")?,
+        trigger_json: column(r, what, "trigger_json")?,
+        intervention_json: column(r, what, "intervention_json")?,
+        outcome_metric_json: column(r, what, "outcome_metric_json")?,
+        success_count: column(r, what, "success_count")?,
+        failure_count: column(r, what, "failure_count")?,
+        neutral_count: column(r, what, "neutral_count")?,
+        last_outcome_at: column(r, what, "last_outcome_at")?,
+        created_at: column(r, what, "created_at")?,
+        updated_at: column(r, what, "updated_at")?,
+    })
+}
+
+/// Extract a [`PendingAdviceRow`] from a row of either backend.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn pending_row<R>(r: &R) -> AppResult<PendingAdviceRow>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let what = "advice";
+    Ok(PendingAdviceRow {
+        id: column(r, what, "id")?,
+        tenant_id: column(r, what, "tenant_id")?,
+        user_id: column(r, what, "user_id")?,
+        agent_slug: column(r, what, "agent_slug")?,
+        playbook_id: column(r, what, "playbook_id")?,
+        trigger_json: column(r, what, "trigger_json")?,
+        intervention_json: column(r, what, "intervention_json")?,
+        outcome_metric_json: column(r, what, "outcome_metric_json")?,
+        baseline_json: column(r, what, "baseline_json")?,
+        due_by: column(r, what, "due_by")?,
+        status: column(r, what, "status")?,
+        label: column(r, what, "label")?,
+        label_source: column(r, what, "label_source")?,
+        source_msg_id: column(r, what, "source_msg_id")?,
+        created_at: column(r, what, "created_at")?,
+    })
+}
+
+/// Extract a [`PlaybookAggInput`] from a row of either backend.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn agg_row<R>(r: &R) -> AppResult<PlaybookAggInput>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let what = "agg";
+    Ok(PlaybookAggInput {
+        user_id: column(r, what, "user_id")?,
+        trigger_hash: column(r, what, "trigger_hash")?,
+        intervention_hash: column(r, what, "intervention_hash")?,
+        trigger_json: column(r, what, "trigger_json")?,
+        intervention_json: column(r, what, "intervention_json")?,
+        success_count: column(r, what, "success_count")?,
+        failure_count: column(r, what, "failure_count")?,
+    })
+}
+
+/// Extract an [`ArchetypePrior`] from a row of either backend.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded,
+/// or one for a JSON column that no longer parses.
+pub(crate) fn prior_from_row<R>(r: &R) -> AppResult<ArchetypePrior>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let what = "prior";
+    let archetype_key: String = column(r, what, "archetype_key")?;
+    let trigger_json: String = column(r, what, "trigger_json")?;
+    let intervention_json: String = column(r, what, "intervention_json")?;
+    let success_count: i64 = column(r, what, "success_count")?;
+    let failure_count: i64 = column(r, what, "failure_count")?;
+    let distinct_user_count: i64 = column(r, what, "distinct_user_count")?;
+    archetype_prior_from_row(
+        archetype_key,
+        &trigger_json,
+        &intervention_json,
+        success_count,
+        failure_count,
+        distinct_user_count,
+    )
+}
+
+/// Order most-confident first and keep the caller's `limit`.
+pub(crate) fn rank_by_confidence<T>(
+    items: &mut Vec<T>,
+    confidence: impl Fn(&T) -> f32,
+    limit: i64,
+) {
+    items.sort_by(|a, b| {
+        confidence(b)
+            .partial_cmp(&confidence(a))
+            .unwrap_or(Ordering::Equal)
+    });
+    items.truncate(usize::try_from(limit.max(0)).unwrap_or(0));
+}
+
+/// Emit the whole [`PlaybookRepository`] implementation for one backend type.
+///
+/// The body is written once here; each backend's shell invokes it with its
+/// own type, and sqlx resolves the driver from `self.pool()` per expansion.
+/// The body names its consts, helpers and types unqualified, so the invoking
+/// shell must `use` every one of them.
+macro_rules! impl_playbook_repository {
+    ($ty:ty) => {
+        #[async_trait::async_trait]
+        impl PlaybookRepository for $ty {
+            async fn record_playbook_outcome(
+                &self,
+                outcome: &RecordedOutcome<'_>,
+            ) -> AppResult<String> {
+                let v = outcome_upsert_values(outcome)?;
+                let row = sqlx::query(UPSERT_OUTCOME_SQL)
+                    .bind(&v.id)
+                    .bind(outcome.tenant_id)
+                    .bind(outcome.user_id)
+                    .bind(&v.agent_slug)
+                    .bind(&v.trigger_hash)
+                    .bind(&v.intervention_hash)
+                    .bind(&v.trigger_json)
+                    .bind(&v.intervention_json)
+                    .bind(&v.outcome_metric_json)
+                    .bind(v.sc)
+                    .bind(v.fc)
+                    .bind(v.nc)
+                    .bind(v.now)
+                    .bind(v.now)
+                    .bind(v.now)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("upsert playbook outcome: {e}")))?;
+                row.try_get::<String, _>("id")
+                    .map_err(|e| AppError::database(format!("resolve playbook id: {e}")))
+            }
+
+            async fn record_outcome_and_label(
+                &self,
+                outcome: &RecordedOutcome<'_>,
+                advice_id: &str,
+                label_source: LabelSource,
+            ) -> AppResult<String> {
+                let v = outcome_upsert_values(outcome)?;
+                // One transaction spans the counter upsert AND the advice mark so a
+                // crash between them cannot leave the advice pending (which the next
+                // sweep would re-record, double-counting into confidence).
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| AppError::database(format!("begin outcome tx: {e}")))?;
+                let row = sqlx::query(UPSERT_OUTCOME_SQL)
+                    .bind(&v.id)
+                    .bind(outcome.tenant_id)
+                    .bind(outcome.user_id)
+                    .bind(&v.agent_slug)
+                    .bind(&v.trigger_hash)
+                    .bind(&v.intervention_hash)
+                    .bind(&v.trigger_json)
+                    .bind(&v.intervention_json)
+                    .bind(&v.outcome_metric_json)
+                    .bind(v.sc)
+                    .bind(v.fc)
+                    .bind(v.nc)
+                    .bind(v.now)
+                    .bind(v.now)
+                    .bind(v.now)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(|e| AppError::database(format!("upsert playbook outcome: {e}")))?;
+                let playbook_id: String = row
+                    .try_get("id")
+                    .map_err(|e| AppError::database(format!("resolve playbook id: {e}")))?;
+                sqlx::query(MARK_ADVICE_LABELED_SQL)
+                    .bind(outcome.label.as_str())
+                    .bind(label_source.as_str())
+                    .bind(&playbook_id)
+                    .bind(advice_id)
+                    .bind(outcome.tenant_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| AppError::database(format!("mark advice labeled: {e}")))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::database(format!("commit outcome tx: {e}")))?;
+                Ok(playbook_id)
+            }
+
+            async fn list_playbooks(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                agent_slug: Option<&str>,
+                limit: i64,
+            ) -> AppResult<Vec<Playbook>> {
+                let agent = agent_slug.unwrap_or("");
+                let rows = sqlx::query(LIST_PLAYBOOKS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(agent)
+                    .bind(PLAYBOOK_FETCH_CEILING)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list playbooks: {e}")))?;
+
+                let mut playbooks: Vec<Playbook> = rows
+                    .iter()
+                    .filter_map(|r| {
+                        playbook_row(r)
+                            .and_then(playbook_from_row)
+                            .map_err(|e| warn!(error = %e, "skipping corrupt playbook row"))
+                            .ok()
+                    })
+                    .collect();
+                rank_by_confidence(&mut playbooks, |p| p.confidence, limit);
+                Ok(playbooks)
+            }
+
+            async fn insert_pending_advice(&self, advice: &PendingAdvice) -> AppResult<()> {
+                let agent_slug = advice.agent_slug.as_deref().unwrap_or("");
+                let trigger_json = serde_json::to_string(&advice.trigger)
+                    .map_err(|e| AppError::database(format!("serialize trigger: {e}")))?;
+                let intervention_json = serde_json::to_string(&advice.intervention)
+                    .map_err(|e| AppError::database(format!("serialize intervention: {e}")))?;
+                let outcome_metric_json = serde_json::to_string(&advice.outcome_metric)
+                    .map_err(|e| AppError::database(format!("serialize outcome_metric: {e}")))?;
+                let baseline_json = serde_json::to_string(&advice.baseline)
+                    .map_err(|e| AppError::database(format!("serialize baseline: {e}")))?;
+                sqlx::query(INSERT_PENDING_ADVICE_SQL)
+                    .bind(&advice.id)
+                    .bind(&advice.tenant_id)
+                    .bind(&advice.user_id)
+                    .bind(agent_slug)
+                    .bind(advice.playbook_id.as_deref())
+                    .bind(&trigger_json)
+                    .bind(&intervention_json)
+                    .bind(&outcome_metric_json)
+                    .bind(&baseline_json)
+                    .bind(advice.due_by.timestamp())
+                    .bind(advice.status.as_str())
+                    .bind(advice.label.map(OutcomeLabel::as_str))
+                    .bind(advice.label_source.map(LabelSource::as_str))
+                    .bind(advice.source_msg_id.as_deref())
+                    .bind(advice.created_at.timestamp())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("insert pending advice: {e}")))?;
+                Ok(())
+            }
+
+            async fn due_pending_advice(
+                &self,
+                now_epoch: i64,
+                limit: i64,
+            ) -> AppResult<Vec<PendingAdvice>> {
+                let rows = sqlx::query(DUE_PENDING_ADVICE_SQL)
+                    .bind(now_epoch)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("scan due advice: {e}")))?;
+
+                Ok(rows
+                    .iter()
+                    .filter_map(|r| {
+                        pending_row(r)
+                            .and_then(pending_advice_from_row)
+                            .map_err(|e| warn!(error = %e, "skipping corrupt pending-advice row"))
+                            .ok()
+                    })
+                    .collect())
+            }
+
+            async fn mark_advice_expired(&self, tenant_id: &str, advice_id: &str) -> AppResult<()> {
+                sqlx::query(MARK_ADVICE_EXPIRED_SQL)
+                    .bind(advice_id)
+                    .bind(tenant_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("mark advice expired: {e}")))?;
+                Ok(())
+            }
+
+            async fn aggregate_playbook_rows(&self, limit: i64) -> AppResult<Vec<PlaybookAggInput>> {
+                let rows = sqlx::query(AGGREGATE_PLAYBOOK_ROWS_SQL)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("aggregate playbook scan: {e}")))?;
+                Ok(rows
+                    .iter()
+                    .filter_map(|r| {
+                        agg_row(r)
+                            .map_err(|e| warn!(error = %e, "skipping corrupt aggregation row"))
+                            .ok()
+                    })
+                    .collect())
+            }
+
+            async fn upsert_archetype_prior(
+                &self,
+                prior: &ArchetypePriorUpsert<'_>,
+            ) -> AppResult<()> {
+                sqlx::query(UPSERT_ARCHETYPE_PRIOR_SQL)
+                    .bind(prior.archetype_key)
+                    .bind(prior.trigger_hash)
+                    .bind(prior.intervention_hash)
+                    .bind(prior.trigger_json)
+                    .bind(prior.intervention_json)
+                    .bind(prior.success_count)
+                    .bind(prior.failure_count)
+                    .bind(prior.distinct_user_count)
+                    .bind(Utc::now().timestamp())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("upsert archetype prior: {e}")))?;
+                Ok(())
+            }
+
+            async fn delete_archetype_prior(
+                &self,
+                archetype_key: &str,
+                trigger_hash: &str,
+                intervention_hash: &str,
+            ) -> AppResult<()> {
+                sqlx::query(DELETE_ARCHETYPE_PRIOR_SQL)
+                    .bind(archetype_key)
+                    .bind(trigger_hash)
+                    .bind(intervention_hash)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("delete archetype prior: {e}")))?;
+                Ok(())
+            }
+
+            async fn list_archetype_priors_for_keys(
+                &self,
+                archetype_keys: &[String],
+                limit: i64,
+            ) -> AppResult<Vec<ArchetypePrior>> {
+                if archetype_keys.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let sql = list_archetype_priors_sql(archetype_keys.len());
+                let mut query = sqlx::query(&sql);
+                for key in archetype_keys {
+                    query = query.bind(key);
+                }
+                let rows = query
+                    .bind(ARCHETYPE_PRIOR_FETCH_CEILING)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list archetype priors: {e}")))?;
+                let mut priors: Vec<ArchetypePrior> = rows
+                    .iter()
+                    .filter_map(|r| {
+                        prior_from_row(r)
+                            .map_err(|e| warn!(error = %e, "skipping corrupt archetype prior"))
+                            .ok()
+                    })
+                    .collect();
+                rank_by_confidence(&mut priors, |p| p.confidence, limit);
+                Ok(priors)
+            }
+
+            async fn list_all_user_playbooks(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                limit: i64,
+            ) -> AppResult<Vec<Playbook>> {
+                let rows = sqlx::query(LIST_ALL_USER_PLAYBOOKS_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(PLAYBOOK_FETCH_CEILING)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list all user playbooks: {e}")))?;
+                let mut playbooks: Vec<Playbook> = rows
+                    .iter()
+                    .filter_map(|r| {
+                        playbook_row(r)
+                            .and_then(playbook_from_row)
+                            .map_err(|e| warn!(error = %e, "skipping corrupt playbook row"))
+                            .ok()
+                    })
+                    .collect();
+                rank_by_confidence(&mut playbooks, |p| p.confidence, limit);
+                Ok(playbooks)
+            }
+
+            async fn delete_playbook(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                playbook_id: &str,
+            ) -> AppResult<u64> {
+                // Both deletes run in one transaction so erasure is durable
+                // (GDPR forget).
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| AppError::database(format!("begin forget tx: {e}")))?;
+                sqlx::query(PURGE_PLAYBOOK_ADVICE_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(playbook_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| AppError::database(format!("purge pending advice: {e}")))?;
+                let res = sqlx::query(DELETE_PLAYBOOK_SQL)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(playbook_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| AppError::database(format!("delete playbook: {e}")))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::database(format!("commit forget tx: {e}")))?;
+                Ok(res.rows_affected())
+            }
+        }
+    };
+}
+pub(crate) use impl_playbook_repository;
