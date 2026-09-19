@@ -21,6 +21,9 @@
 /// Column decoders that fail closed on unparseable stored values.
 pub mod column_decode;
 
+/// A row's own uuid column, bound the way each backend's schema stores it.
+pub(crate) mod uuid_column;
+
 /// Repository trait definitions for each database domain.
 pub mod repositories;
 

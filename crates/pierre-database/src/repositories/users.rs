@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the user/profile/impersonation/physiology domain
+// ABOUTME: Repository trait definitions for the user/profile/impersonation domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,7 +12,6 @@ use pierre_core::models::TenantId;
 use pierre_core::models::{
     CoachingPersona, PreApprovedEmail, SessionRefreshToken, User, UserStatus, UserTier,
 };
-use pierre_core::models::{Dossier, UserPhysiologicalProfile};
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -290,54 +289,4 @@ pub trait PreApprovedEmailRepository: Send + Sync {
     async fn get(&self, email: &str) -> AppResult<Option<PreApprovedEmail>>;
     /// Every standing allow, oldest first.
     async fn list(&self) -> AppResult<Vec<PreApprovedEmail>>;
-}
-
-/// Typed CRUD for [`UserPhysiologicalProfile`] backed by the
-/// `user_physiological_profiles` table.
-///
-/// Row layout: see `migrations/20260430000003_user_profile_endurance_fields.sql`
-/// (`SQLite`) and `migrations_pg/20260430000003_user_profile_endurance_fields.sql`
-/// (`PostgreSQL`).
-///
-/// Every method scopes by `tenant_id` to satisfy the multi-tenant isolation
-/// invariant in CLAUDE.md.
-#[async_trait]
-pub trait UserPhysiologicalProfileRepository: Send + Sync {
-    /// Insert or update the profile row for `(tenant_id, user_id)`.
-    ///
-    /// `profile.user_id` must match `user_id`; the implementation rejects
-    /// mismatches with [`pierre_core::errors::AppError`] to prevent
-    /// cross-user writes from a confused caller.
-    async fn upsert_user_physiological_profile(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-        profile: &UserPhysiologicalProfile,
-    ) -> AppResult<()>;
-
-    /// Fetch the profile for `(tenant_id, user_id)`. Returns `None` when
-    /// the user has no row yet.
-    async fn get_user_physiological_profile(
-        &self,
-        tenant_id: TenantId,
-        user_id: Uuid,
-    ) -> AppResult<Option<UserPhysiologicalProfile>>;
-}
-
-/// Read-time composer for the Endurance [`Dossier`] aggregate.
-///
-/// Per the locked architectural decision the dossier is **not** persisted as
-/// its own row — the implementation pulls from the existing tables
-/// (`user_physiological_profiles` for physiology + zones, `user_profiles`
-/// JSON column for goals / nutrition / equipment) and assembles the
-/// aggregate per request. Cache invalidation is therefore unnecessary on
-/// the dossier itself; only the underlying tables need cache hooks.
-#[async_trait]
-pub trait DossierRepository: Send + Sync {
-    /// Compose the dossier for `(tenant_id, user_id)`.
-    ///
-    /// Returns an empty dossier shell (all slots `None` / empty) when the
-    /// user has no underlying rows so the API endpoint can return a 200
-    /// rather than a 404 for fresh accounts.
-    async fn compose_dossier(&self, tenant_id: TenantId, user_id: Uuid) -> AppResult<Dossier>;
 }

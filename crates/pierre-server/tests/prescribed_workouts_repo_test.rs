@@ -300,6 +300,23 @@ async fn get_by_id_is_scoped_to_the_tenant_and_the_athlete() {
     assert_eq!(found.payload_hash.as_deref(), Some("hash-1"));
     assert!(found.replaces_id.is_none());
     assert!(found.plan_week_id.is_none());
+    // The payload comes back as the backend's own rendering (jsonb re-orders
+    // keys on Postgres), so it is compared as a value, the way its readers
+    // consume it; the date and both timestamps must survive their round trip,
+    // to the microsecond a TIMESTAMPTZ keeps.
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&found.payload_json).expect("stored payload"),
+        serde_json::json!({"slug": "long_run_z2"})
+    );
+    assert_eq!(found.prescribed_for_date, prescribed.prescribed_for_date);
+    assert_eq!(
+        found.created_at.timestamp_micros(),
+        prescribed.created_at.timestamp_micros()
+    );
+    assert_eq!(
+        found.updated_at.timestamp_micros(),
+        prescribed.updated_at.timestamp_micros()
+    );
 
     // Another athlete of the same tenant, and the same athlete in another
     // tenant, both see nothing — a foreign row is indistinguishable from a

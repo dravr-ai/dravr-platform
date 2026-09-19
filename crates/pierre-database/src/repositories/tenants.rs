@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the tenants and subscriptions domain
+// ABOUTME: Repository trait definitions for the tenants domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::{OAuthApp, Tenant};
-use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, TenantOAuthCredentials};
+use pierre_core::models::{TenantId, TenantOAuthCredentials};
 use uuid::Uuid;
 
 /// Multi-tenant management repository
@@ -79,55 +79,4 @@ pub trait TenantRepository: Send + Sync {
     /// implies a plan-tier flip on the tenant. Owner-driven plan changes
     /// always cascade through this method so audit logging stays uniform.
     async fn set_plan(&self, tenant_id: TenantId, plan: &str) -> AppResult<Tenant>;
-}
-
-/// Provider-agnostic subscription persistence.
-///
-/// Webhook handlers upsert by `(provider, provider_customer_id)`;
-/// read paths query by user, tenant, or `(provider, *)` identifier.
-#[async_trait]
-pub trait SubscriptionsRepository: Send + Sync {
-    /// Insert a new subscription row or update the existing row that
-    /// shares its `(provider, provider_customer_id)` key. Returns the
-    /// freshly written row.
-    async fn upsert_subscription(&self, subscription: &Subscription) -> AppResult<Subscription>;
-    /// Look up the most recently updated subscription for a user.
-    async fn get_subscription_by_user(&self, user_id: Uuid) -> AppResult<Option<Subscription>>;
-    /// Look up the most recently updated subscription for a tenant.
-    async fn get_subscription_by_tenant(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<Subscription>>;
-    /// Look up a subscription by its provider-side subscription identifier.
-    async fn get_subscription_by_provider_subscription_id(
-        &self,
-        provider: &str,
-        provider_subscription_id: &str,
-    ) -> AppResult<Option<Subscription>>;
-    /// Look up a subscription by its provider-side customer identifier.
-    async fn get_subscription_by_provider_customer_id(
-        &self,
-        provider: &str,
-        provider_customer_id: &str,
-    ) -> AppResult<Option<Subscription>>;
-    /// List every subscription with the given lifecycle status.
-    /// Used by admin filter views and the dunning sweep.
-    async fn list_subscriptions_by_status(
-        &self,
-        status: SubscriptionStatus,
-    ) -> AppResult<Vec<Subscription>>;
-
-    /// Returns true when the given `(provider, event_id)` has already
-    /// been processed. The webhook handler skips dispatch on `true`,
-    /// making the entire pipeline safe against provider retries.
-    async fn is_billing_event_processed(&self, provider: &str, event_id: &str) -> AppResult<bool>;
-    /// Mark a `(provider, event_id)` as processed. Call this AFTER the
-    /// event dispatch path succeeds — never before — so a partial failure
-    /// allows the webhook to retry with the full body.
-    async fn mark_billing_event_processed(
-        &self,
-        provider: &str,
-        event_id: &str,
-        event_type: &str,
-    ) -> AppResult<()>;
 }

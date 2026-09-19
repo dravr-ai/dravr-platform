@@ -52,6 +52,19 @@ async fn upsert_subscription_inserts_then_reads_back_via_every_lookup() {
     assert_eq!(inserted.status, SubscriptionStatus::Active);
     assert_eq!(inserted.plan_tier, UserTier::Professional);
     assert!(inserted.is_entitled());
+    // The row is re-read after the write, so every typed column must survive
+    // its storage round trip on this backend: the timestamps, the boolean and
+    // the metadata JSON blob (TEXT on SQLite, jsonb on Postgres) compared as a
+    // value, since the stored rendering is the repository's, not the caller's.
+    assert_eq!(inserted.current_period_start, sub.current_period_start);
+    assert_eq!(inserted.current_period_end, sub.current_period_end);
+    assert_eq!(inserted.created_at, sub.created_at);
+    assert_eq!(inserted.updated_at, sub.updated_at);
+    assert!(!inserted.cancel_at_period_end);
+    assert_eq!(
+        inserted.metadata,
+        Some(serde_json::json!({"source": "checkout"}))
+    );
 
     let by_user = repos
         .subscriptions

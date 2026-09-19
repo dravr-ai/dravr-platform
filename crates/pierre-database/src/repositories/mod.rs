@@ -56,18 +56,24 @@ pub mod notifications;
 pub mod oauth;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
 pub mod playbooks;
+/// `PrescribedWorkoutRepository`: the ledger of calendar entries Dravr wrote to a provider.
+pub mod prescribed_workouts;
 /// Repository traits for recipe persistence.
 pub mod recipes;
 /// Repository trait for messaging turns the shutdown drain handed off to another instance.
 pub mod resumable_turns;
 /// Repository traits for agent-athlete roster persistence.
 pub mod roster;
+/// `RouteSummaryRepository`: cached GPX terrain + climbs JSON per activity
+pub mod route_summaries;
 /// Repository traits for security/audit/key-version persistence.
 pub mod security;
 /// Repository traits for seed-only repository operations.
 pub mod seeder;
 /// Repository trait + helper for the channel-agnostic URL shortener.
 pub mod short_links;
+/// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
+pub mod subscriptions;
 /// Repository traits for tenants and subscriptions.
 pub mod tenants;
 /// Repository traits for tool selection telemetry persistence.
@@ -80,6 +86,8 @@ pub mod usage;
 pub mod user_mcp_tokens;
 /// Repository trait for durable per-user onboarding step completion state.
 pub mod user_onboarding;
+/// `UserPhysiologicalProfileRepository` + `DossierRepository`: physiology row and the read-time dossier composer
+pub mod user_physiological_profiles;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
 /// Repository trait, statements and shared body for per-user rate-limit overrides.
@@ -96,6 +104,8 @@ pub(crate) mod uuid_columns;
 pub mod weather;
 /// Repository trait for the periodic-worker ledger: last tick and current lease per worker.
 pub mod worker_runs;
+/// `WorkoutTemplateRepository`: user-authored Endurance workout templates.
+pub mod workout_templates;
 /// Repository traits for prescribed workouts, templates, route summaries, training history.
 pub mod workouts;
 
@@ -124,24 +134,29 @@ pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;
 pub use playbooks::*;
+pub use prescribed_workouts::*;
 pub use recipes::*;
 pub use resumable_turns::*;
 pub use roster::*;
+pub use route_summaries::*;
 pub use security::*;
 pub use seeder::*;
 pub use short_links::*;
+pub use subscriptions::*;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
 pub use usage::*;
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
+pub use user_physiological_profiles::*;
 pub use user_rate_limit_overrides::*;
 pub use user_tier_overrides::*;
 pub use user_tool_overrides::*;
 pub use users::*;
 pub use weather::*;
 pub use worker_runs::*;
+pub use workout_templates::*;
 pub use workouts::*;
 
 use async_trait::async_trait;
