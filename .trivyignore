@@ -34,7 +34,44 @@
 # from the official nginx:alpine image (nginx.org's unpatched r1) to alpine's own
 # patched nginx — see docker/images/frontend/Dockerfile.
 
-# No adm-zip entries remain: the copy that lived here (CVE-2026-39244 and
-# CVE-2026-77301, inside the foundry-local-sdk the Copilot CLI vendored into its
-# extracted package) left the images when the CLI pin advanced to 1.0.86, whose
-# bundle no longer ships foundry-local-sdk — see docker/images/server/Dockerfile.
+# server + sciotte images: adm-zip 0.6.0 (HIGH, CVE-2026-77301 / GHSA-7q85-xj36-vmfc,
+# fixed in 0.6.1) arrives with the GitHub Copilot CLI, pinned at 1.0.86 in
+# docker/images/server/Dockerfile. It is not inside the npm tarball; it lands
+# when the CLI materializes its sidecar tree at
+# /opt/copilot-pkg/pkg/linux-x64/<cli-version>/foundry-local-sdk/node_modules/foundry-local-sdk/node_modules/adm-zip
+# as a dependency of foundry-local-sdk; the `copilot --version` step in the
+# Dockerfile triggers that during the image build. 1.0.86 moved that copy from
+# adm-zip 0.5.17 to 0.6.0, which retires CVE-2026-39244 and not this one — the
+# scan on deploy run 35460980664 (2026-09-19) lists exactly this finding. The
+# claim that 1.0.86 ships without foundry-local-sdk (acac51c56, 7f32f1aaa) was
+# wrong: the deploys that passed after the pin moved still carried the entries,
+# and every deploy after they were dropped failed the gate.
+#
+# Exposure, stated plainly: on the server image the CLI is the PRIMARY chat
+# provider (PIERRE_LLM_PROVIDER=copilot_headless, infra/environments/dev/main.tf),
+# so it spawns on every coaching turn. On the sciotte image it spawns for the
+# vision-login LLM only.
+#
+# The suppression rests on adm-zip being unreachable, not on the CLI being
+# unreachable. The advisory is uncontrolled memory allocation from an archive's
+# declared uncompressed size — a denial of service while extracting an untrusted
+# archive — and adm-zip's only call site in foundry-local-sdk is
+# script/install-utils.cjs, the npm install lifecycle script, which downloads a
+# .nupkg named from deps_versions.json off a hard-coded feed list (api.nuget.org,
+# then the ORT-Nightly Azure DevOps feed) and calls extractEntryTo on it. Nothing
+# under foundry-local-sdk/dist (the runtime SDK) requires adm-zip, so a chat turn
+# never loads it, and no archive it opens derives from athlete input, tool output
+# or model output. Dravr runs remote Copilot models and never enables Foundry
+# Local, so the extraction path runs only when the sidecar tree is first laid
+# down, inside the image build.
+#
+# Checked against an on-disk sidecar tree laid down by the CLI, reading
+# foundry-local-sdk's package.json, dist/ and script/install-utils.cjs. Re-do
+# those three reads before extending the date; a CLI release that starts calling
+# adm-zip from dist/ invalidates the argument.
+#
+# Remove when the CLI pin advances to a release whose foundry-local-sdk depends
+# on adm-zip >= 0.6.1 — and verify it against the image scan, not the release
+# notes. On 2026-11-01 the entry expires and the scans exit 1 again: re-verify
+# the reachability argument above, then extend the date or drop the entry.
+CVE-2026-77301 exp:2026-11-01
