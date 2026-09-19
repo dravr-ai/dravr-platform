@@ -68,7 +68,19 @@
 # dist/ invalidates the argument.
 #
 # Remove when the CLI pin can advance to a release whose foundry-local-sdk
-# depends on adm-zip >= 0.6.0. On 2026-11-01 the entry expires and the scans exit
-# 1 again: re-verify the reachability argument above, then extend the date or
-# drop the entry.
+# depends on adm-zip >= 0.6.1. On 2026-11-01 the entries expire and the scans
+# exit 1 again: re-verify the reachability argument above, then extend the date
+# or drop the entries.
+#
+# CVE-2026-77301 (GHSA-7q85-xj36-vmfc, HIGH, fixed in 0.6.1) is a second
+# advisory against the same adm-zip 0.5.17 copy: uncontrolled memory allocation
+# from an archive's declared uncompressed size, i.e. a denial of service while
+# extracting an untrusted archive. It reaches the same single call site as the
+# entry above — script/install-utils.cjs, the npm install lifecycle script that
+# extracts a .nupkg from a hard-coded feed — so the reachability argument is
+# unchanged: no chat turn loads adm-zip, and no archive it opens derives from
+# athlete, tool or model output. Published 2026-09-18; it failed the server
+# image gate on deploy run 35411406576 the same day, with the CLI still pinned
+# at 1.0.82. Same expiry as its sibling, same re-verification before extending.
 CVE-2026-39244 exp:2026-11-01
+CVE-2026-77301 exp:2026-11-01
