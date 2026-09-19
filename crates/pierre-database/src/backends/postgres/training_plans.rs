@@ -13,10 +13,10 @@ use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::training_plans::{
-    built_plan_week, built_training_plan, plan_insert_values, plan_week_from_row,
-    training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek, PlanOwner, PlanWeekInput,
-    PlanWeekRow, SavePlanBundleParams, SaveTrainingPlanParams, SavedPlanBundle,
-    TrainingPlanRepository, TrainingPlanRow, AGNOSTIC_PLAN_SLUG,
+    built_plan_week, built_training_plan, phase_index_column, plan_insert_values,
+    plan_week_from_row, training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek,
+    PlanOwner, PlanWeekInput, PlanWeekRow, SavePlanBundleParams, SaveTrainingPlanParams,
+    SavedPlanBundle, TrainingPlanRepository, TrainingPlanRow, AGNOSTIC_PLAN_SLUG,
 };
 
 /// Column list shared by every outline read so row mapping stays aligned.
@@ -80,10 +80,7 @@ fn week_row(row: &PgRow) -> AppResult<PlanWeekRow> {
             .map_err(map_col("adjustment_reason"))?,
         created_at: row.try_get("created_at").map_err(map_col("created_at"))?,
         updated_at: row.try_get("updated_at").map_err(map_col("updated_at"))?,
-        phase_index: row
-            .try_get::<Option<i32>, _>("phase_index")
-            .map_err(map_col("phase_index"))?
-            .map(i64::from),
+        phase_index: row.try_get("phase_index").map_err(map_col("phase_index"))?,
     })
 }
 
@@ -155,14 +152,7 @@ async fn carry_forward_active_weeks(
             .bind(&old.id)
             .bind(&old.adjustment_reason)
             .bind(now)
-            .bind(
-                old.phase_index
-                    .map(i32::try_from)
-                    .transpose()
-                    .map_err(|_| {
-                        AppError::database("carried phase_index out of range".to_owned())
-                    })?,
-            )
+            .bind(old.phase_index)
             .execute(&mut *conn)
             .await
             .map_err(|e| AppError::database(format!("carry forward plan week: {e}")))?;
@@ -299,12 +289,7 @@ async fn supersede_and_insert_week(
         .bind(superseded.as_deref())
         .bind(week.adjustment_reason)
         .bind(v.now)
-        .bind(
-            week.phase_index
-                .map(i32::try_from)
-                .transpose()
-                .map_err(|_| AppError::invalid_input("phase_index out of range"))?,
-        )
+        .bind(phase_index_column(week.phase_index)?)
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;

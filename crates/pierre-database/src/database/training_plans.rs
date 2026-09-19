@@ -13,10 +13,10 @@ use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::training_plans::{
-    built_plan_week, built_training_plan, plan_insert_values, plan_week_from_row,
-    training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek, PlanOwner, PlanWeekInput,
-    PlanWeekRow, SavePlanBundleParams, SaveTrainingPlanParams, SavedPlanBundle,
-    TrainingPlanRepository, TrainingPlanRow, AGNOSTIC_PLAN_SLUG,
+    built_plan_week, built_training_plan, phase_index_column, plan_insert_values,
+    plan_week_from_row, training_plan_from_row, week_insert_values, BuiltPlan, BuiltWeek,
+    PlanOwner, PlanWeekInput, PlanWeekRow, SavePlanBundleParams, SaveTrainingPlanParams,
+    SavedPlanBundle, TrainingPlanRepository, TrainingPlanRow, AGNOSTIC_PLAN_SLUG,
 };
 
 /// Column list shared by every outline read so row mapping stays aligned.
@@ -286,7 +286,7 @@ async fn supersede_and_insert_week(
         .bind(superseded.as_deref())
         .bind(week.adjustment_reason)
         .bind(v.now)
-        .bind(week.phase_index.map(i64::from))
+        .bind(phase_index_column(week.phase_index)?)
         .execute(&mut *conn)
         .await
         .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;

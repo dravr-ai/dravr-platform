@@ -322,8 +322,11 @@ pub struct PlanWeekRow {
     pub supersedes_id: Option<String>,
     /// `adjustment_reason` column.
     pub adjustment_reason: String,
-    /// `phase_index` column; `None` when the week names no phase.
-    pub phase_index: Option<i64>,
+    /// `phase_index` column; `None` when the week names no phase. Read as
+    /// the `i32` the column is declared as (`INTEGER` on `SQLite`, `int4` on
+    /// Postgres), so a stored value past that width fails the read as a
+    /// database error on either engine instead of decoding on one only.
+    pub phase_index: Option<i32>,
     /// `created_at` epoch seconds.
     pub created_at: i64,
     /// `updated_at` epoch seconds.
@@ -467,6 +470,21 @@ pub(crate) struct WeekInsertValues {
     pub days_json: String,
     /// Insert timestamp (epoch seconds).
     pub now: i64,
+}
+
+/// The one guard on a caller-supplied `phase_index`: the column is `int4` on
+/// Postgres, so an index past `i32::MAX` names no phase any outline could
+/// hold and is refused as invalid input before either engine sees it — the
+/// same refusal on both, rather than `SQLite` storing what Postgres would
+/// reject with a driver error. An index read back from a stored row never
+/// passes through here: [`PlanWeekRow::phase_index`] is already the column's
+/// width, and a row past it fails its decode as a database error.
+pub(crate) fn phase_index_column(index: Option<u32>) -> AppResult<Option<i32>> {
+    index.map(i32::try_from).transpose().map_err(|_| {
+        AppError::invalid_input(format!(
+            "phase_index out of range: {index:?} exceeds the column's width"
+        ))
+    })
 }
 
 /// Build the serialized insert values for one [`PlanWeekInput`]'s day rows.

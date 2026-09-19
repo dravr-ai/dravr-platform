@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
 use pierre_database::backends::factory::Database;
@@ -604,6 +605,106 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
         .await?;
     assert_eq!(weeks.len(), 1);
     assert_eq!(weeks[0].days[1].intensity, "3x8min @ 88-93% FTP");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_phase_index_past_the_column_is_refused_as_input_and_writes_nothing() -> Result<()> {
+    // `phase_index` is an `INTEGER` column, `int4` on PostgreSQL. A caller's
+    // index past `i32::MAX` names no phase any outline could hold, so the
+    // repository refuses it as invalid input before either engine sees it —
+    // and refuses it identically on both, rather than SQLite storing what
+    // PostgreSQL would reject with a driver error.
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let days = week_days("2026-07-13");
+
+    let result = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            owner: PlanOwner::agent("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[PlanWeekInput {
+                week_start: "2026-07-13",
+                focus: "volume",
+                days: &days,
+                adjustment_reason: "",
+                phase_index: Some(u32::MAX),
+            }],
+        })
+        .await;
+    let Err(err) = result else {
+        panic!("a phase index past int4 is refused");
+    };
+    assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
+    assert!(err.message.contains("phase_index"), "{err}");
+
+    // One transaction: the outline that was to carry the week rolled back too.
+    assert!(repos
+        .training_plans
+        .get_active_plan(&tenant, &user, PlanOwner::agent("endurance-coach"))
+        .await?
+        .is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_phase_index_round_trips_through_a_supersede() -> Result<()> {
+    // The carried week keeps its phase index when an outline re-save moves it
+    // onto the new plan: the value is read from the stored row and bound
+    // again, on both engines, with no conversion between.
+    let db = open_test_db().await?;
+    let repos = db.repositories();
+    let tenant = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string();
+    let race = big_red();
+    let blks = phases();
+    let days = week_days("2026-07-13");
+
+    let first = repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant,
+            user_id: &user,
+            owner: PlanOwner::agent("endurance-coach"),
+            goal_fact_id: None,
+            outline: Some(outline_input(&race, &blks)),
+            weeks: &[PlanWeekInput {
+                week_start: "2026-07-13",
+                focus: "volume",
+                days: &days,
+                adjustment_reason: "",
+                phase_index: Some(1),
+            }],
+        })
+        .await?;
+    assert_eq!(first.weeks[0].phase_index, Some(1));
+
+    let second = repos
+        .training_plans
+        .save_training_plan(&plan_params(&tenant, &user, &race, &blks))
+        .await?;
+    assert_eq!(
+        second.supersedes_id.as_deref(),
+        Some(first.plan.id.as_str())
+    );
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &second.id, false)
+        .await?;
+    assert_eq!(weeks.len(), 1);
+    assert_eq!(weeks[0].phase_index, Some(1));
+    assert_eq!(
+        weeks[0].supersedes_id.as_deref(),
+        Some(first.weeks[0].id.as_str())
+    );
     Ok(())
 }
 
