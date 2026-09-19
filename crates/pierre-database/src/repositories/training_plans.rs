@@ -1,5 +1,5 @@
 // ABOUTME: TrainingPlanRepository trait — persistence for agent-authored training plans
-// ABOUTME: Dual SQLite/Postgres impls live in database/ and backends/postgres/. Tenant-scoped throughout.
+// ABOUTME: One implementation, emitted per backend by impl_training_plan_repository!. Tenant-scoped throughout.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -603,3 +603,545 @@ pub(crate) fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
         updated_at: created,
     })
 }
+
+/// The seventeen columns every outline read returns, in the order
+/// [`plan_row`] reads them. One list after `SELECT` and inside `INSERT (...)`,
+/// so a column added to [`TrainingPlanRow`] reaches every statement at once.
+macro_rules! plan_columns {
+    () => {
+        "id, tenant_id, user_id, agent_slug, goal_fact_id, goal_race_json, \
+         races_json, strategy, phases_json, status, supersedes_id, source_conversation_id, \
+         created_at, updated_at, flavour_json, season_start, season_end"
+    };
+}
+
+/// The thirteen columns every week read returns, in the order [`week_row`]
+/// reads them.
+macro_rules! week_columns {
+    () => {
+        "id, tenant_id, user_id, plan_id, week_start, focus, days_json, \
+         status, supersedes_id, adjustment_reason, created_at, updated_at, phase_index"
+    };
+}
+
+/// Mark the athlete's current active outline for this agent superseded,
+/// returning its id and the calendar the replacement inherits.
+///
+/// `$n` placeholders throughout this module: sqlx accepts them on `SQLite` as
+/// well as Postgres, and every bind on these two tables is a plain
+/// `&str`/`String`/`Option<&str>`/`i64`/`Option<i32>`, so one statement
+/// serves both backends and cannot drift between them.
+pub(crate) const SUPERSEDE_ACTIVE_PLAN_SQL: &str = "UPDATE training_plans \
+     SET status = 'superseded', updated_at = $1 \
+     WHERE tenant_id = $2 AND user_id = $3 AND agent_slug = $4 AND status = 'active' \
+     RETURNING id, races_json";
+
+/// Insert a new active outline.
+pub(crate) const INSERT_PLAN_SQL: &str = concat!(
+    "INSERT INTO training_plans (",
+    plan_columns!(),
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $12, $13, $14, $15)"
+);
+
+/// Mark the active row for one `week_start` superseded, returning its id.
+pub(crate) const SUPERSEDE_ACTIVE_WEEK_SQL: &str = "UPDATE training_plan_weeks \
+     SET status = 'superseded', updated_at = $1 \
+     WHERE tenant_id = $2 AND user_id = $3 AND plan_id = $4 AND week_start = $5 \
+     AND status = 'active' \
+     RETURNING id";
+
+/// Insert a new active week.
+pub(crate) const INSERT_WEEK_SQL: &str = concat!(
+    "INSERT INTO training_plan_weeks (",
+    week_columns!(),
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $10, $11)"
+);
+
+/// Flip every active week of a superseded outline to `'superseded'`,
+/// returning the rows so they can be re-inserted against the new outline.
+pub(crate) const SUPERSEDE_CARRIED_WEEKS_SQL: &str = concat!(
+    "UPDATE training_plan_weeks SET status = 'superseded', updated_at = $1 \
+     WHERE tenant_id = $2 AND user_id = $3 AND plan_id = $4 AND status = 'active' \
+     RETURNING ",
+    week_columns!()
+);
+
+/// The athlete's active outline: the owner's own plan first, the agnostic
+/// fallback second. The `CASE` says so; it replaced `ORDER BY agent_slug
+/// DESC`, which got the same answer only because any real slug happens to
+/// sort above the empty-string sentinel — true, undocumented, and silently
+/// dependent on collation.
+pub(crate) const ACTIVE_PLAN_SQL: &str = concat!(
+    "SELECT ",
+    plan_columns!(),
+    " FROM training_plans \
+     WHERE tenant_id = $1 AND user_id = $2 AND agent_slug IN ($3, $4) AND status = 'active' \
+     ORDER BY CASE WHEN agent_slug = $3 THEN 0 ELSE 1 END LIMIT 1"
+);
+
+/// Every week of one outline, superseded rows included, in supersession order.
+pub(crate) const LIST_ALL_PLAN_WEEKS_SQL: &str = concat!(
+    "SELECT ",
+    week_columns!(),
+    " FROM training_plan_weeks \
+     WHERE tenant_id = $1 AND user_id = $2 AND plan_id = $3 \
+     ORDER BY week_start ASC, created_at ASC"
+);
+
+/// The active weeks of one outline.
+pub(crate) const LIST_ACTIVE_PLAN_WEEKS_SQL: &str = concat!(
+    "SELECT ",
+    week_columns!(),
+    " FROM training_plan_weeks \
+     WHERE tenant_id = $1 AND user_id = $2 AND plan_id = $3 AND status = 'active' \
+     ORDER BY week_start ASC"
+);
+
+fn plan_column_error(column: &str, e: &sqlx::Error) -> AppError {
+    AppError::database(format!("training plan column {column}: {e}"))
+}
+
+/// Extract a [`TrainingPlanRow`] from a row of either backend via `try_get`
+/// only — `Row::get` is `try_get().unwrap()` and panics the whole read path
+/// on a width or NULL surprise, so a corrupt row surfaces as a recoverable
+/// error the caller can act on, never as a crash.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn plan_row<R>(row: &R) -> AppResult<TrainingPlanRow>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let col = |name: &str| -> AppResult<String> {
+        row.try_get(name).map_err(|e| plan_column_error(name, &e))
+    };
+    let opt = |name: &str| -> AppResult<Option<String>> {
+        row.try_get(name).map_err(|e| plan_column_error(name, &e))
+    };
+    let epoch = |name: &str| -> AppResult<i64> {
+        row.try_get(name).map_err(|e| plan_column_error(name, &e))
+    };
+    Ok(TrainingPlanRow {
+        id: col("id")?,
+        tenant_id: col("tenant_id")?,
+        user_id: col("user_id")?,
+        agent_slug: col("agent_slug")?,
+        goal_fact_id: opt("goal_fact_id")?,
+        goal_race_json: col("goal_race_json")?,
+        races_json: col("races_json")?,
+        strategy: col("strategy")?,
+        phases_json: col("phases_json")?,
+        flavour_json: opt("flavour_json")?,
+        season_start: opt("season_start")?,
+        season_end: opt("season_end")?,
+        status: col("status")?,
+        supersedes_id: opt("supersedes_id")?,
+        source_conversation_id: opt("source_conversation_id")?,
+        created_at: epoch("created_at")?,
+        updated_at: epoch("updated_at")?,
+    })
+}
+
+/// Extract a [`PlanWeekRow`] from a row of either backend, via `try_get`
+/// only for the reason [`plan_row`] gives.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn week_row<R>(row: &R) -> AppResult<PlanWeekRow>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<i32>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let col = |name: &str| -> AppResult<String> {
+        row.try_get(name).map_err(|e| plan_column_error(name, &e))
+    };
+    let opt = |name: &str| -> AppResult<Option<String>> {
+        row.try_get(name).map_err(|e| plan_column_error(name, &e))
+    };
+    let epoch = |name: &str| -> AppResult<i64> {
+        row.try_get(name).map_err(|e| plan_column_error(name, &e))
+    };
+    Ok(PlanWeekRow {
+        id: col("id")?,
+        tenant_id: col("tenant_id")?,
+        user_id: col("user_id")?,
+        plan_id: col("plan_id")?,
+        week_start: col("week_start")?,
+        focus: col("focus")?,
+        days_json: col("days_json")?,
+        status: col("status")?,
+        supersedes_id: opt("supersedes_id")?,
+        adjustment_reason: col("adjustment_reason")?,
+        created_at: epoch("created_at")?,
+        updated_at: epoch("updated_at")?,
+        phase_index: row
+            .try_get("phase_index")
+            .map_err(|e| plan_column_error("phase_index", &e))?,
+    })
+}
+
+/// Emit the whole [`TrainingPlanRepository`] implementation for one backend
+/// type, together with the in-transaction helpers it runs on. The body is
+/// written once here; each backend's shell invokes it with its own type and
+/// the sqlx driver its pool is parameterised on, which is what the helpers'
+/// connection type is derived from, and sqlx resolves the driver from
+/// `self.pool()` per expansion.
+///
+/// The body names its consts, helpers and types unqualified, so the invoking
+/// shell must `use` every one of them.
+macro_rules! impl_training_plan_repository {
+    ($ty:ty, $db:ty) => {
+        /// Re-parent a superseded outline's surviving weeks onto the outline that
+        /// replaced it: every active week is flipped to `'superseded'` and re-inserted
+        /// against the new plan id with `supersedes_id` pointing back at it. Weeks are
+        /// keyed by `plan_id` and every read surface lists the *active* plan's weeks,
+        /// so a week left behind is a schedule the athlete can no longer see. Row
+        /// content is carried verbatim — `days_json` is never re-parsed — so only
+        /// identity changes and the migration's "new row with `supersedes_id` set, old
+        /// row `status='superseded'`" model holds across the plan boundary too.
+        async fn carry_forward_active_weeks(
+            conn: &mut <$db as sqlx::Database>::Connection,
+            tenant_id: &str,
+            user_id: &str,
+            old_plan_id: &str,
+            new_plan_id: &str,
+            now: i64,
+        ) -> AppResult<()> {
+            let rows = sqlx::query(SUPERSEDE_CARRIED_WEEKS_SQL)
+                .bind(now)
+                .bind(tenant_id)
+                .bind(user_id)
+                .bind(old_plan_id)
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("supersede carried weeks: {e}")))?;
+            for row in &rows {
+                let old = week_row(row)?;
+                sqlx::query(INSERT_WEEK_SQL)
+                    .bind(Uuid::new_v4().to_string())
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(new_plan_id)
+                    .bind(&old.week_start)
+                    .bind(&old.focus)
+                    .bind(&old.days_json)
+                    .bind(&old.id)
+                    .bind(&old.adjustment_reason)
+                    .bind(now)
+                    .bind(old.phase_index)
+                    .execute(&mut *conn)
+                    .await
+                    .map_err(|e| AppError::database(format!("carry forward plan week: {e}")))?;
+            }
+            Ok(())
+        }
+
+        /// Supersede the current active outline and insert the new one, on an
+        /// in-transaction connection. The caller owns the transaction envelope.
+        async fn supersede_and_insert_plan(
+            conn: &mut <$db as sqlx::Database>::Connection,
+            params: &SaveTrainingPlanParams<'_>,
+        ) -> AppResult<TrainingPlan> {
+            let v = plan_insert_values(params)?;
+            let replaced = sqlx::query(SUPERSEDE_ACTIVE_PLAN_SQL)
+                .bind(v.now)
+                .bind(params.tenant_id)
+                .bind(params.user_id)
+                .bind(&v.agent_slug)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("supersede active plan: {e}")))?;
+            // Split the superseded row into the id the weeks are re-parented onto and
+            // the calendar the new row inherits when this save states none.
+            let superseded: Option<String> = replaced
+                .as_ref()
+                .map(|row| row.try_get("id"))
+                .transpose()
+                .map_err(|e| AppError::database(format!("superseded plan id: {e}")))?;
+            // The calendar crosses the supersede the way the weeks do, and for the
+            // same reason: the new row is a different row, so anything the payload
+            // does not restate has to be carried or it is lost. Carried verbatim as
+            // JSON — it was validated when it was first stated, and re-encoding it
+            // would only invent a way for the two rows to disagree.
+            let carried_races: Option<String> = replaced
+                .as_ref()
+                .map(|row| row.try_get("races_json"))
+                .transpose()
+                .map_err(|e| AppError::database(format!("superseded plan races_json: {e}")))?;
+            let races_json = v
+                .races_json
+                .clone()
+                .or(carried_races)
+                .unwrap_or_else(|| "[]".to_owned());
+            // What the returned plan says it holds must be what the row now holds,
+            // carried calendar included — a caller that read the payload back would
+            // otherwise be told the calendar is empty on the very save that kept it.
+            let written_races: Vec<GoalRace> = match params.races {
+                Some(races) => races.to_vec(),
+                None => serde_json::from_str(&races_json)
+                    .map_err(|e| AppError::database(format!("carried races_json: {e}")))?,
+            };
+            sqlx::query(INSERT_PLAN_SQL)
+                .bind(&v.id)
+                .bind(params.tenant_id)
+                .bind(params.user_id)
+                .bind(&v.agent_slug)
+                .bind(params.goal_fact_id)
+                .bind(&v.goal_race_json)
+                .bind(&races_json)
+                .bind(params.strategy)
+                .bind(&v.phases_json)
+                .bind(superseded.as_deref())
+                .bind(params.source_conversation_id)
+                .bind(v.now)
+                .bind(v.flavour_json.as_deref())
+                .bind(params.season_start)
+                .bind(params.season_end)
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("insert training plan: {e}")))?;
+            // The new outline carries a new id, so the replaced outline's weeks move
+            // with it in this same transaction — otherwise the athlete's schedule
+            // stays on a plan no read surface fetches.
+            if let Some(old_plan_id) = superseded.as_deref() {
+                carry_forward_active_weeks(
+                    &mut *conn,
+                    params.tenant_id,
+                    params.user_id,
+                    old_plan_id,
+                    &v.id,
+                    v.now,
+                )
+                .await?;
+            }
+            built_training_plan(BuiltPlan {
+                id: v.id,
+                tenant_id: params.tenant_id,
+                user_id: params.user_id,
+                agent_slug: params.owner.agent_slug(),
+                goal_fact_id: params.goal_fact_id,
+                goal_race: params.goal_race,
+                races: &written_races,
+                strategy: params.strategy,
+                flavour: params.flavour,
+                season_start: params.season_start,
+                season_end: params.season_end,
+                phases: params.phases,
+                superseded,
+                source_conversation_id: params.source_conversation_id,
+                now: v.now,
+            })
+        }
+
+        /// Supersede the active row for this `week_start` and insert the new week, on
+        /// an in-transaction connection. The caller resolves `plan_id` from a plan it
+        /// created or read for this tenant + user in the same transaction, so the week
+        /// can never attach to another athlete's (or tenant's) plan.
+        async fn supersede_and_insert_week(
+            conn: &mut <$db as sqlx::Database>::Connection,
+            tenant_id: &str,
+            user_id: &str,
+            plan_id: &str,
+            week: &PlanWeekInput<'_>,
+        ) -> AppResult<PlanWeek> {
+            let v = week_insert_values(week.days)?;
+            let superseded: Option<String> = sqlx::query_scalar(SUPERSEDE_ACTIVE_WEEK_SQL)
+                .bind(v.now)
+                .bind(tenant_id)
+                .bind(user_id)
+                .bind(plan_id)
+                .bind(week.week_start)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("supersede active week: {e}")))?;
+            sqlx::query(INSERT_WEEK_SQL)
+                .bind(&v.id)
+                .bind(tenant_id)
+                .bind(user_id)
+                .bind(plan_id)
+                .bind(week.week_start)
+                .bind(week.focus)
+                .bind(&v.days_json)
+                .bind(superseded.as_deref())
+                .bind(week.adjustment_reason)
+                .bind(v.now)
+                .bind(phase_index_column(week.phase_index)?)
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("insert plan week: {e}")))?;
+            built_plan_week(BuiltWeek {
+                id: v.id,
+                tenant_id,
+                user_id,
+                plan_id,
+                week_start: week.week_start,
+                focus: week.focus,
+                days: week.days,
+                superseded,
+                adjustment_reason: week.adjustment_reason,
+                phase_index: week.phase_index,
+                now: v.now,
+            })
+        }
+
+        /// Read the athlete's active outline on an in-transaction connection.
+        async fn resolve_active_plan(
+            conn: &mut <$db as sqlx::Database>::Connection,
+            tenant_id: &str,
+            user_id: &str,
+            owner: PlanOwner<'_>,
+        ) -> AppResult<Option<TrainingPlan>> {
+            let row = sqlx::query(ACTIVE_PLAN_SQL)
+                .bind(tenant_id)
+                .bind(user_id)
+                .bind(owner.stored_slug())
+                .bind(AGNOSTIC_PLAN_SLUG)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("get active plan: {e}")))?;
+            row.map(|r| plan_row(&r).and_then(training_plan_from_row))
+                .transpose()
+        }
+
+        #[async_trait::async_trait]
+        impl TrainingPlanRepository for $ty {
+            async fn save_training_plan(
+                &self,
+                params: &SaveTrainingPlanParams<'_>,
+            ) -> AppResult<TrainingPlan> {
+                // Supersede-then-insert in one transaction so the one-active partial
+                // unique index never sees two active outlines and a crash between the
+                // two writes cannot strand the athlete planless.
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| AppError::database(format!("begin plan tx: {e}")))?;
+                let plan = supersede_and_insert_plan(&mut tx, params).await?;
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::database(format!("commit plan tx: {e}")))?;
+                Ok(plan)
+            }
+
+            async fn save_plan_bundle(
+                &self,
+                params: &SavePlanBundleParams<'_>,
+            ) -> AppResult<SavedPlanBundle> {
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| AppError::database(format!("begin bundle tx: {e}")))?;
+
+                // Resolve the plan the weeks attach to — a fresh outline (superseding
+                // the current active one) or the existing active plan — inside the
+                // transaction so the outline supersession and every week either all
+                // commit or all roll back.
+                let (plan, superseded_plan_id) = if let Some(o) = &params.outline {
+                    let stp = SaveTrainingPlanParams {
+                        tenant_id: params.tenant_id,
+                        user_id: params.user_id,
+                        owner: params.owner,
+                        goal_fact_id: params.goal_fact_id,
+                        goal_race: o.goal_race,
+                        races: o.races,
+                        strategy: o.strategy,
+                        flavour: o.flavour,
+                        season_start: o.season_start,
+                        season_end: o.season_end,
+                        phases: o.phases,
+                        source_conversation_id: o.source_conversation_id,
+                    };
+                    let plan = supersede_and_insert_plan(&mut tx, &stp).await?;
+                    let superseded = plan.supersedes_id.clone();
+                    (plan, superseded)
+                } else {
+                    let plan = resolve_active_plan(
+                        &mut tx,
+                        params.tenant_id,
+                        params.user_id,
+                        params.owner,
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::invalid_input(
+                            "no active plan to attach weeks to — save an outline first",
+                        )
+                    })?;
+                    (plan, None)
+                };
+
+                let mut weeks = Vec::with_capacity(params.weeks.len());
+                for w in params.weeks {
+                    weeks.push(
+                        supersede_and_insert_week(
+                            &mut tx,
+                            params.tenant_id,
+                            params.user_id,
+                            &plan.id,
+                            w,
+                        )
+                        .await?,
+                    );
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::database(format!("commit bundle tx: {e}")))?;
+                Ok(SavedPlanBundle {
+                    plan,
+                    weeks,
+                    superseded_plan_id,
+                })
+            }
+
+            async fn get_active_plan(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                owner: PlanOwner<'_>,
+            ) -> AppResult<Option<TrainingPlan>> {
+                // Specific agent first, agent-agnostic ('') as fallback — shares the
+                // in-transaction resolver so the SELECT lives in one place.
+                let mut conn = self.pool().acquire().await.map_err(|e| {
+                    AppError::database(format!("acquire conn for get active plan: {e}"))
+                })?;
+                resolve_active_plan(&mut conn, tenant_id, user_id, owner).await
+            }
+
+            async fn list_plan_weeks(
+                &self,
+                tenant_id: &str,
+                user_id: &str,
+                plan_id: &str,
+                include_superseded: bool,
+            ) -> AppResult<Vec<PlanWeek>> {
+                let sql = if include_superseded {
+                    LIST_ALL_PLAN_WEEKS_SQL
+                } else {
+                    LIST_ACTIVE_PLAN_WEEKS_SQL
+                };
+                let rows = sqlx::query(sql)
+                    .bind(tenant_id)
+                    .bind(user_id)
+                    .bind(plan_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list plan weeks: {e}")))?;
+                rows.iter()
+                    .map(|r| week_row(r).and_then(plan_week_from_row))
+                    .collect()
+            }
+        }
+    };
+}
+pub(crate) use impl_training_plan_repository;
