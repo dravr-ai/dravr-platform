@@ -24,7 +24,7 @@ use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, TierQuotaC
 use pierre_database::views::{AuthRepos, UsageRepos};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_runtime_context::{BillingCtx, MiddlewareCtx};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::{field, info, instrument, Span};
 use uuid::Uuid;
 
@@ -56,6 +56,36 @@ pub struct SubscriptionView {
     pub current_period_end: Option<String>,
     /// True when cancellation is scheduled at the period end.
     pub cancel_at_period_end: bool,
+}
+
+/// Wire body of `POST /api/billing/checkout`.
+///
+/// Carries only what the client legitimately chooses — the plan and the
+/// redirect targets. The user and tenant the checkout is for come from the
+/// bearer token, never from the body: until 2026-09-18 the handler
+/// deserialized [`CheckoutRequest`] straight off the wire, so any caller
+/// could start a checkout that attached a paid tier to another user's
+/// tenant (carnet#458). Unknown keys are ignored, so a body that still
+/// names a `user_id` or `tenant_id` cannot override the token.
+#[derive(Debug, Deserialize)]
+pub struct CheckoutBody {
+    /// Plan tier the user is upgrading to (`starter` / `professional` /
+    /// `enterprise`).
+    pub tier: String,
+    /// Where the provider redirects on a successful checkout.
+    pub success_url: String,
+    /// Where the provider redirects when the user cancels checkout.
+    pub cancel_url: String,
+}
+
+/// Wire body of `POST /api/billing/portal`.
+///
+/// The provider customer is read from the caller's own `subscriptions`
+/// row, so a body cannot open another customer's portal by naming its id.
+#[derive(Debug, Deserialize)]
+pub struct PortalBody {
+    /// Where the provider redirects when the user closes the portal.
+    pub return_url: String,
 }
 
 /// Container for `GET /api/billing/invoices`.
@@ -148,10 +178,12 @@ pub fn plan_catalog() -> Vec<PlanView> {
 
 /// Build the billing router.
 ///
-/// Every endpoint requires a logged-in user whose tenant matches the
-/// request body — the auth check happens in surrounding pipeline
-/// middleware; this router is registered only after the auth layer
-/// has been applied to the parent router.
+/// Each handler that acts for a user takes [`AuthenticatedUser`], so the
+/// bearer token — never the request body — names the user and tenant a
+/// checkout, portal, subscription or invoice request is for.
+/// `/webhooks/{provider}` carries no user token; it is authenticated by the
+/// provider's signature check inside `parse_webhook`. `/api/billing/plans`
+/// is public tier metadata.
 pub fn billing_routes<C>() -> Router<Arc<C>>
 where
     C: BillingCtx + MiddlewareCtx,
@@ -175,9 +207,45 @@ async fn plans() -> Json<PlansResponse> {
     })
 }
 
-/// `POST /api/billing/checkout` — create a hosted-checkout session.
+/// The tenant a billing action applies to: the token's active tenant when
+/// the JWT names one, otherwise the user's first membership — the same
+/// resolution `GET /api/users/me/quota` uses. A user with no tenant at all
+/// has nothing a subscription could attach to, so that is a 404.
+async fn resolve_tenant_id<C: BillingCtx>(
+    resources: &C,
+    auth: &AuthenticatedUser,
+) -> AppResult<String> {
+    if let Some(tenant) = auth.active_tenant_id {
+        return Ok(tenant.to_string());
+    }
+    let rows = BillingCtx::repos(resources)
+        .tenants
+        .list_for_user(auth.user_id)
+        .await?;
+    rows.first()
+        .map(|t| t.id.to_string())
+        .ok_or_else(|| AppError::not_found("user has no active tenant"))
+}
+
+/// The caller's own `subscriptions` row. Returns 404 when no row exists
+/// rather than fabricating a free-tier shell, so the frontend can drive
+/// the upgrade flow off a clean signal.
+async fn own_subscription<C: BillingCtx>(resources: &C, user_id: Uuid) -> AppResult<Subscription> {
+    BillingCtx::repos(resources)
+        .subscriptions
+        .get_subscription_by_user(user_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::not_found(
+                "no subscription record yet — run /api/billing/checkout to create one",
+            )
+        })
+}
+
+/// `POST /api/billing/checkout` — create a hosted-checkout session for the
+/// authenticated user on their active tenant.
 #[instrument(
-    skip(resources, req),
+    skip(resources, auth, body),
     fields(
         route = "billing_checkout",
         user_id = field::Empty,
@@ -185,10 +253,20 @@ async fn plans() -> Json<PlansResponse> {
         tier = field::Empty,
     )
 )]
-async fn checkout<C: BillingCtx>(
+async fn checkout<C: BillingCtx + MiddlewareCtx>(
     State(resources): State<Arc<C>>,
-    AxumJson(req): AxumJson<CheckoutRequest>,
+    auth: AuthenticatedUser,
+    AxumJson(body): AxumJson<CheckoutBody>,
 ) -> AppResult<Json<CheckoutResponse>> {
+    let tenant_id = resolve_tenant_id(resources.as_ref(), &auth).await?;
+    let req = CheckoutRequest {
+        tier: body.tier,
+        tenant_id,
+        user_id: auth.user_id.to_string(),
+        success_url: body.success_url,
+        cancel_url: body.cancel_url,
+    };
+
     // Record the requesting user/tenant/tier on the span so the NotifyLayer
     // attributes the checkout.started event without the emit re-passing IDs.
     let span = Span::current();
@@ -207,32 +285,29 @@ async fn checkout<C: BillingCtx>(
     Ok(Json(resp))
 }
 
-/// `POST /api/billing/portal` — create a hosted-portal session.
-async fn portal<C: BillingCtx>(
+/// `POST /api/billing/portal` — create a hosted-portal session for the
+/// customer on the authenticated user's own subscription row.
+async fn portal<C: BillingCtx + MiddlewareCtx>(
     State(resources): State<Arc<C>>,
-    AxumJson(req): AxumJson<PortalRequest>,
+    auth: AuthenticatedUser,
+    AxumJson(body): AxumJson<PortalBody>,
 ) -> AppResult<Json<PortalResponse>> {
+    let row = own_subscription(resources.as_ref(), auth.user_id).await?;
+    let req = PortalRequest {
+        provider_customer_id: row.provider_customer_id,
+        return_url: body.return_url,
+    };
     let resp = resources.billing_provider().open_portal(&req).await?;
     Ok(Json(resp))
 }
 
 /// `GET /api/billing/subscription` — current authenticated user reads
-/// its `subscriptions` row. Returns 404 when no row exists rather than
-/// fabricating a free-tier shell, so the frontend can drive the upgrade
-/// flow off a clean signal.
+/// its `subscriptions` row; 404 when none exists yet.
 async fn get_subscription<C: BillingCtx + MiddlewareCtx>(
     State(resources): State<Arc<C>>,
     auth: AuthenticatedUser,
 ) -> AppResult<Json<SubscriptionView>> {
-    let row = BillingCtx::repos(resources.as_ref())
-        .subscriptions
-        .get_subscription_by_user(auth.user_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::not_found(
-                "no subscription record yet — run /api/billing/checkout to create one",
-            )
-        })?;
+    let row = own_subscription(resources.as_ref(), auth.user_id).await?;
     Ok(Json(SubscriptionView {
         id: row.id.to_string(),
         tenant_id: row.tenant_id.to_string(),

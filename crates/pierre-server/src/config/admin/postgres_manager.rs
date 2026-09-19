@@ -520,7 +520,8 @@ impl AdminConfigRepository for PostgresAdminConfigManager {
         let select_query = format!(
             r"
             SELECT id, timestamp, admin_user_id, admin_email, category, config_key,
-                   old_value, new_value, data_type, reason, tenant_id, ip_address, user_agent
+                   old_value, new_value, data_type, reason, tenant_id, user_id,
+                   ip_address, user_agent
             FROM admin_config_audit
             WHERE {where_clause}
             ORDER BY timestamp DESC

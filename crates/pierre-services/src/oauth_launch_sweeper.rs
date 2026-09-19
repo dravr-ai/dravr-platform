@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use pierre_database::repositories::OAuthClientStateRepository;
+use pierre_database::repositories::{OAuthClientStateRepository, WorkerRunRepository};
 use tracing::warn;
 
 use crate::periodic::spawn_periodic;
@@ -60,8 +60,11 @@ const EXPIRED_LAUNCH_MARKER: &str = "oauth launches expired without completing";
 /// best-effort: a failed pass is logged and retried on the next tick, never
 /// propagated, because losing one detection pass is survivable and taking the
 /// server down for it is not.
-pub fn start_oauth_launch_sweeper(states: Arc<dyn OAuthClientStateRepository>) {
-    spawn_periodic("oauth launch sweeper", SWEEP_INTERVAL, move || {
+pub fn start_oauth_launch_sweeper(
+    states: Arc<dyn OAuthClientStateRepository>,
+    ledger: Arc<dyn WorkerRunRepository>,
+) {
+    spawn_periodic("oauth launch sweeper", SWEEP_INTERVAL, ledger, move || {
         let states = Arc::clone(&states);
         async move {
             let reaped = states.reap_expired_oauth_client_states(Utc::now()).await?;

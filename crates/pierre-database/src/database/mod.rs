@@ -6,6 +6,10 @@
 
 /// Agent-to-Agent (A2A) authentication and usage tracking
 pub mod a2a;
+/// The A2A reaper's bulk fail of tasks a dead instance left non-terminal
+pub mod a2a_task_reaper;
+/// Historical activity backfills still owed, one per (user, provider), leased to one re-runner
+pub mod activity_backfill_jobs;
 /// Provider-agnostic activity cache (stale-while-revalidate) persistence
 pub mod activity_cache_persistence;
 /// Admin token management and authorization
@@ -50,6 +54,8 @@ pub mod llm_usage;
 pub mod mcp_tasks;
 /// Coaching harness memory foundations (facts, compaction, notes, followups, sessions)
 pub mod memory;
+/// Post-turn memory extractions still owed, leased to one re-runner at a time
+pub mod memory_extraction_jobs;
 /// Multi-channel messaging gateway (channel configs, sessions, messages, queue)
 pub mod messaging;
 pub mod messaging_link_states;
@@ -131,6 +137,8 @@ pub mod user_tool_overrides;
 pub mod users;
 /// dravr-meteo persistent weather cache (geographic + hourly buckets)
 pub mod weather_cache;
+/// The periodic-worker ledger, claimed in one statement so two instances tick once
+pub mod worker_runs;
 /// Endurance user-authored `workout_templates` repository (`SQLite`)
 pub mod workout_templates;
 

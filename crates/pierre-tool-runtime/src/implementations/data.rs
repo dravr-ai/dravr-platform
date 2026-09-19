@@ -32,8 +32,8 @@ use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
 
 use crate::activity_backfill::{
-    backfill_inline_and_serve, is_historical_backfill_window, spawn_activity_backfill,
-    ActivityBackfillJob, InlineHistoricalServe,
+    backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
+    spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
 use crate::activity_fetch::{
     activity_date_span, historical_depth_covered, maybe_merge_other_connections,
@@ -349,7 +349,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Tenant ID strings for cache keys and downstream metadata.
             let tenant_uuid = context.tenant_id.unwrap_or_else(Uuid::nil);
             let tenant_id = TenantId::from_uuid(tenant_uuid);
-            let tenant_id_str = context.tenant_id.map(|t| t.to_string());
+            let tenant_id_str = provider_tenant_id_str(tenant_id);
 
             // ── Activity read model: three layers, two read paths — NOT three
             //    caches of the same data. (A tempting misread is "the response cache
@@ -741,7 +741,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
-                        });
+                        })
+                        .await;
                         // `started == false` means a backfill for this window is
                         // ALREADY in flight — the athlete has asked before. Saying
                         // "I'm pulling it now, ask again shortly" a second time

@@ -7,7 +7,6 @@
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use chrono::Utc;
-use http::{HeaderMap, HeaderValue};
 use pierre_auth::tenant::TenantRole;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::CoachingPersona;
@@ -74,7 +73,7 @@ async fn member_gets_the_role_recorded_in_tenant_users() {
     let repos = Arc::new(db.repositories());
     let (user_id, tenant_id) = user_owning_a_tenant(&repos).await;
 
-    let ctx = extract_tenant_context_internal(&repos, Some(user_id), Some(tenant_id), None)
+    let ctx = extract_tenant_context_internal(&repos, user_id, Some(tenant_id))
         .await
         .expect("a real membership resolves")
         .expect("a named tenant yields a context");
@@ -96,10 +95,9 @@ async fn explicit_tenant_id_without_membership_is_refused() {
     let (outsider_id, _own_tenant) = user_owning_a_tenant(&repos).await;
     let (_owner_id, foreign_tenant) = user_owning_a_tenant(&repos).await;
 
-    let err =
-        extract_tenant_context_internal(&repos, Some(outsider_id), Some(foreign_tenant), None)
-            .await
-            .expect_err("a user with no tenant_users row for the tenant must be refused");
+    let err = extract_tenant_context_internal(&repos, outsider_id, Some(foreign_tenant))
+        .await
+        .expect_err("a user with no tenant_users row for the tenant must be refused");
 
     assert_eq!(
         err.code,
@@ -115,46 +113,42 @@ async fn explicit_tenant_id_without_membership_is_refused() {
 }
 
 #[tokio::test]
-async fn x_tenant_id_header_without_membership_is_refused() {
+async fn an_unnamed_tenant_resolves_to_the_users_own_membership() {
     let db = create_test_db().await.unwrap();
     let repos = Arc::new(db.repositories());
-    let (outsider_id, _own_tenant) = user_owning_a_tenant(&repos).await;
-    let (_owner_id, foreign_tenant) = user_owning_a_tenant(&repos).await;
+    let (user_id, tenant_id) = user_owning_a_tenant(&repos).await;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "x-tenant-id",
-        HeaderValue::from_str(&foreign_tenant.to_string()).unwrap(),
-    );
-
-    let err = extract_tenant_context_internal(&repos, Some(outsider_id), None, Some(&headers))
+    let ctx = extract_tenant_context_internal(&repos, user_id, None)
         .await
-        .expect_err("a header naming a foreign tenant must be refused too");
+        .expect("a member resolves to a default tenant")
+        .expect("a user with a membership yields a context");
 
-    assert_eq!(err.code, ErrorCode::AuthInvalid);
-    assert!(
-        err.message.contains(&foreign_tenant.to_string()),
-        "the header branch must apply the same membership rule, got: {}",
-        err.message
+    assert_eq!(
+        ctx.tenant_id, tenant_id,
+        "the default tenant is the one the user is a member of"
+    );
+    assert_eq!(ctx.user_id, user_id);
+    assert_eq!(
+        ctx.role(),
+        Some(TenantRole::Owner),
+        "the default tenant's role is read from tenant_users too, never assumed"
     );
 }
 
 #[tokio::test]
-async fn a_userless_call_yields_a_context_with_no_role() {
+async fn an_unknown_user_is_refused_rather_than_given_a_context() {
     let db = create_test_db().await.unwrap();
     let repos = Arc::new(db.repositories());
     let (_owner_id, tenant_id) = user_owning_a_tenant(&repos).await;
+    let stranger = Uuid::new_v4();
 
-    let ctx = extract_tenant_context_internal(&repos, None, Some(tenant_id), None)
+    let err = extract_tenant_context_internal(&repos, stranger, Some(tenant_id))
         .await
-        .expect("naming a tenant without a user is a scoped operation")
-        .expect("a named tenant yields a context");
+        .expect_err("naming a tenant for a user with no membership row is refused");
+    assert_eq!(err.code, ErrorCode::AuthInvalid);
 
-    assert_eq!(ctx.tenant_id, tenant_id);
-    assert_eq!(
-        ctx.role(),
-        None,
-        "no membership was looked up, so no role may be claimed"
-    );
-    assert!(!ctx.is_admin());
+    let err = extract_tenant_context_internal(&repos, stranger, None)
+        .await
+        .expect_err("a user the users table does not know cannot resolve a tenant");
+    assert_eq!(err.code, ErrorCode::ResourceNotFound);
 }

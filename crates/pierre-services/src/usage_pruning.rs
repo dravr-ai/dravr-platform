@@ -1,23 +1,25 @@
 // ABOUTME: Background task for periodic pruning of old usage counter records
-// ABOUTME: Runs hourly via tokio interval, deleting counters older than 90 days
+// ABOUTME: Runs hourly on spawn_periodic, deleting counters older than 90 days
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Usage Counter Pruning Task
 //!
-//! Spawns a background tokio task that runs hourly to prune usage counter
-//! records with periods older than 90 days. This prevents unbounded growth
-//! of the `usage_counters` table.
+//! Spawns a periodic worker that runs hourly to prune usage counter records
+//! with periods older than 90 days. This prevents unbounded growth of the
+//! `usage_counters` table.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::task::AbortHandle;
-use tokio::time::{interval_at, Duration, Instant};
 use tracing::{debug, info, warn};
 
+use crate::periodic::spawn_periodic;
 use crate::usage_counter::UsageCounterService;
 use pierre_database::backends::UsageCounterRepository;
+use pierre_database::repositories::WorkerRunRepository;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
 
 /// Number of seconds in one hour
@@ -28,24 +30,28 @@ const DEFAULT_RETENTION_DAYS: i64 = 90;
 
 /// Start the periodic usage counter pruning task
 ///
-/// Spawns a background tokio task that:
-/// 1. Waits one hour before the first run (avoids startup load)
-/// 2. Prunes counters older than 90 days (configurable via admin config)
-/// 3. Repeats every hour
+/// Runs on [`spawn_periodic`]: the `ledger` decides when the next hourly
+/// pass is due, so a fresh instance prunes when an hour has elapsed since
+/// the last pass anywhere, not one hour after its own boot. Each pass
+/// prunes counters older than 90 days (configurable via admin config).
 pub fn start_usage_pruning_task(
     usage_counters: Arc<dyn UsageCounterRepository>,
     admin_config: Arc<dyn AdminConfigLookup>,
+    ledger: Arc<dyn WorkerRunRepository>,
 ) -> AbortHandle {
-    let hour = Duration::from_secs(HOUR_SECONDS);
-    let handle = tokio::spawn(async move {
-        // First tick fires after one hour (avoids startup load)
-        let mut ticker = interval_at(Instant::now() + hour, hour);
-        loop {
-            ticker.tick().await;
-            run_pruning_cycle(usage_counters.as_ref(), admin_config.as_ref()).await;
-        }
-    });
-    let abort_handle = handle.abort_handle();
+    let abort_handle = spawn_periodic(
+        "usage counter pruning",
+        Duration::from_secs(HOUR_SECONDS),
+        ledger,
+        move || {
+            let usage_counters = Arc::clone(&usage_counters);
+            let admin_config = Arc::clone(&admin_config);
+            async move {
+                run_pruning_cycle(usage_counters.as_ref(), admin_config.as_ref()).await;
+                Ok(())
+            }
+        },
+    );
     info!("Usage counter pruning task started (hourly, 90-day retention)");
     abort_handle
 }

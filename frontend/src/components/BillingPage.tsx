@@ -85,8 +85,6 @@ export default function BillingPage() {
       const cancelUrl = `${window.location.origin}/billing?upgrade=cancel`;
       return billingApi.startCheckout({
         tier,
-        tenant_id: '', // server resolves from auth context for self-checkout
-        user_id: user.id,
         success_url: successUrl,
         cancel_url: cancelUrl,
       });
@@ -102,7 +100,6 @@ export default function BillingPage() {
       const sub = subscriptionQuery.data;
       if (!sub) throw new Error('no subscription on file');
       return billingApi.openPortal({
-        provider_customer_id: sub.provider_customer_id,
         return_url: `${window.location.origin}/billing`,
       });
     },

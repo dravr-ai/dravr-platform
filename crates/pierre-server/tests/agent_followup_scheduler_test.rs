@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the agent followup scheduler — overdue rows fire and transition delivered
-// ABOUTME: Proves due_at metadata becomes real: tick processes overdue rows once and skips fresh ones
+// ABOUTME: Proves due_at metadata becomes real: tick processes overdue rows once, skips fresh ones, and leaves a row whose push failed pending
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -271,4 +271,147 @@ async fn tick_processes_multiple_overdue_in_one_batch() -> Result<()> {
     assert_eq!(outcome.errors, 0);
 
     Ok(())
+}
+
+/// What the dispatch outcome does to the row: a push that reached the
+/// pipeline marks the followup delivered, a push that did not leaves it
+/// pending so the next tick retries it (carnet#464 — the scheduler used to
+/// mark a row delivered whatever the dispatch did, so a permanently failing
+/// push was recorded as a check-in the athlete had received).
+#[cfg(feature = "client-notifications")]
+mod dispatch_outcome {
+    use super::{open_db, seed_user_tenant_agent, Result};
+    use chrono::{Duration, Utc};
+    use pierre_database::backends::factory::Database;
+    use pierre_database::repositories::InsertAgentFollowupParams;
+    use pierre_memory::FollowupStatus;
+    use pierre_notifications::{NotificationService, TenantId as CommTenantId};
+    use pierre_services::agent_followup_scheduler::tick;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use uuid::Uuid;
+
+    /// A notification service whose store has no tables at all: every
+    /// dispatch fails on the preference read, which is exactly what the
+    /// scheduler sees when the pipeline's database is unreachable.
+    async fn unreachable_notification_service() -> Result<NotificationService> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await?;
+        Ok(NotificationService::from_sqlite(pool))
+    }
+
+    /// The notification service on the scheduler's own database, where the
+    /// notification tables exist and a dispatch persists a row.
+    fn reachable_notification_service(db: &Database) -> NotificationService {
+        match db {
+            Database::SQLite(sqlite) => NotificationService::from_sqlite(sqlite.pool().clone()),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(pg) => NotificationService::from_postgres(pg.pool().clone()),
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_dispatch_leaves_followup_pending_for_the_next_tick() -> Result<()> {
+        let db = open_db().await?;
+        let memory = db.repositories().memory;
+        let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
+        let service = unreachable_notification_service().await?;
+
+        let inserted = memory
+            .insert_agent_followup(&InsertAgentFollowupParams {
+                tenant_id: tenant,
+                user_id: &user_id,
+                agent_id: &agent_id,
+                conversation_id: None,
+                content: "ask how the Achilles held up",
+                due_at: Some(Utc::now() - Duration::minutes(5)),
+            })
+            .await?;
+
+        let first = tick(memory.as_ref(), Some(&service), Utc::now(), 100).await?;
+        assert_eq!(first.processed, 1, "the overdue row is picked up");
+        assert_eq!(first.dispatched, 1, "one push was attempted");
+        assert_eq!(first.errors, 1, "the attempt failed");
+        assert_eq!(
+            first.marked_delivered, 0,
+            "a failed push must not mark the row delivered"
+        );
+
+        let pending = memory
+            .list_pending_followups_for_tenant(tenant, 100)
+            .await?;
+        assert_eq!(pending.len(), 1, "the row is still pending");
+        assert_eq!(pending[0].id, inserted.id);
+        assert_eq!(pending[0].status, FollowupStatus::Pending);
+        assert_eq!(pending[0].delivered_at, None);
+
+        // The next tick retries it — same row, same failure, still pending.
+        let second = tick(memory.as_ref(), Some(&service), Utc::now(), 100).await?;
+        assert_eq!(second.processed, 1, "the next tick retries the row");
+        assert_eq!(second.dispatched, 1);
+        assert_eq!(second.errors, 1);
+        assert_eq!(second.marked_delivered, 0);
+
+        let still_pending = memory
+            .list_pending_followups_for_tenant(tenant, 100)
+            .await?;
+        assert_eq!(still_pending.len(), 1);
+        assert_eq!(still_pending[0].id, inserted.id);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn successful_dispatch_marks_followup_delivered_and_persists_the_push() -> Result<()> {
+        let db = open_db().await?;
+        let memory = db.repositories().memory;
+        let (tenant, user_id, agent_id) = seed_user_tenant_agent(&db).await?;
+        let service = reachable_notification_service(&db);
+
+        memory
+            .insert_agent_followup(&InsertAgentFollowupParams {
+                tenant_id: tenant,
+                user_id: &user_id,
+                agent_id: &agent_id,
+                conversation_id: None,
+                content: "check on the taper week",
+                due_at: Some(Utc::now() - Duration::minutes(5)),
+            })
+            .await?;
+
+        let outcome = tick(memory.as_ref(), Some(&service), Utc::now(), 100).await?;
+        assert_eq!(outcome.processed, 1);
+        assert_eq!(outcome.dispatched, 1);
+        assert_eq!(outcome.errors, 0);
+        assert_eq!(
+            outcome.marked_delivered, 1,
+            "a push that reached the pipeline marks the row delivered"
+        );
+
+        let pending = memory
+            .list_pending_followups_for_tenant(tenant, 100)
+            .await?;
+        assert!(
+            pending.is_empty(),
+            "the delivered row left the pending queue"
+        );
+
+        let user_uuid: Uuid = user_id.parse()?;
+        let (notifications, total, _unread) = service
+            .list_notifications(
+                user_uuid,
+                CommTenantId(tenant.as_uuid()),
+                10,
+                0,
+                None,
+                false,
+            )
+            .await?;
+        assert_eq!(total, 1, "exactly one notification row was persisted");
+        assert_eq!(notifications[0].notification_type, "coach_followup_due");
+        assert_eq!(notifications[0].body, "check on the taper week");
+
+        Ok(())
+    }
 }

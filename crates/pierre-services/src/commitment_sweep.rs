@@ -613,8 +613,9 @@ fn parse_ids(commitment: &Commitment) -> Option<(Uuid, TenantId)> {
 /// Spawn the background sweep loop.
 ///
 /// Fire-and-forget, like every sibling scheduler: the task owns its own error
-/// handling, a panicking tick is caught so the daemon survives it, and the first
-/// immediate tick is skipped so a restart does not slam the database.
+/// handling, a panicking tick is caught so the daemon survives it, and the
+/// worker ledger decides when the next tick is due, so a restart resumes the
+/// cadence instead of restarting it.
 pub fn spawn_commitment_sweep(
     repos: Arc<RepositoryRegistry>,
     reporter: Option<Arc<dyn CommitmentReporter>>,
@@ -627,9 +628,11 @@ pub fn spawn_commitment_sweep(
 
     debug!(interval_secs, "starting commitment sweep");
 
+    let ledger = Arc::clone(&repos.worker_runs);
     spawn_periodic(
         "commitment sweep",
         Duration::from_secs(interval_secs),
+        ledger,
         move || {
             let repos = Arc::clone(&repos);
             let reporter = reporter.clone();

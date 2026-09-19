@@ -105,9 +105,8 @@ impl ToolHandlers {
 
         let tenant_context = match extract_tenant_context_internal(
             &resources.common.repos,
-            Some(user_id),
+            user_id,
             Some(tenant_id),
-            None,
         )
         .await
         {

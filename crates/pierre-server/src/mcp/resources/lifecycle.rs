@@ -293,7 +293,11 @@ impl ServerContext {
         let pruning_abort_handle = admin_config.as_ref().map(|config| {
             let lookup: Arc<dyn pierre_runtime_context::AdminConfigLookup> =
                 Arc::clone(config) as Arc<dyn pierre_runtime_context::AdminConfigLookup>;
-            start_usage_pruning_task(Arc::clone(&repos.usage_counters), lookup)
+            start_usage_pruning_task(
+                Arc::clone(&repos.usage_counters),
+                lookup,
+                Arc::clone(&repos.worker_runs),
+            )
         });
 
         // Create tool selection service for per-tenant tool filtering

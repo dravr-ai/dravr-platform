@@ -31,7 +31,8 @@
 //! Dispatch is best-effort: a failed snapshot fetch or notification send is
 //! logged and counted but never aborts the rest of the sweep. There is no
 //! "already sent" persistence — the weekly cadence is enforced by the tick
-//! interval, so a server restart re-arms the timer rather than re-sending.
+//! interval, which the worker ledger keeps across restarts: a fresh instance
+//! waits out the remainder of the week rather than re-sending or re-arming.
 
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -285,7 +286,7 @@ async fn dispatch_digest(
 /// Called once at server bootstrap from `spawn_background_workers`. The task
 /// runs for the server's lifetime; the
 /// [`AbortHandle`](tokio::task::AbortHandle) is discarded because the scheduler
-/// is best-effort and a server restart re-arms it.
+/// is best-effort and the worker ledger carries its schedule across restarts.
 pub fn start_digest_scheduler<C>(
     ctx: Arc<C>,
     #[cfg(feature = "client-notifications")] notification_service: Option<Arc<NotificationService>>,
@@ -297,10 +298,12 @@ pub fn start_digest_scheduler<C>(
     // callable for the life of the worker.
     let cloned: Arc<C> = Arc::clone(&ctx);
     let runtime: Arc<dyn ToolRuntime> = cloned;
+    let ledger = Arc::clone(&MiddlewareCtx::repos(ctx.as_ref()).worker_runs);
 
     spawn_periodic(
         "group weekly-digest scheduler",
         DEFAULT_TICK_INTERVAL,
+        ledger,
         move || {
             let ctx = Arc::clone(&ctx);
             let runtime = Arc::clone(&runtime);

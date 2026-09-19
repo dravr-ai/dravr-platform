@@ -108,10 +108,7 @@ use pierre_services::advice_capture::{
     spawn_capture_advice, AdviceCaptureStrategy, CapturedTurn, HeuristicGatedLlmExtraction,
 };
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
-use pierre_services::memory_dedup::DedupConfig;
-use pierre_services::memory_extraction::{
-    spawn_extract_for_turn, SpawnedExtractionRequest, WITHHELD_REPLY_TRANSCRIPT_MARKER,
-};
+use pierre_services::memory_extraction::WITHHELD_REPLY_TRANSCRIPT_MARKER;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -324,12 +321,6 @@ async fn assemble_prompt_stage(
     result
 }
 
-/// Fire the Tier 2 background fact extraction for a completed turn, stamping the
-/// onboarding pillar/source/force-kind when the conversation is mid pillar walk.
-///
-/// `answered` is the guided topic the athlete's inbound message replies to (see
-/// [`stages::onboarding::answered_target`]), which is what extraction reads —
-/// never the topic this turn goes on to ask.
 /// The tool that persists a training plan.
 ///
 /// Named here because the memory extractor's agent-prescription filter is
@@ -338,57 +329,9 @@ async fn assemble_prompt_stage(
 /// drop deletes the only copy (registre#203).
 const SAVE_TRAINING_PLAN_TOOL: &str = "save_training_plan";
 
-fn spawn_turn_extraction(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    conv: &ConversationRecord,
-    assistant_reply: &str,
-    assistant_message_id: &str,
-    answered: Option<stages::onboarding::GuidedTarget>,
-    plan_was_saved: bool,
-) {
-    let (pillar, source, force_kind) = stages::onboarding::extraction_params_or_default(answered);
-    // A guided answer is stamped under the TOOL tenant — the athlete's own,
-    // which a room turn resolves while its conversation row stays under the
-    // channel tenant. The subject gate in `stages::onboarding::resolve` means
-    // `answered` is only ever `Some` on the walking member's own turn, and the
-    // dossier the walk composes reads that same tenant, so the answer lands
-    // where the walk (and the athlete's own DM) will find it. Ordinary turns
-    // keep the conversation-tenant stamp; the precedent for a divergent stamp
-    // is `spawn_turn_advice_capture` below.
-    let extraction_tenant = if answered.is_some() {
-        input.tool_tenant_id
-    } else {
-        input.conversation_tenant_id
-    };
-    // The de-dup tunables are read per turn, so a threshold change through
-    // contremaitre reaches the next extraction without a deploy.
-    let memory_config = ctx.harness_config_registry.current_memory();
-    spawn_extract_for_turn(
-        Arc::clone(&ctx.repos.memory),
-        ctx.chat_provider.as_ref().map(Arc::clone),
-        DedupConfig {
-            candidate_limit: memory_config.dedup_candidate_limit as usize,
-        },
-        ctx.memory_extraction_prompt.clone(),
-        SpawnedExtractionRequest {
-            tenant_id: extraction_tenant,
-            user_id: input.user_id.clone(),
-            agent_id: input.turn_agent_id(conv).map(ToOwned::to_owned),
-            user_message: input.content.clone(),
-            assistant_reply: assistant_reply.to_owned(),
-            source_msg_id: Some(assistant_message_id.to_owned()),
-            pillar,
-            source,
-            force_kind,
-            plan_was_saved,
-        },
-    );
-}
-
 /// Spawn background advice capture for the turn (P3 of playbook memory).
 ///
-/// Mirrors [`spawn_turn_extraction`]: best-effort, needs the shared
+/// Mirrors [`stages::turn_extraction::spawn_turn_extraction`]: best-effort, needs the shared
 /// `ChatProvider` singleton, and never blocks the reply. The v1 strategy is
 /// [`HeuristicGatedLlmExtraction`]; swapping it (see `DRAVR-BACKLOG.md`) is a
 /// one-line change here once a config selector exists.
@@ -438,7 +381,7 @@ fn spawn_turn_advice_capture(
 ///
 /// Owning the `leak_replaced` branch here keeps `run_turn` itself branch-free
 /// over this concern.
-fn spawn_turn_background_learning(
+async fn spawn_turn_background_learning(
     inputs: &FinishTurnInputs<'_>,
     answered: Option<stages::onboarding::GuidedTarget>,
 ) {
@@ -453,7 +396,7 @@ fn spawn_turn_background_learning(
         ..
     } = *inputs;
     if leak_replaced {
-        spawn_turn_extraction(
+        stages::turn_extraction::spawn_turn_extraction(
             ctx,
             input,
             conv,
@@ -461,10 +404,11 @@ fn spawn_turn_background_learning(
             assistant_message_id,
             answered,
             plan_was_saved,
-        );
+        )
+        .await;
         return;
     }
-    spawn_turn_extraction(
+    stages::turn_extraction::spawn_turn_extraction(
         ctx,
         input,
         conv,
@@ -472,7 +416,8 @@ fn spawn_turn_background_learning(
         assistant_message_id,
         answered,
         plan_was_saved,
-    );
+    )
+    .await;
     spawn_turn_advice_capture(ctx, input, conv, assistant_reply, assistant_message_id);
 }
 
@@ -561,7 +506,7 @@ async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
     // on. Stamping with it filed every guided answer under the next topic's
     // pillar and forced kind.
     let answered = onboarding.and_then(|turn| stages::onboarding::answered_target(&turn.state));
-    spawn_turn_background_learning(&inputs, answered);
+    spawn_turn_background_learning(&inputs, answered).await;
     record_guided_flow_probe(
         ctx,
         conv,
@@ -1168,7 +1113,7 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
             // it on every walk — calibration's last core topic is recovery
             // speed, which is safety-critical and the sole writer of its kind,
             // so its absence is exactly what the wrap-up would have named.
-            spawn_turn_extraction(
+            stages::turn_extraction::spawn_turn_extraction(
                 ctx,
                 input,
                 conv,
@@ -1178,7 +1123,8 @@ async fn resolve_guided_or_answer(inputs: GuidedStageInputs<'_>) -> AppResult<Gu
                 // A walk's closing turn skips the LLM entirely, so no tool
                 // ran and no plan was stored.
                 false,
-            );
+            )
+            .await;
             Ok(GuidedOutcome::Answered(Box::new(result)))
         }
     }

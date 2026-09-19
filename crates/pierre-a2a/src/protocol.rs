@@ -24,7 +24,7 @@ use crate::protocol_types::{
     error_info, A2ASpecError, Artifact, GetTaskRequest, ListTasksRequest, ListTasksResponse,
     Message, Part, PartContent, PushNotificationAuthenticationInfo, PushNotificationConfigInput,
     SendMessageRequest, StreamResponse, Task, TaskArtifactUpdateEvent, TaskPushNotificationConfig,
-    TaskState, TaskStatusUpdateEvent, WireTaskStatus,
+    TaskState, WireTaskStatus,
 };
 use crate::{push, A2AErrorResponse, A2ARequest, A2AResponse};
 use chrono::SecondsFormat;
@@ -506,13 +506,17 @@ impl A2AServer {
     }
 
     /// Current instant in the spec's ISO-8601 UTC millisecond format.
-    fn now_timestamp() -> String {
+    pub(crate) fn now_timestamp() -> String {
         chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
     }
 
     /// Assemble the wire `Task` from a database record, applying
     /// `historyLength` truncation and artifact inclusion.
-    fn wire_task(record: &A2ATask, history_length: Option<u32>, include_artifacts: bool) -> Task {
+    pub(crate) fn wire_task(
+        record: &A2ATask,
+        history_length: Option<u32>,
+        include_artifacts: bool,
+    ) -> Task {
         let status_message = record
             .status_message
             .as_ref()
@@ -714,10 +718,14 @@ impl A2AServer {
 
             let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
             let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
-            let handle = tokio::spawn(async move {
+                                                               // Detached by design: progress is observable via GetTask/SubscribeToTask.
+                                                               // The context spawns it under the server's in-flight tracker so a
+                                                               // drain waits for it; a task the drain still loses is failed by
+                                                               // the reaper (`crate::reaper`).
+            let spawner = Arc::clone(&resources.ctx);
+            spawner.spawn_detached_task(Box::pin(async move {
                 Self::run_task_message(&ctx, &tool_runtime, principal, prepared).await;
-            });
-            drop(handle); // Detached by design: progress is observable via GetTask/SubscribeToTask.
+            }));
 
             return Self::send_message_task_response(&snapshot, request.id);
         }
@@ -1066,48 +1074,6 @@ impl A2AServer {
         Self::publish_status(task_id, context_id, state, message);
     }
 
-    /// Publish a status-update stream event.
-    fn publish_status(task_id: &str, context_id: &str, state: TaskState, message: Option<Message>) {
-        TASK_EVENTS.publish(
-            task_id,
-            &StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
-                task_id: task_id.to_owned(),
-                context_id: context_id.to_owned(),
-                status: WireTaskStatus {
-                    state,
-                    message,
-                    timestamp: Some(Self::now_timestamp()),
-                },
-                metadata: None,
-            }),
-        );
-    }
-
-    /// Deliver the task's current state to its registered webhooks.
-    async fn notify_webhooks(ctx: &Arc<dyn A2ACtx>, task_id: &str) {
-        let repos = ctx.repos();
-        let configs = match repos.a2a.list_push_configs(task_id).await {
-            Ok(configs) if !configs.is_empty() => configs,
-            Ok(_) => return,
-            Err(e) => {
-                error!("Failed to load A2A push configs: {e}");
-                return;
-            }
-        };
-
-        let Ok(Some(record)) = repos.a2a.get_task(task_id).await else {
-            return;
-        };
-        let task = Self::wire_task(&record, None, true);
-        let event = StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
-            task_id: task.id.clone(), // Safe: String ownership for event
-            context_id: task.context_id.clone().unwrap_or_default(), // Safe: String ownership for event
-            status: task.status,
-            metadata: None,
-        });
-        push::deliver_task_update(&configs, &event).await;
-    }
-
     /// Extract a `(tool_name, parameters)` tool invocation from a message:
     /// a `data` part carrying `{"tool_name": ..., "parameters": {...}}`.
     #[must_use]
@@ -1139,15 +1105,15 @@ impl A2AServer {
     ) -> Result<Value, String> {
         let user_id = principal.user_id;
         // Resolve tenant context — required for all A2A tool execution.
-        let tenant_context =
-            match extract_tenant_context_internal(ctx.repos(), Some(user_id), None, None).await {
-                Ok(Some(context)) => context,
-                Ok(None) => return Err("User does not belong to any tenant".into()),
-                Err(e) => {
-                    error!("Failed to resolve tenant context: {e}");
-                    return Err("Failed to resolve tenant context".into());
-                }
-            };
+        let tenant_context = match extract_tenant_context_internal(ctx.repos(), user_id, None).await
+        {
+            Ok(Some(context)) => context,
+            Ok(None) => return Err("User does not belong to any tenant".into()),
+            Err(e) => {
+                error!("Failed to resolve tenant context: {e}");
+                return Err("Failed to resolve tenant context".into());
+            }
+        };
 
         if !tool_runtime.tool_registry().contains(tool_name) {
             return Err(format!("Unknown tool: {tool_name}"));
@@ -1260,10 +1226,13 @@ impl A2AServer {
 
         let ctx = resources.ctx.clone(); // Safe: Arc clone for spawned executor
         let tool_runtime = resources.tool_runtime.clone(); // Safe: Arc clone for spawned executor
-        let handle = tokio::spawn(async move {
+                                                           // Detached by design: completion is signalled by stream closure. Spawned
+                                                           // under the server's in-flight tracker so a drain waits for it once the
+                                                           // subscriber has gone; the reaper fails whatever the drain still loses.
+        let spawner = Arc::clone(&resources.ctx);
+        spawner.spawn_detached_task(Box::pin(async move {
             Self::run_task_message(&ctx, &tool_runtime, principal, prepared).await;
-        });
-        drop(handle); // Detached by design: completion is signalled by stream closure.
+        }));
 
         Ok((snapshot, receiver))
     }

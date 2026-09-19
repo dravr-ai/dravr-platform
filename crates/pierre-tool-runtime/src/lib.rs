@@ -59,6 +59,10 @@
 /// that doesn't enable `tools-data` (e.g. under per-crate preflight clippy).
 #[cfg(feature = "tools-data")]
 pub mod activity_backfill;
+/// The sweep that re-runs the backfills an instance died holding; gated with
+/// the module whose job rows it claims.
+#[cfg(feature = "tools-data")]
+pub mod activity_backfill_resume;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_dedup;
 pub mod activity_fetch;

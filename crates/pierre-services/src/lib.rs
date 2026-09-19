@@ -122,6 +122,8 @@ pub mod health_sync;
 
 /// Memory extraction: Tier 2 background distillation of user facts from finished turns
 pub mod memory_extraction;
+/// Re-running the extractions an instance died owing, from the job ledger
+pub mod memory_extraction_resume;
 
 /// User-facing memory fact service — list and forget what the agent remembers
 /// Deciding whether an extracted fact is new or a restatement of an existing one.

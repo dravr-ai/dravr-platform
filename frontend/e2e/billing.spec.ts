@@ -280,11 +280,13 @@ test.describe('Billing - Starter fallback (no subscription on file)', () => {
       'https://example.test/checkout/test_session_xyz',
     );
 
-    // The request body must carry the tier + user_id the server-side handler expects.
+    // The request body carries the tier + redirect targets; the user and
+    // tenant come from the bearer token, so the body must not name them.
     const body = capturedBody as Record<string, unknown> | null;
     expect(body).not.toBeNull();
     expect(body!.tier).toBe('professional');
-    expect(body!.user_id).toBe('user-123');
+    expect(body).not.toHaveProperty('user_id');
+    expect(body).not.toHaveProperty('tenant_id');
     expect(body!.success_url).toContain('/billing?upgrade=success');
     expect(body!.cancel_url).toContain('/billing?upgrade=cancel');
   });
@@ -354,7 +356,8 @@ test.describe('Billing - Existing Professional subscription', () => {
     await expect.poll(() => portalNavigation, { timeout: 5000 }).toBe(
       'https://example.test/portal/test_portal_xyz',
     );
-    expect(portalBody!.provider_customer_id).toBe('cus_test_abc123');
+    // The customer is the caller's own subscription row, resolved server-side.
+    expect(portalBody).not.toHaveProperty('provider_customer_id');
     expect(portalBody!.return_url).toContain('/billing');
   });
 });

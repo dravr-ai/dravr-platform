@@ -54,8 +54,12 @@ pub mod protocol;
 pub mod protocol_types;
 /// Push notification webhook delivery
 pub mod push;
+/// Reaper for tasks an instance died holding
+pub mod reaper;
 /// System user management for A2A agents
 pub mod system_user;
+/// How a task's state leaves the process: stream events and push webhooks
+pub(crate) mod task_events;
 
 pub use agent_card::AgentCard;
 pub use client::A2AClientManager;

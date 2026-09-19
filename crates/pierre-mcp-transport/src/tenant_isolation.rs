@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use http::HeaderMap;
 use pierre_auth::auth::Claims;
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::errors::{AppError, AppResult};
@@ -178,42 +177,6 @@ impl TenantIsolation {
         verified_tenant_role(self.resources.repos(), user_id, tenant_id).await
     }
 
-    /// Extract tenant context from request headers
-    ///
-    /// # Errors
-    /// Returns an error if header parsing fails
-    pub async fn extract_tenant_from_header(
-        &self,
-        headers: &HeaderMap,
-    ) -> AppResult<Option<TenantContext>> {
-        // Look for tenant ID in headers
-        if let Some(tenant_id_header) = headers.get("x-tenant-id") {
-            let tenant_id_str = tenant_id_header.to_str().map_err(|e| {
-                warn!(error = %e, "Invalid x-tenant-id header format (non-UTF8)");
-                AppError::invalid_input("Invalid tenant ID header format")
-            })?;
-
-            let tenant_id = TenantId::parse_str(tenant_id_str).map_err(|e| {
-                warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in x-tenant-id header");
-                AppError::invalid_input("Invalid tenant ID format")
-            })?;
-
-            let tenant_name = self.get_tenant_name(tenant_id).await;
-
-            // Header-derived: there is no user and no membership lookup, so no
-            // role is established. The constructor says so, rather than filling
-            // the field with a placeholder role the type would then present as
-            // verified.
-            return Ok(Some(TenantContext::for_tenant_scoped_operation(
-                tenant_id,
-                tenant_name,
-                Uuid::nil(), // No user context available from headers
-            )));
-        }
-
-        Ok(None)
-    }
-
     /// Extract tenant context from user (using their default tenant)
     ///
     /// # Errors
@@ -335,10 +298,10 @@ pub struct JwtValidationResult {
 /// That table is the source of truth for membership: no row means the user is
 /// not a member of the tenant, which is an authorization failure and not a
 /// default role. Every membership lookup in this module funnels through here,
-/// so the same refusal applies whether the tenant was named explicitly, carried
-/// on a header, or resolved from the user's tenant list. A membership that has
-/// been revoked therefore stops granting a role as soon as the row is gone,
-/// even while a token minted earlier still names the tenant.
+/// so the same refusal applies whether the tenant was named explicitly or
+/// resolved from the user's tenant list. A membership that has been revoked
+/// therefore stops granting a role as soon as the row is gone, even while a
+/// token minted earlier still names the tenant.
 ///
 /// The result is the only value fit to hand to
 /// [`TenantContext::from_verified_membership`], whose contract is that the role
@@ -365,129 +328,72 @@ async fn verified_tenant_role(
         })
 }
 
-/// Extract tenant context from various sources (internal helper)
+/// Resolve the tenant context a user acts under (internal helper)
 ///
 /// Priority order:
 /// 1. Explicit `tenant_id` parameter
-/// 2. `x-tenant-id` header
-/// 3. User's default tenant (from `tenant_users` table)
+/// 2. User's default tenant (from `tenant_users` table)
 ///
-/// A `user_id` paired with a tenant always costs a membership lookup against
-/// the `tenant_users` table; a tenant the user does not belong to is refused
+/// Either way the resolution costs a membership lookup against the
+/// `tenant_users` table; a tenant the user does not belong to is refused
 /// rather than resolved to a context with a default role. This is the same
 /// membership rule `pierre_runtime_context::resolve_tenant` applies when it
 /// selects a tenant id from an `active_tenant_id` claim — the two differ only
 /// in what they are handed, not in what they trust.
 ///
+/// Returns `Ok(None)` only when no tenant was named and the user belongs to
+/// no tenant at all.
+///
 /// # Errors
-/// Returns an error if tenant extraction fails, or if `user_id` has no
-/// membership row for the resolved tenant
+/// Returns an error if the user is unknown, the lookup fails, or `user_id`
+/// has no membership row for the resolved tenant
 pub async fn extract_tenant_context_internal(
     repos: &Arc<pierre_database::RepositoryRegistry>,
-    user_id: Option<Uuid>,
+    user_id: Uuid,
     tenant_id: Option<TenantId>,
-    headers: Option<&HeaderMap>,
 ) -> AppResult<Option<TenantContext>> {
-    // Try to extract from explicit tenant ID first
     if let Some(tenant_id) = tenant_id {
         // A user paired with a named tenant must hold a membership row for it;
         // absence is refused rather than resolved to a role.
-        let resolved_role = match user_id {
-            Some(uid) => Some((verified_tenant_role(repos, uid, tenant_id).await?, uid)),
-            None => None,
-        };
+        let role = verified_tenant_role(repos, user_id, tenant_id).await?;
 
         let tenant_name = match repos.tenants.get_by_id(tenant_id).await {
             Ok(tenant) => tenant.name,
             _ => "Unknown Tenant".to_owned(),
         };
 
-        // With no user there is no membership to look up, so the context is
-        // tenant-scoped and carries no role — rather than a placeholder one.
-        return Ok(Some(resolved_role.map_or_else(
-            || {
-                TenantContext::for_tenant_scoped_operation(
-                    tenant_id,
-                    tenant_name.clone(),
-                    Uuid::nil(),
-                )
-            },
-            |(role, uid)| {
-                TenantContext::from_verified_membership(tenant_id, tenant_name.clone(), uid, role)
-            },
+        return Ok(Some(TenantContext::from_verified_membership(
+            tenant_id,
+            tenant_name,
+            user_id,
+            role,
         )));
     }
 
-    // Try to extract from headers
-    if let Some(headers) = headers {
-        if let Some(tenant_id_header) = headers.get("x-tenant-id") {
-            if let Ok(tenant_id_str) = tenant_id_header.to_str() {
-                if let Ok(header_tenant_id) = TenantId::parse_str(tenant_id_str) {
-                    // A header naming a tenant carries no more trust than an
-                    // explicit argument: membership still has to be on record.
-                    let resolved_role = match user_id {
-                        Some(uid) => Some((
-                            verified_tenant_role(repos, uid, header_tenant_id).await?,
-                            uid,
-                        )),
-                        None => None,
-                    };
+    // SECURITY: Global lookup — resolving user's default tenant
+    repos
+        .users
+        .get_global(user_id)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User"))?;
 
-                    let tenant_name = match repos.tenants.get_by_id(header_tenant_id).await {
-                        Ok(tenant) => tenant.name,
-                        _ => "Unknown Tenant".to_owned(),
-                    };
+    // Get user's tenants from tenant_users table
+    let tenants = repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
-                    // No user means no membership lookup, so no role.
-                    return Ok(Some(resolved_role.map_or_else(
-                        || {
-                            TenantContext::for_tenant_scoped_operation(
-                                header_tenant_id,
-                                tenant_name.clone(),
-                                Uuid::nil(),
-                            )
-                        },
-                        |(role, uid)| {
-                            TenantContext::from_verified_membership(
-                                header_tenant_id,
-                                tenant_name.clone(),
-                                uid,
-                                role,
-                            )
-                        },
-                    )));
-                }
-            }
-        }
-    }
+    if let Some(default_tenant) = tenants.first() {
+        let user_role = verified_tenant_role(repos, user_id, default_tenant.id).await?;
 
-    // Try to extract from user's default tenant (via tenant_users table)
-    if let Some(user_id) = user_id {
-        // SECURITY: Global lookup — resolving user's default tenant
-        repos
-            .users
-            .get_global(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
-            .ok_or_else(|| AppError::not_found("User"))?;
-
-        // Get user's tenants from tenant_users table
-        let tenants = repos
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-
-        if let Some(default_tenant) = tenants.first() {
-            let user_role = verified_tenant_role(repos, user_id, default_tenant.id).await?;
-
-            return Ok(Some(TenantContext::from_verified_membership(
-                default_tenant.id,
-                default_tenant.name.clone(),
-                user_id,
-                user_role,
-            )));
-        }
+        return Ok(Some(TenantContext::from_verified_membership(
+            default_tenant.id,
+            default_tenant.name.clone(),
+            user_id,
+            user_role,
+        )));
     }
 
     Ok(None)

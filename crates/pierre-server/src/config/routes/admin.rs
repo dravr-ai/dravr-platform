@@ -14,7 +14,7 @@ use crate::config::admin::{AdminConfigService, UpdateConfigContext};
 use crate::mcp::resources::ServerContext;
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -70,6 +70,11 @@ impl AdminConfigState {
     /// the user every write is audited as. A service token minted by `token
     /// generate` names no operator and is refused, whatever its permissions:
     /// `admin_config_overrides.created_by` references `users`.
+    ///
+    /// Any `Admin`-or-higher account passes: the admin console is a global
+    /// operator model, and the operator account is a plain `Admin`, so the
+    /// configuration surface — reads and writes, every scope — is theirs
+    /// without a further permission or super-admin gate.
     async fn authenticate_admin(&self, headers: &HeaderMap) -> Result<AdminAuthInfo, AppError> {
         let auth_value =
             if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
@@ -153,6 +158,33 @@ impl AdminConfigState {
 struct AdminAuthInfo {
     user_id: String,
     email: String,
+}
+
+/// Client address recorded on the audit row: the first hop of
+/// `x-forwarded-for` (the address the edge saw), else `x-real-ip`.
+///
+/// PII — it is stored as an audit field and must not be logged.
+fn client_ip(headers: &HeaderMap) -> Option<&str> {
+    let header_value = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .map(str::trim)
+            .filter(|ip| !ip.is_empty())
+    };
+    header_value("x-forwarded-for").or_else(|| header_value("x-real-ip"))
+}
+
+/// Client user agent recorded on the audit row.
+///
+/// PII — it is stored as an audit field and must not be logged.
+fn user_agent(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|agent| !agent.is_empty())
 }
 
 // ============================================================================
@@ -409,10 +441,8 @@ pub async fn update_config(
                 admin_user_id: &user_id,
                 admin_email: user_email,
                 scope,
-                // IP address - would come from request headers in production
-                ip_address: None,
-                // User agent - would come from request headers in production
-                user_agent: None,
+                ip_address: client_ip(&headers),
+                user_agent: user_agent(&headers),
             },
         )
         .await?;
@@ -496,8 +526,8 @@ pub async fn update_category_config(
                 admin_user_id: &user_id,
                 admin_email: user_email,
                 scope,
-                ip_address: None,
-                user_agent: None,
+                ip_address: client_ip(&headers),
+                user_agent: user_agent(&headers),
             },
         )
         .await?;
@@ -552,8 +582,8 @@ pub async fn reset_config(
                 admin_user_id: &user_id,
                 admin_email: user_email,
                 scope,
-                ip_address: None,
-                user_agent: None,
+                ip_address: client_ip(&headers),
+                user_agent: user_agent(&headers),
             },
         )
         .await?;

@@ -262,17 +262,20 @@ fn to_app_error_result<T>(result: Result<T, pierre_notifications::CommereError>)
 ///
 /// Called once at server bootstrap beside the group digest spawn. The
 /// [`AbortHandle`](tokio::task::AbortHandle) is discarded because the scheduler
-/// is best-effort and a restart re-arms the timer; "already digested" is
-/// derived from the persisted rows, so a retry or restart re-sends nothing.
+/// is best-effort and the worker ledger carries the schedule across restarts;
+/// "already digested" is derived from the persisted rows, so a retry or a
+/// second instance re-sends nothing.
 pub fn start_persona_digest_scheduler(
     repos: Arc<RepositoryRegistry>,
     gate: Arc<dyn PersonaPolicyGate>,
     service: Arc<NotificationService>,
     strings: Arc<MessagingStringsRegistry>,
 ) {
+    let ledger = Arc::clone(&repos.worker_runs);
     spawn_periodic(
         "persona notification digest scheduler",
         DEFAULT_TICK_INTERVAL,
+        ledger,
         move || {
             let repos = Arc::clone(&repos);
             let gate = Arc::clone(&gate);

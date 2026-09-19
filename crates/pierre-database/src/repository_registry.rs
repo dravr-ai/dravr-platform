@@ -11,12 +11,13 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
 use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
-    A2ARepository, ActivityCacheRepository, AdminRepository, AgentsRepository, ApiKeyRepository,
-    ChatRepository, ClaimVerdictRepository, CoachingGroupRepository, CommitmentRepository,
-    DataSourceRepository, DossierRepository, EmailVerificationRepository, FeatureFlagsRepository,
-    FitnessConfigRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
-    McpTaskRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    A2ARepository, A2ATaskReaperRepository, ActivityBackfillJobRepository, ActivityCacheRepository,
+    AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
+    CoachingGroupRepository, CommitmentRepository, DataSourceRepository, DossierRepository,
+    EmailVerificationRepository, FeatureFlagsRepository, FitnessConfigRepository,
+    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
+    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
+    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
     OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
     PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
@@ -27,7 +28,7 @@ use crate::repositories::{
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
     UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
     UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WorkoutTemplateRepository,
+    WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -130,6 +131,14 @@ pub struct RepositoryRegistry {
     pub mcp_tasks: Arc<dyn McpTaskRepository>,
     /// Messaging turns the shutdown drain handed off for another instance to answer
     pub resumable_turns: Arc<dyn ResumableTurnRepository>,
+    /// When each periodic worker last ticked, so a schedule survives the process
+    pub worker_runs: Arc<dyn WorkerRunRepository>,
+    /// Post-turn memory extractions still owed, for the resume sweep
+    pub memory_extraction_jobs: Arc<dyn MemoryExtractionJobRepository>,
+    /// Historical activity backfills still owed, for the resume sweep
+    pub activity_backfill_jobs: Arc<dyn ActivityBackfillJobRepository>,
+    /// The A2A reaper's bulk fail of tasks a dead instance left non-terminal
+    pub a2a_task_reaper: Arc<dyn A2ATaskReaperRepository>,
     /// Stripe-backed subscription rows (one per (tenant, `stripe_subscription`))
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
@@ -234,6 +243,10 @@ impl RepositoryRegistry {
             claim_verdicts: db.clone(),
             mcp_tasks: db.clone(),
             resumable_turns: db.clone(),
+            worker_runs: db.clone(),
+            memory_extraction_jobs: db.clone(),
+            activity_backfill_jobs: db.clone(),
+            a2a_task_reaper: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
             user_physiological_profile: db.clone(),
@@ -305,6 +318,10 @@ impl RepositoryRegistry {
             claim_verdicts: db.clone(),
             mcp_tasks: db.clone(),
             resumable_turns: db.clone(),
+            worker_runs: db.clone(),
+            memory_extraction_jobs: db.clone(),
+            activity_backfill_jobs: db.clone(),
+            a2a_task_reaper: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
             user_physiological_profile: db.clone(),

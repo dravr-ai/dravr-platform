@@ -39,6 +39,8 @@ pub mod tenant;
 pub use data::DataContext;
 pub use tenant::{resolve_tenant, TenantMode};
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -181,6 +183,15 @@ pub trait A2ACtx: Send + Sync + 'static {
     /// Configured server base URL — used to construct the agent card's
     /// `supportedInterfaces` URLs.
     fn base_url(&self) -> &str;
+
+    /// Run a task's execution after its request has answered.
+    ///
+    /// `SendMessage` with `returnImmediately`, and every streaming send,
+    /// finish the tool call after the HTTP response is on its way. The
+    /// server spawns that work under its in-flight tracker so a shutdown
+    /// drain waits for it the way it waits for a messaging turn, instead of
+    /// letting a deploy cut it mid-run and leave the task `working` forever.
+    fn spawn_detached_task(&self, task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
 }
 
 /// Slice of runtime state the billing route layer needs.

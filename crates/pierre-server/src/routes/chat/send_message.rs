@@ -26,7 +26,8 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
-use pierre_core::models::{ConversationTurnId, COMMAND_FINISH_REASON};
+use pierre_contremaitre::messaging_strings::KEY_TURN_INTERRUPTED;
+use pierre_core::models::{AddMessageParams, ConversationTurnId, COMMAND_FINISH_REASON};
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -34,6 +35,7 @@ use tracing::{field, info, instrument, trace, warn, Span};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -429,6 +431,16 @@ struct SseInputs {
 /// A 15-second SSE keep-alive prevents nginx (default 60s
 /// `proxy_read_timeout`) from dropping the connection during long LLM-side
 /// stalls between events.
+///
+/// The turn is spawned under the server's in-flight tracker, not bare: while
+/// the athlete holds the stream the request itself keeps the instance busy,
+/// but once they hang up (app backgrounded, tab closed) the turn runs on an
+/// instance Cloud Run reads as idle, and a deploy in that window used to cut
+/// it silently — the athlete's question persisted, the answer never
+/// (carnet#463). Tracked, the shutdown drain waits for it; and if the drain
+/// still has to give up, [`close_interrupted_turn`] leaves the localized
+/// interrupted notice in the conversation so the next reload shows why
+/// there is no answer rather than a question hanging in the air.
 fn send_message_sse(inputs: SseInputs) -> Response {
     let SseInputs {
         egress,
@@ -440,17 +452,31 @@ fn send_message_sse(inputs: SseInputs) -> Response {
     let (events_tx, mut events_rx) = mpsc::unbounded_channel::<pipeline::TurnEvent>();
 
     let terminal_tx = events_tx.clone();
-    tokio::spawn(async move {
+    let turns = Arc::clone(&egress.resources.common.turns);
+    let drain = turns.drain_token();
+    turns.spawn(async move {
         let hooks = pipeline::PipelineHooks {
             stream_sink: Some(events_tx),
             ..pipeline::PipelineHooks::none()
         };
         let ctx = egress.resources.chat_pipeline_context();
-        let outcome =
-            match pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await {
-                Ok(served) => Ok(egress.into_response_body(served, &request, start_time)),
-                Err(e) => Err(e),
-            };
+        // Pinned to the heap: `select!` holds every branch inline, and the
+        // chat state machine is far too large for the task's stack.
+        let run = Box::pin(pipeline::execute(
+            &ctx,
+            egress.turn_request(&request, hooks),
+            &profile,
+        ));
+        let outcome = tokio::select! {
+            // Biased: a turn that finished in the same poll as the drain is
+            // the truthful answer, not an interruption.
+            biased;
+            served = run => served.map(|served| egress.into_response_body(served, &request, start_time)),
+            () = drain.cancelled() => {
+                close_interrupted_turn(&egress, &profile.locale, start_time).await;
+                Err(AppError::internal("turn interrupted by shutdown"))
+            }
+        };
         for event in terminal_events(outcome) {
             // A send error means the client hung up; the turn is already
             // persisted, so there is nothing left to do about it.
@@ -476,6 +502,97 @@ fn send_message_sse(inputs: SseInputs) -> Response {
                 .text("keepalive"),
         )
         .into_response()
+}
+
+/// Leave the interrupted notice in the conversation when the drain gives up
+/// on a running in-app turn.
+///
+/// The turn future has just been dropped. Its user message was persisted at
+/// stage 2, so the conversation shows a question; whether it also shows an
+/// answer depends on how far the turn got. When the latest message is still
+/// the athlete's, the localized `messaging.turn_interrupted` notice is
+/// written as the assistant's reply — the same text the messaging drain
+/// closes a placeholder with — so the next reload explains the silence.
+/// When an assistant reply already landed (the drain fired inside the
+/// post-persist stages), nothing is written: the answer is there.
+///
+/// The log line shares its message with the messaging path's, so the
+/// turn-loss metric counts both; `channel` tells them apart.
+async fn close_interrupted_turn(egress: &TurnEgress, locale: &str, start_time: Instant) {
+    warn!(
+        cause = "shutdown_drain",
+        elapsed_ms = start_time.elapsed().as_millis() as u64,
+        channel = %egress.channel_type,
+        conversation_id = egress.conversation.id.as_str(),
+        turn_id = %egress.turn_id,
+        "messaging turn interrupted before it produced a reply"
+    );
+    if turn_already_answered(egress).await {
+        return;
+    }
+    write_interrupted_notice(egress, locale).await;
+}
+
+/// Whether the conversation's latest message is already an assistant reply.
+///
+/// An unreadable conversation counts as unanswered: writing a notice next
+/// to an answer is a duplicate line, leaving a question with nothing is the
+/// silence this exists to end.
+async fn turn_already_answered(egress: &TurnEgress) -> bool {
+    let conversation_id = egress.conversation.id.as_str();
+    match egress
+        .resources
+        .common
+        .repos
+        .chat
+        .get_recent_messages(
+            conversation_id,
+            &egress.user_id.to_string(),
+            egress.tenant_id,
+            1,
+        )
+        .await
+    {
+        Ok(latest) => latest.first().is_some_and(|m| m.role == "assistant"),
+        Err(e) => {
+            warn!(error = %e, conversation_id, "could not read the interrupted turn's conversation; writing the notice anyway");
+            false
+        }
+    }
+}
+
+/// Persist the localized interrupted notice as the assistant's reply.
+async fn write_interrupted_notice(egress: &TurnEgress, locale: &str) {
+    let repos = &egress.resources.common.repos;
+    let conversation_id = egress.conversation.id.as_str();
+    let user_id = egress.user_id.to_string();
+    let notice = egress
+        .resources
+        .mcp
+        .messaging_strings_registry
+        .get(KEY_TURN_INTERRUPTED, locale);
+    let params = AddMessageParams {
+        tenant_id: egress.tenant_id,
+        conversation_id,
+        user_id: &user_id,
+        role: "assistant",
+        content: &notice,
+        token_count: None,
+        finish_reason: Some("interrupted"),
+        prompt_tokens: None,
+        model: None,
+        content_blocks: None,
+    };
+    if let Err(e) = persist_assistant_response(
+        repos.chat.as_ref(),
+        repos.groups.as_ref(),
+        &params,
+        egress.tenant_id,
+    )
+    .await
+    {
+        warn!(error = %e, conversation_id, "the interrupted-turn notice could not be written; the question stays unanswered on file");
+    }
 }
 
 /// The tail of a streamed turn: each reply block in order, then one terminal

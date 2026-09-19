@@ -31,7 +31,8 @@ use tracing::{info, warn};
 
 use crate::sciotte_hosted_templates;
 use crate::AuthRoutesContext;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid_with_message;
 use pierre_middleware::admin_guard::require_admin;
 use pierre_middleware::provider_link_token::{
@@ -119,6 +120,22 @@ pub async fn handle_mint_sciotte_link_token(
 
     let user_id = parse_uuid_with_message(&request.user_id, "Invalid user_id UUID")?;
     let tenant_id = parse_uuid_with_message(&request.tenant_id, "Invalid tenant_id UUID")?;
+
+    // The pair the bot names is signed into the token as-is, and the login
+    // handler stores `claims.tid` verbatim on the provider session — so a
+    // mistyped pair would bind that session under a foreign tenant. Only a
+    // recorded `tenant_users` membership mints.
+    resources
+        .repos
+        .tenants
+        .get_user_role(user_id, TenantId::from_uuid(tenant_id))
+        .await?
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorCode::ResourceNotFound,
+                "User is not a member of that tenant",
+            )
+        })?;
 
     // Rate-limit per target user_id to prevent phishing-style link spam.
     resources.mint_rate_limiter.record_attempt(user_id).await?;

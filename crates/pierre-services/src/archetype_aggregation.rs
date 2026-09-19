@@ -16,16 +16,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::FutureExt as _;
 use pierre_database::repositories::{ArchetypePriorUpsert, PlaybookAggInput};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::TriggerPattern;
-use tokio::time::interval;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
+
+use crate::periodic::spawn_periodic;
 
 /// Env var controlling the aggregation cadence.
 pub const AGG_INTERVAL_ENV_VAR: &str = "PIERRE_ARCHETYPE_AGG_INTERVAL_SECS";
@@ -225,29 +224,30 @@ async fn prune_priors(repos: &RepositoryRegistry, prune: &[PriorKey]) -> usize {
     pruned
 }
 
-/// Spawn the periodic archetype aggregation worker. Best-effort; skips the
-/// immediate first tick so a restart doesn't recompute instantly.
+/// Spawn the periodic archetype aggregation worker.
+///
+/// Runs on [`spawn_periodic`]: the worker ledger decides when the next daily
+/// pass is due, so a fresh instance recomputes when a day has elapsed since
+/// the last pass anywhere — not a day after its own boot, which on a
+/// scale-to-zero service never came. A panicking pass is caught by the loop
+/// and the daemon keeps running.
 pub fn spawn_archetype_aggregation(repos: Arc<RepositoryRegistry>) {
     let interval_secs = env::var(AGG_INTERVAL_ENV_VAR)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_AGG_INTERVAL_SECS);
-    tokio::spawn(async move {
-        debug!(interval_secs, "starting archetype aggregation worker");
-        // `.max(1)`: interval(0) panics, so a misconfigured `=0` env is clamped.
-        let mut ticker = interval(Duration::from_secs(interval_secs.max(1)));
-        ticker.tick().await; // consume the immediate first tick
-        loop {
-            ticker.tick().await;
-            // Catch a per-pass panic so one bad pass logs and the daemon keeps
-            // running instead of dying silently (payload already on stderr).
-            if AssertUnwindSafe(run_aggregation(&repos, K_ANONYMITY_MIN))
-                .catch_unwind()
-                .await
-                .is_err()
-            {
-                error!("archetype aggregation pass panicked; continuing (see stderr)");
+    debug!(interval_secs, "starting archetype aggregation worker");
+    let ledger = Arc::clone(&repos.worker_runs);
+    spawn_periodic(
+        "archetype aggregation",
+        Duration::from_secs(interval_secs),
+        ledger,
+        move || {
+            let repos = Arc::clone(&repos);
+            async move {
+                run_aggregation(&repos, K_ANONYMITY_MIN).await;
+                Ok(())
             }
-        }
-    });
+        },
+    );
 }

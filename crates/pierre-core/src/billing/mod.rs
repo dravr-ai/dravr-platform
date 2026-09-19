@@ -29,17 +29,21 @@ pub mod stripe;
 
 /// Inputs for [`BillingProvider::start_checkout`].
 ///
-/// Mirrors the JSON body the frontend POSTs to `/api/billing/checkout`;
-/// every field is provider-agnostic and the impl is responsible for
-/// translating to its own checkout-session creation API.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Assembled by the `/api/billing/checkout` route from the authenticated
+/// caller (`user_id`, `tenant_id`) and the wire body (`tier`, redirect
+/// URLs) — it is never deserialized from a request, so a client cannot
+/// name the identity a checkout is for. Every field is provider-agnostic
+/// and the impl is responsible for translating to its own
+/// checkout-session creation API.
+#[derive(Debug, Clone, Serialize)]
 pub struct CheckoutRequest {
     /// Plan tier the user is upgrading to (`starter` / `professional` /
     /// `enterprise`). The provider maps this to its own SKU / price id.
     pub tier: String,
-    /// Tenant the subscription will attach to.
+    /// Tenant the subscription will attach to — the caller's active tenant.
     pub tenant_id: String,
-    /// User initiating the upgrade (entitled to portal access on success).
+    /// User initiating the upgrade (entitled to portal access on success)
+    /// — the authenticated caller.
     pub user_id: String,
     /// Where the provider redirects on a successful checkout.
     pub success_url: String,
@@ -55,7 +59,11 @@ pub struct CheckoutResponse {
 }
 
 /// Inputs for [`BillingProvider::open_portal`].
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// Assembled by the `/api/billing/portal` route: the customer id is read
+/// from the caller's own `subscriptions` row, so a request body cannot
+/// open another customer's portal.
+#[derive(Debug, Clone, Serialize)]
 pub struct PortalRequest {
     /// Provider-side customer identifier persisted on the
     /// `subscriptions.provider_customer_id` column.

@@ -30,6 +30,8 @@
 //! present in the cache decides the window, the caller is told which days were
 //! stood behind, and any missing depth is asked of the capture rail.
 
+#[cfg(not(feature = "tools-data"))]
+use std::future::{ready, Ready};
 use std::sync::Arc;
 
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
@@ -49,7 +51,9 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::{spawn_activity_backfill, ActivityBackfillJob};
+use crate::activity_backfill::{
+    provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob,
+};
 use crate::activity_fetch::HISTORICAL_WINDOW_READ_LIMIT;
 use crate::runtime::ToolRuntime;
 
@@ -219,7 +223,8 @@ pub async fn compute_and_persist_history(
             user_id,
             &backend.slug,
             from - Duration::days(warmup),
-        );
+        )
+        .await;
 
     // Declining to write is not enough: the rollup is upsert-only, so any row an
     // earlier path left in the un-warmable span stays readable and reads as
@@ -332,7 +337,8 @@ async fn empty_cache_outcome(
         user_id,
         &backend.slug,
         from - Duration::days(warmup),
-    );
+    )
+    .await;
     // Nothing stored means nothing vouched for anywhere in the ask, so the whole
     // window goes — including rows an earlier path wrote from a provider fetch
     // this one no longer makes.
@@ -483,7 +489,7 @@ async fn athlete_inputs(
 /// capture to start and [`TrainingHistoryComputed::capture_requested`] is
 /// `false`, which is what happened: nothing was asked for.
 #[cfg(feature = "tools-data")]
-fn request_capture(
+async fn request_capture(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -497,7 +503,7 @@ fn request_capture(
         resources: resources.clone(),
         user_id,
         tenant_id,
-        tenant_id_str: Some(tenant_id.to_string()),
+        tenant_id_str: provider_tenant_id_str(tenant_id),
         provider_name: backend.to_owned(),
         query_params: ActivityQueryParams {
             after,
@@ -508,20 +514,22 @@ fn request_capture(
         // The rail's completion notice is driven by the fetch that has one.
         pierre_conversation_id: None,
     })
+    .await
 }
 
-/// No capture rail in this build, so no capture is started.
+/// No capture rail in this build, so no capture is started. Answers as a
+/// ready future so the callers await it exactly as they await the rail.
 ///
 /// See the `tools-data` sibling above for why the module is not gated wholesale.
 #[cfg(not(feature = "tools-data"))]
-const fn request_capture(
+fn request_capture(
     _resources: &Arc<dyn ToolRuntime>,
     _tenant_id: TenantId,
     _user_id: Uuid,
     _backend: &str,
     _floor: NaiveDate,
-) -> bool {
-    false
+) -> Ready<bool> {
+    ready(false)
 }
 
 /// Read-only fetch of persisted rows in `[from, to]`.

@@ -6,6 +6,10 @@
 
 /// Repository traits for agent-to-agent (`A2A`) protocol persistence.
 pub mod a2a;
+/// Repository trait for the A2A reaper's bulk fail (one statement, written once).
+pub mod a2a_task_reaper;
+/// Repository trait for historical activity backfills still owed (resumed by a sweep).
+pub mod activity_backfill_jobs;
 /// Repository traits for the provider-agnostic activity cache (stale-while-revalidate).
 pub mod activity_cache;
 /// Repository traits for admin tokens and admin overrides.
@@ -36,6 +40,8 @@ pub mod harness_memory;
 pub mod health;
 /// Repository trait for MCP Tasks extension handle persistence.
 pub mod mcp_tasks;
+/// Repository trait for post-turn memory extractions still owed (resumed by a sweep).
+pub mod memory_extraction_jobs;
 /// Repository traits for inbound/outbound messaging channel persistence.
 pub mod messaging;
 /// Shared SQL and body for the reaction → chat-message lookup both backends serve.
@@ -76,10 +82,14 @@ pub mod user_preferences;
 pub mod users;
 /// Repository traits for weather cache persistence.
 pub mod weather;
+/// Repository trait for the periodic-worker ledger: last tick and current lease per worker.
+pub mod worker_runs;
 /// Repository traits for prescribed workouts, templates, route summaries, training history.
 pub mod workouts;
 
 pub use a2a::*;
+pub use a2a_task_reaper::*;
+pub use activity_backfill_jobs::*;
 pub use activity_cache::*;
 pub use admin::*;
 pub use agent_artefacts::*;
@@ -95,6 +105,7 @@ pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
 pub use mcp_tasks::*;
+pub use memory_extraction_jobs::*;
 pub use messaging::*;
 pub use mobility::*;
 pub use notifications::*;
@@ -113,6 +124,7 @@ pub use usage::*;
 pub use user_onboarding::*;
 pub use users::*;
 pub use weather::*;
+pub use worker_runs::*;
 pub use workouts::*;
 
 use async_trait::async_trait;

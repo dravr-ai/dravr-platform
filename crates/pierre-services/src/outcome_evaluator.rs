@@ -434,9 +434,9 @@ async fn run_judge(
 
 /// Spawn the background outcome evaluator.
 ///
-/// Mirrors the followup scheduler: a `tokio::time::interval` loop that skips the
-/// immediate first tick (so a restart doesn't slam the DB), then each tick scans
-/// due advice, evaluates it, and records the outcome. Best-effort — every error
+/// Mirrors the followup scheduler: a [`spawn_periodic`] loop whose schedule
+/// lives in the worker ledger, so a restart resumes it; each tick scans due
+/// advice, evaluates it, and records the outcome. Best-effort — every error
 /// is logged, never propagated. Needs the shared [`ChatProvider`] singleton for
 /// the LLM judge; without it, ambiguous cases fall back to the data heuristic.
 pub fn spawn_outcome_evaluator(
@@ -447,9 +447,11 @@ pub fn spawn_outcome_evaluator(
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_OUTCOME_EVAL_INTERVAL_SECS);
+    let ledger = Arc::clone(&repos.worker_runs);
     spawn_periodic(
         "outcome evaluator",
         Duration::from_secs(interval_secs),
+        ledger,
         move || {
             let repos = Arc::clone(&repos);
             let chat_provider = chat_provider.clone();

@@ -6,11 +6,13 @@
 
 //! Handler functions for [`crate::AdminRoutes`].
 //!
-//! Each sub-module exposes one or more `pub(crate)` axum handler functions
-//! that the route builders in `crate::routes` wire to URL patterns. The
-//! handlers consume [`crate::AdminApiContext`] via `State<Arc<...>>` and
-//! delegate business logic to `pierre-services` (myth-busting, agent
-//! grading, tenant admin, eval harness, …).
+//! Each sub-module exposes one or more axum handler functions that the route
+//! builders in `crate::routes` wire to URL patterns — `pub` where an
+//! integration test drives the handler directly with a hand-built
+//! `ValidatedAdminToken`, `pub(crate)` otherwise. The handlers consume
+//! [`crate::AdminApiContext`] via `State<Arc<...>>` and delegate business
+//! logic to `pierre-services` (myth-busting, agent grading, tenant admin,
+//! eval harness, …).
 
 pub mod admin_rate_limit_override;
 pub mod agent_followups;

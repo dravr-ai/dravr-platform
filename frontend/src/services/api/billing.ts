@@ -67,10 +67,12 @@ export interface PlansResponse {
 }
 
 export const billingApi = {
+  /**
+   * The user and tenant the checkout is for come from the bearer token;
+   * the body carries only the plan and the redirect targets.
+   */
   async startCheckout(req: {
     tier: 'starter' | 'professional' | 'enterprise';
-    tenant_id: string;
-    user_id: string;
     success_url: string;
     cancel_url: string;
   }): Promise<{ checkout_url: string }> {
@@ -78,7 +80,8 @@ export const billingApi = {
     return response.data;
   },
 
-  async openPortal(req: { provider_customer_id: string; return_url: string }): Promise<{ portal_url: string }> {
+  /** The portal opens for the customer on the caller's own subscription row. */
+  async openPortal(req: { return_url: string }): Promise<{ portal_url: string }> {
     const response = await axios.post('/api/billing/portal', req);
     return response.data;
   },

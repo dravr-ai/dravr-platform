@@ -106,12 +106,19 @@ pub struct AgentNoteAuditResponse {
 /// user profile information the agent has derived from conversations,
 /// so a dedicated audit permission (rather than the generic config read)
 /// gates access.
-pub(crate) async fn handle_list_audit(
+///
+/// # Errors
+///
+/// Returns an error when the caller lacks `ViewAuditLogs`, the token is not
+/// allowed to access `tenant_id`, the tenant id does not parse, or the
+/// listing fails.
+pub async fn handle_list_audit(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<AuditQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewAuditLogs)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;
@@ -175,7 +182,13 @@ pub struct SuppressResponse {
 /// suppressed rows so the agent won't re-inject the note into a future
 /// prompt. Idempotent — re-posting on an already-suppressed note returns
 /// `changed=false` without writing.
-pub(crate) async fn handle_suppress_note(
+///
+/// # Errors
+///
+/// Returns an error when the caller lacks `ManageConfiguration`, the token
+/// is not allowed to access `tenant_id`, the tenant id does not parse, or the
+/// write fails.
+pub async fn handle_suppress_note(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(note_id): Path<String>,
@@ -188,7 +201,11 @@ pub(crate) async fn handle_suppress_note(
 ///
 /// Inverse of [`handle_suppress_note`] — flips `suppressed=false` so the
 /// note becomes recallable again. Same idempotency contract.
-pub(crate) async fn handle_unsuppress_note(
+///
+/// # Errors
+///
+/// Same conditions as [`handle_suppress_note`].
+pub async fn handle_unsuppress_note(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(note_id): Path<String>,
@@ -205,6 +222,7 @@ async fn set_suppressed(
     suppressed: bool,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;

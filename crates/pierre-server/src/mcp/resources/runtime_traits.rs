@@ -17,6 +17,10 @@ use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use serde_json::Value;
+#[cfg(feature = "protocol-a2a")]
+use std::future::Future;
+#[cfg(feature = "protocol-a2a")]
+use std::pin::Pin;
 use std::sync::Arc;
 
 #[async_trait::async_trait]
@@ -101,6 +105,10 @@ impl pierre_runtime_context::A2ACtx for ServerContext {
 
     fn base_url(&self) -> &str {
         &self.common.config.base_url
+    }
+
+    fn spawn_detached_task(&self, task: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+        self.common.turns.spawn(task);
     }
 }
 

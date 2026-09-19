@@ -15,13 +15,13 @@
 //! Deliberately mirrors [`start_short_link_sweeper`](crate::short_link_sweeper)
 //! rather than inventing a second cadence shape: both reclaim rows whose expiry
 //! the read path already honours. Both run on [`spawn_periodic`], which owns
-//! the tick loop, the skipped first tick, and what a failing pass does.
+//! the tick loop, when the next tick is due, and what a failing pass does.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::periodic::spawn_periodic;
-use pierre_database::repositories::McpTaskRepository;
+use pierre_database::repositories::{McpTaskRepository, WorkerRunRepository};
 use tracing::debug;
 
 /// Sweep cadence. Task TTL is 30 minutes, so an hourly reclaim keeps the table
@@ -35,8 +35,11 @@ const SWEEP_INTERVAL: Duration = Duration::from_hours(1);
 /// and best-effort: a failed sweep is logged and retried on the next tick,
 /// never propagated, because losing a reclamation pass is survivable and
 /// taking the server down for it is not.
-pub fn start_mcp_task_sweeper(tasks: Arc<dyn McpTaskRepository>) {
-    spawn_periodic("mcp task sweeper", SWEEP_INTERVAL, move || {
+pub fn start_mcp_task_sweeper(
+    tasks: Arc<dyn McpTaskRepository>,
+    ledger: Arc<dyn WorkerRunRepository>,
+) {
+    spawn_periodic("mcp task sweeper", SWEEP_INTERVAL, ledger, move || {
         let tasks = Arc::clone(&tasks);
         async move {
             let removed = tasks.delete_expired_tasks(now_ms()).await?;

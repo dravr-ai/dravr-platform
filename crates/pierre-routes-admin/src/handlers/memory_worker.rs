@@ -59,12 +59,19 @@ pub struct MemoryWorkerMetricsResponse {
 /// Requires [`AdminPermission::ViewConfiguration`] — the same permission
 /// used by the rest of the harness observability tabs (`HarnessConfigTab`,
 /// `ClaimVerdictsTab`, `MemoryPanel`).
-pub(crate) async fn handle_get_memory_metrics(
+///
+/// # Errors
+///
+/// Returns an error when the caller lacks `ViewConfiguration`, the token is
+/// not allowed to access `tenant_id`, the tenant id does not parse, or the
+/// metrics query fails.
+pub async fn handle_get_memory_metrics(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<MemoryMetricsQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;

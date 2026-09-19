@@ -928,7 +928,8 @@ pub fn start_turn_resume_sweeper(
             info!(taken, "startup sweep took over messaging turns");
         }
     });
-    spawn_periodic("turn resume sweeper", SWEEP_INTERVAL, move || {
+    let ledger = Arc::clone(&resources.common.repos.worker_runs);
+    spawn_periodic("turn resume sweeper", SWEEP_INTERVAL, ledger, move || {
         let resources = Arc::clone(&resources);
         let adapters = Arc::clone(&adapters);
         async move {

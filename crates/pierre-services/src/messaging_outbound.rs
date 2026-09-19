@@ -279,8 +279,11 @@ async fn handle_retry_decision(
                 .await;
         }
         RetryDecision::DeadLetter => {
+            // `channel` is the triage label on the dravr-outbound-dead-lettered
+            // log metric (infra/environments/dev/turn_loss_monitoring.tf).
             warn!(
                 entry_id = %entry_id,
+                channel = %channel_type,
                 "All retries exhausted, moving to dead-letter queue"
             );
             info!(

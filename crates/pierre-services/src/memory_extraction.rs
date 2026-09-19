@@ -14,21 +14,37 @@
 //!
 //! The contract with the LLM is JSON-in / JSON-out via
 //! [`pierre_llm::judge::ask_for_json`] — an extractor returning garbage is
-//! logged and swallowed, never propagated.
+//! logged and swallowed, never propagated. A provider that could not be
+//! reached at all is propagated, because that extraction can still be run.
+//!
+//! # An extraction is a row before it is a task
+//!
+//! The extraction runs after the turn that owes it has answered, so on a
+//! scale-to-zero service the instance running it is idle from the athlete's
+//! point of view and can be taken down mid-call (carnet#461). Every spawned
+//! extraction is therefore recorded in the `memory_extraction_jobs` ledger
+//! before it runs and deleted when it lands; a row whose lease lapsed is one
+//! the [`crate::memory_extraction_resume`] sweep re-runs on whichever
+//! instance is alive.
 
 use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
+use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, MergeUserFactParams, UpsertUserFactParams,
+    HarnessMemoryRepository, MemoryExtractionJobRepository, MemoryExtractionJobRow,
+    MergeUserFactParams, UpsertUserFactParams,
 };
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode, UserFact};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::memory_dedup::{
     anchor_of, decide, introduces_a_number, normalize_object, Candidate, DedupConfig, FactWrite,
@@ -45,11 +61,19 @@ const MIN_CONFIDENCE: f32 = 0.55;
 /// typical server hardware.
 const MAX_CONCURRENT_EXTRACTIONS: usize = 32;
 
-/// Global semaphore serving as backpressure for `spawn_extract_for_turn`.
-/// When fully saturated, newly-spawned tasks wait in the acquisition queue
-/// rather than all racing the LLM concurrently.
-static EXTRACTION_PERMITS: LazyLock<Arc<Semaphore>> =
-    LazyLock::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_EXTRACTIONS)));
+/// Global semaphore serving as backpressure for [`run_extraction_job`], so
+/// the turn-spawned extractions and the resume sweep share one bound. When
+/// fully saturated, a new run waits in the acquisition queue rather than
+/// racing the LLM alongside every other one.
+static EXTRACTION_PERMITS: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(MAX_CONCURRENT_EXTRACTIONS));
+
+/// How long a spawned extraction holds its job row.
+///
+/// One LLM call, queued behind at most [`MAX_CONCURRENT_EXTRACTIONS`]
+/// others, is well inside this; a row still leased past it belongs to an
+/// instance that is gone, and the resume sweep may take it over.
+pub const EXTRACTION_JOB_LEASE: Duration = Duration::from_mins(5);
 
 /// Raw fact shape returned by the extraction LLM. Mirrors the JSON schema in
 /// `memory_extraction.md` plus the platform-appended provenance field (see
@@ -213,9 +237,11 @@ pub struct ExtractionOutcome {
 ///
 /// # Errors
 ///
-/// Returns persistence errors from [`HarnessMemoryRepository::upsert_user_fact`].
-/// LLM failures and malformed JSON are logged and produce an empty outcome —
-/// a bad extraction should never poison the next conversation turn.
+/// Returns persistence errors from [`HarnessMemoryRepository::upsert_user_fact`]
+/// and a provider that could not be called: neither means the extraction
+/// itself is bad, so the job row that owes it must survive for a retry.
+/// Malformed JSON from the extractor is logged and produces an empty
+/// outcome — asking again would cost a second call for the same answer.
 pub async fn extract_and_persist<R>(
     repo: &R,
     provider: &ChatProvider,
@@ -243,21 +269,14 @@ where
             Vec::new()
         });
 
-    let raw = match run_llm_extraction(
+    let raw = run_llm_extraction(
         provider,
         system_prompt,
         req.user_message,
         req.assistant_reply,
         &existing,
     )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            error!(error = %e, "memory extraction LLM call failed");
-            return Ok(ExtractionOutcome::empty());
-        }
-    };
+    .await?;
 
     if raw.is_empty() {
         debug!("memory extractor returned no facts");
@@ -719,12 +738,14 @@ fn parse_raw_facts(response: &str) -> Vec<RawFact> {
     Vec::new()
 }
 
-/// Owned variant of [`ExtractionRequest`] suitable for moving into a
-/// background `tokio::spawn` task.
-#[derive(Debug, Clone)]
-pub struct SpawnedExtractionRequest {
-    /// Tenant owning the conversation.
-    pub tenant_id: TenantId,
+/// Everything one extraction needs except who it is for.
+///
+/// This is what a job row carries as JSON. The tenant is a column of that
+/// row rather than a field here, so the ledger is readable without parsing
+/// the payload; everything else round-trips so a sweep on another instance
+/// runs the turn's extraction exactly as the turn would have.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractionJobPayload {
     /// User the facts are about.
     pub user_id: String,
     /// Agent attached to the conversation, if any.
@@ -748,80 +769,188 @@ pub struct SpawnedExtractionRequest {
     pub plan_was_saved: bool,
 }
 
+impl ExtractionJobPayload {
+    /// The borrowed request [`extract_and_persist`] takes, stamped for `tenant_id`.
+    fn as_request(&self, tenant_id: TenantId) -> ExtractionRequest<'_> {
+        ExtractionRequest {
+            tenant_id,
+            user_id: &self.user_id,
+            agent_id: self.agent_id.as_deref(),
+            user_message: &self.user_message,
+            assistant_reply: &self.assistant_reply,
+            source_msg_id: self.source_msg_id.as_deref(),
+            // Pillar/source/force_kind are set by the caller — the background
+            // worker leaves them at conversation defaults; the onboarding flow
+            // stamps the probed pillar + source=onboarding (+ force North Star).
+            pillar: self.pillar,
+            source: self.source,
+            force_kind: self.force_kind,
+            plan_was_saved: self.plan_was_saved,
+        }
+    }
+}
+
+/// Owned variant of [`ExtractionRequest`] suitable for moving into a
+/// background `tokio::spawn` task: the tenant the job row is stamped under,
+/// and the payload the row carries.
+#[derive(Debug, Clone)]
+pub struct SpawnedExtractionRequest {
+    /// Tenant owning the conversation.
+    pub tenant_id: TenantId,
+    /// The extraction itself, as the job row records it.
+    pub payload: ExtractionJobPayload,
+}
+
+/// Run one owed extraction to the end, inside the process-wide bound.
+///
+/// Waits for a permit when [`MAX_CONCURRENT_EXTRACTIONS`] runs are already
+/// in flight, then extracts and persists. This is the one body both the
+/// turn-spawned run and the resume sweep execute, so a job runs the same
+/// way whichever instance picks it up.
+///
+/// # Errors
+///
+/// A provider that could not be called, a persistence failure, or a closed
+/// semaphore (shutdown). Every one leaves the job runnable, so the caller
+/// must keep the row for the sweep rather than finish it.
+pub async fn run_extraction_job(
+    memory_repo: &dyn HarnessMemoryRepository,
+    chat_provider: &ChatProvider,
+    dedup: DedupConfig,
+    system_prompt: &str,
+    tenant_id: TenantId,
+    payload: &ExtractionJobPayload,
+) -> AppResult<()> {
+    let permit = EXTRACTION_PERMITS.acquire().await.map_err(|_| {
+        AppError::resource_unavailable(
+            "memory extraction permits are closed; the process is shutting down",
+        )
+    })?;
+    let outcome = extract_and_persist(
+        memory_repo,
+        chat_provider,
+        system_prompt,
+        &payload.as_request(tenant_id),
+        dedup,
+    )
+    .await?;
+    debug!(
+        raw = outcome.raw_count,
+        persisted = outcome.persisted.len(),
+        "memory extraction job complete"
+    );
+    drop(permit);
+    Ok(())
+}
+
+/// Record the extraction a spawned task is about to run.
+///
+/// The row is what the resume sweep re-runs if this instance dies with the
+/// extraction in flight. `None` when it could not be written — the run still
+/// happens, unrecorded, exactly as it did before the ledger existed.
+async fn record_extraction_job(
+    jobs: &dyn MemoryExtractionJobRepository,
+    req: &SpawnedExtractionRequest,
+) -> Option<String> {
+    let payload = match serde_json::to_string(&req.payload) {
+        Ok(json) => json,
+        Err(e) => {
+            warn!(error = %e, "extraction payload could not be serialised; running it unrecorded");
+            return None;
+        }
+    };
+    let now = Utc::now().timestamp_millis();
+    let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
+    let row = MemoryExtractionJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: req.tenant_id,
+        payload,
+        created_at_ms: now,
+        leased_until_ms: now.saturating_add(lease_ms),
+        attempts: 1,
+    };
+    match jobs.record_extraction_job(&row).await {
+        Ok(()) => Some(row.id),
+        Err(e) => {
+            warn!(error = %e, "extraction job could not be recorded; running it unrecorded");
+            None
+        }
+    }
+}
+
+/// Delete the job row once nothing is owed on it any more.
+async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, job_id: Option<&str>) {
+    let Some(id) = job_id else {
+        return;
+    };
+    if let Err(e) = jobs.finish_extraction_job(id).await {
+        warn!(error = %e, job_id = id, "extraction job could not be finished; the sweep will re-run it after its lease");
+    }
+}
+
 /// Fire-and-forget memory extraction.
 ///
-/// Spawns a tokio task that runs the extraction prompt against the
-/// supplied [`ChatProvider`] (the platform's shared singleton, so this
-/// task reuses the warm `copilot --acp` subprocess instead of spawning
-/// a fresh one per extraction) and persists the resulting facts. Logs
-/// and swallows every error — extraction is best-effort and never blocks
-/// a turn. This is the canonical entry point used by the messaging
-/// dispatch path after a turn has been persisted.
+/// Records the extraction in the job ledger, then spawns a tokio task that
+/// runs the extraction prompt against the supplied [`ChatProvider`] (the
+/// platform's shared singleton, so this task reuses the warm `copilot --acp`
+/// subprocess instead of spawning a fresh one per extraction), persists the
+/// resulting facts and deletes the row. Logs and swallows every error —
+/// extraction never blocks a turn — but a failed run leaves its row on
+/// file, so the resume sweep retries it once the lease lapses. This is the
+/// canonical entry point used by the messaging dispatch path after a turn
+/// has been persisted.
 ///
-/// Passing `chat_provider: None` falls back to building a `ChatProvider`
-/// on demand inside the spawned task — preserves the historical path
-/// for test fixtures that don't wire a singleton through resources.
-pub fn spawn_extract_for_turn(
+/// The row is written before the task exists, so a turn that has returned
+/// has its extraction on file whatever happens to this instance next. A row
+/// that could not be written is logged and the run happens unrecorded,
+/// exactly as it did before the ledger existed.
+///
+/// With `chat_provider: None` nothing can run the extraction, here or in
+/// the sweep, so the row is recorded and finished at once rather than left
+/// for a sweep that could never take it.
+///
+/// The returned [`JoinHandle`] completes when the spawned run has settled.
+/// The turn path discards it — the run is fire-and-forget by design and a
+/// panic in it is printed by the default hook — while a test awaits it to
+/// observe the ledger after the run.
+pub async fn spawn_extract_for_turn(
     memory_repo: Arc<dyn HarnessMemoryRepository>,
-    chat_provider: Option<Arc<pierre_llm::ChatProvider>>,
+    jobs: Arc<dyn MemoryExtractionJobRepository>,
+    chat_provider: Option<Arc<ChatProvider>>,
     dedup: DedupConfig,
     system_prompt: String,
     req: SpawnedExtractionRequest,
-) {
-    let permits = Arc::clone(&EXTRACTION_PERMITS);
+) -> JoinHandle<()> {
+    let job_id = record_extraction_job(jobs.as_ref(), &req).await;
     tokio::spawn(async move {
-        // Bounded concurrency: drop the task silently if the semaphore has been
-        // closed (only happens at shutdown). Otherwise wait our turn so we don't
-        // fan out unbounded LLM calls under high message throughput. The permit
-        // is released automatically when `extraction_permit` drops at the end
-        // of this task.
-        let Ok(extraction_permit) = permits.acquire_owned().await else {
-            debug!("memory extraction skipped: extraction semaphore closed");
-            return;
-        };
         // Singleton-only — no per-call ChatProvider::from_env() fallback.
         // Background memory extraction is best-effort: if the singleton
         // wasn't wired (test fixture without it, or production startup
         // failed to build it), skip cleanly instead of spawning a fresh
         // `copilot --acp` subprocess per extraction.
-        let Some(arc) = &chat_provider else {
+        let Some(provider) = &chat_provider else {
             debug!("memory extraction skipped: no chat_provider singleton wired");
+            finish_extraction_job(jobs.as_ref(), job_id.as_deref()).await;
             return;
         };
-        let provider: &pierre_llm::ChatProvider = arc.as_ref();
-        let request = ExtractionRequest {
-            tenant_id: req.tenant_id,
-            user_id: &req.user_id,
-            agent_id: req.agent_id.as_deref(),
-            user_message: &req.user_message,
-            assistant_reply: &req.assistant_reply,
-            source_msg_id: req.source_msg_id.as_deref(),
-            // Pillar/source/force_kind are set by the caller — the background
-            // worker leaves them at conversation defaults; the onboarding flow
-            // stamps the probed pillar + source=onboarding (+ force North Star).
-            pillar: req.pillar,
-            source: req.source,
-            force_kind: req.force_kind,
-            plan_was_saved: req.plan_was_saved,
-        };
-        match extract_and_persist(
+        match run_extraction_job(
             memory_repo.as_ref(),
             provider,
-            &system_prompt,
-            &request,
             dedup,
+            &system_prompt,
+            req.tenant_id,
+            &req.payload,
         )
         .await
         {
-            Ok(outcome) => debug!(
-                raw = outcome.raw_count,
-                persisted = outcome.persisted.len(),
-                "background memory extraction complete"
+            Ok(()) => finish_extraction_job(jobs.as_ref(), job_id.as_deref()).await,
+            Err(e) => error!(
+                error = %e,
+                job_id = job_id.as_deref().unwrap_or("unrecorded"),
+                "background memory extraction failed; its job row waits for the resume sweep"
             ),
-            Err(e) => error!(error = %e, "background memory extraction failed"),
         }
-        drop(extraction_permit);
-    });
+    })
 }
 
 #[cfg(test)]

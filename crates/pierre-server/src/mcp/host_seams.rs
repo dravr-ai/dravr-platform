@@ -246,9 +246,8 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 
         match extract_tenant_context_internal(
             &self.resources.common.repos,
-            Some(auth_result.user_id),
+            auth_result.user_id,
             auth_result.active_tenant_id.map(TenantId::from_uuid),
-            None,
         )
         .await
         {

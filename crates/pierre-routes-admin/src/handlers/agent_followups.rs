@@ -119,12 +119,19 @@ fn parse_tenant(raw: &str) -> AppResult<TenantId> {
 }
 
 /// Handle `GET /admin/agent-followups/pending`.
-pub(crate) async fn handle_list_pending_followups(
+///
+/// # Errors
+///
+/// Returns an error when the caller lacks `ViewConfiguration`, the token is
+/// not allowed to access `tenant_id`, the tenant id does not parse, or the
+/// listing fails.
+pub async fn handle_list_pending_followups(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<ListFollowupsQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant = parse_tenant(&params.tenant_id)?;
     let limit = params.limit.unwrap_or(100).clamp(1, 200);
@@ -165,13 +172,20 @@ pub(crate) async fn handle_list_pending_followups(
 /// [`AdminPermission::ManageConfiguration`] — this is a write action that
 /// can visibly affect agent behavior, so it sits behind a stronger
 /// permission than the read endpoint.
-pub(crate) async fn handle_cancel_followup(
+///
+/// # Errors
+///
+/// Returns an error when the caller lacks `ManageConfiguration`, the token
+/// is not allowed to access `tenant_id`, the tenant id does not parse, or the
+/// cancel write fails.
+pub async fn handle_cancel_followup(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(followup_id): Path<String>,
     Query(params): Query<CancelFollowupQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant = parse_tenant(&params.tenant_id)?;
 

@@ -71,6 +71,8 @@ pub mod prompt_builder;
 pub mod refresh;
 /// Pre-dispatch prep + multi-turn tool execution loop.
 pub mod tool_dispatch;
+/// Post-turn memory extraction, recorded before it runs
+pub mod turn_extraction;
 #[cfg(feature = "tools-verification")]
 pub mod verification;
 /// Inline visual blocks lifted out of a reply's prose.

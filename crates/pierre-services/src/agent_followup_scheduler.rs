@@ -1,5 +1,5 @@
 // ABOUTME: Background scheduler that activates `agent_followups.due_at`
-// ABOUTME: Fires push notifications + marks followups delivered when they elapse
+// ABOUTME: Fires push notifications; marks a followup delivered once its push went out, retries a failed one next tick
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,11 +18,16 @@
 //!    where `status='pending' AND due_at IS NOT NULL AND due_at <= now`.
 //! 2. For each row, dispatches a user-facing push notification through
 //!    the configured [`pierre_notifications::NotificationService`] (when
-//!    available). Failure is logged but does not block delivery.
+//!    available).
 //! 3. Calls [`HarnessMemoryRepository::mark_followup_delivered`] so the
-//!    row transitions `pending → delivered` regardless of dispatch
-//!    outcome — the `due_at` window has fired exactly once, and we don't
-//!    want the next tick to re-process the same row.
+//!    row transitions `pending → delivered` — but only once the dispatch
+//!    reached the notification pipeline. A dispatch that failed leaves
+//!    the row `pending`, so the next tick retries it: the athlete was
+//!    promised a check-in, and a ledger that says "delivered" over a push
+//!    that never went out is the one outcome worse than a late reminder
+//!    (carnet#464). There is no retry cap, by design — a push that fails
+//!    on every tick stays visible as one WARN per minute until the cause
+//!    is fixed, instead of being marked delivered and forgotten.
 //!
 //! ## Idempotency
 //!
@@ -37,7 +42,7 @@ use std::time::Duration as StdDuration;
 use crate::periodic::spawn_periodic;
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
-use pierre_database::repositories::HarnessMemoryRepository;
+use pierre_database::repositories::{HarnessMemoryRepository, WorkerRunRepository};
 use pierre_memory::AgentFollowup;
 #[cfg(feature = "client-notifications")]
 use tracing::warn;
@@ -78,7 +83,8 @@ pub struct TickOutcome {
     pub marked_delivered: usize,
     /// Number of followups where dispatch *or* delivery-marking returned
     /// an error. Logged at warn level; the tick continues processing the
-    /// rest of the batch.
+    /// rest of the batch. A row whose dispatch failed stays `pending` and
+    /// is counted here again on every tick until its push goes out.
     pub errors: usize,
 }
 
@@ -147,7 +153,12 @@ async fn process_followup<R: HarnessMemoryRepository + ?Sized>(
     let tenant_id = TenantId::from_uuid(tenant_uuid);
 
     #[cfg(feature = "client-notifications")]
-    try_dispatch(notification_service, followup, tenant_uuid, outcome).await;
+    if !try_dispatch(notification_service, followup, tenant_uuid, outcome).await {
+        // The push never reached the pipeline. The row stays `pending` so the
+        // next tick retries it; marking it delivered here would close the
+        // ledger over a check-in the athlete never received.
+        return;
+    }
 
     transition_to_delivered(repo, followup, tenant_id, outcome).await;
 }
@@ -172,25 +183,34 @@ fn parse_tenant_uuid(followup: &AgentFollowup, outcome: &mut TickOutcome) -> Opt
     }
 }
 
-/// Best-effort notification dispatch. Compiled out when notifications
-/// are disabled; updates `outcome.dispatched` / `outcome.errors` per
-/// attempt.
+/// Dispatch the followup's push and say whether the row may leave `pending`.
+///
+/// Compiled out when notifications are disabled; updates
+/// `outcome.dispatched` / `outcome.errors` per attempt. Returns `true` when
+/// the dispatch reached the notification pipeline — or when there is no
+/// service to dispatch through, in which case the due window is the whole
+/// delivery and the row is marked as such. Returns `false` when the dispatch
+/// failed, so the caller leaves the row `pending` for the next tick.
 #[cfg(feature = "client-notifications")]
 async fn try_dispatch(
     service: Option<&NotificationService>,
     followup: &AgentFollowup,
     tenant_uuid: uuid::Uuid,
     outcome: &mut TickOutcome,
-) {
-    let Some(service) = service else { return };
+) -> bool {
+    let Some(service) = service else { return true };
     outcome.dispatched += 1;
-    if let Err(e) = dispatch_notification(service, followup, tenant_uuid).await {
-        warn!(
-            followup_id = %followup.id,
-            error = %e,
-            "scheduler: notification dispatch failed (best-effort)"
-        );
-        outcome.errors += 1;
+    match dispatch_notification(service, followup, tenant_uuid).await {
+        Ok(_) => true,
+        Err(e) => {
+            warn!(
+                followup_id = %followup.id,
+                error = %e,
+                "scheduler: notification dispatch failed; followup stays pending for the next tick"
+            );
+            outcome.errors += 1;
+            false
+        }
     }
 }
 
@@ -259,16 +279,20 @@ async fn dispatch_notification(
 /// Called once at server bootstrap from
 /// `bin/pierre-mcp-server.rs::spawn_background_workers`. The task runs for the
 /// server's lifetime; the [`AbortHandle`](tokio::task::AbortHandle) is
-/// discarded because the scheduler is best-effort and a restart re-arms it.
+/// discarded because the scheduler is best-effort and the `ledger` carries
+/// the schedule across restarts, so a fresh instance ticks when the interval
+/// since the last tick has elapsed rather than one interval after boot.
 pub fn start_followup_scheduler(
     repo: Arc<dyn HarnessMemoryRepository>,
     #[cfg(feature = "client-notifications")] notification_service: Option<
         Arc<pierre_notifications::NotificationService>,
     >,
+    ledger: Arc<dyn WorkerRunRepository>,
 ) {
     spawn_periodic(
         "coach followup scheduler",
         DEFAULT_TICK_INTERVAL,
+        ledger,
         move || {
             let repo = Arc::clone(&repo);
             #[cfg(feature = "client-notifications")]

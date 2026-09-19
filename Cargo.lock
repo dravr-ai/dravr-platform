@@ -4069,7 +4069,6 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "html-escape",
- "http",
  "pierre-auth",
  "pierre-core",
  "pierre-database",

@@ -912,6 +912,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
             Arc::clone(&resources.common.repos.memory),
             #[cfg(feature = "client-notifications")]
             resources.common.notification_service.clone(),
+            Arc::clone(&resources.common.repos.worker_runs),
         );
     }
 
@@ -921,7 +922,10 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // this reclaim the short_links table grows unbounded.
     {
         use pierre_mcp_server::start_short_link_sweeper;
-        start_short_link_sweeper(Arc::clone(&resources.common.repos.short_links));
+        start_short_link_sweeper(
+            Arc::clone(&resources.common.repos.short_links),
+            Arc::clone(&resources.common.repos.worker_runs),
+        );
     }
 
     // Start the OAuth launch sweeper. A connect flow that dies between the
@@ -931,7 +935,10 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // launch pages someone instead of hiding.
     {
         use pierre_mcp_server::start_oauth_launch_sweeper;
-        start_oauth_launch_sweeper(Arc::clone(&resources.common.repos.oauth_client_state));
+        start_oauth_launch_sweeper(
+            Arc::clone(&resources.common.repos.oauth_client_state),
+            Arc::clone(&resources.common.repos.worker_runs),
+        );
     }
 
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
@@ -941,7 +948,10 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // advertised TTL was a promise no code kept.
     {
         use pierre_mcp_server::start_mcp_task_sweeper;
-        start_mcp_task_sweeper(Arc::clone(&resources.common.repos.mcp_tasks));
+        start_mcp_task_sweeper(
+            Arc::clone(&resources.common.repos.mcp_tasks),
+            Arc::clone(&resources.common.repos.worker_runs),
+        );
     }
 
     // Coaching background workers: the outcome evaluator, archetype aggregation

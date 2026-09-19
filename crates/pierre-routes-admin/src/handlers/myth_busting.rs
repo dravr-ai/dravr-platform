@@ -60,12 +60,19 @@ pub struct MythBustingQuery {
 }
 
 /// Handle `GET /admin/myth-busting/summary`.
-pub(crate) async fn handle_get_summary(
+///
+/// # Errors
+///
+/// Returns an error when the caller lacks `ViewConfiguration`, the token is
+/// not allowed to access `tenant_id`, the tenant id does not parse, or the
+/// verdict scan fails.
+pub async fn handle_get_summary(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<MythBustingQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant = TenantId::parse_str(&params.tenant_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", params.tenant_id)))?;

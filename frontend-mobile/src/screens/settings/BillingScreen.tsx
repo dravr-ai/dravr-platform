@@ -144,10 +144,10 @@ export function BillingScreen(): React.ReactElement {
     mutationFn: async (tier: 'professional' | 'enterprise'): Promise<{ checkout_url: string }> => {
       if (!user) throw new Error('not authenticated');
       trackMobile({ name: 'checkout_started', props: { tier } });
+      // The user and tenant come from the bearer token; the body carries
+      // only the plan and the redirect targets.
       const r = await apiClient.post('/api/billing/checkout', {
         tier,
-        tenant_id: '',
-        user_id: user.id,
         success_url: 'dravr://billing?upgrade=success',
         cancel_url: 'dravr://billing?upgrade=cancel',
       });
@@ -163,8 +163,8 @@ export function BillingScreen(): React.ReactElement {
     mutationFn: async (): Promise<{ portal_url: string }> => {
       const sub = subscriptionQuery.data;
       if (!sub) throw new Error('no subscription');
+      // The portal opens for the customer on the caller's own subscription row.
       const r = await apiClient.post('/api/billing/portal', {
-        provider_customer_id: sub.provider_customer_id,
         return_url: 'dravr://billing',
       });
       return r.data as { portal_url: string };
