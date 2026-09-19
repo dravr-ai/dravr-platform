@@ -95,6 +95,13 @@ fn the_platform_auth_codes_reroute_and_invalid_input_does_not() {
         !reroutes_headless_turn(&AppError::new(ErrorCode::RateLimitExceeded, "quota")),
         "a quota refusal is the operator's problem, not a reason to spend another tier"
     );
+    assert!(
+        !reroutes_headless_turn(&AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "gemini: try again in 7 seconds"
+        )),
+        "a vendor throttle on an HTTP tier keeps the chain decision its RunnerError had"
+    );
 }
 
 /// A scripted embacle runner that never answers; only its identity matters here.

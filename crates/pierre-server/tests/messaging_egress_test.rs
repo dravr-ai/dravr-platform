@@ -517,6 +517,32 @@ async fn a_quota_refusal_is_not_a_failure() {
     }
 }
 
+/// A vendor throttling the platform's own key — Gemini or Cohere answering
+/// 429 — is an upstream outage, not the athlete's budget: it fails the turn
+/// and draws the apology, never the quota denial.
+#[tokio::test]
+async fn a_vendor_throttle_is_a_failure_not_a_quota_denial() {
+    let outcome = run_guarded(async {
+        Err(AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "LLM provider rate limited: gemini: try again in 7 seconds",
+        ))
+    })
+    .await;
+
+    match outcome {
+        TurnOutcome::Failed(err) => {
+            assert_eq!(err.code, ErrorCode::ExternalRateLimited);
+            assert!(err.to_string().contains("try again in 7 seconds"), "{err}");
+        }
+        TurnOutcome::QuotaDenied(err) => {
+            panic!("an upstream throttle is not the athlete's quota: {err}")
+        }
+        TurnOutcome::Delivered(_) => panic!("a throttled turn has no reply"),
+        TurnOutcome::Interrupted(_) => panic!("the panic boundary does not interrupt turns"),
+    }
+}
+
 #[tokio::test]
 async fn an_ordinary_error_is_a_failure() {
     let outcome = run_guarded(async { Err(AppError::internal("provider timed out")) }).await;

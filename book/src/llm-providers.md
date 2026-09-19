@@ -922,13 +922,16 @@ match provider.complete(&request).await {
     Ok(response) => println!("{}", response.content),
     Err(AppError { code, message, .. }) => {
         match code {
-            ErrorCode::RateLimitExceeded => // Handle rate limit
+            ErrorCode::ExternalRateLimited => // A vendor (Gemini, Cohere, Groq, OpenRouter, an OpenAI-compatible endpoint) throttled the platform's key: an upstream fault, HTTP 503
+            ErrorCode::RateLimitExceeded => // A CLI or Copilot runner's account quota is exhausted: HTTP 429
             ErrorCode::AuthenticationFailed => // Handle auth error
             _ => // Handle other errors
         }
     }
 }
 ```
+
+Both rate-limit codes come from the same embacle `ErrorKind::RateLimit`; `EmbacleProvider::from_http_runner` marks a vendor-keyed HTTP tier so the platform bridge can tell the two apart (`pierre_core::llm::HttpApiTier`). Neither code moves a request to the next tier of a fallback chain.
 
 ### Common Local LLM Errors
 
