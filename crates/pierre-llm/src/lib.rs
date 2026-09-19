@@ -50,6 +50,8 @@ mod groq;
 pub mod health;
 /// Generic LLM-as-judge helpers for structured JSON verdicts
 pub mod judge;
+/// Boot-time check that the active model is one its provider publishes
+mod model_check;
 /// Generic OpenAI-compatible LLM provider
 mod openai_compatible;
 /// `OpenRouter` LLM provider — unified gateway to 200+ models
@@ -73,8 +75,9 @@ pub use embacle::{
     WarpCliRunner,
 };
 pub use embacle::{
-    CopilotHeadlessConfig, CopilotHeadlessRunner, HeadlessEventStream, HeadlessStreamEvent,
-    HeadlessToolResponse, ObservedToolCall,
+    CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotSdkConfig, CopilotSdkRunner,
+    HeadlessEventStream, HeadlessStreamEvent, HeadlessToolResponse, HeadlessTurnProvider,
+    ObservedToolCall,
 };
 pub use embacle::{
     McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,

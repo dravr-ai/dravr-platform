@@ -346,13 +346,21 @@ impl ToolLoopResult {
     /// distinction embacle's own empty-turn warn cannot make, since it drops
     /// `tool_calls` on the floor.
     #[must_use]
-    pub fn lost_turn_error(&self) -> AppError {
+    pub fn lost_turn_error(&self, provider: &str) -> AppError {
         AppError::external_service(
-            "copilot_headless",
+            provider,
             format!(
                 "empty turn: no content and no activity list after {} tool call(s)",
                 self.tool_calls_count
             ),
         )
     }
+}
+
+/// The identifier a tool call is recorded under.
+///
+/// The SDK transport reports the tool's registered name; the ACP adapter sends
+/// only a display title, which is then the best available identifier.
+pub(crate) fn observed_tool_name(call: &pierre_llm::ObservedToolCall) -> String {
+    call.name.clone().unwrap_or_else(|| call.title.clone())
 }

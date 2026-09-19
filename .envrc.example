@@ -261,7 +261,7 @@ export OAUTH_CALLBACK_PORT=35535
 # ============================================================================
 # Provider selection (pick ONE):
 #   API providers:  gemini, groq, local
-#   CLI providers:  claude_code, copilot, cursor_agent, opencode, copilot_sdk
+#   CLI providers:  claude_code, copilot, copilot_headless, copilot_sdk, cursor_agent, opencode
 export PIERRE_LLM_PROVIDER=gemini
 
 # Cross-provider settings
@@ -321,10 +321,21 @@ export GROQ_API_KEY="your-groq-api-key"
 # export CLI_LLM_BINARY="/path/to/opencode"
 
 # --- Copilot SDK (PIERRE_LLM_PROVIDER=copilot_sdk) ---
-# Runs `copilot --headless` JSON-RPC server with native tool calling
-# export PIERRE_LLM_MODEL=claude-opus-4.6
-# export COPILOT_SDK_TRANSPORT=stdio                   # Transport: stdio (default)
-# export COPILOT_GITHUB_TOKEN=""                       # Or GH_TOKEN / GITHUB_TOKEN
+# GitHub's Rust Copilot runtime through its SDK: the provider spawns the
+# `copilot-runtime` wrapper (`--server --stdio`) next to its runtime.node — the
+# pair the Copilot CLI extracts into its package cache on first run
+# (macOS: ~/.copilot/pkg/darwin-arm64/<version>/prebuilds/darwin-arm64/).
+# The runtime runs in a home of its own with no stored login, so the token is
+# required; a fine-grained PAT needs the "Copilot Requests" permission, and
+# `gh auth token` (gho_) works.
+# export COPILOT_RUNTIME_PATH="$HOME/.copilot/pkg/darwin-arm64/1.0.86/prebuilds/darwin-arm64/copilot-runtime"
+# export COPILOT_GITHUB_TOKEN=""                       # Or GH_TOKEN / GITHUB_TOKEN — required for copilot_sdk
+# export COPILOT_SDK_MCP_TOOL_CALLING=true             # Native tool calling over the loopback MCP host
+# export COPILOT_SDK_PERMISSION_POLICY=deny_all        # The runtime's own tools stay off
+# export PIERRE_LLM_MODEL=claude-sonnet-5
+# github-copilot-sdk's build script downloads and embeds the Copilot CLI
+# (~163 MB) unless told not to; the runtime is the file above, never a payload.
+export COPILOT_SKIP_CLI_DOWNLOAD=1
 
 # ============================================================================
 # API PROVIDER CONFIGURATION

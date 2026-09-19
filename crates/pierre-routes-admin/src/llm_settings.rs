@@ -285,6 +285,7 @@ async fn get_llm_settings<C: MiddlewareCtx>(
         let provider_type = LlmProviderType::from_str_or_default(&name);
         let display_name = match provider_type {
             LlmProviderType::CopilotHeadless => "Copilot Headless (Embacle)",
+            LlmProviderType::CopilotSdk => "Copilot SDK (Embacle)",
             LlmProviderType::ClaudeCode => "Claude Code",
             LlmProviderType::Copilot => "GitHub Copilot",
             LlmProviderType::CursorAgent => "Cursor Agent",

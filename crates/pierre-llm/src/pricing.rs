@@ -133,7 +133,7 @@ impl ModelPricing {
 /// CLI provider, which is hyphenated for some runners and underscored for
 /// others. A model under one of these prefixes resolves to \$0 *without* the
 /// missing-price warning, so cost dashboards do not flag it as an undercount.
-/// `copilot_headless` and `claude-code` are deliberately absent here: they
+/// `copilot_headless`, `copilot_sdk` and `claude-code` are deliberately absent here: they
 /// carry real per-token `PRICING_TABLE` entries because their Anthropic
 /// pass-through usage is metered.
 pub const NOT_PER_TOKEN_METERED_PROVIDERS: &[&str] = &[
@@ -208,6 +208,24 @@ pub const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     ),
     (
         "copilot_headless",
+        "claude-haiku-4",
+        ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
+    ),
+    // Copilot SDK (embacle) — the same runtime and models as copilot_headless,
+    // reached through GitHub's Rust SDK; the usage row names the model that
+    // served (assistant.usage.model), so these prefixes match a real id.
+    (
+        "copilot_sdk",
+        "claude-opus-4",
+        ModelPricing::new(15.0, 75.0).with_cache_rates(0.10, 1.25),
+    ),
+    (
+        "copilot_sdk",
+        "claude-sonnet",
+        ModelPricing::new(3.0, 15.0).with_cache_rates(0.10, 1.25),
+    ),
+    (
+        "copilot_sdk",
         "claude-haiku-4",
         ModelPricing::new(0.80, 4.0).with_cache_rates(0.10, 1.25),
     ),

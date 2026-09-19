@@ -3,6 +3,12 @@
 
 # Stage 0: base image with build dependencies and cargo-chef installed
 FROM --platform=linux/amd64 rust:1.96-slim AS chef
+# embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
+# downloads and embeds the Copilot CLI (~163 MB) unless told not to. Every
+# workflow that runs cargo sets this in its env, .envrc.example sets it for
+# dev shells, and this stage sets it for `cargo chef cook`, which runs before
+# the tree is copied in.
+ENV COPILOT_SKIP_CLI_DOWNLOAD=1
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
@@ -187,6 +193,10 @@ ARG CLAUDE_CODE_CLI_VERSION=2.1.258
 # See carnet#466.
 ENV COPILOT_PKG_CACHE_HOME=/opt/copilot-pkg
 ENV COPILOT_AUTO_UPDATE=false
+# The copilot_sdk provider spawns this wrapper (`--server --stdio`), which loads
+# the runtime.node next to it — the same pair the extraction above produced, so
+# the SDK path ships nothing the ACP path did not already carry.
+ENV COPILOT_RUNTIME_PATH=/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/copilot-runtime
 RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
@@ -194,6 +204,7 @@ RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && copilot --version \
     && test -f "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/.extraction-complete" \
     && test -s "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/runtime.node" \
+    && test -x "/opt/copilot-pkg/pkg/linux-x64/${COPILOT_CLI_VERSION}/prebuilds/linux-x64/copilot-runtime" \
     && chmod -R a+rX /opt/copilot-pkg \
     && claude --version \
     && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"

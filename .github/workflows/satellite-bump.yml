@@ -95,6 +95,12 @@ permissions:
   contents: write # push the bump branch and the squash merge
   actions: write # dispatch the CI gates onto that branch
 
+env:
+  # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
+  # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
+  # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
+  COPILOT_SKIP_CLI_DOWNLOAD: "1"
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1. What are we integrating, does it really exist, and is there anything to do?

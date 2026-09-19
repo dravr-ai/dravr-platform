@@ -817,6 +817,7 @@ fn acp_reply() -> HeadlessToolResponse {
             id: "acp-tool-1".to_owned(),
             title: "get_activities".to_owned(),
             status: "Completed".to_owned(),
+            ..ObservedToolCall::default()
         }],
         usage: None,
         finish_reason: Some("stop".to_owned()),

@@ -82,6 +82,10 @@ permissions:
   actions: read
 
 env:
+  # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
+  # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
+  # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
+  COPILOT_SKIP_CLI_DOWNLOAD: "1"
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: true
 
@@ -1005,7 +1009,15 @@ jobs:
           # feature: shrinking working architecture to fit a number that no
           # longer reflects the binary is the wrong trade. The band below still
           # gives ~4MB of warning before the next hard stop.
-          MAX_SIZE_MB=90
+          #
+          # 95 since 2026-09-18: main had crept to 88MB on its own and the
+          # copilot_sdk provider brings github-copilot-sdk's generated protocol
+          # types (~3MB), which took the default-profile binary to 91MB. Raised
+          # on JF's call. Two known levers if the next ceiling is not to be a
+          # raise: the lockfile links reqwest 0.12+0.13 and tokio-tungstenite
+          # 0.24+0.29 (two HTTP/TLS stacks), and this gate and the Docker build
+          # use thin LTO while release.yml already ships fat LTO.
+          MAX_SIZE_MB=95
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

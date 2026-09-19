@@ -72,9 +72,9 @@ pub async fn create_chat_provider_from_resources(
 /// This is the preferred accessor for any handler / service / background
 /// task that needs to issue an LLM call. Cloning an `Arc` is cheap and
 /// keeps every consumer pointed at the same provider instance so the
-/// embacle `CopilotHeadlessRunner`'s long-lived `copilot --acp`
-/// subprocess + cached GitHub→Copilot OAuth token are reused instead of
-/// torn down and rebuilt per call.
+/// embacle Copilot runner's long-lived runtime child (`copilot --acp` or
+/// `copilot-runtime`) + cached GitHub→Copilot OAuth token are reused instead
+/// of torn down and rebuilt per call.
 ///
 /// Resolution order — **NEVER falls through to per-call
 /// [`ChatProvider::from_env`]**:

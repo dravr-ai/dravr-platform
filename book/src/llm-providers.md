@@ -68,8 +68,13 @@ export LOCAL_LLM_MODEL=qwen2.5:14b-instruct
 # Claude Code (requires claude CLI installed and authenticated)
 export PIERRE_LLM_PROVIDER=claude_code
 
-# GitHub Copilot SDK (recommended for reliable tool calling)
+# GitHub Copilot through its Rust SDK (the runtime's own event stream: served
+# model, cache counts, tool calls by name) — needs COPILOT_RUNTIME_PATH
 export PIERRE_LLM_PROVIDER=copilot_sdk
+
+# GitHub Copilot through the copilot --acp adapter (the same runtime, via
+# the CLI's JS layer)
+export PIERRE_LLM_PROVIDER=copilot_headless
 
 # GitHub Copilot CLI
 export PIERRE_LLM_PROVIDER=copilot
@@ -241,16 +246,34 @@ CLI providers (Claude Code, Copilot CLI, Cursor Agent, OpenCode) run as subproce
 └──────────────┘                                   └──────────────────┘
 ```
 
-### How the Copilot SDK Provider Works
+### How the two Copilot providers work
 
-The Copilot SDK provider (`copilot_sdk`) uses a persistent JSON-RPC connection via `copilot --headless`. Tool calls are handled natively through a `ToolHandler` callback, giving it the same reliability as API-based providers without requiring a separate API key:
+Both reach the same GitHub Copilot runtime (`runtime.node`) and both run the
+native tool loop: Pierre hands the request its loopback MCP servers
+(`embacle-tool-host`), the runtime calls Dravr's tools over them, and the turn
+comes back as a `HeadlessToolResponse` with the tool calls it observed. They
+differ in what sits between Pierre and the runtime.
+
+`copilot_headless` speaks ACP (NDJSON JSON-RPC) to `copilot --acp`, the CLI's
+JS adapter over the runtime. The adapter drops the served model, the per-call
+usage and the tool name/arguments/result, inlines the system prompt as user
+text, and carries one prompt per transport.
+
+`copilot_sdk` speaks GitHub's own JSON-RPC to the Rust `copilot-runtime`
+wrapper (`--server --stdio`) through the `github-copilot-sdk` crate: no Node
+process, one session per turn, the system prompt in the runtime's own slot,
+the model that served and the cache read/write counts off `assistant.usage`,
+every tool execution with its name, arguments and result, a model catalogue
+check so a typo fails instead of being silently remapped, and `session.abort`
+on the turn timeout. `COPILOT_RUNTIME_PATH` names the wrapper; the image
+points it at the pair the Copilot CLI extracted into `/opt/copilot-pkg`.
 
 ```
-┌──────────────┐   JSON-RPC (copilot --headless)   ┌──────────────────┐
-│    Pierre    │ ─────────────────────────────────▶│  Copilot SDK     │
-│  ToolHandler │ ◀─────────────────────────────────│  (persistent     │
-│   callback   │   native tool calls + responses   │   connection)    │
-└──────────────┘                                   └──────────────────┘
+┌──────────────┐  ACP over copilot --acp (JS adapter)  ┌────────────────┐
+│    Pierre    │ ─────────────────────────────────────▶│  runtime.node  │
+│ (embacle)    │  JSON-RPC over copilot-runtime (Rust) │  (GitHub's     │
+│              │ ─────────────────────────────────────▶│   runtime)     │
+└──────────────┘  ◀── loopback MCP: Dravr's tools ───  └────────────────┘
 ```
 
 ### Auto-Detection Mode
@@ -259,7 +282,7 @@ Setting `PIERRE_LLM_PROVIDER=cli` triggers automatic discovery of the best avail
 
 ### Provider Readiness Checks
 
-When a CLI provider is created, Pierre spawns a background readiness check to verify the CLI tool is installed and authenticated. Readiness status is surfaced through the `ProviderReadiness` type. SDK runners (Copilot SDK) are always considered ready because they manage authentication internally.
+When a CLI provider is created, Pierre spawns a background readiness check to verify the CLI tool is installed and authenticated. Readiness status is surfaced through the `ProviderReadiness` type. The two Copilot providers prove readiness on their first turn — the ACP handshake, or the SDK's protocol handshake with the runtime — rather than by probing a binary.
 
 ### Default Models per Provider
 
@@ -270,7 +293,8 @@ When a CLI provider is created, Pierre spawns a background readiness check to ve
 | Gemini | (none — requires env var) | `PIERRE_LLM_MODEL` |
 | Groq | (none — requires env var) | `PIERRE_LLM_MODEL` |
 | Local | `qwen2.5:14b-instruct` | `PIERRE_LLM_MODEL` > `LOCAL_LLM_MODEL` |
-| Copilot SDK | `claude-opus-4.6` | `PIERRE_LLM_MODEL` > `COPILOT_SDK_MODEL` |
+| Copilot SDK | top of embacle's ranked catalog (`claude-opus-4.8` today) | `PIERRE_LLM_MODEL` > `COPILOT_SDK_MODEL` |
+| Copilot Headless | top of embacle's ranked catalog | `PIERRE_LLM_MODEL` > `COPILOT_HEADLESS_MODEL` |
 | Claude Code | `opus` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
 | Copilot CLI | `claude-opus-4.6` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
 | Cursor Agent | `sonnet-4` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
@@ -285,7 +309,7 @@ Pierre selects a tool loop strategy based on the active provider's capability fl
 | Provider Category | Capability Flag | Tool Loop | How Tool Calls Work |
 |---|---|---|---|
 | API-based | `FUNCTION_CALLING` | `run_api_tool_loop` | `complete_with_tools()` returns structured `function_calls` fields |
-| SDK-based | `SDK_TOOL_CALLING` | `run_sdk_tool_loop` | `ToolHandler` callback bridges sync SDK events to async MCP executor |
+| Copilot (headless / SDK) | `SDK_TOOL_CALLING` | `run_headless_tool_loop` | the runtime calls Dravr's tools over the request's loopback MCP servers; the turn returns the tool calls it observed |
 | CLI-based | (neither flag) | `run_cli_tool_loop` | `complete()` output is parsed for `<tool_call>...</tool_call>` XML blocks |
 
 All three strategies share the same MCP executor infrastructure and produce an identical `ToolLoopResult` — the calling code in the chat route cannot observe which strategy ran.
@@ -294,9 +318,9 @@ All three strategies share the same MCP executor infrastructure and produce an i
 
 The API tool loop calls `complete_with_tools()`, inspects the `function_calls` field of the response, executes them via MCP, and appends the results as user messages before calling the LLM again. This continues until the LLM returns a text response with no function calls, or the maximum iteration count is reached.
 
-### SDK Tool Loop (Copilot SDK)
+### Headless Tool Loop (Copilot Headless and Copilot SDK)
 
-The SDK tool loop extracts the `CopilotSdkRunner` from the provider and calls `execute_with_tools()` with a `ToolHandler` closure. The closure uses `block_in_place` to bridge the synchronous SDK callback interface to the asynchronous MCP executor. The SDK manages the full conversation turn internally.
+The headless tool loop asks the CLI provider for its `HeadlessTurnProvider` — the trait both Copilot runners implement — and calls `converse()` (or `converse_stream()`) once per user turn with the request's loopback MCP servers attached. The runtime runs the whole tool loop inside that one turn; the response carries the answer, the model that served, the usage and the observed tool calls. The call row records the served model, and each tool by the name the runtime reported (the SDK transport) or by its display title (the ACP adapter, which sends nothing else).
 
 ### CLI Tool Loop (Claude Code, Copilot CLI, Cursor Agent, OpenCode)
 
@@ -334,7 +358,7 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 
 | Variable | Description | Default | Valid Values |
 |----------|-------------|---------|--------------|
-| `PIERRE_LLM_PROVIDER` | Active LLM provider | `gemini` | `gemini`, `groq`, `local`, `ollama`, `vllm`, `localai`, `claude_code`, `claude-code`, `copilot`, `github_copilot`, `copilot_sdk`, `cursor_agent`, `opencode`, `cli` |
+| `PIERRE_LLM_PROVIDER` | Active LLM provider | `gemini` | `gemini`, `groq`, `local`, `ollama`, `vllm`, `localai`, `claude_code`, `claude-code`, `copilot`, `github_copilot`, `copilot_headless`, `copilot_sdk`, `cursor_agent`, `opencode`, `cli` |
 
 #### Model Configuration
 
@@ -365,7 +389,18 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `COPILOT_SDK_MODEL` | Copilot SDK model fallback (lower priority than `PIERRE_LLM_MODEL`) | `claude-opus-4.6` |
+| `COPILOT_RUNTIME_PATH` | Path to the `copilot-runtime` wrapper the `copilot_sdk` provider spawns; `runtime.node` must sit next to it (no `PATH` scan). The server image sets it to the pair the Copilot CLI extracted into `/opt/copilot-pkg` | SDK resolves `COPILOT_CLI_PATH` |
+| `COPILOT_SDK_MODEL` | Copilot SDK model fallback (lower priority than `PIERRE_LLM_MODEL`) | top of embacle's ranked catalog |
+| `COPILOT_SDK_MCP_TOOL_CALLING` | Advertise `SDK_TOOL_CALLING` so tool turns run natively over the request's loopback MCP servers | `false` |
+| `COPILOT_SDK_PERMISSION_POLICY` | `auto_approve` lets the runtime run its own tools; anything else denies (calls to the request's own MCP servers are approved regardless) | deny |
+| `COPILOT_SDK_MAX_HISTORY_TURNS` | Prior messages rendered into the prompt (0 disables) | `20` |
+| `EMBACLE_SDK_PROMPT_TIMEOUT_SECS` | Bound on one turn; the session is aborted on expiry | `300` |
+| `EMBACLE_SDK_SESSION_TIMEOUT_SECS` | Bound on starting the runtime and opening a session | `60` |
+| `COPILOT_HEADLESS_MODEL` | Copilot Headless model fallback (lower priority than `PIERRE_LLM_MODEL`) | top of embacle's ranked catalog |
+| `COPILOT_HEADLESS_MCP_TOOL_CALLING` | Same as `COPILOT_SDK_MCP_TOOL_CALLING`, for the ACP provider | `false` |
+| `COPILOT_HEADLESS_PERMISSION_POLICY` | Same as `COPILOT_SDK_PERMISSION_POLICY`, for the ACP provider | deny |
+| `COPILOT_HEADLESS_MAX_HISTORY_TURNS` | Same as `COPILOT_SDK_MAX_HISTORY_TURNS`, for the ACP provider | `20` |
+| `COPILOT_GITHUB_TOKEN` | GitHub token both Copilot providers hand to the runtime (falls back to `GH_TOKEN`, `GITHUB_TOKEN`). The Rust runtime wants a user token with Copilot access — a fine-grained PAT needs the `Copilot Requests` permission | stored login |
 | `CLI_LLM_MODEL` | CLI runner model fallback (lower priority than `PIERRE_LLM_MODEL`) | Runner-specific default |
 | `CLI_LLM_BINARY` | Override binary path (skip `which` detection) | Auto-detected |
 | `CLI_LLM_TIMEOUT_SECS` | Timeout per LLM subprocess call in seconds | `120` |

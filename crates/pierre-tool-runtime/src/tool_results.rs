@@ -15,6 +15,8 @@
 //! is read by [`crate::reconnect`], which the headless loop shares from a
 //! surface that holds no responses at all.
 
+use std::borrow::Cow;
+
 use pierre_core::llm::tool_simulation;
 use pierre_llm::FunctionResponse;
 use serde_json::{Map, Value};
@@ -234,4 +236,42 @@ pub(crate) fn reconnect_offer_in_steps(outputs: &[StepOutput]) -> Option<String>
     outputs
         .iter()
         .find_map(|output| offer_in_payload(&output.tool_name, &output.result))
+}
+
+// ============================================================================
+// Content Sanitization
+// ============================================================================
+
+/// Strip synthetic function call syntax from LLM content.
+///
+/// Some models (like Llama via Groq) output function calls both as proper
+/// `tool_calls` AND as text content using syntax like
+/// `<function(name)>{...}</function>`. This helper removes that synthetic
+/// syntax to avoid displaying raw tool-call markup to users.
+#[must_use]
+pub fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    fn function_pattern() -> Option<&'static Regex> {
+        static PATTERN: OnceLock<Option<Regex>> = OnceLock::new();
+        PATTERN
+            .get_or_init(|| Regex::new(r"<function[/\(][^>]+>[\s\S]*?</function>").ok())
+            .as_ref()
+    }
+
+    let Some(pattern) = function_pattern() else {
+        return Cow::Borrowed(content);
+    };
+
+    let cleaned = pattern.replace_all(content, "");
+    let trimmed = cleaned.trim();
+
+    if trimmed.is_empty() {
+        Cow::Borrowed("")
+    } else if trimmed.len() == content.len() {
+        Cow::Borrowed(content)
+    } else {
+        Cow::Owned(trimmed.to_owned())
+    }
 }

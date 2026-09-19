@@ -386,6 +386,7 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
         | LlmProviderType::CursorAgent
         | LlmProviderType::OpenCode
         | LlmProviderType::CopilotHeadless
+        | LlmProviderType::CopilotSdk
         | LlmProviderType::GeminiCli
         | LlmProviderType::CodexCli
         | LlmProviderType::GooseCli
@@ -463,7 +464,7 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
     }
     if !matches!(
         provider,
-        LlmProviderType::Copilot | LlmProviderType::CopilotHeadless
+        LlmProviderType::Copilot | LlmProviderType::CopilotHeadless | LlmProviderType::CopilotSdk
     ) {
         return Ok(());
     }
@@ -471,8 +472,19 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
         .ok()
         .filter(|v| !v.is_empty())
     else {
-        // Empty env var is OK — Copilot CLI falls back to the on-disk
-        // credential store. We can't validate that store here.
+        if provider == LlmProviderType::CopilotSdk {
+            // The SDK runtime runs in a home of its own (ClientMode::Empty), with
+            // no stored login to fall back to: without a token every turn fails
+            // at the first model call, so the boot refuses instead.
+            return Err(AppError::config(
+                "PIERRE_LLM_PROVIDER=copilot_sdk requires COPILOT_GITHUB_TOKEN (or GH_TOKEN / \
+                 GITHUB_TOKEN): the Copilot runtime it spawns keeps no stored login. A \
+                 fine-grained PAT needs the Copilot Requests permission; a gh OAuth token \
+                 (gho_) works.",
+            ));
+        }
+        // Empty env var is OK for the CLI transports — Copilot CLI falls back
+        // to the on-disk credential store. We can't validate that store here.
         info!(
             provider = %provider,
             "COPILOT_GITHUB_TOKEN not set; Copilot CLI will use on-disk credentials"
@@ -508,7 +520,8 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
              tokens, or ghu_ Copilot OAuth tokens. Classic ghp_ PATs and ghr_ refresh tokens \
              are rejected by Copilot's API and will fail every chat call. Generate a new \
              fine-grained PAT at https://github.com/settings/personal-access-tokens/new with \
-             Account permissions → Copilot Chat: Read."
+             Account permissions → Copilot Requests (the Rust runtime behind copilot_sdk \
+             needs it; the ACP transport also accepts Copilot Chat: Read)."
         )));
     }
     Ok(())

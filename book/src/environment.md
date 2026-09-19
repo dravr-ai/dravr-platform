@@ -202,13 +202,13 @@ export FITNESS_WEATHER_RATE_LIMIT_PER_MINUTE="60"
 # Active LLM provider
 # Valid values: gemini, groq, local, ollama, vllm, localai,
 #               claude_code, claude-code, copilot, github_copilot,
-#               copilot_sdk, cursor_agent, opencode, cli
+#               copilot_headless, copilot_sdk, cursor_agent, opencode, cli
 export PIERRE_LLM_PROVIDER=gemini
 ```
 
 ### Model Selection
 
-`PIERRE_LLM_MODEL` is the **unified model override** for ALL providers — API-based (Gemini, Groq, Local) and CLI/SDK-based (Claude Code, Copilot, Copilot SDK, Cursor Agent, OpenCode). When set, it takes priority over provider-specific env vars like `COPILOT_SDK_MODEL` or `CLI_LLM_MODEL`.
+`PIERRE_LLM_MODEL` is the **unified model override** for ALL providers — API-based (Gemini, Groq, Local) and CLI/SDK-based (Claude Code, Copilot, Copilot Headless, Copilot SDK, Cursor Agent, OpenCode). When set, it takes priority over provider-specific env vars like `COPILOT_HEADLESS_MODEL`, `COPILOT_SDK_MODEL` or `CLI_LLM_MODEL`.
 
 ```bash
 # Unified model for ALL providers (highest priority)

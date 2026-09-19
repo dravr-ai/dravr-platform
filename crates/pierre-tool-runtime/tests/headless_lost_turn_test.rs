@@ -136,9 +136,13 @@ fn the_lost_turn_error_carries_the_tool_call_count() {
         tool_calls_count: 3,
         ..answered()
     };
-    let msg = r.lost_turn_error().to_string();
+    let msg = r.lost_turn_error("copilot_sdk").to_string();
     assert!(
         msg.contains('3'),
         "tool-call count must survive into the log: {msg}"
+    );
+    assert!(
+        msg.contains("copilot_sdk"),
+        "the error names the provider that lost the turn, not a fixed transport: {msg}"
     );
 }

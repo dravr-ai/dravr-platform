@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use embacle::CliRunnerType;
-use embacle::CopilotHeadlessConfig;
+use embacle::{CopilotHeadlessConfig, CopilotSdkConfig};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -35,6 +35,8 @@ pub enum LlmProviderType {
     Copilot,
     /// GitHub Copilot Headless provider - ACP via `copilot --acp`
     CopilotHeadless,
+    /// GitHub Copilot through its Rust SDK - `copilot-runtime --server --stdio`
+    CopilotSdk,
     /// Warp terminal `oz` CLI provider
     WarpCli,
     /// Gemini CLI provider - subprocess-based Google Gemini
@@ -75,6 +77,7 @@ impl LlmProviderType {
             "opencode" | "open_code" => Self::OpenCode,
             "copilot" | "github_copilot" | "github-copilot" => Self::Copilot,
             "copilot_headless" | "copilot-headless" => Self::CopilotHeadless,
+            "copilot_sdk" | "copilot-sdk" => Self::CopilotSdk,
             "warp_cli" | "warp-cli" | "warp" | "oz" => Self::WarpCli,
             "gemini_cli" | "gemini-cli" => Self::GeminiCli,
             "codex_cli" | "codex-cli" | "codex" => Self::CodexCli,
@@ -223,7 +226,7 @@ impl LlmProviderType {
     /// Returns `None` for provider types that are not driven by an embacle
     /// `CliRunnerType` dispatch — Gemini, Groq, Local, `OpenRouter` (each
     /// construct directly from their own env vars), and `CopilotHeadless` /
-    /// `OpenAiApi` (which follow their own bespoke construction paths in
+    /// `CopilotSdk` / `OpenAiApi` (which follow their own bespoke construction paths in
     /// [`CliLlmProvider`]).
     ///
     /// Used by [`ChatProvider::create_fallback_provider`] to build the runtime
@@ -249,10 +252,11 @@ impl LlmProviderType {
             | Self::OpenRouter
             | Self::Cohere
             | Self::CopilotHeadless
+            | Self::CopilotSdk
             | Self::OpenAiApi
             // The router is several runners behind one provider, so it has no single
             // CliRunnerType. Which one is live changes per turn, and the caller that
-            // needs the concrete runner asks `as_headless_runner()` instead.
+            // needs the turn provider asks `as_turn_provider()` instead.
             | Self::Router => None,
         }
     }
@@ -279,6 +283,7 @@ impl LlmProviderType {
             // (env-injected, e.g. by terraform) rather than a hardcoded version
             // literal that drifts from deployed config.
             Self::CopilotHeadless | Self::Copilot => Some(CopilotHeadlessConfig::from_env().model),
+            Self::CopilotSdk => Some(CopilotSdkConfig::from_env().model),
             // CLI runners pick their default model internally in new().
             // These fallbacks are only used for the conversation DB label when
             // RunnerConfig.model is None (no env override).
@@ -412,6 +417,7 @@ impl Display for LlmProviderType {
             Self::OpenCode => write!(f, "opencode"),
             Self::Copilot => write!(f, "copilot"),
             Self::CopilotHeadless => write!(f, "copilot_headless"),
+            Self::CopilotSdk => write!(f, "copilot_sdk"),
             Self::WarpCli => write!(f, "warp_cli"),
             Self::GeminiCli => write!(f, "gemini_cli"),
             Self::CodexCli => write!(f, "codex_cli"),

@@ -29,8 +29,8 @@ use std::path::PathBuf;
 use embacle::types::LlmProvider as EmbacleLlmProvider;
 use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
-    CopilotHeadlessRunner, CopilotRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner,
-    KiloCliRunner, KiroCliRunner, OpenCodeRunner, RunnerConfig, WarpCliRunner,
+    CopilotHeadlessRunner, CopilotRunner, CopilotSdkRunner, CursorAgentRunner, GeminiCliRunner,
+    GooseCliRunner, KiloCliRunner, KiroCliRunner, OpenCodeRunner, RunnerConfig, WarpCliRunner,
 };
 use pierre_llm::config::LlmModelConfig;
 use pierre_llm::pricing::{
@@ -44,7 +44,7 @@ use pierre_llm::{
 /// Every runner `CliLlmProvider::build_cli` can construct. The match below is
 /// exhaustive, so an embacle release that adds a runner fails to compile here
 /// instead of escaping the check.
-const EVERY_CLI_RUNNER: [CliRunnerType; 13] = [
+const EVERY_CLI_RUNNER: [CliRunnerType; 14] = [
     CliRunnerType::ClaudeCode,
     CliRunnerType::CursorAgent,
     CliRunnerType::OpenCode,
@@ -58,6 +58,7 @@ const EVERY_CLI_RUNNER: [CliRunnerType; 13] = [
     CliRunnerType::KiroCli,
     CliRunnerType::KiloCli,
     CliRunnerType::CopilotHeadless,
+    CliRunnerType::CopilotSdk,
 ];
 
 /// The string this runner puts on a usage row.
@@ -77,6 +78,7 @@ fn cli_runner_name(kind: CliRunnerType) -> &'static str {
         CliRunnerType::KiroCli => KiroCliRunner::new(config()).name(),
         CliRunnerType::KiloCli => KiloCliRunner::new(config()).name(),
         CliRunnerType::CopilotHeadless => CopilotHeadlessRunner::from_env().name(),
+        CliRunnerType::CopilotSdk => CopilotSdkRunner::from_env().name(),
     }
 }
 
@@ -193,6 +195,35 @@ async fn claude_code_is_priced_rather_than_suppressed() {
     assert!(
         !is_not_per_token_metered("copilot_headless"),
         "copilot_headless is priced for the same reason"
+    );
+    assert!(
+        !is_not_per_token_metered("copilot_sdk"),
+        "copilot_sdk reaches the same models and is priced the same way"
+    );
+}
+
+#[tokio::test]
+async fn the_copilot_sdk_rows_are_reachable_from_the_name_the_runner_reports() {
+    let reported = cli_runner_name(CliRunnerType::CopilotSdk);
+    assert_eq!(
+        reported, "copilot_sdk",
+        "the pricing rows are keyed on this exact string"
+    );
+
+    let sonnet = calculate_cost(reported, "claude-sonnet-5", 1_000_000, 0);
+    assert!(
+        (sonnet - 3.0).abs() < 1e-9,
+        "claude-sonnet must price at $3/M input; got {sonnet}"
+    );
+    let opus = calculate_cost(reported, "claude-opus-4.8", 0, 1_000_000);
+    assert!(
+        (opus - 75.0).abs() < 1e-9,
+        "claude-opus-4 must price at $75/M output; got {opus}"
+    );
+    let haiku = calculate_cost(reported, "claude-haiku-4.5", 1_000_000, 0);
+    assert!(
+        (haiku - 0.80).abs() < 1e-9,
+        "claude-haiku-4 must price at $0.80/M input; got {haiku}"
     );
 }
 

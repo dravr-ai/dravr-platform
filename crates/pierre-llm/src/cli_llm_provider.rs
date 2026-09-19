@@ -14,9 +14,10 @@ use embacle::auth::check_readiness;
 use embacle::config::parse_timeout;
 use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
-    CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner, CursorAgentRunner,
-    GeminiCliRunner, GooseCliRunner, KiloCliRunner, KiroCliRunner, OpenAiApiConfig,
-    OpenAiApiRunner, OpenCodeRunner, RunnerConfig, WarpCliRunner,
+    CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner, CopilotSdkConfig,
+    CopilotSdkRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner, HeadlessTurnProvider,
+    KiloCliRunner, KiroCliRunner, OpenAiApiConfig, OpenAiApiRunner, OpenCodeRunner, RunnerConfig,
+    WarpCliRunner,
 };
 use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
@@ -49,8 +50,9 @@ const READINESS_NOT_READY: u8 = 2;
 pub struct CliLlmProvider {
     runner: Box<dyn EmbacleLlmProvider>,
     readiness: Arc<AtomicU8>,
-    /// Typed reference to the headless runner for `converse()` access (ACP only)
-    headless_runner: Option<Arc<CopilotHeadlessRunner>>,
+    /// The Copilot turn provider behind `runner`, for `converse()` access —
+    /// whichever transport it is, ACP or the SDK.
+    headless_runner: Option<Arc<dyn HeadlessTurnProvider>>,
     /// Cached display name (embacle returns `&str`, pierre trait needs `&'static str`)
     cached_display_name: &'static str,
     /// Typed reference to the router, when this provider is one.
@@ -92,6 +94,7 @@ impl CliLlmProvider {
                 Ok(Self::build_cli(CliRunnerType::Copilot, config))
             }
             "copilot_headless" | "copilot-headless" => Ok(Self::build_headless()),
+            "copilot_sdk" | "copilot-sdk" => Ok(Self::build_sdk()),
             "gemini_cli" | "gemini-cli" => {
                 let config = build_runner_config(CliRunnerType::GeminiCli)?;
                 Ok(Self::build_cli(CliRunnerType::GeminiCli, config))
@@ -191,6 +194,9 @@ impl CliLlmProvider {
             CliRunnerType::CopilotHeadless => {
                 return Self::build_headless();
             }
+            CliRunnerType::CopilotSdk => {
+                return Self::build_sdk();
+            }
         };
 
         info!(
@@ -231,13 +237,50 @@ impl CliLlmProvider {
 
         info!(model = %config.model, "Creating Copilot Headless runner (copilot --acp)");
 
-        let headless = Arc::new(CopilotHeadlessRunner::with_config(config));
+        let headless: Arc<dyn HeadlessTurnProvider> =
+            Arc::new(CopilotHeadlessRunner::with_config(config));
 
         Self {
             runner: Box::new(HeadlessRunnerAdapter(Arc::clone(&headless))),
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
             headless_runner: Some(headless),
             cached_display_name: "GitHub Copilot (Headless)",
+            router: None,
+        }
+    }
+
+    /// Build a Copilot SDK runner (GitHub's Rust runtime over `copilot-runtime --server --stdio`).
+    ///
+    /// Same runtime the ACP path reaches, without the JS adapter: the system
+    /// prompt travels in the runtime's own slot, the served model and cache
+    /// counts come off `assistant.usage`, tool executions carry name, arguments
+    /// and result, and an unknown model id fails instead of being remapped.
+    /// `PIERRE_LLM_MODEL` overrides the SDK-specific `COPILOT_SDK_MODEL` env var.
+    ///
+    /// LIMITATION(registre#104): `build_sdk` binds one `CopilotSdkConfig::model` for every call in the turn — tool-loop iterations and the athlete-facing draft run on the same model, with no per-stage routing to a cheaper one.
+    fn build_sdk() -> Self {
+        let mut config = CopilotSdkConfig::from_env();
+
+        // PIERRE_LLM_MODEL is the unified model override (highest priority)
+        if let Ok(model) = env::var("PIERRE_LLM_MODEL") {
+            if !model.is_empty() {
+                config.model = model;
+            }
+        }
+
+        info!(
+            model = %config.model,
+            runtime = ?config.runtime_path,
+            "Creating Copilot SDK runner (copilot-runtime --server --stdio)"
+        );
+
+        let sdk: Arc<dyn HeadlessTurnProvider> = Arc::new(CopilotSdkRunner::with_config(config));
+
+        Self {
+            runner: Box::new(HeadlessRunnerAdapter(Arc::clone(&sdk))),
+            readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
+            headless_runner: Some(sdk),
+            cached_display_name: "GitHub Copilot (SDK)",
             router: None,
         }
     }
@@ -269,7 +312,8 @@ impl CliLlmProvider {
                 headless_config.model = model;
             }
         }
-        let headless = Arc::new(CopilotHeadlessRunner::with_config(headless_config));
+        let headless: Arc<dyn HeadlessTurnProvider> =
+            Arc::new(CopilotHeadlessRunner::with_config(headless_config));
 
         let lead = match env::var("CLAUDE_CODE_OAUTH_TOKEN") {
             Ok(token) if !token.is_empty() => {
@@ -349,7 +393,7 @@ impl CliLlmProvider {
         })
     }
 
-    /// Access the `CopilotHeadlessRunner` currently able to serve an ACP turn.
+    /// Access the Copilot turn provider currently able to serve a native tool turn.
     ///
     /// `Some` for a Copilot Headless provider, and — for the router — only
     /// while Copilot is the backend actually answering. `None` otherwise, which
@@ -362,7 +406,7 @@ impl CliLlmProvider {
     /// Returns an owned `Arc` rather than a reference because the router
     /// resolves the live backend per call; there is no field to borrow from.
     #[must_use]
-    pub fn as_headless_runner(&self) -> Option<Arc<CopilotHeadlessRunner>> {
+    pub fn as_turn_provider(&self) -> Option<Arc<dyn HeadlessTurnProvider>> {
         if let Some(router) = &self.router {
             return router.active_runner();
         }
@@ -535,6 +579,7 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
         CliRunnerType::KiroCli => "Kiro (CLI)",
         CliRunnerType::KiloCli => "Kilo Code (CLI)",
         CliRunnerType::CopilotHeadless => "GitHub Copilot (Headless)",
+        CliRunnerType::CopilotSdk => "GitHub Copilot (SDK)",
     }
 }
 
@@ -542,10 +587,10 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
 // Headless Runner Adapter
 // ============================================================================
 
-/// Adapter wrapping `Arc<CopilotHeadlessRunner>` as `Box<dyn EmbacleLlmProvider>`.
+/// Adapter wrapping `Arc<dyn HeadlessTurnProvider>` as `Box<dyn EmbacleLlmProvider>`.
 ///
-/// This allows the headless runner to be stored both as a trait object (for the
-/// unified `runner` field) and as a typed `Arc` (for `converse()` access).
+/// This allows a Copilot turn provider to be stored both as a plain provider (for
+/// the unified `runner` field) and as the turn-capable `Arc` (for `converse()` access).
 ///
 /// LIMITATION(registre#102): nothing on this path marks the system-prompt +
 /// tool-surface prefix cacheable, and nothing can. `cache_control` is settable
@@ -636,7 +681,7 @@ impl EmbacleLlmProvider for RouterAdapter {
     }
 }
 
-struct HeadlessRunnerAdapter(Arc<CopilotHeadlessRunner>);
+struct HeadlessRunnerAdapter(Arc<dyn HeadlessTurnProvider>);
 
 #[async_trait]
 impl EmbacleLlmProvider for HeadlessRunnerAdapter {

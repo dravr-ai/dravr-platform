@@ -48,19 +48,62 @@ jobs:
           echo "version=$LATEST" >> "$GITHUB_OUTPUT"
           echo "npm latest version: $LATEST"
 
+      # The copilot_sdk provider speaks to the runtime through the
+      # github-copilot-sdk crate, whose release cadence trails the CLI's;
+      # a runtime newer than the crate's pin has always handshaken so far
+      # (protocol version 3 at every tag), but behaviour has changed between
+      # CLI patch releases with no protocol bump, so the crate pin is watched
+      # beside the CLI pin.
+      - name: Read pinned github-copilot-sdk version from Cargo.lock
+        id: sdk_pinned
+        run: |
+          SDK_PINNED=$(awk '/^name = "github-copilot-sdk"$/{getline; sub(/^version = "/, ""); sub(/"$/, ""); print; exit}' Cargo.lock)
+          if [ -z "$SDK_PINNED" ]; then
+            echo "ERROR: github-copilot-sdk not found in Cargo.lock" >&2
+            exit 1
+          fi
+          echo "version=$SDK_PINNED" >> "$GITHUB_OUTPUT"
+          echo "Pinned github-copilot-sdk version: $SDK_PINNED"
+
+      - name: Fetch crates.io latest github-copilot-sdk
+        id: sdk_latest
+        run: |
+          # crates.io answers an anonymous request without a User-Agent with no crate object.
+          if ! out="$(curl -fsS -A "dravr-platform copilot-cli-version-check (github-actions)" https://crates.io/api/v1/crates/github-copilot-sdk 2>&1)"; then
+            echo "ERROR: crates.io request failed: $out" >&2
+            exit 1
+          fi
+          SDK_LATEST=$(printf '%s' "$out" | jq -r '.crate.max_stable_version // .crate.max_version // empty')
+          if [ -z "$SDK_LATEST" ]; then
+            echo "ERROR: crates.io response carried no version for github-copilot-sdk" >&2
+            exit 1
+          fi
+          echo "version=$SDK_LATEST" >> "$GITHUB_OUTPUT"
+          echo "crates.io latest github-copilot-sdk: $SDK_LATEST"
+
       - name: Compare versions
         id: compare
         env:
           PINNED: ${{ steps.pinned.outputs.version }}
           LATEST: ${{ steps.latest.outputs.version }}
+          SDK_PINNED: ${{ steps.sdk_pinned.outputs.version }}
+          SDK_LATEST: ${{ steps.sdk_latest.outputs.version }}
         run: |
+          DRIFT=false
           if [ "$PINNED" = "$LATEST" ]; then
-            echo "drift=false" >> "$GITHUB_OUTPUT"
-            echo "Pinned version matches npm latest — no issue needed"
+            echo "Pinned CLI version matches npm latest"
           else
-            echo "drift=true" >> "$GITHUB_OUTPUT"
-            echo "Drift detected: pinned=$PINNED, latest=$LATEST"
+            DRIFT=true
+            echo "CLI drift detected: pinned=$PINNED, latest=$LATEST"
           fi
+          if [ "$SDK_PINNED" = "$SDK_LATEST" ]; then
+            echo "Pinned github-copilot-sdk matches crates.io latest"
+          else
+            DRIFT=true
+            echo "SDK drift detected: pinned=$SDK_PINNED, latest=$SDK_LATEST"
+          fi
+          echo "drift=$DRIFT" >> "$GITHUB_OUTPUT"
+          [ "$DRIFT" = true ] || echo "No drift — no issue needed"
 
       - name: Create or update tracking issue
         if: steps.compare.outputs.drift == 'true'
@@ -68,9 +111,16 @@ jobs:
         env:
           PINNED: ${{ steps.pinned.outputs.version }}
           LATEST: ${{ steps.latest.outputs.version }}
+          SDK_PINNED: ${{ steps.sdk_pinned.outputs.version }}
+          SDK_LATEST: ${{ steps.sdk_latest.outputs.version }}
         with:
           script: |
-            const title = `Copilot CLI update available: ${process.env.LATEST}`;
+            const sdkPinned = process.env.SDK_PINNED;
+            const sdkLatest = process.env.SDK_LATEST;
+            const cliDrift = process.env.PINNED !== process.env.LATEST;
+            const sdkDrift = sdkPinned !== sdkLatest;
+            const drifted = [cliDrift ? `CLI ${process.env.LATEST}` : null, sdkDrift ? `SDK ${sdkLatest}` : null].filter(Boolean).join(', ');
+            const title = `Copilot pin drift: ${drifted}`;
             const label = 'dependencies';
             const pinned = process.env.PINNED;
             const latest = process.env.LATEST;
@@ -85,6 +135,13 @@ jobs:
               `| --- | --- |`,
               `| \`docker/images/server/Dockerfile\` (\`ARG COPILOT_CLI_VERSION\`) | \`${pinned}\` |`,
               `| npm \`@github/copilot-linux-x64\` \`latest\` dist-tag | \`${latest}\` |`,
+              `| \`Cargo.lock\` (\`github-copilot-sdk\`, the copilot_sdk provider's SDK) | \`${sdkPinned}\` |`,
+              `| crates.io \`github-copilot-sdk\` latest | \`${sdkLatest}\` |`,
+              ``,
+              `Since 1.0.85 the npm package is a 4-file SEA with no \`prebuilds/\`: the runtime pair the`,
+              `copilot_sdk provider spawns (\`copilot-runtime\` + \`runtime.node\`) comes from the SEA's own`,
+              `extraction into \`/opt/copilot-pkg\` at image build, so a CLI bump keeps \`COPILOT_RUNTIME_PATH\``,
+              `valid; the Dockerfile asserts the pair is there.`,
               ``,
               `## Why this matters`,
               ``,
@@ -107,6 +164,10 @@ jobs:
               `# 3. Bump the Dockerfile ARG and commit:`,
               `# edit docker/images/server/Dockerfile: ARG COPILOT_CLI_VERSION=${latest}`,
               `# commit directly to main (bug-class / dep-bump) or via feature branch`,
+              ``,
+              `# 4. When the SDK crate drifted: embacle pins github-copilot-sdk, so the`,
+              `#    bump lands there first (dravr-embacle Cargo.toml), then here:`,
+              `cargo update -p github-copilot-sdk --precise ${sdkLatest}`,
               `\`\`\``,
               ``,
               `## Verification after bump`,
@@ -115,7 +176,7 @@ jobs:
               `- \`deploy-gcp.yml\` rolls out to dev`,
               `- Send a Telegram / messaging probe to confirm \`copilot-acp\` dispatches successfully`,
               ``,
-              `_This issue auto-updates each Monday. It closes itself when the Dockerfile catches up to \`${latest}\`._`,
+              `_This issue auto-updates each Monday. It closes itself when both pins are current (CLI \`${latest}\`, SDK \`${sdkLatest}\`)._`,
             ].join('\n');
 
             // Ensure label exists
@@ -144,7 +205,7 @@ jobs:
               per_page: 100,
             });
 
-            const existing = openIssues.find(i => i.title.startsWith('Copilot CLI update available:'));
+            const existing = openIssues.find(i => (i.title.startsWith('Copilot pin drift:') || i.title.startsWith('Copilot CLI update available:')));
 
             if (existing) {
               await github.rest.issues.update({
@@ -180,14 +241,14 @@ jobs:
               per_page: 100,
             });
 
-            const stale = openIssues.filter(i => i.title.startsWith('Copilot CLI update available:'));
+            const stale = openIssues.filter(i => i.title.startsWith('Copilot pin drift:') || (i.title.startsWith('Copilot pin drift:') || i.title.startsWith('Copilot CLI update available:')));
 
             for (const issue of stale) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: 'Dockerfile pin caught up with npm `latest`. Auto-closing.',
+                body: 'Both Copilot pins are current (Dockerfile CLI ARG vs npm `latest`, Cargo.lock github-copilot-sdk vs crates.io). Auto-closing.',
               });
               await github.rest.issues.update({
                 owner: context.repo.owner,

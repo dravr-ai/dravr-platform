@@ -14,7 +14,6 @@
 //! All strategies share the same MCP executor infrastructure and produce
 //! identical [`ToolLoopResult`] output.
 
-use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -33,9 +32,10 @@ use crate::llm_call_record::{
 };
 use crate::protocol::UniversalResponse;
 use crate::tool_loop_io::{
-    GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult, ToolLoopTally,
-    ToolRoundRecord,
+    observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
+    ToolLoopTally, ToolRoundRecord,
 };
+use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
     reconnect_offer_in_steps, render_tool_payload_for_prompt,
@@ -950,7 +950,12 @@ async fn run_react_tool_loop(
         // one, not the empty-completion one. Both re-created; see `is_lost_turn`.
         match run_headless_tool_loop(params, llm_messages).await {
             Ok(r) if r.is_lost_turn() => {
-                run_headless_fallback(params, llm_messages, r.lost_turn_error()).await
+                run_headless_fallback(
+                    params,
+                    llm_messages,
+                    r.lost_turn_error(params.provider.name()),
+                )
+                .await
             }
             Ok(result) => Ok(result),
             Err(err) if pierre_llm::is_retryable_for_fallback(&err) => {
@@ -1259,23 +1264,24 @@ async fn run_headless_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &[ChatMessage],
 ) -> Result<ToolLoopResult, AppError> {
-    // Extract the CopilotHeadlessRunner from the ChatProvider
+    // The Copilot turn provider behind the ChatProvider, whichever transport it is
     let cli_provider = params.provider.as_cli_provider().ok_or_else(|| {
         AppError::internal(
-            "Headless tool loop requires CopilotHeadlessRunner but provider is not a CLI provider",
+            "Headless tool loop requires a Copilot turn provider but provider is not a CLI provider",
         )
     })?;
 
-    let headless_runner = cli_provider.as_headless_runner().ok_or_else(|| {
+    let headless_runner = cli_provider.as_turn_provider().ok_or_else(|| {
         AppError::internal(
-            "Headless tool loop requires CopilotHeadlessRunner but inner runner is a different type",
+            "Headless tool loop requires a Copilot turn provider but inner runner is a different type",
         )
     })?;
 
     let stream = params.stream_sink.is_some();
     info!(
         stream,
-        "Headless tool loop: invoking Copilot ACP {}",
+        provider = params.provider.name(),
+        "Headless tool loop: invoking {}",
         if stream {
             "converse_stream()"
         } else {
@@ -1316,7 +1322,7 @@ async fn run_headless_tool_loop(
 
     let call_start = Instant::now();
     let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
-        headless_stream::run_headless_streaming(&headless_runner, &request, sink).await
+        headless_stream::run_headless_streaming(headless_runner.as_ref(), &request, sink).await
     } else {
         headless_runner
             .converse(&request)
@@ -1328,12 +1334,14 @@ async fn run_headless_tool_loop(
     let headless_response = match converse_result {
         Ok(r) => {
             let tools_in_response: Vec<String> =
-                r.tool_calls.iter().map(|tc| tc.title.clone()).collect();
+                r.tool_calls.iter().map(observed_tool_name).collect();
             emit_call_record_with_text(
                 CallRecordInputs {
                     recorder: params.call_recorder.as_ref(),
                     provider: params.provider.name(),
-                    model: params.model,
+                    // The model that served, as the runtime reported it — the
+                    // SDK transport names it per call; ACP echoes the request.
+                    model: &r.model,
                     usage: r.usage.as_ref(),
                     latency_ms,
                     success: true,
@@ -1375,7 +1383,7 @@ async fn run_headless_tool_loop(
 
     finalize_headless_turn(
         headless_response,
-        &headless_runner,
+        headless_runner.as_ref(),
         &request,
         params,
         &prompt_text,
@@ -1422,19 +1430,17 @@ fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
 /// call fails.
 pub async fn finalize_headless_turn(
     headless_response: pierre_llm::HeadlessToolResponse,
-    headless_runner: &pierre_llm::CopilotHeadlessRunner,
+    headless_runner: &dyn pierre_llm::HeadlessTurnProvider,
     request: &ChatRequest,
     params: &ToolLoopParams<'_>,
     prompt_text: &str,
 ) -> Result<ToolLoopResult, AppError> {
     let mut tool_calls_count =
         u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
-    // `ObservedToolCall` only exposes `title` on the ACP wire; there's no
-    // distinct `name` field, so the title is the best available identifier.
     let mut tools_called: Vec<String> = headless_response
         .tool_calls
         .iter()
-        .map(|call| call.title.clone())
+        .map(observed_tool_name)
         .collect();
     let mut content = tool_simulation::strip_simulation_artifacts(&headless_response.content);
     let mut usage = headless_response.usage;
@@ -1551,7 +1557,7 @@ struct HeadlessRetry {
 /// model recovered. Non-streaming on purpose: a re-parroted echo must never
 /// reach the user's stream a second time.
 async fn retry_headless_turn(
-    headless_runner: &pierre_llm::CopilotHeadlessRunner,
+    headless_runner: &dyn pierre_llm::HeadlessTurnProvider,
     request: &ChatRequest,
     params: &ToolLoopParams<'_>,
     prompt_text: &str,
@@ -1562,12 +1568,12 @@ async fn retry_headless_turn(
         .await
         .map_err(AppError::from)?;
     let retry_latency_ms = millis_elapsed(retry_start);
-    let tool_calls: Vec<String> = retry.tool_calls.iter().map(|tc| tc.title.clone()).collect();
+    let tool_calls: Vec<String> = retry.tool_calls.iter().map(observed_tool_name).collect();
     emit_call_record_with_text(
         CallRecordInputs {
             recorder: params.call_recorder.as_ref(),
             provider: params.provider.name(),
-            model: params.model,
+            model: &retry.model,
             usage: retry.usage.as_ref(),
             latency_ms: retry_latency_ms,
             success: true,
@@ -1615,43 +1621,5 @@ pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
         .collect();
     Tool {
         function_declarations,
-    }
-}
-
-// ============================================================================
-// Content Sanitization
-// ============================================================================
-
-/// Strip synthetic function call syntax from LLM content.
-///
-/// Some models (like Llama via Groq) output function calls both as proper
-/// `tool_calls` AND as text content using syntax like
-/// `<function(name)>{...}</function>`. This helper removes that synthetic
-/// syntax to avoid displaying raw tool-call markup to users.
-#[must_use]
-pub fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::OnceLock;
-
-    fn function_pattern() -> Option<&'static Regex> {
-        static PATTERN: OnceLock<Option<Regex>> = OnceLock::new();
-        PATTERN
-            .get_or_init(|| Regex::new(r"<function[/\(][^>]+>[\s\S]*?</function>").ok())
-            .as_ref()
-    }
-
-    let Some(pattern) = function_pattern() else {
-        return Cow::Borrowed(content);
-    };
-
-    let cleaned = pattern.replace_all(content, "");
-    let trimmed = cleaned.trim();
-
-    if trimmed.is_empty() {
-        Cow::Borrowed("")
-    } else if trimmed.len() == content.len() {
-        Cow::Borrowed(content)
-    } else {
-        Cow::Owned(trimmed.to_owned())
     }
 }

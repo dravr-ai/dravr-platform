@@ -130,7 +130,7 @@ impl<'a> CanaryFilteredProse<'a> {
 /// underlying stream yields a transport error, or when the run ends without a
 /// terminal response frame.
 pub async fn run_headless_streaming(
-    headless_runner: &pierre_llm::CopilotHeadlessRunner,
+    headless_runner: &dyn pierre_llm::HeadlessTurnProvider,
     request: &ChatRequest,
     sink: &TurnEventSink,
 ) -> Result<pierre_llm::HeadlessToolResponse, AppError> {

@@ -25,6 +25,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use crate::model_check::validate_model_for_provider;
+
 use super::{
     ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider, CohereProvider,
     GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider, OpenAiCompatibleProvider,
@@ -501,6 +503,7 @@ impl ChatProvider {
             | LlmProviderType::CursorAgent
             | LlmProviderType::OpenCode
             | LlmProviderType::CopilotHeadless
+            | LlmProviderType::CopilotSdk
             | LlmProviderType::GeminiCli
             | LlmProviderType::CodexCli
             | LlmProviderType::GooseCli
@@ -779,37 +782,6 @@ impl ChatProvider {
     /// Returns an error if the health check fails.
     pub async fn health_check(&self) -> Result<bool, AppError> {
         LlmProvider::health_check(self).await
-    }
-}
-
-/// Warn when the active model is not in the provider's published list.
-///
-/// A hint: embacle's list is a constant; ACP reports 28 models to its 21 (carnet#98).
-fn validate_model_for_provider(provider: &ChatProvider) {
-    let model = provider.default_model();
-    let available = provider.available_models();
-
-    if available.is_empty() {
-        // Provider doesn't publish a model list — skip validation
-        return;
-    }
-
-    if available.iter().any(|m| m == model) {
-        info!(
-            provider = provider.name(),
-            model,
-            available_count = available.len(),
-            "Model validated against provider's available models"
-        );
-    } else {
-        warn!(
-            provider = provider.name(),
-            model,
-            available = ?available,
-            "Model is not in this provider's published list — either that list is \
-             stale, or PIERRE_LLM_MODEL holds the previous provider's id. Dispatch \
-             errors naming this model mean the second"
-        );
     }
 }
 

@@ -49,6 +49,12 @@ concurrency:
   group: satellite-drift
   cancel-in-progress: false
 
+env:
+  # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
+  # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
+  # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
+  COPILOT_SKIP_CLI_DOWNLOAD: "1"
+
 jobs:
   drift:
     name: Check satellite pins against their releases
