@@ -1,5 +1,5 @@
-// ABOUTME: SQLite-backed ImpersonationRepository, emitted from the shared body in repositories/impersonation.rs
-// ABOUTME: SQLite stores the two user ids as hyphenated TEXT, so the shell passes the text uuid codec
+// ABOUTME: PostgreSQL-backed ImpersonationRepository, emitted from the shared body in repositories/impersonation.rs
+// ABOUTME: Postgres stores the two user ids as native uuid columns, so the shell passes the native uuid codec
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,16 +7,16 @@
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::impersonation::ImpersonationSession;
-use sqlx::sqlite::SqliteRow;
+use sqlx::postgres::PgRow;
 use sqlx::Row;
 use uuid::Uuid;
 
-use super::Database;
+use super::PostgresDatabase;
 use crate::repositories::impersonation::{
     impl_impersonation_repository, session_column_error, ImpersonationRepository,
     CREATE_SESSION_SQL, END_ALL_SESSIONS_SQL, END_SESSION_SQL, GET_ACTIVE_SESSION_SQL,
     GET_SESSION_SQL, LIST_SESSIONS_SQL,
 };
-use crate::repositories::uuid_columns::TextUuid;
+use crate::repositories::uuid_columns::NativeUuid;
 
-impl_impersonation_repository!(Database, SqliteRow, TextUuid);
+impl_impersonation_repository!(PostgresDatabase, PgRow, NativeUuid);

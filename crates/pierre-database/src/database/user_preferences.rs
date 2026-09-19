@@ -16,8 +16,9 @@ use sqlx::{Pool, Sqlite};
 use uuid::Uuid;
 
 use crate::repositories::user_preferences::{
-    impl_user_preferences, user_id_text, SET_ANALYTICS_CONSENT_SQL, SET_COACHING_PERSONA_SQL,
-    SET_LOCALE_SQL, SET_MANAGES_ROSTER_SQL, SET_THEME_SQL, SET_TIMEZONE_SQL,
+    impl_user_preferences, SET_ANALYTICS_CONSENT_SQL, SET_COACHING_PERSONA_SQL, SET_LOCALE_SQL,
+    SET_MANAGES_ROSTER_SQL, SET_THEME_SQL, SET_TIMEZONE_SQL,
 };
+use crate::repositories::uuid_columns::TextUuid;
 
-impl_user_preferences!(Sqlite, user_id_text);
+impl_user_preferences!(Sqlite, TextUuid::bind);

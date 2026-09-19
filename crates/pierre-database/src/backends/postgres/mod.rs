@@ -52,6 +52,8 @@ mod goal_progress;
 pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
+/// Super-admin impersonation session audit records.
+pub mod impersonation;
 /// MCP Tasks extension handle repository implementation
 pub mod mcp_tasks;
 /// Coaching harness memory (compaction, facts, notes, followups, sessions)
@@ -105,6 +107,8 @@ pub mod training_plans;
 pub mod usage;
 /// User and profile repository implementations
 pub mod user;
+/// User MCP tokens for AI client authentication (Postgres)
+pub mod user_mcp_tokens;
 /// Durable per-user onboarding step completion state (Postgres)
 pub mod user_onboarding;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (Postgres)
@@ -127,8 +131,6 @@ pub mod workout_templates;
 use super::{shared, DatabaseProvider};
 use crate::database::system_settings::{SystemSetting, SETTING_AUTO_APPROVAL_ENABLED};
 use async_trait::async_trait;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as Base64Engine;
 use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
@@ -552,40 +554,6 @@ impl DatabaseProvider for PostgresDatabase {
 }
 
 impl PostgresDatabase {
-    /// Generate a new MCP token with secure random bytes
-    fn generate_mcp_token() -> String {
-        use rand::RngCore;
-        let mut rng = rand::rng();
-        let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-        format!("pmcp_{}", URL_SAFE_NO_PAD.encode(bytes))
-    }
-
-    /// Hash a token for storage
-    fn hash_mcp_token(token: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(token.as_bytes());
-        hex::encode(hasher.finalize())
-    }
-
-    /// Update token usage statistics
-    async fn update_user_mcp_token_usage(&self, token_id: &str) -> AppResult<()> {
-        sqlx::query(
-            r"
-            UPDATE user_mcp_tokens
-            SET last_used_at = $1, usage_count = usage_count + 1
-            WHERE id = $2
-            ",
-        )
-        .bind(chrono::Utc::now())
-        .bind(token_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to update user MCP token usage: {e}")))?;
-
-        Ok(())
-    }
-
     /// Convert database row to `UserOAuthToken` with decryption
     ///
     /// SECURITY: Decrypts OAuth tokens from database storage (AES-256-GCM with AAD)

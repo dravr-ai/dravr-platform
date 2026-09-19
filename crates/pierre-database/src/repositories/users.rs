@@ -14,7 +14,6 @@ use pierre_core::models::{
 };
 use pierre_core::models::{Dossier, UserPhysiologicalProfile};
 use pierre_core::pagination::{CursorPage, PaginationParams};
-use pierre_core::permissions::impersonation::ImpersonationSession;
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -291,29 +290,6 @@ pub trait PreApprovedEmailRepository: Send + Sync {
     async fn get(&self, email: &str) -> AppResult<Option<PreApprovedEmail>>;
     /// Every standing allow, oldest first.
     async fn list(&self) -> AppResult<Vec<PreApprovedEmail>>;
-}
-
-/// Impersonation session management repository
-#[async_trait]
-pub trait ImpersonationRepository: Send + Sync {
-    /// Create a new impersonation session for audit trail
-    async fn create_session(&self, session: &ImpersonationSession) -> AppResult<()>;
-    /// Get impersonation session by ID
-    async fn get_session(&self, session_id: &str) -> AppResult<Option<ImpersonationSession>>;
-    /// Get active impersonation session where user is impersonator or target
-    async fn get_active_session(&self, user_id: Uuid) -> AppResult<Option<ImpersonationSession>>;
-    /// End an impersonation session
-    async fn end_session(&self, session_id: &str) -> AppResult<()>;
-    /// End all active impersonation sessions for an impersonator
-    async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64>;
-    /// List impersonation sessions with optional filters
-    async fn list_sessions(
-        &self,
-        impersonator_id: Option<Uuid>,
-        target_user_id: Option<Uuid>,
-        active_only: bool,
-        limit: u32,
-    ) -> AppResult<Vec<ImpersonationSession>>;
 }
 
 /// Typed CRUD for [`UserPhysiologicalProfile`] backed by the

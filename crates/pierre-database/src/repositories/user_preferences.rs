@@ -12,29 +12,12 @@
 //!
 //! The two backends differ in one respect only: `users.id` is a `uuid` column
 //! on Postgres and `TEXT` on `SQLite`, so the id is bound natively on one and
-//! stringified on the other. That conversion is the macro's single argument.
+//! stringified on the other. That conversion is the macro's single argument:
+//! the `bind` of the backend's codec in [`super::uuid_columns`].
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
-
-use uuid::Uuid;
-
-/// Bind a user id the way `SQLite` stores it: as the hyphenated text of the
-/// uuid, matching the `TEXT` column the schema declares there.
-pub(crate) fn user_id_text(id: Uuid) -> String {
-    id.to_string()
-}
-
-/// Bind a user id the way Postgres stores it: natively, into the `uuid`
-/// column, with no textual round-trip.
-///
-/// Gated with the backend that calls it: without the `postgresql` feature the
-/// Postgres shell is not compiled, so neither is its half of the seam.
-#[cfg(feature = "postgresql")]
-pub(crate) const fn user_id_native(id: Uuid) -> Uuid {
-    id
-}
 
 /// Record the consent decision and the moment it was taken.
 /// `CURRENT_TIMESTAMP` is the spelling both engines accept.
@@ -65,8 +48,8 @@ pub(crate) const SET_THEME_SQL: &str = "UPDATE users SET theme = $1 WHERE id = $
 /// Emit every preference write for one backend.
 ///
 /// `$db` is the sqlx database type the pool is parameterised on; `$bind_id` is
-/// the function turning a [`Uuid`] into whatever that backend's `users.id`
-/// column accepts.
+/// the function turning a `Uuid` into whatever that backend's `users.id`
+/// column accepts — the `bind` of its codec in [`super::uuid_columns`].
 ///
 /// The bodies are written once here. Each backend module invokes the macro,
 /// and sqlx resolves the driver from the pool type at that expansion.

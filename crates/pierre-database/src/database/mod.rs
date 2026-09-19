@@ -159,10 +159,10 @@ pub use mobility::{
 };
 pub use oauth_notifications::OAuthNotification;
 pub use pierre_core::models::a2a::{A2AUsage, A2AUsageStats};
-pub use store_listings::{AgentWithListing, StoreListing, StoreListingsManager};
-pub use user_mcp_tokens::{
+pub use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };
+pub use store_listings::{AgentWithListing, StoreListing, StoreListingsManager};
 pub use user_oauth_tokens::OAuthTokenData;
 
 use crate::backends::{shared, DatabaseProvider};

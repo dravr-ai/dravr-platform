@@ -16,8 +16,9 @@ use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 
 use crate::repositories::user_preferences::{
-    impl_user_preferences, user_id_native, SET_ANALYTICS_CONSENT_SQL, SET_COACHING_PERSONA_SQL,
-    SET_LOCALE_SQL, SET_MANAGES_ROSTER_SQL, SET_THEME_SQL, SET_TIMEZONE_SQL,
+    impl_user_preferences, SET_ANALYTICS_CONSENT_SQL, SET_COACHING_PERSONA_SQL, SET_LOCALE_SQL,
+    SET_MANAGES_ROSTER_SQL, SET_THEME_SQL, SET_TIMEZONE_SQL,
 };
+use crate::repositories::uuid_columns::NativeUuid;
 
-impl_user_preferences!(Postgres, user_id_native);
+impl_user_preferences!(Postgres, NativeUuid::bind);

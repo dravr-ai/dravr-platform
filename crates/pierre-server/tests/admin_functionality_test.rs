@@ -270,6 +270,30 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
         Some("test_api_key_123".to_owned())
     );
     assert!(recorded_usage.success);
+    assert_eq!(recorded_usage.ip_address.as_deref(), Some(ip_address));
+    assert_eq!(recorded_usage.user_agent.as_deref(), Some("Test Agent"));
+    assert_eq!(recorded_usage.request_size_bytes, Some(1024));
+    assert_eq!(recorded_usage.response_time_ms, Some(150));
+
+    // A second usage row gets its own id: the audit trail is keyed, on both
+    // backends, by a database-assigned positive integer, never a NULL that
+    // reads back as zero.
+    repos
+        .admin
+        .record_token_usage(&AdminTokenUsage {
+            target_resource: Some("test_api_key_456".to_owned()),
+            ..usage.clone()
+        })
+        .await?;
+    let usage_history = repos
+        .admin
+        .get_token_usage_history(&generated_token.token_id, start_date, end_date)
+        .await?;
+    assert_eq!(usage_history.len(), 2);
+    let first_id = usage_history[0].id.expect("an audit row carries its id");
+    let second_id = usage_history[1].id.expect("an audit row carries its id");
+    assert!(first_id > 0 && second_id > 0, "ids are database-assigned");
+    assert_ne!(first_id, second_id, "each audit row has its own id");
 
     Ok(())
 }
@@ -331,6 +355,18 @@ async fn test_admin_provisioned_keys_tracking() -> Result<()> {
     assert_eq!(provisioned_key["api_key_id"], api_key.id);
     assert_eq!(provisioned_key["user_email"], user.email);
     assert_eq!(provisioned_key["requested_tier"], "starter");
+    assert_eq!(
+        provisioned_key["provisioned_by_service"],
+        "provisioning_service"
+    );
+    assert_eq!(provisioned_key["rate_limit_requests"], 100);
+    assert_eq!(provisioned_key["rate_limit_period"], "day");
+    assert_eq!(provisioned_key["key_status"], "active");
+    assert!(
+        provisioned_key["id"].as_i64().is_some_and(|id| id > 0),
+        "the ledger row carries a database-assigned id, got {}",
+        provisioned_key["id"]
+    );
 
     // Test without admin token filter (all keys)
     let all_keys = repos

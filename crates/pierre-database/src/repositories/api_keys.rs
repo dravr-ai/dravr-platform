@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the API keys and user MCP tokens domain
+// ABOUTME: Repository trait definitions for the API keys domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,9 +7,7 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::{
-    ApiKey, CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
-};
+use pierre_core::models::ApiKey;
 use uuid::Uuid;
 
 /// API key management repository
@@ -40,25 +38,4 @@ pub trait ApiKeyRepository: Send + Sync {
     async fn cleanup_expired(&self) -> AppResult<u64>;
     /// Get expired API keys
     async fn get_expired(&self) -> AppResult<Vec<ApiKey>>;
-}
-
-/// User MCP token management repository
-#[async_trait]
-pub trait UserMcpTokenRepository: Send + Sync {
-    /// Create a new user MCP token for AI client authentication
-    async fn create_token(
-        &self,
-        user_id: Uuid,
-        request: &CreateUserMcpTokenRequest,
-    ) -> AppResult<UserMcpTokenCreated>;
-    /// Validate a user MCP token and return the associated user ID
-    async fn validate_token(&self, token_value: &str) -> AppResult<Uuid>;
-    /// List all MCP tokens for a user
-    async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>>;
-    /// Revoke a user MCP token
-    async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()>;
-    /// Get a user MCP token by ID
-    async fn get_token(&self, token_id: &str, user_id: Uuid) -> AppResult<Option<UserMcpToken>>;
-    /// Cleanup expired user MCP tokens (mark as revoked)
-    async fn cleanup_expired_tokens(&self) -> AppResult<u64>;
 }

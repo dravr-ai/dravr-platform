@@ -18,7 +18,7 @@ pub mod admin;
 pub mod agent_artefacts;
 /// Repository traits for agents catalogue, coaching groups, store listings.
 pub mod agents;
-/// Repository traits for API keys and user-scoped `MCP` tokens.
+/// Repository trait for API keys.
 pub mod api_keys;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
@@ -38,6 +38,8 @@ pub mod guardian_actions;
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
 pub mod health;
+/// Repository trait, statements and shared body for super-admin impersonation sessions.
+pub mod impersonation;
 /// Repository trait for MCP Tasks extension handle persistence.
 pub mod mcp_tasks;
 /// Repository trait for post-turn memory extractions still owed (resumed by a sweep).
@@ -74,12 +76,22 @@ pub mod tool_selection;
 pub mod training_plans;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.
 pub mod usage;
+/// Repository trait, statements and shared body for user MCP tokens.
+pub mod user_mcp_tokens;
 /// Repository trait for durable per-user onboarding step completion state.
 pub mod user_onboarding;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
-/// Repository traits for user accounts, profiles, password resets, impersonation, physiological profile.
+/// Repository trait, statements and shared body for per-user rate-limit overrides.
+pub mod user_rate_limit_overrides;
+/// Repository trait, statements and shared body for per-user admin tier overrides.
+pub mod user_tier_overrides;
+/// Repository trait, statements and shared body for per-user admin tool overrides.
+pub mod user_tool_overrides;
+/// Repository traits for user accounts, profiles, password resets, physiological profile.
 pub mod users;
+/// The per-backend uuid column codec shared repository bodies take as an argument.
+pub(crate) mod uuid_columns;
 /// Repository traits for weather cache persistence.
 pub mod weather;
 /// Repository trait for the periodic-worker ledger: last tick and current lease per worker.
@@ -104,6 +116,7 @@ pub use fitness_config::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
+pub use impersonation::*;
 pub use mcp_tasks::*;
 pub use memory_extraction_jobs::*;
 pub use messaging::*;
@@ -121,7 +134,11 @@ pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
 pub use usage::*;
+pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
+pub use user_rate_limit_overrides::*;
+pub use user_tier_overrides::*;
+pub use user_tool_overrides::*;
 pub use users::*;
 pub use weather::*;
 pub use worker_runs::*;
