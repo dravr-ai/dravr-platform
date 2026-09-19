@@ -43,6 +43,8 @@ pub mod health;
 pub mod impersonation;
 /// Repository trait for MCP Tasks extension handle persistence.
 pub mod mcp_tasks;
+/// Shared body of the coaching harness memory repository.
+pub mod memory;
 /// Repository trait for post-turn memory extractions still owed (resumed by a sweep).
 pub mod memory_extraction_jobs;
 /// Repository traits for inbound/outbound messaging channel persistence.
