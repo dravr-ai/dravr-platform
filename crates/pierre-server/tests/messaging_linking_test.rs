@@ -21,7 +21,8 @@
 mod db_fixtures;
 use db_fixtures::{create_test_db, seed_tenant, seed_user};
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::User;
 use pierre_database::backends::{CreateChannelLinkParams, CreateLinkStateParams};
 use uuid::Uuid;
@@ -166,6 +167,126 @@ async fn test_consume_link_state_nonexistent() {
         err.to_string().contains("expired"),
         "Expected 'expired' error for missing code, got: {err}"
     );
+}
+
+#[tokio::test]
+async fn test_create_link_state_refuses_a_malformed_expiry() {
+    let db = create_test_db().await;
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let code = Uuid::new_v4().to_string();
+
+    // A value that is not a timestamp. Stored as text it sorts after every
+    // real RFC 3339 instant, so an expiry check by comparison would never
+    // fire and the code would stay live forever.
+    let params = CreateLinkStateParams {
+        id: &Uuid::new_v4().to_string(),
+        tenant_id,
+        user_id: Some(&user_id),
+        channel_type: "telegram",
+        code: &code,
+        method: "deep_link",
+        channel_user_id: None,
+        sender_name: None,
+        expires_at: "never",
+    };
+    let err = db
+        .repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput, "got: {err}");
+
+    let stored = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
+    assert!(
+        stored.is_none(),
+        "a refused link state leaves no row behind"
+    );
+}
+
+#[tokio::test]
+async fn test_link_state_reads_back_every_column() {
+    let db = create_test_db().await;
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let id = Uuid::new_v4().to_string();
+    let code = Uuid::new_v4().to_string();
+    let expires_at = Utc::now() + Duration::minutes(10);
+    let before = Utc::now();
+
+    let params = CreateLinkStateParams {
+        id: &id,
+        tenant_id,
+        user_id: Some(&user_id),
+        channel_type: "telegram",
+        code: &code,
+        method: "deep_link",
+        channel_user_id: Some("tg-user-42"),
+        sender_name: Some("Alice"),
+        expires_at: &expires_at.to_rfc3339(),
+    };
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
+
+    let assert_columns = |state: &serde_json::Value| {
+        assert_eq!(state["id"].as_str().unwrap(), id);
+        assert_eq!(state["tenant_id"].as_str().unwrap(), tenant_id.to_string());
+        assert_eq!(state["user_id"].as_str().unwrap(), user_id);
+        assert_eq!(state["channel_type"].as_str().unwrap(), "telegram");
+        assert_eq!(state["code"].as_str().unwrap(), code);
+        assert_eq!(state["method"].as_str().unwrap(), "deep_link");
+        assert_eq!(state["channel_user_id"].as_str().unwrap(), "tg-user-42");
+        assert_eq!(state["sender_name"].as_str().unwrap(), "Alice");
+        let read_expires_at = DateTime::parse_from_rfc3339(state["expires_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            read_expires_at.timestamp_micros(),
+            expires_at.timestamp_micros(),
+            "expires_at is the instant the caller set"
+        );
+        let created_at = DateTime::parse_from_rfc3339(state["created_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!(
+            created_at >= before - Duration::seconds(1) && created_at <= Utc::now(),
+            "created_at is stamped at creation, got {created_at}"
+        );
+    };
+
+    let previewed = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap()
+        .expect("a live code previews");
+    assert_columns(&previewed);
+
+    let consumed = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap();
+    assert_columns(&consumed);
+
+    let gone = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
+    assert!(gone.is_none(), "a consumed code no longer previews");
 }
 
 // ════════════════════════════════════════════════════════════════

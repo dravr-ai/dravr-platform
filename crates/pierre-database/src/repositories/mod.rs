@@ -46,6 +46,8 @@ pub mod mcp_tasks;
 pub mod memory_extraction_jobs;
 /// Repository traits for inbound/outbound messaging channel persistence.
 pub mod messaging;
+/// Shared statements, row decode and body for the link-state lifecycle both backends serve.
+pub mod messaging_link_states;
 /// Shared SQL and body for the reaction → chat-message lookup both backends serve.
 pub mod messaging_reactions;
 /// Repository traits for mobility (yoga and stretching) persistence.
@@ -54,8 +56,12 @@ pub mod mobility;
 pub mod notifications;
 /// Repository traits for `OAuth` tokens, `OAuth2` server state, `OAuth` client state, provider connections.
 pub mod oauth;
+/// Shared statements and body for the OAuth client states minted per authorization round trip.
+pub mod oauth_client_state;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
 pub mod playbooks;
+/// Shared statements and body for the pre-approved email allow-list.
+pub mod pre_approved_emails;
 /// `PrescribedWorkoutRepository`: the ledger of calendar entries Dravr wrote to a provider.
 pub mod prescribed_workouts;
 /// Repository traits for recipe persistence.
@@ -70,6 +76,8 @@ pub mod route_summaries;
 pub mod security;
 /// Repository traits for seed-only repository operations.
 pub mod seeder;
+/// Shared statements and body for first-party session refresh tokens.
+pub mod session_refresh_tokens;
 /// Repository trait + helper for the channel-agnostic URL shortener.
 pub mod short_links;
 /// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
@@ -78,6 +86,8 @@ pub mod subscriptions;
 pub mod tenants;
 /// Repository traits for tool selection telemetry persistence.
 pub mod tool_selection;
+/// Shared statements and body for the daily training-state history.
+pub mod training_history;
 /// Agent-authored training plans (outline + weekly microcycles).
 pub mod training_plans;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.

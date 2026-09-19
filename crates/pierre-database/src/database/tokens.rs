@@ -7,11 +7,10 @@
 // - Option<String> ownership for OAuth token scope fields
 
 use super::Database;
-use crate::repositories::{OAuth2ServerRepository, OAuthClientStateRepository};
+use crate::repositories::OAuth2ServerRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::OAuthClientState;
 use pierre_core::models::{AuthorizationCode, DecryptedToken, EncryptedToken, OAuthClientGrant};
 use pierre_core::models::{
     DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
@@ -465,28 +464,5 @@ fn row_to_device_authorization(row: &SqliteRow) -> DeviceAuthorization {
         approved_by: row.get("approved_by"),
         created_at: row.get("created_at"),
         expires_at: row.get("expires_at"),
-    }
-}
-
-#[async_trait]
-impl OAuthClientStateRepository for Database {
-    async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
-        Self::store_oauth_client_state_impl(self, state).await
-    }
-
-    async fn consume_oauth_client_state(
-        &self,
-        state_value: &str,
-        provider: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuthClientState>> {
-        Self::consume_oauth_client_state_impl(self, state_value, provider, now).await
-    }
-
-    async fn reap_expired_oauth_client_states(
-        &self,
-        now: DateTime<Utc>,
-    ) -> AppResult<Vec<(String, u64)>> {
-        Self::reap_expired_oauth_client_states_impl(self, now).await
     }
 }
