@@ -189,6 +189,44 @@ async fn a_wrong_verifier_is_rejected_but_leaves_the_token_usable() {
     assert_eq!(good, user_id);
 }
 
+/// Past the attempt cap the token self-invalidates: the fifth wrong guess is
+/// the last one counted, and the real verifier is refused afterwards. This is
+/// the brute-force lockout, and it reads `attempt_count` back on both drivers
+/// (`INTEGER` decodes as `i32` on Postgres and `i64` on `SQLite`).
+#[tokio::test]
+async fn too_many_wrong_verifiers_lock_the_token_out() {
+    let setup = VerificationTestSetup::new().await.expect("setup failed");
+    let user_id = setup.create_user().await.expect("user creation failed");
+    let repo = &setup.resources.common.repos.email_verification;
+
+    let generated = generate_link_token();
+    repo.store_token(user_id, &generated.selector, &generated.verifier_hash, 60)
+        .await
+        .expect("store_token failed");
+
+    for guess in 0..5 {
+        let wrong = repo
+            .consume_token(
+                &generated.selector,
+                "0000000000000000000000000000000000000000000000000000000000000000",
+            )
+            .await;
+        assert!(wrong.is_err(), "wrong guess {guess} must be rejected");
+    }
+
+    let locked = repo
+        .consume_token(&generated.selector, &generated.verifier_hash)
+        .await;
+    assert!(
+        locked.is_err(),
+        "after five wrong guesses the real verifier must be refused: the token is spent"
+    );
+    assert!(
+        !repo.is_verified(user_id).await.expect("is_verified failed"),
+        "a locked-out token must not have verified the address"
+    );
+}
+
 /// An unknown selector is rejected with the same error shape as every other
 /// failure, so the endpoint reveals nothing about which condition hit.
 #[tokio::test]

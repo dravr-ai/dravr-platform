@@ -33,6 +33,8 @@ pub mod coaching_groups;
 pub mod commitments;
 /// Repository traits for data source registration persistence.
 pub mod data_source;
+/// Shared statements and body for email-verification tokens.
+pub mod email_verification_tokens;
 /// Repository traits for feature-flag tenant defaults + per-user overrides.
 pub mod feature_flags;
 /// Repository traits for fitness configuration persistence.
@@ -49,6 +51,8 @@ pub mod health_persistence;
 pub mod impersonation;
 /// How each backend stores a list-of-strings column.
 pub(crate) mod list_columns;
+/// Shared statements and body for tenant and user LLM provider credentials.
+pub mod llm_credentials;
 /// Repository trait for MCP Tasks extension handle persistence.
 pub mod mcp_tasks;
 /// Shared body of the coaching harness memory repository.
@@ -122,6 +126,8 @@ pub mod user_onboarding;
 pub mod user_physiological_profiles;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
+/// Shared statements and body for the profile document, goals and user configuration.
+pub mod user_profiles;
 /// Repository trait, statements and shared body for per-user rate-limit overrides.
 pub mod user_rate_limit_overrides;
 /// Repository trait, statements and shared body for per-user admin tier overrides.

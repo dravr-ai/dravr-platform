@@ -369,3 +369,58 @@ async fn test_oauth_notification_struct_creation() -> Result<()> {
 
     Ok(())
 }
+
+/// `mark_all_read` reports how many rows it flipped, and `get_all` returns
+/// read and unread rows alike, newest first, capped by the caller's limit.
+#[tokio::test]
+async fn mark_all_read_counts_the_rows_and_get_all_keeps_them() -> Result<()> {
+    let database = common::create_test_database().await?;
+    let (user_id, _user) = common::create_test_user(&database).await?;
+    let (other_user, _user) =
+        common::create_test_user_with_email(&database, "other@example.com").await?;
+    let repo = &database.repositories().notifications;
+
+    for provider in ["strava", "garmin", "whoop"] {
+        repo.store(user_id, provider, provider != "whoop", "connected", None)
+            .await?;
+    }
+    repo.store(other_user, "strava", true, "someone else's", None)
+        .await?;
+
+    assert_eq!(
+        repo.mark_all_read(user_id).await?,
+        3,
+        "every unread row of the user is flipped, and only theirs"
+    );
+    assert_eq!(
+        repo.mark_all_read(user_id).await?,
+        0,
+        "a second pass finds nothing left to flip"
+    );
+    assert!(repo.get_unread(user_id).await?.is_empty());
+    assert_eq!(
+        repo.get_unread(other_user).await?.len(),
+        1,
+        "another user's rows are untouched"
+    );
+
+    let all = repo.get_all(user_id, None).await?;
+    assert_eq!(all.len(), 3, "read rows stay listed");
+    assert!(all.iter().all(|n| n.read_at.is_some()));
+    assert_eq!(
+        all.iter().map(|n| n.user_id.as_str()).collect::<Vec<_>>(),
+        vec![user_id.to_string(); 3],
+        "user_id reads back as the hyphenated text on both backends"
+    );
+    let failed: Vec<&str> = all
+        .iter()
+        .filter(|n| !n.success)
+        .map(|n| n.provider.as_str())
+        .collect();
+    assert_eq!(failed, vec!["whoop"], "the success flag round-trips");
+
+    let capped = repo.get_all(user_id, Some(2)).await?;
+    assert_eq!(capped.len(), 2, "the limit caps the listing");
+
+    Ok(())
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Pins both directions of check-backend-pairs.sh — it must fail a newly duplicated pair
-# ABOUTME: and must not fail a converged one, including the "FOR UPDATE SKIP LOCKED" literal case
+# ABOUTME: and must not fail a converged one, whether the pair shares a basename or is paired by trait
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -125,11 +125,78 @@ sqlx::query("SELECT 1 FROM sqlite_master WHERE name = ?1");
 EOF
 }
 
+
+# A pair mirrored under different names per backend (users.rs / user.rs) is
+# paired by the trait each side implements. Converged, an edit to one side passes.
+scaffold_named_converged() {
+    local r="$1"
+    cat > "$r/crates/pierre-database/src/repositories/users.rs" <<'EOF'
+pub(crate) const PICK_USER_SQL: &str = "SELECT id FROM users WHERE id = $1";
+macro_rules! impl_user_repository {
+    ($ty:ty) => {
+        impl UserRepository for $ty {}
+    };
+}
+EOF
+    echo 'impl_user_repository!(Database); // PICK_USER_SQL' \
+        > "$r/crates/pierre-database/src/database/users.rs"
+    echo 'impl_user_repository!(PostgresDatabase); // PICK_USER_SQL' \
+        > "$r/crates/pierre-database/src/backends/postgres/user.rs"
+}
+case_differently_named_converged_pair_passes() {
+    local r="$1"
+    scaffold_named_converged "$r"
+    git -C "$r" add -A && git -C "$r" commit -qm named-converged
+    echo '// an evergreen note' >> "$r/crates/pierre-database/src/backends/postgres/user.rs"
+}
+
+# The same pair added with its SQL written out on both sides must fail, even
+# though no basename matches across the two directories.
+case_differently_named_duplicate_pair_fails() {
+    local r="$1"
+    cat > "$r/crates/pierre-database/src/database/users.rs" <<'EOF'
+impl UserRepository for Database {
+    sqlx::query("SELECT id FROM users WHERE id = ?1");
+}
+EOF
+    cat > "$r/crates/pierre-database/src/backends/postgres/user.rs" <<'EOF'
+impl UserRepository for PostgresDatabase {
+    sqlx::query("SELECT id FROM users WHERE id = $1");
+}
+EOF
+    echo 'pub trait UserRepository {}' > "$r/crates/pierre-database/src/repositories/users.rs"
+}
+
+# Half converted: the Postgres side is a shell whose macro the trait module
+# resolves to UserRepository, while SQLite still carries a direct impl with its
+# own SQL. The two spellings must still pair, and the pair must fail.
+case_differently_named_half_converted_pair_fails() {
+    local r="$1"
+    cat > "$r/crates/pierre-database/src/repositories/users.rs" <<'EOF'
+pub(crate) const PICK_USER_SQL: &str = "SELECT id FROM users WHERE id = $1";
+macro_rules! impl_user_repository {
+    ($ty:ty) => {
+        impl UserRepository for $ty {}
+    };
+}
+EOF
+    cat > "$r/crates/pierre-database/src/database/users.rs" <<'EOF'
+impl UserRepository for Database {
+    sqlx::query("SELECT id FROM users WHERE id = ?1");
+}
+EOF
+    echo 'impl_user_repository!(PostgresDatabase); // PICK_USER_SQL' \
+        > "$r/crates/pierre-database/src/backends/postgres/user.rs"
+}
+
 run_case new_duplicate_pair_fails 1
 run_case editing_converged_pair_passes 0
 run_case lock_clause_literal_is_not_sql 0
 run_case unmirrored_file_is_ignored 0
 run_case converged_pair_regaining_sql_fails 1
+run_case differently_named_converged_pair_passes 0
+run_case differently_named_duplicate_pair_fails 1
+run_case differently_named_half_converted_pair_fails 1
 
 # A base the diff cannot resolve — the all-zeros sha CI passes on a branch's
 # first push, or a ref a fresh worktree lacks — must not read as "nothing
@@ -171,6 +238,32 @@ if [[ "$got" -eq 1 ]]; then
     echo "✅ missing_backend_dir_fails_closed (exit 1)"; pass=$((pass + 1))
 else
     echo "❌ missing_backend_dir_fails_closed: expected exit 1, got $got"; fail=$((fail + 1))
+fi
+rm -rf "$root"
+
+# The standing-stock report counts a differently-named pair that is still
+# written twice, under both of its names, so it cannot hide behind the
+# basename scan. The pair is committed in the base so the diff never touches it.
+root="$(mktemp -d)"; scaffold "$root"
+cat > "$root/crates/pierre-database/src/database/tenants.rs" <<'EOF'
+impl TenantRepository for Database {
+    sqlx::query("SELECT id FROM tenants WHERE id = ?1");
+}
+EOF
+cat > "$root/crates/pierre-database/src/backends/postgres/tenant.rs" <<'EOF'
+impl TenantRepository for PostgresDatabase {
+    sqlx::query("SELECT id FROM tenants WHERE id = $1");
+}
+EOF
+echo 'pub trait TenantRepository {}' > "$root/crates/pierre-database/src/repositories/tenants.rs"
+git -C "$root" add -A && git -C "$root" commit -qm named-standing
+echo '// an evergreen note' >> "$root/crates/pierre-database/src/database/converged.rs"
+git -C "$root" add -A && git -C "$root" commit -qm head
+got=0; out="$( cd "$root" && "$CHECK" HEAD~1 2>&1 )" || got=$?
+if [[ "$got" -eq 0 && "$out" == *"1 of 2 pair(s) still written twice"* && "$out" == *"tenants.rs ↔ tenant.rs"* ]]; then
+    echo "✅ differently_named_pair_is_standing_stock (exit 0)"; pass=$((pass + 1))
+else
+    echo "❌ differently_named_pair_is_standing_stock: expected exit 0 naming 'tenants.rs ↔ tenant.rs' among 2 pairs, got $got:"; printf '%s\n' "$out"; fail=$((fail + 1))
 fi
 rm -rf "$root"
 

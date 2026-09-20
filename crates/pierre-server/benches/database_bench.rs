@@ -21,6 +21,7 @@ use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::{PaginationDirection, PaginationParams};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::Database;
+use pierre_database::repositories::UserRepository;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::runtime::Runtime;
 use uuid::Uuid;
@@ -80,7 +81,7 @@ fn bench_user_create(c: &mut Criterion) {
     group.bench_function("single_user", |b| {
         b.iter(|| {
             let user = generate_test_user();
-            rt.block_on(async { db.create_user(black_box(&user)).await })
+            rt.block_on(async { db.create(black_box(&user)).await })
         });
     });
 
@@ -91,7 +92,7 @@ fn bench_user_create(c: &mut Criterion) {
             rt.block_on(async {
                 for _ in 0..10 {
                     let user = generate_test_user();
-                    let _ = db.create_user(&user).await;
+                    let _ = db.create(&user).await;
                 }
             });
         });
@@ -116,7 +117,7 @@ fn bench_user_lookup(c: &mut Criterion) {
             let user = generate_test_user();
             user_ids.push(user.id);
             user_emails.push(user.email.clone());
-            let _ = db.create_user(&user).await;
+            let _ = db.create(&user).await;
         }
     });
 
@@ -126,7 +127,7 @@ fn bench_user_lookup(c: &mut Criterion) {
         b.iter(|| {
             let id = user_ids[index % user_ids.len()];
             index += 1;
-            rt.block_on(async { db.get_user_global(black_box(id)).await })
+            rt.block_on(async { db.get_global(black_box(id)).await })
         });
     });
 
@@ -136,17 +137,14 @@ fn bench_user_lookup(c: &mut Criterion) {
         b.iter(|| {
             let email = &user_emails[index % user_emails.len()];
             index += 1;
-            rt.block_on(async { db.get_user_by_email(black_box(email)).await })
+            rt.block_on(async { db.get_by_email(black_box(email)).await })
         });
     });
 
     // Lookup non-existent (miss case)
     group.bench_function("by_email_miss", |b| {
         b.iter(|| {
-            rt.block_on(async {
-                db.get_user_by_email(black_box("nonexistent@example.com"))
-                    .await
-            })
+            rt.block_on(async { db.get_by_email(black_box("nonexistent@example.com")).await })
         });
     });
 
@@ -166,7 +164,7 @@ fn bench_pagination(c: &mut Criterion) {
     rt.block_on(async {
         for _ in 0..500 {
             let user = generate_test_user();
-            let _ = db.create_user(&user).await;
+            let _ = db.create(&user).await;
         }
     });
 
@@ -184,7 +182,7 @@ fn bench_pagination(c: &mut Criterion) {
                 };
                 b.iter(|| {
                     rt.block_on(async {
-                        db.get_users_by_status_cursor(black_box("active"), black_box(&params))
+                        db.get_by_status_cursor(black_box("active"), black_box(&params))
                             .await
                     })
                 });
@@ -203,10 +201,7 @@ fn bench_pagination(c: &mut Criterion) {
                     limit: 50,
                     direction: PaginationDirection::Forward,
                 };
-                let page = db
-                    .get_users_by_status_cursor("active", &params)
-                    .await
-                    .unwrap();
+                let page = db.get_by_status_cursor("active", &params).await.unwrap();
                 cursor = page.next_cursor;
             }
             cursor
@@ -219,7 +214,7 @@ fn bench_pagination(c: &mut Criterion) {
         };
         b.iter(|| {
             rt.block_on(async {
-                db.get_users_by_status_cursor(black_box("active"), black_box(&params))
+                db.get_by_status_cursor(black_box("active"), black_box(&params))
                     .await
             })
         });
@@ -242,7 +237,7 @@ fn bench_user_update(c: &mut Criterion) {
         for _ in 0..100 {
             let user = generate_test_user();
             user_ids.push(user.id);
-            let _ = db.create_user(&user).await;
+            let _ = db.create(&user).await;
         }
     });
 
@@ -268,7 +263,7 @@ fn bench_user_update(c: &mut Criterion) {
                 UserStatus::Suspended
             };
             rt.block_on(async {
-                db.update_user_status(black_box(id), black_box(status), black_box(None))
+                db.update_status(black_box(id), black_box(status), black_box(None))
                     .await
             })
         });
@@ -293,12 +288,12 @@ fn bench_aggregation(c: &mut Criterion) {
         rt.block_on(async {
             for _ in 0..user_count {
                 let user = generate_test_user();
-                let _ = db.create_user(&user).await;
+                let _ = db.create(&user).await;
             }
         });
 
         group.bench_with_input(BenchmarkId::new("user_count", user_count), &db, |b, db| {
-            b.iter(|| rt.block_on(async { db.get_user_count().await }));
+            b.iter(|| rt.block_on(async { db.count().await }));
         });
     }
 
@@ -320,7 +315,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
         for _ in 0..100 {
             let user = generate_test_user();
             user_ids.push(user.id);
-            let _ = db.create_user(&user).await;
+            let _ = db.create(&user).await;
         }
     });
 
@@ -333,7 +328,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                     .map(|i| {
                         let db = db.clone();
                         let id = user_ids[i % user_ids.len()];
-                        tokio::spawn(async move { db.get_user_global(id).await })
+                        tokio::spawn(async move { db.get_global(id).await })
                     })
                     .collect();
 
@@ -356,7 +351,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                 for i in 0..10 {
                     let db = db.clone();
                     let id = user_ids[i % user_ids.len()];
-                    read_handles.push(tokio::spawn(async move { db.get_user_global(id).await }));
+                    read_handles.push(tokio::spawn(async move { db.get_global(id).await }));
                 }
 
                 // 10 writes (update last active)

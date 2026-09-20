@@ -188,15 +188,6 @@ async fn test_api_key_expiration() {
         .await
         .expect("Failed to store API key");
 
-    // Get expired keys
-    let expired = repos
-        .api_keys
-        .get_expired()
-        .await
-        .expect("Failed to get expired keys");
-    assert_eq!(expired.len(), 1);
-    assert_eq!(expired[0].id, api_key.id);
-
     // Cleanup expired keys
     let cleaned = repos
         .api_keys

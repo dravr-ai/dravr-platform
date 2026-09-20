@@ -214,10 +214,6 @@ pub use conversation::{
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 
-// Security audit event types
-mod audit;
-pub use audit::{AuditEvent, AuditEventType, AuditSeverity};
-
 // API key types for authentication and rate limiting
 mod api_key;
 pub use api_key::{

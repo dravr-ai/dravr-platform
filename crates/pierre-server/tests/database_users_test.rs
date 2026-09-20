@@ -10,6 +10,7 @@
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserStatus, UserTier};
+use pierre_core::pagination::{PaginationDirection, PaginationParams};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
@@ -1018,4 +1019,116 @@ async fn test_user_tier_operations() {
             .unwrap();
         assert_eq!(user.tier, expected_tier);
     }
+}
+
+/// Every listing hands back the whole account. The Postgres admin listing,
+/// the untenanted status listing and both backends' cursor page used to
+/// select a narrower column set and fill the persona, roster flag, timezone
+/// and theme with their defaults, so an operator screen showed every admin
+/// as a casual coach in no timezone.
+#[tokio::test]
+async fn listings_return_the_columns_the_row_holds() {
+    let db = create_test_database().await;
+    let repos = db.repositories();
+    let mut user = create_test_admin_user(
+        &format!("listing_{}@example.com", Uuid::new_v4()),
+        Some("Listed".into()),
+    );
+    user.role = UserRole::Admin;
+    user.coaching_persona = CoachingPersona::PowerAthlete;
+    user.manages_roster = true;
+    user.timezone = Some("America/Montreal".to_owned());
+    user.theme = Some("dark".to_owned());
+    repos.users.create(&user).await.unwrap();
+
+    let check = |listed: &User, listing: &str| {
+        assert_eq!(
+            listed.coaching_persona,
+            CoachingPersona::PowerAthlete,
+            "{listing}"
+        );
+        assert!(listed.manages_roster, "{listing}");
+        assert_eq!(
+            listed.timezone.as_deref(),
+            Some("America/Montreal"),
+            "{listing}"
+        );
+        assert_eq!(listed.theme.as_deref(), Some("dark"), "{listing}");
+        assert_eq!(listed.role, UserRole::Admin, "{listing}");
+    };
+
+    let admins = repos.users.list_admins().await.unwrap();
+    check(
+        admins
+            .iter()
+            .find(|u| u.id == user.id)
+            .expect("listed as admin"),
+        "list_admins",
+    );
+
+    let active = repos.users.get_by_status("active", None).await.unwrap();
+    check(
+        active
+            .iter()
+            .find(|u| u.id == user.id)
+            .expect("listed as active"),
+        "get_by_status",
+    );
+
+    let page = repos
+        .users
+        .get_by_status_cursor(
+            "active",
+            &PaginationParams {
+                cursor: None,
+                limit: 500,
+                direction: PaginationDirection::Forward,
+            },
+        )
+        .await
+        .unwrap();
+    check(
+        page.items
+            .iter()
+            .find(|u| u.id == user.id)
+            .expect("listed on the first page"),
+        "get_by_status_cursor",
+    );
+}
+
+/// An account whose row says `is_admin` but whose role column still reads
+/// `user` (a seeder that omitted the column) is an admin on both backends.
+/// Postgres used to read the column as it was and hand back a plain user.
+#[tokio::test]
+async fn an_admin_flag_upgrades_a_plain_user_role() {
+    let db = create_test_database().await;
+    let repos = db.repositories();
+    let mut user = create_test_admin_user(&format!("flagged_{}@example.com", Uuid::new_v4()), None);
+    user.role = UserRole::User;
+    repos.users.create(&user).await.unwrap();
+
+    let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
+    assert!(stored.is_admin);
+    assert_eq!(stored.role, UserRole::Admin);
+}
+
+/// A status the model does not know is refused rather than answered with an
+/// empty listing, on both backends; `SQLite` used to return nothing.
+#[tokio::test]
+async fn an_unknown_status_is_refused() {
+    let db = create_test_database().await;
+    let repos = db.repositories();
+    assert!(repos.users.get_by_status("archived", None).await.is_err());
+    assert!(repos
+        .users
+        .get_by_status_cursor(
+            "archived",
+            &PaginationParams {
+                cursor: None,
+                limit: 10,
+                direction: PaginationDirection::Forward,
+            },
+        )
+        .await
+        .is_err());
 }

@@ -18,7 +18,7 @@ use embacle::pricing::{
     calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, TokenCounts,
 };
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
-use pierre_core::models::{ConversationTurnId, User};
+use pierre_core::models::{ConversationTurnId, Tenant, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::test_utils::create_test_db;
@@ -480,6 +480,74 @@ async fn test_admin_pricing_loader_round_trip() {
         (cost - 0.000_999).abs() < 1e-9,
         "expected override to apply; got cost={cost}"
     );
+}
+
+/// A tenant-scoped override lists with its tenant on both backends. The
+/// Postgres read used to decode the TEXT `tenant_id` column as a uuid, which
+/// failed and was swallowed into `None`, so every tenant-scoped pricing
+/// override loaded as a global one there.
+#[tokio::test]
+async fn tenant_scoped_overrides_list_with_their_tenant() {
+    let db = create_test_db().await.unwrap();
+
+    let admin = User::new(
+        format!("admin-{}@test.local", uuid::Uuid::new_v4()),
+        "x".to_owned(),
+        None,
+    );
+    let admin_id = admin.id.to_string();
+    db.repositories().users.create(&admin).await.unwrap();
+    let tenant = Tenant::new(
+        "Pricing Tenant".to_owned(),
+        format!("pricing-{}", uuid::Uuid::new_v4()),
+        None,
+        "starter".to_owned(),
+        admin.id,
+    );
+    db.repositories().tenants.create(&tenant).await.unwrap();
+    let tenant_id = tenant.id.to_string();
+
+    let repo: Box<dyn AdminConfigRepository> = match &db {
+        Database::SQLite(sqlite) => Box::new(AdminConfigManager::new(sqlite.pool().clone())),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(pg) => Box::new(PostgresAdminConfigManager::new(pg.pool().clone())),
+    };
+    let payload = serde_json::json!({"input_per_million": 0.5, "output_per_million": 5.0});
+    let category = format!("cat_pricing_{}", uuid::Uuid::new_v4().simple());
+    for scope in [ConfigScope::Global, ConfigScope::Tenant(&tenant_id)] {
+        repo.set_override(SetOverrideParams {
+            category: &category,
+            key: "gemini.gemini-2.0-flash",
+            value: &payload,
+            data_type: ConfigDataType::String,
+            admin_user_id: &admin_id,
+            scope,
+            reason: Some("tenant-scoped listing"),
+        })
+        .await
+        .unwrap();
+    }
+
+    let mut rows = db
+        .repositories()
+        .llm_credentials
+        .list_admin_config_overrides_by_category(&category)
+        .await
+        .unwrap();
+    rows.sort_by(|a, b| a.tenant_id.cmp(&b.tenant_id));
+    assert_eq!(rows.len(), 2, "one global row and one tenant row");
+    assert_eq!(
+        rows[0].tenant_id, None,
+        "the global row lists without a tenant"
+    );
+    assert_eq!(
+        rows[1].tenant_id.as_deref(),
+        Some(tenant_id.as_str()),
+        "the tenant row lists with its tenant, on every backend"
+    );
+    assert!(rows
+        .iter()
+        .all(|r| r.config_key == "gemini.gemini-2.0-flash"));
 }
 
 #[tokio::test]

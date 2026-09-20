@@ -45,13 +45,14 @@ pub mod encryption;
 pub mod feature_flags;
 /// Fitness configuration — tenant- and user-scoped training settings
 pub mod fitness_config;
-mod goal_progress;
 /// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.
 pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Super-admin impersonation session audit records.
 pub mod impersonation;
+/// LLM credential repository implementation
+pub mod llm_credentials;
 /// MCP Tasks extension handle repository implementation
 pub mod mcp_tasks;
 /// Coaching harness memory (compaction, facts, notes, followups, sessions)
@@ -69,6 +70,8 @@ pub mod mobility;
 pub mod oauth;
 /// OAuth client-state repository implementation (CSRF `state` + PKCE verifier)
 mod oauth_client_state;
+/// OAuth completion notification repository implementation
+pub mod oauth_notifications;
 /// Postgres `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
 /// Pre-approved email allow-list consulted at registration (Postgres)
@@ -95,8 +98,10 @@ pub mod short_links;
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)
 pub mod subscriptions;
-/// Tenant, tool selection, LLM credential, and fitness config repositories
+/// Tenant repository implementation
 pub mod tenant;
+/// Tool catalog and per-tenant tool override repository implementation
+pub mod tool_selection;
 /// Endurance daily `training_history` rollup repository (Postgres)
 pub mod training_history;
 /// `PostgreSQL` training-plan persistence.
@@ -132,19 +137,16 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
-use pierre_core::models::TenantToolOverride;
-use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory, User, UserOAuthToken};
+use pierre_core::models::UserOAuthToken;
 use sha2::{Digest, Sha256};
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgPoolOptions, PgRow};
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 /// The `PostgreSQL` migration set compiled into this binary.
 ///
@@ -269,55 +271,6 @@ impl PostgresDatabase {
                 "No DEK available for ciphertext version {version} (active version is {})",
                 self.active_dek_version
             )))
-        }
-    }
-
-    /// Helper function to parse User from database row
-    fn parse_user_from_row(row: &PgRow) -> AppResult<User> {
-        shared::mappers::parse_user_from_row(row)
-    }
-
-    /// Map a `PostgreSQL` database row to `ToolCatalogEntry`
-    fn map_pg_tool_catalog_row(row: &PgRow) -> AppResult<ToolCatalogEntry> {
-        let id: String = row.get("id");
-        let category_str: String = row.get("category");
-        let min_plan_str: String = row.get("min_plan");
-        let created_at: DateTime<Utc> = row.get("created_at");
-        let updated_at: DateTime<Utc> = row.get("updated_at");
-
-        Ok(ToolCatalogEntry {
-            id,
-            tool_name: row.get("tool_name"),
-            display_name: row.get("display_name"),
-            description: row.get("description"),
-            category: ToolCategory::parse_str(&category_str)
-                .ok_or_else(|| AppError::internal(format!("Invalid category: {category_str}")))?,
-            is_enabled_by_default: row.get("is_enabled_by_default"),
-            requires_provider: row.get("requires_provider"),
-            min_plan: TenantPlan::parse_str(&min_plan_str)
-                .ok_or_else(|| AppError::internal(format!("Invalid min_plan: {min_plan_str}")))?,
-            created_at,
-            updated_at,
-        })
-    }
-
-    /// Map a `PostgreSQL` database row to `TenantToolOverride`
-    fn map_pg_tenant_tool_override_row(row: &PgRow) -> TenantToolOverride {
-        let id: Uuid = row.get("id");
-        let tenant_id: TenantId = row.get("tenant_id");
-        let enabled_by_user_id: Option<Uuid> = row.get("enabled_by_user_id");
-        let created_at: DateTime<Utc> = row.get("created_at");
-        let updated_at: DateTime<Utc> = row.get("updated_at");
-
-        TenantToolOverride {
-            id,
-            tenant_id,
-            tool_name: row.get("tool_name"),
-            is_enabled: row.get("is_enabled"),
-            enabled_by_user_id,
-            reason: row.get("reason"),
-            created_at,
-            updated_at,
         }
     }
 }

@@ -23,7 +23,11 @@
 # repositories/guardian_actions.rs are the worked examples.
 #
 # This check is diff-driven and compile-free, in the shape of Tiers 1c/1d/1e-move:
-#   1. Find every mirrored pair the diff adds or edits on either side.
+#   1. Find every mirrored pair the diff adds or edits on either side. A pair
+#      is two files with the same basename, one per backend, or two files
+#      implementing the same repository trait under different names (the
+#      SQLite users.rs against the Postgres user.rs); a Postgres file that
+#      implements three traits is in three pairs.
 #   2. A pair is converged when its trait module declares shared SQL (a
 #      `*_SQL` const or a `sql!`-style literal macro) AND both impl files
 #      reference that module's shared items rather than holding SQL of their
@@ -69,52 +73,117 @@ for d in "$SQLITE_DIR" "$PG_DIR" "$TRAIT_DIR"; do
         exit 1
     fi
 done
+# A pair is spelled "<sqlite basename>|<postgres basename>" throughout, so a
+# mirrored file and a differently-named one go through the same checks.
+pair_label() {
+    local sqlite_name="${1%%|*}" pg_name="${1##*|}"
+    if [[ "$sqlite_name" == "$pg_name" ]]; then
+        echo "$sqlite_name"
+    else
+        echo "$sqlite_name ↔ $pg_name"
+    fi
+}
 
 # Every mirrored basename that exists on both sides today, spelled with basename
 # because BSD find has no -printf. mod.rs is the module
 # wiring, not a repository implementation.
-mapfile -t all_pairs < <(
+mapfile -t basename_pairs < <(
     comm -12 \
         <(find "$SQLITE_DIR" -maxdepth 1 -name '*.rs' -exec basename {} \; | sort) \
         <(find "$PG_DIR" -maxdepth 1 -name '*.rs' -exec basename {} \; | sort) \
-    | grep -v '^mod\.rs$' || true
+    | grep -v '^mod\.rs$' | sed -E 's/^(.*)$/\1|\1/' || true
 )
 
-if [[ ${#all_pairs[@]} -eq 0 ]]; then
+if [[ ${#basename_pairs[@]} -eq 0 ]]; then
     echo "❌ backend-pairs: no mirrored files found under '$SQLITE_DIR' and '$PG_DIR'."
     echo "FAIL: scan verified nothing — the two backends cannot both have vanished."
     exit 1
 fi
 
-# The trait module that holds a pair's shared body. Usually repositories/<name>.rs;
-# a few pairs implement a trait declared in a differently-named module, in which
-# case the impl files name it in their `use crate::repositories::<module>::` import.
+# The trait an impl file carries, whichever way it spells it: a direct
+# `impl XRepository for Database` / `for PostgresDatabase`, or the shared macro
+# that emits that impl (`impl_x_repository!(Database)`). A macro is resolved
+# to the trait its module emits (`impl XRepository for $ty` beside the
+# `macro_rules!`), so a shell on one side still pairs with a direct impl on the
+# other — the half-converted shape is exactly the one to catch. A macro whose
+# module names no trait keys on the macro name itself, which both shells share.
+# Six repositories are mirrored under different names per backend
+# (users.rs/user.rs, api_keys.rs/api_key.rs, …); this is how the gate sees them.
+trait_keys_of() {
+    local file="$1" stripped macro module
+    stripped="$(sed -E 's|//.*||' "$file")"
+    grep -oE 'impl [A-Za-z0-9]+Repository for (Database|PostgresDatabase)\b' <<< "$stripped" \
+        | awk '{print $2}' || true
+    while read -r macro; do
+        [[ -n "$macro" ]] || continue
+        module="$(grep -lE "^macro_rules! ${macro}( |\{|$)" "$TRAIT_DIR"/*.rs 2>/dev/null | head -1 || true)"
+        if [[ -n "$module" ]] && grep -qE "impl [A-Za-z0-9]+Repository for \\\$[a-z_]+" "$module"; then
+            grep -oE "impl [A-Za-z0-9]+Repository for \\\$[a-z_]+" "$module" | awk '{print $2}'
+        else
+            echo "macro:$macro"
+        fi
+    done < <(grep -oE '\bimpl_[a-z0-9_]+!\(' <<< "$stripped" | sed -E 's/!\($//' | sort -u)
+}
+
+# "<key>\t<basename>" for every impl file on one side.
+keyed_files() {
+    local dir="$1" f name key
+    for f in "$dir"/*.rs; do
+        name="$(basename "$f")"
+        [[ "$name" != "mod.rs" ]] || continue
+        while read -r key; do
+            [[ -n "$key" ]] || continue
+            printf '%s\t%s\n' "$key" "$name"
+        done < <(trait_keys_of "$f")
+    done | sort -u
+}
+
+# Trait-keyed pairs whose two files are NOT the same basename; a same-named
+# pair is already in basename_pairs. One Postgres file that implements three
+# traits pairs with three SQLite files, and each of those is its own pair:
+# editing that one file puts all three in scope, because the file holds all
+# three copies.
+mapfile -t trait_pairs < <(
+    join -t "$(printf '\t')" -j 1 \
+        <(keyed_files "$SQLITE_DIR") \
+        <(keyed_files "$PG_DIR") \
+    | awk -F '\t' '$2 != $3 { print $2 "|" $3 }' | sort -u || true
+)
+
+all_pairs=("${basename_pairs[@]}" "${trait_pairs[@]}")
+
+# The trait module that holds a pair's shared body. Usually repositories/<name>.rs
+# for one of the pair's two names; otherwise the impl files name it in their
+# `use crate::repositories::<module>::` import.
 trait_module_for() {
-    local name="$1"          # e.g. short_links.rs
-    local stem="${name%.rs}"
-    if [[ -f "$TRAIT_DIR/$stem.rs" ]]; then
-        echo "$TRAIT_DIR/$stem.rs"
-        return
-    fi
-    # Follow the SQLite impl's shared-module import, when it has one.
-    local via
-    via="$(grep -oE 'use crate::repositories::[a-z0-9_]+::' "$SQLITE_DIR/$name" 2>/dev/null \
-           | head -1 | sed -E 's|use crate::repositories::([a-z0-9_]+)::|\1|' || true)"
-    if [[ -n "$via" && -f "$TRAIT_DIR/$via.rs" ]]; then
-        echo "$TRAIT_DIR/$via.rs"
-    fi
+    local pair="$1" name stem via
+    for name in "${pair%%|*}" "${pair##*|}"; do
+        stem="${name%.rs}"
+        if [[ -f "$TRAIT_DIR/$stem.rs" ]]; then
+            echo "$TRAIT_DIR/$stem.rs"
+            return
+        fi
+    done
+    for name in "$SQLITE_DIR/${pair%%|*}" "$PG_DIR/${pair##*|}"; do
+        via="$(grep -oE 'use crate::repositories::[a-z0-9_]+::' "$name" 2>/dev/null \
+               | head -1 | sed -E 's|use crate::repositories::([a-z0-9_]+)::|\1|' || true)"
+        if [[ -n "$via" && -f "$TRAIT_DIR/$via.rs" ]]; then
+            echo "$TRAIT_DIR/$via.rs"
+            return
+        fi
+    done
 }
 
 # A pair is converged when the trait module declares shared SQL and both impl
 # files reach for it instead of carrying statements of their own.
 is_converged() {
-    local name="$1"
+    local pair="$1"
     local trait_file
-    trait_file="$(trait_module_for "$name")"
+    trait_file="$(trait_module_for "$pair")"
     [[ -n "$trait_file" ]] || return 1
     grep -qE '^pub\(crate\) const [A-Z0-9_]+_SQL|^macro_rules! [a-z0-9_]+_sql' "$trait_file" || return 1
     local side stripped
-    for side in "$SQLITE_DIR/$name" "$PG_DIR/$name"; do
+    for side in "$SQLITE_DIR/${pair%%|*}" "$PG_DIR/${pair##*|}"; do
         # An impl that still spells out its own statements has not converged,
         # whatever else it imports. Matched on statement shape rather than on
         # the bare keyword, and with comments dropped first, so a clause
@@ -147,27 +216,35 @@ if ! changed_paths="$(git diff --no-renames --name-only --diff-filter=AM "$BASE_
     echo "FAIL: scan verified nothing."
     exit 1
 fi
-mapfile -t changed < <(
-    printf '%s\n' "$changed_paths" | grep -v '^$' | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
+mapfile -t changed_sqlite < <(
+    printf '%s\n' "$changed_paths" | grep "^$SQLITE_DIR/" | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
 )
+mapfile -t changed_pg < <(
+    printf '%s\n' "$changed_paths" | grep "^$PG_DIR/" | xargs -r -n1 basename | sort -u | grep -v '^mod\.rs$' || true
+)
+
+pair_touched() {
+    local pair="$1"
+    printf '%s\n' "${changed_sqlite[@]:-}" | grep -qx "${pair%%|*}" && return 0
+    printf '%s\n' "${changed_pg[@]:-}" | grep -qx "${pair##*|}"
+}
 
 fail=0
 touched=0
-for name in "${changed[@]:-}"; do
-    [[ -n "$name" ]] || continue
+for pair in "${all_pairs[@]}"; do
     # Only a mirrored file is in scope; a single-backend file has no twin to drift from.
-    printf '%s\n' "${all_pairs[@]}" | grep -qx "$name" || continue
+    pair_touched "$pair" || continue
     touched=$((touched + 1))
-    if ! is_converged "$name"; then
-        echo "❌ '$name' is written twice: $SQLITE_DIR/$name and $PG_DIR/$name each carry their own SQL."
+    if ! is_converged "$pair"; then
+        echo "❌ '$(pair_label "$pair")' is written twice: $SQLITE_DIR/${pair%%|*} and $PG_DIR/${pair##*|} each carry their own SQL."
         fail=1
     fi
 done
 
 # Standing stock: reported so an unconverted pair stays visible, never failed on.
 standing=()
-for name in "${all_pairs[@]}"; do
-    is_converged "$name" || standing+=("$name")
+for pair in "${all_pairs[@]}"; do
+    is_converged "$pair" || standing+=("$(pair_label "$pair")")
 done
 
 if [[ "$fail" -ne 0 ]]; then
@@ -184,9 +261,9 @@ fi
 
 if [[ ${#standing[@]} -gt 0 ]]; then
     echo "   backend-pairs: ${#standing[@]} of ${#all_pairs[@]} pair(s) still written twice (carnet#436):"
-    printf '     %s\n' "${standing[@]}" | head -12
-    if [[ ${#standing[@]} -gt 12 ]]; then
-        echo "     … and $(( ${#standing[@]} - 12 )) more"
+    printf '     %s\n' "${standing[@]}" | head -20
+    if [[ ${#standing[@]} -gt 20 ]]; then
+        echo "     … and $(( ${#standing[@]} - 20 )) more"
     fi
 fi
 

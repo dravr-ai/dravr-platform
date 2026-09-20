@@ -13,9 +13,6 @@ pub mod enums;
 /// Input validation logic (email, tenant ownership, expiration, scopes)
 pub mod validation;
 
-/// Model ↔ SQL row conversion helpers (row parsing, struct construction)
-pub mod mappers;
-
 /// Encryption/decryption utilities for OAuth tokens and sensitive data
 pub mod encryption;
 

@@ -12,7 +12,7 @@
 //! - `ListFitnessConfigsTool` - List available configuration names
 //! - `DeleteFitnessConfigTool` - Remove a configuration
 //!
-//! All tools use direct database access via `FitnessConfigurationManager`.
+//! All tools reach the rows through the `FitnessConfigRepository` in the repository registry.
 
 use std::collections::HashMap;
 use std::sync::Arc;

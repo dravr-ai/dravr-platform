@@ -150,3 +150,67 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
 
     Ok(())
 }
+
+/// The secret store mints only the admin JWT secret. The wrapped
+/// data-encryption keys are written by key management under their own names
+/// through `update_system_secret`, so asking the store to create one is
+/// refused rather than answered with a key the store made up — on both
+/// backends. `update_system_secret` rotates in place and `get_system_secret`
+/// reads the current value.
+#[tokio::test]
+async fn only_the_admin_jwt_secret_is_minted_and_others_rotate_in_place() -> Result<()> {
+    let database = common::create_test_database().await?;
+    let security = &database.repositories().security;
+
+    assert!(
+        security
+            .get_or_create_system_secret("database_encryption_key")
+            .await
+            .is_err(),
+        "a data-encryption key is never minted by the secret store"
+    );
+    assert!(
+        security
+            .get_system_secret("database_encryption_key")
+            .await
+            .is_err(),
+        "nothing stored it, so nothing reads back"
+    );
+
+    let minted = security
+        .get_or_create_system_secret("admin_jwt_secret")
+        .await?;
+    assert!(
+        !minted.is_empty(),
+        "the admin JWT secret is minted on first ask"
+    );
+    assert_eq!(
+        security
+            .get_or_create_system_secret("admin_jwt_secret")
+            .await?,
+        minted,
+        "the second ask returns the stored secret, not a new one"
+    );
+
+    security
+        .update_system_secret("database_encryption_key", "wrapped-v1")
+        .await?;
+    assert_eq!(
+        security
+            .get_system_secret("database_encryption_key")
+            .await?,
+        "wrapped-v1"
+    );
+    security
+        .update_system_secret("database_encryption_key", "wrapped-v2")
+        .await?;
+    assert_eq!(
+        security
+            .get_system_secret("database_encryption_key")
+            .await?,
+        "wrapped-v2",
+        "an update replaces the value under the same name"
+    );
+
+    Ok(())
+}
