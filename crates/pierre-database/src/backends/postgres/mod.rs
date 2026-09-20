@@ -132,7 +132,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::models::TenantId;
 use pierre_core::models::TenantToolOverride;
 use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory, User, UserOAuthToken};
@@ -276,83 +275,6 @@ impl PostgresDatabase {
     /// Helper function to parse User from database row
     fn parse_user_from_row(row: &PgRow) -> AppResult<User> {
         shared::mappers::parse_user_from_row(row)
-    }
-
-    /// Helper function to build A2A tasks query with dynamic filters
-    fn build_a2a_tasks_query(
-        client_id: Option<&str>,
-        status_filter: Option<&TaskStatus>,
-        context_id: Option<&str>,
-        updated_after: bool,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> AppResult<String> {
-        use std::fmt::Write;
-        // JSONB columns are cast to text so the shared row mapper (which decodes
-        // them as JSON strings, matching the SQLite TEXT columns) works on both backends.
-        let mut query = String::from(
-            r"
-            SELECT task_id, session_token, task_type, parameters::text AS parameters,
-                   status, result::text AS result, context_id,
-                   status_message::text AS status_message, history::text AS history,
-                   artifacts::text AS artifacts, created_at, updated_at
-            FROM a2a_tasks
-            ",
-        );
-
-        let mut conditions = Vec::new();
-        let mut bind_count = 0;
-
-        if client_id.is_some() {
-            // a2a_tasks is session-keyed; the client filter matches the session_token
-            // (which carries the client_id for client-keyed tasks created without a session).
-            bind_count += 1;
-            conditions.push(format!("session_token = ${bind_count}"));
-        }
-
-        if status_filter.is_some() {
-            bind_count += 1;
-            conditions.push(format!("status = ${bind_count}"));
-        }
-
-        if context_id.is_some() {
-            bind_count += 1;
-            conditions.push(format!("context_id = ${bind_count}"));
-        }
-
-        if updated_after {
-            bind_count += 1;
-            conditions.push(format!("updated_at > ${bind_count}"));
-        }
-
-        if !conditions.is_empty() {
-            query.push_str(" WHERE ");
-            query.push_str(&conditions.join(" AND "));
-        }
-
-        // A2A 1.0 ListTasks: ordered by status timestamp, most recent first.
-        query.push_str(" ORDER BY updated_at DESC");
-
-        if limit.is_some() {
-            bind_count += 1;
-            write!(query, " LIMIT ${bind_count}").map_err(|e| {
-                AppError::database(format!("Failed to write LIMIT clause to query: {e}"))
-            })?;
-        }
-
-        if offset.is_some() {
-            bind_count += 1;
-            write!(query, " OFFSET ${bind_count}").map_err(|e| {
-                AppError::database(format!("Failed to write OFFSET clause to query: {e}"))
-            })?;
-        }
-
-        Ok(query)
-    }
-
-    /// Helper function to parse A2A task from database row
-    fn parse_a2a_task_from_row(row: &PgRow) -> AppResult<A2ATask> {
-        shared::mappers::parse_a2a_task_from_row(row)
     }
 
     /// Map a `PostgreSQL` database row to `ToolCatalogEntry`

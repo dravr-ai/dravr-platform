@@ -11,13 +11,10 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::a2a::{A2APushNotificationConfig, A2ATask};
 use pierre_core::models::default_locale;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::User;
 use pierre_core::permissions::UserRole;
-use serde_json::Value;
-use tracing::warn;
 use uuid::Uuid;
 
 /// Parse User from database row (database-agnostic)
@@ -142,154 +139,6 @@ where
         // optional through the whole stack.
         timezone: row.try_get("timezone").ok().flatten(),
         theme: row.try_get("theme").ok().flatten(),
-    })
-}
-
-/// Parse an optional JSON text column into a `serde_json::Value`, logging and
-/// returning `None` on decode/parse failure (matches the historical
-/// tolerant-read behavior of the task mapper).
-fn parse_optional_json_column<R>(row: &R, task_id: &str, column: &str) -> Option<Value>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    row.try_get::<Option<String>, _>(column)
-        .map_or(None, |json_str| {
-            json_str.and_then(|s| {
-                serde_json::from_str(&s)
-                    .inspect_err(|e| {
-                        warn!(
-                            task_id = %task_id,
-                            column = %column,
-                            error = %e,
-                            "Failed to deserialize A2A task JSON column"
-                        );
-                    })
-                    .ok()
-            })
-        })
-}
-
-/// Parse A2A Task from database row (database-agnostic)
-///
-/// Works with both `PostgreSQL` and `SQLite` — `PostgreSQL` queries cast the
-/// JSONB columns (`parameters`, `result`, `status_message`, `history`,
-/// `artifacts`) to text so this mapper can decode them as JSON strings,
-/// matching the `SQLite` TEXT columns.
-///
-/// # Arguments
-/// * `row` - Database row implementing `sqlx::Row` trait
-///
-/// # Returns
-/// * `Ok(A2ATask)` if parsing succeeds
-///
-/// # Errors
-/// * Returns error if required fields are missing or have invalid types
-///
-/// # Note
-/// JSON deserialization errors for the JSON columns are logged but don't fail
-/// the parse (returns null/None instead).
-pub fn parse_a2a_task_from_row<R>(row: &R) -> AppResult<A2ATask>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    for<'a> usize: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    // Get task_id for logging (canonical column is task_id)
-    let task_id: String = row
-        .try_get("task_id")
-        .map_err(|e| AppError::database(format!("Failed to get column 'task_id': {e}")))?;
-
-    // Parse parameters JSON with fallback to null. The model field stays input_data;
-    // the canonical column is `parameters`.
-    let input_str: String = row
-        .try_get("parameters")
-        .map_err(|e| AppError::database(format!("Failed to get column 'parameters': {e}")))?;
-    let input_data: Value = serde_json::from_str(&input_str).unwrap_or_else(|e| {
-        warn!(
-            task_id = %task_id,
-            error = %e,
-            "Failed to deserialize A2A task parameters, using null"
-        );
-        Value::Null
-    });
-
-    let result_data = parse_optional_json_column(row, &task_id, "result");
-    let status_message = parse_optional_json_column(row, &task_id, "status_message");
-    let history = parse_optional_json_column(row, &task_id, "history");
-    let artifacts = parse_optional_json_column(row, &task_id, "artifacts");
-
-    // Parse status using shared enum converter
-    let status_str: String = row
-        .try_get("status")
-        .map_err(|e| AppError::database(format!("Failed to get column 'status': {e}")))?;
-    let status = super::enums::str_to_task_status(&status_str);
-
-    Ok(A2ATask {
-        id: task_id,
-        status,
-        context_id: row.try_get("context_id").ok().flatten(),
-        status_message,
-        history,
-        artifacts,
-        // a2a_tasks is session-keyed with no client_id column; the model field is
-        // populated best-effort from session_token (carries the client_id for
-        // client-keyed tasks created without a session).
-        client_id: row
-            .try_get("session_token")
-            .unwrap_or_else(|_| "unknown".into()),
-        task_type: row
-            .try_get("task_type")
-            .map_err(|e| AppError::database(format!("Failed to get column 'task_type': {e}")))?,
-        input_data,
-        result: result_data,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,
-        updated_at: row
-            .try_get("updated_at")
-            .map_err(|e| AppError::database(format!("Failed to get column 'updated_at': {e}")))?,
-    })
-}
-
-/// Parse an A2A push notification configuration from a database row
-/// (database-agnostic).
-///
-/// # Errors
-/// Returns an error if required columns are missing or have invalid types.
-pub fn parse_a2a_push_config_from_row<R>(row: &R) -> AppResult<A2APushNotificationConfig>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let column_err =
-        |column: &str, e: sqlx::Error| AppError::database(format!("Failed to get '{column}': {e}"));
-
-    Ok(A2APushNotificationConfig {
-        config_id: row
-            .try_get("config_id")
-            .map_err(|e| column_err("config_id", e))?,
-        task_id: row
-            .try_get("task_id")
-            .map_err(|e| column_err("task_id", e))?,
-        url: row.try_get("url").map_err(|e| column_err("url", e))?,
-        token: row.try_get("token").ok().flatten(),
-        auth_scheme: row.try_get("auth_scheme").ok().flatten(),
-        auth_credentials: row.try_get("auth_credentials").ok().flatten(),
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| column_err("created_at", e))?,
-        updated_at: row
-            .try_get("updated_at")
-            .map_err(|e| column_err("updated_at", e))?,
     })
 }
 

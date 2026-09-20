@@ -6,6 +6,8 @@
 
 /// Repository traits for agent-to-agent (`A2A`) protocol persistence.
 pub mod a2a;
+/// The one `A2ARepository` body, emitted per backend.
+pub(crate) mod a2a_backend;
 /// Repository trait for the A2A reaper's bulk fail (one statement, written once).
 pub mod a2a_task_reaper;
 /// Repository trait for historical activity backfills still owed (resumed by a sweep).
@@ -41,6 +43,8 @@ pub mod harness_memory;
 pub mod health;
 /// Repository trait, statements and shared body for super-admin impersonation sessions.
 pub mod impersonation;
+/// How each backend stores a list-of-strings column.
+pub(crate) mod list_columns;
 /// Repository trait for MCP Tasks extension handle persistence.
 pub mod mcp_tasks;
 /// Shared body of the coaching harness memory repository.
@@ -49,6 +53,8 @@ pub mod memory;
 pub mod memory_extraction_jobs;
 /// Repository traits for inbound/outbound messaging channel persistence.
 pub mod messaging;
+/// The one `MessagingRepository` body, emitted per backend.
+pub(crate) mod messaging_backend;
 /// Shared statements, row decode and body for the link-state lifecycle both backends serve.
 pub mod messaging_link_states;
 /// Shared SQL and body for the reaction → chat-message lookup both backends serve.

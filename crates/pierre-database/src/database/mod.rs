@@ -150,7 +150,6 @@ pub use agents::{
 // that reach them by this path.
 pub use errors::{DatabaseError, DatabaseResult};
 pub use oauth_notifications::OAuthNotification;
-pub use pierre_core::models::a2a::{A2AUsage, A2AUsageStats};
 pub use pierre_core::models::agents::{AgentWithListing, StoreListing};
 pub use pierre_core::models::{
     AddMessageParams, ConversationPage, ConversationParticipant, ConversationRecord,
