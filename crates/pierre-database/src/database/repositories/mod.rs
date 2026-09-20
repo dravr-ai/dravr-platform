@@ -12,5 +12,3 @@ mod agents_assignments;
 /// Direct `AgentsRepository` impl on `Database` (SQLite agents catalogue)
 mod agents_impl;
 mod agents_versions;
-/// Direct `StoreListingsRepository` impl on `Database` (SQLite marketplace listings)
-mod store_listings_impl;

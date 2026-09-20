@@ -16,7 +16,7 @@ pub mod activity_cache;
 pub mod admin;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
-/// Repository traits for agents catalogue, coaching groups, store listings.
+/// Repository traits for the agents catalogue and coaching groups.
 pub mod agents;
 /// Repository trait for API keys.
 pub mod api_keys;
@@ -83,6 +83,9 @@ pub mod seeder;
 pub mod session_refresh_tokens;
 /// Repository trait + helper for the channel-agnostic URL shortener.
 pub mod short_links;
+/// Repository trait for the agent marketplace: review workflow, catalogue browsing, installs, the @handle.
+pub mod store_listings;
+pub(crate) mod store_listings_backend;
 /// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
 pub mod subscriptions;
 /// Repository traits for tenants and subscriptions.
@@ -155,6 +158,7 @@ pub use route_summaries::*;
 pub use security::*;
 pub use seeder::*;
 pub use short_links::*;
+pub use store_listings::*;
 pub use subscriptions::*;
 pub use tenants::*;
 pub use tool_selection::*;

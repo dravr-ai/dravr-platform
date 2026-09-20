@@ -16,8 +16,6 @@ pub mod activity_cache_persistence;
 pub mod admin;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)
 pub mod agent_artefacts;
-/// Catalogue handle assignment at Store approval time.
-pub(crate) mod agent_handle;
 /// Coaches (custom AI personas) storage and management
 pub mod agents;
 /// Analytics and usage statistics database operations
@@ -99,7 +97,7 @@ pub mod seeder;
 pub mod session_refresh_tokens;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`SQLite`)
 pub mod short_links;
-/// Store listings for agent publishing workflow
+/// Store listings for agent publishing workflow (`SQLite`)
 pub mod store_listings;
 /// Stripe-backed subscription persistence (Phase 5 billing)
 pub mod subscriptions;
@@ -153,6 +151,7 @@ pub use agents::{
 pub use errors::{DatabaseError, DatabaseResult};
 pub use oauth_notifications::OAuthNotification;
 pub use pierre_core::models::a2a::{A2AUsage, A2AUsageStats};
+pub use pierre_core::models::agents::{AgentWithListing, StoreListing};
 pub use pierre_core::models::{
     AddMessageParams, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSummary, MessageFeedbackRecord, MessageRecord, UpsertMessageFeedbackParams,
@@ -160,7 +159,6 @@ pub use pierre_core::models::{
 pub use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };
-pub use store_listings::{AgentWithListing, StoreListing, StoreListingsManager};
 pub use user_oauth_tokens::OAuthTokenData;
 
 use crate::backends::{shared, DatabaseProvider};

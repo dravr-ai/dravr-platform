@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait definitions for the agents catalogue, coaching groups, store listings domain
+// ABOUTME: Repository trait definitions for the agents catalogue and coaching groups domain
 // ABOUTME: Split out of repositories.rs as part of Finding B (per-domain repository modules)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,9 +8,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::{
-    Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentVersion,
-    CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter, StoreAdminStats,
-    UpdateAgentRequest,
+    Agent, AgentAssignment, AgentHandle, AgentListItem, AgentVersion, CreateAgentRequest,
+    CreateSystemAgentRequest, ListAgentsFilter, UpdateAgentRequest,
 };
 use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTranscriptEntry,
@@ -19,11 +18,7 @@ use pierre_core::models::groups::{
 
 use pierre_core::models::AgentRuntimeContext;
 use pierre_core::models::TenantId;
-use pierre_core::pagination::{CursorPage, StoreSortOrder};
-use std::collections::HashMap;
 use uuid::Uuid;
-
-use crate::database::store_listings::{AgentWithListing, StoreListing};
 
 /// Coaches (custom AI personas) storage and management repository (tenant-scoped)
 #[async_trait]
@@ -461,139 +456,4 @@ pub trait CoachingGroupRepository: Send + Sync {
         viewer_user_id: Uuid,
         limit: i64,
     ) -> AppResult<Vec<GroupTranscriptEntry>>;
-}
-
-/// Store listings for the agent marketplace (cross-tenant browsing, install/uninstall)
-#[async_trait]
-pub trait StoreListingsRepository: Send + Sync {
-    /// Submit an agent for Store review (creates listing if needed)
-    async fn submit_for_review(
-        &self,
-        agent_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<StoreListing>;
-    /// Get a store listing by agent ID
-    async fn get_listing(&self, agent_id: &str) -> AppResult<Option<StoreListing>>;
-    /// Approve an agent and publish to the Store
-    async fn approve_agent(
-        &self,
-        agent_id: &str,
-        tenant_id: TenantId,
-        admin_user_id: Option<Uuid>,
-    ) -> AppResult<AgentWithListing>;
-    /// Reject an agent with a reason
-    async fn reject_agent(
-        &self,
-        agent_id: &str,
-        tenant_id: TenantId,
-        admin_user_id: Option<Uuid>,
-        reason: &str,
-    ) -> AppResult<AgentWithListing>;
-    /// Unpublish an agent (revert from published to draft)
-    async fn unpublish_agent(
-        &self,
-        agent_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<AgentWithListing>;
-    /// Get agents pending admin review
-    async fn get_pending_review_agents(
-        &self,
-        tenant_id: TenantId,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> AppResult<Vec<AgentWithListing>>;
-    /// Get agents that have been rejected
-    async fn get_rejected_agents(
-        &self,
-        tenant_id: TenantId,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> AppResult<Vec<AgentWithListing>>;
-    /// Get store admin statistics
-    async fn get_store_admin_stats(&self, tenant_id: TenantId) -> AppResult<StoreAdminStats>;
-    /// Get author email for an agent
-    async fn get_author_email(&self, user_id: Uuid) -> AppResult<Option<String>>;
-    /// Get published agents for the Store (cross-tenant)
-    async fn get_published_agents(
-        &self,
-        category: Option<AgentCategory>,
-        sort_by: Option<&str>,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> AppResult<Vec<AgentWithListing>>;
-    /// Get published agents with cursor-based pagination
-    async fn get_published_agents_cursor(
-        &self,
-        category: Option<AgentCategory>,
-        sort_by: StoreSortOrder,
-        limit: u32,
-        cursor: Option<&str>,
-    ) -> AppResult<CursorPage<AgentWithListing>>;
-    /// Search published agents by title/description/tags, in `locale`.
-    ///
-    /// The canonical English row and the `agent_translations` overlay for
-    /// `locale` are both matched, so an athlete searching the words the Store
-    /// showed her — a chip reading `methode-norvegienne`, say — reaches the
-    /// agent whose canonical tag is `norwegian-method`. Matching only the
-    /// canonical row made every localized label unsearchable; matching only
-    /// the overlay would lose the agents that have no translation.
-    async fn search_published_agents(
-        &self,
-        query: &str,
-        limit: Option<u32>,
-        locale: &str,
-    ) -> AppResult<Vec<AgentWithListing>>;
-    /// Get a single published agent by ID (cross-tenant)
-    async fn get_published_agent(&self, agent_id: &str) -> AppResult<Option<AgentWithListing>>;
-    /// Resolve a published catalogue agent by its `@handle` (cross-tenant).
-    ///
-    /// The origin agent only — the row that owns the handle, never an
-    /// athlete's installed copy (which carries the handle as a reference) —
-    /// and only while its listing is published, so an agent that left the
-    /// Store is no longer installable by name.
-    async fn find_published_by_handle(
-        &self,
-        handle: &AgentHandle,
-    ) -> AppResult<Option<AgentWithListing>>;
-    /// Get category counts for published agents
-    async fn get_category_counts(&self) -> AppResult<HashMap<AgentCategory, i64>>;
-    /// Increment install count for an agent's store listing
-    async fn increment_install_count(&self, agent_id: &str) -> AppResult<()>;
-    /// Decrement install count for an agent's store listing
-    async fn decrement_install_count(&self, agent_id: &str) -> AppResult<()>;
-    /// Install an agent from the Store (creates user's copy)
-    async fn install_from_store(
-        &self,
-        source_agent_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Agent>;
-    /// Uninstall an agent (deletes user's copy, returns source agent ID)
-    async fn uninstall_agent(
-        &self,
-        agent_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<String>;
-    /// Get user's installed agents from the Store
-    async fn get_installed_agents(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<Agent>>;
-    /// Create or ensure a store listing exists for an agent
-    async fn ensure_listing(&self, agent_id: &str, tenant_id: TenantId) -> AppResult<StoreListing>;
-    /// Give an agent its catalogue `@handle` if it owns none yet, and return it.
-    ///
-    /// The same assignment Store approval performs, exposed for an agent
-    /// created outside the Store (`/agent create`) so `@handle` and
-    /// `/agent add @handle` reach it from the moment it exists. An origin
-    /// agent already carrying a handle keeps it; otherwise the first free
-    /// candidate derived from the title is taken at catalogue scope.
-    async fn assign_catalogue_handle(
-        &self,
-        agent_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<String>;
 }

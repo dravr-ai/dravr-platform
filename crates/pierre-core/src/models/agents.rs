@@ -773,6 +773,58 @@ pub struct AgentAssignment {
     pub assigned_by: Option<String>,
 }
 
+/// A store listing tracks the publishing state of an agent in the Store
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreListing {
+    /// Unique identifier for the listing
+    pub id: Uuid,
+    /// Agent this listing belongs to
+    pub agent_id: Uuid,
+    /// Tenant for multi-tenancy isolation
+    pub tenant_id: String,
+    /// Publishing status for Store workflow
+    #[serde(default)]
+    pub publish_status: PublishStatus,
+    /// When the agent was published to the store
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<DateTime<Utc>>,
+    /// When the agent was submitted for review
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_submitted_at: Option<DateTime<Utc>>,
+    /// When admin made the review decision
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_decision_at: Option<DateTime<Utc>>,
+    /// Admin user who made the review decision
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_decision_by: Option<String>,
+    /// Reason for rejection (if rejected)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejection_reason: Option<String>,
+    /// Number of Store installs (denormalized for performance)
+    #[serde(default)]
+    pub install_count: u32,
+    /// URL to agent icon/avatar for Store display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    /// Author profile ID (for published agents)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_id: Option<String>,
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+    /// Last update timestamp
+    pub updated_at: DateTime<Utc>,
+}
+
+/// An agent combined with its store listing data (for store-related queries)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentWithListing {
+    /// The agent data
+    #[serde(flatten)]
+    pub agent: Agent,
+    /// The store listing data
+    pub listing: StoreListing,
+}
+
 /// Store admin statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreAdminStats {

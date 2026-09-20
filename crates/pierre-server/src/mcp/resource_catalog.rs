@@ -5,8 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::agents::Agent;
-use pierre_database::database::store_listings::AgentWithListing;
+use pierre_core::models::agents::{Agent, AgentWithListing};
 use serde_json::{json, Value};
 use std::fmt::Write;
 

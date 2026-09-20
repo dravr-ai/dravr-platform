@@ -13,8 +13,7 @@ use axum::{
     Json,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::agents::{Agent, UpdateAgentRequest};
-use pierre_database::database::store_listings::AgentWithListing;
+use pierre_core::models::agents::{Agent, AgentWithListing, UpdateAgentRequest};
 use pierre_middleware::{require_admin, AuthenticatedUser};
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_services::agent_package::review_package;

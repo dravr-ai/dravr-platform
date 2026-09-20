@@ -7,14 +7,11 @@
 use pierre_core::constants::tool_execution::{MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::agents::DataRequirements;
-use pierre_database::database::{
-    agents::{
-        Agent, AgentAssignment as DbAgentAssignment, AgentCategory, AgentListItem, AgentVersion,
-        AgentVisibility, CreateAgentRequest,
-        CreateSystemAgentRequest as DbCreateSystemAgentRequest, UpdateAgentRequest,
-    },
-    store_listings::AgentWithListing,
+use pierre_core::models::agents::{AgentWithListing, DataRequirements};
+use pierre_database::database::agents::{
+    Agent, AgentAssignment as DbAgentAssignment, AgentCategory, AgentListItem, AgentVersion,
+    AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest as DbCreateSystemAgentRequest,
+    UpdateAgentRequest,
 };
 use pierre_services::agent_package::PackageReview;
 use serde::{Deserialize, Serialize};
