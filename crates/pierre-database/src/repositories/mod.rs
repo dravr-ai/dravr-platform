@@ -27,6 +27,8 @@ pub mod chat;
 pub(crate) mod chat_backend;
 /// Repository traits for claim verdict (bullshit detector) persistence.
 pub mod claim_verdicts;
+/// Shared statements, row decoders and body for coaching groups, members, invites and the transcript.
+pub mod coaching_groups;
 /// Repository trait for athlete commitments swept against real activity data.
 pub mod commitments;
 /// Repository traits for data source registration persistence.
@@ -41,6 +43,8 @@ pub mod guardian_actions;
 pub mod harness_memory;
 /// Repository traits for health, sleep, recovery, time-series persistence and sync cursors.
 pub mod health;
+/// Shared statements, row decoders and body for data sources, sleep, recovery and health snapshots.
+pub mod health_persistence;
 /// Repository trait, statements and shared body for super-admin impersonation sessions.
 pub mod impersonation;
 /// How each backend stores a list-of-strings column.
@@ -83,8 +87,10 @@ pub mod roster;
 pub mod route_summaries;
 /// Repository traits for security/audit/key-version persistence.
 pub mod security;
-/// Repository traits for seed-only repository operations.
+/// Repository trait and shared statements for seed-only repository operations.
 pub mod seeder;
+/// Per-backend seed codecs and the shared seeder body.
+pub mod seeder_body;
 /// Shared statements and body for first-party session refresh tokens.
 pub mod session_refresh_tokens;
 /// Repository trait + helper for the channel-agnostic URL shortener.
@@ -94,8 +100,12 @@ pub mod store_listings;
 pub(crate) mod store_listings_backend;
 /// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
 pub mod subscriptions;
+/// Shared statements, decoders and body for provider sync cursors and the connected-user roster.
+pub mod sync_cursors;
 /// Repository traits for tenants and subscriptions.
 pub mod tenants;
+/// Shared statements, decoder and body for the riviere time-series store.
+pub mod time_series;
 /// Repository traits for tool selection telemetry persistence.
 pub mod tool_selection;
 /// Shared statements and body for the daily training-state history.

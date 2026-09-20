@@ -1,4 +1,4 @@
-// ABOUTME: Parses the agent seeder SQL and checks columns/values/placeholders/binds agree
+// ABOUTME: Parses the shared agent seeder SQL and checks columns/values/placeholders/binds agree
 // ABOUTME: A column added to one clause but not another is invisible until a live seed run
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,10 +14,12 @@
 //! clause and nothing notices until a real seed against `PostgreSQL` — which
 //! gates the deploy. That happened on 2026-08-14: `visuals` was added to the PG
 //! column list while the VALUES clause kept `$26` as its last placeholder,
-//! giving 29 columns against 28 values. The `SQLite` twin was correct, so the
-//! two backends silently disagreed.
+//! giving 29 columns against 28 values. The two backends were written twice
+//! then; both statements now live once in `repositories/seeder.rs` and the
+//! one bind chain that executes each in `repositories/seeder_body.rs`, so
+//! this reads those two files and checks each statement against its chain.
 //!
-//! Counting the four statements mechanically costs nothing and fails at compile
+//! Counting the two statements mechanically costs nothing and fails at compile
 //! time rather than at deploy time.
 
 use std::fs;
@@ -31,15 +33,18 @@ fn flatten(sql: &str) -> String {
         .join(" ")
 }
 
-/// Extract the first statement starting at `needle` up to the closing quote.
-fn statement(source: &str, needle: &str) -> String {
+/// Extract the statement a `const` holds, from its opening quote to the
+/// `";` that closes the const.
+fn statement(source: &str, const_name: &str) -> String {
+    let decl = format!("const {const_name}: &str = \"");
     let start = source
-        .find(needle)
-        .unwrap_or_else(|| panic!("statement starting {needle:?} not found"));
+        .find(&decl)
+        .unwrap_or_else(|| panic!("const {const_name} not found"))
+        + decl.len();
     let rest = &source[start..];
     let end = rest
-        .find("\",")
-        .unwrap_or_else(|| panic!("unterminated statement at {needle:?}"));
+        .find("\";")
+        .unwrap_or_else(|| panic!("unterminated statement in {const_name}"));
     flatten(&rest[..end])
 }
 
@@ -59,9 +64,11 @@ fn placeholders(stmt: &str) -> (usize, bool) {
     (max, seen == (1..=max).collect::<Vec<_>>())
 }
 
-/// Count `.bind(` calls between `from` and the following `.execute(`.
-fn binds_after(source: &str, from: &str) -> usize {
-    let start = source.find(from).expect("anchor not found");
+/// Count `.bind(` calls between `sqlx::query(<const>)` and the following
+/// `.execute(`: the chain that executes the statement.
+fn binds_for(source: &str, const_name: &str) -> usize {
+    let anchor = format!("sqlx::query({const_name})");
+    let start = source.find(&anchor).expect("query anchor not found");
     let rest = &source[start..];
     let end = rest.find(".execute(").expect("no .execute after statement");
     rest[..end].matches(".bind(").count()
@@ -78,90 +85,57 @@ fn count_group(stmt: &str, after: &str) -> usize {
         .count()
 }
 
-fn source(rel: &str) -> String {
+fn read(rel: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
-#[test]
-fn agent_insert_statements_are_internally_consistent() {
-    for rel in ["src/database/seeder.rs", "src/backends/postgres/seeder.rs"] {
-        let src = source(rel);
-        let stmt = statement(&src, "INSERT INTO agents");
+/// The one file the statements are declared in.
+fn statements() -> String {
+    read("src/repositories/seeder.rs")
+}
 
-        let columns = count_group(&stmt, "INSERT INTO agents");
-        // `Values` in one backend, `VALUES` in the other — the casing difference
-        // is exactly what let a search-and-replace miss one of them.
-        let marker = if stmt.contains("VALUES (") {
-            "VALUES"
-        } else {
-            "Values"
-        };
-        let values = count_group(&stmt, marker);
-        let (max_param, contiguous) = placeholders(&stmt);
-        let binds = binds_after(&src, "INSERT INTO agents");
-
-        assert_eq!(
-            columns, values,
-            "{rel}: INSERT names {columns} columns but supplies {values} values"
-        );
-        assert!(contiguous, "{rel}: INSERT placeholders are not $1..=$N");
-        assert_eq!(
-            binds, max_param,
-            "{rel}: INSERT has {binds} binds for {max_param} placeholders"
-        );
-    }
+/// The one file both backends' seeder bodies are emitted from.
+fn body() -> String {
+    read("src/repositories/seeder_body.rs")
 }
 
 #[test]
-fn agent_update_statements_are_internally_consistent() {
-    for rel in ["src/database/seeder.rs", "src/backends/postgres/seeder.rs"] {
-        let src = source(rel);
-        // The agent update is the statement whose SET list starts on the next
-        // source line; `seed_take_catalogue_ownership` also opens with
-        // `UPDATE agents SET`, on one line, and is not the one under test.
-        let needle = "UPDATE agents SET \\";
-        let stmt = statement(&src, needle);
-        let (max_param, contiguous) = placeholders(&stmt);
-        let binds = binds_after(&src, needle);
+fn agent_insert_statement_is_internally_consistent() {
+    let stmt = statement(&statements(), "INSERT_AGENT_SQL");
 
-        assert!(contiguous, "{rel}: UPDATE placeholders are not $1..=$N");
-        assert_eq!(
-            binds, max_param,
-            "{rel}: UPDATE has {binds} binds for {max_param} placeholders"
-        );
-        // The WHERE key must be its own placeholder. Reusing an assignment's
-        // number silently matches on the wrong value — the $22/$23 collision
-        // this change introduced once already.
-        assert!(
-            stmt.contains(&format!("WHERE id = ${max_param}")),
-            "{rel}: UPDATE must key on the last placeholder, not reuse an assignment's"
-        );
-    }
-}
-
-#[test]
-fn both_backends_write_the_same_agent_columns() {
-    let sqlite = statement(&source("src/database/seeder.rs"), "INSERT INTO agents");
-    let postgres = statement(
-        &source("src/backends/postgres/seeder.rs"),
-        "INSERT INTO agents",
-    );
-
-    let cols = |stmt: &str| -> Vec<String> {
-        let tail = &stmt[stmt.find("INSERT INTO agents").unwrap() + 19..];
-        let open = tail.find('(').unwrap();
-        let close = tail.find(')').unwrap();
-        tail[open + 1..close]
-            .split(',')
-            .map(|c| c.trim().to_owned())
-            .filter(|c| !c.is_empty())
-            .collect()
-    };
+    let columns = count_group(&stmt, "INSERT INTO agents");
+    let values = count_group(&stmt, "VALUES");
+    let (max_param, contiguous) = placeholders(&stmt);
+    let binds = binds_for(&body(), "INSERT_AGENT_SQL");
 
     assert_eq!(
-        cols(&sqlite),
-        cols(&postgres),
-        "the two backends must seed the same coach columns in the same order"
+        columns, values,
+        "INSERT names {columns} columns but supplies {values} values"
+    );
+    assert!(contiguous, "INSERT placeholders are not $1..=$N");
+    assert_eq!(
+        binds, max_param,
+        "INSERT has {binds} binds for {max_param} placeholders"
+    );
+}
+
+#[test]
+fn agent_update_statement_is_internally_consistent() {
+    let stmt = statement(&statements(), "UPDATE_AGENT_SQL");
+    let (max_param, contiguous) = placeholders(&stmt);
+    let binds = binds_for(&body(), "UPDATE_AGENT_SQL");
+
+    assert!(contiguous, "UPDATE placeholders are not $1..=$N");
+    assert_eq!(
+        binds, max_param,
+        "UPDATE has {binds} binds for {max_param} placeholders"
+    );
+    // The WHERE key must be its own placeholder. Reusing an assignment's
+    // number silently matches on the wrong value — the $22/$23 collision
+    // this change introduced once already.
+    assert!(
+        stmt.contains(&format!("WHERE id = ${max_param}")),
+        "UPDATE must key on the last placeholder, not reuse an assignment's"
     );
 }

@@ -889,7 +889,6 @@ async fn seed_api_usage(
                     .with_second(second)
                     .unwrap_or(day);
 
-                // Ignore errors for duplicate inserts
                 let usage = SeedApiKeyUsage {
                     id,
                     api_key_id: *key_id,
@@ -898,9 +897,8 @@ async fn seed_api_usage(
                     status_code,
                     response_time_ms: response_time,
                 };
-                if repos.seeder.seed_insert_api_key_usage(&usage).await.is_ok() {
-                    total_records += 1;
-                }
+                repos.seeder.seed_insert_api_key_usage(&usage).await?;
+                total_records += 1;
             }
         }
         info!("  Generated usage for key: {}...", &key_id.to_string()[..8]);
@@ -940,7 +938,6 @@ async fn seed_a2a_usage(
                     .with_minute(minute)
                     .unwrap_or(day);
 
-                // Ignore errors for duplicate inserts
                 let usage = SeedA2AUsage {
                     id,
                     client_id: *client_id,
@@ -949,9 +946,8 @@ async fn seed_a2a_usage(
                     status_code,
                     response_time_ms: response_time,
                 };
-                if repos.seeder.seed_insert_a2a_usage(&usage).await.is_ok() {
-                    total_records += 1;
-                }
+                repos.seeder.seed_insert_a2a_usage(&usage).await?;
+                total_records += 1;
             }
         }
     }
