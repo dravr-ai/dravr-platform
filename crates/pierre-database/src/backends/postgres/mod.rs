@@ -70,18 +70,20 @@ pub mod messaging_link_states;
 pub mod messaging_reactions;
 /// Mobility repository implementation (stretching exercises and yoga poses)
 pub mod mobility;
-/// OAuth token and authorization repository implementations
-pub mod oauth;
 /// OAuth client-state repository implementation (CSRF `state` + PKCE verifier)
 mod oauth_client_state;
 /// OAuth completion notification repository implementation
 pub mod oauth_notifications;
+/// One-time password reset tokens issued by admins and the self-service flow
+pub mod password_reset_tokens;
 /// Postgres `PlaybookRepository` impl — procedural coaching memory.
 pub mod playbooks;
 /// Pre-approved email allow-list consulted at registration (Postgres)
 pub mod pre_approved_emails;
 /// Endurance `prescribed_workouts` audit-trail repository (Postgres)
 pub mod prescribed_workouts;
+/// Provider connections — the single source of truth for provider connectivity
+pub mod provider_connections;
 /// Recipe repository implementation (CRUD with nutrition caching)
 pub mod recipes;
 /// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
@@ -104,6 +106,8 @@ pub mod store_listings;
 pub mod subscriptions;
 /// Tenant repository implementation
 pub mod tenant;
+/// OAuth 2.0 server persistence — clients, codes, refresh tokens, states, grants, device codes
+pub mod tokens;
 /// Tool catalog and per-tenant tool override repository implementation
 pub mod tool_selection;
 /// Endurance daily `training_history` rollup repository (Postgres)
@@ -116,6 +120,8 @@ pub mod usage_counters;
 pub mod user;
 /// User MCP tokens for AI client authentication (Postgres)
 pub mod user_mcp_tokens;
+/// Per-user, per-tenant provider OAuth tokens, Strava pool apps and BYO OAuth apps
+pub mod user_oauth_tokens;
 /// Durable per-user onboarding step completion state (Postgres)
 pub mod user_onboarding;
 /// Endurance typed `UserPhysiologicalProfile` + `Dossier` composer (Postgres)
@@ -141,10 +147,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserOAuthToken;
 use sha2::{Digest, Sha256};
 use sqlx::migrate::Migrator;
-use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -427,78 +432,6 @@ impl DatabaseProvider for PostgresDatabase {
 
         info!("PostgreSQL database migrations completed successfully");
         Ok(())
-    }
-}
-
-impl PostgresDatabase {
-    /// Convert database row to `UserOAuthToken` with decryption
-    ///
-    /// SECURITY: Decrypts OAuth tokens from database storage (AES-256-GCM with AAD)
-    fn row_to_user_oauth_token(&self, row: &PgRow) -> AppResult<UserOAuthToken> {
-        use sqlx::Row;
-
-        let user_id: uuid::Uuid = row
-            .try_get("user_id")
-            .map_err(|e| AppError::database(format!("Failed to parse user_id column: {e}")))?;
-        let tenant_id: String = row
-            .try_get("tenant_id")
-            .map_err(|e| AppError::database(format!("Failed to parse tenant_id column: {e}")))?;
-        let provider: String = row
-            .try_get("provider")
-            .map_err(|e| AppError::database(format!("Failed to parse provider column: {e}")))?;
-
-        // Decrypt access token
-        let encrypted_access_token: String = row
-            .try_get("access_token")
-            .map_err(|e| AppError::database(format!("Failed to parse access_token column: {e}")))?;
-        let access_token = shared::encryption::decrypt_oauth_token(
-            self,
-            &encrypted_access_token,
-            &tenant_id,
-            user_id,
-            &provider,
-        )?;
-
-        // Decrypt refresh token (optional)
-        let refresh_token = row
-            .try_get::<Option<String>, _>("refresh_token")
-            .map_err(|e| AppError::database(format!("Failed to parse refresh_token column: {e}")))?
-            .map(|encrypted_rt| {
-                shared::encryption::decrypt_oauth_token(
-                    self,
-                    &encrypted_rt,
-                    &tenant_id,
-                    user_id,
-                    &provider,
-                )
-            })
-            .transpose()?;
-
-        Ok(UserOAuthToken {
-            id: row
-                .try_get("id")
-                .map_err(|e| AppError::database(format!("Failed to parse id column: {e}")))?,
-            user_id,
-            tenant_id,
-            provider,
-            access_token,
-            refresh_token,
-            token_type: row.try_get("token_type").map_err(|e| {
-                AppError::database(format!("Failed to parse token_type column: {e}"))
-            })?,
-            expires_at: row.try_get("expires_at").map_err(|e| {
-                AppError::database(format!("Failed to parse expires_at column: {e}"))
-            })?,
-            scope: row.try_get("scope").ok(),
-            provider_user_id: row.try_get("provider_user_id").ok(),
-            oauth_app_client_id: row.try_get("oauth_app_client_id").ok(),
-            created_at: row.try_get("created_at").map_err(|e| {
-                AppError::database(format!("Failed to parse created_at column: {e}"))
-            })?,
-            updated_at: row.try_get("updated_at").map_err(|e| {
-                AppError::database(format!("Failed to parse updated_at column: {e}"))
-            })?,
-        })
     }
 }
 

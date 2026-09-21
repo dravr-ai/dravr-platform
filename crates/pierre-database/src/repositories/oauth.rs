@@ -10,9 +10,9 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    AuthorizationCode, ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client,
-    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection,
-    StravaPoolApp, UserOAuthApp, UserOAuthToken,
+    ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
+    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, StravaPoolApp,
+    UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -159,16 +159,8 @@ pub trait OAuth2ServerRepository: Send + Sync {
     async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>>;
     /// Store OAuth 2.0 authorization code
     async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()>;
-    /// Get OAuth 2.0 authorization code
-    async fn get_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>>;
-    /// Update OAuth 2.0 authorization code (mark as used)
-    async fn update_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()>;
     /// Store OAuth 2.0 refresh token
     async fn store_refresh_token(&self, refresh_token: &OAuth2RefreshToken) -> AppResult<()>;
-    /// Get OAuth 2.0 refresh token
-    async fn get_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>>;
-    /// Revoke OAuth 2.0 refresh token
-    async fn revoke_refresh_token(&self, token: &str) -> AppResult<()>;
     /// Atomically consume OAuth 2.0 authorization code (check-and-set in single operation)
     async fn consume_auth_code(
         &self,
@@ -189,19 +181,6 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         token: &str,
     ) -> AppResult<Option<OAuth2RefreshToken>>;
-    /// Store authorization code
-    async fn store_authorization_code(
-        &self,
-        code: &str,
-        client_id: &str,
-        redirect_uri: &str,
-        scope: &str,
-        user_id: Uuid,
-    ) -> AppResult<()>;
-    /// Get authorization code data
-    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode>;
-    /// Delete authorization code (after use)
-    async fn delete_authorization_code(&self, code: &str) -> AppResult<()>;
     /// Store `OAuth2` state for CSRF protection
     async fn store_state(&self, state: &OAuth2State) -> AppResult<()>;
     /// Consume `OAuth2` state (atomically check and mark as used)

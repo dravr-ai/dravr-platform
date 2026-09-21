@@ -1,5 +1,5 @@
-// ABOUTME: SQLite-backed OAuth2ServerRepository, emitted from the shared implementation in repositories/tokens.rs
-// ABOUTME: Every id column is TEXT and every timestamp RFC 3339 text here, so the shared statements need no engine argument
+// ABOUTME: PostgreSQL-backed OAuth2ServerRepository, emitted from the shared implementation in repositories/tokens.rs
+// ABOUTME: Every id column is TEXT and every timestamp TIMESTAMPTZ here, so the shared statements need no engine argument
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,8 +11,8 @@ use pierre_core::models::{
     OAuthClientGrant,
 };
 
+use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::encryption::HasEncryption;
-use crate::database::Database;
 use crate::repositories::tokens::{
     client_grant_from_row, device_authorization_from_row, impl_oauth2_server_repository,
     oauth2_auth_code_from_row, oauth2_client_from_row, oauth2_refresh_token_from_row,
@@ -26,4 +26,4 @@ use crate::repositories::tokens::{
 };
 use crate::repositories::OAuth2ServerRepository;
 
-impl_oauth2_server_repository!(Database);
+impl_oauth2_server_repository!(PostgresDatabase);

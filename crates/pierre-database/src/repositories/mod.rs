@@ -79,12 +79,16 @@ pub mod notifications;
 pub mod oauth;
 /// Shared statements and body for the OAuth client states minted per authorization round trip.
 pub mod oauth_client_state;
+/// Shared statements and body for password-reset tokens: issue, consume once under a lockout, invalidate, rate-limit.
+pub mod password_reset_tokens;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
 pub mod playbooks;
 /// Shared statements and body for the pre-approved email allow-list.
 pub mod pre_approved_emails;
 /// `PrescribedWorkoutRepository`: the ledger of calendar entries Dravr wrote to a provider.
 pub mod prescribed_workouts;
+/// Shared statements, row decoder and body for provider connections and their reauth lifecycle.
+pub mod provider_connections;
 /// Repository traits for recipe persistence.
 pub mod recipes;
 /// Repository trait for messaging turns the shutdown drain handed off to another instance.
@@ -114,6 +118,8 @@ pub mod sync_cursors;
 pub mod tenants;
 /// Shared statements, decoder and body for the riviere time-series store.
 pub mod time_series;
+/// Shared statements, row decoders and body for the OAuth 2.0 server (clients, codes, refresh tokens, states, grants, device codes).
+pub mod tokens;
 /// Repository traits for tool selection telemetry persistence.
 pub mod tool_selection;
 /// Shared statements and body for the daily training-state history.
@@ -126,6 +132,8 @@ pub mod usage;
 pub mod usage_counters;
 /// Repository trait, statements and shared body for user MCP tokens.
 pub mod user_mcp_tokens;
+/// Statements, row decoders and the one `OAuthTokenRepository` body for provider OAuth tokens, the Strava pool and BYO OAuth apps.
+pub mod user_oauth_tokens;
 /// Repository trait for durable per-user onboarding step completion state.
 pub mod user_onboarding;
 /// `UserPhysiologicalProfileRepository` + `DossierRepository`: physiology row and the read-time dossier composer

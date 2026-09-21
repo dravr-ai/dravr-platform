@@ -1,5 +1,5 @@
-// ABOUTME: SQLite-backed OAuthTokenRepository, emitted from the shared body in repositories/user_oauth_tokens.rs
-// ABOUTME: user_id is a TEXT column here, so the shared statements bind and read the uuid as hyphenated text
+// ABOUTME: PostgreSQL-backed OAuthTokenRepository, emitted from the shared body in repositories/user_oauth_tokens.rs
+// ABOUTME: user_id is a native uuid column here, so the shared statements bind and read it through the native codec
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,12 +7,12 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{StravaPoolApp, TenantId, UserOAuthApp, UserOAuthToken};
-use sqlx::sqlite::SqliteRow;
+use sqlx::postgres::PgRow;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::encryption::{encrypt_oauth_token, HasEncryption};
-use crate::database::Database;
 use crate::repositories::user_oauth_tokens::{
     impl_oauth_token_repository, strava_pool_app_aad, strava_pool_app_from_row,
     user_oauth_app_from_row, user_oauth_token_from_row, COUNT_SHARED_APP_SEAT_USAGE_SQL,
@@ -24,7 +24,7 @@ use crate::repositories::user_oauth_tokens::{
     REMOVE_USER_OAUTH_APP_SQL, SET_STRAVA_POOL_APP_ENABLED_SQL, STORE_USER_OAUTH_APP_SQL,
     UPDATE_PROVIDER_LAST_SYNC_SQL, UPSERT_STRAVA_POOL_APP_SQL, UPSERT_TOKEN_SQL,
 };
-use crate::repositories::uuid_columns::TextUuid;
+use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::OAuthTokenRepository;
 
-impl_oauth_token_repository!(Database, SqliteRow, TextUuid);
+impl_oauth_token_repository!(PostgresDatabase, PgRow, NativeUuid);

@@ -1,5 +1,5 @@
 // ABOUTME: Multi-tenant organization models for OAuth apps and LLM credentials
-// ABOUTME: TenantId newtype, Tenant, OAuthApp, OAuthAppParams, AuthorizationCode, and credential types
+// ABOUTME: TenantId newtype, Tenant, OAuthApp, OAuthAppParams, client grants and credential types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -329,68 +329,6 @@ impl OAuthApp {
             created_at: now,
             updated_at: now,
         }
-    }
-}
-
-/// OAuth authorization code for token exchange
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthorizationCode {
-    /// The authorization code
-    pub code: String,
-    /// Client ID that requested the code
-    pub client_id: String,
-    /// Redirect URI used in the request
-    pub redirect_uri: String,
-    /// Requested scopes
-    pub scope: String,
-    /// User ID that authorized the request
-    pub user_id: Option<Uuid>,
-    /// When the code expires
-    pub expires_at: DateTime<Utc>,
-    /// When the code was created
-    pub created_at: DateTime<Utc>,
-    /// Whether the code has been used
-    pub is_used: bool,
-}
-
-impl AuthorizationCode {
-    /// Creates a new authorization code with 10-minute expiration
-    #[must_use]
-    pub fn new(
-        code: String,
-        client_id: String,
-        redirect_uri: String,
-        scope: String,
-        user_id: Option<Uuid>,
-    ) -> Self {
-        let now = Utc::now();
-        Self {
-            code,
-            client_id,
-            redirect_uri,
-            scope,
-            user_id,
-            expires_at: now + chrono::Duration::minutes(10), // 10 minute expiration
-            created_at: now,
-            is_used: false,
-        }
-    }
-
-    /// Check if the authorization code is expired
-    #[must_use]
-    pub fn is_expired(&self) -> bool {
-        Utc::now() > self.expires_at
-    }
-
-    /// Check if the authorization code is valid for use
-    #[must_use]
-    pub fn is_valid(&self) -> bool {
-        !self.is_used && !self.is_expired()
-    }
-
-    /// Mark the authorization code as used
-    pub const fn mark_used(&mut self) {
-        self.is_used = true;
     }
 }
 

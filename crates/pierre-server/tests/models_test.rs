@@ -10,9 +10,9 @@
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, AuthorizationCode, EncryptedToken, HeartRateZone,
-    PeriodTotals, PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant,
-    TenantId, User, UserStatus, UserTier,
+    Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals,
+    PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant, TenantId, User,
+    UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use uuid::Uuid;
@@ -483,32 +483,6 @@ fn test_power_zone_creation() {
     assert_eq!(zone.min_power, 200);
     assert_eq!(zone.max_power, 250);
     assert_eq!(zone.time_in_zone, 15);
-}
-
-#[test]
-fn test_authorization_code_new() {
-    let code = AuthorizationCode::new(
-        "auth_code_123".to_owned(),
-        "client_456".to_owned(),
-        "https://redirect.uri".to_owned(),
-        "read write".to_owned(),
-        Some(Uuid::new_v4()),
-    );
-
-    assert_eq!(code.code, "auth_code_123");
-    assert_eq!(code.client_id, "client_456");
-    assert_eq!(code.redirect_uri, "https://redirect.uri");
-    assert_eq!(code.scope, "read write");
-    assert!(!code.is_used);
-
-    // Code should expire in 10 minutes
-    let now = Utc::now();
-    let expected_expiry = now + chrono::Duration::minutes(10);
-    let expiry_diff = (code.expires_at - expected_expiry).num_seconds().abs();
-    assert!(
-        expiry_diff < 5,
-        "Expiry time should be within 5 seconds of expected"
-    );
 }
 
 #[test]
