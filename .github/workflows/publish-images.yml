@@ -1,5 +1,5 @@
 # ABOUTME: Builds and publishes Docker images to the central Artifact Registry, then deploys to Cloud Run
-# ABOUTME: Triggered only after Backend CI passes on main (prevents broken deploys); v*.*.* tags trigger directly
+# ABOUTME: Builds when Backend CI starts on main and deploys only once that run is green; v*.*.* tags trigger directly
 
 name: "Deploy: Build & Ship (dev)"
 
@@ -24,10 +24,17 @@ run-name: "Deploy ${{ github.event.workflow_run.head_sha || github.sha }}"
 
 on:
   workflow_dispatch:
-  # Only publish after CI tests pass on main — prevents deploying broken code
+  # The image build starts when Backend CI STARTS on main and the deploy waits
+  # for that same CI run to go green (the await-ci job), so broken code is still
+  # never deployed. Until 2026-09-21 this fired on `completed`: the ~28-minute
+  # image build began only after the ~35-minute CI had finished, back to back,
+  # and a fix took 65 to 95 minutes from push to serving (carnet#498). Build and
+  # CI need nothing from each other; only the deploy needs CI's verdict.
+  # `requested` keeps everything else as it was: one run per Backend CI run,
+  # so the same path scoping, and `workflow_run.head_sha` is still the commit.
   workflow_run:
     workflows: ["CI: Backend (Rust)"]
-    types: [completed]
+    types: [requested]
     branches: [main]
   # Docker/infra changes and version tags trigger directly
   push:
@@ -42,9 +49,10 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read  # await-ci reads the Backend CI run that created this deploy
   security-events: write  # For Trivy SARIF upload
 
-# A push burst on main fires one workflow_run event per completed Backend CI run,
+# A push burst on main fires one workflow_run event per Backend CI run,
 # and every deploy that actually builds pulls the multi-GB registry buildcache
 # back out of Artifact Registry — billed internet egress, because the runners sit
 # outside GCP. The group below serialises those builds: one runs, at most one
@@ -60,7 +68,7 @@ permissions:
 #
 # A run that will skip every job gets a group of its own. GitHub claims the
 # concurrency group at run creation, BEFORE the job-level `if:` on resolve-sha
-# below is evaluated — so a no-op shell for a FAILED or cron-triggered CI run
+# below is evaluated — so a no-op shell for a cron- or dispatch-triggered CI run
 # would otherwise enter the deploy group and displace real work. That is what
 # happened on 2026-08-29: run 33270799943, every job skipped, cancelled run
 # 33270484029 seven minutes into building fc9f52542 with its frontend image
@@ -68,7 +76,7 @@ permissions:
 # resolve-sha gate exactly, so a run is either in the deploy group or does
 # nothing. Tags group on their own ref, so a release build never waits on main.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.conclusion != 'success' || github.event.workflow_run.event != 'push')) && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event != 'push') && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
   cancel-in-progress: false
 
 jobs:
@@ -78,15 +86,15 @@ jobs:
   resolve-sha:
     name: Resolve Commit SHA
     runs-on: ubuntu-latest
-    # Skip if triggered by a failed CI run, or by a CI run that was itself
-    # triggered by a schedule (cron) — nightly CI on main rebuilds the same
-    # commit SHA and would create a new Cloud Run revision for zero code
-    # change. Only deploy when the upstream CI was triggered by a real push.
+    # Skip a CI run that was itself triggered by a schedule (cron) or by hand —
+    # nightly CI on main rebuilds the same commit SHA and would create a new
+    # Cloud Run revision for zero code change. Only a CI run started by a real
+    # push builds; whether that run PASSES is await-ci's question, asked while
+    # the images build.
     if: >
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
+      github.event.workflow_run.event == 'push'
 
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
@@ -277,7 +285,10 @@ jobs:
           REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
           SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
 
-          SERVER_TAGS="${REGISTRY}/server:${SHORT_SHA},${REGISTRY}/server:latest"
+          # `latest` is not pushed here: the build now runs before CI has
+          # spoken, and terraform.tfvars names `server:latest`. tag-deployed-dev
+          # moves it once this image is deployed.
+          SERVER_TAGS="${REGISTRY}/server:${SHORT_SHA}"
 
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
@@ -401,7 +412,8 @@ jobs:
           REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
           SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
 
-          FRONTEND_TAGS="${REGISTRY}/frontend:${SHORT_SHA},${REGISTRY}/frontend:latest"
+          # `latest` moves in tag-deployed-dev, after the deploy (see publish-server).
+          FRONTEND_TAGS="${REGISTRY}/frontend:${SHORT_SHA}"
 
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
@@ -475,12 +487,77 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy to development (every successful CI run on main)
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Hold the deploy until the Backend CI run that created this one is green
+  #
+  # Runs beside the two image builds, so the wait costs nothing when CI is the
+  # faster of the two and only CI's remainder when it is the slower. It polls
+  # the exact run that fired the `requested` event — never "the latest run on
+  # main", which under a burst is another commit's verdict. Fail closed: a CI
+  # run that ends in anything but success, or that cannot be read for the whole
+  # window, fails this job, and deploy-dev and everything after it skip. The
+  # images of a red commit stay in the registry under their SHA tag only.
+  #
+  # A push or workflow_dispatch deploy has no CI run behind it and never had a
+  # CI gate; the step says so and passes. The job is skipped only together
+  # with the publish jobs (same `if:`), because a skipped `needs` would skip
+  # deploy-dev and every job after it.
+  # ---------------------------------------------------------------------------
+  await-ci:
+    name: Await Backend CI
+    runs-on: ubuntu-latest
+    needs: resolve-sha
+    if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
+    timeout-minutes: 100
+
+    steps:
+      - name: Wait for the CI run that created this deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if [ "$EVENT" != "workflow_run" ]; then
+            echo "This deploy was started by '${EVENT}', not by a CI run; there is no verdict to wait for."
+            exit 0
+          fi
+
+          deadline=$(( $(date +%s) + 90 * 60 ))
+          while :; do
+            # Exit status first, content second: a failed read is not a verdict.
+            if out="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}" \
+                        --jq '[.status, (.conclusion // "")] | @tsv')"; then
+              status="${out%%$'\t'*}"
+              conclusion="${out#*$'\t'}"
+              if [ "$status" = "completed" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "Backend CI run ${CI_RUN_ID} is green; the deploy may proceed."
+                  exit 0
+                fi
+                echo "::error title=Deploy refused — Backend CI is not green::${CI_RUN_URL} concluded '${conclusion}'. The images were built and keep their SHA tag; nothing was deployed."
+                exit 1
+              fi
+              echo "Backend CI run ${CI_RUN_ID}: ${status}"
+            else
+              echo "::warning::could not read Backend CI run ${CI_RUN_ID}; retrying"
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error title=Deploy refused — no CI verdict::${CI_RUN_URL} gave no verdict within 90 minutes."
+              exit 1
+            fi
+            sleep 60
+          done
+
   deploy-dev:
     name: Deploy to Development
     runs-on: ubuntu-latest
     # resolve-sha is already an ancestor through the publish jobs; it is named
     # here because `needs.<job>.outputs` reaches direct dependencies only.
-    needs: [resolve-sha, publish-server, publish-frontend]
+    # await-ci is the CI gate: no status function in the `if:` below, so a
+    # failed await-ci skips this job and every job after it.
+    needs: [resolve-sha, publish-server, publish-frontend, await-ci]
     if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     environment: development
 
@@ -549,13 +626,19 @@ jobs:
         # (infra/artifacts, release_tag_prefixes), which wins over every delete
         # rule. The tag moves on the next deploy — the superseded digest keeps
         # its SHA tag and resumes normal ageing.
+        #
+        # `latest` moves here too, not at build time: the images are built
+        # before CI has spoken, and `latest` (named by terraform.tfvars) must
+        # never point at a commit CI refused.
         run: |
           for IMAGE in \
             "${{ needs.publish-server.outputs.image }}" \
             "${{ needs.publish-frontend.outputs.image }}"; do
             PACKAGE="${IMAGE%@*}"
-            echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
-            gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+            for TAG in deployed-dev latest; do
+              echo "Tagging ${IMAGE} as ${PACKAGE}:${TAG}"
+              gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:${TAG}" --quiet
+            done
           done
 
   # ---------------------------------------------------------------------------
