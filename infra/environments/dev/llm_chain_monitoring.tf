@@ -28,21 +28,13 @@ resource "google_logging_metric" "llm_tier_rate_limited" {
   project = var.project_id
   name    = "dravr-llm-tier-rate-limited"
 
-  description = "Counts LLM runner lines on the API service whose error is a provider quota or rate limit (RateLimit, quota_exceeded, 429), one per event. Labelled by the tier named in the error, so the alert names the account that refused."
+  description = "Counts LLM runner lines on the API service whose error is a provider quota or rate limit (RateLimit, quota_exceeded, 429). Labelled by provider so the alert names the tier."
 
-  # One event, one line: inside a chain the same failure is logged twice —
-  # by the runner ("<tier>: turn failed") and by the chain ("LLM tier failed
-  # with a provider fault; falling back"), and the chain's line carries the
-  # PRIMARY's name in jsonPayload.provider (the span's), which on 2026-09-21
-  # alerted "claude-code" for a Copilot quota. The runner's own line is the
-  # one counted, and the tier is read from the error text embacle writes
-  # ("RateLimit: copilot-sdk: You have exceeded ..."), never from the span.
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"
     jsonPayload.provider!=""
     jsonPayload.error=~"(?i)quota|rate.?limit"
-    NOT jsonPayload.message:"falling back"
   EOT
 
   metric_descriptor {
@@ -53,12 +45,12 @@ resource "google_logging_metric" "llm_tier_rate_limited" {
     labels {
       key         = "provider"
       value_type  = "STRING"
-      description = "The LLM tier whose account answered with a quota or rate limit, as named in the error text"
+      description = "The LLM tier whose account answered with a quota or rate limit"
     }
   }
 
   label_extractors = {
-    "provider" = "REGEXP_EXTRACT(jsonPayload.error, \"^RateLimit: ([^:]+):\")"
+    "provider" = "EXTRACT(jsonPayload.provider)"
   }
 }
 
