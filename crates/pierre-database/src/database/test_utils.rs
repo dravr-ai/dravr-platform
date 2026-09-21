@@ -1,5 +1,5 @@
 // ABOUTME: The single factory every test uses to open a database, honouring DATABASE_URL
-// ABOUTME: PostgreSQL callers get a private clone of a migrated template database; others get in-memory SQLite
+// ABOUTME: PostgreSQL callers get a private clone of a migrated template database; others a SQLite file cloned from an image
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,8 +22,8 @@ const DEFAULT_TEST_KEY: [u8; 32] = [0u8; 32];
 
 /// Create an isolated test database instance.
 ///
-/// Uses `DATABASE_URL` when it names a `PostgreSQL` server, and in-memory
-/// `SQLite` otherwise.
+/// Uses `DATABASE_URL` when it names a `PostgreSQL` server, and a private
+/// file-backed `SQLite` database otherwise.
 ///
 /// This previously pinned `sqlite::memory:` unconditionally — the `postgresql`
 /// feature only changed the constructor signature, not the URL. `ci-postgres`
@@ -45,9 +45,9 @@ pub async fn create_test_db() -> AppResult<Database> {
 /// exercise encryption, key rotation, or a second database opened under a
 /// different key.
 ///
-/// A `SQLite` database is cloned from a serialized image of a migrated
-/// database — built once per process by the first caller — rather than by
-/// running every embedded migration again.
+/// A `SQLite` database is a temp file written from the image of a
+/// migrated database — built once per process by the first caller — rather
+/// than the product of running every embedded migration again.
 ///
 /// # Errors
 ///
@@ -186,65 +186,154 @@ fn refuse_sqlite_when_postgres_required() -> AppResult<()> {
 }
 
 mod sqlite {
-    //! Per-test in-memory `SQLite` databases cloned from a serialized image.
+    //! Per-test `SQLite` databases: a temp file copied from a migrated image.
     //!
     //! Running the embedded migrations for every factory call cost seconds
-    //! per test at test-profile optimization levels. `SQLite` exposes
-    //! `sqlite3_serialize`/`sqlite3_deserialize`, so the first call in the
-    //! process migrates one throwaway database and serializes it; every
-    //! later call deserializes those bytes into a fresh in-memory database,
-    //! re-creating the finished schema in milliseconds. The image can never
-    //! go stale within a process because the embedded migration set is fixed
-    //! per binary — the `PostgreSQL` template's fingerprint solves the same
-    //! problem across processes, which `SQLite`'s process-local bytes never
-    //! face.
+    //! per test at test-profile optimization levels. So the first call in
+    //! the process migrates one throwaway database file and reads it back;
+    //! every later call writes those bytes to a fresh file and opens a pool
+    //! on it, re-creating the finished schema in milliseconds. The image can never go stale within a process
+    //! because the embedded migration set is fixed per binary — the
+    //! `PostgreSQL` template's fingerprint solves the same problem across
+    //! processes, which `SQLite`'s process-local bytes never face.
+    //!
+    //! ## Why a file and not `sqlite3_deserialize` into memory
+    //!
+    //! The first version deserialized the image into one in-memory
+    //! connection and pinned the pool to it. An in-memory database lives and
+    //! dies with its connection, and the pool replaces a connection whose
+    //! query was cancelled mid-flight — a `tokio` task aborted while it was
+    //! writing, a `timeout` that fired inside a query. The next statement
+    //! then ran on a brand-new connection to a brand-new, empty database:
+    //! `no such table: worker_runs`, on main, twice on 2026-09-21, from a
+    //! test that aborted a periodic worker and read the ledger back. A file
+    //! survives its connections, the way the `PostgreSQL` clone does, so a
+    //! reconnect sees the same rows. `test_db_survives_cancelled_query_test`
+    //! pins it.
+    //!
+    //! Finished files are reclaimed lazily, like the `PostgreSQL` clones:
+    //! each creation first removes every file under the directory that is at
+    //! least [`STALE_AFTER`] old. The image is built on 1 KiB pages, so a
+    //! clone costs a quarter of what `SQLite`'s default page size would make
+    //! it (see [`build_image`]).
 
     use super::DEFAULT_TEST_KEY;
     use crate::backends::factory::Database;
     use crate::backends::shared;
     use crate::database::Database as SqliteDatabase;
     use pierre_core::errors::{AppError, AppResult};
-    use sqlx::sqlite::{SqliteOwnedBuf, SqlitePoolOptions};
+    use sqlx::sqlite::{
+        SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+    };
+    use sqlx::{ConnectOptions, Connection};
     use std::collections::HashMap;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, SystemTime};
     use tokio::sync::OnceCell;
+    use uuid::Uuid;
 
-    /// Serialized form of a fully migrated, otherwise empty database, built
+    /// A fully migrated, otherwise empty database file, byte for byte, built
     /// by the first factory call in the process and cloned by every later
     /// one. `tokio`'s cell rather than `std`'s because the build is async;
     /// racing first callers block on it and it runs exactly once.
     static MIGRATED_IMAGE: OnceCell<Vec<u8>> = OnceCell::const_new();
 
-    /// Open a fresh in-memory database carrying the migrated schema, wrapped
-    /// under `encryption_key`.
+    /// Age past which a test database file is presumed abandoned by a
+    /// finished (or killed) process and is removed by the next creation.
+    ///
+    /// Ten minutes: no single test lives that long, and a live test keeps
+    /// its file's modification time fresh with every commit. Even a file
+    /// removed under a live pool costs nothing until that pool reconnects,
+    /// which is the cancellation case and rare. Shorter is better here
+    /// because nothing sweeps after a process's last test — the next run's
+    /// first creation is what clears the previous run's files.
+    const STALE_AFTER: Duration = Duration::from_mins(10);
+
+    /// Open a fresh file-backed database carrying the migrated schema,
+    /// wrapped under `encryption_key`.
     pub(super) async fn create_isolated_database(encryption_key: Vec<u8>) -> AppResult<Database> {
         let image = MIGRATED_IMAGE.get_or_try_init(build_image).await?;
 
-        // Deserializing swaps the database behind ONE connection, and an
-        // in-memory database is invisible to every other connection, so the
-        // pool is pinned to that single connection and never recycles it —
-        // a recycled connection would silently swap the test's data for an
-        // empty database. Concurrent statements queue on the one connection,
-        // which is how SQLite orders concurrent writers anyway.
+        let dir = database_dir()?;
+        reclaim_stale(&dir);
+        let path = dir.join(format!("{}.sqlite", Uuid::new_v4()));
+        // Blocking, and deliberately so: the image is a few megabytes and the
+        // write is the whole cost of cloning, the same order as the
+        // deserialize it replaces; `tokio::fs` would add a thread hop for
+        // nothing.
+        fs::write(&path, image).map_err(|e| {
+            AppError::database(format!(
+                "Test DB: cannot write the schema image to {}: {e}",
+                path.display()
+            ))
+        })?;
+
+        // One connection, never recycled for age, so concurrent statements
+        // queue on it the way SQLite orders concurrent writers anyway. Unlike
+        // the in-memory version this is no longer load-bearing: a connection
+        // the pool does replace reopens the same file.
+        //
+        // The journal lives in memory and syncs are off because nothing here
+        // has to survive a crash; both make a test's writes as cheap as the
+        // in-memory database's were.
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .journal_mode(SqliteJournalMode::Memory)
+            .synchronous(SqliteSynchronous::Off);
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .idle_timeout(None)
             .max_lifetime(None)
-            .connect("sqlite::memory:")
+            .connect_with(options)
             .await
             .map_err(|e| {
-                AppError::database(format!("Test DB: cannot open in-memory SQLite: {e}"))
+                AppError::database(format!("Test DB: cannot open {}: {e}", path.display()))
             })?;
-        let staged = SqliteOwnedBuf::try_from(image.as_slice()).map_err(|e| {
-            AppError::database(format!("Test DB: cannot stage the schema image: {e}"))
-        })?;
-        let mut conn = pool.acquire().await.map_err(|e| {
-            AppError::database(format!("Test DB: cannot reach the in-memory SQLite: {e}"))
-        })?;
-        conn.deserialize(None, staged, false).await.map_err(|e| {
-            AppError::database(format!("Test DB: cannot load the schema image: {e}"))
-        })?;
-        drop(conn);
         Ok(Database::SQLite(wrap_migrated_pool(pool, encryption_key)))
+    }
+
+    /// The directory every test database file lives in, created on demand.
+    ///
+    /// Under the system temp dir rather than `target/`: a library has no
+    /// `CARGO_TARGET_TMPDIR`, and the OS already sweeps its temp dir, so a
+    /// file that outlives [`reclaim_stale`] (a process killed between
+    /// creations that no later run follows) still goes away eventually.
+    fn database_dir() -> AppResult<PathBuf> {
+        let dir = env::temp_dir().join("pierre-test-dbs");
+        fs::create_dir_all(&dir).map_err(|e| {
+            AppError::database(format!("Test DB: cannot create {}: {e}", dir.display()))
+        })?;
+        Ok(dir)
+    }
+
+    /// Remove every database file in `dir` older than [`STALE_AFTER`].
+    ///
+    /// Best effort throughout: a file another process is deleting at the
+    /// same moment, or one whose metadata cannot be read, is simply left for
+    /// the next creation. Reclamation must never fail the test that
+    /// triggered it.
+    fn reclaim_stale(dir: &Path) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let now = SystemTime::now();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "sqlite") {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age >= STALE_AFTER);
+            if stale {
+                let _ = fs::remove_file(&path);
+            }
+        }
     }
 
     /// Wrap a pool whose database already carries the fully migrated schema
@@ -264,20 +353,70 @@ mod sqlite {
         }
     }
 
-    /// Migrate one throwaway in-memory database and serialize its `main`
-    /// schema. Migrations write no encrypted data, so the throwaway's key is
+    /// Migrate one throwaway database file and read it back as the image.
+    /// Migrations write no encrypted data, so the throwaway's key is
     /// irrelevant and one image serves every caller-supplied key.
+    ///
+    /// The file is created with 1 KiB pages before the migrations run. An
+    /// empty table or index still owns a whole root page, and this schema has
+    /// several hundred of them, so the image is almost entirely page padding:
+    /// 2.7 MB at `SQLite`'s default 4 KiB, a quarter of that at 1 KiB. Every
+    /// clone pays the image in bytes written, and a full local run writes
+    /// thousands of clones. The page size has to be fixed before the first
+    /// page is written — `VACUUM` cannot change it afterwards on the
+    /// shared-cache in-memory database `sqlite::memory:` opens, and not in
+    /// WAL mode either — which is why the file is bootstrapped by hand rather
+    /// than handed to [`SqliteDatabase::new`] empty.
     async fn build_image() -> AppResult<Vec<u8>> {
-        let source = SqliteDatabase::new("sqlite::memory:", DEFAULT_TEST_KEY.to_vec()).await?;
-        let mut conn = source.pool().acquire().await.map_err(|e| {
-            AppError::database(format!("Test DB: cannot reach the image source: {e}"))
+        let path = database_dir()?.join(format!("image-{}.sqlite", Uuid::new_v4()));
+        let mut bootstrap = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .page_size(1024)
+            .connect()
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Test DB: cannot create the image source: {e}"))
+            })?;
+        // The page size is committed with the first page; an empty table's
+        // root page is that write.
+        for statement in [
+            "CREATE TABLE pierre_image_bootstrap (x)",
+            "DROP TABLE pierre_image_bootstrap",
+        ] {
+            sqlx::query(statement)
+                .execute(&mut bootstrap)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Test DB: cannot size the image source: {e}"))
+                })?;
+        }
+        bootstrap.close().await.map_err(|e| {
+            AppError::database(format!("Test DB: cannot close the image bootstrap: {e}"))
         })?;
-        let image = conn.serialize(None).await.map_err(|e| {
+
+        let url = format!("sqlite:{}", path.display());
+        let source = SqliteDatabase::new(&url, DEFAULT_TEST_KEY.to_vec()).await?;
+        // Closing the pool checkpoints and removes any WAL, so the main file
+        // holds every migrated page before it is read.
+        source.pool().close().await;
+        let image = fs::read(&path).map_err(|e| {
             AppError::database(format!(
-                "Test DB: cannot serialize the migrated schema: {e}"
+                "Test DB: cannot read the migrated image {}: {e}",
+                path.display()
             ))
         })?;
-        Ok(image.as_ref().to_vec())
+        for leftover in [path.clone(), sidecar(&path, "-wal"), sidecar(&path, "-shm")] {
+            let _ = fs::remove_file(leftover);
+        }
+        Ok(image)
+    }
+
+    /// `<path><suffix>` — the name `SQLite` gives a database's WAL and shm files.
+    fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        PathBuf::from(name)
     }
 }
 
