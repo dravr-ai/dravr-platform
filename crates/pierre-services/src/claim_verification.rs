@@ -23,10 +23,9 @@ use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::errors::AppResult;
 use pierre_evals::{
     athlete_data::AthleteRecord, check_claim, check_claim_judged, claim_extractor::ExtractedClaim,
-    evidence_retriever::EvidenceCorpus, extract_heuristic, PersonalizedContext, VerdictOutcome,
-    VerificationConfig,
+    evidence_retriever::EvidenceCorpus, extract_heuristic, ClaimJudge, PersonalizedContext,
+    VerdictOutcome, VerificationConfig,
 };
-use pierre_llm::LlmProvider;
 use pierre_memory::claims::EvidenceStrength;
 use std::slice;
 use std::sync::OnceLock;
@@ -643,7 +642,7 @@ pub async fn verify_reply_with_config_and_judge(
     agent_reply: &str,
     config: &VerificationConfig,
     corpus: &EvidenceCorpus,
-    judge: Option<&dyn LlmProvider>,
+    judge: Option<ClaimJudge<'_>>,
     athlete: Option<&PersonalizedContext<'_>>,
     athlete_record: Option<&AthleteRecord>,
 ) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {

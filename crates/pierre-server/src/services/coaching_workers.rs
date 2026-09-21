@@ -48,6 +48,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
     spawn_outcome_evaluator(
         Arc::clone(&resources.common.repos),
         resources.common.chat_provider.as_ref().map(Arc::clone),
+        Arc::clone(&resources.mcp.prompt_registry),
     );
 
     // Daily archetype aggregation: rolls per-user playbooks into k-anonymous

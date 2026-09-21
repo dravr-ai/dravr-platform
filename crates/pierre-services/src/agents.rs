@@ -211,22 +211,6 @@ pub struct RankedSelection {
     pub reason: String,
 }
 
-/// System prompt for the agent re-ranking step.
-///
-/// The model receives an athlete's training profile and a candidate list and
-/// returns the up-to-`max` best-fitting agents as a JSON array. The "reject a
-/// coach whose purpose targets a situation the athlete is not in" instruction
-/// is what stops a race-week taper agent surfacing for an athlete with no
-/// upcoming race — the exact mismatch that motivated this feature.
-pub const AGENT_RERANK_SYSTEM_PROMPT: &str = "You are a fitness coach matchmaker. \
-Given an athlete's training profile and a list of candidate agents, pick the agents that \
-best fit this athlete right now. Reject any coach whose purpose targets a situation the \
-athlete is not in (for example, a race-week taper coach when the athlete has no upcoming \
-race, or a sport the athlete does not practice). Respond with ONLY a JSON array, best fit \
-first, each item an object {\"id\": \"<coach id from the list>\", \"reason\": \"<one \
-second-person sentence explaining why this coach fits>\"}. Use only ids from the candidate \
-list and do not exceed the requested count.";
-
 /// Human-readable language name for a BCP-47 `locale` code.
 ///
 /// Used to instruct the re-rank LLM which language to write each `reason` in,

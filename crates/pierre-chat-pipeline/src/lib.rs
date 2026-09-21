@@ -341,7 +341,9 @@ fn spawn_turn_advice_capture(
     assistant_reply: &str,
     assistant_message_id: &str,
 ) {
-    let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction);
+    let strategy: Arc<dyn AdviceCaptureStrategy> = Arc::new(HeuristicGatedLlmExtraction::new(
+        Arc::clone(&ctx.prompt_registry),
+    ));
     spawn_capture_advice(
         Arc::clone(&ctx.repos.playbooks),
         ctx.chat_provider.as_ref().map(Arc::clone),

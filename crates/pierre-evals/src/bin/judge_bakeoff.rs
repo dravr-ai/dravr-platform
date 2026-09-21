@@ -25,7 +25,8 @@ use std::env;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use pierre_evals::judge::judge_claim;
+use pierre_evals::judge::{judge_claim, ClaimJudge};
+use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{http_env, ChatProvider, EmbacleProvider, LlmProvider, OpenAiCompatibleConfig};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -357,7 +358,13 @@ async fn run_candidate(
             sleep(Duration::from_millis(throttle_ms)).await;
         }
         let started = Instant::now();
-        let outcome = judge_claim(provider, &row.claim, &row.evidence_context).await;
+        // The bake-off grades models under the instructions production ships:
+        // the catalogue's `claim_judge` prompt as compiled into this build.
+        let judge = ClaimJudge {
+            provider,
+            system_prompt: CLAIM_JUDGE_PROMPT.trim(),
+        };
+        let outcome = judge_claim(judge, &row.claim, &row.evidence_context).await;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         latencies.push(latency_ms);
 

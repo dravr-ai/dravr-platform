@@ -441,6 +441,10 @@ pub trait AgentsCtx: MiddlewareCtx {
     /// Lower-level LLM provider — the fallback the proposal re-rank wraps
     /// when no dedicated `ChatProvider` is configured.
     fn llm_provider(&self) -> Option<&Arc<dyn LlmProvider>>;
+
+    /// Instructions for the proposal re-rank call — the `agent_rerank` system
+    /// prompt, resolved from the contremaitre hot-reload registry.
+    fn agent_rerank_prompt(&self) -> String;
 }
 
 /// Slice of runtime state the groups and notifications route layers need.

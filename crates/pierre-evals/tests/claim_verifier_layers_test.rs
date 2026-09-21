@@ -9,14 +9,18 @@
 
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_evals::{
     check_claim, check_claim_judged, check_reply, claim_extractor::ExtractedClaim,
-    evidence_retriever::EvidenceCorpus, find_contradiction,
+    evidence_retriever::EvidenceCorpus, find_contradiction, ClaimJudge,
 };
-use pierre_llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
+use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
+use pierre_llm::{
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
+};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
 const TEST_CORPUS: &str = r#"
@@ -44,6 +48,9 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
 struct CannedJudge {
     body: String,
     calls: AtomicUsize,
+    /// System message of the last request, so a test can assert which
+    /// instructions the judge call actually carried.
+    last_system_prompt: Mutex<Option<String>>,
 }
 
 impl CannedJudge {
@@ -51,7 +58,15 @@ impl CannedJudge {
         Self {
             body: body.to_owned(),
             calls: AtomicUsize::new(0),
+            last_system_prompt: Mutex::new(None),
         }
+    }
+
+    fn last_system_prompt(&self) -> Option<String> {
+        self.last_system_prompt
+            .lock()
+            .expect("system prompt lock")
+            .clone()
     }
 
     fn call_count(&self) -> usize {
@@ -81,8 +96,13 @@ impl LlmProvider for CannedJudge {
         &[]
     }
 
-    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        *self.last_system_prompt.lock().expect("system prompt lock") = request
+            .messages
+            .iter()
+            .find(|m| m.role == MessageRole::System)
+            .map(|m| m.content.clone());
         Ok(ChatResponse {
             content: self.body.clone(),
             model: "canned".to_owned(),
@@ -100,6 +120,15 @@ impl LlmProvider for CannedJudge {
 
     async fn health_check(&self) -> Result<bool, AppError> {
         Ok(true)
+    }
+}
+
+/// Pair a canned provider with the judge instructions production ships — the
+/// catalogue's `claim_judge` prompt as compiled into this build.
+fn claim_judge(provider: &CannedJudge) -> ClaimJudge<'_> {
+    ClaimJudge {
+        provider,
+        system_prompt: CLAIM_JUDGE_PROMPT,
     }
 }
 
@@ -249,7 +278,7 @@ async fn judge_resolves_inconclusive_claim() {
         slice::from_ref(&c),
         &corpus(),
         EvidenceStrength::Mixed,
-        Some(&judge),
+        Some(claim_judge(&judge)),
         None,
         None,
     )
@@ -277,7 +306,7 @@ async fn judge_maps_unknown_verdict_to_unverifiable() {
         slice::from_ref(&c),
         &corpus(),
         EvidenceStrength::Mixed,
-        Some(&judge),
+        Some(claim_judge(&judge)),
         None,
         None,
     )
@@ -301,7 +330,7 @@ async fn judge_does_not_fire_when_earlier_layer_resolves() {
         slice::from_ref(&c),
         &corpus(),
         EvidenceStrength::Mixed,
-        Some(&judge),
+        Some(claim_judge(&judge)),
         None,
         None,
     )
@@ -352,7 +381,7 @@ async fn check_reply_preserves_rhetoric_short_circuit() {
         &claims,
         &corpus(),
         EvidenceStrength::Mixed,
-        Some(&judge),
+        Some(claim_judge(&judge)),
         None,
         None,
     )
@@ -384,4 +413,48 @@ async fn check_reply_preserves_evidence_support() {
     .expect("pipeline runs");
     assert_eq!(verdicts[0].1.status, ClaimStatus::Supported);
     assert_eq!(verdicts[0].1.layer_fired, VerdictLayer::Evidence);
+}
+
+/// The judge answers under the instructions it was handed, not under text
+/// compiled into this crate: the prompt is catalogue content the caller
+/// resolves, so whatever string arrives must be the system message sent.
+#[tokio::test]
+async fn judge_call_carries_the_system_prompt_it_was_given() {
+    let c = claim(
+        "Beetroot juice before a 10k improves time-trial performance.",
+        ClaimCategory::Supplement,
+    );
+    let provider = CannedJudge::new(
+        r#"{"verdict":"unverifiable","confidence":0.4,"rationale":"Too vague to judge."}"#,
+    );
+    let instructions = "Judge the claim. Reply with the JSON verdict envelope only.";
+    let outcome = check_claim_judged(
+        &c,
+        slice::from_ref(&c),
+        &corpus(),
+        EvidenceStrength::Mixed,
+        Some(ClaimJudge {
+            provider: &provider,
+            system_prompt: instructions,
+        }),
+        None,
+        None,
+    )
+    .await
+    .expect("judge call succeeds");
+
+    assert_eq!(outcome.layer_fired, VerdictLayer::Judge);
+    assert_eq!(provider.last_system_prompt().as_deref(), Some(instructions));
+}
+
+/// The catalogue prompt the production judge runs under still states the
+/// verdict vocabulary the response parser maps.
+#[test]
+fn shipped_judge_prompt_names_every_verdict_the_parser_maps() {
+    for verdict in ["supported", "contradicted", "unverifiable"] {
+        assert!(
+            CLAIM_JUDGE_PROMPT.contains(verdict),
+            "claim_judge prompt no longer names the '{verdict}' verdict"
+        );
+    }
 }

@@ -47,11 +47,10 @@ use crate::claim_extractor::ExtractedClaim;
 use crate::consistency::find_contradiction;
 use crate::deterministic_bounds;
 use crate::evidence_retriever::{EvidenceCorpus, EvidenceMatch};
-use crate::judge::judge_claim;
+use crate::judge::{judge_claim, ClaimJudge};
 use crate::personalized::{check as personalized_check, PersonalizedContext};
 use crate::rhetoric_detector::{classify as classify_rhetoric, RhetoricVerdict};
 use pierre_core::errors::AppResult;
-use pierre_llm::LlmProvider;
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 
 /// The outcome of running a single claim through the detector pipeline.
@@ -141,7 +140,7 @@ pub async fn check_reply(
     claims: &[ExtractedClaim],
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
-    judge: Option<&dyn LlmProvider>,
+    judge: Option<ClaimJudge<'_>>,
     personalized: Option<&PersonalizedContext<'_>>,
     athlete_record: Option<&AthleteRecord>,
 ) -> AppResult<Vec<(ExtractedClaim, VerdictOutcome)>> {
@@ -183,7 +182,7 @@ pub async fn check_claim_judged(
     siblings: &[ExtractedClaim],
     corpus: &EvidenceCorpus,
     minimum_strength: EvidenceStrength,
-    judge: Option<&dyn LlmProvider>,
+    judge: Option<ClaimJudge<'_>>,
     personalized: Option<&PersonalizedContext<'_>>,
     athlete_record: Option<&AthleteRecord>,
 ) -> AppResult<VerdictOutcome> {
@@ -266,13 +265,13 @@ async fn run_judge_or_settle(
     claim: &ExtractedClaim,
     matches: &[EvidenceMatch],
     minimum_strength: EvidenceStrength,
-    judge: Option<&dyn LlmProvider>,
+    judge: Option<ClaimJudge<'_>>,
 ) -> AppResult<VerdictOutcome> {
-    let Some(provider) = judge else {
+    let Some(judge) = judge else {
         return Ok(inconclusive_evidence_verdict(matches, minimum_strength));
     };
     let evidence_context = evidence_context(matches);
-    let judgement = judge_claim(provider, &claim.text, &evidence_context).await?;
+    let judgement = judge_claim(judge, &claim.text, &evidence_context).await?;
     Ok(VerdictOutcome {
         status: judgement.status,
         evidence_strength: EvidenceStrength::None,

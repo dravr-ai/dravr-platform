@@ -685,13 +685,14 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
         VerdictLayer::Judge => VerdictKnob {
             layer,
             kind: "judge_prompt".to_owned(),
-            location: "crates/pierre-evals/src/judge.rs".to_owned(),
-            detail: "`judge_claim` asked the configured LLM under CLAIM_JUDGE_SYSTEM_PROMPT, \
+            location: "prompts/system/claim_judge.md".to_owned(),
+            detail:
+                "`judge_claim` asked the configured LLM under the `claim_judge` system prompt, \
                      with the retrieved propositions as its evidence block; the explanation \
                      is its rationale verbatim. The judge only runs once the pure-Rust \
                      layers were inconclusive, so a wrong call here is either the prompt or \
                      evidence the corpus lacked."
-                .to_owned(),
+                    .to_owned(),
             propositions: Vec::new(),
         },
     }

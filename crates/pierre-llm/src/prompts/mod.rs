@@ -124,6 +124,36 @@ pub const INSIGHT_GENERATION_PROMPT: &str = system::INSIGHT_GENERATION;
 /// they claim to rest on before any of them reaches an athlete.
 pub const INSIGHT_VALIDATION_PROMPT: &str = system::INSIGHT_VALIDATION;
 
+/// Conversation-summary prompt — instructs the call that condenses older turns
+/// into the compaction block the agent reads on every later turn.
+pub const CONVERSATION_SUMMARY_PROMPT: &str = system::CONVERSATION_SUMMARY;
+
+/// Agent-rerank prompt — instructs the call that ranks candidate agents
+/// against an athlete's training profile.
+///
+/// The model receives the profile and a candidate list and returns the
+/// best-fitting agents as a JSON array. The "reject a coach whose purpose
+/// targets a situation the athlete is not in" instruction is what stops a
+/// race-week taper agent surfacing for an athlete with no upcoming race — the
+/// exact mismatch that motivated the re-rank step.
+pub const AGENT_RERANK_PROMPT: &str = system::AGENT_RERANK;
+
+/// Advice-extraction prompt — instructs the call that pulls concrete,
+/// trackable advice out of a coaching exchange.
+pub const ADVICE_EXTRACTION_PROMPT: &str = system::ADVICE_EXTRACTION;
+
+/// Outcome-judge prompt — instructs the call that rules whether a
+/// recommendation worked against the athlete's observed data.
+pub const OUTCOME_JUDGE_PROMPT: &str = system::OUTCOME_JUDGE;
+
+/// Claim-judge prompt — instructs the claim-verification tiebreaker that
+/// judges a claim against sports-science consensus.
+pub const CLAIM_JUDGE_PROMPT: &str = system::CLAIM_JUDGE;
+
+/// Natural-language instructions the MCP server advertises in `initialize` —
+/// what an external agent reads as its system layer for this server.
+pub const MCP_SERVER_INSTRUCTIONS_PROMPT: &str = system::MCP_SERVER_INSTRUCTIONS;
+
 /// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
 pub const CASUAL_PERSONA_PROMPT: &str = personas::CASUAL;
 

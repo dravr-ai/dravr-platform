@@ -163,20 +163,19 @@ pub struct ClaimJudgement {
     pub rationale: String,
 }
 
-const CLAIM_JUDGE_SYSTEM_PROMPT: &str = r#"You are the final-stage fact checker in a sports-science
-verification pipeline. Earlier deterministic layers could not reach a confident verdict on the
-claim below, so you are the tiebreaker. Judge ONLY whether the claim is consistent with mainstream
-sports-science and exercise-physiology consensus.
-
-Return strict JSON of the form:
-
-{"verdict":"<supported|contradicted|unverifiable>","confidence":<0.0-1.0>,"rationale":"<one sentence>"}
-
-- "supported" — the claim aligns with well-established consensus.
-- "contradicted" — the claim conflicts with well-established consensus.
-- "unverifiable" — the claim is too vague, too speculative, or outside any consensus to judge.
-
-Be conservative: prefer "unverifiable" over guessing. Use the exact verdict strings above."#;
+/// The LLM judge a verification run may consult: the provider that answers and
+/// the instructions it answers under.
+///
+/// The instructions are the `claim_judge` system prompt. This crate sits below
+/// the prompt registry, so the caller resolves the text and hands it in; the
+/// pairing keeps a provider from ever being asked to judge without them.
+#[derive(Clone, Copy)]
+pub struct ClaimJudge<'a> {
+    /// Provider the judge call runs on.
+    pub provider: &'a dyn LlmProvider,
+    /// System prompt for the judge call.
+    pub system_prompt: &'a str,
+}
 
 /// Judge a single claim with the configured LLM provider — the bullshit
 /// detector's LLM-judge fallback.
@@ -192,7 +191,7 @@ Be conservative: prefer "unverifiable" over guessing. Use the exact verdict stri
 /// Returns the LLM call error if the judge fails or its response cannot be
 /// parsed into the expected JSON envelope.
 pub async fn judge_claim(
-    provider: &dyn LlmProvider,
+    judge: ClaimJudge<'_>,
     claim_text: &str,
     evidence_context: &str,
 ) -> AppResult<ClaimJudgement> {
@@ -206,7 +205,7 @@ pub async fn judge_claim(
     );
 
     let raw: RawClaimJudgement =
-        ask_for_json(provider, CLAIM_JUDGE_SYSTEM_PROMPT, &user_prompt, 0.1).await?;
+        ask_for_json(judge.provider, judge.system_prompt, &user_prompt, 0.1).await?;
 
     let status = match raw.verdict.trim().to_lowercase().as_str() {
         "supported" => ClaimStatus::Supported,

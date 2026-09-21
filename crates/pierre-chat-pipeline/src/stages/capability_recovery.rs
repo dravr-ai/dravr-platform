@@ -93,6 +93,12 @@ const VERIFICATION_LIMIT: u32 = 20;
 /// Stage 7g.3b in [`super::prompt_assembly`] for the live case. The turn's
 /// resolved locale directive is appended after this instead, naming the
 /// language outright.
+///
+/// Authored here rather than in the prompt catalogue because it is a statement
+/// of fact about this code path: "the activities above were just fetched
+/// successfully" is true only on the re-ask this stage builds, right after its
+/// own verification fetch succeeded. Text that hot-reloads independently of
+/// that fetch could assert a success the code did not have.
 const REASK_INSTRUCTION: &str = "Your data tools are connected and working — the activities \
      above were just fetched successfully on your behalf. Answer the athlete's last message \
      using this data. Do not claim any connection or data-access problem.";

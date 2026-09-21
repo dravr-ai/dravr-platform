@@ -1017,11 +1017,11 @@ async fn get_detail_serves_the_row_and_knob_and_is_gated() {
     assert_eq!(json["verdict"]["id"], id);
     assert_eq!(json["verdict"]["disposition"], Value::Null);
     assert_eq!(json["knob"]["kind"], "judge_prompt");
-    assert_eq!(json["knob"]["location"], "crates/pierre-evals/src/judge.rs");
+    assert_eq!(json["knob"]["location"], "prompts/system/claim_judge.md");
     assert!(json["knob"]["detail"]
         .as_str()
         .unwrap()
-        .contains("CLAIM_JUDGE_SYSTEM_PROMPT"));
+        .contains("`claim_judge` system prompt"));
 
     let err = handle_get_claim_verdict(
         State(context),
@@ -1327,7 +1327,9 @@ fn every_layer_has_a_knob_whose_location_is_a_path() {
         let knob = knob_for(&verdict, &registry);
         assert_eq!(knob.layer, layer.as_str());
         assert!(
-            knob.location.starts_with("crates/") || knob.location.starts_with("evidence/"),
+            knob.location.starts_with("crates/")
+                || knob.location.starts_with("evidence/")
+                || knob.location.starts_with("prompts/"),
             "{layer:?}: {}",
             knob.location
         );

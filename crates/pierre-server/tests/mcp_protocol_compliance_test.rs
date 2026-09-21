@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_llm::prompts::MCP_SERVER_INSTRUCTIONS_PROMPT;
 use pierre_mcp_schema::*;
 use pierre_mcp_schema::{McpError, McpRequest, McpResponse};
 use pierre_mcp_server::constants::{errors::*, protocol::JSONRPC_VERSION};
@@ -60,6 +61,13 @@ async fn test_protocol_version_negotiation() {
         Some(result) => {
             assert_eq!(result["protocolVersion"], "2025-06-18");
             assert_eq!(result["serverInfo"]["name"], "pierre-mcp-server");
+            // The instructions an external agent reads as this server's
+            // system layer are the catalogue's `mcp_server_instructions`
+            // prompt, not text compiled into the MCP host.
+            assert_eq!(
+                result["instructions"],
+                MCP_SERVER_INSTRUCTIONS_PROMPT.trim()
+            );
         }
         None => panic!("Initialize should succeed with supported version"),
     }

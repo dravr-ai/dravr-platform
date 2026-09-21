@@ -75,10 +75,10 @@ const FIXTURE_BCRYPT_COST: u32 = 4;
 /// (`PROVENANCE_ADDENDUM`, `pierre-services/src/memory_extraction.rs`).
 const EXTRACTION_MARKER: &str = "## Provenance (required)";
 /// System-prompt marker of a playbook advice-capture request
-/// (`ADVICE_EXTRACTION_PROMPT`, `pierre-services/src/advice_capture.rs`).
+/// (the catalogue's `advice_extraction` system prompt).
 const ADVICE_MARKER: &str = "You analyze a fitness coaching exchange";
 /// System-prompt marker of the Layer-5 claim judge
-/// (`CLAIM_JUDGE_SYSTEM_PROMPT`, `pierre-evals/src/judge.rs`).
+/// (the catalogue's `claim_judge` system prompt).
 const JUDGE_MARKER: &str = "You are the final-stage fact checker";
 
 /// Deterministic routing mock for the ONE shared `chat_provider` seam.

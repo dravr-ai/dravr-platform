@@ -534,8 +534,9 @@ async fn llm_rerank_selections<C: AgentsCtx>(
 
     let user_prompt =
         agents_service::build_rerank_user_prompt(profile_prompt, candidates, max, locale);
+    let rerank_prompt = ctx.agent_rerank_prompt();
     let messages = vec![
-        ChatMessage::system(agents_service::AGENT_RERANK_SYSTEM_PROMPT),
+        ChatMessage::system(rerank_prompt.trim()),
         ChatMessage::user(&user_prompt),
     ];
 

@@ -14,12 +14,14 @@ use pierre_core::models::CoachingPersona;
 use super::messaging_strings::DEFAULT_LOCALE;
 use pierre_llm::prompts::{
     get_coaching_persona_prompt, ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
-    AGENT_GENERATION_PROMPT, CASUAL_PERSONA_PROMPT, COACH_PERSONA_PROMPT,
+    ADVICE_EXTRACTION_PROMPT, AGENT_GENERATION_PROMPT, AGENT_RERANK_PROMPT, CASUAL_PERSONA_PROMPT,
+    CLAIM_JUDGE_PROMPT, COACH_PERSONA_PROMPT, CONVERSATION_SUMMARY_PROMPT,
     ENTHUSIAST_PERSONA_PROMPT, INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT,
-    MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT,
-    PLATFORM_CONTRACT_PROMPT, POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT,
-    RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT,
-    TOOL_DISCIPLINE_PROMPT, TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT,
+    MCP_SERVER_INSTRUCTIONS_PROMPT, MEMORY_EXTRACTION_PROMPT, MESSAGING_CONTEXT_PROMPT,
+    OUTCOME_JUDGE_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
+    POWER_ATHLETE_PERSONA_PROMPT, PROGRESSION_GUARDRAILS_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT,
+    RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
+    TOOL_DISCIPLINE_SHARED_PROMPT, VISUAL_BLOCKS_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -95,6 +97,37 @@ pub struct PromptRegistry {
     personas: RwLock<HashMap<String, PromptEntry>>,
 }
 
+/// Every system prompt the contremaitre manifest declares, with the content
+/// compiled into this binary. [`PromptRegistry::new`] seeds the registry from
+/// it and the lookup fallback reads it, so the two cannot list different keys.
+const COMPILED_IN_SYSTEM_PROMPTS: &[(&str, &str)] = &[
+    ("pierre_system", PIERRE_SYSTEM_PROMPT),
+    ("platform_contract", PLATFORM_CONTRACT_PROMPT),
+    ("coach_generation", AGENT_GENERATION_PROMPT),
+    ("messaging_context", MESSAGING_CONTEXT_PROMPT),
+    ("recommendation_analysis", RECOMMENDATION_ANALYSIS_PROMPT),
+    ("recommendation_system", RECOMMENDATION_SYSTEM_PROMPT),
+    ("activity_analysis", ACTIVITY_ANALYSIS_PROMPT),
+    ("activity_analysis_system", ACTIVITY_ANALYSIS_SYSTEM_PROMPT),
+    ("tool_discipline", TOOL_DISCIPLINE_PROMPT),
+    (
+        "tool_discipline_messaging",
+        TOOL_DISCIPLINE_MESSAGING_PROMPT,
+    ),
+    ("tool_discipline_shared", TOOL_DISCIPLINE_SHARED_PROMPT),
+    ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
+    ("progression_guardrails", PROGRESSION_GUARDRAILS_PROMPT),
+    ("visual_blocks", VISUAL_BLOCKS_PROMPT),
+    ("insight_generation", INSIGHT_GENERATION_PROMPT),
+    ("insight_validation", INSIGHT_VALIDATION_PROMPT),
+    ("conversation_summary", CONVERSATION_SUMMARY_PROMPT),
+    ("agent_rerank", AGENT_RERANK_PROMPT),
+    ("advice_extraction", ADVICE_EXTRACTION_PROMPT),
+    ("outcome_judge", OUTCOME_JUDGE_PROMPT),
+    ("claim_judge", CLAIM_JUDGE_PROMPT),
+    ("mcp_server_instructions", MCP_SERVER_INSTRUCTIONS_PROMPT),
+];
+
 impl PromptRegistry {
     /// Create a new registry populated with all compiled-in system prompts.
     #[must_use]
@@ -109,29 +142,7 @@ impl PromptRegistry {
         // plus a redeploy, while its siblings hot-reload in about a minute.
         // `test_new_registry_has_all_system_prompts` pins the two sets
         // together.
-        let compiled_in_prompts: &[(&str, &str)] = &[
-            ("pierre_system", PIERRE_SYSTEM_PROMPT),
-            ("platform_contract", PLATFORM_CONTRACT_PROMPT),
-            ("coach_generation", AGENT_GENERATION_PROMPT),
-            ("messaging_context", MESSAGING_CONTEXT_PROMPT),
-            ("recommendation_analysis", RECOMMENDATION_ANALYSIS_PROMPT),
-            ("recommendation_system", RECOMMENDATION_SYSTEM_PROMPT),
-            ("activity_analysis", ACTIVITY_ANALYSIS_PROMPT),
-            ("activity_analysis_system", ACTIVITY_ANALYSIS_SYSTEM_PROMPT),
-            ("tool_discipline", TOOL_DISCIPLINE_PROMPT),
-            (
-                "tool_discipline_messaging",
-                TOOL_DISCIPLINE_MESSAGING_PROMPT,
-            ),
-            ("tool_discipline_shared", TOOL_DISCIPLINE_SHARED_PROMPT),
-            ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
-            ("progression_guardrails", PROGRESSION_GUARDRAILS_PROMPT),
-            ("visual_blocks", VISUAL_BLOCKS_PROMPT),
-            ("insight_generation", INSIGHT_GENERATION_PROMPT),
-            ("insight_validation", INSIGHT_VALIDATION_PROMPT),
-        ];
-
-        for (key, content) in compiled_in_prompts {
+        for (key, content) in COMPILED_IN_SYSTEM_PROMPTS {
             let sha256 = super::manifest::compute_sha256(content.as_bytes());
             system.insert(
                 (*key).to_owned(),
@@ -271,6 +282,36 @@ impl PromptRegistry {
     /// by hand is what drifted.
     pub fn visual_blocks_prompt(&self) -> String {
         self.get_system_prompt("visual_blocks")
+    }
+
+    /// Get the instructions for the conversation-compaction summary call.
+    pub fn conversation_summary_prompt(&self) -> String {
+        self.get_system_prompt("conversation_summary")
+    }
+
+    /// Get the instructions for the agent-rerank call.
+    pub fn agent_rerank_prompt(&self) -> String {
+        self.get_system_prompt("agent_rerank")
+    }
+
+    /// Get the instructions for the advice-extraction call.
+    pub fn advice_extraction_prompt(&self) -> String {
+        self.get_system_prompt("advice_extraction")
+    }
+
+    /// Get the instructions for the recommendation outcome-judge call.
+    pub fn outcome_judge_prompt(&self) -> String {
+        self.get_system_prompt("outcome_judge")
+    }
+
+    /// Get the instructions for the claim-verification judge call.
+    pub fn claim_judge_prompt(&self) -> String {
+        self.get_system_prompt("claim_judge")
+    }
+
+    /// Get the instructions the MCP server advertises in `initialize`.
+    pub fn mcp_server_instructions_prompt(&self) -> String {
+        self.get_system_prompt("mcp_server_instructions")
     }
 
     // ── Generic accessors ──────────────────────────────────────────────
@@ -539,24 +580,10 @@ impl PromptRegistry {
 
     /// Map a system prompt key to its compiled-in `include_str!()` constant.
     fn compiled_in_fallback(key: &str) -> &'static str {
-        match key {
-            "pierre_system" => PIERRE_SYSTEM_PROMPT,
-            "coach_generation" => AGENT_GENERATION_PROMPT,
-            "messaging_context" => MESSAGING_CONTEXT_PROMPT,
-            "recommendation_analysis" => RECOMMENDATION_ANALYSIS_PROMPT,
-            "recommendation_system" => RECOMMENDATION_SYSTEM_PROMPT,
-            "activity_analysis" => ACTIVITY_ANALYSIS_PROMPT,
-            "activity_analysis_system" => ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
-            "tool_discipline" => TOOL_DISCIPLINE_PROMPT,
-            "tool_discipline_messaging" => TOOL_DISCIPLINE_MESSAGING_PROMPT,
-            "tool_discipline_shared" => TOOL_DISCIPLINE_SHARED_PROMPT,
-            "memory_extraction" => MEMORY_EXTRACTION_PROMPT,
-            "progression_guardrails" => PROGRESSION_GUARDRAILS_PROMPT,
-            "visual_blocks" => VISUAL_BLOCKS_PROMPT,
-            "insight_generation" => INSIGHT_GENERATION_PROMPT,
-            "insight_validation" => INSIGHT_VALIDATION_PROMPT,
-            _ => "",
-        }
+        COMPILED_IN_SYSTEM_PROMPTS
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map_or("", |(_, content)| content)
     }
 }
 

@@ -5,7 +5,7 @@
 #![allow(missing_docs)]
 
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use std::slice::from_ref;
 
@@ -19,6 +19,7 @@ use pierre_core::models::{AddMessageParams, Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::InsertCompactionBlockParams;
+use pierre_llm::prompts::CONVERSATION_SUMMARY_PROMPT;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
@@ -50,7 +51,12 @@ const MESSAGE_COUNT: usize = 50;
 /// `complete_stream`, `health_check`). Only `complete` is meaningful for the
 /// compactor (it calls `LlmProvider::complete` to summarize); the others return
 /// trivial values so the trait is satisfied without exercising real model I/O.
-struct StubSummarizer;
+#[derive(Default)]
+struct StubSummarizer {
+    /// System message of the last summary request, so the cycle test can
+    /// assert the call carried the catalogue's instructions.
+    seen_system_prompt: Arc<Mutex<Option<String>>>,
+}
 
 #[async_trait]
 impl LlmProvider for StubSummarizer {
@@ -75,7 +81,12 @@ impl LlmProvider for StubSummarizer {
         &[]
     }
 
-    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        *self.seen_system_prompt.lock().expect("system prompt lock") = request
+            .messages
+            .iter()
+            .find(|m| m.role == MessageRole::System)
+            .map(|m| m.content.clone());
         Ok(ChatResponse {
             content: STUB_SUMMARY.to_owned(),
             usage: Some(TokenUsage::new(1, 1, 2)),
@@ -226,12 +237,15 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         "source_ids must stay index-aligned with llm_messages"
     );
 
-    let provider = ChatProvider::Custom(Arc::new(StubSummarizer));
+    let summarizer = StubSummarizer::default();
+    let seen_system_prompt = Arc::clone(&summarizer.seen_system_prompt);
+    let provider = ChatProvider::Custom(Arc::new(summarizer));
 
     // --- Act: run the compactor over the assembled prompt. ---
     let ctx = CompactionContext {
         repo: repos.memory.as_ref(),
         provider: &provider,
+        summary_prompt: CONVERSATION_SUMMARY_PROMPT,
         tenant_id,
         conversation_id: &conversation.id,
         source_ids: &source_ids,
@@ -247,6 +261,17 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
     assert!(
         matches!(outcome, CompactionOutcome::Summarized { .. }),
         "an over-message under-token thread must summarize, got: {outcome:?}"
+    );
+
+    // --- Assert (1b): the summary call ran under the instructions it was
+    //     handed — the catalogue's `conversation_summary` prompt — rather than
+    //     under text compiled into the compactor. ---
+    assert_eq!(
+        seen_system_prompt
+            .lock()
+            .expect("system prompt lock")
+            .as_deref(),
+        Some(CONVERSATION_SUMMARY_PROMPT)
     );
 
     // How many rows a block covers, and the net shrink when they collapse into
@@ -478,11 +503,12 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
     let (mut llm_messages, source_ids) =
         build_llm_messages_with_blocks(Some(system_prompt), window, &blocks);
 
-    let provider = ChatProvider::Custom(Arc::new(StubSummarizer));
+    let provider = ChatProvider::Custom(Arc::new(StubSummarizer::default()));
     let outcome = ConversationCompactor::new(CompactionConfig::default())
         .compact_if_needed(CompactionContext {
             repo: repos.memory.as_ref(),
             provider: &provider,
+            summary_prompt: CONVERSATION_SUMMARY_PROMPT,
             tenant_id,
             conversation_id: &conversation.id,
             source_ids: &source_ids,

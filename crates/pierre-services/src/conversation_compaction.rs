@@ -287,7 +287,8 @@ impl ConversationCompactor {
             });
         };
 
-        let summary = match summarize_turns(ctx.provider, &plan.combined).await {
+        let summary = match summarize_turns(ctx.provider, ctx.summary_prompt, &plan.combined).await
+        {
             Ok(s) => s,
             Err(e) => {
                 warn!(error = %e, "Summarization failed; falling back to sliding window");
@@ -588,6 +589,10 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     pub repo: &'a R,
     /// LLM provider used to generate the summary text.
     pub provider: &'a ChatProvider,
+    /// Instructions for the summary call — the `conversation_summary` system
+    /// prompt, resolved from the prompt registry so a catalogue edit reaches
+    /// the next compaction without a deploy.
+    pub summary_prompt: &'a str,
     /// Tenant that owns the conversation.
     pub tenant_id: TenantId,
     /// Conversation being compacted.
@@ -665,18 +670,13 @@ fn history_range_for<'a>(
     })
 }
 
-const SUMMARIZER_SYSTEM_PROMPT: &str =
-    "You are a conversation summarizer for a fitness coaching assistant. \
-     Summarize the following coaching exchange in 2–4 plain-English sentences. \
-     Preserve: what the user asked, what the coach said, and any concrete plans, \
-     numbers, goals, or commitments mentioned. Omit any meta-commentary about \
-     the assistant itself — its tools, data access, capabilities, errors, or \
-     technical failures; summarize only the coaching content. Do not add new \
-     information. Output only the summary text — no headings, no markdown, no JSON.";
-
-async fn summarize_turns(provider: &ChatProvider, turns_text: &str) -> AppResult<String> {
+async fn summarize_turns(
+    provider: &ChatProvider,
+    summary_prompt: &str,
+    turns_text: &str,
+) -> AppResult<String> {
     let messages = vec![
-        ChatMessage::system(SUMMARIZER_SYSTEM_PROMPT),
+        ChatMessage::system(summary_prompt),
         ChatMessage::user(turns_text),
     ];
     // Low temperature for consistent condensation

@@ -202,11 +202,17 @@ fn test_manifest_round_trip() {
 const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "activity_analysis",
     "activity_analysis_system",
+    "advice_extraction",
+    "agent_rerank",
+    "claim_judge",
     "coach_generation",
+    "conversation_summary",
     "insight_generation",
     "insight_validation",
+    "mcp_server_instructions",
     "memory_extraction",
     "messaging_context",
+    "outcome_judge",
     "pierre_system",
     "platform_contract",
     "progression_guardrails",
@@ -217,6 +223,15 @@ const MANIFEST_SYSTEM_PROMPT_KEYS: &[&str] = &[
     "tool_discipline_shared",
     "visual_blocks",
 ];
+
+/// Coaching personas the registry seeds beside the system prompts (casual,
+/// enthusiast, power athlete, coach).
+const COMPILED_IN_PERSONAS: usize = 4;
+
+/// Entries a fresh registry holds before any sync: every manifest system
+/// prompt plus the personas. Derived, so adding a system prompt is one row in
+/// [`MANIFEST_SYSTEM_PROMPT_KEYS`] and no count to re-pin.
+const COMPILED_IN_ENTRIES: usize = MANIFEST_SYSTEM_PROMPT_KEYS.len() + COMPILED_IN_PERSONAS;
 
 #[test]
 fn test_new_registry_has_all_system_prompts() {
@@ -279,10 +294,10 @@ fn test_visual_blocks_hot_reload() {
 fn test_new_registry_all_compiled_in() {
     let registry = PromptRegistry::new();
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 16);
+    assert_eq!(stats.system_count, MANIFEST_SYSTEM_PROMPT_KEYS.len());
     assert_eq!(stats.agent_count, 0);
-    assert_eq!(stats.persona_count, 4);
-    assert_eq!(stats.compiled_in_count, 20);
+    assert_eq!(stats.persona_count, COMPILED_IN_PERSONAS);
+    assert_eq!(stats.compiled_in_count, COMPILED_IN_ENTRIES);
     assert_eq!(stats.contremaitre_count, 0);
 }
 
@@ -317,7 +332,7 @@ fn test_update_system_prompt() {
 
     let stats = registry.stats();
     assert_eq!(stats.contremaitre_count, 1);
-    assert_eq!(stats.compiled_in_count, 19);
+    assert_eq!(stats.compiled_in_count, COMPILED_IN_ENTRIES - 1);
 }
 
 #[test]
@@ -384,10 +399,10 @@ fn test_stats_counts() {
     registry.update_system_prompt("pierre_system", "override".to_owned(), "sha_o".to_owned());
 
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 16);
+    assert_eq!(stats.system_count, MANIFEST_SYSTEM_PROMPT_KEYS.len());
     assert_eq!(stats.agent_count, 3, "3 per-locale coach entries");
-    assert_eq!(stats.persona_count, 4);
-    assert_eq!(stats.compiled_in_count, 19);
+    assert_eq!(stats.persona_count, COMPILED_IN_PERSONAS);
+    assert_eq!(stats.compiled_in_count, COMPILED_IN_ENTRIES - 1);
     assert_eq!(stats.contremaitre_count, 4);
 }
 

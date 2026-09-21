@@ -184,6 +184,10 @@ impl pierre_runtime_context::AgentsCtx for ServerContext {
     fn llm_provider(&self) -> Option<&Arc<dyn pierre_llm::LlmProvider>> {
         self.common.llm_provider.as_ref()
     }
+
+    fn agent_rerank_prompt(&self) -> String {
+        self.mcp.prompt_registry.agent_rerank_prompt()
+    }
 }
 
 #[cfg(all(feature = "client-groups", feature = "client-notifications"))]

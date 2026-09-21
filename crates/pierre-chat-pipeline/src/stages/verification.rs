@@ -26,8 +26,8 @@ use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
 use pierre_evals::{
-    AthleteMetrics, ExtractedClaim, PersonalizedContext, ResolvedAction, ToleranceStrategy,
-    VerdictOutcome, VerificationConfig, VerificationFallback,
+    AthleteMetrics, ClaimJudge, ExtractedClaim, PersonalizedContext, ResolvedAction,
+    ToleranceStrategy, VerdictOutcome, VerificationConfig, VerificationFallback,
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
 
@@ -524,7 +524,13 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
         ctx.chat_provider.as_ref(),
         ctx.llm_provider.as_ref(),
     );
-    let judge: Option<&dyn LlmProvider> = judge_provider.as_deref().map(|p| p as &dyn LlmProvider);
+    // The judge's instructions are the catalogue's `claim_judge` prompt, read
+    // per turn so an edit there reaches the next verification without a deploy.
+    let judge_prompt = ctx.prompt_registry.claim_judge_prompt();
+    let judge: Option<ClaimJudge<'_>> = judge_provider.as_deref().map(|p| ClaimJudge {
+        provider: p as &dyn LlmProvider,
+        system_prompt: judge_prompt.trim(),
+    });
 
     // The personalized layer — build the athlete snapshot + tolerance strategy when the agent
     // enabled personalized verification. The snapshot owns its data so its

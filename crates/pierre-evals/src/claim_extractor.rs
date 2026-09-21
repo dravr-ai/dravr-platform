@@ -1,5 +1,5 @@
 // ABOUTME: The claim-extraction stage of the bullshit detector — decomposes an agent reply into atomic claims
-// ABOUTME: Uses pierre_llm::judge::ask_for_json when an LLM is available; static rules otherwise
+// ABOUTME: Splits on sentence boundaries and classifies each claim by keyword — pure Rust, no LLM call
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,18 +7,12 @@
 //! # Claim Extractor
 //!
 //! Given a raw agent response, returns a list of atomic propositions, each
-//! tagged with a [`ClaimCategory`]. The extractor has two modes:
+//! tagged with a [`ClaimCategory`].
 //!
-//! - **LLM-based** (`extract_with_llm`) — invokes `ask_for_json` on the
-//!   provided [`LlmProvider`] with the extraction prompt to receive a
-//!   structured list.
-//! - **Heuristic** (`extract_heuristic`) — pure-Rust fallback that splits
-//!   on sentence boundaries and category-classifies via keyword matching.
-//!   Used when extraction must run without an LLM (dev, tests, cost cap).
+//! Extraction is heuristic (`extract_heuristic`): pure Rust that splits on
+//! sentence boundaries and category-classifies via keyword matching, so it
+//! runs on every reply with no LLM call and no cost.
 
-use pierre_core::errors::AppResult;
-use pierre_llm::judge::ask_for_json;
-use pierre_llm::LlmProvider;
 use pierre_memory::ClaimCategory;
 use serde::{Deserialize, Serialize};
 
@@ -29,66 +23,6 @@ pub struct ExtractedClaim {
     pub text: String,
     /// Category assigned by the extractor.
     pub category: ClaimCategory,
-}
-
-/// JSON shape returned by the LLM extractor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ExtractionResponse {
-    claims: Vec<RawExtractedClaim>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RawExtractedClaim {
-    text: String,
-    category: String,
-}
-
-const EXTRACTION_SYSTEM_PROMPT: &str = r#"You are a claim extraction engine for a sports science
-verification pipeline. Given a coach's reply to a user, split it into atomic
-propositions and tag each with exactly one category from this set:
-
-- physiological (HR, VO2max, lactate thresholds, substrate utilization)
-- training_prescription (volume, intensity, periodization, workouts)
-- nutrition (macros, hydration, fuelling timing)
-- recovery (sleep, HRV, cold/heat therapy, active recovery)
-- supplement (ergogenic aids, dosing)
-- injury_rehab (return-to-play timelines, rehabilitation protocols)
-- athlete_data (a statement about THIS athlete's own records: what they did,
-  when, how far, how long, how much they slept — "your longest run last month
-  was 21 km", "you rode 12 km yesterday". Not general physiology: "zone 2 is
-  70% of max HR" is physiological, "your zone 2 pace is 5:30" is athlete_data.)
-
-Only extract factual claims. Discard greetings, motivation, questions, and
-imperatives without factual predicates. Return strict JSON of the form:
-
-{"claims":[{"text":"...","category":"..."}, ...]}
-
-If no claims are factual, return {"claims":[]}."#;
-
-/// Extract atomic claims from an agent reply using an LLM provider.
-///
-/// # Errors
-///
-/// Returns an error if the LLM call or JSON parse fails. Callers that need
-/// graceful degradation should fall back to [`extract_heuristic`].
-pub async fn extract_with_llm(
-    provider: &dyn LlmProvider,
-    agent_reply: &str,
-) -> AppResult<Vec<ExtractedClaim>> {
-    let response: ExtractionResponse =
-        ask_for_json(provider, EXTRACTION_SYSTEM_PROMPT, agent_reply, 0.0).await?;
-
-    Ok(response
-        .claims
-        .into_iter()
-        .filter(|raw| word_count(&raw.text) >= MIN_CLAIM_WORDS)
-        .filter_map(|raw| {
-            ClaimCategory::parse(&raw.category).map(|category| ExtractedClaim {
-                text: raw.text,
-                category,
-            })
-        })
-        .collect())
 }
 
 /// Minimum word count for a sentence to be treated as a verifiable claim.

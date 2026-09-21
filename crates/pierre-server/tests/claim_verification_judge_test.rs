@@ -18,7 +18,8 @@ use std::sync::Arc;
 
 use common::TestLlmProvider;
 use pierre_chat_pipeline::stages::verification::resolve_claim_judge;
-use pierre_evals::{EvidenceCorpus, VerificationConfig};
+use pierre_evals::{ClaimJudge, EvidenceCorpus, VerificationConfig};
+use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_memory::claims::{ClaimStatus, VerdictLayer};
 use pierre_services::claim_verification::verify_reply_with_config_and_judge;
@@ -98,7 +99,10 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
         INCONCLUSIVE_REPLY,
         &config,
         &empty_corpus,
-        Some(&judge),
+        Some(ClaimJudge {
+            provider: &judge,
+            system_prompt: CLAIM_JUDGE_PROMPT,
+        }),
         None,
         None,
     )

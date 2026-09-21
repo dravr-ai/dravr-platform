@@ -170,8 +170,7 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.
     apply_tier1_compaction(
-        &ctx.harness_config_registry,
-        ctx.repos.memory.as_ref(),
+        ctx,
         provider,
         input.conversation_tenant_id,
         &input.conversation_id,

@@ -1059,9 +1059,6 @@ fn server_capabilities() -> ServerCapabilities {
     }
 }
 
-/// Natural-language instructions advertised to MCP clients in `initialize`.
-const SERVER_INSTRUCTIONS: &str = "This server provides fitness data tools for Strava and Fitbit integration. OAuth must be configured at tenant level via REST API. Use `get_activities`, `get_athlete`, and other analytics tools to access your fitness data.";
-
 /// Build the platform's [`McpServer`] over the shared [`ToolRuntime`] façade.
 ///
 /// The rich tool registry, per-tenant filtering, quota, and protocol areas are
@@ -1086,6 +1083,15 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     let dispatcher = PierreToolDispatcher::new(resources.clone());
     let task_manager = dispatcher.task_manager().clone();
 
+    // Natural-language instructions advertised to MCP clients in `initialize`:
+    // the catalogue's `mcp_server_instructions` prompt. The engine takes them
+    // once at construction, so this is the registry's content at startup — an
+    // edit upstream reaches clients on the next start, not the next sync tick.
+    let instructions = resources
+        .mcp
+        .prompt_registry
+        .mcp_server_instructions_prompt();
+
     let server = McpServer::new(
         server_name_multitenant(),
         SERVER_VERSION,
@@ -1093,7 +1099,7 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
         state,
     )
     .with_capabilities(server_capabilities())
-    .with_instructions(SERVER_INSTRUCTIONS)
+    .with_instructions(instructions.trim())
     .with_supported_versions(supported)
     .with_allowed_origins(allowed_origins)
     .with_auth_hook(Arc::new(PierreAuthHook {

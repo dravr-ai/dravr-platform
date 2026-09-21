@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use crate::periodic::spawn_periodic;
 use chrono::Utc;
+use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::models::{SportType, TenantId};
 use pierre_database::repositories::RecordedOutcome;
 use pierre_database::RepositoryRegistry;
@@ -70,10 +71,6 @@ enum AdviceResolution {
 struct JudgeVerdict {
     verdict: String,
 }
-
-/// The LLM-judge system prompt — invoked only for ambiguous (near-threshold)
-/// cases, with a short data summary as the user message.
-const JUDGE_PROMPT: &str = "You judge whether a fitness coaching recommendation worked, given the athlete's observed data over the window. Return ONLY JSON: {\"verdict\":\"success\"|\"failure\"|\"neutral\"}. Use \"neutral\" only when the data is genuinely inconclusive. No prose.";
 
 // ---- Pure labeling helpers (unit-tested without a DB or LLM) ----
 
@@ -183,6 +180,10 @@ struct EvalCtx<'a> {
     tenant_id: TenantId,
     advice: &'a PendingAdvice,
     chat_provider: Option<&'a ChatProvider>,
+    /// Instructions for the LLM judge — the `outcome_judge` system prompt,
+    /// invoked only for ambiguous (near-threshold) cases, with a short data
+    /// summary as the user message.
+    judge_prompt: &'a str,
 }
 
 impl EvalCtx<'_> {
@@ -214,6 +215,7 @@ async fn evaluate_advice(
     advice: &PendingAdvice,
     repos: &RepositoryRegistry,
     chat_provider: Option<&ChatProvider>,
+    judge_prompt: &str,
 ) -> AdviceResolution {
     let Some((user_id, tenant_id)) = parse_advice_ids(advice) else {
         return AdviceResolution::Expire;
@@ -224,6 +226,7 @@ async fn evaluate_advice(
         tenant_id,
         advice,
         chat_provider,
+        judge_prompt,
     };
     match &advice.outcome_metric {
         OutcomeMetric::ActivityCompleted { sport, .. } => {
@@ -416,7 +419,7 @@ async fn run_judge(
     );
     match judge::ask_for_json::<JudgeVerdict>(
         provider as &dyn LlmProvider,
-        JUDGE_PROMPT,
+        ctx.judge_prompt,
         &summary,
         0.0,
     )
@@ -442,6 +445,7 @@ async fn run_judge(
 pub fn spawn_outcome_evaluator(
     repos: Arc<RepositoryRegistry>,
     chat_provider: Option<Arc<ChatProvider>>,
+    prompt_registry: Arc<PromptRegistry>,
 ) {
     let interval_secs = env::var(OUTCOME_EVAL_INTERVAL_ENV_VAR)
         .ok()
@@ -455,8 +459,11 @@ pub fn spawn_outcome_evaluator(
         move || {
             let repos = Arc::clone(&repos);
             let chat_provider = chat_provider.clone();
+            // Read per sweep, not once at spawn: the judge instructions
+            // hot-reload from the catalogue like every other system prompt.
+            let judge_prompt = prompt_registry.outcome_judge_prompt();
             async move {
-                run_one_sweep(&repos, chat_provider.as_deref()).await;
+                run_one_sweep(&repos, chat_provider.as_deref(), judge_prompt.trim()).await;
                 Ok(())
             }
         },
@@ -464,7 +471,11 @@ pub fn spawn_outcome_evaluator(
 }
 
 /// One scan-and-label sweep over the currently-due advice.
-async fn run_one_sweep(repos: &RepositoryRegistry, chat_provider: Option<&ChatProvider>) {
+async fn run_one_sweep(
+    repos: &RepositoryRegistry,
+    chat_provider: Option<&ChatProvider>,
+    judge_prompt: &str,
+) {
     let now = Utc::now().timestamp();
     let due = match repos
         .playbooks
@@ -479,7 +490,7 @@ async fn run_one_sweep(repos: &RepositoryRegistry, chat_provider: Option<&ChatPr
     };
     let mut labeled = 0_usize;
     for advice in &due {
-        if process_one_advice(advice, repos, chat_provider).await {
+        if process_one_advice(advice, repos, chat_provider, judge_prompt).await {
             labeled += 1;
         }
     }
@@ -497,8 +508,9 @@ async fn process_one_advice(
     advice: &PendingAdvice,
     repos: &RepositoryRegistry,
     chat_provider: Option<&ChatProvider>,
+    judge_prompt: &str,
 ) -> bool {
-    match evaluate_advice(advice, repos, chat_provider).await {
+    match evaluate_advice(advice, repos, chat_provider, judge_prompt).await {
         AdviceResolution::Labeled(label, source) => {
             record_and_mark(repos, advice, label, source).await
         }

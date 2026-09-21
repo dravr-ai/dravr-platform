@@ -24,6 +24,7 @@ use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::PlaybookRepository;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, LlmProvider};
@@ -97,28 +98,6 @@ const RECOMMENDATION_CUES: &[&str] = &[
     "garde",
 ];
 
-/// The compiled-in advice-extraction prompt. Asks the model to return a JSON
-/// array of structured, checkable recommendations (or `[]`).
-const ADVICE_EXTRACTION_PROMPT: &str = r#"You analyze a fitness coaching exchange and extract any CONCRETE, actionable recommendation the coach made that can later be checked against the athlete's own activity/health data.
-
-Return ONLY a JSON array (possibly empty). Each element:
-{
-  "trigger_kind": one of ["motivation_dip","hrv_drop","load_ramp","plateau","travel","pre_planned","other"],
-  "trigger_sport": optional sport slug like "run","ride","swim", or null,
-  "trigger_magnitude": one of ["low","moderate","high"],
-  "intervention_kind": one of ["easy_block","add_tempo","add_threshold","minimum_viable","reduce_volume","rest_day","comm_style_terse","comm_style_analytical","other"],
-  "intervention_magnitude": optional integer (days, or sessions/week), or null,
-  "outcome_metric": one of ["activity_completed","hrv_delta","tsb_delta","ramp_rate_within","consistency"],
-  "outcome_sport": optional sport slug for activity_completed, or null,
-  "window_days": integer 1-30 — how long until we can judge whether it worked
-}
-
-Rules:
-- Emit an element ONLY when the coach gave a SPECIFIC recommendation (do X), not general chat, questions, or data summaries.
-- outcome_metric = the most direct measurable signal of success: a suggested workout -> activity_completed; recovery advice -> hrv_delta; load/injury caution -> ramp_rate_within or tsb_delta; adherence/habit -> consistency.
-- Return [] when there is no concrete, checkable recommendation.
-- Output ONLY the JSON array, no prose, no code fence."#;
-
 /// Owned, `Clone` snapshot of a finished turn for the background capture task.
 ///
 /// `agent_slug`/`tenant_id`/`user_id` scope the resulting playbook; the two
@@ -154,8 +133,24 @@ pub trait AdviceCaptureStrategy: Send + Sync {
 ///
 /// Catches advice the model did not self-tag while spending tokens only on
 /// turns that look like recommendations.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct HeuristicGatedLlmExtraction;
+///
+/// Holds the prompt registry rather than the prompt text: the extraction
+/// instructions are the `advice_extraction` system prompt, read on every
+/// capture so a catalogue edit reaches the next turn without a deploy.
+#[derive(Clone)]
+pub struct HeuristicGatedLlmExtraction {
+    /// Shared with every other prompt reader in the process; the registry is
+    /// mutated in place by the contremaitre sync.
+    prompt_registry: Arc<PromptRegistry>,
+}
+
+impl HeuristicGatedLlmExtraction {
+    /// Build the strategy over the process-wide prompt registry.
+    #[must_use]
+    pub const fn new(prompt_registry: Arc<PromptRegistry>) -> Self {
+        Self { prompt_registry }
+    }
+}
 
 /// Raw advice shape returned by the extraction LLM (all stringly-typed; mapped
 /// to the domain enums via `parse_lenient`).
@@ -290,7 +285,8 @@ impl AdviceCaptureStrategy for HeuristicGatedLlmExtraction {
             debug!("advice capture: reply not recommendation-like; gate skipped LLM");
             return Vec::new();
         }
-        let raw = match run_advice_extraction(provider, turn).await {
+        let extraction_prompt = self.prompt_registry.advice_extraction_prompt();
+        let raw = match run_advice_extraction(provider, extraction_prompt.trim(), turn).await {
             Ok(v) => v,
             Err(e) => {
                 warn!(error = %e, "advice extraction LLM call failed; capturing nothing");
@@ -307,6 +303,7 @@ impl AdviceCaptureStrategy for HeuristicGatedLlmExtraction {
 /// Call the extraction LLM and parse its response into raw advice records.
 async fn run_advice_extraction(
     provider: &ChatProvider,
+    extraction_prompt: &str,
     turn: &CapturedTurn,
 ) -> Result<Vec<RawAdvice>, AppError> {
     let user_payload = format!(
@@ -314,7 +311,7 @@ async fn run_advice_extraction(
         turn.user_message, turn.assistant_reply
     );
     let request = ChatRequest::new(vec![
-        ChatMessage::system(ADVICE_EXTRACTION_PROMPT),
+        ChatMessage::system(extraction_prompt),
         ChatMessage::user(&user_payload),
     ])
     .with_temperature(0.1);
