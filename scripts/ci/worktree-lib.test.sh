@@ -75,6 +75,42 @@ expect "last_branch_file lives in the main worktree, wherever it is called from"
   "$(run_in "$feature" last_branch_file)" \
   "$resolved_main/.claude/skills/.last-feature-branch"
 
+# Ownership stamps: written into the worktree's own git-dir, read back by
+# field, absent when nothing claimed the tree, and owned by whoever ran
+# claim_worktree last.
+expect "worktree_owner is empty on an unstamped worktree" \
+  "$(run_in "$main" worktree_owner "$feature" name)" ""
+
+( cd "$main" && . "$UNDER_TEST" && \
+  CLAUDE_CODE_SESSION_ID=0123456789abcdef CLAUDE_PID=none claim_worktree "$feature" )
+stamp="$resolved_main/.git/worktrees/$(basename "$feature")/claude-session"
+if [ -f "$stamp" ]; then pass "claim_worktree writes the stamp into the linked worktree's git-dir"; else
+  fail "claim_worktree writes the stamp into the linked worktree's git-dir"; fi
+if git -C "$feature" status --porcelain | grep -q .; then
+  fail "claim_worktree leaves the working tree clean"; else pass "claim_worktree leaves the working tree clean"; fi
+
+expect "worktree_owner reads the session id back" \
+  "$(run_in "$main" worktree_owner "$feature" session_id)" "0123456789abcdef"
+expect "the name falls back to the id prefix when no session file names it" \
+  "$(run_in "$main" worktree_owner "$feature" name)" "01234567"
+expect "worktree_owner defaults to the name field" \
+  "$(run_in "$feature" worktree_owner "$feature")" "01234567"
+
+( cd "$feature" && . "$UNDER_TEST" && \
+  CLAUDE_CODE_SESSION_ID=fedcba9876543210 CLAUDE_PID=none claim_worktree )
+expect "re-claiming from inside the worktree moves ownership" \
+  "$(run_in "$main" worktree_owner "$feature" session_id)" "fedcba9876543210"
+
+( cd "$main" && . "$UNDER_TEST" && CLAUDE_CODE_SESSION_ID= CLAUDE_PID= claim_worktree "$main" )
+expect "outside Claude Code the stamp names the shell user" \
+  "$(run_in "$main" worktree_owner "$main" name)" "${USER:-shell}"
+expect "outside Claude Code the session id reads as shell" \
+  "$(run_in "$main" worktree_owner "$main" session_id)" "shell"
+
+git -C "$main" worktree remove --force "$feature"
+if [ -f "$stamp" ]; then fail "git worktree remove takes the stamp with it"; else
+  pass "git worktree remove takes the stamp with it"; fi
+
 rm -rf "$root"
 
 echo ""

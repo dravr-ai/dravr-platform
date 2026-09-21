@@ -51,6 +51,11 @@ if [[ ! -x "$WORKTREE_PATH/.build/hooks/commit-msg" ]]; then
     exit 1
 fi
 
+# Stamp the worktree as this session's, so the status line and bin/worktrees.sh
+# can say whose tree it is. The stamp sits in the worktree's git-dir, never in
+# the working tree.
+claim_worktree "$WORKTREE_PATH"
+
 # Copy environment files
 echo "Copying environment files..."
 cp "$MAIN_WORKTREE/.envrc" "$WORKTREE_PATH/.envrc"
