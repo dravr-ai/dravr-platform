@@ -183,10 +183,12 @@ locals {
     "roles/cloudtasks.queueAdmin",
     # Manage the DNS authorizations, Google-managed certificates and the
     # certificate map the frontend_domain module attaches to its HTTPS proxy.
-    # The load balancer's compute resources (serverless NEG, backend service,
-    # URL maps, proxies, global addresses, forwarding rules) are already
-    # covered by compute.networkAdmin above.
     "roles/certificatemanager.editor",
+    # The load balancer's compute resources. compute.networkAdmin covers the
+    # URL maps, proxies, global addresses and forwarding rules, but NOT the
+    # serverless NEG: the first apply (run 35646635471) created everything up
+    # to it and then 403'd on compute.regionNetworkEndpointGroups.create.
+    "roles/compute.loadBalancerAdmin",
   ]
 }
 
