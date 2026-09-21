@@ -47,4 +47,21 @@
 #    app.dravr.ai (with the run.app hosts kept for the dual-origin window);
 #    that list gates the Google sign-in popup, and it has no API either.
 #
+# 3. PROVIDER OAUTH PORTALS - CALLBACK DOMAIN
+#    ────────────────────────────────────────
+#    frontend_base_url is the base of every provider callback:
+#    https://<frontend_base_url>/api/oauth/callback/<provider>. Each provider
+#    portal pins that host by hand, and none of them has an API for it.
+#
+#    Strava — https://www.strava.com/settings/api, application 20347:
+#      "Authorization Callback Domain" = app.dravr.ai
+#    Strava accepts ONE domain, so the run.app host stops authorizing the
+#    moment it changes; tokens already issued keep refreshing, because the
+#    domain is checked at authorize time only.
+#
+#    Missed on 2026-09-21: frontend_base_url moved at 20:15Z, the portal did
+#    not, and every Strava connect from then on came back
+#    {"field":"redirect_uri","code":"invalid"} — a JSON page on strava.com,
+#    nothing in our logs beyond "OAuth authorize redirect issued".
+#
 # =============================================================================
