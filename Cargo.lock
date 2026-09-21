@@ -1709,9 +1709,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.28.1"
+version = "0.28.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "185713e79eec4e7d5d3f49558eb6ee629fc47f9ddcd0c364b47f45db4494f553"
+checksum = "ce768e8eece18137aeb1a612edee016766241e9273470a33eacc380e623353cd"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1731,9 +1731,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.28.1"
+version = "0.28.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7997298708f26fd6670c4ecc5e0c412d7ce86fc020f39899df78943f23bd86c8"
+checksum = "127ff30133741305786973d91008c3a801580ac7db5a30f925f72ad823242861"
 dependencies = [
  "async-trait",
  "axum",
