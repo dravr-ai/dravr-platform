@@ -40,7 +40,7 @@ dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git
 
 # Health provider sync. default-features off so pierre-enforme's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.1.57", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.57", default-features = false }
+dravr-enforme = { version = "0.1.58", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.58", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.8" }
