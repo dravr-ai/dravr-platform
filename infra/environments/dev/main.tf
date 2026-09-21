@@ -289,40 +289,28 @@ module "backend" {
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI).
-      # Primary = claude-opus-4.8 (high-reasoning Opus variant, not the -fast SKU).
-      # Fallback model = claude-sonnet-5 in case Opus is unavailable or rate-limited
-      # (intra-provider model fallback, same Copilot session).
-      # Runtime fallback chain = cross-provider failover to Cohere (Command A,
-      # paid, 10k rpm chat via COHERE_API_KEY) when Copilot itself returns a
-      # retryable error (auth, 5xx, transient, throttle). Built by
-      # ChatProvider::Chain in crates/pierre-llm/src/provider.rs and gated on
-      # PIERRE_LLM_RUNTIME_FALLBACK=true. Without this, a Copilot session token
-      # refresh failure (e.g. transient GitHub rate-limit during the
-      # api.github.com/copilot_internal token exchange) would surface as a
-      # user-facing "Dravr temporairement indisponible". Switched off claude_code
-      # on 2026-05-13: the direct Anthropic subscription burned through Opus
-      # credits during every Copilot blip with no spend cap. Cohere's paid
-      # production rate limit keeps the first fallback tier answering under load.
-      # Provider health transitions still fire `llm.provider_unhealthy`
-      # notify events for operator awareness, and the chat route returns 503
-      # with retry-after when LlmHealthState reports Unhealthy.
-      # Entitlement verified 2026-04-16 against the dev PAT (Copilot side).
+      # LLM provider chain, as it runs today (JF, 2026-09-21): claude_code
+      # primary, Gemini as the runtime fallback, nothing else.
       #
-      # Tertiary = Gemini (Google free tier via GEMINI_API_KEY). Last-resort
-      # tier (Copilot -> Cohere -> Gemini): the free tier 429s under sustained
-      # load, so it sits behind the paid Cohere fallback and only catches
-      # requests when both Copilot and Cohere return a retryable error.
-      # PIERRE_LLM_TERTIARY_PROVIDER turns the secondary into a nested
-      # Chain{Cohere, Gemini}, so retry classification cascades the same way
-      # at each tier.
-      # claude_code since 2026-09-21 (incident): the jfarcand Copilot account
-      # ran out of monthly premium requests, every copilot_sdk turn answered
-      # quota_exceeded, and the messaging path surfaced it to athletes as
-      # "temporairement indisponible" instead of falling through the chain.
-      # The Claude Code CLI in the image runs on CLAUDE_CODE_OAUTH_TOKEN and
-      # serves claude-sonnet-5 directly. copilot_sdk (carnet#473) returns as the
-      # chat provider once the Copilot quota is restored.
+      # Primary = the Claude Code CLI in the image on CLAUDE_CODE_OAUTH_TOKEN,
+      # serving claude-sonnet-5. It is the primary until the jfarcand Copilot
+      # account's monthly premium quota resets: on 2026-09-21 every copilot_sdk
+      # turn answered quota_exceeded and the athlete saw "temporairement
+      # indisponible" (carnet#478). This is the direct Anthropic subscription —
+      # the one switched off on 2026-05-13 for burning Opus credits during
+      # Copilot blips with no spend cap — so it runs Sonnet, and it is a
+      # month-end arrangement, not the resting state.
+      #
+      # Runtime fallback = Gemini (Google free tier via GEMINI_API_KEY),
+      # gated on PIERRE_LLM_RUNTIME_FALLBACK=true and built by embacle's
+      # FallbackProvider (crates/pierre-llm/src/embacle_provider.rs). Cohere is
+      # out of the chain: it answered "nothing deliverable" on the day it was
+      # needed and JF's verdict is that it never worked.
+      #
+      # copilot_sdk comes back as the second tier (claude_code -> copilot_sdk
+      # -> gemini) once carnet#478 lands: today embacle's chain does not fall
+      # through on a tier's RateLimit, so a quota-exhausted Copilot in the
+      # middle of the chain would end the turn instead of reaching Gemini.
       PIERRE_LLM_PROVIDER = "claude_code"
       # Coaching model. Sonnet, not Opus: the coaching bench found raters could
       # not distinguish Opus output and it tied last on quality, while Opus is
@@ -336,10 +324,8 @@ module "backend" {
       PIERRE_LLM_DEFAULT_MODEL           = "claude-sonnet-5"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "cohere"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "command-a-03-2025"
-      PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
-      PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
       # Route Copilot-headless tool turns through native MCP tool calling: the
       # server hands Copilot an HTTP MCP server pointing at its own /mcp endpoint
@@ -621,7 +607,6 @@ module "backend" {
     WHOOP_CLIENT_SECRET     = module.secrets.secret_ids["whoop_client_secret"]
     USDA_API_KEY            = module.secrets.secret_ids["usda_api_key"]
     GEMINI_API_KEY          = module.secrets.secret_ids["gemini_api_key"]
-    COHERE_API_KEY          = module.secrets.secret_ids["cohere_api_key"]
     COPILOT_GITHUB_TOKEN    = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN = module.secrets.secret_ids["claude_code_oauth_token"]
     OPENWEATHER_API_KEY     = module.secrets.secret_ids["openweather_api_key"]
