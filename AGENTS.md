@@ -232,6 +232,16 @@ act on. For CI on your own commit, ask for that sha by name.
   an issue labelled `limitation` that a `LIMITATION(registre#n)` marker in source names is a
   register entry, not deferred work, and is reported as a note instead of capping. Both halves are
   required — a label alone still caps, so this is not a way to relabel a bug out of the score.
+- **A loop ends at bilan 10, or at a blocker named to ChefFamille — never at a filed issue.**
+  *Blocked* means a credential the session does not hold, an issue a live peer holds, an
+  external dependency, or a product decision only ChefFamille makes; size, the hour, and "not in
+  the issues the prompt named" are not blockers. **Residue the work itself surfaces is in scope
+  by default** — a gate you extend, a rename you make visible, a bug a converted pair exposes —
+  and the session that found it converts or fixes it before it wraps up. **Run bilan before
+  writing the summary, not after:** if it prints less than 10, the cap it names is the next
+  action, and the summary waits. (2026-09-19: a session extended the pairs gate, saw the seven
+  pairs it newly revealed, filed them at 23:15 as "outside the two named issues", and stopped at
+  6 — every one of those was work it could do.)
 - **Background tasks and subagents still running cap at 7.** They leave no trace in git, the
   ledger or CI, and closing the session loses them. Session-scoped: your terminal, your tasks.
 - **`--cheap` and the full run give the same number** — the only difference is whether the CI
