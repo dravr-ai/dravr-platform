@@ -54,6 +54,15 @@ run_in() { # $1 = dir, $2 = function to call, $3... = args
   ( cd "$dir" && . "$UNDER_TEST" && "$@" )
 }
 
+# claim_worktree as a given session: $1 = dir to stand in, $2 = session id
+# ('' for outside Claude Code), $3... = claim_worktree's args.
+claim_as() {
+  local dir="$1" sid="$2"
+  shift 2
+  # shellcheck source=../../.claude/skills/lib/worktree.sh
+  ( cd "$dir" && . "$UNDER_TEST" && CLAUDE_CODE_SESSION_ID="$sid" CLAUDE_PID='' claim_worktree "$@" )
+}
+
 expect "main_worktree_root from the main worktree" \
   "$(run_in "$main" main_worktree_root)" "$resolved_main"
 expect "main_worktree_root from a feature worktree still names main" \
@@ -81,8 +90,7 @@ expect "last_branch_file lives in the main worktree, wherever it is called from"
 expect "worktree_owner is empty on an unstamped worktree" \
   "$(run_in "$main" worktree_owner "$feature" name)" ""
 
-( cd "$main" && . "$UNDER_TEST" && \
-  CLAUDE_CODE_SESSION_ID=0123456789abcdef CLAUDE_PID=none claim_worktree "$feature" )
+claim_as "$main" 0123456789abcdef "$feature"
 stamp="$resolved_main/.git/worktrees/$(basename "$feature")/claude-session"
 if [ -f "$stamp" ]; then pass "claim_worktree writes the stamp into the linked worktree's git-dir"; else
   fail "claim_worktree writes the stamp into the linked worktree's git-dir"; fi
@@ -96,12 +104,11 @@ expect "the name falls back to the id prefix when no session file names it" \
 expect "worktree_owner defaults to the name field" \
   "$(run_in "$feature" worktree_owner "$feature")" "01234567"
 
-( cd "$feature" && . "$UNDER_TEST" && \
-  CLAUDE_CODE_SESSION_ID=fedcba9876543210 CLAUDE_PID=none claim_worktree )
+claim_as "$feature" fedcba9876543210
 expect "re-claiming from inside the worktree moves ownership" \
   "$(run_in "$main" worktree_owner "$feature" session_id)" "fedcba9876543210"
 
-( cd "$main" && . "$UNDER_TEST" && CLAUDE_CODE_SESSION_ID= CLAUDE_PID= claim_worktree "$main" )
+claim_as "$main" '' "$main"
 expect "outside Claude Code the stamp names the shell user" \
   "$(run_in "$main" worktree_owner "$main" name)" "${USER:-shell}"
 expect "outside Claude Code the session id reads as shell" \

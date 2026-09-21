@@ -183,6 +183,38 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -x "$PROJECT_ROOT/scripts/ci/check-
 fi
 
 # ============================================================================
+# TIER 0c: Shell Lint (compile-free)
+# ============================================================================
+# ci-backend's fast-gate runs `shellcheck -S warning` over the dev-stack
+# scripts and every scripts/ci/*.test.sh, so a warning in one of them reds
+# main ~30 s after the push and nothing here had looked. This is the same
+# call over the same set, restricted to the files the push changed; it fails
+# closed when shellcheck is absent rather than reading as clean, because a
+# scan that ran nothing is not a pass. The pattern set below mirrors the
+# workflow step in .github/workflows/ci-backend.yml — extend both together.
+SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$'
+SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
+SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do [[ -f "$PROJECT_ROOT/$f" ]] && echo "$f"; done)
+if [[ -n "$SHELL_LINT_FILES" ]]; then
+    echo "Tier 0c: Shell Lint"
+    echo "-------------------"
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        echo "FAIL: shellcheck is not installed and the push changes shell scripts CI lints:"
+        echo "$SHELL_LINT_FILES" | sed 's/^/  /'
+        echo "  Install it (brew install shellcheck) — the fast-gate would red main on the first warning."
+        exit 1
+    fi
+    # shellcheck disable=SC2086 -- the list is newline-separated paths without spaces
+    if ! (cd "$PROJECT_ROOT" && shellcheck -S warning $SHELL_LINT_FILES); then
+        echo ""
+        echo "FAIL: shellcheck warnings in changed shell scripts (the fast-gate runs the same call)."
+        exit 1
+    fi
+    echo "  ✅ shellcheck clean on $(echo "$SHELL_LINT_FILES" | wc -l | tr -d ' ') changed script(s)"
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1: Architectural Validation
 # ============================================================================
 if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/architectural-validation.sh" ]]; then
