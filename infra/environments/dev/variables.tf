@@ -227,6 +227,12 @@ variable "frontend_base_url" {
   default     = ""
 }
 
+variable "frontend_previous_origins" {
+  description = "Origins the frontend was served from before the current frontend_base_url, still accepted for the dual-origin window: joined into MCP_ALLOWED_ORIGINS and set as ALLOWED_MOBILE_REDIRECT_ORIGINS. Empty it once every client and provider callback is on frontend_base_url."
+  type        = list(string)
+  default     = []
+}
+
 variable "backend_cpu" {
   description = "CPU allocation for backend instances. 2 vCPU: the headless-Chrome sciotte scrape (Garmin + token-less Strava) is CPU-hungry and a turn on 1 vCPU risks starving it into a tool-loop timeout. Async-boot fixed the boot-path blocker, so cpu=1 is unblocked there, but stays deferred pending a Chrome-scrape load-test. See terraform.tfvars."
   type        = string

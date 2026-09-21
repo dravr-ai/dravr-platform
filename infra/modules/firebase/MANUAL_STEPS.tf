@@ -27,15 +27,21 @@
 #    and clientauthconfig API were all tested — none support this operation.
 #    This is a known limitation in the Google Cloud platform.
 #
-# 2. CURRENT VALUES (dev environment, as of 2026-03-15)
+# 2. CURRENT VALUES (dev environment, as of 2026-09-21)
 #    ───────────────────────────────────────────────────
 #    OAuth Client ID: 629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com
 #    Authorized JS Origins:
+#      - https://app.dravr.ai                                  ← frontend_base_url since 2026-09-21
 #      - https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app
 #      - https://dravr-mcp-server-frontend-865150413606.northamerica-northeast1.run.app
 #    Authorized Redirect URIs:
 #      - https://dravr-dev-8d4a3.firebaseapp.com/__/auth/handler  ← popup flow redirect
+#      - https://app.dravr.ai/__/auth/handler
 #      - https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/__/auth/handler
 #      - https://dravr-mcp-server-frontend-865150413606.northamerica-northeast1.run.app/__/auth/handler
+#
+#    Firebase Authentication → Settings → Authorized domains must also list
+#    app.dravr.ai (with the run.app hosts kept for the dual-origin window);
+#    that list gates the Google sign-in popup, and it has no API either.
 #
 # =============================================================================

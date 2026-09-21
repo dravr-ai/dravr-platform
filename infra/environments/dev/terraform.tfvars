@@ -13,8 +13,18 @@ enable_database = true
 enable_cache    = true
 enable_frontend = true
 
-# Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
-frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
+# Frontend public URL (nginx proxies API traffic to backend; used for OAuth
+# callbacks and as the OAuth issuer). Moved from the run.app hostname on
+# 2026-09-21 once app.dravr.ai served with an ACTIVE certificate; every
+# provider portal registers https://app.dravr.ai/api/oauth/callback/<provider>.
+frontend_base_url = "https://app.dravr.ai"
+
+# The run.app origin stays accepted for the dual-origin window: mobile builds
+# in the field still point EXPO_PUBLIC_API_URL at it (frontend-mobile/eas.json)
+# and it keeps serving beside the load balancer. Empty this list — Phase 5 of
+# the plan in dravr-vault, Work Log 2026-09-21 — once a mobile release on
+# app.dravr.ai has shipped, two weeks or one release, whichever is later.
+frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"]
 
 # First-party hostnames on a global external load balancer in front of the
 # frontend service. app.dravr.ai is the address provider OAuth applications
@@ -22,9 +32,7 @@ frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 # the MCP server through the AI chats and is NOT to be listed anywhere until
 # registre#484 (host-aware protected-resource metadata) lands. Both hostnames
 # share one load balancer, one IP pair and one bundle of forwarding rules, so
-# the second costs nothing. frontend_base_url still names the run.app host:
-# it moves to https://app.dravr.ai only once the certificates are ACTIVE and
-# the DNS records resolve (the plan is in dravr-vault, Work Log 2026-09-21).
+# the second costs nothing.
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 
 # 2 vCPU. Two SEPARATE reasons historically pinned this: (a) the contremaitre

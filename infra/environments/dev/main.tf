@@ -263,11 +263,16 @@ module "backend" {
       # SPA only displays the URL for stdio clients to copy), and native/CLI MCP
       # clients send no Origin at all, so they are unaffected. This rejects a
       # browser origin other than our own with 403 before authentication.
-      MCP_ALLOWED_ORIGINS = var.frontend_base_url
+      MCP_ALLOWED_ORIGINS = join(",", concat([var.frontend_base_url], var.frontend_previous_origins))
 
       # Public URL for OAuth callbacks (frontend URL, since nginx proxies to backend)
       FRONTEND_URL = var.frontend_base_url
       BASE_URL     = var.frontend_base_url
+
+      # A mobile OAuth return to a previous frontend origin is still accepted
+      # while a build pointing at it is in the field; base_url itself is
+      # always allowed. Empty when frontend_previous_origins is.
+      ALLOWED_MOBILE_REDIRECT_ORIGINS = join(",", var.frontend_previous_origins)
 
       # Messaging turns run as Cloud Tasks requests (carnet#126, turn_queue.tf):
       # the runner enqueues each turn and Cloud Tasks delivers it to the

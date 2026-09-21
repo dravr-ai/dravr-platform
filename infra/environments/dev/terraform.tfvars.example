@@ -67,6 +67,8 @@ artifacts_project_id = "dravr-artifacts"
 # the frontend service (each gets a Google-managed certificate). Empty = the
 # run.app hostname only.
 # public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
+# Previous frontend origins still accepted during a hostname move (empty once done).
+# frontend_previous_origins = []
 
 # -----------------------------------------------------------------------------
 # Labels
