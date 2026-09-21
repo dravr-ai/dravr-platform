@@ -69,6 +69,13 @@ pub struct LlmHealthSnapshot {
     /// Provider name from `PIERRE_LLM_PROVIDER` at boot, or `None` when
     /// the probe has not yet run.
     pub provider: Option<String>,
+    /// The tier that answered the probe's round-trip, as that runner names
+    /// itself in its response (`claude-code`, `gemini`, or the served model
+    /// id for the Copilot SDK runner). The chain reports healthy as long as
+    /// any tier answers, so without this field a broken primary served by a
+    /// later tier reads as healthy — which hid a signed-out Claude for five
+    /// hours on 2026-09-21. `None` when the probe failed or has not run.
+    pub served_by: Option<String>,
     /// First-line error reason when `status == Unhealthy`; `None` otherwise.
     pub error: Option<String>,
     /// Timestamp of the last probe result, or `None` before the first probe.
@@ -80,6 +87,7 @@ impl Default for LlmHealthSnapshot {
         Self {
             status: LlmHealthStatus::Unknown,
             provider: None,
+            served_by: None,
             error: None,
             checked_at: None,
         }
@@ -144,7 +152,20 @@ impl LlmHealthState {
     /// can detect transitions and log accordingly (e.g. emit `error!` on
     /// `Healthy -> Unhealthy` so the tronc Slack layer pages).
     pub async fn record_healthy(&self, provider: impl Into<String>) -> LlmHealthStatus {
-        self.set_healthy(provider.into(), chrono::Utc::now()).await
+        self.set_healthy(provider.into(), None, chrono::Utc::now())
+            .await
+    }
+
+    /// Record a successful probe round-trip together with the tier that
+    /// answered it (see [`LlmHealthSnapshot::served_by`]). Returns the
+    /// previous status so callers can detect transitions.
+    pub async fn record_healthy_served(
+        &self,
+        provider: impl Into<String>,
+        served_by: impl Into<String>,
+    ) -> LlmHealthStatus {
+        self.set_healthy(provider.into(), Some(served_by.into()), chrono::Utc::now())
+            .await
     }
 
     /// Record health inferred from a real chat turn that succeeded
@@ -164,7 +185,7 @@ impl LlmHealthState {
     ) -> LlmHealthStatus {
         let ago = chrono::Duration::from_std(observed_ago).unwrap_or_default();
         let checked_at = chrono::Utc::now() - ago;
-        self.set_healthy(provider.into(), checked_at).await
+        self.set_healthy(provider.into(), None, checked_at).await
     }
 
     /// Shared healthy-snapshot write for [`Self::record_healthy`] and
@@ -172,6 +193,7 @@ impl LlmHealthState {
     async fn set_healthy(
         &self,
         provider: String,
+        served_by: Option<String>,
         checked_at: chrono::DateTime<chrono::Utc>,
     ) -> LlmHealthStatus {
         let mut guard = self.inner.write().await;
@@ -179,6 +201,7 @@ impl LlmHealthState {
         *guard = LlmHealthSnapshot {
             status: LlmHealthStatus::Healthy,
             provider: Some(provider),
+            served_by,
             error: None,
             checked_at: Some(checked_at),
         };
@@ -201,6 +224,7 @@ impl LlmHealthState {
         *guard = LlmHealthSnapshot {
             status: LlmHealthStatus::Unhealthy,
             provider: Some(provider),
+            served_by: None,
             error: Some(first_line),
             checked_at: Some(chrono::Utc::now()),
         };

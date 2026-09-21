@@ -68,3 +68,24 @@ fn note_success_is_idempotent_and_advances_the_clock_forward() {
         "the most recent success should reset the elapsed window, got {after_second:?}"
     );
 }
+
+#[tokio::test]
+async fn a_served_probe_names_the_tier_that_answered() {
+    // The chain reports healthy as long as any tier answers, so the
+    // snapshot carries who did: a broken primary served by a later tier
+    // must not read as a healthy primary.
+    let state = LlmHealthState::new();
+    state.record_healthy_served("claude_code", "gemini").await;
+    let snapshot = state.snapshot().await;
+    assert_eq!(snapshot.provider.as_deref(), Some("claude_code"));
+    assert_eq!(snapshot.served_by.as_deref(), Some("gemini"));
+
+    state
+        .record_unhealthy("claude_code", "roundtrip probe failed")
+        .await;
+    assert_eq!(
+        state.snapshot().await.served_by,
+        None,
+        "a failed probe served nobody"
+    );
+}

@@ -331,6 +331,14 @@ module "backend" {
       PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
       PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
+      # The synthetic LLM probe runs once per instance start and never again:
+      # its "ping" is a real turn on the primary's account, and the 30-minute
+      # idle cadence was set for Copilot's silently-expiring session token,
+      # which is not the Claude token's failure mode. Athlete turns and the
+      # chain-fallthrough alert cover a credential that dies mid-day.
+      # (JF, 2026-09-21: "startup only".)
+      PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS = "0"
+
       # Route Copilot-headless tool turns through native MCP tool calling: the
       # server hands Copilot an HTTP MCP server pointing at its own /mcp endpoint
       # (per-turn, tenant-scoped token), so the model calls Dravr tools natively

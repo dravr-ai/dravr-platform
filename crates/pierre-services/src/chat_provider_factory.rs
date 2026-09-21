@@ -136,7 +136,7 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 /// already proved the provider live within the interval (via
 /// [`LlmHealthState::since_last_success`], stamped by the chat pipeline). If
 /// so it skips the synthetic round-trip — a real served turn is stronger
-/// proof of life than the one-token ping and, crucially, the ping is a
+/// proof of life than the synthetic ping and, crucially, the ping is a
 /// *billed* `copilot --acp` request, so piggybacking on real traffic avoids
 /// paying for redundant probes on a busy service. The free GitHub
 /// rate-limit probe still runs every tick.
@@ -425,22 +425,24 @@ async fn run_one_probe(
         let previous = health_state
             .record_unhealthy(provider_name.to_owned(), msg)
             .await;
-        log_probe_outcome(provider_name, kind, previous, false, Some(msg));
+        log_probe_outcome(provider_name, kind, previous, None, Some(msg));
         return;
     };
     let provider: &ChatProvider = cp.as_ref();
     match provider.health_check().await {
         Ok(true) => match roundtrip_probe(provider).await {
-            Ok(()) => {
-                let previous = health_state.record_healthy(provider_name.to_owned()).await;
-                log_probe_outcome(provider_name, kind, previous, true, None);
+            Ok(served_by) => {
+                let previous = health_state
+                    .record_healthy_served(provider_name.to_owned(), served_by.clone())
+                    .await;
+                log_probe_outcome(provider_name, kind, previous, Some(&served_by), None);
             }
             Err(e) => {
                 let msg = format!("roundtrip probe failed: {e}");
                 let previous = health_state
                     .record_unhealthy(provider_name.to_owned(), msg.clone())
                     .await;
-                log_probe_outcome(provider_name, kind, previous, false, Some(&msg));
+                log_probe_outcome(provider_name, kind, previous, None, Some(&msg));
             }
         },
         Ok(false) => {
@@ -448,43 +450,63 @@ async fn run_one_probe(
             let previous = health_state
                 .record_unhealthy(provider_name.to_owned(), msg)
                 .await;
-            log_probe_outcome(provider_name, kind, previous, false, Some(msg));
+            log_probe_outcome(provider_name, kind, previous, None, Some(msg));
         }
         Err(e) => {
             let msg = format!("health_check round-trip failed: {e}");
             let previous = health_state
                 .record_unhealthy(provider_name.to_owned(), msg.clone())
                 .await;
-            log_probe_outcome(provider_name, kind, previous, false, Some(&msg));
+            log_probe_outcome(provider_name, kind, previous, None, Some(&msg));
         }
     }
 }
 
-/// Cheapest possible end-to-end check that the configured LLM provider is
-/// actually able to serve a request right now. Sends a one-token "ping"
-/// prompt and accepts ANY non-error response as proof of life.
+/// The probe's request: one user message, "ping", temperature 0, no output
+/// cap.
+///
+/// The cap used to be one token, "the cheapest possible check". Claude Code
+/// treats an output cap the answer exceeds as an error — the CLI reports
+/// `Claude's response exceeded the 1 output token maximum`, sets `is_error`
+/// and exits 1 — so with it the probe failed on Claude at every instance
+/// start, the chain's later tiers answered "ping" for it, and the verdict
+/// still read healthy. The answer to "ping" is one sentence; the prompt is
+/// the cost, and it is the same with or without a cap.
+#[must_use]
+pub fn probe_request() -> ChatRequest {
+    ChatRequest::new(vec![ChatMessage::user("ping".to_owned())]).with_temperature(0.0)
+}
+
+/// End-to-end check that the configured LLM chain is actually able to serve
+/// a request right now. Sends [`probe_request`] and accepts ANY non-error
+/// response as proof of life, returning the tier that answered as that
+/// runner names itself in the response's `model`.
 ///
 /// The base [`ChatProvider::health_check`] only verifies provider-specific
 /// readiness (binary present, API key shape, etc.). For Copilot CLI in
 /// particular that probe stays green even when the session token has
-/// silently expired against `api.github.com`, so the first real chat
-/// breaks for users. This roundtrip catches that class of failure before
-/// it reaches a user-facing turn, which lets `/ready` flip to 503 and
-/// gives the runtime fallback chain a chance to log a transition.
-async fn roundtrip_probe(provider: &ChatProvider) -> Result<(), AppError> {
-    let request = ChatRequest::new(vec![ChatMessage::user("ping".to_owned())])
-        .with_temperature(0.0)
-        .with_max_tokens(1);
-    provider.complete(&request).await.map(|_| ())
+/// silently expired against `api.github.com`, and for Claude Code it is a
+/// `--version` that passes without a login, so the first real chat breaks
+/// for users. This roundtrip catches that class of failure before it
+/// reaches a user-facing turn, which lets `/ready` flip to 503 and gives
+/// the runtime fallback chain a chance to log a transition.
+async fn roundtrip_probe(provider: &ChatProvider) -> Result<String, AppError> {
+    provider
+        .complete(&probe_request())
+        .await
+        .map(|response| response.model)
 }
 
+/// `served_by` is `Some` exactly when the probe succeeded: the tier that
+/// answered, so the healthy line says who is actually serving.
 fn log_probe_outcome(
     provider: &str,
     kind: ProbeKind,
     previous: LlmHealthStatus,
-    now_healthy: bool,
+    served_by: Option<&str>,
     error: Option<&str>,
 ) {
+    let now_healthy = served_by.is_some();
     let now = if now_healthy {
         LlmHealthStatus::Healthy
     } else {
@@ -492,15 +514,15 @@ fn log_probe_outcome(
     };
 
     if previous == now {
-        log_steady_state(provider, kind, now_healthy, error);
+        log_steady_state(provider, kind, served_by, error);
     } else {
         log_transition(provider, kind, previous, now_healthy, error);
     }
 }
 
-fn log_steady_state(provider: &str, kind: ProbeKind, now_healthy: bool, error: Option<&str>) {
-    if now_healthy {
-        info!(provider, %kind, "LLM probe healthy");
+fn log_steady_state(provider: &str, kind: ProbeKind, served_by: Option<&str>, error: Option<&str>) {
+    if let Some(served_by) = served_by {
+        info!(provider, %kind, served_by, "LLM probe healthy");
     } else {
         warn!(
             provider,
