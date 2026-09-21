@@ -1596,9 +1596,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8c1f3eb7e37116e1236cdcc5610904df4f01256d40a8badfc20b3dae1a4500b"
+checksum = "f1823a843466c51ea7674298443fb5b6c9a4fec39859f3ab8b2b5c0d55c98f32"
 dependencies = [
  "async-trait",
  "axum",
