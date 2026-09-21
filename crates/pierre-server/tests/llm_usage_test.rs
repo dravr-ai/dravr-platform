@@ -18,9 +18,9 @@ use embacle::pricing::{
     calculate_cost_with_cache, is_not_per_token_metered, ModelPricing, TokenCounts,
 };
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
+use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, Tenant, User};
 use pierre_database::backends::factory::Database;
-use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::test_utils::create_test_db;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::admin::postgres_manager::PostgresAdminConfigManager;

@@ -8,8 +8,8 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use embacle::pricing::{calculate_cost, calculate_cost_with_cache};
+use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::ConversationTurnId;
-use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::test_utils::create_test_db;
 
@@ -363,7 +363,7 @@ async fn test_cost_calculation_matches_pricing_module() {
 
 #[tokio::test]
 async fn test_group_by_provider() {
-    use pierre_database::database::llm_usage::LlmUsageGroupBy;
+    use pierre_database::repositories::llm_usage::LlmUsageGroupBy;
 
     let group = LlmUsageGroupBy::from_str_param("provider");
     assert_eq!(group, Some(LlmUsageGroupBy::Provider));

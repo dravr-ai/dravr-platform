@@ -103,29 +103,3 @@ async fn test_goals_management() {
         .await
         .expect("Failed to update goal progress");
 }
-
-#[tokio::test]
-async fn test_system_stats() {
-    let db = common::create_test_database()
-        .await
-        .expect("Failed to create test database");
-
-    // Create multiple users
-    for i in 0..3 {
-        let (_user_id, _user) =
-            create_test_user_with_email(&db, &format!("stats_user_{i}@example.com"))
-                .await
-                .expect("Failed to create user");
-    }
-
-    // Get system stats (user_count, api_key_count)
-    let repos = db.repositories();
-    let (user_count, api_key_count) = repos
-        .usage
-        .get_system_stats(None)
-        .await
-        .expect("Failed to get system stats");
-
-    assert_eq!(user_count, 3);
-    assert_eq!(api_key_count, 0); // No API keys created yet
-}

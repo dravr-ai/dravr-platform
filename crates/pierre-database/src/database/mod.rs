@@ -20,8 +20,6 @@ pub mod agent_artefacts;
 pub mod agents;
 /// Analytics and usage statistics database operations
 pub mod analytics;
-/// API key usage statements: the api-key half of the `SQLite` `UsageRepository`
-pub mod api_key_usage;
 /// API key management and validation
 pub mod api_keys;
 /// Chat conversation and message storage

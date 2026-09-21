@@ -45,8 +45,6 @@ pub trait UsageRepository: Send + Sync {
         status_filter: Option<&str>,
         tool_filter: Option<&str>,
     ) -> AppResult<Vec<RequestLog>>;
-    /// Get system statistics, optionally scoped to a tenant
-    async fn get_system_stats(&self, tenant_id: Option<TenantId>) -> AppResult<(u64, u64)>;
     /// Get top tools analysis for dashboard
     async fn get_top_tools_analysis(
         &self,

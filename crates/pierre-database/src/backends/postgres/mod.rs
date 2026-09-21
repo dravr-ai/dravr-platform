@@ -27,6 +27,8 @@ mod agents_assignments;
 mod agents_copies;
 /// `PostgreSQL` row → agent mappers and the agent content/request hashes.
 mod agents_rows;
+/// Usage tracking repository implementation: API-key and JWT usage, request logs, top tools
+pub mod analytics;
 /// API key repository implementation
 pub mod api_key;
 /// Chat repository implementation
@@ -53,6 +55,8 @@ pub mod health_persistence;
 pub mod impersonation;
 /// LLM credential repository implementation
 pub mod llm_credentials;
+/// LLM usage tracking repository implementation
+pub mod llm_usage;
 /// MCP Tasks extension handle repository implementation
 pub mod mcp_tasks;
 /// Coaching harness memory (compaction, facts, notes, followups, sessions)
@@ -106,8 +110,8 @@ pub mod tool_selection;
 pub mod training_history;
 /// `PostgreSQL` training-plan persistence.
 pub mod training_plans;
-/// Usage tracking repository implementations
-pub mod usage;
+/// Usage counter repository implementation
+pub mod usage_counters;
 /// User and profile repository implementations
 pub mod user;
 /// User MCP tokens for AI client authentication (Postgres)

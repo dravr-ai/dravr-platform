@@ -20,6 +20,8 @@ pub mod admin;
 pub mod agent_artefacts;
 /// Repository traits for the agents catalogue and coaching groups.
 pub mod agents;
+/// Shared statements, row decode and body for API-key and JWT usage accounting both backends serve.
+pub mod analytics;
 /// Repository trait for API keys.
 pub mod api_keys;
 /// Repository traits for chat conversation persistence.
@@ -53,6 +55,8 @@ pub mod impersonation;
 pub(crate) mod list_columns;
 /// Shared statements and body for tenant and user LLM provider credentials.
 pub mod llm_credentials;
+/// Shared statements, row decode and body for the LLM usage rows both backends serve.
+pub mod llm_usage;
 /// Repository trait for MCP Tasks extension handle persistence.
 pub mod mcp_tasks;
 /// Shared body of the coaching harness memory repository.
@@ -118,6 +122,8 @@ pub mod training_history;
 pub mod training_plans;
 /// Repository traits for API/`LLM`/usage-counter accounting and `LLM` credentials.
 pub mod usage;
+/// Shared statements, row decode and body for the usage counters both backends serve.
+pub mod usage_counters;
 /// Repository trait, statements and shared body for user MCP tokens.
 pub mod user_mcp_tokens;
 /// Repository trait for durable per-user onboarding step completion state.
