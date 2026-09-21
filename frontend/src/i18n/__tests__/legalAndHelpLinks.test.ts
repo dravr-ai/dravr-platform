@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins that no client links a 404 legal or help page, and that the privacy SETTING reads unlike the DOCUMENT
-// ABOUTME: dravr.ai/help, /privacy and /terms all answered 404 on both apps, next to two rows sharing a name
+// ABOUTME: dravr.ai/help still answers 404; /privacy and /terms went live 2026-09-18 and the legal row points at them
 
 import fs from 'fs';
 import path from 'path';
@@ -18,8 +18,11 @@ const ROOTS = [
   path.join(__dirname, '../../../../packages/shared-constants/src'),
 ];
 
-/** Addresses that answered 404 when the audit checked them, 2026-09-02. */
-const DEAD_PATHS = ['dravr.ai/help', 'dravr.ai/privacy', 'dravr.ai/terms'];
+/**
+ * Addresses that answer 404. /privacy and /terms were on this list from the
+ * 2026-09-02 audit until the site published them on 2026-09-18.
+ */
+const DEAD_PATHS = ['dravr.ai/help'];
 
 function sourceFiles(root: string): string[] {
   if (!fs.existsSync(root)) return [];
@@ -55,7 +58,7 @@ function words(label: string): string[] {
 describe('help and legal destinations', () => {
   it('points both clients at a page that answers', () => {
     expect(HELP_URL).toBe('https://dravr.ai/docs');
-    expect(LEGAL_URL).toBe('https://dravr.ai/docs');
+    expect(LEGAL_URL).toBe('https://dravr.ai/privacy');
   });
 
   it('leaves no client string resolving to a 404 page', () => {

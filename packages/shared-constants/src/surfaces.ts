@@ -341,6 +341,7 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     flag: null,
   },
   {
+    // LIMITATION(registre#482): the `privacy` pane has no account-deletion action on either client; deletion is by request to privacy@dravr.ai, as the published policy says.
     id: 'privacy',
     nameKey: 'settingsTabs.privacy',
     hintKey: 'settingsTabs.privacyHint',
@@ -414,12 +415,13 @@ export function settingsPaneSections(id: SettingsPaneId): readonly SettingsSecti
 /**
  * Where the About pane's help and legal rows go.
  *
- * One address for both clients. The marketing site's help, privacy and terms
- * paths each answer 404, and a per-client copy of the destination is how the
- * same dead link ships twice.
+ * One address each for both clients. The marketing site has no help page, so
+ * help goes to the docs hub; legal goes to the privacy policy, which links the
+ * terms. A per-client copy of a destination is how the same dead link ships
+ * twice, so both clients read these.
  */
 export const HELP_URL = 'https://dravr.ai/docs';
-export const LEGAL_URL = 'https://dravr.ai/docs';
+export const LEGAL_URL = 'https://dravr.ai/privacy';
 
 /** The release both clients report in their About pane. */
 export const APP_VERSION = '1.0.0';

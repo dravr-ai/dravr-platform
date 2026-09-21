@@ -413,7 +413,7 @@ describe('UserSettings Component', () => {
       });
       expect(screen.getByTestId('about-section-legal')).toHaveAttribute(
         'href',
-        'https://dravr.ai/docs',
+        'https://dravr.ai/privacy',
       );
     });
   });
