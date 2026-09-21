@@ -290,7 +290,7 @@ module "backend" {
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider chain, as it runs today (JF, 2026-09-21): claude_code
-      # primary, Gemini as the runtime fallback, nothing else.
+      # primary, copilot_sdk second, Gemini third; Cohere is out.
       #
       # Primary = the Claude Code CLI in the image on CLAUDE_CODE_OAUTH_TOKEN,
       # serving claude-sonnet-5. It is the primary until the jfarcand Copilot
@@ -301,16 +301,18 @@ module "backend" {
       # Copilot blips with no spend cap — so it runs Sonnet, and it is a
       # month-end arrangement, not the resting state.
       #
-      # Runtime fallback = Gemini (Google free tier via GEMINI_API_KEY),
-      # gated on PIERRE_LLM_RUNTIME_FALLBACK=true and built by embacle's
-      # FallbackProvider (crates/pierre-llm/src/embacle_provider.rs). Cohere is
-      # out of the chain: it answered "nothing deliverable" on the day it was
-      # needed and JF's verdict is that it never worked.
+      # Runtime chain = copilot_sdk then Gemini (Google free tier via
+      # GEMINI_API_KEY), gated on PIERRE_LLM_RUNTIME_FALLBACK=true and built by
+      # embacle's FallbackProvider (crates/pierre-llm/src/embacle_provider.rs).
+      # Cohere is out of the chain: it answered "nothing deliverable" on the
+      # day it was needed and JF's verdict is that it never worked.
       #
-      # copilot_sdk comes back as the second tier (claude_code -> copilot_sdk
-      # -> gemini) once carnet#478 lands: today embacle's chain does not fall
-      # through on a tier's RateLimit, so a quota-exhausted Copilot in the
-      # middle of the chain would end the turn instead of reaching Gemini.
+      # copilot_sdk is the second tier (claude_code -> copilot_sdk -> gemini,
+      # JF 2026-09-21). Its account may still be out of monthly quota: since
+      # carnet#478 (embacle 0.28.1 + the bridge in pierre-core) a tier's
+      # RateLimit falls through to the next tier, so a quota-exhausted Copilot
+      # is skipped in one call rather than ending the turn — and every such
+      # skip fires the dravr-llm-tier-rate-limited alert (llm_chain_monitoring.tf).
       PIERRE_LLM_PROVIDER = "claude_code"
       # Coaching model. Sonnet, not Opus: the coaching bench found raters could
       # not distinguish Opus output and it tied last on quality, while Opus is
@@ -324,8 +326,10 @@ module "backend" {
       PIERRE_LLM_DEFAULT_MODEL           = "claude-sonnet-5"
       PIERRE_LLM_FALLBACK_MODEL          = "claude-sonnet-5"
       PIERRE_LLM_RUNTIME_FALLBACK        = "true"
-      PIERRE_LLM_FALLBACK_PROVIDER       = "gemini"
-      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "gemini-flash-lite-latest"
+      PIERRE_LLM_FALLBACK_PROVIDER       = "copilot_sdk"
+      PIERRE_LLM_FALLBACK_PROVIDER_MODEL = "claude-sonnet-5"
+      PIERRE_LLM_TERTIARY_PROVIDER       = "gemini"
+      PIERRE_LLM_TERTIARY_PROVIDER_MODEL = "gemini-flash-lite-latest"
 
       # Route Copilot-headless tool turns through native MCP tool calling: the
       # server hands Copilot an HTTP MCP server pointing at its own /mcp endpoint
