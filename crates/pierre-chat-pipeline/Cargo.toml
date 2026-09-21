@@ -37,8 +37,8 @@ transport-sse = [
 
 [dependencies]
 # TokenCounts for the per-call cost the recorder prices through the registry.
-embacle = { version = "0.28.0" }
-embacle-tool-host = "0.28.0"
+embacle = { version = "0.28.1" }
+embacle-tool-host = "0.28.1"
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 pierre-commands = { version = "0.3.0", path = "../pierre-commands" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }

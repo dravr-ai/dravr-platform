@@ -367,10 +367,13 @@ impl ToolLoopResult {
 /// `ExternalServiceError` for a vendor fault, `AuthInvalid` for an auth
 /// failure, `InternalError` for a runner bug or a missing binary) plus the
 /// platform's own auth and availability codes (`ExternalAuthFailed`,
-/// `AuthExpired`, `ExternalServiceUnavailable`). Deterministic failures — a
-/// rejected request (`InvalidInput`), a quota refusal (`RateLimitExceeded`), a
+/// `AuthExpired`, `ExternalServiceUnavailable`), and a provider's rate limit
+/// or spent quota (`ExternalRateLimited`) — the next tier holds its own
+/// account. Deterministic failures — a rejected request (`InvalidInput`), a
 /// config error — do not reroute: a second tier would answer them the same
-/// way, and the athlete would see its rejection instead of the real one.
+/// way, and the athlete would see its rejection instead of the real one. The
+/// athlete's own budget (`RateLimitExceeded`, `QuotaExceeded`) is refused by
+/// the ingress gate before dispatch and never reaches this predicate.
 #[must_use]
 pub fn reroutes_headless_turn(error: &AppError) -> bool {
     matches!(
@@ -378,6 +381,7 @@ pub fn reroutes_headless_turn(error: &AppError) -> bool {
         ErrorCode::ExternalAuthFailed
             | ErrorCode::ExternalServiceUnavailable
             | ErrorCode::ExternalServiceError
+            | ErrorCode::ExternalRateLimited
             | ErrorCode::ResourceUnavailable
             | ErrorCode::AuthInvalid
             | ErrorCode::AuthExpired

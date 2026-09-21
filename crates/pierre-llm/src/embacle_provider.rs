@@ -24,7 +24,6 @@ use embacle::{
 };
 use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
-use pierre_core::llm::HttpApiTier;
 use tracing::{info, info_span, warn, Instrument, Span};
 
 use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
@@ -118,21 +117,6 @@ impl EmbacleProvider {
             cached_display_name: display_name,
             fallback_tail: None,
         }
-    }
-
-    /// Wrap a runner that reaches a vendor over HTTP with the platform's key
-    /// (Gemini, Cohere, Groq, `OpenRouter`, an `OpenAI`-compatible endpoint,
-    /// the `OpenAI` API): its 429 is the vendor throttling the platform, and
-    /// [`HttpApiTier`] bridges it to `ExternalRateLimited` instead of the
-    /// `RateLimitExceeded` the ingress reads as the athlete's own quota.
-    ///
-    /// Solo, like [`from_runner`](Self::from_runner).
-    #[must_use]
-    pub fn from_http_runner(
-        runner: Box<dyn EmbacleLlmProvider>,
-        display_name: &'static str,
-    ) -> Self {
-        Self::from_runner(Box::new(HttpApiTier::new(runner)), display_name)
     }
 
     /// Chain `tiers` in order behind one provider.
@@ -410,7 +394,7 @@ impl EmbacleProvider {
 
         let client = llm_inner_client().clone();
         let runner = OpenAiApiRunner::with_client(config, client).await;
-        Self::from_http_runner(Box::new(runner), "OpenAI API")
+        Self::from_runner(Box::new(runner), "OpenAI API")
     }
 
     /// Access the Copilot turn provider currently able to serve a native tool turn.

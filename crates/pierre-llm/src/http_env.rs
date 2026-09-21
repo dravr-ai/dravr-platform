@@ -9,9 +9,10 @@
 //! The vendor quirks, retries and SSE plumbing live in embacle; what stays
 //! here is the platform's contract with its environment. Every provider gets
 //! the shared LLM `reqwest::Client` (one pool, one set of timeouts), goes
-//! through [`EmbacleProvider::from_http_runner`] so a vendor 429 reaches the
-//! platform as an upstream throttle rather than the athlete's quota, and the
-//! model comes from the explicit override a chain tier was configured with
+//! through [`EmbacleProvider::from_runner`] like every other tier — a vendor
+//! 429 reaches the platform as `ExternalRateLimited`, the upstream fault every
+//! provider's rate limit or spent quota carries — and the model comes from
+//! the explicit override a chain tier was configured with
 //! (`PIERRE_LLM_FALLBACK_PROVIDER_MODEL`, `PIERRE_LLM_TERTIARY_PROVIDER_MODEL`)
 //! before any vendor default.
 //!
@@ -66,7 +67,7 @@ fn gemini_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, AppE
     };
     let config = GeminiConfig::from_env()?.with_model(model);
     info!(model = %config.model, "Creating Gemini provider");
-    Ok(EmbacleProvider::from_http_runner(
+    Ok(EmbacleProvider::from_runner(
         Box::new(GeminiProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -82,7 +83,7 @@ fn groq_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, AppErr
         config = config.with_model(model);
     }
     info!(model = %config.model, "Creating Groq provider");
-    Ok(EmbacleProvider::from_http_runner(
+    Ok(EmbacleProvider::from_runner(
         Box::new(GroqProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -98,7 +99,7 @@ fn cohere_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, AppE
         config = config.with_model(model);
     }
     info!(model = %config.model, "Creating Cohere provider");
-    Ok(EmbacleProvider::from_http_runner(
+    Ok(EmbacleProvider::from_runner(
         Box::new(CohereProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -115,7 +116,7 @@ fn openrouter_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, 
         config = config.with_model(model);
     }
     info!(model = %config.model, "Creating OpenRouter provider");
-    Ok(EmbacleProvider::from_http_runner(
+    Ok(EmbacleProvider::from_runner(
         Box::new(OpenRouterProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -159,7 +160,7 @@ pub fn gemini_with_key(
         }
     };
     let config = GeminiConfig::new(api_key).with_model(model);
-    Ok(EmbacleProvider::from_http_runner(
+    Ok(EmbacleProvider::from_runner(
         Box::new(GeminiProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -175,7 +176,7 @@ pub fn groq_with_key(api_key: String, default_model: Option<String>) -> EmbacleP
     if let Some(model) = default_model {
         config = config.with_model(model);
     }
-    EmbacleProvider::from_http_runner(
+    EmbacleProvider::from_runner(
         Box::new(GroqProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -191,7 +192,7 @@ pub fn cohere_with_key(api_key: String, default_model: Option<String>) -> Embacl
     if let Some(model) = default_model {
         config = config.with_model(model);
     }
-    EmbacleProvider::from_http_runner(
+    EmbacleProvider::from_runner(
         Box::new(CohereProvider::with_client(
             config,
             llm_inner_client().clone(),
@@ -233,7 +234,7 @@ pub fn local_from_credentials(
 #[must_use]
 pub fn local_provider(config: OpenAiCompatibleConfig) -> EmbacleProvider {
     let display_name = local_display_name(&config.provider_name);
-    EmbacleProvider::from_http_runner(
+    EmbacleProvider::from_runner(
         Box::new(OpenAiCompatibleProvider::with_client(
             config,
             llm_inner_client().clone(),

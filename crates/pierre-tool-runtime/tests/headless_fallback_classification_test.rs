@@ -93,14 +93,16 @@ fn the_platform_auth_codes_reroute_and_invalid_input_does_not() {
     );
     assert!(
         !reroutes_headless_turn(&AppError::new(ErrorCode::RateLimitExceeded, "quota")),
-        "a quota refusal is the operator's problem, not a reason to spend another tier"
+        "the athlete's own budget is the ingress gate's refusal, never a reason to spend another tier"
     );
+    // A provider's rate limit or spent quota is that tier's account failing to
+    // serve; the next tier holds its own account, so the turn moves on.
     assert!(
-        !reroutes_headless_turn(&AppError::new(
+        reroutes_headless_turn(&AppError::new(
             ErrorCode::ExternalRateLimited,
-            "gemini: try again in 7 seconds"
+            "copilot-sdk: You have exceeded your monthly quota"
         )),
-        "a vendor throttle on an HTTP tier keeps the chain decision its RunnerError had"
+        "a tier's spent quota reroutes to the tail"
     );
 }
 
