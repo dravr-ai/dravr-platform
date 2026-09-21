@@ -33,17 +33,21 @@ resource "google_logging_metric" "llm_tier_quota" {
 
   description = "Counts LLM runner lines on the API service whose error is a provider quota or rate limit (RateLimit, quota_exceeded, 429), one per event, labelled by the tier named in the error."
 
-  # One event, one line: inside a chain the same failure is logged twice —
-  # by the runner ("<tier>: turn failed") and by the chain ("LLM tier failed
-  # with a provider fault; falling back"). The runner's line is the one
-  # counted, and the tier is read from the error text embacle writes
-  # ("RateLimit: copilot-sdk: You have exceeded ..."), never from the span.
+  # One event, one line: inside a chain the same failure is logged three
+  # times — by the runner ("copilot-sdk: turn failed"), by embacle's chain
+  # ("fallback: provider failed, trying next", or "fallback: last provider
+  # failed, chain exhausted" on the final tier) and by the platform's
+  # observer ("LLM tier failed with a provider fault; falling back"). The
+  # chain's line is the one counted: every runner type and every tier gets
+  # one, the last tier included, and it carries the error text embacle
+  # writes ("RateLimit: copilot-sdk: You have exceeded ..."), which is where
+  # the tier label comes from — never from the span, whose provider is the
+  # primary's name on every tier's line.
   filter = <<-EOT
     resource.type="cloud_run_revision"
     resource.labels.service_name="${var.service_name}-api"
-    jsonPayload.provider!=""
+    jsonPayload.message=~"^fallback: "
     jsonPayload.error=~"(?i)quota|rate.?limit"
-    NOT jsonPayload.message:"falling back"
   EOT
 
   metric_descriptor {
