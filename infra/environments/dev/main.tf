@@ -316,11 +316,14 @@ module "backend" {
       # PIERRE_LLM_TERTIARY_PROVIDER turns the secondary into a nested
       # Chain{Cohere, Gemini}, so retry classification cascades the same way
       # at each tier.
-      # copilot_sdk since 2026-09-19 (carnet#473): GitHub's Rust copilot-runtime
-      # over the SDK's stdio transport, through embacle's CopilotSdkRunner. The
-      # ACP adapter (copilot_headless) stays compiled in for the sciotte
-      # vision-login fallback until the soak ends and Phase 3 deletes it.
-      PIERRE_LLM_PROVIDER = "copilot_sdk"
+      # claude_code since 2026-09-21 (incident): the jfarcand Copilot account
+      # ran out of monthly premium requests, every copilot_sdk turn answered
+      # quota_exceeded, and the messaging path surfaced it to athletes as
+      # "temporairement indisponible" instead of falling through the chain.
+      # The Claude Code CLI in the image runs on CLAUDE_CODE_OAUTH_TOKEN and
+      # serves claude-sonnet-5 directly. copilot_sdk (carnet#473) returns as the
+      # chat provider once the Copilot quota is restored.
+      PIERRE_LLM_PROVIDER = "claude_code"
       # Coaching model. Sonnet, not Opus: the coaching bench found raters could
       # not distinguish Opus output and it tied last on quality, while Opus is
       # the slowest model — slow enough that an Autopilot tool turn overruns the
