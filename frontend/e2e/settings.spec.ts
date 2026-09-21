@@ -493,15 +493,15 @@ test.describe('Settings Page - User Mode', () => {
     // Which model answers, read-only: a fact about the product, not a field
     // that invites a credential.
     await expect(pane.getByTestId('about-coach-model-value')).toBeVisible();
-    // Both external rows go to a page that answers; /help, /privacy and /terms
-    // were each a 404 when the audit checked them.
+    // Both external rows go to a page that answers: /help is still a 404 so
+    // help goes to the docs hub; /privacy went live on 2026-09-18.
     await expect(pane.getByTestId('about-section-help')).toHaveAttribute(
       'href',
       'https://dravr.ai/docs',
     );
     await expect(pane.getByTestId('about-section-legal')).toHaveAttribute(
       'href',
-      'https://dravr.ai/docs',
+      'https://dravr.ai/privacy',
     );
   });
 
