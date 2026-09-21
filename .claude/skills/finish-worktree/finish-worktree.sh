@@ -10,6 +10,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/worktree.sh"
 
 BRANCH_NAME="$(git branch --show-current)"
+# Named in the NEXT STEPS text below; under `set -u` an unset name aborts the
+# script after the push, which is exactly where it used to die (2026-09-21).
+MAIN_WORKTREE="$(main_worktree_root)"
 MAIN_BRANCH="main"
 
 if [[ -z "$BRANCH_NAME" ]]; then
