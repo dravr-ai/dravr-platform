@@ -10,7 +10,10 @@
 #
 # 1. OAUTH CLIENT - AUTHORIZED JAVASCRIPT ORIGINS
 #    ─────────────────────────────────────────────
-#    Go to: https://console.cloud.google.com/apis/credentials?project=<project_id>
+#    Go to: https://console.cloud.google.com/apis/credentials?project=<firebase_project_id>
+#    The client belongs to the FIREBASE project (dravr-dev-8d4a3, number
+#    629001562818 — the prefix of the client ID), not to the platform project;
+#    the credentials page of dravr-dev does not list it.
 #    Click: "Web client (auto created by Google Service)" → Edit
 #    Add Authorized JavaScript origins:
 #      - https://<frontend-cloud-run-url>
