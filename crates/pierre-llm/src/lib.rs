@@ -51,6 +51,8 @@ mod model_check;
 pub mod prompts;
 /// Unified LLM provider selector
 mod provider;
+/// Which tier of a fallback chain answered the current call
+pub mod served_tier;
 mod tool_bridge;
 /// The platform's tool-calling shapes
 mod tool_types;

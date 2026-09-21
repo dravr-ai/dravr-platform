@@ -132,6 +132,9 @@ pub mod tool_execution;
 /// Inputs and outputs shared by every tool loop strategy.
 #[cfg(feature = "client-chat")]
 pub mod tool_loop_io;
+/// Timing, attribution and logging helpers shared by the tool loops
+#[cfg(feature = "client-chat")]
+mod tool_loop_telemetry;
 #[cfg(feature = "client-chat")]
 pub mod tool_results;
 pub mod tool_selection;

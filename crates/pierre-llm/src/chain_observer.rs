@@ -24,6 +24,7 @@ use embacle::{Attempt, FallbackObserver, FallthroughReason, Tier};
 use tracing::{info, warn};
 
 use crate::chain_guard::{ChainGuard, CircuitTransition, CHAIN_GUARD};
+use crate::served_tier::{record_served_tier, ServedTier};
 
 /// Position of the primary tier, the only one the guard measures.
 const PRIMARY: usize = 0;
@@ -148,6 +149,13 @@ impl FallbackObserver for ChainObserver {
     }
 
     fn on_success(&self, tier: Tier<'_>) {
+        // Tell the caller who answered: the chain's own name is its head, so
+        // without this a fallback is logged and costed as the primary.
+        record_served_tier(ServedTier {
+            provider: tier.provider.name(),
+            position: tier.position,
+        });
+
         // A stream counts on OPEN — the breaker tracks transport-level
         // establishment, which is what auth and rate-limit failures hit first.
         if let Some(guard) = self.guard_for(tier) {

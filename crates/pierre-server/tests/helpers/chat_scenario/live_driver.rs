@@ -738,6 +738,16 @@ impl ScenarioDriver for LiveScenarioDriver {
 
 /// Build the system prompt the way `prompt_assembly` builds it in production.
 ///
+/// LIMITATION(registre#493): `build_system_prompt` mirrors production's layering
+/// by hand instead of calling `prompt_assembly`, so this lane cannot see a block
+/// reordered, dropped or added there. It grades how a model behaves under the
+/// contract and the persona — vocabulary, refusals, tool discipline, fabrication
+/// under pushback — on a prompt a CPU-bound 7b can carry; production's assembled
+/// prompt is some 10-15 KB larger, and every scenario's assertions were tuned
+/// against this one. Ordering is pinned where it is decided, by the four
+/// `pierre-chat-pipeline` tests over `prompt_assembly.rs`, and the live incident
+/// lane drives the real pipeline end to end.
+///
 /// `platform_contract.md` leads — the `{{CURRENT_DATE}}` anchor, scope,
 /// Ground Truth Rules and the CRITICAL Anti-Hallucination Rules — then
 /// `pierre_system.md` supplies the persona layer (role, communication

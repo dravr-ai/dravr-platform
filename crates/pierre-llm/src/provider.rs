@@ -40,6 +40,7 @@ use super::{
 };
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
+use crate::health::TierProbe;
 use crate::model_check::validate_model_for_provider;
 use crate::tool_bridge::{with_tool_defs, with_tools_response};
 
@@ -419,6 +420,48 @@ impl ChatProvider {
             Self::Embacle(p) => p.fallback_tail(),
             Self::Custom(_) => None,
         }
+    }
+
+    /// Every tier of the runtime-fallback chain as a standalone provider, in
+    /// chain order. Empty when this is not a chain: a solo provider is already
+    /// what a call through it exercises.
+    #[must_use]
+    pub fn chain_tiers(&self) -> Vec<Self> {
+        let mut tiers = Vec::new();
+        if self.fallback_tail().is_none() {
+            return tiers;
+        }
+        let mut current = Some(self);
+        while let Some(Self::Embacle(chain)) = current {
+            tiers.push(Self::Embacle(chain.head_alone()));
+            current = chain.fallback_tail();
+        }
+        tiers
+    }
+
+    /// Ask every tier of the chain, alone and in order, for one completion.
+    ///
+    /// One billed round-trip per tier, so this belongs at startup and nowhere
+    /// periodic. An empty completion counts as a failure, as it does inside the
+    /// chain, where the strict policy passes such a tier over. Empty when this
+    /// is not a chain.
+    pub async fn probe_chain_tiers(&self, request: &ChatRequest) -> Vec<TierProbe> {
+        let mut probes = Vec::new();
+        for (position, tier) in self.chain_tiers().iter().enumerate() {
+            let outcome = match tier.complete(request).await {
+                Ok(response) if response.content.trim().is_empty() => {
+                    Err("empty completion".to_owned())
+                }
+                Ok(response) => Ok(response.model),
+                Err(e) => Err(e.to_string()),
+            };
+            probes.push(TierProbe {
+                provider: tier.name(),
+                position,
+                outcome,
+            });
+        }
+        probes
     }
 
     /// Perform a chat completion with tool/function calling support

@@ -20,7 +20,7 @@ use pierre_auth::tenant::llm_manager::{LlmCredentials, LlmProvider as TenantLlmP
 use pierre_core::errors::AppError;
 use pierre_llm::chain_guard::{RateLimitTransition, CHAIN_GUARD};
 use pierre_llm::config::LlmProviderType;
-use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
+use pierre_llm::health::{LlmHealthState, LlmHealthStatus, TierProbe};
 use pierre_llm::{http_env, ChatMessage, ChatProvider, ChatRequest, LlmProvider};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
@@ -184,6 +184,12 @@ pub fn spawn_llm_health_probe(
             ProbeKind::Startup,
         )
         .await;
+
+        // Then each tier alone, once. The probe above goes through the chain,
+        // so it proves only that somebody answers; a dead tier behind a live
+        // one stays invisible until it is the only one left. Startup only — it
+        // costs one billed completion per tier, which a periodic tick must not.
+        probe_chain_tiers_at_startup(chat_provider.as_ref()).await;
 
         if interval_secs == 0 {
             info!(
@@ -394,6 +400,48 @@ impl Display for ProbeKind {
         match self {
             Self::Startup => write!(f, "startup"),
             Self::Periodic => write!(f, "periodic"),
+        }
+    }
+}
+
+/// Ask every tier of the runtime-fallback chain, alone, for one completion and
+/// log what each did. A no-op when no provider is wired or it is not a chain.
+async fn probe_chain_tiers_at_startup(chat_provider: Option<&Arc<ChatProvider>>) {
+    let Some(provider) = chat_provider else {
+        return;
+    };
+    for probe in provider.probe_chain_tiers(&probe_request()).await {
+        log_tier_probe(&probe);
+    }
+}
+
+/// A healthy tier is an `info!` naming who answered. A dead one is a `warn!`
+/// plus the `llm.tier_unhealthy` notify event: the chain still serves, so this
+/// is not the pageable `llm.provider_unhealthy`, but it is shallower than
+/// configured and an operator should know before the primary has a bad day.
+fn log_tier_probe(probe: &TierProbe) {
+    match &probe.outcome {
+        Ok(served_by) => info!(
+            tier = probe.provider,
+            position = probe.position,
+            served_by,
+            "LLM chain tier healthy"
+        ),
+        Err(error) => {
+            warn!(
+                tier = probe.provider,
+                position = probe.position,
+                error,
+                "LLM chain tier failed its startup probe; the chain is shallower than configured"
+            );
+            info!(
+                target: "notify",
+                event = "llm.tier_unhealthy",
+                provider = probe.provider,
+                position = probe.position,
+                error = error,
+                "LLM chain tier failed its startup probe"
+            );
         }
     }
 }

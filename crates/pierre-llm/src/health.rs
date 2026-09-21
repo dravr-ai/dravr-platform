@@ -60,6 +60,23 @@ impl fmt::Display for LlmHealthStatus {
     }
 }
 
+/// What one tier of the runtime-fallback chain did when asked, on its own, for
+/// a completion.
+///
+/// The chain-level probe is healthy as long as any tier answers, so it
+/// exercises only the first one that does. This is the per-tier view: a dead
+/// tier is named here at boot instead of being discovered when it is the only
+/// one left.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TierProbe {
+    /// The tier's provider name.
+    pub provider: &'static str,
+    /// Zero-based position in the chain; `0` is the primary.
+    pub position: usize,
+    /// The model the tier answered under, or the reason it did not.
+    pub outcome: Result<String, String>,
+}
+
 /// Snapshot of the most recent LLM probe result, exposed via `/health/llm`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmHealthSnapshot {

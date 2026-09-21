@@ -176,6 +176,25 @@ impl EmbacleProvider {
         self.fallback_tail.as_deref()
     }
 
+    /// The first tier on its own, with no chain behind it.
+    ///
+    /// A call through a chain exercises only whichever tier answers first, so
+    /// a dead tier behind a live one is invisible until it is the only one
+    /// left. The per-tier startup probe calls each tier through this, where a
+    /// failure is that tier's and nobody answers for it. Shares the head's
+    /// `Arc`, so a pooled or warm runner is probed as the instance that serves.
+    #[must_use]
+    pub fn head_alone(&self) -> Self {
+        Self {
+            runner: Arc::clone(&self.head),
+            head: Arc::clone(&self.head),
+            turn_provider: None,
+            router: None,
+            cached_display_name: self.cached_display_name,
+            fallback_tail: None,
+        }
+    }
+
     /// Build a CLI subprocess runner
     fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
         let binary_path = config.binary_path.clone();

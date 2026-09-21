@@ -35,6 +35,10 @@ use crate::tool_loop_io::{
     observed_tool_name, reroutes_headless_turn, GuardianConfirmRequest, GuardianDenial,
     ToolLoopParams, ToolLoopResult, ToolLoopTally, ToolRoundRecord,
 };
+use crate::tool_loop_telemetry::{
+    log_iteration_response, log_iteration_start, log_wire_shape, millis_elapsed,
+    served_provider_name,
+};
 use crate::tool_results::strip_synthetic_function_calls;
 use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
@@ -42,9 +46,10 @@ use crate::tool_results::{
 };
 use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 use pierre_core::errors::AppError;
+use pierre_llm::served_tier::observe_served_tier;
 use pierre_llm::{
-    ChatMessage, ChatRequest, ChatResponseWithTools, FunctionCall, FunctionDeclaration,
-    FunctionResponse, MessageRole, TokenUsage, Tool,
+    ChatMessage, ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, MessageRole,
+    TokenUsage, Tool,
 };
 
 // ============================================================================
@@ -102,11 +107,18 @@ pub async fn run_api_tool_loop(
         );
 
         let call_start = Instant::now();
-        let response_result = params
-            .provider
-            .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
-            .await;
+        let (response_result, served) = observe_served_tier(
+            params
+                .provider
+                .complete_with_tools(&llm_request, Some(vec![params.tools.clone()])),
+        )
+        .await;
         let latency_ms = millis_elapsed(call_start);
+        // After a fallback the chain's own name is still its head, so the call
+        // is attributed to the tier that answered: those tokens are that
+        // provider's bill, and the log line keeps the configured tier beside it
+        // so a fallback reads as a difference between the two.
+        let served_provider = served_provider_name(served, params.provider.name());
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
             Ok(r) => {
@@ -117,8 +129,8 @@ pub async fn run_api_tool_loop(
                     .unwrap_or_default();
                 emit_call_record(CallRecordInputs {
                     recorder: params.call_recorder.as_ref(),
-                    provider: params.provider.name(),
-                    model: params.model,
+                    provider: served_provider,
+                    model: &r.model,
                     usage: r.usage.as_ref(),
                     latency_ms,
                     success: true,
@@ -130,7 +142,10 @@ pub async fn run_api_tool_loop(
                 info!(
                     target: "notify",
                     event = "embacle.call_completed",
-                    model = %params.model,
+                    provider = served_provider,
+                    model = %r.model,
+                    configured_provider = params.provider.name(),
+                    configured_model = %params.model,
                     latency_ms = latency_ms,
                     ok = true,
                     "LLM call completed"
@@ -468,8 +483,14 @@ pub async fn run_cli_tool_loop(
         );
 
         let call_start = Instant::now();
-        let response_result = params.provider.complete(&llm_request).await;
+        let (response_result, served) =
+            observe_served_tier(params.provider.complete(&llm_request)).await;
         let latency_ms = millis_elapsed(call_start);
+        // After a fallback the chain's own name is still its head, so the call
+        // is attributed to the tier that answered: those tokens are that
+        // provider's bill, and the log line keeps the configured tier beside it
+        // so a fallback reads as a difference between the two.
+        let served_provider = served_provider_name(served, params.provider.name());
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
             Ok(r) => {
@@ -477,7 +498,10 @@ pub async fn run_cli_tool_loop(
                 info!(
                     target: "notify",
                     event = "embacle.call_completed",
-                    model = %params.model,
+                    provider = served_provider,
+                    model = %r.model,
+                    configured_provider = params.provider.name(),
+                    configured_model = %params.model,
                     latency_ms = latency_ms,
                     ok = true,
                     "LLM call completed"
@@ -529,8 +553,8 @@ pub async fn run_cli_tool_loop(
         emit_call_record_with_text(
             CallRecordInputs {
                 recorder: params.call_recorder.as_ref(),
-                provider: params.provider.name(),
-                model: params.model,
+                provider: served_provider,
+                model: &response.model,
                 usage: response.usage.as_ref(),
                 latency_ms,
                 success: true,
@@ -640,92 +664,6 @@ pub async fn run_cli_tool_loop(
 
     // Max iterations reached without a final text response
     Ok(tally.max_iterations(None))
-}
-
-/// Convert an [`Instant`] elapsed time into milliseconds, saturating
-/// at `i64::MAX` for pathologically long calls.
-fn millis_elapsed(start: Instant) -> i64 {
-    let ms = start.elapsed().as_millis();
-    i64::try_from(ms).unwrap_or(i64::MAX)
-}
-
-/// Log the SHAPE of the message vector handed to the provider — roles, counts
-/// and size, never content.
-///
-/// This exists because the platform spent months unable to answer "did the
-/// block we injected actually reach the model?". `copilot_headless` keeps only
-/// the FIRST system message and silently filters every other one out of
-/// history, and the platform was emitting five: the compaction replay, the
-/// same-turn splice, the turn-1 activity pre-load, the Stage 12b refresh and
-/// the guardian planner. Four were discarded on every turn. Nothing logged it,
-/// so the loss was invisible — the agent still looked grounded whenever it
-/// chose to call `get_activities` itself, which is the same observable outcome.
-///
-/// `system_message_count` is the field that would have shown `5` on the first
-/// turn after Stage 12b shipped, eleven days before anyone noticed. The
-/// existing counters (`message_count` here and `msg_count` in prompt assembly)
-/// count the vector without saying what is IN it, which is exactly the gap.
-///
-/// Deliberately NOT a `notify` event: this is diagnostic telemetry read from
-/// Cloud Logging, and routing it through the notify pipeline would couple it to
-/// the `dravr-contremaitre` event catalogue for no operator benefit.
-fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage]) {
-    let mut system_message_count = 0_usize;
-    let mut user_message_count = 0_usize;
-    let mut assistant_message_count = 0_usize;
-    let mut tool_message_count = 0_usize;
-    let mut total_chars = 0_usize;
-
-    for message in llm_messages {
-        total_chars += message.content.len();
-        match message.role {
-            MessageRole::System => system_message_count += 1,
-            MessageRole::User => user_message_count += 1,
-            MessageRole::Assistant => assistant_message_count += 1,
-            MessageRole::Tool => tool_message_count += 1,
-        }
-    }
-
-    info!(
-        dispatch_path,
-        system_message_count,
-        user_message_count,
-        assistant_message_count,
-        tool_message_count,
-        message_count = llm_messages.len(),
-        total_chars,
-        "wire shape at the provider boundary"
-    );
-}
-
-/// Emit a structured log marking the start of one tool-loop iteration.
-///
-/// Extracted from [`run_api_tool_loop`] to keep the loop body inside
-/// the workspace cognitive complexity budget. Records the iteration
-/// index and resolved provider/model so an operator can tie the call
-/// to its eventual `llm_usage` row by `turn_id` + `call_sequence`.
-fn log_iteration_start(iteration: usize, params: &ToolLoopParams<'_>, message_count: usize) {
-    info!(
-        iteration,
-        provider = params.provider.name(),
-        model = params.model,
-        message_count,
-        "tool loop iteration: dispatching to provider"
-    );
-}
-
-/// Emit a structured log summarizing the provider's response for one
-/// tool-loop iteration.
-fn log_iteration_response(iteration: usize, latency_ms: i64, response: &ChatResponseWithTools) {
-    info!(
-        iteration,
-        latency_ms,
-        content_len = response.content.as_deref().map_or(0, str::len),
-        function_calls = response.function_calls.as_ref().map_or(0, Vec::len),
-        prompt_tokens = response.usage.as_ref().map_or(0, |u| u.prompt_tokens),
-        completion_tokens = response.usage.as_ref().map_or(0, |u| u.completion_tokens),
-        "tool loop iteration: provider response received"
-    );
 }
 
 // Re-export embacle's pure functions for direct use (no type conversion needed)
