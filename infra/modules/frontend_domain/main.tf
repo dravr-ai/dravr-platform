@@ -47,9 +47,10 @@ resource "google_compute_backend_service" "frontend" {
   project               = var.project_id
   load_balancing_scheme = "EXTERNAL_MANAGED"
   protocol              = "HTTPS"
-  # A serverless NEG backend takes no health check: Cloud Run reports its own
-  # readiness and the backend service must not reference one.
-  timeout_sec = var.backend_timeout_sec
+  # A serverless NEG backend takes no health check (Cloud Run reports its own
+  # readiness) and no timeout_sec: the API refuses the field for this backend
+  # type, and the timeout is a fixed, non-configurable 60 minutes — well past
+  # the 600s the frontend Cloud Run service allows a chat turn.
 
   backend {
     group = google_compute_region_network_endpoint_group.frontend.id

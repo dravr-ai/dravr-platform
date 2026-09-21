@@ -36,11 +36,6 @@ variable "domains" {
   }
 }
 
-variable "backend_timeout_sec" {
-  description = "Backend service request/response timeout in seconds. The global external ALB defaults to 30s and cuts any longer response, so this must be at least the Cloud Run service's request timeout — the chat path is budgeted for 600s end to end."
-  type        = number
-}
-
 variable "labels" {
   description = "Labels applied to the resources that accept them (addresses, certificates, DNS authorizations, certificate map)"
   type        = map(string)

@@ -1091,7 +1091,7 @@ module "frontend" {
   max_instances     = var.frontend_max_instances
   # Browser->nginx leg must outlast the proxied backend turn (600s) so the
   # frontend Cloud Run service doesn't cut the request before nginx does.
-  request_timeout = "${local.frontend_request_timeout_secs}s"
+  request_timeout = "600s"
 
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
@@ -1118,14 +1118,6 @@ module "frontend" {
 # front of the frontend service. Empty public_domains = nothing is created.
 # -----------------------------------------------------------------------------
 
-locals {
-  # The chat path is budgeted for 600s end to end. Named once because two
-  # hops must honour it: the frontend Cloud Run service's request timeout
-  # (above) and the load balancer's backend service timeout, which defaults
-  # to 30s and would otherwise cut every long turn before nginx ever does.
-  frontend_request_timeout_secs = 600
-}
-
 module "frontend_domain" {
   count  = length(var.public_domains) > 0 ? 1 : 0
   source = "../../modules/frontend_domain"
@@ -1135,7 +1127,6 @@ module "frontend_domain" {
   name_prefix            = var.service_name
   cloud_run_service_name = module.frontend[0].service_name
   domains                = var.public_domains
-  backend_timeout_sec    = local.frontend_request_timeout_secs
   labels                 = merge(var.labels, { component = "frontend" })
 
   # The project module enables certificatemanager.googleapis.com and the
