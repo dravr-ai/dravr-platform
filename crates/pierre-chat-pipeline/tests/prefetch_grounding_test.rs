@@ -20,13 +20,19 @@
 //! contract (inject fresh data just before the ask; never inject over an empty
 //! window; inject conservatively when the window cannot be parsed).
 
+use chrono::{TimeZone, Utc};
 use pierre_chat_pipeline::stages::prefetch::{
     build_prefetch_params, get_startup_context_if_applicable, inject_activity_refresh,
-    should_refresh_activity_context, startup_query_preview,
+    should_refresh_activity_context, startup_query_preview, window_scope_note,
 };
 use pierre_core::models::agents::ActivityDataRequirements;
 use pierre_core::models::{AgentCategory, AgentRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
+
+/// A window statement as the prefetch stage writes it; these tests are about
+/// where and whether the block lands, so any fixed note will do.
+const SCOPE_NOTE: &str = "This is a window, not the athlete's whole history: up to 30 activities \
+                          from 2026-06-01 to 2026-09-21.";
 
 /// An agent runtime context carrying only the `data_requirements` the gate
 /// reads; every other field is an inert placeholder.
@@ -218,7 +224,7 @@ fn injection_places_fresh_data_just_before_the_ask() {
     ];
     let window = r#"{"count":1,"activity_list":"1. [Run] Chair à mouches - 2026-07-09 - 8.20 km","activities":[]}"#;
 
-    let injected = inject_activity_refresh(&mut messages, window);
+    let injected = inject_activity_refresh(&mut messages, window, SCOPE_NOTE);
 
     assert!(injected, "a non-empty window must be injected");
     assert_eq!(messages.len(), 3, "injection adds exactly one message");
@@ -251,7 +257,7 @@ fn injection_skips_an_empty_window_so_the_model_is_never_told_it_has_data() {
     ];
     let empty = r#"{"count":0,"activity_list":"","activities":[]}"#;
 
-    let injected = inject_activity_refresh(&mut messages, empty);
+    let injected = inject_activity_refresh(&mut messages, empty, SCOPE_NOTE);
 
     assert!(!injected, "an empty window must not be injected");
     assert_eq!(messages.len(), 2, "no message is added for an empty window");
@@ -266,7 +272,7 @@ fn injection_is_conservative_when_the_window_cannot_be_parsed() {
         ChatMessage::user("plan ma semaine"),
     ];
 
-    let injected = inject_activity_refresh(&mut messages, "not json at all");
+    let injected = inject_activity_refresh(&mut messages, "not json at all", SCOPE_NOTE);
 
     assert!(injected, "unparseable content is treated as non-empty");
     assert_eq!(messages.len(), 3);
@@ -335,7 +341,7 @@ fn grounding_injects_the_readable_list_not_the_whole_tool_response() {
         ChatMessage::user("montre-moi l'évolution de mon volume hebdomadaire"),
     ];
 
-    assert!(inject_activity_refresh(&mut messages, &payload));
+    assert!(inject_activity_refresh(&mut messages, &payload, SCOPE_NOTE));
     let injected = &messages[1].content;
 
     // What the agent cites survives: name, date, distance, duration, elevation.
@@ -378,7 +384,7 @@ fn an_unrecognised_payload_is_injected_verbatim() {
         ChatMessage::user("analyse ma charge"),
     ];
 
-    assert!(inject_activity_refresh(&mut messages, odd));
+    assert!(inject_activity_refresh(&mut messages, odd, SCOPE_NOTE));
     assert!(
         messages[1]
             .content
@@ -540,5 +546,84 @@ fn a_declared_agent_window_still_takes_precedence() {
         activities.time_frame.as_deref(),
         Some("12w"),
         "the coach declared 12 weeks and must get 12 weeks, not the 4w default"
+    );
+}
+
+/// The window tells the model where it starts and ends.
+///
+/// Observed 2026-09-21 on Telegram: "Compare mon dénivelé mensuel de mars à
+/// septembre". The bound agent declares sixteen weeks, so the block listed June
+/// to September — with no bounds stated. The contract lets the agent re-fetch
+/// for "a different time range than previously shown", which it cannot apply
+/// to a range nobody told it. It answered June to September and never fetched
+/// March.
+#[test]
+fn the_window_states_its_own_bounds() {
+    let sixteen_weeks = ActivityDataRequirements {
+        count: 30,
+        time_frame: Some("16w".to_owned()),
+        mode: "summary".to_owned(),
+        format: "toon".to_owned(),
+        analysis_type: "race_preparation".to_owned(),
+    };
+    // The turn's own clock: 2026-09-21 16:51 UTC, sixteen weeks after June 1.
+    let now = Utc.with_ymd_and_hms(2026, 9, 21, 16, 51, 36).unwrap();
+
+    let note = window_scope_note(&sixteen_weeks, now);
+
+    assert!(
+        note.contains("from 2026-06-01 to 2026-09-21"),
+        "the model has to be told the window opens on June 1, or a March question \
+         reads as already answered: {note}"
+    );
+    assert!(note.contains("up to 30 activities"), "{note}");
+    assert!(
+        note.contains("get_activities") && note.contains("`after`/`before`"),
+        "naming the edge is half of it; the other half is what to do beyond it: {note}"
+    );
+    assert!(
+        note.contains("never present the start of this window as the start of their training"),
+        "{note}"
+    );
+}
+
+/// A count-only window has no dates to state, and must not invent any.
+#[test]
+fn a_count_only_window_is_stated_as_a_count() {
+    let open_ended = ActivityDataRequirements {
+        count: 40,
+        time_frame: None,
+        mode: "summary".to_owned(),
+        format: "toon".to_owned(),
+        analysis_type: "general_overview".to_owned(),
+    };
+    let now = Utc.with_ymd_and_hms(2026, 9, 21, 16, 51, 36).unwrap();
+
+    let note = window_scope_note(&open_ended, now);
+
+    assert!(note.contains("the 40 most recent activities"), "{note}");
+    assert!(
+        !note.contains("2026"),
+        "no time frame was declared, so no date range may be claimed: {note}"
+    );
+}
+
+/// The statement reaches the model inside the refresh block, next to the data
+/// it describes — not in a separate message a provider can drop.
+#[test]
+fn the_refresh_block_carries_the_window_statement() {
+    let mut messages = vec![
+        ChatMessage::system("system prompt"),
+        ChatMessage::user("Compare mon dénivelé mensuel de mars à septembre"),
+    ];
+    let window = r#"{"count":1,"activity_list":"1. [trail] Montagne sacrée! - 2026-09-16 - 14.06 km - 2:52:38 - +924m"}"#;
+
+    assert!(inject_activity_refresh(&mut messages, window, SCOPE_NOTE));
+
+    let block = &messages[1].content;
+    assert!(block.contains(SCOPE_NOTE), "{block}");
+    assert!(
+        block.find(SCOPE_NOTE).unwrap() < block.find("Montagne sacrée!").unwrap(),
+        "the bounds come before the rows they bound: {block}"
     );
 }

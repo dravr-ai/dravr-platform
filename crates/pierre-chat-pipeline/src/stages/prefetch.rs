@@ -36,6 +36,8 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use chrono::{DateTime, Duration, Utc};
+
 use pierre_core::models::agents::{ActivityDataRequirements, DataRequirements};
 use pierre_core::models::AgentRuntimeContext;
 use pierre_database::database::MessageRecord;
@@ -247,6 +249,44 @@ pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde
     params
 }
 
+/// State to the model what a prefetched window covers, and what lies outside it.
+///
+/// The platform contract lets the agent re-fetch when "the user asks for a
+/// different time range or more activities than previously shown" — a rule it
+/// can only apply if it is told what range IS shown. The injected block never
+/// said. On 2026-09-21 an athlete asked for monthly elevation "de mars à
+/// septembre"; the agent's declared window is sixteen weeks, the block listed
+/// June to September with no bounds, and nothing distinguished "the window
+/// starts in June" from "the athlete started in June". The answer stopped at
+/// June and the question's own range was never fetched.
+///
+/// Deliberately a statement about the WINDOW, not a reading of the question:
+/// matching the athlete's wording to decide what to fetch is the keyword
+/// routing [`should_refresh_activity_context`] removed. The model reads the
+/// question; this makes sure it knows the edges of what it was handed.
+///
+/// Pure over `now` so the wording is unit-testable.
+#[must_use]
+pub fn window_scope_note(activities_req: &ActivityDataRequirements, now: DateTime<Utc>) -> String {
+    let covered = activities_req.time_frame_seconds().map_or_else(
+        || format!("the {} most recent activities", activities_req.count),
+        |seconds| {
+            format!(
+                "up to {} activities from {} to {}",
+                activities_req.count,
+                (now - Duration::seconds(seconds)).format("%Y-%m-%d"),
+                now.format("%Y-%m-%d"),
+            )
+        },
+    );
+    format!(
+        "This is a window, not the athlete's whole history: {covered}. A question about a \
+         period outside it is a different time range — call `get_activities` with the \
+         `after`/`before` the athlete named before answering it, and never present the \
+         start of this window as the start of their training."
+    )
+}
+
 /// Pre-fetch activity data based on structured `DataRequirements`.
 ///
 /// Calls `get_activities` deterministically with exact parameters from the
@@ -341,8 +381,13 @@ pub async fn inject_startup_context(
             if prefetch_window_is_empty(&activity_context) {
                 info!("startup grounding: activity window empty, skipping pre-load injection");
             } else {
+                let scope_note = data_reqs
+                    .activities
+                    .as_ref()
+                    .map(|req| window_scope_note(req, Utc::now()))
+                    .unwrap_or_default();
                 let context_msg = format!(
-                    "{STARTUP_GROUNDING_LEAD}\n\n{}",
+                    "{STARTUP_GROUNDING_LEAD} {scope_note}\n\n{}",
                     injectable_activity_text(&activity_context)
                 );
                 log_inject("activity context", &context_msg);
@@ -497,6 +542,7 @@ pub const STARTUP_GROUNDING_LEAD: &str =
 pub fn inject_activity_refresh(
     llm_messages: &mut Vec<ChatMessage>,
     activity_context: &str,
+    scope_note: &str,
 ) -> bool {
     if prefetch_window_is_empty(activity_context) {
         info!("later-turn grounding: activity window empty, skipping injection");
@@ -507,7 +553,7 @@ pub fn inject_activity_refresh(
          The following activity data was freshly loaded for this turn — base \
          your analysis and any plan on these specific activities, cite them by \
          name and date, infer the sport mix from them rather than asking, and \
-         do not answer from memory:\n\n\
+         do not answer from memory. {scope_note}\n\n\
          {}",
         injectable_activity_text(activity_context)
     );
@@ -574,7 +620,12 @@ pub async fn maybe_refresh_activity_context(
 
     // Propagate rather than assume: an empty window injects nothing, so it
     // grounds nothing and must not be reported as a fetch that happened.
-    inject_activity_refresh(llm_messages, &activity_context)
+    let scope_note = data_reqs
+        .activities
+        .as_ref()
+        .map(|req| window_scope_note(req, Utc::now()))
+        .unwrap_or_default();
+    inject_activity_refresh(llm_messages, &activity_context, &scope_note)
 }
 
 /// Read-only inputs for [`maybe_refresh_activity_context`], bundled so the

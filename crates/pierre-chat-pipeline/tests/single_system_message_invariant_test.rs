@@ -45,6 +45,11 @@ use pierre_llm::{ChatMessage, MessageRole};
 use pierre_memory::CompactionBlock;
 use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 
+/// A window statement as the prefetch stage writes it; these tests are about
+/// where and whether the block lands, so any fixed note will do.
+const SCOPE_NOTE: &str = "This is a window, not the athlete's whole history: up to 30 activities \
+                          from 2026-06-01 to 2026-09-21.";
+
 /// The invariant itself, as a reusable assertion.
 fn assert_single_leading_system(messages: &[ChatMessage], context: &str) {
     let system_positions: Vec<usize> = messages
@@ -70,7 +75,7 @@ fn activity_refresh_preserves_the_invariant_and_survives_as_user_text() {
         ChatMessage::user("what should I ride this weekend?"),
     ];
 
-    assert!(inject_activity_refresh(&mut messages, WINDOW));
+    assert!(inject_activity_refresh(&mut messages, WINDOW, SCOPE_NOTE));
 
     assert_single_leading_system(&messages, "after Stage 12b refresh");
     // The grounding block must actually be on the wire, carrying both the
@@ -99,7 +104,7 @@ fn activity_refresh_never_displaces_the_system_prompt_from_index_zero() {
     // `messages.first()`) would treat it as ordinary droppable history.
     let mut messages = vec![ChatMessage::system("coach persona")];
 
-    assert!(inject_activity_refresh(&mut messages, WINDOW));
+    assert!(inject_activity_refresh(&mut messages, WINDOW, SCOPE_NOTE));
 
     assert_single_leading_system(&messages, "degenerate single-message vector");
     assert_eq!(
@@ -115,7 +120,8 @@ fn an_empty_window_injects_nothing_and_leaves_the_shape_untouched() {
         ChatMessage::user("plan my week"),
     ];
 
-    let injected = inject_activity_refresh(&mut messages, r#"{"count":0,"activities":[]}"#);
+    let injected =
+        inject_activity_refresh(&mut messages, r#"{"count":0,"activities":[]}"#, SCOPE_NOTE);
 
     assert!(!injected, "an empty window must not be injected");
     assert_eq!(messages.len(), 2, "no message added");
