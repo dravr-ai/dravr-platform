@@ -24,43 +24,9 @@
 # 1. A tier's quota or rate limit
 # -----------------------------------------------------------------------------
 
-resource "google_logging_metric" "llm_tier_rate_limited" {
-  project = var.project_id
-  name    = "dravr-llm-tier-rate-limited"
-
-  description = "Counts LLM runner lines on the API service whose error is a provider quota or rate limit (RateLimit, quota_exceeded, 429). Labelled by provider so the alert names the tier."
-
-  filter = <<-EOT
-    resource.type="cloud_run_revision"
-    resource.labels.service_name="${var.service_name}-api"
-    jsonPayload.provider!=""
-    jsonPayload.error=~"(?i)quota|rate.?limit"
-  EOT
-
-  metric_descriptor {
-    metric_kind = "DELTA"
-    value_type  = "INT64"
-    unit        = "1"
-
-    labels {
-      key         = "provider"
-      value_type  = "STRING"
-      description = "The LLM tier whose account answered with a quota or rate limit"
-    }
-  }
-
-  label_extractors = {
-    "provider" = "EXTRACT(jsonPayload.provider)"
-  }
-}
-
-# The metric behind the policy below is `llm_tier_quota` — the first one,
-# `llm_tier_rate_limited`, counted the chain's duplicate line and read the
-# tier from the span's provider (the primary's), so Slack said "claude-code"
-# for a Copilot quota. A metric's label block is immutable in Cloud Monitoring
-# and a metric an alert policy references cannot be deleted, so the fix is a
-# new metric the policy is moved to; the old resource leaves in the apply
-# after that move.
+# A metric's label block is immutable in Cloud Monitoring and a metric an
+# alert policy references cannot be deleted, so a change to what the label
+# means is a new metric the policy is moved to, never an edit in place.
 resource "google_logging_metric" "llm_tier_quota" {
   project = var.project_id
   name    = "dravr-llm-tier-quota"
