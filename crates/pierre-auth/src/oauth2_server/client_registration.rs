@@ -61,6 +61,10 @@ impl ClientRegistrationManager {
             .unwrap_or_else(|| vec!["code".to_owned()]);
 
         let created_at = Utc::now();
+        // LIMITATION(registre#483): `expires_at` gates use, never storage — `check_client_expiry`
+        // refuses an expired client at `validate_client`, and no sweep deletes the row. Anonymous
+        // registration is rate limited per IP (`REGISTER_RPM`), so the row count grows at
+        // 10/minute/IP with no ceiling and no reclamation.
         let expires_at = Some(created_at + Duration::days(365)); // 1 year expiry
 
         // Create client record

@@ -200,12 +200,12 @@ impl OAuth2Routes {
 
     /// Handle OAuth 2.0 Protected Resource Metadata discovery (RFC 9728).
     ///
-    /// The MCP authorization spec requires a protected MCP server to act as an
-    /// OAuth 2.1 resource server and publish this document so clients can locate
-    /// the authorization server after receiving a 401. The `WWW-Authenticate`
-    /// header on `/mcp` 401 responses points here via its `resource_metadata`
-    /// parameter. Pierre hosts its own authorization server, so `resource` and
-    /// `authorization_servers` both resolve to the issuer base URL.
+    /// The MCP authorization spec requires a protected MCP server to act as an OAuth 2.1 resource
+    /// server publishing this document, so a client can find the authorization server after a 401;
+    /// `/mcp` 401s point here. Pierre hosts its own, so both fields resolve to the issuer base URL.
+    ///
+    /// LIMITATION(registre#484): `resource` is the issuer, so this document is correct for
+    /// one hostname only — a client dialling a second name must reject it (RFC 9728 §3.3).
     async fn handle_protected_resource_metadata(
         State(context): State<OAuth2Context>,
     ) -> Json<serde_json::Value> {
