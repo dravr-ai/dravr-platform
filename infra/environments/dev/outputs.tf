@@ -114,6 +114,27 @@ output "frontend_url" {
 }
 
 # -----------------------------------------------------------------------------
+# Public hostname Outputs — the records to publish at the DNS host (Cloudflare,
+# DNS only / unproxied). The CNAMEs validate the certificates and go in first;
+# the A/AAAA records are the cutover and go in once every certificate is ACTIVE.
+# -----------------------------------------------------------------------------
+
+output "public_domain_ipv4" {
+  description = "Load balancer IPv4 address — the A record for each of public_domains"
+  value       = length(module.frontend_domain) > 0 ? module.frontend_domain[0].ipv4_address : null
+}
+
+output "public_domain_ipv6" {
+  description = "Load balancer IPv6 address — the AAAA record for each of public_domains"
+  value       = length(module.frontend_domain) > 0 ? module.frontend_domain[0].ipv6_address : null
+}
+
+output "public_domain_dns_authorizations" {
+  description = "Per hostname, the CNAME (name, type, data) that lets Certificate Manager validate its certificate before the hostname resolves here"
+  value       = length(module.frontend_domain) > 0 ? module.frontend_domain[0].dns_authorization_records : {}
+}
+
+# -----------------------------------------------------------------------------
 # GitHub Actions Configuration Summary
 # -----------------------------------------------------------------------------
 

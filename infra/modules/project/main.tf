@@ -18,12 +18,13 @@ resource "google_project_service" "apis" {
     # Monitoring stack (added 2026-05-25 after the c6630e46 seed-coaches
     # outage): log-based metric + alert policy on Cloud Run job exit 1,
     # plus the daily drift-check Cloud Scheduler trigger.
-    "monitoring.googleapis.com",     # google_logging_metric, google_monitoring_alert_policy
-    "logging.googleapis.com",        # log-based metric reads from Cloud Logging
-    "cloudscheduler.googleapis.com", # google_cloud_scheduler_job (daily drift trigger)
-    "cloudkms.googleapis.com",       # KEK for envelope encryption of the database DEK (ADR-017)
-    "cloudtasks.googleapis.com",     # queue that delivers messaging turns to the backend as requests (carnet#126)
-    "billingbudgets.googleapis.com", # google_billing_budget cost guardrail (billing.tf)
+    "monitoring.googleapis.com",         # google_logging_metric, google_monitoring_alert_policy
+    "logging.googleapis.com",            # log-based metric reads from Cloud Logging
+    "cloudscheduler.googleapis.com",     # google_cloud_scheduler_job (daily drift trigger)
+    "cloudkms.googleapis.com",           # KEK for envelope encryption of the database DEK (ADR-017)
+    "cloudtasks.googleapis.com",         # queue that delivers messaging turns to the backend as requests (carnet#126)
+    "billingbudgets.googleapis.com",     # google_billing_budget cost guardrail (billing.tf)
+    "certificatemanager.googleapis.com", # Google-managed certificates + certificate map for the public hostnames (frontend_domain module)
   ])
 
   project            = var.project_id

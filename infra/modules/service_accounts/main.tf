@@ -181,6 +181,12 @@ locals {
     # `cloudtasks.enqueuer` binding. Without this the apply 403s on
     # `cloudtasks.queues.create`.
     "roles/cloudtasks.queueAdmin",
+    # Manage the DNS authorizations, Google-managed certificates and the
+    # certificate map the frontend_domain module attaches to its HTTPS proxy.
+    # The load balancer's compute resources (serverless NEG, backend service,
+    # URL maps, proxies, global addresses, forwarding rules) are already
+    # covered by compute.networkAdmin above.
+    "roles/certificatemanager.editor",
   ]
 }
 

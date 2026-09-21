@@ -63,6 +63,11 @@ artifacts_project_id = "dravr-artifacts"
 # frontend_min_instances = 0
 # frontend_max_instances = 5
 
+# First-party hostnames served by a global external load balancer in front of
+# the frontend service (each gets a Google-managed certificate). Empty = the
+# run.app hostname only.
+# public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
+
 # -----------------------------------------------------------------------------
 # Labels
 # -----------------------------------------------------------------------------

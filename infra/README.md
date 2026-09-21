@@ -154,6 +154,26 @@ echo -n "your-garmin-client-secret" | gcloud secrets versions add pierre-mcp-ser
 echo -n "your-openweather-api-key" | gcloud secrets versions add pierre-mcp-server-openweather-api-key --data-file=-
 ```
 
+### Publish the Public Hostnames
+
+`public_domains` provisions the load balancer and its certificates but no DNS —
+the `dravr.ai` zone lives at Cloudflare. Every record is **DNS only** (grey
+cloud): a proxied record would put Cloudflare's 100s proxy timeout in front of
+a chat path budgeted for 600s.
+
+1. Apply, then read the validation CNAMEs: `terraform output public_domain_dns_authorizations`.
+   Add each one at Cloudflare. The certificate validates against this record
+   alone, so it reaches `ACTIVE` before the hostname resolves anywhere.
+2. Wait for `gcloud certificate-manager certificates list` to show every
+   certificate `ACTIVE`, then confirm the balancer serves without DNS:
+   `curl -sS --resolve app.dravr.ai:443:$(terraform output -raw public_domain_ipv4) https://app.dravr.ai/health`.
+3. Add the `A` (`public_domain_ipv4`) and `AAAA` (`public_domain_ipv6`) records
+   for each hostname. The run.app hostname keeps serving throughout.
+4. Only then move `frontend_base_url` to `https://app.dravr.ai` — that single
+   variable carries `BASE_URL`, `FRONTEND_URL`, the OAuth issuer and every
+   provider callback, so the provider portals and the Firebase authorized
+   domains (`modules/firebase/MANUAL_STEPS.tf`) move in the same window.
+
 ## Module Reference
 
 | Module | Description |
@@ -166,6 +186,7 @@ echo -n "your-openweather-api-key" | gcloud secrets versions add pierre-mcp-serv
 | `service_accounts` | App SA (Cloud Run) and Deployer SA (GitHub Actions) |
 | `workload_identity` | GitHub OIDC pool and provider |
 | `storage` | Optional GCS buckets |
+| `frontend_domain` | Global external ALB + Google-managed certificates for the public hostnames (`app.dravr.ai`, `mcp.dravr.ai`) in front of the frontend service |
 
 ## Configuration Variables
 
@@ -178,6 +199,7 @@ echo -n "your-openweather-api-key" | gcloud secrets versions add pierre-mcp-serv
 | `database_tier` | Cloud SQL machine tier | `db-f1-micro` |
 | `github_org` | GitHub organization | `dravr-ai` |
 | `github_repo` | GitHub repository | `dravr-platform` |
+| `public_domains` | Public hostnames on the load balancer (empty = run.app only) | `[]` |
 
 See `variables.tf` for full list.
 
@@ -192,6 +214,8 @@ See `variables.tf` for full list.
 | `workload_identity_provider` | For GitHub `GCP_WORKLOAD_IDENTITY_PROVIDER` secret |
 | `artifact_registry_url` | For Docker push |
 | `secret_ids` | Map of secret names to IDs |
+| `public_domain_ipv4` / `public_domain_ipv6` | The A / AAAA record for every public hostname |
+| `public_domain_dns_authorizations` | Per hostname, the CNAME that validates its certificate |
 
 ## Destroying Infrastructure
 

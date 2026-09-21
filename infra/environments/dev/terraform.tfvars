@@ -16,6 +16,17 @@ enable_frontend = true
 # Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
 frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 
+# First-party hostnames on a global external load balancer in front of the
+# frontend service. app.dravr.ai is the address provider OAuth applications
+# register their callback against; mcp.dravr.ai is reserved for distributing
+# the MCP server through the AI chats and is NOT to be listed anywhere until
+# registre#484 (host-aware protected-resource metadata) lands. Both hostnames
+# share one load balancer, one IP pair and one bundle of forwarding rules, so
+# the second costs nothing. frontend_base_url still names the run.app host:
+# it moves to https://app.dravr.ai only once the certificates are ACTIVE and
+# the DNS records resolve (the plan is in dravr-vault, Work Log 2026-09-21).
+public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
+
 # 2 vCPU. Two SEPARATE reasons historically pinned this: (a) the contremaitre
 # boot-sync ran on the bind path and saturated a single core, so 1 vCPU missed
 # Cloud Run's ~55s startup probe (rev 00465) — this is now FIXED (the sync runs

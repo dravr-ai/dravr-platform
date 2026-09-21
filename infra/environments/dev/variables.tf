@@ -349,6 +349,17 @@ variable "frontend_max_instances" {
   default     = 5
 }
 
+variable "public_domains" {
+  description = "First-party hostnames served by a global external load balancer in front of the frontend Cloud Run service (e.g. app.dravr.ai, mcp.dravr.ai). Empty = no load balancer, the run.app hostname only. Requires enable_frontend."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.public_domains) == 0 || var.enable_frontend
+    error_message = "public_domains requires enable_frontend = true (the load balancer fronts the frontend Cloud Run service)."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Labels
 # -----------------------------------------------------------------------------
