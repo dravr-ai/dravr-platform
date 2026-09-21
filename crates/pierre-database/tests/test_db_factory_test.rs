@@ -8,7 +8,7 @@
 //! `pierre_database::database::test_utils` honouring `DATABASE_URL`. This file
 //! asserts that contract from the outside, against whichever server the
 //! environment provides: on a `PostgreSQL` URL every database it hands out is
-//! `PostgreSQL` and private to its caller; anywhere else it is in-memory
+//! `PostgreSQL` and private to its caller; anywhere else it is a file-backed
 //! `SQLite`. Both branches assert — neither is a skip.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
