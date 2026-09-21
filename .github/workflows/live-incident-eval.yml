@@ -1,4 +1,4 @@
-# ABOUTME: The live-model eval lane — the 2026-08 incident corpus against the REAL providers, nightly
+# ABOUTME: The live-model eval lane — the 2026-08 incident corpus against a REAL model over production's transport, nightly
 # ABOUTME: Schedule + dispatch only, deliberately: it must be able to red without blocking a merge
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,9 +6,29 @@
 #
 # Action #1 of the 2026-08-23 post-mortem "Why E2E Kept Missing the Coach Regressions".
 # Every other tier drives a scripted mock model and so verifies the pipeline's reaction
-# to model behaviour an author imagined. This one drives the real provider chain — the
-# pinned Copilot CLI over embacle ACP, with the real Cohere fallback — through the real
-# chat pipeline, and grades the DELIVERED message.
+# to model behaviour an author imagined. This one drives a model nobody scripted through
+# production's transport — the pinned Copilot CLI over embacle ACP, native MCP tool
+# calling — and the real chat pipeline, and grades the DELIVERED message.
+#
+# WHOSE MODEL ANSWERS, AND WHY IT IS NOT PRODUCTION'S
+#
+# The model is a Qwen 2.5 7B this job provisions on the runner. The Copilot CLI routes
+# to it through its own custom-provider setting (COPILOT_PROVIDER_BASE_URL) and needs no
+# GitHub login then; COPILOT_OFFLINE cuts every other GitHub call.
+#
+# Until 2026-09-21 this lane ran on the deployed coaching model with the LIVE dev token
+# from Secret Manager: 11 episodes x 3 passes of multi-turn tool loops, 186 Sonnet calls
+# a night (run 35502201927), from the one Copilot subscription the dev deployment serves
+# athletes from. The subscription's monthly premium requests ran out, athletes
+# dead-ended, and the Cohere fallback this lane also exercised became the only thing
+# answering them. No CI lane touches either account again (carnet#497).
+#
+# What that costs is stated rather than hidden: a finding here is a statement about the
+# pipeline and transport under a real, unscripted model — scaffolding that reaches the
+# athlete, a dropped chart block, a lost language, a tool envelope the loop mishandles —
+# and NOT a statement about how the deployed model coaches. Judge findings in particular
+# are a 7B grading a 7B. Every run before this change is a different baseline; do not
+# diff across it.
 #
 # WHY THERE IS NO `push:` TRIGGER
 #
@@ -21,9 +41,10 @@
 #
 # COST
 #
-# Every turn is a metered model call against a real provider, so this runs once a day
-# and on demand, never per push. The corpus is deliberately small (~13 turns) for the
-# same reason: it is an incident regression suite, not a benchmark.
+# No metered call, but wall clock: every model call evaluates 6-10k tokens of prompt on
+# four vCPUs, and one turn makes several. So this runs once a day and on demand, never
+# per push, and the corpus stays small (~13 turns): an incident regression suite, not a
+# benchmark.
 #
 # WHY THE CORPUS IS DRIVEN MORE THAN ONCE
 #
@@ -40,22 +61,21 @@ name: "Eval: Live Incident Corpus"
 on:
   workflow_dispatch:
     inputs:
-      provider:
-        description: "Primary LLM provider to drive the corpus with"
+      attempts:
+        description: "Passes over the whole corpus (a finding reds only when it reproduces in a majority)"
         required: true
-        default: "copilot_headless"
-        type: choice
-        options:
-          - copilot_headless
-          - cohere
+        default: "3"
+      episodes:
+        description: "Comma-separated episode names; empty runs the corpus. Not behaviour-neutral — see episode_filter()"
+        required: false
+        default: ""
   schedule:
     # 04:30 UTC — after the chat-eval nightly (03:30) so a structural break there
-    # is already visible before this heavier, metered lane spends anything.
+    # is already visible before this heavier lane starts.
     - cron: "30 4 * * *"
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
@@ -72,9 +92,11 @@ concurrency:
 
 jobs:
   corpus:
-    name: Incident corpus (live models)
+    name: Incident corpus (live model, production transport)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # GitHub's ceiling is 360. The first runs on a runner-local model are the
+    # measurement of what this actually needs.
+    timeout-minutes: 350
 
     env:
       LIVE_INCIDENT_EVAL: "1"
@@ -88,8 +110,8 @@ jobs:
       #
       # INFO and not DEBUG deliberately: the level is a global with_max_level
       # with no EnvFilter, so DEBUG would also turn on sqlx statement logging,
-      # hyper, h2 and reqwest across 11 episodes x 3 passes in one 60-minute
-      # job, risking truncation of the very log this exists to read. Both target
+      # hyper, h2 and reqwest across 11 episodes x 3 passes in one job,
+      # risking truncation of the very log this exists to read. Both target
       # lines are info!, so INFO is sufficient. If a run is truncated anyway,
       # drop this key rather than lowering it further — the cron is daily, so a
       # flooded run costs a day.
@@ -116,20 +138,28 @@ jobs:
       # first run after this is a NEW baseline; do not diff it against an older
       # one.
       COPILOT_HEADLESS_MCP_TOOL_CALLING: "true"
-      PIERRE_LLM_PROVIDER: ${{ inputs.provider || 'copilot_headless' }}
-      # The real production chain: Copilot first, Cohere when it returns a
-      # retryable error. Driving only the primary would leave the fallback —
-      # whose v1-format tool-argument envelope caused the 2026-08-22 «by Dravr.»
-      # turn — untested by the one lane built to test real providers.
-      PIERRE_LLM_RUNTIME_FALLBACK: "true"
-      PIERRE_LLM_FALLBACK_PROVIDER: "cohere"
-      COHERE_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_COHERE_API_KEY }}
-      # COPILOT_GITHUB_TOKEN is NOT set here. The runner reads that name — see
-      # validate_copilot_token in pierre-mcp-server.rs — but the value has to be
-      # the live one from Secret Manager, which is what the Copilot Auth Probe
-      # reads and why that lane passes while this one did not. The repo secret
-      # is a copy last written 2026-03-15 and the token has rotated since.
-      GH_TOKEN: ${{ secrets.DRAVR_MCP_SERVER_COPILOT_GITHUB_TOKEN }}
+      # Production's provider and transport, unchanged. Only the model behind
+      # the Copilot CLI differs.
+      PIERRE_LLM_PROVIDER: copilot_headless
+      # The model this lane grades, by the tag the job creates below. The test
+      # refuses to run on the harness placeholder.
+      PIERRE_LLM_MODEL: dravr-incident-eval
+      COPILOT_OFFLINE: "true"
+      COPILOT_PROVIDER_BASE_URL: http://127.0.0.1:11434/v1
+      COPILOT_PROVIDER_MAX_PROMPT_TOKENS: "32768"
+      # No fallback tier. Production's is Cohere on the key that, with the
+      # Copilot quota spent, is what answers athletes; a nightly corpus falling
+      # through to it would repeat on the fallback what this lane did to the
+      # primary. A turn the local model cannot finish is an infra error here.
+      PIERRE_LLM_RUNTIME_FALLBACK: "false"
+      # Production caps a prompt at 300s for a hosted model. A CPU-served 7B
+      # spends longer than that on prompt evaluation alone; the test's own turn
+      # deadline derives from the same variable.
+      EMBACLE_ACP_PROMPT_TIMEOUT_SECS: "2400"
+      EMBACLE_ACP_MESSAGE_TIMEOUT_SECS: "1800"
+      EMBACLE_ACP_SESSION_TIMEOUT_SECS: "180"
+      LIVE_INCIDENT_EVAL_ATTEMPTS: ${{ inputs.attempts || '3' }}
+      LIVE_INCIDENT_EVAL_EPISODES: ${{ inputs.episodes || '' }}
 
     steps:
       - name: Checkout
@@ -149,38 +179,6 @@ jobs:
         with:
           shared-key: live-incident-eval
 
-      # PIERRE_LLM_MODEL is not in the job `env:` above on purpose: it is read
-      # from the deployed config, the same single source of truth the Copilot
-      # Auth Probe reads, so the lane cannot drift onto a SKU production has
-      # moved off. Setting it at all is not optional — the shared test harness
-      # (crates/pierre-server/tests/common.rs) defaults the variable to a
-      # placeholder for the suites that never reach a provider, and it is the
-      # highest-priority model override for every provider, so an unset lane
-      # hands the ACP runner a model id no backend serves. The corpus refuses
-      # to run on the placeholder rather than grading whatever answered.
-      #
-      # The Cohere secondary inherits PIERRE_LLM_MODEL unless it is given a
-      # model of its own, and Cohere serves no Claude SKU, so its override is
-      # read from the same file in the same step.
-      - name: Read the deployed coaching models
-        run: |
-          set -euo pipefail
-          TF=infra/environments/dev/main.tf
-          for VAR in PIERRE_LLM_MODEL PIERRE_LLM_FALLBACK_PROVIDER_MODEL; do
-            # -m1 rather than a `head` pipe, because `pipefail` reads a closed
-            # pipe as a failed step; `|| true` because a no-match grep exits 1
-            # and `set -e` would kill the step before the message below, which
-            # is the only thing that says WHICH name went missing.
-            MODEL=$(grep -m1 -E "^[[:space:]]*${VAR}[[:space:]]*=" "$TF" \
-                      | sed -E 's/.*"([^"]+)".*/\1/') || true
-            if [ -z "${MODEL}" ]; then
-              echo "::error::could not read ${VAR} from ${TF}" >&2
-              exit 1
-            fi
-            echo "${VAR}=${MODEL}" >> "$GITHUB_ENV"
-            echo "${VAR}: ${MODEL}"
-          done
-
       - name: Read the pinned Copilot CLI version
         id: pin
         run: |
@@ -198,45 +196,97 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "pinned Copilot CLI: ${VERSION}"
 
-      - name: Install the pinned Copilot CLI
-        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
-        run: |
-          set -euo pipefail
-          npm install -g "@github/copilot-linux-x64@${{ steps.pin.outputs.version }}"
-          NPM_PREFIX="$(npm prefix -g)"
-          ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot
-          copilot --version
-
-      - name: Authenticate to GCP
-        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
-        uses: google-github-actions/auth@v3
+      # Restored before the server starts, so it opens a store that already
+      # holds the weights.
+      - name: Cache Ollama model store
+        uses: actions/cache@v6
         with:
-          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
-          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+          path: ~/.ollama/models
+          key: ollama-qwen2.5-7b-instruct-q4_K_M-runner-user-v1
 
-      - name: Set up gcloud CLI
-        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
-        uses: google-github-actions/setup-gcloud@v3
+      - name: Install Ollama
+        run: |
+          # pipefail: `curl … | sh` otherwise hides a failed download behind
+          # sh's exit 0 on an empty script.
+          set -o pipefail
+          for attempt in 1 2 3 4; do
+            if curl -fsSL https://ollama.com/install.sh | sh; then
+              break
+            fi
+            if [ "$attempt" = "4" ]; then
+              echo "ERROR: ollama install exhausted retries" >&2
+              exit 1
+            fi
+            echo "ollama install failed on attempt $attempt; retrying in 10s..."
+            sleep 10
+          done
+          # The installer's systemd unit runs as the `ollama` user, whose model
+          # store is not the path cached above. Serve as the runner user.
+          sudo systemctl disable --now ollama
+          # Ollama's default context is 4096 and a longer prompt is truncated
+          # WITHOUT an error — the model then answers a clipped instruction set.
+          OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_KEEP_ALIVE=360m \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
+              echo "Ollama ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: Ollama did not answer on :11434" >&2
+          cat "$RUNNER_TEMP/ollama.log" >&2
+          exit 1
 
-      - name: Fetch the live Copilot token from Secret Manager
-        id: copilot_token
-        if: env.PIERRE_LLM_PROVIDER == 'copilot_headless'
+      - name: Pull the model and warm it up
+        run: |
+          for attempt in 1 2 3 4; do
+            if ollama pull qwen2.5:7b-instruct-q4_K_M; then
+              break
+            fi
+            if [ "$attempt" = "4" ]; then
+              echo "ERROR: model pull exhausted retries" >&2
+              exit 1
+            fi
+            echo "pull failed on attempt $attempt; retrying in 10s..."
+            sleep 10
+          done
+          printf 'FROM qwen2.5:7b-instruct-q4_K_M\nPARAMETER num_thread 4\nPARAMETER num_ctx 32768\n' \
+            > "$RUNNER_TEMP/Modelfile"
+          ollama create "$PIERRE_LLM_MODEL" -f "$RUNNER_TEMP/Modelfile"
+          ollama list
+          reply="$(curl -fsS -X POST http://127.0.0.1:11434/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d "{\"model\":\"$PIERRE_LLM_MODEL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: PONG\"}]}")"
+          echo "$reply"
+          echo "$reply" | grep -qi 'pong'
+
+      # A prefix this user owns, and after Ollama on purpose: its installer
+      # re-creates /usr/local/bin as root:root 755, which turns a later
+      # `npm install -g` there into EACCES.
+      - name: Install the pinned Copilot CLI
         run: |
           set -euo pipefail
-          TOKEN=$(gcloud secrets versions access latest \
-            --secret=dravr-mcp-server-copilot-github-token \
-            --project="${GOOGLE_CLOUD_PROJECT:-$CLOUDSDK_CORE_PROJECT}")
-          if [ -z "$TOKEN" ]; then
-            echo "::error::Secret Manager returned an empty Copilot token" >&2
-            exit 1
-          fi
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          PREFIX="$HOME/.copilot-cli"
+          npm install -g --prefix "$PREFIX" "@github/copilot-linux-x64@${{ steps.pin.outputs.version }}"
+          ln -sf "$PREFIX/bin/copilot-linux-x64" "$PREFIX/bin/copilot"
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
+          "$PREFIX/bin/copilot" --version
 
+      # The gate is the exit status, then a marker. With LIVE_INCIDENT_EVAL
+      # unset the test prints "skipping" and PASSES, and a filter that matched
+      # nothing passes too — so a green run must also show the corpus summary.
       - name: Run the incident corpus
-        # --nocapture streams each turn's delivered length and every finding as
-        # it happens, so a run killed by the job's wall clock still shows which
-        # turn it died on rather than reporting nothing at all.
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ steps.copilot_token.outputs.token }}
-        run: cargo test --test live_incident_eval_test -- --nocapture
+        run: |
+          log="$RUNNER_TEMP/incident-corpus.log"
+          status=0
+          # tee, not a redirect: a run killed by the job's wall clock must still
+          # show which turn it died on. pipefail keeps cargo's status, not tee's.
+          set -o pipefail
+          cargo test --test live_incident_eval_test -- --nocapture 2>&1 | tee "$log" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::the incident corpus failed (exit $status)" >&2; exit 1; }
+          grep -q '=== live incident corpus: ' "$log" || { echo "::error::the corpus never ran — no summary line" >&2; exit 1; }
+
+      - name: Ollama log on failure
+        if: failure()
+        run: tail -200 "$RUNNER_TEMP/ollama.log" || true

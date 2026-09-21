@@ -1,6 +1,21 @@
-# ABOUTME: Daily probe that runs @github/copilot against the dev token to catch auth/entitlement drift
-# ABOUTME: Opens a tracking issue when the probe fails so operators rotate the token before users hit it
-name: "Monitor: Copilot Auth Probe"
+# ABOUTME: Daily probe of the dev Copilot account — token validity, seat, and premium-request quota left
+# ABOUTME: Reads GitHub's entitlement endpoint; spends NO model call. Opens an issue naming which of the three failed
+#
+# WHY THIS PROBE SENDS NO PROMPT
+#
+# The token it checks belongs to the account that serves athletes, so a probe
+# that completes a prompt spends that account's premium requests — and can only
+# report that a call WORKS, which stays true until the very call that exhausts
+# the budget. On 2026-09-21 the quota ran out with no warning from anywhere and
+# every athlete turn dead-ended (carnet#497).
+#
+# `GET /copilot_internal/user` answers all of it for free: 401 for a revoked
+# token, the plan and `cli_enabled` for the seat, and
+# `quota_snapshots.premium_interactions` for the budget — entitlement, remaining,
+# percent_remaining — plus the reset date. So the probe warns while there is
+# still quota to save, and its issue names which of the three failed: rotating a
+# token does nothing for a spent quota.
+name: "Monitor: Copilot Account Probe"
 
 on:
   schedule:
@@ -17,27 +32,19 @@ permissions:
   id-token: write
   issues: write
 
+env:
+  # Open the issue while a quarter of the month's premium requests is left:
+  # enough to act on before athletes are affected, late enough that a normal
+  # month does not page.
+  QUOTA_ALERT_PERCENT: "25"
+
 jobs:
-  probe-copilot-auth:
-    name: Probe Copilot Auth
+  probe-copilot-account:
+    name: Probe Copilot Account
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Read pinned Copilot CLI version from Dockerfile
-        id: pinned
-        run: |
-          DOCKERFILE=docker/images/server/Dockerfile
-          PINNED=$(grep -E '^ARG COPILOT_CLI_VERSION=' "$DOCKERFILE" | head -1 | cut -d= -f2)
-          if [ -z "$PINNED" ]; then
-            echo "ERROR: COPILOT_CLI_VERSION ARG not found in $DOCKERFILE" >&2
-            exit 1
-          fi
-          echo "version=$PINNED" >> "$GITHUB_OUTPUT"
-
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v3
         with:
@@ -46,18 +53,6 @@ jobs:
 
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v3
-
-      - name: Install Copilot CLI (pinned)
-        env:
-          PINNED: ${{ steps.pinned.outputs.version }}
-        run: |
-          # Mirror the Dockerfile install: the npm package ships a binary named
-          # `copilot-linux-x64`; symlink it to `copilot` so the probe command matches
-          # what runs inside the Cloud Run container.
-          npm install -g "@github/copilot-linux-x64@${PINNED}"
-          NPM_PREFIX="$(npm prefix -g)"
-          sudo ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot
-          copilot --version
 
       - name: Fetch token from Secret Manager
         id: token
@@ -73,124 +68,141 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      - name: Probe Copilot backend
+      - name: Read entitlement and quota
         id: probe
         env:
-          COPILOT_GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          COPILOT_ACCOUNT_TOKEN: ${{ steps.token.outputs.token }}
         run: |
-          # Fresh HOME so no cached interactive auth state interferes
-          PROBE_HOME=$(mktemp -d)
-          OUTPUT_FILE=$(mktemp)
-
-          # Probe the exact SKU Pierre serves so we detect entitlement drift on
-          # it, not the Copilot CLI default. Sourced from PIERRE_LLM_MODEL in the
-          # dev Terraform config (the single source of truth) so this never drifts.
-          PROBE_MODEL=$(grep -E '^[[:space:]]*PIERRE_LLM_MODEL[[:space:]]*=' infra/environments/dev/main.tf | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          if [ -z "$PROBE_MODEL" ]; then
-            echo "ERROR: could not extract PIERRE_LLM_MODEL from infra/environments/dev/main.tf" >&2
+          set -euo pipefail
+          BODY=$(mktemp)
+          # The HTTP status is the verdict on the token; -f is deliberately
+          # absent so a 401 is read as an answer rather than a curl failure.
+          # A transport failure (no status at all) fails the job: that is the
+          # absence of an observation, not a finding about the account.
+          if ! STATUS=$(curl -sS -m 30 -o "$BODY" -w '%{http_code}' \
+                 -H "Authorization: Bearer ${COPILOT_ACCOUNT_TOKEN}" \
+                 -H 'Accept: application/json' \
+                 https://api.github.com/copilot_internal/user); then
+            echo "::error::could not reach api.github.com" >&2
             exit 1
           fi
-          echo "Probing model: $PROBE_MODEL"
 
-          # Run a trivial prompt; success means auth + entitlement + network all OK.
-          # --allow-all-tools avoids interactive permission prompts.
-          set +e
-          HOME="$PROBE_HOME" timeout 120 copilot -p "Reply with exactly one word: pong" \
-            --model "$PROBE_MODEL" --allow-all-tools \
-            > "$OUTPUT_FILE" 2>&1
-          EXIT_CODE=$?
-          set -e
-
-          OUTPUT=$(cat "$OUTPUT_FILE")
-
-          # Detect known failure signatures that appear in output even when exit==0
           FAILED=false
-          if [ $EXIT_CODE -ne 0 ]; then
+          REASON=OK
+          KIND=ok
+          DETAIL=""
+          if [ "$STATUS" != "200" ]; then
             FAILED=true
-            REASON="copilot exited non-zero (exit=$EXIT_CODE)"
-          elif echo "$OUTPUT" | grep -qF "Authorization error, you may need to run /login"; then
-            FAILED=true
-            REASON="Copilot emitted 'Authorization error, you may need to run /login' — token lost Copilot entitlement"
-          elif echo "$OUTPUT" | grep -qF "copilot login"; then
-            FAILED=true
-            REASON="Copilot prompted for login — token revoked or missing Copilot Requests permission"
+            KIND=auth
+            REASON="GitHub answered HTTP ${STATUS} for the dev token — revoked, expired, or no Copilot seat"
+          else
+            # Every field is required. A response that has lost one is a shape
+            # change, and reading it as "healthy" is how a gauge goes blind.
+            if ! PARSED=$(jq -er '
+                  .quota_snapshots.premium_interactions as $q
+                  | [ (.copilot_plan | strings),
+                      (.cli_enabled | booleans | tostring),
+                      ($q.unlimited | booleans | tostring),
+                      ($q.percent_remaining | numbers | tostring),
+                      ($q.remaining | numbers | tostring),
+                      ($q.entitlement | numbers | tostring),
+                      (.quota_reset_date | strings) ]
+                  | if length == 7 then join("\t") else error("missing field") end' "$BODY"); then
+              echo "::error::/copilot_internal/user no longer has the shape this probe reads" >&2
+              jq -r 'paths(scalars) | map(tostring) | join(".")' "$BODY" | head -60 >&2 || true
+              exit 1
+            fi
+            IFS=$'\t' read -r PLAN CLI UNLIMITED PERCENT REMAINING ENTITLEMENT RESET <<< "$PARSED"
+            DETAIL="plan=${PLAN} cli_enabled=${CLI} premium: ${REMAINING} of ${ENTITLEMENT} left (${PERCENT}%), resets ${RESET}"
+            echo "$DETAIL"
+            if [ "$CLI" != "true" ]; then
+              FAILED=true
+              KIND=seat
+              REASON="the account's Copilot seat no longer includes the CLI (cli_enabled=${CLI}, plan=${PLAN})"
+            elif [ "$UNLIMITED" != "true" ] && \
+                 jq -en --argjson p "$PERCENT" --argjson t "$QUOTA_ALERT_PERCENT" '$p < $t' >/dev/null; then
+              FAILED=true
+              KIND=quota
+              REASON="premium requests at ${PERCENT}% (${REMAINING} of ${ENTITLEMENT}), below the ${QUOTA_ALERT_PERCENT}% alert line; resets ${RESET}"
+            fi
           fi
-
-          # Redact any token-shaped strings from output before writing to $GITHUB_OUTPUT
-          # (defense in depth; ::add-mask:: already masks in step logs)
-          REDACTED=$(echo "$OUTPUT" | sed -E 's/github_pat_[A-Za-z0-9_]{20,}/github_pat_REDACTED/g; s/ghp_[A-Za-z0-9]{30,}/ghp_REDACTED/g; s/gho_[A-Za-z0-9]{30,}/gho_REDACTED/g')
+          rm -f "$BODY"
 
           {
             echo "failed=$FAILED"
-            echo "exit_code=$EXIT_CODE"
-            echo "reason=${REASON:-OK}"
-            echo "model=$PROBE_MODEL"
-            echo 'output<<ENDOFOUTPUT'
-            echo "$REDACTED"
-            echo 'ENDOFOUTPUT'
+            echo "kind=$KIND"
+            echo "reason=$REASON"
+            echo "detail=$DETAIL"
           } >> "$GITHUB_OUTPUT"
-
-          rm -f "$OUTPUT_FILE"
-
           if [ "$FAILED" = "true" ]; then
-            echo "Probe FAILED: $REASON"
-            exit 0  # do not fail the job — we want the issue-creation step to run
+            # Not a job failure: the issue step below is the alert, and it
+            # must run.
+            echo "Probe FAILED ($KIND): $REASON"
+          else
+            echo "Probe OK"
           fi
-          echo "Probe OK (exit=$EXIT_CODE, ${#OUTPUT} bytes of output)"
 
       - name: Open or update tracking issue on probe failure
         if: steps.probe.outputs.failed == 'true'
         uses: actions/github-script@v9
         env:
           PROBE_REASON: ${{ steps.probe.outputs.reason }}
-          PROBE_EXIT_CODE: ${{ steps.probe.outputs.exit_code }}
-          PROBE_MODEL: ${{ steps.probe.outputs.model }}
-          PROBE_OUTPUT: ${{ steps.probe.outputs.output }}
+          PROBE_KIND: ${{ steps.probe.outputs.kind }}
+          PROBE_DETAIL: ${{ steps.probe.outputs.detail }}
         with:
           script: |
-            const title = 'Copilot auth probe failing — rotate dev token';
+            const title = 'Copilot account probe failing (dev)';
             const label = 'incident';
             const today = new Date().toISOString().split('T')[0];
             const reason = process.env.PROBE_REASON;
-            const exitCode = process.env.PROBE_EXIT_CODE;
-            const output = process.env.PROBE_OUTPUT;
+            const kind = process.env.PROBE_KIND;
+            const detail = process.env.PROBE_DETAIL;
+            // What to do depends on which of the three failed. Rotating a
+            // token does nothing for a spent quota, and that is the advice
+            // this issue gave on 2026-09-21.
+            const remedy = kind === 'quota'
+              ? [
+                  `## What to do`,
+                  ``,
+                  `The token is fine; the month's premium requests are running out. Rotating it changes nothing.`,
+                  ``,
+                  `1. Find what is spending: the dev server's \`LLM call completed\` log lines by caller, and any workflow that reads \`dravr-mcp-server-copilot-github-token\`. No CI lane may use this account (carnet#497).`,
+                  `2. Until the reset date above, the fallback chain carries the traffic — check that its next tier is healthy.`,
+                ]
+              : [
+                  `## Rotation runbook`,
+                  ``,
+                  `1. Create a new fine-grained PAT at https://github.com/settings/personal-access-tokens/new`,
+                  `   - **Account permissions**: \`Copilot Chat: Read-only\` AND \`Copilot Requests: Read-only\``,
+                  `   - **Expiration**: maximum (1 year)`,
+                  `2. Rotate into Secret Manager:`,
+                  `   \`\`\`bash`,
+                  `   printf '%s' "<new_token>" | gcloud secrets versions add \\`,
+                  `     dravr-mcp-server-copilot-github-token \\`,
+                  `     --project=<dev-project> --data-file=-`,
+                  `   \`\`\``,
+                  `3. Force a new Cloud Run revision so the service picks up the secret:`,
+                  `   \`\`\`bash`,
+                  `   gcloud run services update dravr-mcp-server-api \\`,
+                  `     --region=northamerica-northeast1 --project=<dev-project> \\`,
+                  `     --update-labels=token-rotated=$(date +%s)`,
+                  `   \`\`\``,
+                  `4. Re-run this workflow via \`workflow_dispatch\` to confirm the probe is green.`,
+                ];
 
             const body = [
-              `# Copilot auth probe failed — ${today}`,
+              `# Copilot account probe failed — ${today}`,
               ``,
-              `_Generated by [Monitor: Copilot Auth Probe](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})_`,
+              `_Generated by [Monitor: Copilot Account Probe](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})_`,
               ``,
               `## Signal`,
               ``,
+              `- **Failed check**: \`${kind}\``,
               `- **Reason**: ${reason}`,
-              `- **Exit code**: \`${exitCode}\``,
-              `- **Model probed**: \`${process.env.PROBE_MODEL}\``,
+              `- **Account**: ${detail || 'not read — the token was refused'}`,
               `- **Secret**: \`dravr-mcp-server-copilot-github-token\` (latest version)`,
               ``,
-              `## Probe output (token-redacted)`,
-              ``,
-              '```',
-              output.length > 3000 ? output.slice(0, 3000) + '\n...[truncated]' : output,
-              '```',
-              ``,
-              `## Rotation runbook`,
-              ``,
-              `1. Create a new fine-grained PAT at https://github.com/settings/personal-access-tokens/new`,
-              `   - **Account permissions**: \`Copilot Chat: Read-only\` AND \`Copilot Requests: Read-only\``,
-              `   - **Expiration**: maximum (1 year)`,
-              `2. Rotate into Secret Manager:`,
-              `   \`\`\`bash`,
-              `   printf '%s' "<new_token>" | gcloud secrets versions add \\`,
-              `     dravr-mcp-server-copilot-github-token \\`,
-              `     --project=<dev-project> --data-file=-`,
-              `   \`\`\``,
-              `3. Force a new Cloud Run revision so the service picks up the secret:`,
-              `   \`\`\`bash`,
-              `   gcloud run services update dravr-mcp-server-api \\`,
-              `     --region=northamerica-northeast1 --project=<dev-project> \\`,
-              `     --update-labels=token-rotated=$(date +%s)`,
-              `   \`\`\``,
-              `4. Re-run this workflow via \`workflow_dispatch\` to confirm the probe is green.`,
+              ...remedy,
               ``,
               `_This issue auto-updates each day. It closes when the next probe succeeds._`,
             ].join('\n');
@@ -246,7 +258,7 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
-            const title = 'Copilot auth probe failing — rotate dev token';
+            const title = 'Copilot account probe failing (dev)';
             const label = 'incident';
 
             const { data: openIssues } = await github.rest.issues.listForRepo({
@@ -267,7 +279,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: existing.number,
-              body: 'Copilot auth probe succeeded. Auto-closing.',
+              body: 'Copilot account probe succeeded. Auto-closing.',
             });
             await github.rest.issues.update({
               owner: context.repo.owner,

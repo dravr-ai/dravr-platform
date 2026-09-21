@@ -1,4 +1,4 @@
-// ABOUTME: The live-model eval lane — every 2026-08 coaching incident replayed against the REAL providers
+// ABOUTME: The live-model eval lane — every 2026-08 coaching incident replayed against a REAL model over the production transport
 // ABOUTME: Grades the DELIVERED body, not the stored row, because that is the only thing the athlete saw
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -15,9 +15,15 @@
 //! > model behavior no author scripted.
 //!
 //! A mock cannot regress the way a model does. This lane is the tier that can:
-//! it drives the **real** production provider chain — pinned Copilot CLI over
-//! embacle ACP, with the real Cohere fallback — through the **real** chat
-//! pipeline, over the **real** prompt corpus, and grades what came out.
+//! it drives a **real** model through production's transport — the pinned
+//! Copilot CLI over embacle ACP — and the **real** chat pipeline, over the
+//! **real** prompt corpus, and grades what came out.
+//!
+//! Which model answers is the environment's choice. The nightly lane points the
+//! Copilot CLI at a model served on the runner (`COPILOT_PROVIDER_BASE_URL`),
+//! because a corpus this size on a hosted account spends the quota athletes are
+//! served from; its findings are therefore about the pipeline and transport
+//! under an unscripted model, not about how the deployed model coaches.
 //!
 //! ## Three things it does differently
 //!
@@ -43,15 +49,23 @@
 //!
 //! ## Running it
 //!
-//! Off unless `LIVE_INCIDENT_EVAL=1`, because every turn spends a real model
-//! call. The nightly lane sets it; a local run needs the pinned Copilot CLI on
-//! `PATH` (`COPILOT_CLI_VERSION` in `docker/images/server/Dockerfile`) or
-//! `COHERE_API_KEY`, plus the provider selection env the server itself reads.
+//! Off unless `LIVE_INCIDENT_EVAL=1`, because every turn is a real model call
+//! and takes minutes. The nightly lane sets it; a local run needs the pinned
+//! Copilot CLI on `PATH` (`COPILOT_CLI_VERSION` in
+//! `docker/images/server/Dockerfile`), an Ollama serving the model with
+//! `OLLAMA_CONTEXT_LENGTH=32768` (its 4096 default truncates the prompt without
+//! an error), and the provider selection env the server itself reads.
 //!
 //! ```bash
 //! LIVE_INCIDENT_EVAL=1 PIERRE_LLM_PROVIDER=copilot_headless \
+//!   PIERRE_LLM_MODEL=qwen2.5:7b-instruct-q4_K_M PIERRE_LLM_RUNTIME_FALLBACK=false \
+//!   COPILOT_OFFLINE=true COPILOT_PROVIDER_BASE_URL=http://localhost:11434/v1 \
+//!   EMBACLE_ACP_PROMPT_TIMEOUT_SECS=1200 EMBACLE_ACP_MESSAGE_TIMEOUT_SECS=900 \
 //!   cargo test --test live_incident_eval_test -- --nocapture
 //! ```
+//!
+//! The ACP runner pins its model in `$HOME/.copilot/settings.json`; give a
+//! local run its own `HOME` if that file is one you use.
 //!
 //! ## Reading a failure
 //!
@@ -122,11 +136,22 @@ mod live_incident_eval {
     /// How long one turn may take before it is recorded as an infra error.
     ///
     /// A Copilot Autopilot turn runs the whole tool loop and synthesis inside
-    /// one ACP prompt, which production caps at 300s
-    /// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`). One margin past that so a turn the
-    /// server itself would have abandoned is attributed to the provider rather
-    /// than to this lane's patience.
-    const TURN_TIMEOUT: Duration = Duration::from_secs(330);
+    /// one ACP prompt, which the runner caps at `EMBACLE_ACP_PROMPT_TIMEOUT_SECS`
+    /// (300s unset, which is what production runs). One margin past that so a
+    /// turn the server itself would have abandoned is attributed to the provider
+    /// rather than to this lane's patience — and read from the same variable, so
+    /// a lane that gives a CPU-served model a longer prompt cap does not then
+    /// cut the turn off at the hosted model's.
+    fn turn_timeout() -> Duration {
+        const PRODUCTION_PROMPT_CAP_SECS: u64 = 300;
+        const MARGIN_SECS: u64 = 30;
+        let cap = env::var("EMBACLE_ACP_PROMPT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .unwrap_or(PRODUCTION_PROMPT_CAP_SECS);
+        Duration::from_secs(cap.saturating_add(MARGIN_SECS))
+    }
 
     /// Poll interval while waiting for the delivered message to land.
     const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -1322,7 +1347,7 @@ mod live_incident_eval {
     /// Three outcomes, because the athlete reading a fluent French paragraph
     /// does not tell you which of them produced it:
     ///
-    /// - `Err` — nothing was delivered inside [`TURN_TIMEOUT`], or the turn
+    /// - `Err` — nothing was delivered inside [`turn_timeout`], or the turn
     ///   never persisted an assistant row. An infra error, not a finding: no
     ///   reply is not a bad reply.
     /// - [`Answered::Platform`] — a deterministic branch answered and stamped
@@ -1366,7 +1391,7 @@ mod live_incident_eval {
             ));
         }
 
-        let deadline = Instant::now() + TURN_TIMEOUT;
+        let deadline = Instant::now() + turn_timeout();
         while Instant::now() < deadline {
             if outbound_count(resources, fixture.athlete_tenant).await > baseline {
                 let body = latest_outbound(resources, fixture.athlete_tenant)
@@ -1427,12 +1452,12 @@ mod live_incident_eval {
             return Err(format!(
                 "outbound delivered but no assistant row after {}s — the turn never \
                  completed (the delivered text may be a background push, not the reply): {body:?}",
-                TURN_TIMEOUT.as_secs()
+                turn_timeout().as_secs()
             ));
         }
         Err(format!(
             "no outbound message delivered within {}s",
-            TURN_TIMEOUT.as_secs()
+            turn_timeout().as_secs()
         ))
     }
 
@@ -1879,8 +1904,8 @@ mod live_incident_eval {
         if env::var(GATE_ENV).ok().as_deref() != Some("1") {
             println!(
                 "skipping live_incident_corpus_holds: set {GATE_ENV}=1 (plus the provider env the \
-                 server reads — PIERRE_LLM_PROVIDER, and the pinned Copilot CLI on PATH or \
-                 COHERE_API_KEY) to run the corpus against real models"
+                 server reads — PIERRE_LLM_PROVIDER, PIERRE_LLM_MODEL, and the pinned Copilot CLI \
+                 on PATH) to run the corpus against a real model"
             );
             return;
         }
@@ -1899,9 +1924,8 @@ mod live_incident_eval {
         let model = env::var("PIERRE_LLM_MODEL").unwrap_or_default();
         assert!(
             !model.is_empty() && model != PLACEHOLDER_LLM_MODEL,
-            "PIERRE_LLM_MODEL is {model:?} — name the model this lane is meant to grade (the \
-             deployed coaching model, PIERRE_LLM_MODEL in infra/environments/dev/main.tf) \
-             before spending live turns on it"
+            "PIERRE_LLM_MODEL is {model:?} — name the model this lane is meant to grade before \
+             spending live turns on it"
         );
         println!("live lane model: {model}");
 
