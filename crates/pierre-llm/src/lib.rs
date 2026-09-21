@@ -70,7 +70,7 @@ pub use embacle::{
 pub use embacle::{
     McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,
 };
-pub use embacle_provider::EmbacleProvider;
+pub use embacle_provider::{cli_credential_env_keys, cli_runner_config, EmbacleProvider};
 pub use prompts::{
     get_activity_analysis_prompt, get_activity_analysis_system_prompt, get_agent_generation_prompt,
     get_messaging_context_prompt, get_pierre_system_prompt, get_recommendation_analysis_prompt,

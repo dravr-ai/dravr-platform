@@ -91,7 +91,7 @@ impl EmbacleProvider {
         match kind.construction() {
             ProviderConstruction::HttpApi(http) => http_env::build(http, model_override),
             ProviderConstruction::Cli(runner_type) => {
-                let config = build_runner_config_with_model(runner_type, model_override)?;
+                let config = cli_runner_config(runner_type, model_override)?;
                 Ok(Self::build_cli(runner_type, config))
             }
             ProviderConstruction::CopilotHeadless => Ok(Self::build_headless(model_override)),
@@ -318,7 +318,7 @@ impl EmbacleProvider {
     /// Returns `AppError` when the Claude Code binary cannot be resolved or the
     /// router rejects the backend set.
     fn build_router() -> Result<Self, AppError> {
-        let claude_config = build_runner_config_with_model(CliRunnerType::ClaudeCode, None)?;
+        let claude_config = cli_runner_config(CliRunnerType::ClaudeCode, None)?;
         let claude: Box<dyn EmbacleLlmProvider> = Box::new(ClaudeCodeRunner::new(claude_config));
 
         let mut headless_config = CopilotHeadlessConfig::from_env();
@@ -539,12 +539,50 @@ fn spawn_readiness_warning(runner_type: CliRunnerType, binary_path: PathBuf) {
     });
 }
 
+/// The environment variables a CLI runner authenticates from.
+///
+/// embacle's sandbox clears the child's environment and passes only
+/// `default_allowed_env_keys()` — `HOME`, `PATH`, `TERM`, `USER`, `LANG`. A
+/// CLI reads its credential from its own variable, so that variable must pass
+/// too or every call fails before reaching the API: Claude Code answers
+/// "Not logged in · Please run /login" with an exit code of 1 and zero
+/// tokens, which is how `claude_code` served no turn on 2026-09-21 while the
+/// chain's span label said it had. The match is exhaustive so a new runner
+/// declares its credential, or its absence, here.
+#[must_use]
+pub const fn cli_credential_env_keys(runner_type: CliRunnerType) -> &'static [&'static str] {
+    match runner_type {
+        CliRunnerType::ClaudeCode => &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+        CliRunnerType::Copilot | CliRunnerType::CopilotHeadless | CliRunnerType::CopilotSdk => {
+            &["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
+        }
+        CliRunnerType::GeminiCli => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        CliRunnerType::CodexCli => &["OPENAI_API_KEY"],
+        // No credential this platform provisions: the runner reads a stored
+        // login under HOME, which the default allowlist already passes.
+        CliRunnerType::CursorAgent
+        | CliRunnerType::OpenCode
+        | CliRunnerType::GooseCli
+        | CliRunnerType::ClineCli
+        | CliRunnerType::ContinueCli
+        | CliRunnerType::WarpCli
+        | CliRunnerType::KiroCli
+        | CliRunnerType::KiloCli => &[],
+    }
+}
+
 /// Build a `RunnerConfig` for a runner type from environment variables,
 /// with `model_override` winning over `PIERRE_LLM_MODEL` / `CLI_LLM_MODEL`.
 ///
 /// Resolves the binary path via `CLI_LLM_BINARY` env var override or `which`
-/// discovery, then applies `CLI_LLM_*` overrides for model, timeout, and args.
-fn build_runner_config_with_model(
+/// discovery, lets the runner's credential variables through the sandbox
+/// ([`cli_credential_env_keys`]), then applies `CLI_LLM_*` overrides for
+/// model, timeout, and args.
+///
+/// # Errors
+///
+/// Returns `AppError` when the runner's binary cannot be resolved.
+pub fn cli_runner_config(
     runner_type: CliRunnerType,
     model_override: Option<&str>,
 ) -> Result<RunnerConfig, AppError> {
@@ -553,6 +591,13 @@ fn build_runner_config_with_model(
         embacle::resolve_binary(runner_type.binary_name(), binary_override.as_deref())?;
 
     let mut config = RunnerConfig::new(binary_path);
+    let mut allowed = config.allowed_env_keys.clone();
+    allowed.extend(
+        cli_credential_env_keys(runner_type)
+            .iter()
+            .map(|key| (*key).to_owned()),
+    );
+    config = config.with_allowed_env_keys(allowed);
     config = apply_env_overrides(config, model_override);
     Ok(config)
 }
