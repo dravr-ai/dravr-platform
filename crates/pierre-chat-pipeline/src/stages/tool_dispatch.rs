@@ -83,6 +83,22 @@ pub(crate) struct DispatchLlmInputs<'a> {
     pub peer_roster: &'a [MemberFitnessSnapshot],
 }
 
+/// What the dispatch stage hands back to the pipeline.
+pub(crate) struct DispatchedTurn {
+    /// The tool loop's outcome.
+    pub result: ToolLoopResult,
+    /// Name of the LLM provider that answered.
+    pub provider_name: String,
+    /// `true` when a platform prefetch put a non-empty window of the athlete's
+    /// activities in the prompt before the model ran (Stage 10 or 12b).
+    ///
+    /// Carried on its own because `tools_called` cannot say it: the prefetch is
+    /// folded into that list under the same name a model-initiated
+    /// `get_activities` uses, and a model call that failed leaves the name
+    /// behind with no data at all.
+    pub activities_prefetched: bool,
+}
+
 #[tracing::instrument(
     skip_all,
     fields(
@@ -99,7 +115,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     llm_messages: &mut Vec<ChatMessage>,
     max_iterations: usize,
     stream_sink: Option<crate::TurnEventSink>,
-) -> AppResult<(ToolLoopResult, String)> {
+) -> AppResult<DispatchedTurn> {
     let DispatchLlmInputs {
         ctx,
         input,
@@ -419,5 +435,9 @@ pub(crate) async fn dispatch_llm_with_tools(
         "Chat pipeline dispatch completed"
     );
 
-    Ok((result, provider_name))
+    Ok(DispatchedTurn {
+        result,
+        provider_name,
+        activities_prefetched: prefetched_activities,
+    })
 }

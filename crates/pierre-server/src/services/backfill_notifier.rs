@@ -45,7 +45,7 @@ use pierre_chat_pipeline::{
 };
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
-    KEY_BACKFILL_READY, KEY_PROVIDER_REAUTH_REQUIRED,
+    KEY_BACKFILL_READY, KEY_CAPABILITY_REFUSAL, KEY_PROVIDER_REAUTH_REQUIRED, KEY_SCOPE_REFUSAL,
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{
@@ -201,11 +201,12 @@ pub struct ReentryReply {
     /// already folded into this string by the pipeline — the push sends it
     /// verbatim rather than composing it a second time.
     pub body: String,
-    /// Whether the re-entry turn actually fetched the athlete's activities.
+    /// Whether the re-entry turn answered from the athlete's activities — see
+    /// [`engaged_with_activities`].
     ///
     /// The push exists to deliver a freshly backfilled history, so an agent
-    /// reply that never looked at it is discarded in favour of the templated
-    /// list rather than surfacing an analysis of nothing.
+    /// reply that never had it, or had it and refused, is discarded in favour
+    /// of the templated list rather than surfacing an analysis of nothing.
     pub fetched_activities: bool,
 }
 
@@ -247,15 +248,54 @@ impl PipelineChatReentry {
 /// Whether a re-entry turn engaged with the athlete's activities, and so may be
 /// trusted to answer about them.
 ///
-/// Reads `activity_list_captured` and deliberately does NOT scan `tools_called`
-/// for `get_activities`: the platform injects that tool name when it prefetches
-/// activities into the prompt on the model's behalf, so the name is present in
-/// turns where the model never looked at the data and answered with a refusal.
-/// Trusting the name would push that refusal to the athlete in place of the
-/// history they asked for.
+/// A turn is grounded in activities two ways. The tool loop captured a list
+/// (`activity_list_captured`): the model asked and got them. Or the platform
+/// prefetched a non-empty window into the prompt (`activities_prefetched`), and
+/// the prompt contract told the agent to answer from it WITHOUT re-fetching —
+/// so the well-behaved turn calls nothing. Trusting only the first threw away
+/// every answer the second produced: on 2026-09-21 an athlete asked for monthly
+/// elevation totals, the re-entry turn answered from the prefetched window, and
+/// the push delivered the templated list in its place.
+///
+/// What a prefetched turn must not be allowed to push is a refusal: the model
+/// had the data and declined the question anyway, which would land in place of
+/// the history the athlete asked for. Refusals are canonical — the system
+/// prompt interpolates the exact sentence per locale (`canonical_refusals`) —
+/// so a reply carrying one is recognised rather than guessed at.
+///
+/// Deliberately does NOT scan `tools_called` for `get_activities`: that name is
+/// left behind by the prefetch and by a model call that failed alike, so it
+/// says nothing about whether any data reached the model.
 #[must_use]
-pub const fn engaged_with_activities(telemetry: &TurnTelemetry) -> bool {
-    telemetry.activity_list_captured
+pub fn engaged_with_activities(
+    telemetry: &TurnTelemetry,
+    reply: &str,
+    canonical_refusals: &[String],
+) -> bool {
+    if telemetry.activity_list_captured {
+        return true;
+    }
+    telemetry.activities_prefetched && !carries_canonical_refusal(reply, canonical_refusals)
+}
+
+/// Whether `reply` contains one of the platform's canonical refusal sentences.
+///
+/// Compared case-insensitively with whitespace collapsed, because a channel
+/// fold or the model's own line breaks can re-wrap the sentence without
+/// changing it. An empty sentence — a locale the catalogue does not carry —
+/// is skipped: it would otherwise be contained in every reply.
+fn carries_canonical_refusal(reply: &str, canonical_refusals: &[String]) -> bool {
+    let normalize = |text: &str| {
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
+    let reply = normalize(reply);
+    canonical_refusals
+        .iter()
+        .map(|sentence| normalize(sentence))
+        .any(|sentence| !sentence.is_empty() && reply.contains(&sentence))
 }
 
 #[async_trait]
@@ -300,9 +340,15 @@ impl ChatReentry for PipelineChatReentry {
             // question produced (sorted per the user's wording), folded in
             // exactly as a live messaging turn folds it.
             Ok(ServedTurn::Pipeline(result)) if !result.assistant.prose().trim().is_empty() => {
+                let canonical_refusals = [KEY_SCOPE_REFUSAL, KEY_CAPABILITY_REFUSAL]
+                    .map(|key| ctx.messaging_strings_registry.get(key, req.locale));
                 Some(ReentryReply {
                     body: result.assistant.prose().to_owned(),
-                    fetched_activities: engaged_with_activities(&result.telemetry),
+                    fetched_activities: engaged_with_activities(
+                        &result.telemetry,
+                        result.assistant.prose(),
+                        &canonical_refusals,
+                    ),
                 })
             }
             // An empty reply, a slash command (the prompt is platform-authored
@@ -893,16 +939,13 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // rendered from the warmed cache the backfill just wrote, is the SPINE
             // — the user ALWAYS receives the data they asked for, regardless of the
             // model. We still attempt an in-persona agent answer via chat re-entry,
-            // but only TRUST it when the model actually engaged with the data:
-            // `activity_list_captured` is set only when the tool loop itself
-            // returned a list, never when the platform prefetched activities into
-            // the prompt on the model's behalf. A re-entry that refused ("Ça sort
-            // de ce que je peux t'aider…"), offered
-            // to show instead of showing, or otherwise skipped the tool produced no
-            // list — so we drop its text and render the list ourselves, never
-            // surfacing a refusal on top of (or instead of) the user's own
-            // activities. This makes the LLM a best-effort enhancement, not a gate
-            // on delivery.
+            // but only TRUST it when the turn was grounded in the data and did
+            // not refuse — `engaged_with_activities` holds the rule. A re-entry
+            // that refused ("Ça sort de ce que je peux t'aider…") or never had
+            // the activities in front of it is dropped and we render the list
+            // ourselves, never surfacing a refusal on top of (or instead of) the
+            // user's own activities. This makes the LLM a best-effort
+            // enhancement, not a gate on delivery.
             match self
                 .try_synthesize_agent_reply(
                     user_id,

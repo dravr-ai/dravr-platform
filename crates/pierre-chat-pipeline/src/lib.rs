@@ -114,7 +114,6 @@ use pierre_sse::SseManager;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
-use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use tracing::field::Empty;
 use tracing::{info, warn};
 
@@ -572,7 +571,7 @@ struct DispatchStageArgs<'a> {
 async fn dispatch_stage(
     args: DispatchStageArgs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
-) -> AppResult<(ToolLoopResult, String)> {
+) -> AppResult<stages::tool_dispatch::DispatchedTurn> {
     emit_step_started(args.hooks, "dispatch").await;
     let max_iterations =
         resolve_max_iterations(args.profile.budget, args.ctx, args.agent_ctx).await;
@@ -841,7 +840,11 @@ async fn run_turn(
         .await?;
 
     // Stages 9–14: pre-dispatch preparation followed by the multi-turn tool loop.
-    let (mut result, provider_name) = dispatch_stage(
+    let stages::tool_dispatch::DispatchedTurn {
+        mut result,
+        provider_name,
+        activities_prefetched,
+    } = dispatch_stage(
         DispatchStageArgs {
             hooks,
             ctx,
@@ -999,6 +1002,7 @@ async fn run_turn(
                 tools_called: result.tools_called,
                 tool_calls_count: result.tool_calls_count,
                 activity_list_captured,
+                activities_prefetched,
                 usage: result.usage,
                 identity_leak,
             },

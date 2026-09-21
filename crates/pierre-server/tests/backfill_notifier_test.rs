@@ -21,6 +21,9 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
 use pierre_chat_pipeline::TurnTelemetry;
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
+};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, ConnectionType};
 use pierre_database::RepositoryRegistry;
@@ -916,39 +919,118 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
     );
 }
 
-/// The prefetch injection must not be mistaken for the model engaging.
-///
-/// `tool_dispatch` injects `get_activities` into `tools_called` when the
-/// platform warms the prompt with activities on the model's behalf. If the
-/// trust predicate scanned that list, an agent that refused the question would
-/// still read as "fetched activities", and the completion push would deliver
-/// the refusal in place of the history the athlete asked for.
-#[test]
-fn a_prefetched_tool_name_is_not_the_model_engaging_with_activities() {
-    let prefetched_but_refused = TurnTelemetry {
-        model: "claude-opus-4".to_owned(),
+/// The canonical French refusals, read from the same registry the system
+/// prompt interpolates them from — so the test breaks with the wording, not
+/// behind it.
+fn french_refusals() -> Vec<String> {
+    let registry = MessagingStringsRegistry::new();
+    [KEY_SCOPE_REFUSAL, KEY_CAPABILITY_REFUSAL]
+        .map(|key| registry.get(key, "fr"))
+        .to_vec()
+}
+
+fn reentry_telemetry(activity_list_captured: bool, activities_prefetched: bool) -> TurnTelemetry {
+    TurnTelemetry {
+        model: "claude-sonnet-5".to_owned(),
         provider_name: "copilot_headless".to_owned(),
-        // Exactly what the platform's own prefetch leaves behind.
+        // What the platform's own prefetch leaves behind, and what a failed
+        // model call leaves behind: the name alone says nothing.
         tools_called: vec!["get_activities".to_owned()],
         tool_calls_count: 1,
-        activity_list_captured: false,
+        activity_list_captured,
+        activities_prefetched,
         usage: None,
         identity_leak: None,
-    };
-    assert!(
-        !engaged_with_activities(&prefetched_but_refused),
-        "a turn whose only get_activities came from the platform prefetch must \
-         not be trusted to answer about activities"
-    );
+    }
+}
 
-    let model_actually_asked = TurnTelemetry {
-        activity_list_captured: true,
-        ..prefetched_but_refused
-    };
+/// An answer built from the prefetched window is the athlete's answer.
+///
+/// Observed 2026-09-21: "Compare mon dénivelé mensuel de mars à septembre". The
+/// backfill completed, the re-entry turn had the window prefetched into its
+/// prompt — and was told by the prompt contract not to re-fetch it — and it
+/// answered with the monthly totals. No tool call, so no captured list, and the
+/// push threw the answer away and sent 15 bullet points of raw activities.
+#[test]
+fn an_answer_from_the_prefetched_window_is_delivered() {
     assert!(
-        engaged_with_activities(&model_actually_asked),
-        "a turn whose tool loop captured a list is the case we do trust"
+        engaged_with_activities(
+            &reentry_telemetry(false, true),
+            "Septembre: 5 918 m de D+, ta plus grosse sortie c'est Montagne sacrée! (924 m). \
+             Août: 7 577 m. Juillet: 7 044 m.",
+            &french_refusals(),
+        ),
+        "the model had every row in front of it and answered the question; discarding \
+         that for a templated list is what left the athlete without an answer"
     );
+}
+
+/// A refusal is never pushed in place of the history, prefetched or not.
+///
+/// The prefetch puts the data in the prompt; it does not make the model use it.
+/// An agent that had the window and still declined the question must fall back
+/// to the list — that is the case the original predicate existed for.
+#[test]
+fn a_refusal_over_a_prefetched_window_is_not_delivered() {
+    let refusals = french_refusals();
+    for sentence in &refusals {
+        assert!(
+            !sentence.trim().is_empty(),
+            "the catalogue must carry the French refusals this test stands on"
+        );
+        assert!(!engaged_with_activities(
+            &reentry_telemetry(false, true),
+            sentence,
+            &refusals,
+        ));
+        // Re-wrapped by a channel fold, re-cased, and wrapped in other prose:
+        // still the same sentence.
+        let rewrapped = format!(
+            "Désolé!\n\n{}\n",
+            sentence.to_uppercase().replace(' ', "\n  ")
+        );
+        assert!(
+            !engaged_with_activities(&reentry_telemetry(false, true), &rewrapped, &refusals),
+            "a re-wrapped refusal is still a refusal: {rewrapped}"
+        );
+    }
+}
+
+/// The tool name alone is not grounding.
+///
+/// `tools_called` carries `get_activities` after a prefetch that injected
+/// nothing (an empty window) and after a model call that failed. Neither put a
+/// row in front of the model.
+#[test]
+fn a_tool_name_without_data_is_not_the_model_engaging_with_activities() {
+    assert!(!engaged_with_activities(
+        &reentry_telemetry(false, false),
+        "Septembre: 5 918 m de D+.",
+        &french_refusals(),
+    ));
+}
+
+/// A list the tool loop captured is trusted as it always was — the list is
+/// folded into the body, so the athlete receives their data whatever the prose.
+#[test]
+fn a_captured_list_is_trusted_whatever_the_prose() {
+    assert!(engaged_with_activities(
+        &reentry_telemetry(true, false),
+        "Voici tes sorties.",
+        &french_refusals(),
+    ));
+}
+
+/// A locale the catalogue does not carry yields an empty sentence, and an empty
+/// sentence is contained in every reply. It must not turn every answer into a
+/// refusal.
+#[test]
+fn a_missing_refusal_string_does_not_reject_every_reply() {
+    assert!(engaged_with_activities(
+        &reentry_telemetry(false, true),
+        "Septembre: 5 918 m de D+.",
+        &[String::new(), String::new()],
+    ));
 }
 
 /// The web and mobile clients create no `messaging_sessions` row and no

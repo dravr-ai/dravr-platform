@@ -123,6 +123,7 @@ fn telemetry(identity_leak: Option<IdentityLeakMatch>) -> TurnTelemetry {
         tools_called: vec!["get_activities".to_owned(), "get_athlete".to_owned()],
         tool_calls_count: 2,
         activity_list_captured: true,
+        activities_prefetched: false,
         usage: None,
         identity_leak,
     }

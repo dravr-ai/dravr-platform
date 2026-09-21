@@ -113,6 +113,7 @@ fn telemetry() -> TurnTelemetry {
         tools_called: Vec::new(),
         tool_calls_count: 0,
         activity_list_captured: false,
+        activities_prefetched: false,
         usage: None,
         identity_leak: None,
     }

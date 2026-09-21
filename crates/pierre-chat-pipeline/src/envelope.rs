@@ -399,6 +399,16 @@ pub struct TurnTelemetry {
     /// present in turns where the model never engaged with the data. Callers
     /// that decide whether to trust a reply about activities must read this.
     pub activity_list_captured: bool,
+    /// `true` when the platform prefetched a non-empty window of the athlete's
+    /// activities into the prompt before the model ran.
+    ///
+    /// The other way a turn is grounded in activities. The prompt contract
+    /// tells the agent to answer from a prefetched window WITHOUT re-fetching,
+    /// so a well-behaved turn leaves [`Self::activity_list_captured`] false
+    /// while having had every row in front of it. Like that flag, this is not
+    /// derivable from [`Self::tools_called`]: a model-initiated call that
+    /// failed leaves the same tool name behind with no data.
+    pub activities_prefetched: bool,
     /// Token usage reported by the LLM provider, if available. CLI-based
     /// providers return `None`, in which case callers estimate from characters.
     pub usage: Option<TokenUsage>,

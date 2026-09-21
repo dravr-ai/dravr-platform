@@ -953,6 +953,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
             tools_called: result.tools_called.clone(),
             tool_calls_count: result.tool_calls_count,
             activity_list_captured: result.activity_list.is_some(),
+            activities_prefetched: false,
             usage: None,
             identity_leak: None,
         },
