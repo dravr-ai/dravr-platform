@@ -516,7 +516,7 @@ fn log_probe_outcome(
     if previous == now {
         log_steady_state(provider, kind, served_by, error);
     } else {
-        log_transition(provider, kind, previous, now_healthy, error);
+        log_transition(provider, kind, previous, served_by, error);
     }
 }
 
@@ -541,11 +541,11 @@ fn log_transition(
     provider: &str,
     kind: ProbeKind,
     previous: LlmHealthStatus,
-    now_healthy: bool,
+    served_by: Option<&str>,
     error: Option<&str>,
 ) {
-    if now_healthy {
-        log_recovery_transition(provider, kind, previous);
+    if let Some(served_by) = served_by {
+        log_recovery_transition(provider, kind, previous, served_by);
     } else {
         log_failure_transition(provider, kind, previous, error.unwrap_or(""));
     }
@@ -591,11 +591,20 @@ fn log_startup_failure(provider: &str, kind: ProbeKind, error: &str) {
     );
 }
 
-fn log_recovery_transition(provider: &str, kind: ProbeKind, previous: LlmHealthStatus) {
+/// `served_by` names the tier that answered. The first probe of a process is
+/// always a transition (`Unknown -> Healthy`), so this is the line an
+/// operator reads at every instance start.
+fn log_recovery_transition(
+    provider: &str,
+    kind: ProbeKind,
+    previous: LlmHealthStatus,
+    served_by: &str,
+) {
     if matches!(previous, LlmHealthStatus::Unhealthy) {
         info!(
             provider,
             %kind,
+            served_by,
             "LLM probe Unhealthy -> Healthy; chat traffic recovered"
         );
         // Pair with llm.provider_unhealthy so operators can close the
@@ -608,7 +617,7 @@ fn log_recovery_transition(provider: &str, kind: ProbeKind, previous: LlmHealthS
             "LLM probe transitioned back to Healthy"
         );
     } else {
-        info!(provider, %kind, "LLM probe healthy");
+        info!(provider, %kind, served_by, "LLM probe healthy");
     }
 }
 
