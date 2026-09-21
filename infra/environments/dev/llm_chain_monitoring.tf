@@ -62,6 +62,49 @@ resource "google_logging_metric" "llm_tier_rate_limited" {
   }
 }
 
+# The metric behind the policy below is `llm_tier_quota` — the first one,
+# `llm_tier_rate_limited`, counted the chain's duplicate line and read the
+# tier from the span's provider (the primary's), so Slack said "claude-code"
+# for a Copilot quota. A metric's label block is immutable in Cloud Monitoring
+# and a metric an alert policy references cannot be deleted, so the fix is a
+# new metric the policy is moved to; the old resource leaves in the apply
+# after that move.
+resource "google_logging_metric" "llm_tier_quota" {
+  project = var.project_id
+  name    = "dravr-llm-tier-quota"
+
+  description = "Counts LLM runner lines on the API service whose error is a provider quota or rate limit (RateLimit, quota_exceeded, 429), one per event, labelled by the tier named in the error."
+
+  # One event, one line: inside a chain the same failure is logged twice —
+  # by the runner ("<tier>: turn failed") and by the chain ("LLM tier failed
+  # with a provider fault; falling back"). The runner's line is the one
+  # counted, and the tier is read from the error text embacle writes
+  # ("RateLimit: copilot-sdk: You have exceeded ..."), never from the span.
+  filter = <<-EOT
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="${var.service_name}-api"
+    jsonPayload.provider!=""
+    jsonPayload.error=~"(?i)quota|rate.?limit"
+    NOT jsonPayload.message:"falling back"
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+
+    labels {
+      key         = "tier"
+      value_type  = "STRING"
+      description = "The LLM tier whose account answered with a quota or rate limit, as named in the error text"
+    }
+  }
+
+  label_extractors = {
+    "tier" = "REGEXP_EXTRACT(jsonPayload.error, \"^RateLimit: ([^:]+):\")"
+  }
+}
+
 resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
   project      = var.project_id
   display_name = "dravr-llm-tier-rate-limited"
@@ -70,7 +113,7 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
   documentation {
     content   = <<-EOT
       An LLM tier answered with a quota or rate limit in the last 5 minutes.
-      The provider label names it. This is the platform's account for that
+      The tier label names it, read from the error text. This is the platform's account for that
       provider, not an athlete's budget.
 
       With a runtime chain configured the next tier is serving the turns;
@@ -92,7 +135,7 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
     display_name = "LLM tier quota or rate limit in 5min window"
 
     condition_threshold {
-      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_rate_limited.name}\""
+      filter          = "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.llm_tier_quota.name}\""
       duration        = "0s"
       comparison      = "COMPARISON_GT"
       threshold_value = 0
@@ -101,7 +144,7 @@ resource "google_monitoring_alert_policy" "llm_tier_rate_limited" {
         alignment_period     = "300s"
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
-        group_by_fields      = ["metric.label.provider"]
+        group_by_fields      = ["metric.label.tier"]
       }
 
       trigger {
