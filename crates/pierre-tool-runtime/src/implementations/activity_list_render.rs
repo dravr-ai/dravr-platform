@@ -38,11 +38,15 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::hash::BuildHasher;
 
-use pierre_core::civil_time::{format_local_stamp, resolve_zone};
+use chrono::{DateTime, NaiveDate, Utc};
+use pierre_core::civil_time::{
+    clock_date, format_civil_day, format_local_stamp, local_date, relative_day, relative_day_label,
+    resolve_zone,
+};
 use pierre_core::models::Activity;
 use pierre_providers::deduplication::FragmentReport;
 
-use super::fitness_support::localized_sport_name;
+use super::sport_labels::localized_sport_name;
 
 /// Format activities as a numbered human-readable list for LLM output.
 ///
@@ -60,6 +64,27 @@ use super::fitness_support::localized_sport_name;
 /// group is present, a header note is prepended so the LLM sees the
 /// session-vs-row distinction inline with the list (smaller models that skip
 /// the structured `retrieval_context` JSON still get the cue from the prose).
+///
+/// `now` is the wall clock the list is rendered against. It is a parameter, not
+/// a read, so the day boundaries it draws are testable at the instants that
+/// matter — the athlete's midnight, which is not the server's.
+///
+/// ## Today is stated, and so is yesterday
+///
+/// The list opens with the athlete's current day and the day of the newest row
+/// it holds, and every row that falls on today or yesterday says so next to its
+/// date — `2026-09-20 dim 16:59 (hier)`. On 2026-09-21 a Telegram athlete asked
+/// whether a 30-minute ride *that morning* would be too much; the coach answered
+/// about the ride he had done the previous afternoon, called it "ce matin", and
+/// dated the rest of his week a day early to match. The prompt's date anchor
+/// said 09-21 and the row said 09-20; the model took the newest row as today
+/// anyway, which is the one thing the platform contract tells it never to do.
+/// A weaker fallback model is exactly where that instruction is weakest, and
+/// the fallback is what answered that turn.
+///
+/// The server already names the weekday for the same reason it now names
+/// today: one subtraction is still calendar arithmetic, and the model's record
+/// at calendar arithmetic is the whole history of this module.
 #[must_use]
 pub fn format_activities_as_list<S: BuildHasher>(
     activities: &[Activity],
@@ -67,15 +92,38 @@ pub fn format_activities_as_list<S: BuildHasher>(
     fragment_report: Option<&FragmentReport>,
     locale: &str,
     user_timezone: Option<&str>,
+    now: DateTime<Utc>,
 ) -> String {
     // Resolved once per call, not per row. An absent or unparseable zone falls
     // back to UTC exactly as `format_current_date` does, so the list and the
     // prompt's date anchor stay in one frame even when the athlete has no
     // timezone on file.
     let zone = resolve_zone(user_timezone);
+    // `clock_date`, not `local_date`: a reading of the wall clock is never a
+    // date-only sentinel, and the five-minute floor the prompt anchor applies
+    // lands on midnight UTC once a day (see `format_clock_stamp`).
+    let today = clock_date(now, zone);
 
     let mut lines = Vec::with_capacity(activities.len() + 6);
     lines.push("Your Activities:".to_owned());
+    // The newest row in the list, not in the window: the caller may have sorted
+    // by distance and cut to a display limit, and the model reads only what is
+    // rendered below.
+    let newest = activities
+        .iter()
+        .map(|a| local_date(a.start_date(), zone))
+        .max();
+    lines.push(newest.map_or_else(
+        || format!("[Today] {}", format_civil_day(today, locale)),
+        |day| {
+            format!(
+                "[Today] {} — newest activity listed: {}{}",
+                format_civil_day(today, locale),
+                format_civil_day(day, locale),
+                relative_day_tag(day, today, locale)
+            )
+        },
+    ));
     lines.push(String::new());
     if let Some(report) = fragment_report {
         if report.has_fragments() {
@@ -117,6 +165,9 @@ pub fn format_activities_as_list<S: BuildHasher>(
         // `prompt_assembly` exists to remove — and on 2026-09-02 it cost an
         // athlete three rounds of corrections before he left the conversation.
         let date = format_local_stamp(activity.start_date(), zone, locale);
+        // Same date the stamp shows (`local_date` keeps a date-only row on the
+        // day its provider named), so the tag can never disagree with it.
+        let day_tag = relative_day_tag(local_date(activity.start_date(), zone), today, locale);
         // Render the sport with its localized short label (fr "trail"/"rando",
         // not the English "trail run") so the list reads natively in the user's
         // chat language; `Other` keeps its provider-supplied label, unknown
@@ -178,11 +229,12 @@ pub fn format_activities_as_list<S: BuildHasher>(
         }
 
         lines.push(format!(
-            "{}. [{}] {} - {} - {:.2} km - {}{}",
+            "{}. [{}] {} - {}{} - {:.2} km - {}{}",
             i + 1,
             sport,
             activity.name(),
             date,
+            day_tag,
             distance_km,
             duration_str,
             extras
@@ -190,4 +242,14 @@ pub fn format_activities_as_list<S: BuildHasher>(
     }
 
     lines.join("\n")
+}
+
+/// ` (hier)` / ` (aujourd'hui)` for a day that is yesterday or today on the
+/// athlete's calendar, and nothing for any other day — a plain date already
+/// carries its weekday, and "two days ago" is not how anyone refers to a
+/// session.
+fn relative_day_tag(day: NaiveDate, today: NaiveDate, locale: &str) -> String {
+    relative_day(day, today).map_or_else(String::new, |rel| {
+        format!(" ({})", relative_day_label(rel, locale))
+    })
 }

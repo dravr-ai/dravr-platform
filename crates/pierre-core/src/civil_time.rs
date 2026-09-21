@@ -34,7 +34,7 @@
 //! is error-prone)"*. This module applies the identical reasoning to weekdays:
 //! the server knows the answer, so the server says it.
 
-use chrono::{DateTime, Datelike, NaiveTime, Utc, Weekday};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc, Weekday};
 use chrono_tz::Tz;
 
 /// Resolve a stored `users.timezone` into a zone, falling back to UTC.
@@ -198,12 +198,150 @@ pub fn format_clock_stamp(instant: DateTime<Utc>, zone: Tz, locale: &str) -> Str
 pub fn format_local_day(instant: DateTime<Utc>, zone: Tz, locale: &str) -> String {
     // Via `local_date`, so a date-only row keeps the day its provider named
     // instead of being shifted back one (registre#258).
-    let date = local_date(instant, zone);
+    format_civil_day(local_date(instant, zone), locale)
+}
+
+/// `2026-09-01 lun` for a date that is already on the athlete's calendar.
+#[must_use]
+pub fn format_civil_day(date: NaiveDate, locale: &str) -> String {
     format!(
         "{} {}",
         date.format("%Y-%m-%d"),
         weekday_short(date.weekday(), locale)
     )
+}
+
+/// A day named by its distance from the athlete's today rather than by its date.
+///
+/// Only the two an athlete actually says. "Ce matin", "aujourd'hui", "hier" are
+/// how a session is referred to in conversation, and they are the two the model
+/// gets wrong: on 2026-09-21 a Telegram athlete asked whether a 30-minute ride
+/// *this morning* would be too much, and the coach answered about the ride he
+/// had done the previous afternoon, calling it "ce matin" and moving every
+/// other day of the week back by one with it. The newest row in the activity
+/// list had become "today" in the model's reading, exactly as the platform
+/// contract tells it never to do — and the row said `2026-09-20 dim 16:59`, so
+/// the calendar arithmetic it skipped was one subtraction.
+///
+/// So the server does the subtraction, the same way it names the weekday.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelativeDay {
+    /// The athlete's current civil day.
+    Today,
+    /// The civil day before it.
+    Yesterday,
+}
+
+/// Which relative day `date` is on a calendar whose current day is `today`, or
+/// `None` when it is neither — two days ago and tomorrow both read as plain
+/// dates.
+#[must_use]
+pub fn relative_day(date: NaiveDate, today: NaiveDate) -> Option<RelativeDay> {
+    match today.signed_duration_since(date).num_days() {
+        0 => Some(RelativeDay::Today),
+        1 => Some(RelativeDay::Yesterday),
+        _ => None,
+    }
+}
+
+/// The one word a prompt surface *writes* for a relative day, in `locale`.
+///
+/// Rides next to the date on an activity row — `2026-09-20 dim 16:59 (hier)` —
+/// so the localized form matches the language the rest of the row is in.
+#[must_use]
+pub fn relative_day_label(day: RelativeDay, locale: &str) -> &'static str {
+    // [fr, en, es, de, pt]
+    let names: [&str; 5] = match day {
+        RelativeDay::Today => ["aujourd'hui", "today", "hoy", "heute", "hoje"],
+        RelativeDay::Yesterday => ["hier", "yesterday", "ayer", "gestern", "ontem"],
+    };
+    names[locale_index(locale)]
+}
+
+/// Every written form that asserts `day` in `locale`, lowercased, for *reading*
+/// a relative day out of a reply. English is included under every locale
+/// because it is the language the model falls back to.
+///
+/// ## Why the table is per locale
+///
+/// [`weekday_forms`] scans all five locales at once because no full weekday
+/// name is a homograph of anything. Relative days are not so lucky: French
+/// `hier` (yesterday) is German `hier` (here), one of the commonest words in
+/// the language. Scanned for a German athlete it would put a contradiction on
+/// every sentence that says "here is your ride" — the registre#258 failure
+/// class, a warning on a true sentence. So a locale reads only its own forms.
+///
+/// Times of day count as today: "ce matin" and "this evening" assert the
+/// current day and nothing else this layer can check.
+#[must_use]
+pub fn relative_day_forms(day: RelativeDay, locale: &str) -> &'static [&'static str] {
+    const TODAY_EN: &[&str] = &[
+        "today",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "tonight",
+    ];
+    const TODAY_FR: &[&str] = &[
+        "aujourd'hui",
+        "aujourd’hui",
+        "ce matin",
+        "ce midi",
+        "cet après-midi",
+        "cet apres-midi",
+        "ce soir",
+        "today",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "tonight",
+    ];
+    const TODAY_ES: &[&str] = &[
+        "hoy",
+        "esta mañana",
+        "esta manana",
+        "esta tarde",
+        "esta noche",
+        "today",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "tonight",
+    ];
+    const TODAY_DE: &[&str] = &[
+        "heute",
+        "today",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "tonight",
+    ];
+    const TODAY_PT: &[&str] = &[
+        "hoje",
+        "today",
+        "this morning",
+        "this afternoon",
+        "this evening",
+        "tonight",
+    ];
+    const YESTERDAY_EN: &[&str] = &["yesterday"];
+    const YESTERDAY_FR: &[&str] = &["hier", "yesterday"];
+    const YESTERDAY_ES: &[&str] = &["ayer", "yesterday"];
+    const YESTERDAY_DE: &[&str] = &["gestern", "yesterday"];
+    const YESTERDAY_PT: &[&str] = &["ontem", "yesterday"];
+
+    // [fr, en, es, de, pt]
+    let forms: [&[&str]; 5] = match day {
+        RelativeDay::Today => [TODAY_FR, TODAY_EN, TODAY_ES, TODAY_DE, TODAY_PT],
+        RelativeDay::Yesterday => [
+            YESTERDAY_FR,
+            YESTERDAY_EN,
+            YESTERDAY_ES,
+            YESTERDAY_DE,
+            YESTERDAY_PT,
+        ],
+    };
+    forms[locale_index(locale)]
 }
 
 /// Whether an instant is a date-only provider row rather than a real clock

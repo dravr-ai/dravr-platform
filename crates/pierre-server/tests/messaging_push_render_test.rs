@@ -262,7 +262,7 @@ async fn push_empty_cache_nudge_honors_default_locale() {
 
 #[test]
 fn sport_locale_columns_render_expected_languages() {
-    use pierre_tool_runtime::implementations::fitness_support::localized_sport_name;
+    use pierre_tool_runtime::implementations::sport_labels::localized_sport_name;
 
     let run = SportType::Run;
     assert_eq!(localized_sport_name(&run, "fr"), "course à pied");
@@ -278,7 +278,7 @@ fn sport_locale_columns_render_expected_languages() {
 
 #[test]
 fn sport_locale_falls_back_to_english_and_honors_bcp47_prefix() {
-    use pierre_tool_runtime::implementations::fitness_support::localized_sport_name;
+    use pierre_tool_runtime::implementations::sport_labels::localized_sport_name;
 
     let swim = SportType::Swim;
     // Unrecognized locale → English column.
@@ -290,7 +290,7 @@ fn sport_locale_falls_back_to_english_and_honors_bcp47_prefix() {
 
 #[test]
 fn sport_locale_passes_other_provider_label_through() {
-    use pierre_tool_runtime::implementations::fitness_support::localized_sport_name;
+    use pierre_tool_runtime::implementations::sport_labels::localized_sport_name;
 
     let other = SportType::Other("Bouldering".to_owned());
     for locale in ["fr", "en", "es", "de", "pt", "ja"] {

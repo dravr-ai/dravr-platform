@@ -139,6 +139,8 @@ pub mod activity_summary;
 /// Renders the activity window as the prose list the agent reads and cites
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub mod activity_list_render;
+/// Localized sport nouns for the activity rows, one five-locale table.
+pub mod sport_labels;
 
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub mod fitness_support;

@@ -41,6 +41,8 @@ fn day(d: u32) -> NaiveDate {
 fn raphs_week() -> AthleteRecord {
     AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![
             RecordedActivity {
                 date: day(1),
@@ -136,6 +138,8 @@ fn naming_the_right_sport_is_not_contradicted() {
 fn a_sub_discipline_matches_its_family() {
     let record = AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::MountainBike,
@@ -195,7 +199,7 @@ fn an_elevation_figure_is_checked_against_the_record() {
 fn a_bare_m_does_not_eat_other_units() {
     let outcome = check(
         &claim("Prends 400 mg de caféine avant le départ."),
-        &AthleteRecord::providerless(),
+        &AthleteRecord::providerless(day(7), "fr"),
     )
     .expect("the layer must adjudicate its own category");
 
@@ -213,7 +217,7 @@ fn a_bare_m_does_not_eat_other_units() {
 fn the_metres_unit_is_read_at_all() {
     let outcome = check(
         &claim("Tu as fait 2391 m de dénivelé."),
-        &AthleteRecord::providerless(),
+        &AthleteRecord::providerless(day(7), "fr"),
     )
     .expect("the layer must adjudicate its own category");
 
@@ -278,6 +282,8 @@ fn a_weekday_or_sport_inside_a_longer_word_is_not_a_claim() {
 fn a_two_letter_activity_name_is_never_matched() {
     let record = AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Ride,
@@ -381,6 +387,8 @@ fn a_polysemous_sport_word_is_not_a_sport_claim() {
 fn an_activity_name_inside_a_longer_word_does_not_name_it() {
     let record = AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Ride,
@@ -483,6 +491,8 @@ fn a_head_noun_beside_the_name_is_the_same_session() {
 fn a_session_named_for_an_ordinary_training_word_is_not_matched() {
     let record = AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Ride,
@@ -514,6 +524,8 @@ fn a_default_provider_name_is_not_matched() {
     for name in ["Morning Ride", "Afternoon Run", "Long Run"] {
         let record = AthleteRecord {
             has_provider: true,
+            today: day(7),
+            locale: "fr".to_owned(),
             activities: vec![RecordedActivity {
                 date: day(1),
                 sport: SportType::Ride,
@@ -566,6 +578,8 @@ fn a_distinctive_name_is_still_matched() {
 fn a_distance_in_metres_is_not_checked_against_climbing() {
     let record = AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Run,
@@ -592,6 +606,8 @@ fn a_distance_in_metres_is_not_checked_against_climbing() {
 fn a_distance_in_metres_is_matched_against_distance() {
     let record = AthleteRecord {
         has_provider: true,
+        today: day(7),
+        locale: "fr".to_owned(),
         activities: vec![RecordedActivity {
             date: day(1),
             sport: SportType::Swim,
@@ -669,6 +685,204 @@ fn a_space_between_two_figures_does_not_group_them() {
         ClaimStatus::Supported,
         "26 km and 200 min are both on record for Passion rando; reading them \
          as one number would lose both: {}",
+        outcome.explanation
+    );
+}
+
+/// JF's week as the record held it on Monday 2026-09-21.
+///
+/// "Tester la nouvelle!" was **Sunday the 20th**, at 16:59. "Marche de
+/// Ginettes" was Saturday the 19th. The reply that morning called the Sunday
+/// ride "ce matin" and the Saturday walk "hier" — every date one day early,
+/// because the model had taken the newest row as today.
+fn jfs_week() -> AthleteRecord {
+    AthleteRecord {
+        has_provider: true,
+        today: day(21),
+        locale: "fr".to_owned(),
+        activities: vec![
+            RecordedActivity {
+                date: day(20),
+                sport: SportType::MountainBike,
+                name: "Tester la nouvelle!".to_owned(),
+                distance_km: Some(14.14),
+                duration_min: 77.85,
+                elevation_m: Some(280.0),
+            },
+            RecordedActivity {
+                date: day(19),
+                sport: SportType::Hike,
+                name: "Marche de Ginettes".to_owned(),
+                distance_km: Some(3.46),
+                duration_min: 54.7,
+                elevation_m: Some(92.8),
+            },
+            RecordedActivity {
+                date: day(18),
+                sport: SportType::MountainBike,
+                name: "Retour!".to_owned(),
+                distance_km: Some(16.54),
+                duration_min: 88.7,
+                elevation_m: Some(331.0),
+            },
+        ],
+    }
+}
+
+/// The sentence from 2026-09-21, verbatim: a ride done the previous afternoon,
+/// filed under "ce matin".
+#[test]
+fn a_yesterday_ride_called_this_morning_is_contradicted() {
+    let outcome = check(
+        &claim(
+            "Ta sortie VTT ce matin (\"Tester la nouvelle!\", 14,14 km en 1h17 avec +280 m de \
+             D+) est ta première séance depuis ton gros bloc de la semaine dernière.",
+        ),
+        &jfs_week(),
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "the ride is on record for the 20th and today is the 21st: {}",
+        outcome.explanation
+    );
+    assert_eq!(outcome.layer_fired, VerdictLayer::AthleteData);
+    assert!(
+        outcome.explanation.contains("2026-09-20"),
+        "the explanation names the day it is actually on record for: {}",
+        outcome.explanation
+    );
+}
+
+/// The second sentence from the same reply: the Saturday walk, labelled "hier"
+/// on a Monday.
+#[test]
+fn a_two_day_old_walk_labelled_hier_is_contradicted() {
+    let outcome = check(
+        &claim("Hier (19/09) : Marche de Ginettes (3,46 km, +93 m)"),
+        &jfs_week(),
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "yesterday was the 20th and the walk was the 19th: {}",
+        outcome.explanation
+    );
+}
+
+/// The same label shape, true: the Sunday ride really was yesterday.
+#[test]
+fn a_correct_hier_is_not_contradicted() {
+    let outcome = check(
+        &claim("Hier (20/09) : Tester la nouvelle! (14,14 km, +280 m)"),
+        &jfs_week(),
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_ne!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "the ride was yesterday on the athlete's calendar: {}",
+        outcome.explanation
+    );
+}
+
+/// A coach proposing today's session by the name of a past one asserts nothing
+/// about when that session happened. Both prescription shapes — verb between,
+/// and name first — are left alone; contradicting either would put a warning on
+/// ordinary coaching (registre#258).
+#[test]
+fn proposing_todays_session_by_a_past_name_is_not_a_date_claim() {
+    for text in [
+        "Aujourd'hui, refais Tester la nouvelle! en version courte, 30 minutes max.",
+        "Tu pourrais refaire Tester la nouvelle! aujourd'hui, mais garde ça à 30 minutes.",
+        "Après Tester la nouvelle!, vise aujourd'hui une sortie légère de 30 minutes.",
+    ] {
+        let outcome = check(&claim(text), &jfs_week()).expect("athlete-data claim is adjudicated");
+        assert_ne!(
+            outcome.status,
+            ClaimStatus::Contradicted,
+            "a prescription names a past session without dating it: {text} — {}",
+            outcome.explanation
+        );
+    }
+}
+
+/// "Avant-hier" contains "hier" and means two days ago. On the 21st that is the
+/// 19th, which is exactly when the walk happened — a true sentence.
+#[test]
+fn avant_hier_is_not_read_as_hier() {
+    let outcome = check(
+        &claim("Avant-hier : Marche de Ginettes, 3,46 km tranquilles."),
+        &jfs_week(),
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_ne!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "avant-hier is the 19th and so is the walk: {}",
+        outcome.explanation
+    );
+}
+
+/// German `hier` means "here". For a German athlete the word must not read as
+/// yesterday — it would flag every "here is your ride" sentence.
+#[test]
+fn german_hier_is_not_yesterday() {
+    let mut record = jfs_week();
+    record.locale = "de".to_owned();
+
+    let outcome = check(
+        &claim("Hier: Tester la nouvelle!, 14,14 km mit 280 m Anstieg."),
+        &record,
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_ne!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "German `hier` asserts no day at all: {}",
+        outcome.explanation
+    );
+}
+
+/// English rides in under every locale — it is the language the model falls
+/// back to — so a French athlete's English-labelled row is still checked.
+#[test]
+fn english_yesterday_is_read_under_a_french_locale() {
+    let outcome = check(
+        &claim("Yesterday: Marche de Ginettes (3.46 km, +93 m)"),
+        &jfs_week(),
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "yesterday was the 20th, the walk the 19th: {}",
+        outcome.explanation
+    );
+}
+
+/// Two relative days in one sentence is an ambiguity this layer does not
+/// resolve, exactly as with two weekdays.
+#[test]
+fn two_relative_days_in_one_claim_are_left_alone() {
+    let outcome = check(
+        &claim("Hier et aujourd'hui : Marche de Ginettes puis repos."),
+        &jfs_week(),
+    )
+    .expect("athlete-data claim is adjudicated");
+
+    assert_ne!(
+        outcome.status,
+        ClaimStatus::Contradicted,
+        "which day the walk is filed under is not decidable here: {}",
         outcome.explanation
     );
 }

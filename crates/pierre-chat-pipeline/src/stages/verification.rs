@@ -21,7 +21,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use futures_util::FutureExt;
-use pierre_core::civil_time::{local_date, resolve_zone};
+use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
@@ -545,7 +545,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     // built unconditionally: its most important verdict is the one it reaches
     // when the athlete has *nothing* connected, and a snapshot that opted out
     // of being built could never deliver it.
-    let athlete_record = build_athlete_record(ctx, user_id, tenant_id).await;
+    let athlete_record = build_athlete_record(ctx, user_id, tenant_id, locale).await;
 
     let verdicts = match verify_reply_with_config_and_judge(
         reply,
@@ -659,6 +659,7 @@ async fn build_athlete_record(
     ctx: &ChatPipelineContext,
     user_id: &str,
     tenant_id: TenantId,
+    locale: &str,
 ) -> Option<AthleteRecord> {
     let uuid = Uuid::parse_str(user_id).ok()?;
 
@@ -687,23 +688,9 @@ async fn build_athlete_record(
         }
     };
 
-    // Without a provider there is nothing to fetch, and the window query would
-    // be a guaranteed-empty round trip on every verified reply.
-    if !connected {
-        return Some(AthleteRecord::providerless());
-    }
-
-    let end = chrono::Utc::now();
-    let start = end - chrono::Duration::days(ATHLETE_RECORD_WINDOW_DAYS);
-    let activities = ctx
-        .repos
-        .activity_cache
-        .get_cached_activities(uuid, &tenant_id, None, start, end, ATHLETE_RECORD_LIMIT)
-        .await
-        .unwrap_or_default();
-
     // The athlete's own zone, so a 21:00 session belongs to the day they
-    // trained. A claim about "Tuesday" is checked against their Tuesday.
+    // trained. A claim about "Tuesday" is checked against their Tuesday, and a
+    // claim about "hier" against their yesterday.
     let user_timezone = ctx
         .repos
         .users
@@ -713,9 +700,27 @@ async fn build_athlete_record(
         .flatten()
         .and_then(|u| u.timezone);
     let zone = resolve_zone(user_timezone.as_deref());
+    let end = chrono::Utc::now();
+    let today = clock_date(end, zone);
+
+    // Without a provider there is nothing to fetch, and the window query would
+    // be a guaranteed-empty round trip on every verified reply.
+    if !connected {
+        return Some(AthleteRecord::providerless(today, locale));
+    }
+
+    let start = end - chrono::Duration::days(ATHLETE_RECORD_WINDOW_DAYS);
+    let activities = ctx
+        .repos
+        .activity_cache
+        .get_cached_activities(uuid, &tenant_id, None, start, end, ATHLETE_RECORD_LIMIT)
+        .await
+        .unwrap_or_default();
 
     Some(AthleteRecord {
         has_provider: true,
+        today,
+        locale: locale.to_owned(),
         activities: activities
             .iter()
             .map(|a| {

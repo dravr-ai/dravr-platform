@@ -36,7 +36,9 @@
 //! window, not the whole truth, and it can legitimately miss an activity.
 
 use chrono::{Datelike, NaiveDate};
-use pierre_core::civil_time::{weekday_forms, ALL_WEEKDAYS};
+use pierre_core::civil_time::{
+    relative_day, relative_day_forms, relative_day_label, weekday_forms, RelativeDay, ALL_WEEKDAYS,
+};
 use pierre_core::models::{resolve_sport_type, sport_family_head, SportType};
 
 use crate::claim_extractor::ExtractedClaim;
@@ -71,7 +73,7 @@ pub struct RecordedActivity {
 /// Deliberately not the dossier type: this layer needs a handful of facts per
 /// activity, and taking the whole dossier would couple claim verification to
 /// every future change in athlete modelling.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AthleteRecord {
     /// Whether the athlete has any connected provider at all.
     ///
@@ -80,13 +82,26 @@ pub struct AthleteRecord {
     pub has_provider: bool,
     /// The activities we hold for the window.
     pub activities: Vec<RecordedActivity>,
+    /// The athlete's current civil day, on the same clock every `date` above is
+    /// on. "Hier" and "ce matin" are claims about a day, and this is the day
+    /// they are measured from.
+    pub today: NaiveDate,
+    /// The locale the reply is resolved in. Selects which relative-day
+    /// vocabulary is *read*: French `hier` is German `hier` (here), so the
+    /// forms cannot be scanned across locales the way weekday names are.
+    pub locale: String,
 }
 
 impl AthleteRecord {
     /// An athlete with nothing connected — the providerless case.
     #[must_use]
-    pub fn providerless() -> Self {
-        Self::default()
+    pub fn providerless(today: NaiveDate, locale: &str) -> Self {
+        Self {
+            has_provider: false,
+            activities: Vec::new(),
+            today,
+            locale: locale.to_owned(),
+        }
     }
 
     /// Whether we hold any activity at all for the window.
@@ -460,9 +475,9 @@ fn generic_referent_between(text: &str, name: (usize, usize), claim: (usize, usi
 /// Check a claim that names one of the athlete's own activities.
 ///
 /// Fires only when the claim names **exactly one** held activity and asserts
-/// exactly one weekday or one sport for it. Two named activities, or two
-/// weekdays, is an ambiguity this layer cannot resolve — and a wrong
-/// contradiction costs more than a missed one.
+/// exactly one weekday, one relative day ("hier", "ce matin") or one sport for
+/// it. Two named activities, or two weekdays, is an ambiguity this layer cannot
+/// resolve — and a wrong contradiction costs more than a missed one.
 ///
 /// This is the check the 2026-09-02 conversation needed and did not have. The
 /// agent placed a Tuesday ride on Sunday, called a run a bike session, and both
@@ -510,6 +525,23 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
         }
     }
 
+    if let Some((claimed, span)) = sole_relative_day(&residual, &record.locale) {
+        let actual = relative_day(activity.date, record.today);
+        if actual != Some(claimed) && labels_the_name(&residual, span, name_span) {
+            let claimed_date = match claimed {
+                RelativeDay::Today => record.today,
+                RelativeDay::Yesterday => record.today.pred_opt().unwrap_or(record.today),
+            };
+            return Some(contradicted(format!(
+                "Places \"{}\" {} ({}), but it is on record for {}.",
+                activity.name,
+                relative_day_label(claimed, "en"),
+                claimed_date,
+                activity.date
+            )));
+        }
+    }
+
     if let Some((claimed, span)) = sole_sport(&residual) {
         if !same_family(&claimed, &activity.sport)
             && !generic_referent_between(&residual, name_span, span)
@@ -522,6 +554,73 @@ fn check_named_activity(text: &str, record: &AthleteRecord) -> Option<VerdictOut
     }
 
     None
+}
+
+/// Whether a relative-day word at `claim` is the *label* of the named activity
+/// at `name`: it comes first, and nothing but punctuation and digits stands
+/// between them.
+///
+/// This is the one shape the check fires on, and it is deliberately narrower
+/// than the weekday check's. Both production sentences on 2026-09-21 had it —
+/// *"Ta sortie VTT ce matin ("Tester la nouvelle!", 14,14 km …)"* and *"Hier
+/// (19/09) : Marche de Ginettes"* — because it is how a model lists history: the
+/// day, then the session it files under it.
+///
+/// A prescription puts a verb between them — *"aujourd'hui, refais Tester la
+/// nouvelle!"* — or names the session first — *"refais Tester la nouvelle!
+/// aujourd'hui"*. Either is a coach proposing today's session by the name of a
+/// past one, which is ordinary coaching and asserts nothing about when that
+/// session happened. Contradicting it would be the registre#258 failure, a
+/// warning on a true sentence, and a coach proposes far more often than a model
+/// misdates. So both shapes are left alone, at the cost of a missed claim in
+/// *"Tester la nouvelle! ce matin"*, which the figures and the sport still
+/// check.
+fn labels_the_name(text: &str, claim: (usize, usize), name: (usize, usize)) -> bool {
+    if claim.1 > name.0 {
+        return false;
+    }
+    text.get(claim.1..name.0)
+        .is_some_and(|gap| !gap.chars().any(char::is_alphabetic))
+}
+
+/// The one relative day the text asserts in `locale` and where it says it, or
+/// `None` when it asserts none, several, or a day this layer does not model.
+///
+/// "Avant-hier" and "the day before yesterday" contain a yesterday form and
+/// mean two days ago; both are recognised by the word in front of the match and
+/// read as a day this layer does not check, rather than as yesterday.
+fn sole_relative_day(lower: &str, locale: &str) -> Option<(RelativeDay, (usize, usize))> {
+    let mut found = None;
+    for day in [RelativeDay::Today, RelativeDay::Yesterday] {
+        let Some(span) = relative_day_forms(day, locale)
+            .iter()
+            .find_map(|form| find_word(lower, form))
+        else {
+            continue;
+        };
+        if found.is_some() {
+            return None;
+        }
+        found = Some((day, span));
+    }
+    let (day, span) = found?;
+    if day == RelativeDay::Yesterday && is_two_days_ago(lower, span) {
+        return None;
+    }
+    Some((day, span))
+}
+
+/// Whether the yesterday form at `span` is the tail of "avant-hier", "the day
+/// before yesterday" or "antes de ayer". Single-word compounds — "anteayer",
+/// "vorgestern", "anteontem" — never match a word-bounded form to begin with.
+fn is_two_days_ago(lower: &str, span: (usize, usize)) -> bool {
+    let Some(before) = lower.get(..span.0) else {
+        return false;
+    };
+    let before = before.trim_end_matches(|c: char| c == '-' || c.is_whitespace());
+    ["avant", "before", "antes de"]
+        .iter()
+        .any(|prefix| before.ends_with(prefix))
 }
 
 /// `text` with `span` overwritten by spaces, so every other byte keeps its

@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::activity_list_render::format_activities_as_list;
 
@@ -40,11 +40,24 @@ fn night_hike() -> Vec<Activity> {
     .build()]
 }
 
+/// The wall clock the 2026-08-28 rows are rendered against: 2026-08-29 noon UTC,
+/// a day after the fixture so no row reads as today or yesterday and the older
+/// assertions stay about the zone and the weekday alone.
+fn incident_clock() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 8, 29, 12, 0, 0).unwrap()
+}
+
 #[test]
 fn an_evening_activity_keeps_the_athletes_date_not_the_utc_one() {
     let temps = HashMap::new();
-    let rendered =
-        format_activities_as_list(&night_hike(), &temps, None, "fr", Some("America/Toronto"));
+    let rendered = format_activities_as_list(
+        &night_hike(),
+        &temps,
+        None,
+        "fr",
+        Some("America/Toronto"),
+        incident_clock(),
+    );
 
     assert!(
         rendered.contains("2026-08-27 jeu 22:59"),
@@ -66,7 +79,8 @@ fn an_evening_activity_keeps_the_athletes_date_not_the_utc_one() {
 #[test]
 fn without_a_timezone_the_list_stays_on_utc() {
     let temps = HashMap::new();
-    let rendered = format_activities_as_list(&night_hike(), &temps, None, "fr", None);
+    let rendered =
+        format_activities_as_list(&night_hike(), &temps, None, "fr", None, incident_clock());
 
     assert!(
         rendered.contains("2026-08-28 ven 02:59"),
@@ -78,8 +92,14 @@ fn without_a_timezone_the_list_stays_on_utc() {
 #[test]
 fn an_unparseable_timezone_falls_back_rather_than_failing() {
     let temps = HashMap::new();
-    let rendered =
-        format_activities_as_list(&night_hike(), &temps, None, "fr", Some("Mars/Olympus_Mons"));
+    let rendered = format_activities_as_list(
+        &night_hike(),
+        &temps,
+        None,
+        "fr",
+        Some("Mars/Olympus_Mons"),
+        incident_clock(),
+    );
 
     assert!(
         rendered.contains("2026-08-28 ven 02:59"),
@@ -104,8 +124,14 @@ fn the_row_carries_the_time_of_day() {
     .distance_meters(5_300.0)
     .build()];
 
-    let rendered =
-        format_activities_as_list(&activities, &temps, None, "fr", Some("America/Toronto"));
+    let rendered = format_activities_as_list(
+        &activities,
+        &temps,
+        None,
+        "fr",
+        Some("America/Toronto"),
+        incident_clock(),
+    );
 
     assert!(
         rendered.contains("2026-08-28 ven 06:15"),
@@ -130,8 +156,14 @@ fn the_row_carries_the_time_of_day() {
 #[test]
 fn the_row_names_the_athletes_weekday_not_the_utc_one() {
     let temps = HashMap::new();
-    let rendered =
-        format_activities_as_list(&night_hike(), &temps, None, "fr", Some("America/Toronto"));
+    let rendered = format_activities_as_list(
+        &night_hike(),
+        &temps,
+        None,
+        "fr",
+        Some("America/Toronto"),
+        incident_clock(),
+    );
 
     assert!(
         rendered.contains("2026-08-27 jeu"),
@@ -158,11 +190,182 @@ fn the_weekday_follows_the_chat_locale() {
         ("de", "Do"),
         ("pt", "qui"),
     ] {
-        let rendered =
-            format_activities_as_list(&night_hike(), &temps, None, locale, Some("America/Toronto"));
+        let rendered = format_activities_as_list(
+            &night_hike(),
+            &temps,
+            None,
+            locale,
+            Some("America/Toronto"),
+            incident_clock(),
+        );
         assert!(
             rendered.contains(&format!("2026-08-27 {expected}")),
             "locale {locale} must render the weekday as {expected}: {rendered}"
         );
     }
+}
+
+/// The 2026-09-21 incident, as the list now renders it.
+///
+/// Production Telegram, 08:05 in `America/Toronto`: the athlete asked whether a
+/// 30-minute ride *that morning* would be too much. The newest row was a ride
+/// he had done the previous afternoon — `2026-09-20 dim 16:59` — and the reply
+/// called it "ce matin", then dated the rest of the week a day early to match.
+/// The date anchor said 09-21; the model took the newest row as today anyway.
+///
+/// So the list says it: the header names today and the newest row, and the row
+/// itself carries `(hier)`. Both are one subtraction the model no longer does.
+#[test]
+fn yesterdays_ride_is_tagged_hier_and_the_header_names_today() {
+    let temps = HashMap::new();
+    // 16:59 on Sunday the 20th in Toronto is 20:59 UTC.
+    let ride = vec![ActivityBuilder::new(
+        "ride-1",
+        "Tester la nouvelle!",
+        SportType::MountainBike,
+        Utc.with_ymd_and_hms(2026, 9, 20, 20, 59, 15).unwrap(),
+        4_671,
+        "sciotte",
+    )
+    .distance_meters(14_140.0)
+    .build()];
+    // 08:05 on Monday the 21st in Toronto is 12:05 UTC.
+    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+
+    let rendered =
+        format_activities_as_list(&ride, &temps, None, "fr", Some("America/Toronto"), now);
+
+    assert!(
+        rendered.contains("2026-09-20 dim 16:59 (hier)"),
+        "the row must say it was yesterday, next to the date it already \
+         carries: {rendered}"
+    );
+    assert!(
+        rendered.contains("[Today] 2026-09-21 lun — newest activity listed: 2026-09-20 dim (hier)"),
+        "the header must name the athlete's today and place the newest row \
+         relative to it: {rendered}"
+    );
+    assert!(
+        !rendered.contains("aujourd'hui"),
+        "nothing in this list happened today: {rendered}"
+    );
+}
+
+/// Today and yesterday are the athlete's, not the server's.
+///
+/// 23:30 on the 20th in Toronto is 03:30 UTC on the 21st. A 06:00 run that
+/// morning is `today` for the athlete; on the UTC calendar it is yesterday.
+#[test]
+fn the_relative_day_follows_the_athletes_midnight_not_utc() {
+    let temps = HashMap::new();
+    let run = vec![ActivityBuilder::new(
+        "run-1",
+        "Sortie du matin",
+        SportType::Run,
+        Utc.with_ymd_and_hms(2026, 9, 20, 10, 0, 0).unwrap(),
+        1_800,
+        "sciotte",
+    )
+    .distance_meters(5_000.0)
+    .build()];
+    let late_evening = Utc.with_ymd_and_hms(2026, 9, 21, 3, 30, 0).unwrap();
+
+    let rendered = format_activities_as_list(
+        &run,
+        &temps,
+        None,
+        "fr",
+        Some("America/Toronto"),
+        late_evening,
+    );
+
+    assert!(
+        rendered.contains("2026-09-20 dim 06:00 (aujourd'hui)"),
+        "at 23:30 local the morning run is still today: {rendered}"
+    );
+    assert!(
+        rendered.contains("[Today] 2026-09-20 dim"),
+        "the header's today is the athlete's day, not the UTC one: {rendered}"
+    );
+}
+
+/// A row older than yesterday carries no tag — its date and weekday already
+/// say everything, and "two days ago" is not how a session is referred to.
+#[test]
+fn older_rows_carry_no_relative_tag() {
+    let temps = HashMap::new();
+    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+
+    let rendered = format_activities_as_list(
+        &night_hike(),
+        &temps,
+        None,
+        "fr",
+        Some("America/Toronto"),
+        now,
+    );
+
+    assert!(
+        rendered.contains("2026-08-27 jeu 22:59 - "),
+        "an August row must render date, weekday, time and then the distance \
+         with nothing in between: {rendered}"
+    );
+    assert!(
+        !rendered.contains("(hier)") && !rendered.contains("(aujourd'hui)"),
+        "no row here is today or yesterday: {rendered}"
+    );
+    assert!(
+        rendered.contains("newest activity listed: 2026-08-27 jeu\n"),
+        "the header names the newest row without a relative tag: {rendered}"
+    );
+}
+
+/// The tag speaks the row's language, like the weekday beside it.
+#[test]
+fn the_relative_tag_follows_the_chat_locale() {
+    let temps = HashMap::new();
+    let ride = vec![ActivityBuilder::new(
+        "ride-1",
+        "Tester la nouvelle!",
+        SportType::MountainBike,
+        Utc.with_ymd_and_hms(2026, 9, 20, 20, 59, 15).unwrap(),
+        4_671,
+        "sciotte",
+    )
+    .build()];
+    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+
+    for (locale, expected) in [
+        ("fr", "(hier)"),
+        ("en", "(yesterday)"),
+        ("es", "(ayer)"),
+        ("de", "(gestern)"),
+        ("pt", "(ontem)"),
+    ] {
+        let rendered =
+            format_activities_as_list(&ride, &temps, None, locale, Some("America/Toronto"), now);
+        assert!(
+            rendered.contains(expected),
+            "locale {locale} must tag yesterday as {expected}: {rendered}"
+        );
+    }
+}
+
+/// With nothing to list, the header still states today — it is the one line
+/// a stale-data branch in the prompt contract can anchor on.
+#[test]
+fn an_empty_list_still_states_today() {
+    let temps = HashMap::new();
+    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+
+    let rendered = format_activities_as_list(&[], &temps, None, "fr", Some("America/Toronto"), now);
+
+    assert!(
+        rendered.contains("[Today] 2026-09-21 lun\n"),
+        "an empty window still names the day: {rendered}"
+    );
+    assert!(
+        !rendered.contains("newest activity listed"),
+        "there is no newest row to name: {rendered}"
+    );
 }

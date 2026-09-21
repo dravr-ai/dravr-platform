@@ -181,6 +181,7 @@ fn probe_fabricated_tool_flagged_by_empty_tools_called() {
 /// extraction and categorisation steps are exactly where it used to be lost.
 #[test]
 fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
+    use chrono::NaiveDate;
     use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord};
     use pierre_evals::claim_extractor::extract_heuristic;
     use pierre_memory::{ClaimCategory, ClaimStatus};
@@ -202,7 +203,10 @@ fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
 
     // Step 2 — with nothing connected, the layer must call it invented rather
     // than merely unconfirmed.
-    let providerless = AthleteRecord::providerless();
+    let providerless = AthleteRecord::providerless(
+        NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
+        "en",
+    );
     let verdicts: Vec<_> = personal
         .iter()
         .filter_map(|c| athlete_check(c, &providerless))
@@ -242,6 +246,8 @@ fn probe_providerless_check_does_not_flag_a_real_ride() {
     };
     let record = AthleteRecord {
         has_provider: true,
+        today: NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
+        locale: "en".to_owned(),
         activities: vec![ride(12.2, 38.0), ride(5.0, 0.0)],
     };
 

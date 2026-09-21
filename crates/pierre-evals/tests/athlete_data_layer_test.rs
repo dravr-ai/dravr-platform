@@ -42,7 +42,7 @@ fn claim(text: &str) -> ExtractedClaim {
 fn a_specific_figure_with_no_provider_is_contradicted() {
     let outcome = check(
         &claim("Nice 12 km ride yesterday, that was a solid effort!"),
-        &AthleteRecord::providerless(),
+        &AthleteRecord::providerless(fixture_today(), "fr"),
     )
     .expect("the layer must adjudicate its own category");
 
@@ -68,7 +68,7 @@ fn a_specific_figure_with_no_provider_is_contradicted() {
 fn a_vague_statement_with_no_provider_is_unverifiable_not_contradicted() {
     let outcome = check(
         &claim("You have been really consistent with your training lately."),
-        &AthleteRecord::providerless(),
+        &AthleteRecord::providerless(fixture_today(), "fr"),
     )
     .expect("the layer must adjudicate its own category");
 
@@ -95,11 +95,20 @@ fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
     }
 }
 
+/// The athlete's current day for these fixtures. Every session here is dated
+/// 2026-09-01, so no relative-day word in a claim can attach to one by accident;
+/// the relative-day check has its own file.
+fn fixture_today() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2026, 9, 7).expect("valid date")
+}
+
 /// A figure that matches a held activity is supported.
 #[test]
 fn a_figure_matching_a_recorded_activity_is_supported() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![
             session(Some(21.4), 118.0),
             session(Some(8.0), 42.0),
@@ -137,6 +146,8 @@ fn a_figure_matching_a_recorded_activity_is_supported() {
 fn a_figure_matching_nothing_is_unverifiable_not_contradicted() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![session(Some(5.0), 30.0), session(Some(8.0), 0.0)],
     };
 
@@ -164,6 +175,8 @@ fn a_figure_matching_nothing_is_unverifiable_not_contradicted() {
 fn a_connected_athlete_with_no_cached_window_is_unverifiable() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: Vec::new(),
     };
 
@@ -190,6 +203,8 @@ fn a_connected_athlete_with_no_cached_window_is_unverifiable() {
 fn an_hours_claim_is_converted_before_matching() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![session(None, 120.0)],
     };
 
@@ -209,6 +224,8 @@ fn an_hours_claim_is_converted_before_matching() {
     // And the inverse: a genuine 2-minute activity must not satisfy "2 hours".
     let two_minutes = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![session(None, 2.0)],
     };
     let wrong = check(
@@ -227,7 +244,7 @@ fn an_hours_claim_is_converted_before_matching() {
 /// Other categories belong to other layers and must fall through untouched.
 #[test]
 fn claims_from_other_categories_are_not_adjudicated_here() {
-    let record = AthleteRecord::providerless();
+    let record = AthleteRecord::providerless(fixture_today(), "fr");
     for category in [
         ClaimCategory::Physiological,
         ClaimCategory::TrainingPrescription,
@@ -315,6 +332,8 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
 
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         // Four 10 km runs — a real week totalling 40 km, held per-activity.
         activities: vec![
             session(Some(10.0), 50.0),
@@ -363,6 +382,8 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
 fn a_comma_decimal_is_one_figure() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![session(Some(21.4), 0.0)],
     };
     let claim = claim("Tu as couru 21,4 km hier.");
@@ -395,6 +416,8 @@ fn a_comma_decimal_is_one_figure() {
 fn a_pace_expression_injects_no_phantom_figure() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![session(Some(10.0), 50.0)],
     };
     let claim = claim("You ran 10 km at 5:00 min/km.");
@@ -416,7 +439,7 @@ fn a_pace_expression_injects_no_phantom_figure() {
 /// The bare "10k" idiom counts as a distance even at the end of a sentence.
 #[test]
 fn the_bare_k_form_does_not_need_a_trailing_space() {
-    let record = AthleteRecord::providerless();
+    let record = AthleteRecord::providerless(fixture_today(), "fr");
     for text in ["Nice 10k.", "Nice 10k"] {
         let claim = claim(text);
         let outcome = check(&claim, &record).expect("layer adjudicates its own category");
@@ -446,6 +469,8 @@ fn the_bare_k_form_does_not_need_a_trailing_space() {
 fn a_sleep_claim_is_not_supported_by_a_workout_duration() {
     let record = AthleteRecord {
         has_provider: true,
+        today: fixture_today(),
+        locale: "fr".to_owned(),
         activities: vec![session(None, 480.0)],
     };
     for text in ["You slept 8 hours last night.", "Tu as dormi 8 heures."] {
