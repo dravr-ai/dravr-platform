@@ -791,11 +791,17 @@ impl ServerBackfillNotifier {
     /// re-entry can re-ask it verbatim — carrying the same window (e.g. "2022")
     /// the agent must query against the now-warm cache.
     ///
-    /// The chat repo returns newest-first, so the latest non-empty `user`-role
-    /// message is the question that triggered the backfill. A slash-command
-    /// line is not a question — re-asking `/status` would answer a command
-    /// nobody typed — so command rows are skipped. `None` when the read fails
-    /// or there is no user turn — the caller falls back to the list.
+    /// `get_recent_messages` selects the newest rows and hands them back in
+    /// chronological order — the shape a prompt wants — so the question that
+    /// triggered the backfill is the LAST `user` row, and the scan runs from
+    /// the end. Read from the front it picks the oldest question in the
+    /// lookback instead: on 2026-09-21 an athlete asked for monthly elevation
+    /// totals and the completion push answered whether to ride that morning, a
+    /// question from six hours earlier.
+    ///
+    /// A slash-command line is not a question — re-asking `/status` would answer
+    /// a command nobody typed — so command rows are skipped. `None` when the
+    /// read fails or there is no user turn — the caller falls back to the list.
     async fn recent_user_question(
         &self,
         user_id: Uuid,
@@ -818,6 +824,7 @@ impl ServerBackfillNotifier {
             .ok()?;
         messages
             .into_iter()
+            .rev()
             .find(|m| m.role == "user" && !m.is_command_turn() && !m.content.trim().is_empty())
             .map(|m| m.content)
     }

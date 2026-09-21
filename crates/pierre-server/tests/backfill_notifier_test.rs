@@ -461,6 +461,105 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
     );
 }
 
+/// The push re-asks the question that triggered the backfill, not an older one.
+///
+/// Observed 2026-09-21: the athlete asked the coach in the morning whether to
+/// ride, got an answer, and six hours later asked for monthly elevation totals
+/// from March — which spawned a backfill. The completion push re-entered the
+/// pipeline with the MORNING question and produced "Oui, vas-y — 30 min de vélo
+/// de montagne ce matin". `get_recent_messages` returns the newest rows in
+/// chronological order, and the scan read them from the front. Every other test
+/// here seeds a single question, where front and back are the same row.
+#[tokio::test]
+async fn push_re_asks_the_newest_question_in_the_conversation() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+
+    let morning = "Est-ce que je peux faire 30 min de vélo de montagne ce matin?";
+    let triggering = "Compare mon dénivelé mensuel de mars à septembre";
+    for (role, content) in [
+        ("user", morning),
+        ("assistant", "Oui, vas-y — c'est exactement le bon dosage."),
+        ("user", triggering),
+        (
+            "assistant",
+            "Ton historique de mars à aujourd'hui est en cours de récupération.",
+        ),
+    ] {
+        db.repositories()
+            .chat
+            .add_message(&AddMessageParams {
+                tenant_id,
+                conversation_id: &conversation_id,
+                user_id: &user_id,
+                role,
+                content,
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: None,
+                content_blocks: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a1", "Montagne sacrée!", 5)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let reentry = Arc::new(FakeReentry {
+        body: "Septembre: 5 918 m de D+.".to_owned(),
+        fetched_activities: true,
+        seen_prompt: Mutex::new(None),
+    });
+    let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
+        repos,
+        strings(),
+        resolver,
+        reentry.clone(),
+    );
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            1,
+        )
+        .await;
+
+    assert_eq!(
+        reentry.seen_prompt.lock().unwrap().as_deref(),
+        Some(triggering),
+        "the push answers the question the athlete is waiting on, not the first one \
+         in the lookback"
+    );
+}
+
 /// When the re-entry produces an activity list (the user asked to see/sort their
 /// activities), the push PREPENDS that list to the agent analysis — exactly like
 /// a live messaging turn — so the user SEES the list, not only a summary.
