@@ -31,7 +31,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app",
+        "EXPO_PUBLIC_API_URL": "https://app.dravr.ai",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
@@ -51,7 +51,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app",
+        "EXPO_PUBLIC_API_URL": "https://app.dravr.ai",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",

@@ -16,7 +16,7 @@
 
 use pierre_auth::config::resolve_issuer_url;
 
-const DEPLOYED: &str = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app";
+const DEPLOYED: &str = "https://app.dravr.ai";
 
 #[test]
 fn an_explicit_issuer_wins() {

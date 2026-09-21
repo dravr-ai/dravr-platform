@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test';
 
-const BASE = 'https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app';
+const BASE = 'https://app.dravr.ai';
 const OUT = process.argv[2];
 const theme = process.argv[3] ?? 'light';
 

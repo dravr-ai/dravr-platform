@@ -29,7 +29,7 @@ MODE="${1:---prod}"
 
 case "${MODE}" in
     --prod)
-        BASE_URL="${DRAVR_CANARY_BASE_URL:-https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app}"
+        BASE_URL="${DRAVR_CANARY_BASE_URL:-https://app.dravr.ai}"
         ;;
     --local)
         BASE_URL="${DRAVR_CANARY_BASE_URL:-http://127.0.0.1:8081}"
