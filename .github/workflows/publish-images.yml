@@ -20,10 +20,18 @@ name: "Deploy: Build & Ship (dev)"
 #
 # `run-name` is evaluated at run creation, where the workflow_run payload is
 # already available, so the title carries the commit this run will build.
-run-name: "Deploy ${{ github.event.workflow_run.head_sha || github.sha }}"
+run-name: "Deploy ${{ github.event.workflow_run.head_sha || inputs.sha || github.sha }}"
 
 on:
   workflow_dispatch:
+    inputs:
+      # Set by recover-last-green below when it redeploys the newest green
+      # commit after a refused deploy; a person may set it too. Empty builds
+      # the tip of the ref the run was started on, as before.
+      sha:
+        description: 'Commit on main to build and deploy (default: the tip)'
+        required: false
+        type: string
   # The image build starts when Backend CI STARTS on main and the deploy waits
   # for that same CI run to go green (the await-ci job), so broken code is still
   # never deployed. Until 2026-09-21 this fired on `completed`: the ~28-minute
@@ -103,13 +111,24 @@ jobs:
       # 'true' only when the guard below PROVED this deploy would roll dev
       # back; empty on push and workflow_dispatch, where the guard does not run.
       rollback: ${{ steps.guard.outputs.rollback }}
+      # The commit dev was serving when this run started; empty when unread.
+      live: ${{ steps.live.outputs.sha }}
 
     steps:
       - name: Resolve SHA
         id: sha
+        # An input reaches the shell through the environment, never interpolated.
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
             SHA="${{ github.event.workflow_run.head_sha }}"
+          elif [ -n "$REQUESTED_SHA" ]; then
+            if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::the sha input must be a full 40-character commit id"
+              exit 1
+            fi
+            SHA="$REQUESTED_SHA"
           else
             SHA="${{ github.sha }}"
           fi
@@ -549,6 +568,71 @@ jobs:
             fi
             sleep 60
           done
+
+  # ---------------------------------------------------------------------------
+  # A refused deploy hands over to the newest green commit behind it
+  #
+  # The group keeps one waiting run and a newer arrival replaces it. That loses
+  # nothing while the newer commit is green — it contains the older one. But a
+  # commit whose CI ends RED has by then displaced a green commit's waiting
+  # run, and under the old completed-CI trigger that green commit would have
+  # deployed. So when await-ci refuses, this job starts a deploy of the newest
+  # green commit behind the refused one (scripts/ci/pick-deploy-recovery.sh,
+  # which names nothing whenever dev already serves it or the answer would be
+  # a guess). It costs the one build the old trigger would have run anyway.
+  #
+  # It steps aside when another deploy run is waiting or running: that run is
+  # for a newer commit and carries the green work with it, and a dispatched
+  # run arriving now would replace it as the group's waiter — an older commit
+  # displacing a newer one, the exact harm this job exists to undo.
+  # ---------------------------------------------------------------------------
+  recover-last-green:
+    name: Hand over to the last green commit
+    runs-on: ubuntu-latest
+    needs: [resolve-sha, await-ci]
+    if: always() && github.event_name == 'workflow_run' && needs.await-ci.result == 'failure'
+    permissions:
+      contents: read
+      actions: write  # starts the workflow_dispatch deploy
+
+    steps:
+      # Commits only, as in resolve-sha: the picker walks parents and asks
+      # merge-base, and touches no tree.
+      - name: Checkout commit history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: scripts/ci
+
+      - name: Start a deploy of the newest green commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REFUSED: ${{ needs.resolve-sha.outputs.sha }}
+          LIVE: ${{ needs.resolve-sha.outputs.live }}
+          SELF: ${{ github.run_id }}
+        run: |
+          if ! others="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/publish-images.yml/runs?per_page=30" \
+                           --jq "[.workflow_runs[] | select(.id != ${SELF}) | select(.status != \"completed\")] | length")"; then
+            echo "::warning title=No hand-over::could not list the other deploy runs; starting nothing on a guess"
+            exit 0
+          fi
+          if [ "$others" != "0" ]; then
+            echo "::notice title=No hand-over needed::${others} other deploy run(s) waiting or running; the newest carries the green work"
+            exit 0
+          fi
+
+          if ! target="$(./scripts/ci/pick-deploy-recovery.sh "$REFUSED" "$LIVE" .)"; then
+            echo "::warning title=No hand-over::pick-deploy-recovery.sh refused its arguments (refused '${REFUSED}', live '${LIVE}')"
+            exit 0
+          fi
+          if [ -z "$target" ]; then
+            echo "::notice title=No hand-over needed::nothing green behind ${REFUSED} that dev does not already serve"
+            exit 0
+          fi
+
+          gh workflow run publish-images.yml --repo "$GITHUB_REPOSITORY" --ref main -f sha="$target"
+          echo "::notice title=Handed over::deploy of ${target} started — the newest green commit behind the refused ${REFUSED}"
 
   deploy-dev:
     name: Deploy to Development
