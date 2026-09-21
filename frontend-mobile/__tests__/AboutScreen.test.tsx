@@ -108,12 +108,11 @@ describe('AboutScreen', () => {
       expect(openSpy).toHaveBeenCalledWith(LEGAL_URL);
     });
 
-    // dravr.ai/help, /privacy and /terms are each a 404; /docs is the page
-    // that answers. Asserting the constants rather than the calls alone keeps
-    // a repoint from silently going back.
-    for (const url of [HELP_URL, LEGAL_URL]) {
-      expect(url).toBe('https://dravr.ai/docs');
-    }
+    // dravr.ai/help is a 404, so help goes to the docs hub; /privacy went live
+    // on 2026-09-18 and is the legal row's page. Asserting the constants rather
+    // than the calls alone keeps a repoint from silently going back.
+    expect(HELP_URL).toBe('https://dravr.ai/docs');
+    expect(LEGAL_URL).toBe('https://dravr.ai/privacy');
     openSpy.mockRestore();
   });
 });
