@@ -18,8 +18,8 @@
 //! 4096, Slack 40000) and rejects anything longer outright. That used to be
 //! answered by trimming the reply to the ceiling, which delivered a paragraph
 //! that stopped mid-thought and told the athlete nothing about the missing
-//! tail. The prose is split here instead — at sentence boundaries, into
-//! ordered messages that each fit — so a long answer arrives whole
+//! tail. The prose is reduced to plain text here ([`plain_prose`]) and split
+//! — at sentence boundaries, into ordered messages that each fit — so a long answer arrives whole
 //! (registre#2). The ceiling is the channel's own, read from
 //! [`RenderCapabilities::max_reply_chars`], never a cross-channel constant.
 //!
@@ -33,11 +33,54 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::messaging::{CardAction, MessageContent, OutgoingMessage};
+use pierre_messaging::rich_text::{parse_markdown, render_plain};
 
 use super::surface::messaging_render_profile;
 use super::viz_delivery::strip_viz_markers;
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_core::models::messaging::ChannelType;
+
+/// The coach's prose as a channel shows it: the words, none of the markup.
+///
+/// A messaging surface reads prose as typed ([`ProseFormat::PlainText`]): the
+/// non-streaming send escapes the body, and the status bridge's collapse edits
+/// the placeholder with the raw string, so anything the model wrote in
+/// markdown reaches the athlete as literal asterisks and hashes. The agent is
+/// asked for prose, and usually complies — but plain text on the wire cannot
+/// depend on the model's discipline, and it did: the fallback chain that ran
+/// on 2026-09-21 wrote `**bold**` and `## headings` into Telegram bubbles.
+///
+/// `ProseFormat` is [`pierre_chat_pipeline::ProseFormat`].
+///
+/// Inline runs (`**bold**`, `*italic*`, `` `code` ``) are reduced to their
+/// text through canot's own markdown reader, so what a well-formed run means
+/// and what a stray `5 x 400m*` means are decided by the same rules every
+/// command reply already goes through. A heading line loses its `#` markers.
+/// Lists are left as they are: a `- ` line is a readable list on every
+/// channel. The in-app clients never see this — they parse the markdown.
+///
+/// `pub` so the backfill push, which delivers a re-asked turn's prose through
+/// the same channels, applies the same rule.
+#[must_use]
+pub fn plain_prose(text: &str) -> String {
+    let without_headings: String = text
+        .lines()
+        .map(strip_heading_marker)
+        .collect::<Vec<_>>()
+        .join("\n");
+    render_plain(&parse_markdown(&without_headings))
+}
+
+/// `## Semaine` → `Semaine`; `#1 du classement` is not a heading and stays.
+fn strip_heading_marker(line: &str) -> &str {
+    let hashes = line.len() - line.trim_start_matches('#').len();
+    if (1..=6).contains(&hashes) {
+        if let Some(rest) = line[hashes..].strip_prefix(' ') {
+            return rest.trim_start();
+        }
+    }
+    line
+}
 
 /// One assistant turn, laid out for one channel.
 pub struct RenderedReply {
@@ -87,7 +130,7 @@ pub fn render_reply(
                 // markers are stripped before the split — they are characters
                 // the athlete never sees and must not spend the ceiling on.
                 prose.extend(chunk_reply(
-                    &strip_viz_markers(text),
+                    &plain_prose(&strip_viz_markers(text)),
                     render.max_reply_chars,
                 ));
             }

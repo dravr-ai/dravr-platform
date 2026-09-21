@@ -45,6 +45,7 @@ use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{
     ConversationRecord, ConversationTurnId, MessageRecord, CHANNEL_TYPE_WEB,
 };
+use pierre_mcp_server::services::messaging_ingress::block_render::plain_prose;
 use pierre_mcp_server::services::messaging_ingress::block_render::{
     channel_ceiling, fan_out, render_reply,
 };
@@ -958,5 +959,62 @@ fn a_turn_with_neither_prose_nor_attachments_is_empty() {
     assert!(
         rendered.is_empty(),
         "nothing to say and nothing to show is the case the fallback exists for"
+    );
+}
+
+/// A channel shows prose as typed, so the model's markup never reaches it.
+///
+/// Observed on Telegram, 2026-09-21 (carnet#485): with the Copilot quota out,
+/// the fallback chain wrote `**bold**` and `## headings`, the persona rewrite
+/// that usually tidies a reply failed on the same degraded chain, and the
+/// athlete read the asterisks. Plain text on the wire is the egress's job,
+/// not the model's.
+#[test]
+fn a_reply_written_in_markdown_reaches_the_channel_as_plain_prose() {
+    let reply = "## Ta semaine\n\n**Montagne sacrée!** le 16/09: +924 m, ta sortie la plus \
+                 dense en D+/km. Ensuite `Trop technique` — 5 x 400m* en côte.\n\n- lundi: repos\n- mardi: 45 min facile";
+    let telegram = envelope(ChannelType::Telegram, turn_state(reply));
+
+    let rendered = render_reply(
+        &profile(ChannelType::Telegram).render,
+        &telegram.assistant,
+        &strings(),
+        "fr",
+    );
+
+    let body = rendered.prose.join("\n");
+    assert!(
+        !body.contains("**") && !body.contains("##") && !body.contains('`'),
+        "markers reached the wire: {body}"
+    );
+    assert!(
+        body.starts_with("Ta semaine\n"),
+        "a heading keeps its words: {body}"
+    );
+    assert!(
+        body.contains("Montagne sacrée! le 16/09: +924 m"),
+        "bold keeps its words: {body}"
+    );
+    assert!(
+        body.contains("5 x 400m* en côte"),
+        "a lone asterisk is an athlete's character, not a marker: {body}"
+    );
+    assert!(
+        body.contains("- lundi: repos"),
+        "a list stays a readable list on a channel: {body}"
+    );
+}
+
+/// Prose with no markup is delivered exactly as written — the reduction is a
+/// no-op on the reply the agent is asked for, so nothing the coach says is
+/// re-worded on the way out.
+#[test]
+fn plain_prose_leaves_plain_prose_alone() {
+    let reply = "Ta charge grimpe depuis trois semaines. On coupe jeudi — 2 x 20 min à 85 % \
+                 de la FTP, puis récupération. Tu m'écris après?";
+    assert_eq!(plain_prose(reply), reply);
+    assert_eq!(
+        plain_prose("#1 au classement, pas un titre"),
+        "#1 au classement, pas un titre"
     );
 }

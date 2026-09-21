@@ -529,8 +529,10 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
+    // Written in markdown, as the fallback chain does when the persona rewrite
+    // cannot run; the channel must receive the words without the markers.
     let reentry = Arc::new(FakeReentry {
-        body: "Septembre: 5 918 m de D+.".to_owned(),
+        body: "## Septembre\n\n**5 918 m** de D+.".to_owned(),
         fetched_activities: true,
         seen_prompt: Mutex::new(None),
     });
@@ -557,6 +559,15 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
         Some(triggering),
         "the push answers the question the athlete is waiting on, not the first one \
          in the lookback"
+    );
+
+    let sent = channel.sent.lock().unwrap();
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("expected a text notice");
+    };
+    assert_eq!(
+        body, "Septembre\n\n5 918 m de D+.",
+        "the pushed answer goes through the same plain-prose egress as a live reply"
     );
 }
 

@@ -68,6 +68,7 @@ use pierre_notifications::NotificationService;
 use crate::mcp::resources::ServerContext;
 use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
 use crate::services::messaging_ingress::addressing::reply_recipient;
+use crate::services::messaging_ingress::block_render::plain_prose;
 use crate::services::messaging_ingress::build_messaging_profile;
 use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
 use pierre_chat_pipeline::TurnTelemetry;
@@ -964,7 +965,9 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 .await
                 .filter(|r| r.fetched_activities)
             {
-                Some(agent_reply) => agent_reply.body,
+                // The same reduction the live reply path applies: a channel
+                // shows prose as typed, so the model's markup must not reach it.
+                Some(agent_reply) => plain_prose(&agent_reply.body),
                 None => self.render_list_body(&locale, &warmed),
             }
         } else {
