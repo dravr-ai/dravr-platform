@@ -44,6 +44,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, TimeZone, Utc};
+use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityBackfillJobRow, BackfillCoverage};
@@ -729,6 +730,9 @@ async fn record_backfill_coverage(
         // hit_feed_end stays reserved for an explicit provider feed-exhaustion
         // signal, which the gate still honors when set.
         hit_feed_end: false,
+        // This backfill ran through the capture deployed now, so its rows are
+        // as complete as that capture makes them.
+        capture_version: current_capture_version(&job.provider_name),
     };
     if let Err(e) = job
         .resources

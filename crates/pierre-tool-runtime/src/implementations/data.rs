@@ -69,6 +69,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::config::fitness::{activity_detail_threshold, EXPENSIVE_DETAIL_PROMOTION_BUDGET};
+use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
 use pierre_fitness_compute::weather::build_provider as build_weather_provider;
@@ -607,7 +608,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     .get_backfill_coverage(context.user_id, &tenant_id, &provider_name)
                     .await
                     .unwrap_or(None);
-                let depth_covered = historical_depth_covered(coverage, after_ts);
+                let depth_covered = historical_depth_covered(
+                    coverage,
+                    after_ts,
+                    current_capture_version(&provider_name),
+                );
                 let covered = window.is_some() && depth_covered;
 
                 info!(

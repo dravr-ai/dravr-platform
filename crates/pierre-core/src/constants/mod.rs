@@ -505,6 +505,45 @@ pub mod provider_seats {
     pub const STRAVA_OAUTH_SEAT_CAP_DEFAULT: u32 = 10;
 }
 
+/// Capture versions: which generation of a provider's capture wrote its history.
+///
+/// Deep history is immutable once backfilled — the historical gate serves a
+/// covered window from the durable cache without calling the provider again.
+/// That is only safe while the rows it vouches for are as complete as the
+/// capture can make them. A capture fix that starts reading a field the old
+/// capture missed leaves every previously backfilled row permanently short of
+/// it unless something invalidates the coverage that protects them.
+///
+/// Bump a provider's version in the same change that ships such a fix. Coverage
+/// rows stamped below the current version read as not covered, so the next deep
+/// ask re-runs the backfill through the corrected capture and its upserts
+/// replace the old rows. Providers absent from this table sit at the baseline.
+pub mod provider_capture {
+    use super::oauth_providers::SCIOTTE;
+
+    /// The version every provider starts at.
+    ///
+    /// Coverage rows written before the column existed carry it too.
+    pub const BASELINE_CAPTURE_VERSION: u32 = 0;
+
+    /// Strava via sciotte.
+    ///
+    /// 1: elevation is read by the unit its value carries rather than by the
+    /// feed's localized label (dravr-sciotte 0.12.1). Rows the dedicated
+    /// service captured before that carry no elevation.
+    pub const SCIOTTE_STRAVA_CAPTURE_VERSION: u32 = 1;
+
+    /// The capture version a backfill of `provider` writes today.
+    #[must_use]
+    pub fn current_capture_version(provider: &str) -> u32 {
+        if provider == SCIOTTE {
+            SCIOTTE_STRAVA_CAPTURE_VERSION
+        } else {
+            BASELINE_CAPTURE_VERSION
+        }
+    }
+}
+
 /// User default values
 pub mod user_defaults {
     /// Default user age

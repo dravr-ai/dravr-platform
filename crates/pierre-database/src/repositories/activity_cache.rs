@@ -28,6 +28,13 @@ pub struct BackfillCoverage {
     /// stops at `after`, never below it), so it leaves this `false`; the gate
     /// still honors a `true` set by a provider that does report feed-end.
     pub hit_feed_end: bool,
+    /// Which generation of the provider's capture wrote the rows this record
+    /// vouches for (`pierre_core::constants::provider_capture`). Set by a
+    /// completed backfill and left alone by the retention clamp, so it names
+    /// the capture that produced the rows, not the last write to the record.
+    /// A value below the provider's current version means those rows predate a
+    /// capture fix and the window must be re-captured rather than served.
+    pub capture_version: u32,
 }
 
 /// One live provider connection paired with the last time a fetch actually
@@ -167,9 +174,13 @@ pub trait ActivityCacheRepository: Send + Sync {
     ) -> AppResult<u64>;
 
     /// Record how deep a completed backfill reached for `(tenant, user,
-    /// provider)`. Overwrites any prior row — coverage only deepens, because a
+    /// provider)`, and which capture version produced its rows. Overwrites any
+    /// prior row. Within one capture version coverage only deepens, because a
     /// query shallower than the recorded floor is already covered and never
-    /// reaches this write.
+    /// reaches this write. Across versions the overwrite is what keeps the
+    /// claim true: a record at an older version reads as not covered, so a
+    /// shallower re-capture does reach this write, and it must replace the old
+    /// deeper floor rather than inherit a depth the new capture never re-read.
     async fn upsert_backfill_coverage(
         &self,
         user_id: Uuid,
@@ -345,16 +356,18 @@ macro_rules! upsert_backfill_coverage_sql {
     ($uuid:literal) => {
         concat!(
             "INSERT INTO activity_backfill_coverage \
-                 (tenant_id, user_id, provider, oldest_reached_ts, hit_feed_end, updated_at) \
+                 (tenant_id, user_id, provider, oldest_reached_ts, hit_feed_end, updated_at, \
+                  capture_version) \
              VALUES ($1",
             $uuid,
             ", $2",
             $uuid,
-            ", $3, $4, $5, $6) \
+            ", $3, $4, $5, $6, $7) \
              ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET \
                  oldest_reached_ts = EXCLUDED.oldest_reached_ts, \
                  hit_feed_end = EXCLUDED.hit_feed_end, \
-                 updated_at = EXCLUDED.updated_at"
+                 updated_at = EXCLUDED.updated_at, \
+                 capture_version = EXCLUDED.capture_version"
         )
     };
 }
@@ -364,7 +377,8 @@ pub(crate) use upsert_backfill_coverage_sql;
 macro_rules! get_backfill_coverage_sql {
     ($uuid:literal) => {
         concat!(
-            "SELECT oldest_reached_ts, hit_feed_end FROM activity_backfill_coverage \
+            "SELECT oldest_reached_ts, hit_feed_end, capture_version \
+             FROM activity_backfill_coverage \
              WHERE tenant_id = $1",
             $uuid,
             " AND user_id = $2",
@@ -487,6 +501,9 @@ where
     i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
+    let capture_version: i64 = row
+        .try_get("capture_version")
+        .map_err(|e| AppError::database(format!("coverage col capture_version: {e}")))?;
     Ok(BackfillCoverage {
         oldest_reached_ts: row
             .try_get("oldest_reached_ts")
@@ -494,6 +511,11 @@ where
         hit_feed_end: row
             .try_get("hit_feed_end")
             .map_err(|e| AppError::database(format!("coverage col hit_feed_end: {e}")))?,
+        // BIGINT on Postgres and INTEGER on `SQLite`, both of which decode as
+        // i64. Written from a u32 and constrained NOT NULL, so a value outside
+        // that range can only be a hand-edited row; reading it as the baseline
+        // re-captures rather than trusts it.
+        capture_version: u32::try_from(capture_version).unwrap_or(0),
     })
 }
 
@@ -773,6 +795,7 @@ macro_rules! impl_activity_cache_repository {
                     .bind(coverage.oldest_reached_ts)
                     .bind(coverage.hit_feed_end)
                     .bind(Utc::now())
+                    .bind(i64::from(coverage.capture_version))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

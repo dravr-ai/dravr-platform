@@ -34,6 +34,7 @@ use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::activity_fetch::{before_bounds_a_closed_window, merge_live_head};
@@ -117,6 +118,9 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
             BackfillCoverage {
                 oldest_reached_ts: (Utc::now() - Duration::days(400)).timestamp(),
                 hit_feed_end: true,
+                // Written by the capture deployed now: this test is about
+                // freshness, so the window must read as covered.
+                capture_version: current_capture_version("sciotte"),
             },
         )
         .await

@@ -8,6 +8,10 @@
 #![allow(clippy::unwrap_used)]
 
 use chrono::{TimeZone, Utc};
+use pierre_core::constants::oauth_providers::{SCIOTTE, SCIOTTE_GARMIN, STRAVA};
+use pierre_core::constants::provider_capture::{
+    current_capture_version, BASELINE_CAPTURE_VERSION, SCIOTTE_STRAVA_CAPTURE_VERSION,
+};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_tool_runtime::activity_backfill::backfill_covered_floor_ts;
@@ -25,7 +29,11 @@ const JAN_2024: i64 = 1_704_067_200; // Jan 1 2024 00:00:00
 #[test]
 fn no_coverage_record_is_not_covered() {
     // Never backfilled — the cached rows (if any) are an unverified slice.
-    assert!(!historical_depth_covered(None, JAN_2022));
+    assert!(!historical_depth_covered(
+        None,
+        JAN_2022,
+        BASELINE_CAPTURE_VERSION
+    ));
 }
 
 #[test]
@@ -68,8 +76,13 @@ fn backfill_reached_the_requested_floor_is_covered() {
     let c = BackfillCoverage {
         oldest_reached_ts: JAN_2022,
         hit_feed_end: false,
+        capture_version: BASELINE_CAPTURE_VERSION,
     };
-    assert!(historical_depth_covered(Some(c), JAN_2022));
+    assert!(historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        BASELINE_CAPTURE_VERSION
+    ));
 }
 
 #[test]
@@ -77,8 +90,13 @@ fn backfill_reached_deeper_than_requested_is_covered() {
     let c = BackfillCoverage {
         oldest_reached_ts: DEC_2021,
         hit_feed_end: false,
+        capture_version: BASELINE_CAPTURE_VERSION,
     };
-    assert!(historical_depth_covered(Some(c), JAN_2022));
+    assert!(historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        BASELINE_CAPTURE_VERSION
+    ));
 }
 
 #[test]
@@ -88,8 +106,13 @@ fn shallow_backfill_short_of_floor_is_not_covered() {
     let c = BackfillCoverage {
         oldest_reached_ts: JUL_2022,
         hit_feed_end: false,
+        capture_version: BASELINE_CAPTURE_VERSION,
     };
-    assert!(!historical_depth_covered(Some(c), JAN_2022));
+    assert!(!historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        BASELINE_CAPTURE_VERSION
+    ));
 }
 
 #[test]
@@ -100,8 +123,13 @@ fn feed_end_short_of_floor_is_covered() {
     let c = BackfillCoverage {
         oldest_reached_ts: JUL_2022,
         hit_feed_end: true,
+        capture_version: BASELINE_CAPTURE_VERSION,
     };
-    assert!(historical_depth_covered(Some(c), JAN_2022));
+    assert!(historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        BASELINE_CAPTURE_VERSION
+    ));
 }
 
 #[test]
@@ -138,6 +166,85 @@ fn covered_floor_clamps_to_oldest_when_scrape_overshoots_the_floor() {
 }
 
 #[test]
+fn coverage_written_by_an_older_capture_is_not_covered() {
+    // 2026-09-18: the sciotte Strava capture lost elevation for two weeks, the
+    // athlete's whole history was backfilled in that period, and the coverage
+    // row went on vouching for it. Deep enough, and written by a capture that
+    // could not read the field — it has to re-capture, not serve.
+    let c = BackfillCoverage {
+        oldest_reached_ts: DEC_2021,
+        hit_feed_end: false,
+        capture_version: BASELINE_CAPTURE_VERSION,
+    };
+    assert!(!historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        SCIOTTE_STRAVA_CAPTURE_VERSION
+    ));
+}
+
+#[test]
+fn feed_end_does_not_excuse_an_older_capture() {
+    // "The feed is exhausted" says no older data exists. It says nothing about
+    // whether the rows above that floor were read by the current capture.
+    let c = BackfillCoverage {
+        oldest_reached_ts: JUL_2022,
+        hit_feed_end: true,
+        capture_version: BASELINE_CAPTURE_VERSION,
+    };
+    assert!(!historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        SCIOTTE_STRAVA_CAPTURE_VERSION
+    ));
+}
+
+#[test]
+fn coverage_at_the_current_capture_is_judged_on_depth_alone() {
+    let reached = BackfillCoverage {
+        oldest_reached_ts: DEC_2021,
+        hit_feed_end: false,
+        capture_version: SCIOTTE_STRAVA_CAPTURE_VERSION,
+    };
+    assert!(historical_depth_covered(
+        Some(reached),
+        JAN_2022,
+        SCIOTTE_STRAVA_CAPTURE_VERSION
+    ));
+    // A re-capture that only went sixteen weeks deep replaces the old record,
+    // and must not be read as covering the depth the old one claimed.
+    let shallow = BackfillCoverage {
+        oldest_reached_ts: JAN_2024,
+        hit_feed_end: false,
+        capture_version: SCIOTTE_STRAVA_CAPTURE_VERSION,
+    };
+    assert!(!historical_depth_covered(
+        Some(shallow),
+        JAN_2022,
+        SCIOTTE_STRAVA_CAPTURE_VERSION
+    ));
+}
+
+#[test]
+fn only_the_corrected_capture_sits_above_the_baseline() {
+    // The version is per provider: bumping sciotte's Strava capture must not
+    // send every OAuth athlete back through a backfill their rows never needed.
+    assert_eq!(
+        current_capture_version(SCIOTTE),
+        SCIOTTE_STRAVA_CAPTURE_VERSION
+    );
+    assert!(
+        current_capture_version(SCIOTTE) > current_capture_version(STRAVA),
+        "a corrected capture has to compare above the rows it supersedes"
+    );
+    assert_eq!(current_capture_version(STRAVA), BASELINE_CAPTURE_VERSION);
+    assert_eq!(
+        current_capture_version(SCIOTTE_GARMIN),
+        BASELINE_CAPTURE_VERSION
+    );
+}
+
+#[test]
 fn shallow_year_coverage_does_not_cover_a_deeper_year() {
     // Regression for the "No push / 2022 served empty" outage: a 2024-bounded
     // backfill records covered floor = Jan 2024. A later 2022 ask must NOT read
@@ -146,8 +253,13 @@ fn shallow_year_coverage_does_not_cover_a_deeper_year() {
     let c = BackfillCoverage {
         oldest_reached_ts: JAN_2024,
         hit_feed_end: false,
+        capture_version: BASELINE_CAPTURE_VERSION,
     };
-    assert!(!historical_depth_covered(Some(c), JAN_2022));
+    assert!(!historical_depth_covered(
+        Some(c),
+        JAN_2022,
+        BASELINE_CAPTURE_VERSION
+    ));
 }
 
 #[test]

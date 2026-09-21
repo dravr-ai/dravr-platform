@@ -12,6 +12,9 @@ mod db_fixtures;
 use db_fixtures::create_test_db;
 
 use chrono::{Duration, Utc};
+use pierre_core::constants::provider_capture::{
+    BASELINE_CAPTURE_VERSION, SCIOTTE_STRAVA_CAPTURE_VERSION,
+};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::BackfillCoverage;
 use uuid::Uuid;
@@ -42,6 +45,7 @@ async fn backfill_coverage_round_trips_overwrites_and_isolates() {
             BackfillCoverage {
                 oldest_reached_ts: 1_657_000_000,
                 hit_feed_end: false,
+                capture_version: BASELINE_CAPTURE_VERSION,
             },
         )
         .await
@@ -63,6 +67,7 @@ async fn backfill_coverage_round_trips_overwrites_and_isolates() {
             BackfillCoverage {
                 oldest_reached_ts: 1_640_000_000,
                 hit_feed_end: true,
+                capture_version: BASELINE_CAPTURE_VERSION,
             },
         )
         .await
@@ -117,6 +122,7 @@ async fn a_prune_raises_the_coverage_floors_it_falsified() {
                 BackfillCoverage {
                     oldest_reached_ts: deep,
                     hit_feed_end,
+                    capture_version: BASELINE_CAPTURE_VERSION,
                 },
             )
             .await
@@ -132,6 +138,7 @@ async fn a_prune_raises_the_coverage_floors_it_falsified() {
             BackfillCoverage {
                 oldest_reached_ts: shallow,
                 hit_feed_end: false,
+                capture_version: BASELINE_CAPTURE_VERSION,
             },
         )
         .await
@@ -145,6 +152,7 @@ async fn a_prune_raises_the_coverage_floors_it_falsified() {
             BackfillCoverage {
                 oldest_reached_ts: deep,
                 hit_feed_end: true,
+                capture_version: BASELINE_CAPTURE_VERSION,
             },
         )
         .await
@@ -193,4 +201,88 @@ async fn a_prune_raises_the_coverage_floors_it_falsified() {
         "the clamp is scoped to one athlete"
     );
     assert!(peer.hit_feed_end);
+}
+
+/// The capture version round-trips, a re-capture replaces the older record's
+/// floor instead of inheriting it, and the retention clamp leaves it alone.
+///
+/// The version names the capture that WROTE the rows. A re-capture that only
+/// went sixteen weeks deep must not come out claiming the 2022 depth the old
+/// capture reached — those rows were never re-read. And a prune raising the
+/// floor re-reads nothing at all, so it must not promote the record either.
+#[tokio::test]
+async fn the_capture_version_follows_the_backfill_not_the_clamp() {
+    let db = create_test_db().await;
+    let repos = db.repositories();
+    let cache = &repos.activity_cache;
+    let user = Uuid::new_v4();
+    let tenant = TenantId::generate();
+
+    let deep = 1_640_995_200; // Jan 1 2022
+    cache
+        .upsert_backfill_coverage(
+            user,
+            &tenant,
+            "sciotte",
+            BackfillCoverage {
+                oldest_reached_ts: deep,
+                hit_feed_end: true,
+                capture_version: BASELINE_CAPTURE_VERSION,
+            },
+        )
+        .await
+        .unwrap();
+    let old = cache
+        .get_backfill_coverage(user, &tenant, "sciotte")
+        .await
+        .unwrap()
+        .expect("coverage was just written");
+    assert_eq!(old.capture_version, BASELINE_CAPTURE_VERSION);
+
+    // The clamp raises the floor and re-reads nothing: the version stays put.
+    let cutoff = Utc::now() - Duration::days(180);
+    assert_eq!(
+        cache
+            .clamp_backfill_coverage(user, &tenant, cutoff)
+            .await
+            .unwrap(),
+        1
+    );
+    let clamped = cache
+        .get_backfill_coverage(user, &tenant, "sciotte")
+        .await
+        .unwrap()
+        .expect("coverage survives the clamp");
+    assert_eq!(clamped.oldest_reached_ts, cutoff.timestamp());
+    assert_eq!(
+        clamped.capture_version, BASELINE_CAPTURE_VERSION,
+        "a prune re-captured nothing, so it must not vouch for the rows as current"
+    );
+
+    // A sixteen-week re-capture through the corrected scraper.
+    let sixteen_weeks = (Utc::now() - Duration::weeks(16)).timestamp();
+    cache
+        .upsert_backfill_coverage(
+            user,
+            &tenant,
+            "sciotte",
+            BackfillCoverage {
+                oldest_reached_ts: sixteen_weeks,
+                hit_feed_end: false,
+                capture_version: SCIOTTE_STRAVA_CAPTURE_VERSION,
+            },
+        )
+        .await
+        .unwrap();
+    let recaptured = cache
+        .get_backfill_coverage(user, &tenant, "sciotte")
+        .await
+        .unwrap()
+        .expect("coverage present after the re-capture");
+    assert_eq!(recaptured.capture_version, SCIOTTE_STRAVA_CAPTURE_VERSION);
+    assert_eq!(
+        recaptured.oldest_reached_ts, sixteen_weeks,
+        "the new record vouches only for the depth the new capture re-read"
+    );
+    assert!(!recaptured.hit_feed_end);
 }
