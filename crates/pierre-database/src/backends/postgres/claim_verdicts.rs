@@ -17,19 +17,24 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer,
+    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, VerdictLayer,
 };
-use sqlx::postgres::PgRow;
 use sqlx::Row;
 use uuid::Uuid;
 
 use super::PostgresDatabase;
 use crate::repositories::claim_verdicts::{
-    apply_status_count, impl_claim_verdict_repository, verdict_daily_counts_sql,
-    INSERT_CLAIM_VERDICT_SQL, LIST_RECENT_VERDICTS_SQL, LIST_VERDICTS_FOR_CONVERSATION_SQL,
+    agent_health, apply_status_count, category_health, daily_health, fold_health_breakdown,
+    health_breakdown_rows, health_totals, impl_claim_verdict_repository, layer_health,
+    reason_count_from_row, verdict_daily_counts_sql, verdict_from_row,
+    verdict_health_breakdown_sql, DispositionFilter, GET_VERDICT_SQL, HEALTH_BY_AGENT_SQL,
+    HEALTH_BY_CATEGORY_SQL, HEALTH_BY_LAYER_SQL, HEALTH_BY_REASON_SQL, INSERT_CLAIM_VERDICT_SQL,
+    LIST_VERDICTS_FILTERED_SQL, LIST_VERDICTS_FOR_CONVERSATION_SQL, LIST_VERDICTS_FOR_MESSAGE_SQL,
+    SET_VERDICT_DISPOSITION_SQL,
 };
 use crate::repositories::{
-    ClaimVerdictRepository, InsertClaimVerdictParams, VerdictCalibrationStats, VerdictDailyBucket,
+    ClaimVerdictRepository, InsertClaimVerdictParams, SetVerdictDispositionParams,
+    VerdictCalibrationStats, VerdictDailyBucket, VerdictHealthStats, VerdictListFilter,
     VerdictStatusBreakdown,
 };
 
@@ -37,4 +42,12 @@ use crate::repositories::{
 const VERDICT_DAILY_COUNTS_SQL: &str =
     verdict_daily_counts_sql!("to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')");
 
-impl_claim_verdict_repository!(PostgresDatabase, PgRow, VERDICT_DAILY_COUNTS_SQL);
+/// This backend's resolved daily health-breakdown statement.
+const VERDICT_HEALTH_DAILY_SQL: &str =
+    verdict_health_breakdown_sql!("to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')");
+
+impl_claim_verdict_repository!(
+    PostgresDatabase,
+    VERDICT_DAILY_COUNTS_SQL,
+    VERDICT_HEALTH_DAILY_SQL
+);

@@ -1,67 +1,111 @@
-// ABOUTME: Webhook endpoints for provider-pushed health data (WHOOP, Strava, Garmin, Oura)
-// ABOUTME: Validates signatures via dravr-enforme, processes events asynchronously
+// ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava) — validate, resolve the owner, sync
+// ABOUTME: A Strava activity event fetches the owner's recent activities; a WHOOP event runs the owner's health sync
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
 use std::env;
+use std::future::ready;
 use std::sync::Arc;
 
 use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use chrono::Utc;
+use pierre_enforme::error::EnformeError;
+use pierre_enforme::models::webhook::WebhookEvent;
+use pierre_enforme::SyncOrchestrator;
 use serde::Deserialize;
-use tokio::task::yield_now;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use pierre_core::models::{OAuthNotification, TenantId};
+use pierre_providers::core::ActivityQueryParams;
+use pierre_tool_runtime::activity_fetch::fetch_provider_head;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
 
-/// Webhook routes for health data provider push notifications.
+/// How far before the announced event a Strava webhook-triggered fetch reads.
 ///
-/// Providers like WHOOP, Garmin, and Oura push data updates via webhooks
-/// rather than requiring us to poll their APIs. These routes validate
-/// the webhook signature and queue the event for async processing.
+/// Strava's payload carries only ids and the event time; the activity itself
+/// can have been recorded days earlier (a watch that uploads late, a manual
+/// entry backdated to the ride), so the window opens well before the event
+/// rather than at it. A week bounds the read while still covering every
+/// realistic upload delay.
+const STRAVA_WEBHOOK_LOOKBACK_DAYS: i64 = 7;
+
+/// Cap on rows a Strava webhook-triggered fetch reads.
+///
+/// The window is one week, and a busy week is tens of activities, never
+/// hundreds; the cap only guards against an unbounded read.
+const STRAVA_WEBHOOK_FETCH_LIMIT: usize = 50;
+
+/// Webhook routes for provider push notifications.
+///
+/// WHOOP pushes a signed event per changed record; Strava pushes an id-only
+/// event per activity change. Both routes answer the provider at once and do
+/// the sync on the drain-tracked spawner, so a SIGTERM waits for it.
 pub struct WebhookRoutes;
 
 impl WebhookRoutes {
     /// Mount webhook routes for all supported providers.
+    ///
+    /// The verification handlers and the Strava event handler do no async
+    /// work themselves (the Strava sync is spawned), so they are plain
+    /// functions wrapped in [`ready`]; only the WHOOP event handler awaits.
     pub fn routes(resources: Arc<ServerContext>) -> Router {
         Router::new()
             .route(
                 "/webhooks/whoop",
-                get(Self::handle_whoop_verification).post(Self::handle_whoop_event),
+                get(|query: Query<HashMap<String, String>>| {
+                    ready(Self::whoop_verification(&query))
+                })
+                .post(Self::handle_whoop_event),
             )
             .route(
                 "/webhooks/strava",
-                get(Self::handle_strava_verification).post(Self::handle_strava_event),
+                get(|query: Query<HashMap<String, String>>| {
+                    ready(Self::strava_verification(&query))
+                })
+                .post(
+                    |State(resources): State<Arc<ServerContext>>, body: Bytes| {
+                        ready(Self::strava_event(&resources, &body))
+                    },
+                ),
             )
             .with_state(resources)
     }
 
     /// WHOOP webhook verification challenge (GET).
-    /// WHOOP sends a GET request with a challenge token to verify the endpoint.
-    async fn handle_whoop_verification(query: Query<HashMap<String, String>>) -> impl IntoResponse {
-        // Return the challenge token as-is to verify endpoint ownership
+    ///
+    /// WHOOP sends a GET with a `challenge` query parameter to verify the
+    /// endpoint; echoing it back proves ownership.
+    fn whoop_verification(query: &HashMap<String, String>) -> (StatusCode, String) {
         let challenge = query.get("challenge").cloned().unwrap_or_default();
-        // Yield to the runtime scheduler between request parsing and response
-        yield_now().await;
         (StatusCode::OK, challenge)
     }
 
     /// WHOOP webhook event handler (POST).
-    /// Validates HMAC-SHA256 signature, then queues the event for async processing.
+    ///
+    /// The orchestrator's WHOOP provider verifies the `x-whoop-signature`
+    /// HMAC against `WHOOP_WEBHOOK_SECRET` and parses the body into events.
+    /// Each event names the WHOOP-side user id; that id is mapped to the one
+    /// platform user whose WHOOP token carries it (captured at token exchange
+    /// and on refresh), and that user's health sync runs on the drain-tracked
+    /// spawner. Several events for one user in a payload run one sync.
+    ///
+    /// A body that fails validation is refused with 401 and nothing is
+    /// synced; an unparseable one with 400; a missing secret with 503.
     async fn handle_whoop_event(
         State(resources): State<Arc<ServerContext>>,
         headers: HeaderMap,
         body: Bytes,
-    ) -> impl IntoResponse {
-        tracing::info!(
+    ) -> StatusCode {
+        info!(
             provider = "whoop",
             body_len = body.len(),
             has_signature = headers.contains_key("x-whoop-signature"),
@@ -69,23 +113,26 @@ impl WebhookRoutes {
         );
 
         let Some(orchestrator) = resources.fitness.sync_orchestrator.clone() else {
-            tracing::warn!("WHOOP webhook received but sync orchestrator is not configured");
+            warn!("WHOOP webhook received but sync orchestrator is not configured");
             return StatusCode::SERVICE_UNAVAILABLE;
         };
 
-        // Validate and process the webhook asynchronously to avoid blocking the response
-        let payload = body.to_vec();
-        tokio::spawn(async move {
-            if let Err(e) = orchestrator
-                .handle_webhook("whoop", &headers, &payload)
-                .await
-            {
-                tracing::error!(error = %e, "Failed to process WHOOP webhook event");
+        let events = match orchestrator.handle_webhook("whoop", &headers, &body).await {
+            Ok(events) => events,
+            Err(e) => {
+                warn!(error = %e, "WHOOP webhook refused; nothing synced");
+                return whoop_refusal_status(&e);
             }
-        });
+        };
 
-        // Yield to the runtime scheduler before returning the response
-        yield_now().await;
+        for provider_user_id in distinct_owners(&events) {
+            let resources = Arc::clone(&resources);
+            let orchestrator = Arc::clone(&orchestrator);
+            resources.common.turns.clone().spawn(Box::pin(async move {
+                sync_whoop_owner(&resources, &orchestrator, &provider_user_id).await;
+            }));
+        }
+
         StatusCode::OK
     }
 
@@ -97,10 +144,12 @@ impl WebhookRoutes {
     ///
     /// Strava sends a GET with `hub.mode`, `hub.challenge`, and `hub.verify_token`
     /// to validate the endpoint. Must respond within 15 seconds with the challenge.
-    /// Only ONE subscription is allowed per Strava app (not per-user).
-    async fn handle_strava_verification(
-        query: Query<HashMap<String, String>>,
-    ) -> impl IntoResponse {
+    /// Only ONE subscription is allowed per Strava app (not per-user); the
+    /// `pierre-cli strava-webhook subscribe` command registers it with the
+    /// same `STRAVA_WEBHOOK_VERIFY_TOKEN` this handler checks.
+    fn strava_verification(
+        query: &HashMap<String, String>,
+    ) -> (StatusCode, Json<serde_json::Value>) {
         let mode = query.get("hub.mode").cloned().unwrap_or_default();
         let challenge = query.get("hub.challenge").cloned().unwrap_or_default();
         let verify_token = query.get("hub.verify_token").cloned().unwrap_or_default();
@@ -120,7 +169,6 @@ impl WebhookRoutes {
         }
 
         info!("Strava webhook subscription verified");
-        yield_now().await;
 
         // Strava expects: {"hub.challenge": "<challenge_value>"}
         (
@@ -135,12 +183,14 @@ impl WebhookRoutes {
     /// `{ "object_type": "activity", "object_id": 123, "aspect_type": "create",
     ///    "owner_id": 456, "subscription_id": 789, "event_time": 1234567890 }`
     ///
-    /// The payload only contains IDs — a full activity fetch is still required.
-    async fn handle_strava_event(
-        State(resources): State<Arc<ServerContext>>,
-        body: Bytes,
-    ) -> impl IntoResponse {
-        let event: StravaWebhookEvent = match serde_json::from_slice(&body) {
+    /// The payload only carries ids. For an activity create or update, the
+    /// owner is resolved from the Strava athlete id and their recent
+    /// activities are fetched through the platform's OAuth activity path on
+    /// the drain-tracked spawner (see [`sync_strava_owner`]); the fetch writes
+    /// through to the activity cache with the freshness mark. Deletes and
+    /// athlete events are acknowledged and not fetched.
+    fn strava_event(resources: &Arc<ServerContext>, body: &[u8]) -> StatusCode {
+        let event: StravaWebhookEvent = match serde_json::from_slice(body) {
             Ok(e) => e,
             Err(e) => {
                 warn!(error = %e, "Failed to parse Strava webhook payload");
@@ -158,110 +208,265 @@ impl WebhookRoutes {
             "Received Strava webhook event"
         );
 
-        // Only process activity create/update events (not delete)
-        if event.object_type != "activity"
-            || (event.aspect_type != "create" && event.aspect_type != "update")
-        {
-            yield_now().await;
+        if !event.is_activity_write() {
             return StatusCode::OK;
         }
 
-        // Look up the user by Strava athlete ID (owner_id) and trigger a sync.
-        // The full activity data will be fetched by the sync process.
-        let repos = resources.common.repos.clone();
-        let sse = resources.sse.sse_manager.clone();
-        let orchestrator = resources.fitness.sync_orchestrator.clone();
-        let owner_id = event.owner_id.to_string();
+        let resources = Arc::clone(resources);
+        resources.common.turns.clone().spawn(Box::pin(async move {
+            sync_strava_owner(&resources, &event).await;
+        }));
 
-        tokio::spawn(async move {
-            let Some(orchestrator) = orchestrator else {
-                warn!("Strava webhook received but sync orchestrator not configured");
-                return;
-            };
-
-            // Map the webhook's owner_id (the Strava athlete id) to the single user
-            // who connected that athlete. The athlete id is captured into
-            // provider_user_id at OAuth time, so this resolves to exactly one
-            // (user, tenant). An unknown owner is skipped — never broadcast to
-            // every connected user.
-            let (user_id, tenant_id) = match repos
-                .oauth_tokens
-                .find_user_by_provider_user_id("strava", &owner_id)
-                .await
-            {
-                Ok(Some(owner)) => owner,
-                Ok(None) => {
-                    warn!(
-                        strava_owner_id = %owner_id,
-                        "Strava webhook for unknown athlete id — no linked user; skipping"
-                    );
-                    return;
-                }
-                Err(e) => {
-                    error!(
-                        strava_owner_id = %owner_id,
-                        error = %e,
-                        "Failed to resolve Strava webhook owner to a user"
-                    );
-                    return;
-                }
-            };
-
-            // Sync the owning user to pick up the new activity. The orchestrator uses
-            // cursors so only data newer than the last sync is fetched.
-            match orchestrator.sync_user(&user_id.to_string(), "strava").await {
-                Ok(result) if result.records_created > 0 => {
-                    info!(
-                        user_id = %user_id,
-                        strava_owner_id = %owner_id,
-                        records = result.records_created,
-                        "Strava webhook-triggered sync completed"
-                    );
-
-                    // Update last_sync for the resolved tenant, then notify the user's
-                    // live SSE stream that new data landed.
-                    if let Ok(tid) = TenantId::parse_str(&tenant_id) {
-                        let _ = repos
-                            .oauth_tokens
-                            .update_provider_last_sync(user_id, tid, "strava", chrono::Utc::now())
-                            .await;
-                    }
-
-                    let notification = OAuthNotification {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        user_id: user_id.to_string(),
-                        provider: "strava".to_owned(),
-                        success: true,
-                        message: format!(
-                            "New Strava activity synced ({} records)",
-                            result.records_created
-                        ),
-                        expires_at: None,
-                        created_at: chrono::Utc::now(),
-                        read_at: None,
-                    };
-                    let _ = sse.send_notification(user_id, &notification).await;
-                }
-                Ok(_) => {} // No new records
-                Err(e) => {
-                    warn!(
-                        user_id = %user_id,
-                        error = %e,
-                        "Strava webhook-triggered sync failed"
-                    );
-                }
-            }
-        });
-
-        yield_now().await;
         StatusCode::OK
     }
+}
+
+/// The HTTP status a refused WHOOP webhook answers with.
+///
+/// A signature that does not verify is the caller's problem (401); a body
+/// the provider cannot parse is malformed (400); a missing secret or an
+/// unregistered provider is this server's configuration (503), which WHOOP
+/// retries once it is fixed.
+fn whoop_refusal_status(error: &EnformeError) -> StatusCode {
+    match error {
+        EnformeError::WebhookValidationFailed { .. } => StatusCode::UNAUTHORIZED,
+        EnformeError::SerializationError { .. } => StatusCode::BAD_REQUEST,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+/// The provider-side user ids named by a payload, first occurrence first.
+///
+/// One WHOOP payload can carry several events for the same user; each user
+/// is synced once per payload, in the order the provider listed them.
+fn distinct_owners(events: &[WebhookEvent]) -> Vec<String> {
+    let mut owners: Vec<String> = Vec::with_capacity(events.len());
+    for event in events {
+        if !owners.contains(&event.user_id) {
+            owners.push(event.user_id.clone());
+        }
+    }
+    owners
+}
+
+/// Resolve the platform user owning a provider-side id.
+///
+/// The id is captured into `provider_user_id` when the token is stored, so it
+/// resolves to exactly one `(user, tenant)`. An unknown owner is skipped and
+/// logged — a push event is never broadcast to every connected user.
+async fn resolve_owner(
+    resources: &ServerContext,
+    provider: &str,
+    provider_user_id: &str,
+) -> Option<(Uuid, String)> {
+    match resources
+        .common
+        .repos
+        .oauth_tokens
+        .find_user_by_provider_user_id(provider, provider_user_id)
+        .await
+    {
+        Ok(Some(owner)) => Some(owner),
+        Ok(None) => {
+            warn!(
+                provider = %provider,
+                provider_user_id = %provider_user_id,
+                "webhook for an unknown provider user id — no linked user; skipping"
+            );
+            None
+        }
+        Err(e) => {
+            error!(
+                provider = %provider,
+                provider_user_id = %provider_user_id,
+                error = %e,
+                "failed to resolve webhook owner to a user"
+            );
+            None
+        }
+    }
+}
+
+/// Stamp the provider's `last_sync` for the owner: the sync happened now.
+async fn stamp_last_sync(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: &str,
+    provider: &str,
+) {
+    let tenant = match TenantId::parse_str(tenant_id) {
+        Ok(tenant) => tenant,
+        Err(e) => {
+            warn!(user_id = %user_id, provider = %provider, error = %e, "webhook owner carries an unparseable tenant id");
+            return;
+        }
+    };
+    if let Err(e) = resources
+        .common
+        .repos
+        .oauth_tokens
+        .update_provider_last_sync(user_id, tenant, provider, Utc::now())
+        .await
+    {
+        warn!(user_id = %user_id, provider = %provider, error = %e, "failed to stamp last_sync after webhook sync");
+    }
+}
+
+/// Tell the owner's live SSE stream what a webhook sync landed.
+async fn notify_owner(resources: &ServerContext, user_id: Uuid, provider: &str, message: String) {
+    let notification = OAuthNotification {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
+        provider: provider.to_owned(),
+        success: true,
+        message,
+        expires_at: None,
+        created_at: Utc::now(),
+        read_at: None,
+    };
+    // A user with no open SSE stream simply has nothing to notify.
+    let _ = resources
+        .sse
+        .sse_manager
+        .send_notification(user_id, &notification)
+        .await;
+}
+
+/// Fetch the recent activities of the user whose Strava athlete id a webhook
+/// named.
+///
+/// Goes through [`fetch_provider_head`]: it authenticates the OAuth provider
+/// (refreshing the token when needed), fetches the window that opens
+/// [`STRAVA_WEBHOOK_LOOKBACK_DAYS`] before the event, and writes the rows
+/// through to the activity cache with the freshness mark. A successful fetch
+/// stamps `last_sync`; the athlete is notified only when the window held at
+/// least one activity.
+async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhookEvent) {
+    let owner_id = event.owner_id.to_string();
+    let Some((user_id, tenant_id)) = resolve_owner(resources, "strava", &owner_id).await else {
+        return;
+    };
+
+    let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+    let params = ActivityQueryParams {
+        after: Some(event.fetch_window_start()),
+        before: None,
+        limit: Some(STRAVA_WEBHOOK_FETCH_LIMIT),
+        offset: None,
+    };
+
+    match fetch_provider_head(&runtime, "strava", user_id, &tenant_id, &params).await {
+        Ok(activities) => {
+            let fetched = activities.len();
+            info!(
+                user_id = %user_id,
+                strava_owner_id = %owner_id,
+                object_id = %event.object_id,
+                aspect_type = %event.aspect_type,
+                fetched,
+                "Strava webhook-triggered activity fetch completed"
+            );
+            stamp_last_sync(resources, user_id, &tenant_id, "strava").await;
+            if fetched > 0 {
+                notify_owner(
+                    resources,
+                    user_id,
+                    "strava",
+                    format!(
+                        "Strava activity {}d: {fetched} recent activities fetched",
+                        event.aspect_type
+                    ),
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                strava_owner_id = %owner_id,
+                error = %e,
+                auth_required = e.provider_auth_required_provider().is_some(),
+                "Strava webhook-triggered activity fetch failed"
+            );
+        }
+    }
+}
+
+/// Run the health sync of the user whose WHOOP id a validated event named.
+///
+/// The orchestrator syncs every data type the WHOOP provider supplies from
+/// the user's cursors, so one call picks up whatever the event announced.
+/// New records are landed by [`land_whoop_records`]; a sync that found none
+/// or failed is logged and leaves `last_sync` and the SSE stream alone.
+async fn sync_whoop_owner(
+    resources: &Arc<ServerContext>,
+    orchestrator: &SyncOrchestrator,
+    provider_user_id: &str,
+) {
+    let Some((user_id, tenant_id)) = resolve_owner(resources, "whoop", provider_user_id).await
+    else {
+        return;
+    };
+
+    match orchestrator.sync_user(&user_id.to_string(), "whoop").await {
+        Ok(result) if result.records_created > 0 => {
+            land_whoop_records(
+                resources,
+                user_id,
+                &tenant_id,
+                provider_user_id,
+                result.records_created,
+            )
+            .await;
+        }
+        Ok(result) => {
+            info!(
+                user_id = %user_id,
+                whoop_user_id = %provider_user_id,
+                errors = result.records_errored,
+                "WHOOP webhook-triggered sync found no new records"
+            );
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                whoop_user_id = %provider_user_id,
+                error = %e,
+                "WHOOP webhook-triggered sync failed"
+            );
+        }
+    }
+}
+
+/// Record that a WHOOP webhook sync created `records` for the owner: stamp
+/// `last_sync` and tell the athlete's SSE stream how many landed.
+async fn land_whoop_records(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: &str,
+    provider_user_id: &str,
+    records: u32,
+) {
+    info!(
+        user_id = %user_id,
+        whoop_user_id = %provider_user_id,
+        records,
+        "WHOOP webhook-triggered sync completed"
+    );
+    stamp_last_sync(resources, user_id, tenant_id, "whoop").await;
+    notify_owner(
+        resources,
+        user_id,
+        "whoop",
+        format!("WHOOP data synced ({records} records)"),
+    )
+    .await;
 }
 
 /// Strava webhook event payload.
 ///
 /// Strava sends minimal event data — only IDs and event type.
-/// The full activity must be fetched separately via the API.
+/// The activities themselves are fetched separately via the API.
 #[derive(Debug, Deserialize)]
 struct StravaWebhookEvent {
     /// Type of object: "activity" or "athlete"
@@ -276,4 +481,26 @@ struct StravaWebhookEvent {
     subscription_id: u64,
     /// Unix timestamp of the event
     event_time: u64,
+}
+
+impl StravaWebhookEvent {
+    /// Whether the event announces an activity that now exists on Strava.
+    ///
+    /// Only an activity create or update has something to fetch; a delete
+    /// and every athlete event (deauthorization) are acknowledged and left
+    /// alone.
+    fn is_activity_write(&self) -> bool {
+        self.object_type == "activity"
+            && (self.aspect_type == "create" || self.aspect_type == "update")
+    }
+
+    /// Unix timestamp where the fetch window for this event opens.
+    ///
+    /// [`STRAVA_WEBHOOK_LOOKBACK_DAYS`] before the event time, so an
+    /// activity uploaded late is still inside the window. An event time the
+    /// clock cannot represent falls back to now.
+    fn fetch_window_start(&self) -> i64 {
+        let event_time = i64::try_from(self.event_time).unwrap_or_else(|_| Utc::now().timestamp());
+        event_time - STRAVA_WEBHOOK_LOOKBACK_DAYS * 86_400
+    }
 }

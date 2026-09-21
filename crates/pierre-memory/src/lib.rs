@@ -56,6 +56,7 @@ pub mod sessions;
 pub mod training_plans;
 
 pub use claims::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
+pub use claims::{DispositionReason, VerdictDisposition};
 pub use commitments::{
     Commitment, CommitmentOutcome, CommitmentStatus, MAX_STATEMENT_LEN, MAX_TARGET_SESSIONS,
     MAX_WINDOW_DAYS, MIN_TARGET_SESSIONS,

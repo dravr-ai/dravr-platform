@@ -617,6 +617,13 @@ module "backend" {
     RESEND_API_KEY          = module.secrets.secret_ids["resend_api_key"]
     POSTHOG_API_KEY         = module.secrets.secret_ids["posthog_api_key"]
 
+    # Provider webhook secrets: the WHOOP push endpoint verifies each event's
+    # HMAC against the first; Strava's subscription verification checks
+    # hub.verify_token against the second (the token `pierre-cli strava-webhook
+    # subscribe` registers). Values are set out-of-band in Secret Manager.
+    WHOOP_WEBHOOK_SECRET        = module.secrets.secret_ids["whoop_webhook_secret"]
+    STRAVA_WEBHOOK_VERIFY_TOKEN = module.secrets.secret_ids["strava_webhook_verify_token"]
+
     # Messaging channel credentials (seeded into DB on startup)
     SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]
     SLACK_SIGNING_SECRET             = module.secrets.secret_ids["slack_signing_secret"]

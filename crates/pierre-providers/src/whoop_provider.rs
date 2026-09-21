@@ -32,6 +32,7 @@ use crate::models::{
     SleepSession, SleepStage, SleepStageType, SportType, Stats,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
+use crate::registry::ProviderRegistry;
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -1059,4 +1060,46 @@ impl ProviderFactory for WhoopProviderFactory {
     fn supported_providers(&self) -> &'static [&'static str] {
         &[oauth_providers::WHOOP]
     }
+}
+
+// ============================================================================
+// Owner id lookup
+// ============================================================================
+
+/// Read the WHOOP user id behind an access token.
+///
+/// WHOOP's token response carries no owner id, but its webhooks name the
+/// athlete by that id and nothing else, so a stored token without it can
+/// never be matched to a push event. The id is served at
+/// `user/profile/basic`; the OAuth flow reads it right after the exchange and
+/// the refresh path fills a stored token that still lacks it. Both go through
+/// the registry's WHOOP provider — the same request path, circuit breaker and
+/// `PIERRE_WHOOP_API_BASE_URL` seam as every other WHOOP call — rather than a
+/// second client.
+///
+/// The access token is the only credential set: a bearer read of the profile
+/// never refreshes, so no client id, secret, refresh token or expiry is
+/// needed, and the provider instance is dropped afterwards.
+///
+/// # Errors
+///
+/// Returns the registry's error when WHOOP is not registered and the
+/// provider's own error when the profile read fails (a rejected token, a
+/// transport failure).
+pub async fn owner_id_for_access_token(
+    registry: &ProviderRegistry,
+    access_token: &str,
+) -> AppResult<String> {
+    let provider = registry.create_provider(oauth_providers::WHOOP)?;
+    provider
+        .set_credentials(OAuth2Credentials {
+            client_id: String::new(),
+            client_secret: String::new(),
+            access_token: Some(access_token.to_owned()),
+            refresh_token: None,
+            expires_at: None,
+            scopes: Vec::new(),
+        })
+        .await?;
+    Ok(provider.get_athlete().await?.id)
 }

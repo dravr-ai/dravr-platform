@@ -241,6 +241,10 @@ impl AdminRoutes {
     }
 
     /// Claim verdict triage routes (cookie auth)
+    ///
+    /// The static segments (`health`, `conversations`, `messages`) are
+    /// declared beside the `{verdict_id}` capture; the router prefers a
+    /// static match, so `health` is never read as a verdict id.
     fn claim_verdict_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -248,8 +252,24 @@ impl AdminRoutes {
                 get(claim_verdicts::handle_list_claim_verdicts),
             )
             .route(
+                "/api/admin/claim-verdicts/health",
+                get(claim_verdicts::handle_verdict_health),
+            )
+            .route(
                 "/api/admin/claim-verdicts/conversations/{conversation_id}",
                 get(claim_verdicts::handle_list_verdicts_by_conversation),
+            )
+            .route(
+                "/api/admin/claim-verdicts/messages/{message_id}",
+                get(claim_verdicts::handle_list_verdicts_by_message),
+            )
+            .route(
+                "/api/admin/claim-verdicts/{verdict_id}",
+                get(claim_verdicts::handle_get_claim_verdict),
+            )
+            .route(
+                "/api/admin/claim-verdicts/{verdict_id}/disposition",
+                put(claim_verdicts::handle_set_verdict_disposition),
             )
             .with_state(context)
     }

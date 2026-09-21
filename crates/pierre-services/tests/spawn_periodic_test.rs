@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::database::test_utils::create_test_db;
-use pierre_database::repositories::WorkerRunRepository;
+use pierre_database::repositories::{WorkerRun, WorkerRunRepository};
 use pierre_services::periodic::spawn_periodic;
 use tokio::time::sleep;
 
@@ -33,6 +33,34 @@ const PERIOD: Duration = Duration::from_millis(20);
 async fn ledger() -> Arc<dyn WorkerRunRepository> {
     let db = create_test_db().await.expect("test db");
     Arc::clone(&db.repositories().worker_runs)
+}
+
+/// Wait until the worker's ledger row satisfies `settled`, or give up after
+/// `limit`, returning the last row read.
+///
+/// A tick counter moves *inside* the tick, before the ledger write that
+/// follows it, so a test that reads the ledger the moment the counter moves
+/// races that write. Worse, aborting the worker across it is not safe on the
+/// factory database: the pool holds ONE in-memory connection, and a statement
+/// future dropped mid-await fails sqlx's release ping, so the pool closes the
+/// connection and opens a fresh, empty `sqlite::memory:` — the next read
+/// answers "no such table" (seen 1 run in 40 locally, and once in CI). A test
+/// that asserts on the ledger waits for the row to settle and never aborts a
+/// worker that may be mid-statement; a sleeping worker dies with the runtime.
+async fn wait_for_ledger(
+    ledger: &Arc<dyn WorkerRunRepository>,
+    name: &str,
+    limit: Duration,
+    settled: impl Fn(&WorkerRun) -> bool,
+) -> Option<WorkerRun> {
+    let deadline = Instant::now() + limit;
+    loop {
+        let row = ledger.get_worker_run(name).await.unwrap();
+        if row.as_ref().is_some_and(&settled) || Instant::now() >= deadline {
+            return row;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
 }
 
 /// Wait until `counter` reaches `target`, or give up after `limit`.
@@ -120,17 +148,19 @@ async fn a_worker_resumes_the_remainder_of_its_period_from_the_ledger() {
         started.elapsed()
     );
 
-    let run = ledger
-        .get_worker_run("resume probe")
-        .await
-        .unwrap()
-        .unwrap();
+    // The finish is written after the tick returns; wait for it rather than
+    // read across it, and leave the worker asleep — see `wait_for_ledger`.
+    let run = wait_for_ledger(&ledger, "resume probe", Duration::from_secs(2), |row| {
+        row.last_run_at_ms > seeded
+    })
+    .await
+    .unwrap();
     assert!(
         run.last_run_at_ms > seeded,
         "a finished tick stamps last_run_at_ms past the seeded value"
     );
     assert_eq!(run.leased_until_ms, 0, "a finished tick releases its lease");
-    handle.abort();
+    drop(handle);
 }
 
 #[tokio::test]
@@ -192,13 +222,18 @@ async fn a_failed_tick_leaves_the_ledger_unstamped_for_the_next_instance() {
 
     let seen = wait_for(&ticks, 1, Duration::from_secs(2)).await;
     assert!(seen >= 1, "the failing tick ran");
-    handle.abort();
 
-    let run = ledger
-        .get_worker_run("failing probe")
-        .await
-        .unwrap()
-        .unwrap();
+    // The hold is written after the tick fails; wait for it rather than abort
+    // across it, and leave the worker asleep — see `wait_for_ledger`. The
+    // claim before the tick already holds the row for the 15-minute lease,
+    // so the defer is recognised by its shorter, one-period hold.
+    let run = wait_for_ledger(&ledger, "failing probe", Duration::from_secs(2), |row| {
+        let remaining = row.leased_until_ms - Utc::now().timestamp_millis();
+        remaining > 0 && remaining <= 10_000
+    })
+    .await
+    .unwrap();
+    drop(handle);
     assert_eq!(
         run.last_run_at_ms, last_run,
         "a failed tick must not count as a run — the stamp stays where the last success left it"

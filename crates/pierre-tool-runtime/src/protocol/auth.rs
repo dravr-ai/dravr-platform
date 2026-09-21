@@ -12,6 +12,7 @@ use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 use pierre_auth::oauth2_client::client::whoop::refresh_whoop_token;
 use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{TenantId, UserOAuthToken};
@@ -20,6 +21,7 @@ use pierre_notifications::models::NotificationCategory;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
 use pierre_providers::backend_resolver;
+use pierre_providers::whoop_provider::owner_id_for_access_token;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -300,7 +302,7 @@ impl AuthService {
             .refresh_provider_token(user_id, tenant_id, provider, refresh_token)
             .await
         {
-            Ok(refreshed_token) => {
+            Ok(mut refreshed_token) => {
                 info!(
                     "Token refreshed successfully for user {} provider {}",
                     user_id, provider
@@ -310,6 +312,9 @@ impl AuthService {
                 // already active.
                 self.mark_connection_active(user_id, tenant_id, provider)
                     .await;
+                refreshed_token.provider_user_id = self
+                    .owner_id_after_refresh(oauth_token, &refreshed_token)
+                    .await;
                 Ok(Some(refreshed_token))
             }
             Err(e) => {
@@ -317,6 +322,78 @@ impl AuthService {
                     .await;
                 Ok(None)
             }
+        }
+    }
+
+    /// The provider-side owner id a refreshed token carries.
+    ///
+    /// The bearer providers' refresh endpoints return no owner id and the row
+    /// update leaves the stored one untouched, so a refreshed token reports the
+    /// id the row already holds. A WHOOP row that never captured one (its token
+    /// response carries none, and connections made before the OAuth flow read
+    /// the profile have `None`) is filled here: the profile is read with the
+    /// fresh access token and the id is written back to the row, so the next
+    /// webhook naming this athlete routes to them. Best-effort — a failed read
+    /// leaves the row as it was and the next refresh tries again.
+    async fn owner_id_after_refresh(
+        &self,
+        stored: &UserOAuthToken,
+        refreshed: &TokenData,
+    ) -> Option<String> {
+        if stored.provider_user_id.is_some() || stored.provider != oauth_providers::WHOOP {
+            return stored.provider_user_id.clone();
+        }
+        match owner_id_for_access_token(self.resources.provider_registry(), &refreshed.access_token)
+            .await
+        {
+            Ok(owner_id) => {
+                self.persist_owner_id(stored, refreshed, &owner_id).await;
+                Some(owner_id)
+            }
+            Err(e) => {
+                warn!(
+                    user_id = %stored.user_id,
+                    provider = %stored.provider,
+                    error = %e,
+                    "provider user id lookup failed after refresh; push events for this connection route only once a later refresh captures it"
+                );
+                None
+            }
+        }
+    }
+
+    /// Write a captured owner id onto the token row the refresh just updated.
+    ///
+    /// The row is re-written whole — the refreshed tokens plus the id — so
+    /// nothing the refresh stored is lost. A write failure is logged: the
+    /// in-memory token still carries the id for this request, and the next
+    /// refresh captures it again.
+    async fn persist_owner_id(
+        &self,
+        stored: &UserOAuthToken,
+        refreshed: &TokenData,
+        owner_id: &str,
+    ) {
+        let row = UserOAuthToken {
+            access_token: refreshed.access_token.clone(),
+            refresh_token: Some(refreshed.refresh_token.clone()).filter(|t| !t.is_empty()),
+            expires_at: Some(refreshed.expires_at),
+            provider_user_id: Some(owner_id.to_owned()),
+            updated_at: Utc::now(),
+            ..stored.clone()
+        };
+        match self.resources.repos().oauth_tokens.upsert_token(&row).await {
+            Ok(()) => info!(
+                user_id = %stored.user_id,
+                provider = %stored.provider,
+                "captured provider user id on token refresh"
+            ),
+            Err(e) => warn!(
+                user_id = %stored.user_id,
+                provider = %stored.provider,
+                error = %e,
+                "failed to persist the provider user id captured on refresh"
+            ),
         }
     }
 
@@ -845,8 +922,9 @@ impl AuthService {
             .await
             .map_err(|e| OAuthError::DatabaseError(e.to_string()))?;
 
-        // Return the refreshed token data. Refresh only runs for OAuth bearer
-        // providers (strava/fitbit/whoop), which have no provider-side user id.
+        // Return the refreshed token data. The refresh endpoints of the bearer
+        // providers (strava/fitbit/whoop) return no owner id; the caller fills
+        // it from the stored row (`owner_id_after_refresh`).
         Ok(TokenData {
             provider: provider.to_owned(),
             access_token: new_access_token,

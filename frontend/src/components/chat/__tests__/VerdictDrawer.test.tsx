@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the verdict drawer's subline — the count alone, in the reader's language
-// ABOUTME: It used to borrow the chip's string and scrub the leftover separator back off with a regex
+// ABOUTME: And its triage slot: the admin's panel renders under each card, the chat surface gets nothing
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -58,5 +58,36 @@ describe('VerdictDrawer subline', () => {
     // The subline and the empty body both say it — the header while the count
     // is unknown, the body where the cards will land.
     expect(screen.getAllByText('Loading verdicts…')).toHaveLength(2);
+  });
+});
+
+
+describe('VerdictDrawer triage slot', () => {
+  it('renders nothing extra on the chat surface', () => {
+    render(<VerdictDrawer verdicts={[verdict('v1')]} onClose={vi.fn()} />);
+
+    expect(screen.queryByTestId('triage-slot')).not.toBeInTheDocument();
+  });
+
+  it('renders what the admin passes under each card, once per verdict', () => {
+    const renderTriage = vi.fn((v: ClaimVerdict) => (
+      <div data-testid="triage-slot">triage for {v.id}</div>
+    ));
+    render(
+      <VerdictDrawer
+        verdicts={[verdict('v1'), verdict('v2', { status: 'contradicted' })]}
+        onClose={vi.fn()}
+        renderTriage={renderTriage}
+      />,
+    );
+
+    const slots = screen.getAllByTestId('triage-slot');
+    expect(slots).toHaveLength(2);
+    expect(slots[0]).toHaveTextContent('triage for v1');
+    expect(slots[1]).toHaveTextContent('triage for v2');
+    // The slot is a function of the verdict, so the panel it renders can
+    // read the row's own disposition and knob.
+    expect(renderTriage).toHaveBeenCalledWith(expect.objectContaining({ id: 'v1' }));
+    expect(renderTriage).toHaveBeenCalledWith(expect.objectContaining({ id: 'v2' }));
   });
 });

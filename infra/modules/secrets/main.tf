@@ -429,6 +429,60 @@ resource "google_secret_manager_secret" "telegram_webhook_secret" {
   }
 }
 
+# Provider webhook secrets. The WHOOP push endpoint (`/webhooks/whoop`) verifies
+# every event's HMAC against WHOOP_WEBHOOK_SECRET, and Strava's subscription
+# verification (`/webhooks/strava`) compares hub.verify_token against
+# STRAVA_WEBHOOK_VERIFY_TOKEN — the same token `pierre-cli strava-webhook
+# subscribe` registers with Strava.
+#
+# Both carry a version from the first apply, because the server's env references
+# them at version "latest" and a Cloud Run revision that references an empty
+# secret cannot start. The WHOOP value is issued by WHOOP's developer dashboard,
+# so it starts as the same placeholder strava_client_secret uses (every webhook
+# fails its HMAC check until ChefFamille runs `gcloud secrets versions add`;
+# ignore_changes keeps the real value once it lands). The Strava verify token is
+# ours to choose, so it is generated here and is real from the first apply.
+resource "google_secret_manager_secret" "whoop_webhook_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-whoop-webhook-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "whoop_webhook_secret_placeholder" {
+  secret      = google_secret_manager_secret.whoop_webhook_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "random_password" "strava_webhook_verify_token" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "strava_webhook_verify_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-strava-webhook-verify-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "strava_webhook_verify_token" {
+  secret      = google_secret_manager_secret.strava_webhook_verify_token.id
+  secret_data = random_password.strava_webhook_verify_token.result
+}
+
 resource "google_secret_manager_secret" "meta_whatsapp_app_secret" {
   project   = var.project_id
   secret_id = "${var.service_name}-meta-whatsapp-app-secret"

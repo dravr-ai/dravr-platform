@@ -39,6 +39,10 @@
 //! # Show token statistics
 //! pierre-cli token stats
 //!
+//! # Register the Strava push subscription (webhook) for the app
+//! STRAVA_WEBHOOK_VERIFY_TOKEN=... pierre-cli strava-webhook subscribe --base-url https://dev.dravr.ai
+//! pierre-cli strava-webhook list
+//!
 //! # Seed reference data (admin/demo users, agents, mobility, etc.)
 //! ADMIN_PASSWORD=secret pierre-cli seed bootstrap
 //! pierre-cli seed demo-data
@@ -146,6 +150,12 @@ enum Command {
     StravaPool {
         #[command(subcommand)]
         action: StravaPoolCommand,
+    },
+
+    /// Register, list or delete the Strava push subscription (webhook) for the app
+    StravaWebhook {
+        #[command(subcommand)]
+        action: commands::strava_webhook::StravaWebhookCommand,
     },
 
     /// Runtime configuration parameters at global, tenant, or user scope
@@ -851,6 +861,11 @@ async fn main() -> Result<()> {
     if let Command::StravaPool { action } = cli.command {
         return dispatch::dispatch_strava_pool(action).await;
     }
+    // StravaWebhook talks to Strava itself, with the app credentials from env;
+    // it needs neither a server login nor the database.
+    if let Command::StravaWebhook { action } = cli.command {
+        return commands::strava_webhook::dispatch(action).await;
+    }
     // Settings shares the remote posture: GET/PUT against the admin-token
     // twins of /admin/settings/{guardian,harness} with the cached login.
     if let Command::Settings { action } = cli.command {
@@ -926,6 +941,9 @@ async fn main() -> Result<()> {
         Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
         Command::StravaPool { .. } => {
             unreachable!("StravaPool is handled in the early return above")
+        }
+        Command::StravaWebhook { .. } => {
+            unreachable!("StravaWebhook is handled in the early return above")
         }
         Command::Settings { .. } => {
             unreachable!("Settings is handled in the early return above")

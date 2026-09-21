@@ -140,6 +140,10 @@ impl OAuthService {
 
         info!("Successfully exchanged OAuth code for user {user_id} provider {provider}");
 
+        // A token that arrived without its provider-side owner id gets it now,
+        // so a provider push event can be routed to this user.
+        let token = self.with_provider_user_id(provider, user_id, token).await;
+
         // Persist token and dispatch all post-connection side effects
         let expires_at = self
             .finalize_oauth_connection(
@@ -434,7 +438,7 @@ impl OAuthService {
             client_id,
             client_secret,
             auth_url: endpoints.auth_url.to_owned(),
-            token_url: endpoints.token_url.to_owned(),
+            token_url: self.token_url_for(provider, &endpoints),
             redirect_uri,
             scopes: vec![scopes],
             use_pkce: params.use_pkce,
@@ -500,7 +504,7 @@ impl OAuthService {
                 client_id: user_app.client_id,
                 client_secret: user_app.client_secret,
                 auth_url: endpoints.auth_url.to_owned(),
-                token_url: endpoints.token_url.to_owned(),
+                token_url: self.token_url_for(provider, &endpoints),
                 redirect_uri: user_app.redirect_uri,
                 scopes: vec![scopes],
                 use_pkce: params.use_pkce,
@@ -573,7 +577,7 @@ impl OAuthService {
                     client_id: creds.client_id,
                     client_secret: creds.client_secret,
                     auth_url: endpoints.auth_url.to_owned(),
-                    token_url: endpoints.token_url.to_owned(),
+                    token_url: self.token_url_for(provider, &endpoints),
                     redirect_uri: creds.redirect_uri,
                     scopes: vec![scopes],
                     use_pkce: params.use_pkce,
@@ -619,7 +623,7 @@ impl OAuthService {
                 client_id,
                 client_secret,
                 auth_url: endpoints.auth_url.to_owned(),
-                token_url: endpoints.token_url.to_owned(),
+                token_url: self.token_url_for(provider, &endpoints),
                 redirect_uri,
                 scopes: vec![scopes],
                 use_pkce: params.use_pkce,

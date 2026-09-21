@@ -96,12 +96,17 @@ export type {
   ClaimEvidenceStrength,
   ClaimVerdictCategory,
   ClaimVerdictLayer,
+  VerdictDisposition,
+  DispositionReason,
   VerdictTone,
   ClaimVerdict,
   VerdictSeverity,
   VerdictSummary,
 } from './verdict.js';
 export {
+  CLAIM_VERDICT_LAYERS,
+  VERDICT_DISPOSITIONS,
+  DISPOSITION_REASONS,
   VERDICT_STATUS_TONE,
   verdictChipSeverity,
   verdictToneAlerts,

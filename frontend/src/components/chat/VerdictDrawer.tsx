@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useEffect } from 'react';
+import type { ReactNode } from 'react';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
 import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
@@ -24,6 +25,13 @@ interface VerdictDrawerProps {
    * triage table, which is reading someone else's conversation.
    */
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
+  /**
+   * Extra content under one card. Passed by the admin triage table, which
+   * renders its knob and disposition panel here; the chat surface passes
+   * nothing. A slot rather than an import, so the operator chrome never
+   * reaches the drawer an athlete opens.
+   */
+  renderTriage?: (verdict: ClaimVerdict) => ReactNode;
 }
 
 /** `training_prescription` reads as "Training Prescription" to a human. */
@@ -64,10 +72,12 @@ function VerdictCard({
   verdict,
   language,
   onAskAboutClaim,
+  renderTriage,
 }: {
   verdict: ClaimVerdict;
   language: string;
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
+  renderTriage?: (verdict: ClaimVerdict) => ReactNode;
 }) {
   const { t } = useTranslation();
   const references = (verdict.evidence_refs ?? '')
@@ -152,6 +162,8 @@ function VerdictCard({
         {t('frag.verdictEmitted')} {emittedLabel}
       </p>
 
+      {renderTriage ? renderTriage(verdict) : null}
+
       {onAskAboutClaim ? (
         <button
           type="button"
@@ -178,6 +190,7 @@ export default function VerdictDrawer({
   loading = false,
   onClose,
   onAskAboutClaim,
+  renderTriage,
 }: VerdictDrawerProps) {
   const { t, language } = useTranslation();
   useEffect(() => {
@@ -232,7 +245,13 @@ export default function VerdictDrawer({
           </div>
         ) : null}
         {verdicts.map((verdict) => (
-          <VerdictCard key={verdict.id} verdict={verdict} language={language} onAskAboutClaim={onAskAboutClaim} />
+          <VerdictCard
+            key={verdict.id}
+            verdict={verdict}
+            language={language}
+            onAskAboutClaim={onAskAboutClaim}
+            renderTriage={renderTriage}
+          />
         ))}
       </div>
     </div>

@@ -5,7 +5,7 @@
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles
 
 import { axios } from './client';
-import type { Agent, ClaimVerdict } from '@pierre/shared-types';
+import type { Agent, ClaimVerdict, DispositionReason, VerdictDisposition } from '@pierre/shared-types';
 
 /// One standing pre-approval: an address an operator allowed before the person
 /// registered, with the account state that allow is waiting on.
@@ -1154,6 +1154,10 @@ export const adminApi = {
     status?: string;
     category?: string;
     agent_id?: string;
+    layer_fired?: string;
+    /** A disposition, or `undisposed` for the triage queue. */
+    disposition?: string;
+    user_id?: string;
     limit?: number;
   }): Promise<{
     verdicts: ClaimVerdict[];
@@ -1164,6 +1168,9 @@ export const adminApi = {
     if (params.status) query.append('status', params.status);
     if (params.category) query.append('category', params.category);
     if (params.agent_id) query.append('agent_id', params.agent_id);
+    if (params.layer_fired) query.append('layer_fired', params.layer_fired);
+    if (params.disposition) query.append('disposition', params.disposition);
+    if (params.user_id) query.append('user_id', params.user_id);
     if (params.limit !== undefined) query.append('limit', String(params.limit));
     const response = await axios.get(`/api/admin/claim-verdicts?${query.toString()}`);
     return response.data;
@@ -1180,6 +1187,52 @@ export const adminApi = {
     const response = await axios.get(
       `/api/admin/claim-verdicts/conversations/${conversationId}?${query.toString()}`,
     );
+    return response.data;
+  },
+
+  /** Every verdict extracted from one message — support's entry point. */
+  async listVerdictsForMessage(
+    messageId: string,
+    tenantId: string,
+  ): Promise<{
+    verdicts: ClaimVerdict[];
+    total: number;
+  }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.get(
+      `/api/admin/claim-verdicts/messages/${encodeURIComponent(messageId)}?${query.toString()}`,
+    );
+    return response.data;
+  },
+
+  /** One verdict with the knob behind it. */
+  async getClaimVerdict(verdictId: string, tenantId: string): Promise<VerdictDetailResponse> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.get(
+      `/api/admin/claim-verdicts/${encodeURIComponent(verdictId)}?${query.toString()}`,
+    );
+    return response.data;
+  },
+
+  /** Record support's judgement on a verdict; a second call overwrites the first. */
+  async setClaimVerdictDisposition(
+    verdictId: string,
+    body: SetVerdictDispositionRequest,
+  ): Promise<VerdictDetailResponse> {
+    const response = await axios.put(
+      `/api/admin/claim-verdicts/${encodeURIComponent(verdictId)}/disposition`,
+      body,
+    );
+    return response.data;
+  },
+
+  /** Flagged verdicts and their dispositions over the window, by layer, category, agent, reason and day. */
+  async getClaimVerdictHealth(tenantId: string, windowDays = 30): Promise<VerdictHealthStats> {
+    const query = new URLSearchParams({
+      tenant_id: tenantId,
+      window_days: String(windowDays),
+    });
+    const response = await axios.get(`/api/admin/claim-verdicts/health?${query.toString()}`);
     return response.data;
   },
 
@@ -1395,6 +1448,119 @@ export interface VerdictCalibrationStats {
   window_days: number;
   totals: VerdictStatusBreakdown;
   daily: VerdictDailyBucket[];
+}
+
+/** Body of `PUT /api/admin/claim-verdicts/{id}/disposition`. */
+export interface SetVerdictDispositionRequest {
+  tenant_id: string;
+  disposition: VerdictDisposition;
+  reason?: DispositionReason;
+  note?: string;
+}
+
+/** One corpus proposition the evidence knob names. */
+export interface KnobProposition {
+  /** The frontmatter `id:` — what `evidence_refs` carries. */
+  id: string;
+  category: string;
+  slug: string;
+  /** Path in dravr-contremaitre. */
+  path: string;
+  strength: string;
+  /** Keyword-overlap score against the claim, as retrieval computes it. */
+  score: number;
+  /** Whether the verdict's `evidence_refs` names this record. */
+  cited: boolean;
+}
+
+/**
+ * Where the input that produced a verdict lives, computed server-side from
+ * the layer and the row: a repository path and the identifiers at it.
+ */
+export interface VerdictKnob {
+  layer: string;
+  kind:
+    | 'rhetoric_filter'
+    | 'deterministic_bounds'
+    | 'personalized_tolerance'
+    | 'athlete_data_record'
+    | 'evidence_corpus'
+    | 'consistency_check'
+    | 'judge_prompt';
+  location: string;
+  detail: string;
+  /** Evidence-layer only; empty for every other layer. */
+  propositions: KnobProposition[];
+}
+
+/** Response of the verdict detail read and the disposition write. */
+export interface VerdictDetailResponse {
+  verdict: ClaimVerdict;
+  knob: VerdictKnob;
+}
+
+/** Disposition counters over one set of flagged verdicts. */
+export interface VerdictHealthTotals {
+  flagged: number;
+  disposed: number;
+  true_catches: number;
+  false_positives: number;
+  unsure: number;
+}
+
+/** One layer's flagged verdicts and the false positives found among them. */
+export interface VerdictLayerHealth {
+  layer: string;
+  flagged: number;
+  disposed: number;
+  false_positives: number;
+  /** `false_positives / disposed`, 0 while nothing is disposed. */
+  rate: number;
+}
+
+/** One category's flagged verdicts and the false positives found among them. */
+export interface VerdictCategoryHealth {
+  category: string;
+  flagged: number;
+  disposed: number;
+  false_positives: number;
+  rate: number;
+}
+
+/** One agent's flagged verdicts; `agent_id` is null for unattributed rows. */
+export interface VerdictAgentHealth {
+  agent_id: string | null;
+  flagged: number;
+  disposed: number;
+  false_positives: number;
+  rate: number;
+}
+
+/** How many dispositions named one reason. */
+export interface VerdictReasonCount {
+  reason: string;
+  count: number;
+}
+
+/** One day of flagged verdicts and the false positives among them. */
+export interface VerdictHealthDay {
+  date: string;
+  flagged: number;
+  false_positives: number;
+}
+
+/** Aggregate health of the claim-verification pipeline over a window. */
+export interface VerdictHealthStats {
+  window_start: string;
+  window_days: number;
+  totals: VerdictHealthTotals;
+  /** `totals.false_positives / totals.disposed`, 0 while nothing is disposed. */
+  false_positive_rate: number;
+  by_layer: VerdictLayerHealth[];
+  by_category: VerdictCategoryHealth[];
+  by_agent: VerdictAgentHealth[];
+  by_reason: VerdictReasonCount[];
+  daily: VerdictHealthDay[];
 }
 
 /** Compaction tunables persisted with the harness config document. */

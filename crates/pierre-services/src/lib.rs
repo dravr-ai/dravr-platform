@@ -211,6 +211,9 @@ mod oauth_bridge_notify;
 /// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;
 
+/// The registry-backed token endpoint and WHOOP owner-id lookups the code exchange uses
+mod oauth_exchange_lookups;
+
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 

@@ -21,16 +21,63 @@ export type ClaimVerdictCategory =
   | 'nutrition'
   | 'recovery'
   | 'supplement'
-  | 'injury_rehab';
+  | 'injury_rehab'
+  | 'athlete_data';
 
 /** Which verifier layer produced the verdict. */
 export type ClaimVerdictLayer =
   | 'rhetoric'
   | 'deterministic'
   | 'personalized'
+  | 'athlete_data'
   | 'evidence'
   | 'consistency'
   | 'judge';
+
+/** Every verifier layer, in pipeline order — the vocabulary a layer filter offers. */
+export const CLAIM_VERDICT_LAYERS: readonly ClaimVerdictLayer[] = [
+  'rhetoric',
+  'deterministic',
+  'personalized',
+  'athlete_data',
+  'evidence',
+  'consistency',
+  'judge',
+];
+
+/**
+ * What support concluded about a flagged verdict after reading it: the
+ * detector was right, it was noise, or the triager could not tell.
+ */
+export type VerdictDisposition = 'true_catch' | 'false_positive' | 'unsure';
+
+/** Every disposition, in the order a triage control offers them. */
+export const VERDICT_DISPOSITIONS: readonly VerdictDisposition[] = [
+  'true_catch',
+  'false_positive',
+  'unsure',
+];
+
+/** Why a disposition landed where it did — the pipeline input to adjust. */
+export type DispositionReason =
+  | 'missing_keyword'
+  | 'bound_too_tight'
+  | 'tolerance_too_tight'
+  | 'stale_evidence'
+  | 'extractor_misroute'
+  | 'judge_error'
+  | 'other';
+
+/** Every reason, in the order a triage control offers them. */
+export const DISPOSITION_REASONS: readonly DispositionReason[] = [
+  'missing_keyword',
+  'bound_too_tight',
+  'tolerance_too_tight',
+  'stale_evidence',
+  'extractor_misroute',
+  'judge_error',
+  'other',
+];
 
 /** Feedback tone a surface paints a verdict in. */
 export type VerdictTone = 'success' | 'warning' | 'error' | 'info' | 'secondary';
@@ -74,6 +121,16 @@ export interface ClaimVerdict {
   tenant_id?: string;
   /** Athlete the claim was made to. Returned by the admin read only. */
   user_id?: string;
+  /** Support's judgement, once someone read the verdict. Admin read only. */
+  disposition?: VerdictDisposition | null;
+  /** The pipeline input the triager blamed. Admin read only. */
+  disposition_reason?: DispositionReason | null;
+  /** Free-text note left with the disposition. Admin read only. */
+  disposition_note?: string | null;
+  /** Who disposed it. Admin read only. */
+  disposed_by?: string | null;
+  /** RFC3339 instant of the disposition. Admin read only. */
+  disposed_at?: string | null;
 }
 
 /**

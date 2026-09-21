@@ -28,6 +28,11 @@ fn verdict(category: ClaimCategory, status: ClaimStatus) -> ClaimVerdict {
         explanation: None,
         evidence_refs: None,
         created_at: Utc::now(),
+        disposition: None,
+        disposition_reason: None,
+        disposition_note: None,
+        disposed_by: None,
+        disposed_at: None,
     }
 }
 
