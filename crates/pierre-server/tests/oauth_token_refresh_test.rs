@@ -149,7 +149,7 @@
 
 mod common;
 
-use axum::{routing::post, Json, Router};
+use axum::{routing::post, Form, Json, Router};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -178,7 +178,9 @@ use pierre_mcp_server::{
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use serial_test::serial;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::{env, path::PathBuf, sync::Arc};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -737,6 +739,120 @@ async fn strava_expired_token_refreshes_exactly_once_and_persists() {
     assert_eq!(
         token.access_token, stored.access_token,
         "returned token must mirror what was persisted"
+    );
+}
+
+/// A Strava token issued by a shared-pool app refreshes under THAT app's
+/// credentials, not the env app's: a refresh token is bound to the client it
+/// was issued to, so the env client would be refused and the athlete sent to
+/// reconnect. The refreshed row keeps its pool attribution for the next one.
+#[tokio::test]
+#[serial]
+async fn strava_pool_issued_token_refreshes_under_its_own_app() {
+    common::init_server_config();
+
+    let forms: Arc<Mutex<Vec<HashMap<String, String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let forms_route = Arc::clone(&forms);
+    let future_unix = (chrono::Utc::now() + chrono::Duration::hours(6)).timestamp();
+    let app = Router::new().route(
+        "/oauth/token",
+        post(move |Form(form): Form<HashMap<String, String>>| {
+            let forms = Arc::clone(&forms_route);
+            async move {
+                forms.lock().unwrap().push(form);
+                Json(json!({
+                    "access_token": "pool_new_access_token",
+                    "refresh_token": "pool_new_refresh_token",
+                    "token_type": "Bearer",
+                    "expires_at": future_unix,
+                    "expires_in": 21600,
+                }))
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+
+    let _env = EnvGuard::set(&[
+        (
+            "PIERRE_STRAVA_TOKEN_URL",
+            format!("http://{addr}/oauth/token"),
+        ),
+        ("STRAVA_CLIENT_ID", "env_client".to_owned()),
+        ("STRAVA_CLIENT_SECRET", "env_secret".to_owned()),
+    ]);
+
+    let (executor, database) = create_test_executor().await;
+    let user_id = Uuid::new_v4();
+    let tenant_str = "550e8400-e29b-41d4-a716-446655440000";
+    let tenant_id = TenantId::parse_str(tenant_str).unwrap();
+    create_active_user(&database, user_id, "pool-refresh@example.com").await;
+    create_bare_tenant(&database, tenant_id, user_id).await;
+
+    let pool_secret = "poolsecretvaluewithlength30chr";
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_strava_pool_app("201455", pool_secret, 10, Some("pool-app"))
+        .await
+        .unwrap();
+
+    let oauth_token = UserOAuthToken::new(
+        user_id,
+        tenant_str.to_owned(),
+        oauth_providers::STRAVA.to_owned(),
+        "expired_access_token".to_owned(),
+        Some("pool_old_refresh_token".to_owned()),
+        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        Some("read,activity:read_all".to_owned()),
+    )
+    .with_oauth_app_client_id(Some("201455".to_owned()));
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
+        .await
+        .unwrap();
+
+    let token = executor
+        .auth_service
+        .get_valid_token(user_id, "strava", Some(tenant_str))
+        .await
+        .expect("get_valid_token must not error")
+        .expect("a pool-issued token must refresh, not be dropped");
+
+    let sent = forms.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "exactly one refresh POST: {sent:?}");
+    assert_eq!(sent[0].get("client_id").map(String::as_str), Some("201455"));
+    assert_eq!(
+        sent[0].get("client_secret").map(String::as_str),
+        Some(pool_secret)
+    );
+    assert_eq!(
+        sent[0].get("refresh_token").map(String::as_str),
+        Some("pool_old_refresh_token")
+    );
+    assert_eq!(token.access_token, "pool_new_access_token");
+
+    let stored = database
+        .repositories()
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "strava")
+        .await
+        .unwrap()
+        .expect("token still present after refresh");
+    assert_eq!(stored.access_token, "pool_new_access_token");
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("pool_new_refresh_token")
+    );
+    assert_eq!(
+        stored.oauth_app_client_id.as_deref(),
+        Some("201455"),
+        "the refreshed row must keep its pool attribution for the next refresh"
     );
 }
 

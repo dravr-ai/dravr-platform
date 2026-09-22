@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
 use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 use pierre_auth::oauth2_client::client::whoop::refresh_whoop_token;
+use pierre_auth::strava_pool::resolve_strava_credentials;
 use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
 use pierre_core::constants::oauth_providers;
@@ -299,7 +300,13 @@ impl AuthService {
 
         // Attempt to refresh the token
         match self
-            .refresh_provider_token(user_id, tenant_id, provider, refresh_token)
+            .refresh_provider_token(
+                user_id,
+                tenant_id,
+                provider,
+                refresh_token,
+                oauth_token.oauth_app_client_id.as_deref(),
+            )
             .await
         {
             Ok(mut refreshed_token) => {
@@ -825,6 +832,14 @@ impl AuthService {
     ///
     /// Calls the provider's token refresh endpoint and stores the new token in the database.
     ///
+    /// `issuing_app` is the stored token's `oauth_app_client_id`. A refresh
+    /// token is bound to the client it was issued to (RFC 6749 §6), so a Strava
+    /// token issued by a shared-pool app refreshes under that app's credentials;
+    /// under any other client the provider refuses it and the athlete is sent
+    /// to reconnect. The authorize path attributes a token to a pool app only
+    /// when neither a BYO app nor tenant credentials were in play, which is why
+    /// the attribution is read before them.
+    ///
     /// # Errors
     /// Returns `OAuthError` if token refresh or database operations fail
     async fn refresh_provider_token(
@@ -833,9 +848,17 @@ impl AuthService {
         tenant_id: &str,
         provider: &str,
         refresh_token: &str,
+        issuing_app: Option<&str>,
     ) -> Result<TokenData, OAuthError> {
-        // Get OAuth credentials: user-specific → tenant-level → env var defaults
-        let (client_id, client_secret) = if tenant_id.is_empty() {
+        // Get OAuth credentials: issuing pool app → user-specific → tenant-level
+        // → env var defaults
+        let pool_app =
+            issuing_app.filter(|_| provider.eq_ignore_ascii_case(oauth_providers::STRAVA));
+        let (client_id, client_secret) = if let Some(app) = pool_app {
+            resolve_strava_credentials(self.resources.repos().oauth_tokens.as_ref(), Some(app))
+                .await
+                .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?
+        } else if tenant_id.is_empty() {
             Self::get_default_oauth_credentials(provider)
                 .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?
         } else {
