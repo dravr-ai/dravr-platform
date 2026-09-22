@@ -131,6 +131,7 @@ const HEALTH: GroupHealthFlagsResponse = {
       flag_type: 'volume_drop',
       severity: 'warning',
       detail: 'weekly volume down 35%',
+      evidence: { kind: 'volume_below_group', pct_below: 35 },
     },
     {
       user_id: 'user-phil',
@@ -138,6 +139,7 @@ const HEALTH: GroupHealthFlagsResponse = {
       flag_type: 'inactive',
       severity: 'warning',
       detail: 'no activity for 11 days',
+      evidence: { kind: 'inactive_days', days: 11 },
     },
   ],
   total: 2,
