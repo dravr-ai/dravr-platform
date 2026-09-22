@@ -17,11 +17,11 @@
 # GitHub login then; COPILOT_OFFLINE cuts every other GitHub call.
 #
 # Until 2026-09-21 this lane ran on the deployed coaching model with the LIVE dev token
-# from Secret Manager: 11 episodes x 3 passes of multi-turn tool loops, 186 Sonnet calls
-# a night (run 35502201927), from the one Copilot subscription the dev deployment serves
-# athletes from. The subscription's monthly premium requests ran out, athletes
-# dead-ended, and the Cohere fallback this lane also exercised became the only thing
-# answering them. No CI lane touches either account again (carnet#497).
+# from Secret Manager: 11 episodes x 3 passes of multi-turn tool loops, 186 ACP prompts
+# a night (run 35502201927), out of the one Copilot subscription the dev deployment
+# serves athletes from. That account's monthly quota then ran out — drained by a
+# development session, not by this lane — and it stays off the account until the
+# quota resets on 2026-10-01 (carnet#504, feature-phases.yaml).
 #
 # What that costs is stated rather than hidden: a finding here is a statement about the
 # pipeline and transport under a real, unscripted model — scaffolding that reaches the
@@ -38,8 +38,9 @@
 # exceed the model's usable context budget … No response was returned." — which is the
 # 219-char reply every turn delivered in run 35666766933. Where it does fit it is too
 # slow: one call took 26.8 min on the runner, so three passes of ~13 turns need far
-# more than GitHub's 6 h job ceiling. Which model host this lane gets instead is a
-# decision (carnet#504); until then a nightly run could only grade the refusal.
+# more than GitHub's 6 h job ceiling, so a nightly run here could only grade the
+# refusal. JF's call (carnet#504): the lane goes back on the hosted account when its
+# quota resets on 2026-10-01.
 #
 # WHY THERE IS NO `push:` TRIGGER
 #
@@ -153,10 +154,9 @@ jobs:
       COPILOT_OFFLINE: "true"
       COPILOT_PROVIDER_BASE_URL: http://127.0.0.1:11434/v1
       COPILOT_PROVIDER_MAX_PROMPT_TOKENS: "32768"
-      # No fallback tier. Production's is Cohere on the key that, with the
-      # Copilot quota spent, is what answers athletes; a corpus falling
-      # through to it would repeat on the fallback what this lane did to the
-      # primary. A turn the local model cannot finish is an infra error here.
+      # No fallback tier: a corpus falling through would spend the next
+      # provider's account and report its answer as the local model's. A turn
+      # the local model cannot finish is an infra error here.
       PIERRE_LLM_RUNTIME_FALLBACK: "false"
       # Production caps a prompt at 300s for a hosted model. A CPU-served 7B
       # spends longer than that on prompt evaluation alone; the test's own turn

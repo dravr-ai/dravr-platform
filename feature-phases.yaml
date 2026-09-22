@@ -77,6 +77,11 @@ features:
     current: split. The offline half (satellites.toml vs the manifests, plus the out-of-scope pin guard) gates every push as pre-push Tier 1j and in ci-backend fast-gate. The release comparison stays daily
     advance_when: nothing further. The original criterion (cageux current, scan clean) was met on 2026-09-10 and the advance was taken, but not as written — see the note below. Close this entry at the next review unless the daily lane starts missing real drift
     review_by: 2026-11-15
+  - name: live-incident-corpus-off-the-account
+    surface: .github/workflows/live-incident-eval.yml
+    current: dispatch-only, on a runner-local Qwen 2.5 7B that cannot fit the corpus — the Copilot CLI refuses before calling the model (static context over the 32k budget) and one call took 26.8 min. It left the hosted account on 2026-09-21, when the account's monthly premium quota ran out
+    advance_when: the Copilot account's quota resets on 2026-10-01 and JF re-enables the nightly schedule on the hosted model (carnet#504). Budget it first — the lane sent 186 ACP prompts a night at 3 passes (run 35502201927), about 5,600 a month against a 7,000 premium-request entitlement if each prompt counts as one request, so 1 pass or a narrower corpus may be the shape to arm
+    review_by: 2026-10-01
   - name: frontend-dual-origin-window
     surface: infra/environments/dev/terraform.tfvars
     current: frontend_base_url is https://app.dravr.ai (cut over 2026-09-21, revision dravr-mcp-server-api-01125-dgg) and frontend_previous_origins still carries the generated run.app frontend host, so MCP_ALLOWED_ORIGINS accepts both origins and ALLOWED_MOBILE_REDIRECT_ORIGINS keeps the run.app one — mobile builds in the field were built with EXPO_PUBLIC_API_URL pointing at run.app and keep working through it. The Firebase authorized domains, the Google OAuth client and infra/modules/firebase/MANUAL_STEPS.tf list both hosts for the same reason. Plan and verification record in dravr-vault Work Log 2026-09-21 Frontend Custom Domains

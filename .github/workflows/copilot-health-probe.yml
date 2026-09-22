@@ -166,7 +166,7 @@ jobs:
                   ``,
                   `The token is fine; the month's premium requests are running out. Rotating it changes nothing.`,
                   ``,
-                  `1. Find what is spending: the dev server's \`LLM call completed\` log lines by caller, and any workflow that reads \`dravr-mcp-server-copilot-github-token\`. No CI lane may use this account (carnet#497).`,
+                  `1. Find what is spending: the dev server's \`LLM call completed\` log lines by caller, any workflow that reads \`dravr-mcp-server-copilot-github-token\`, and any developer session (Claude Code, the Copilot CLI) signed in with the same account — on 2026-09-21 one improvement session drained the whole month.`,
                   `2. Until the reset date above, the fallback chain carries the traffic — check that its next tier is healthy.`,
                 ]
               : [
