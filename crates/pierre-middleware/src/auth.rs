@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use axum::http::HeaderMap;
+use chrono::{Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
@@ -14,7 +15,7 @@ use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
 use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 // Trait methods dispatched through repos.api_keys / repos.messaging / repos.tenants / repos.usage / repos.users
@@ -22,6 +23,15 @@ use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
+
+/// How stale `users.last_active` may grow before an authenticated request
+/// writes it again, in minutes.
+///
+/// The seat-reclaim sweeper counts idle time in days and the admin views show
+/// "last seen", so five minutes is fine-grained for both while an athlete
+/// whose client calls every second costs one write per window rather than one
+/// per request.
+const LAST_ACTIVE_REFRESH_MINUTES: i64 = 5;
 
 /// Middleware for `MCP` protocol authentication
 ///
@@ -281,6 +291,7 @@ impl McpAuthMiddleware {
 
         // Update last used timestamp
         self.repos.api_keys.update_last_used(&db_key.id).await?;
+        self.note_activity(&user).await;
 
         // Resolve user's default tenant — API keys are single-tenant by design
         let active_tenant_id = self
@@ -521,6 +532,7 @@ impl McpAuthMiddleware {
         // messaging webhook). Same posture as
         // `services::messaging_ingress::record_channel_usage`.
         record_jwt_usage_for_request(&self.repos, user_id, "http:jwt", "AUTH").await;
+        self.note_activity(&user).await;
 
         Ok(AuthResult {
             user_id,
@@ -547,6 +559,29 @@ impl McpAuthMiddleware {
     #[must_use]
     pub const fn auth_manager(&self) -> &AuthManager {
         &self.auth_manager
+    }
+
+    /// Record that `user` is using Dravr.
+    ///
+    /// `users.last_active` is how the admin "last seen" views and the Strava
+    /// seat reclaimer tell an athlete who uses Dravr from one who left, and an
+    /// athlete who only reaches it through an MCP client (a Claude or
+    /// `ChatGPT` connector's `OAuth2` token, or an API key) never logs in again, so
+    /// every request authenticated here is activity. The row is written only
+    /// once the value this authentication already read is older than
+    /// [`LAST_ACTIVE_REFRESH_MINUTES`]. Best-effort, like the usage row: a
+    /// failed write is logged and the request proceeds.
+    async fn note_activity(&self, user: &User) {
+        if Utc::now() - user.last_active < Duration::minutes(LAST_ACTIVE_REFRESH_MINUTES) {
+            return;
+        }
+        if let Err(e) = self.repos.users.update_last_active(user.id).await {
+            warn!(
+                user_id = %user.id,
+                error = %e,
+                "Failed to update last_active on an authenticated request (activity tracking impacted)"
+            );
+        }
     }
 }
 

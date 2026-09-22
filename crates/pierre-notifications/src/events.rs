@@ -61,6 +61,9 @@ pub enum NotificationEvent {
     AgentFeedback,
     /// A provider sync failed.
     SyncFailure,
+    /// The athlete's shared Strava seat will be released unless they come
+    /// back: the seat-reclaim sweeper's warning before it disconnects them.
+    SeatReleaseWarning,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
 }
@@ -81,6 +84,7 @@ impl NotificationEvent {
             Self::PlanUpdated => "plan_updated",
             Self::AgentFeedback => "coach_feedback",
             Self::SyncFailure => "sync_failure",
+            Self::SeatReleaseWarning => "seat_release_warning",
             Self::PersonaDigest => "persona_digest",
         }
     }
@@ -101,6 +105,7 @@ impl NotificationEvent {
             Self::PlanUpdated,
             Self::AgentFeedback,
             Self::SyncFailure,
+            Self::SeatReleaseWarning,
             Self::PersonaDigest,
         ]
         .into_iter()
@@ -122,6 +127,7 @@ impl NotificationEvent {
             Self::PlanUpdated => "notifications.event.plan_updated.title",
             Self::AgentFeedback => "notifications.event.agent_feedback.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
+            Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
             Self::PersonaDigest => "notifications.digest.title",
         }
     }
@@ -141,6 +147,7 @@ impl NotificationEvent {
             Self::PlanUpdated => "notifications.event.plan_updated.body",
             Self::AgentFeedback => "notifications.event.agent_feedback.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
+            Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
             Self::PersonaDigest => "notifications.digest.body",
         }
     }
@@ -149,7 +156,7 @@ impl NotificationEvent {
     #[must_use]
     pub const fn title_params(self) -> &'static [&'static str] {
         match self {
-            Self::SyncFailure => &["provider_name"],
+            Self::SyncFailure | Self::SeatReleaseWarning => &["provider_name"],
             _ => &[],
         }
     }
@@ -168,6 +175,7 @@ impl NotificationEvent {
             Self::AgentMessage | Self::PlanUpdated => &["agent_name"],
             Self::AgentFeedback => &["agent_name", "activity_type"],
             Self::SyncFailure => &["error_summary"],
+            Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
             Self::PersonaDigest => &["item_count"],
         }
     }

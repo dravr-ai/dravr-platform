@@ -27,6 +27,7 @@ use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::protocol::types::{CancellationToken, ProgressReporter};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
@@ -239,7 +240,12 @@ impl ProviderToolRouter {
         let service = OAuthService::new(resources.data(), resources.common.config.clone());
         let tenant_uuid = Some(tenant_context.tenant_id.as_uuid());
         if let Err(e) = service
-            .disconnect_provider(tenant_context.user_id, provider_name, tenant_uuid)
+            .disconnect_provider(
+                tenant_context.user_id,
+                provider_name,
+                tenant_uuid,
+                DisconnectReason::Athlete,
+            )
             .await
         {
             error!(

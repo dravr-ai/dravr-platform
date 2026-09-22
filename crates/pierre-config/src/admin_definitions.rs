@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 //
-// file-size-ok: parameter catalog, not logic — 89 `ParameterDefinition` entries
-// across 23 `register_*` builders, each a flat literal of key, display name,
+// file-size-ok: parameter catalog, not logic — 94 `ParameterDefinition` entries
+// across 24 `register_*` builders, each a flat literal of key, display name,
 // description, category, data type, default, and range. Every knob an operator
 // can turn costs its fixed block of lines here, so the length measures how much
 // of the platform is admin-configurable, not how complex this module is.
@@ -18,6 +18,7 @@ use pierre_core::constants::tool_execution::{
 };
 
 use crate::admin_types::{boot_env, config_env, ConfigDataType, EnvBinding, ParameterRange};
+use crate::constants::strava_seat_reclaim as seat_reclaim;
 use crate::constants::usage_quotas::{DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS};
 
 /// Default configuration definitions with metadata.
@@ -2231,5 +2232,157 @@ pub fn register_tool_execution<S: BuildHasher>(defs: &mut HashMap<String, Parame
             is_runtime_configurable: true,
             requires_restart: false,
         },
+    );
+}
+
+/// Integer parameters that must stay strictly below another at every scope, as
+/// `(lower, upper)`.
+///
+/// A per-key range cannot say this: each bound is the other parameter's
+/// current value. The admin config service checks every write that names
+/// either key against the other's effective value at the written scope, and
+/// every reset of either key against the value it falls back to, so neither
+/// `pierre-cli config set` nor `pierre-cli config reset` can leave a pair that
+/// no longer orders.
+pub const ORDERED_PARAMETERS: &[(&str, &str)] = &[(
+    seat_reclaim::WARN_LEAD_DAYS_KEY,
+    seat_reclaim::IDLE_DAYS_KEY,
+)];
+
+/// One integer entry of the seat-reclaim policy, bounded by `min..=max`.
+fn seat_reclaim_integer(
+    key: &str,
+    display_name: &str,
+    description: &str,
+    default: i64,
+    bounds: (i64, i64),
+    units: &str,
+) -> ParameterDefinition {
+    ParameterDefinition {
+        key: key.to_owned(),
+        display_name: display_name.to_owned(),
+        description: description.to_owned(),
+        category: seat_reclaim::CATEGORY.to_owned(),
+        data_type: ConfigDataType::Integer,
+        default_value: serde_json::json!(default),
+        valid_range: Some(ParameterRange {
+            min: serde_json::json!(bounds.0),
+            max: serde_json::json!(bounds.1),
+            step: Some(1.0),
+        }),
+        enum_options: None,
+        units: Some(units.to_owned()),
+        scientific_basis: None,
+        env: None,
+        is_runtime_configurable: true,
+        requires_restart: false,
+    }
+}
+
+/// Register the `strava_seat_reclaim.*` catalog entries.
+///
+/// They are the policy under which the seat-reclaim sweeper frees Strava OAuth
+/// seats held by athletes who stopped using Dravr.
+///
+/// The sweeper reads every value at each tick from the system-wide scope, so a
+/// `pierre-cli config set` takes effect on its next pass without a restart; a
+/// tenant or user override of these keys is stored but never read. Idle time
+/// is measured from `users.last_active`, which every login and session
+/// refresh, every request the auth middleware authenticates (session or
+/// `OAuth2`-connector JWT, API key) and every messaging turn writes.
+pub fn register_strava_seat_reclaim<S: BuildHasher>(
+    defs: &mut HashMap<String, ParameterDefinition, S>,
+) {
+    add_definition(
+        defs,
+        ParameterDefinition {
+            key: seat_reclaim::MODE_KEY.to_owned(),
+            display_name: "Strava Seat Reclaim Mode".to_owned(),
+            description: "off: the sweeper does nothing. observe: it logs every idle seat \
+                holder it would warn or disconnect and changes nothing. enforce: it warns \
+                the athlete, then disconnects Strava (revoking the grant at Strava) once \
+                the warning lead has passed with no activity. Read system-wide only."
+                .to_owned(),
+            category: seat_reclaim::CATEGORY.to_owned(),
+            data_type: ConfigDataType::Enum,
+            default_value: serde_json::json!(seat_reclaim::DEFAULT_MODE),
+            valid_range: None,
+            enum_options: Some(vec![
+                seat_reclaim::MODE_OFF.to_owned(),
+                seat_reclaim::MODE_OBSERVE.to_owned(),
+                seat_reclaim::MODE_ENFORCE.to_owned(),
+            ]),
+            units: None,
+            scientific_basis: None,
+            env: None,
+            is_runtime_configurable: true,
+            requires_restart: false,
+        },
+    );
+
+    add_definition(
+        defs,
+        seat_reclaim_integer(
+            seat_reclaim::IDLE_DAYS_KEY,
+            "Strava Seat Idle Days",
+            "Days since the athlete was last active on Dravr (a login, any authenticated \
+             app, MCP-connector or API-key request, or a message) before their Strava \
+             seat may be reclaimed. Must stay above warn_lead_days. Read system-wide only.",
+            seat_reclaim::DEFAULT_IDLE_DAYS,
+            (seat_reclaim::MIN_IDLE_DAYS, seat_reclaim::MAX_IDLE_DAYS),
+            "days",
+        ),
+    );
+
+    add_definition(
+        defs,
+        seat_reclaim_integer(
+            seat_reclaim::WARN_LEAD_DAYS_KEY,
+            "Strava Seat Warning Lead",
+            "Days between the athlete's warning and the earliest disconnect. The warning \
+             goes out once they have been idle idle_days minus this; any activity or a \
+             reconnect after it cancels the disconnect, a warning that reached no push \
+             device or chat channel never leads to one, and a warning older than \
+             idle_days is sent again. Must stay below idle_days. Read system-wide only.",
+            seat_reclaim::DEFAULT_WARN_LEAD_DAYS,
+            (
+                seat_reclaim::MIN_WARN_LEAD_DAYS,
+                seat_reclaim::MAX_WARN_LEAD_DAYS,
+            ),
+            "days",
+        ),
+    );
+
+    add_definition(
+        defs,
+        seat_reclaim_integer(
+            seat_reclaim::MIN_FREE_SEATS_KEY,
+            "Strava Seats Kept Free",
+            "Seats the sweeper keeps free across the env app and every enabled pool app. \
+             It warns and reclaims only while fewer than this are free, and only as many \
+             as it takes to get back to it. Read system-wide only.",
+            seat_reclaim::DEFAULT_MIN_FREE_SEATS,
+            (
+                seat_reclaim::MIN_MIN_FREE_SEATS,
+                seat_reclaim::MAX_MIN_FREE_SEATS,
+            ),
+            "seats",
+        ),
+    );
+
+    add_definition(
+        defs,
+        seat_reclaim_integer(
+            seat_reclaim::MAX_PER_TICK_KEY,
+            "Strava Seat Reclaims Per Pass",
+            "Most disconnects, and most warnings, one hourly pass may issue. Read \
+             system-wide only.",
+            seat_reclaim::DEFAULT_MAX_PER_TICK,
+            (
+                seat_reclaim::MIN_MAX_PER_TICK,
+                seat_reclaim::MAX_MAX_PER_TICK,
+            ),
+            "athletes",
+        ),
     );
 }

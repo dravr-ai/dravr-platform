@@ -39,6 +39,7 @@ use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::mcp::tool_handlers::ToolRoutingContext;
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::implementations::connection::DisconnectProviderTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -137,6 +138,18 @@ fn assert_event_attributed(
     assert_eq!(event.field("tenant_id"), tenant_id.to_string());
 }
 
+/// A `provider.disconnected` the athlete caused: attributed, and saying so,
+/// so it never counts with an operator's or the seat reclaimer's.
+fn assert_athlete_disconnect(
+    event: &NotifyEvent,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) {
+    assert_event_attributed(event, user_id, tenant_id, provider);
+    assert_eq!(event.field("reason"), "athlete");
+}
+
 // ============================================================================
 // Service chokepoint (REST path)
 // ============================================================================
@@ -161,13 +174,18 @@ async fn service_disconnect_cleans_both_rows_and_emits() {
     let (events, _guard) = capture_notify();
     let service = OAuthService::new(resources.data(), resources.common.config.clone());
     service
-        .disconnect_provider(user_id, oauth_providers::STRAVA, Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            oauth_providers::STRAVA,
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect must succeed");
 
     assert_fully_disconnected(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
     let event = only(&events, "provider.disconnected");
-    assert_event_attributed(&event, user_id, tenant_id, oauth_providers::STRAVA);
+    assert_athlete_disconnect(&event, user_id, tenant_id, oauth_providers::STRAVA);
 }
 
 // ============================================================================
@@ -216,7 +234,7 @@ async fn chat_tool_disconnect_resolves_mirror_and_emits() {
     )
     .await;
     let event = only(&events, "provider.disconnected");
-    assert_event_attributed(&event, user_id, tenant_id, oauth_providers::GARMIN);
+    assert_athlete_disconnect(&event, user_id, tenant_id, oauth_providers::GARMIN);
 }
 
 // ============================================================================
@@ -264,7 +282,7 @@ async fn mcp_carveout_disconnect_removes_connection_row_and_emits() {
 
     assert_fully_disconnected(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
     let event = only(&events, "provider.disconnected");
-    assert_event_attributed(&event, user_id, tenant_id, oauth_providers::STRAVA);
+    assert_athlete_disconnect(&event, user_id, tenant_id, oauth_providers::STRAVA);
 }
 
 // ============================================================================
@@ -322,7 +340,7 @@ async fn sciotte_session_routes_emit_the_provider_event_pair() {
     );
 
     let disconnected = only(&events, "provider.disconnected");
-    assert_event_attributed(&disconnected, user_id, tenant_id, oauth_providers::STRAVA);
+    assert_athlete_disconnect(&disconnected, user_id, tenant_id, oauth_providers::STRAVA);
     assert_eq!(disconnected.field("backend"), oauth_providers::SCIOTTE);
     assert_fully_disconnected(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 }

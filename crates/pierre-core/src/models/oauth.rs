@@ -685,9 +685,31 @@ pub struct StravaSeatHolder {
     /// When the athlete connected: the connection's `connected_at`, else the
     /// token's `created_at` for a token with no connection row.
     pub connected_at: DateTime<Utc>,
+    /// When the athlete was last active on Dravr; `None` when the account row
+    /// is gone.
+    ///
+    /// This is `users.last_active`: written by every login and session
+    /// refresh, by every request the auth middleware authenticates (a session
+    /// or `OAuth2`-connector JWT, or an API key; at most every few minutes per
+    /// athlete) and by every messaging turn. The seat-reclaim sweeper measures
+    /// idle time from it.
+    pub last_active: Option<DateTime<Utc>>,
     /// Whether this token holds a seat on the shared app. False for a BYO-app
     /// user, a `revoked` connection, and a `needs_reauth` one for any reason
     /// but our own client credentials; a `needs_reauth` over those still holds
     /// its seat.
     pub counts_as_seat: bool,
+}
+
+/// The warning the Strava seat-reclaim sweeper sent about one athlete's seat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StravaSeatReclaimWarning {
+    /// When it was sent.
+    pub warned_at: DateTime<Utc>,
+    /// Whether it reached the athlete outside the app: a push to at least one
+    /// device, or a message on at least one linked chat channel. A warning
+    /// only persisted in the in-app list reached nobody, since an idle athlete
+    /// by definition does not open the app, so it never justifies a
+    /// disconnect.
+    pub reached: bool,
 }

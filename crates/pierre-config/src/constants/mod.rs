@@ -77,6 +77,71 @@ pub mod usage_quotas {
     pub const UNLIMITED_CONVERSATIONS: i64 = 0;
 }
 
+/// The `strava_seat_reclaim.*` policy: its keys, defaults and bounds.
+///
+/// One place for all three because two readers need them: the parameter
+/// catalog in [`crate::admin_definitions`], which validates every write, and
+/// the seat-reclaim sweeper, which reads the policy at every tick and refuses
+/// to act on a stored value outside these bounds (a row edited straight in the
+/// database never went through the catalog's validation).
+pub mod strava_seat_reclaim {
+    /// Catalog category the five parameters are grouped under.
+    pub const CATEGORY: &str = "strava_seat_reclaim";
+
+    /// `off`, `observe` or `enforce`.
+    pub const MODE_KEY: &str = "strava_seat_reclaim.mode";
+    /// Days without activity before a seat holder may be disconnected.
+    pub const IDLE_DAYS_KEY: &str = "strava_seat_reclaim.idle_days";
+    /// Days between the warning and the earliest disconnect.
+    pub const WARN_LEAD_DAYS_KEY: &str = "strava_seat_reclaim.warn_lead_days";
+    /// Free seats the sweeper keeps available; below this it reclaims.
+    pub const MIN_FREE_SEATS_KEY: &str = "strava_seat_reclaim.min_free_seats";
+    /// Most disconnects (and most warnings) one pass may issue.
+    pub const MAX_PER_TICK_KEY: &str = "strava_seat_reclaim.max_per_tick";
+
+    /// The sweeper reads the policy and does nothing else.
+    pub const MODE_OFF: &str = "off";
+    /// Logs the holders it would act on and changes nothing.
+    pub const MODE_OBSERVE: &str = "observe";
+    /// Warns, then disconnects.
+    pub const MODE_ENFORCE: &str = "enforce";
+    /// Shipped dark: the sweeper reports and never acts until an operator arms it.
+    pub const DEFAULT_MODE: &str = MODE_OBSERVE;
+
+    /// Ten idle days.
+    ///
+    /// On dev on 2026-09-21 the ten seat holders had last been active 80, 71,
+    /// 70, 47, 19, 16, 11, 7, 0 and 0 days earlier: ten days separates the
+    /// athletes who left from the ones active this week.
+    pub const DEFAULT_IDLE_DAYS: i64 = 10;
+    /// Floor for `idle_days`.
+    pub const MIN_IDLE_DAYS: i64 = 1;
+    /// Ceiling for `idle_days`: a year.
+    pub const MAX_IDLE_DAYS: i64 = 365;
+
+    /// Three days' notice between the warning and the disconnect.
+    pub const DEFAULT_WARN_LEAD_DAYS: i64 = 3;
+    /// Floor for `warn_lead_days`: zero disconnects on the pass after the warning.
+    pub const MIN_WARN_LEAD_DAYS: i64 = 0;
+    /// Ceiling for `warn_lead_days`. It must also stay below `idle_days`, which
+    /// the catalog checks at write time against the other parameter's value.
+    pub const MAX_WARN_LEAD_DAYS: i64 = MAX_IDLE_DAYS - 1;
+
+    /// Keep two seats free, so the next two athletes can connect by OAuth.
+    pub const DEFAULT_MIN_FREE_SEATS: i64 = 2;
+    /// Floor for `min_free_seats`: zero reclaims nothing.
+    pub const MIN_MIN_FREE_SEATS: i64 = 0;
+    /// Ceiling for `min_free_seats`.
+    pub const MAX_MIN_FREE_SEATS: i64 = 100;
+
+    /// One disconnect per pass: the blast radius of a wrong policy.
+    pub const DEFAULT_MAX_PER_TICK: i64 = 1;
+    /// Floor for `max_per_tick`.
+    pub const MIN_MAX_PER_TICK: i64 = 1;
+    /// Ceiling for `max_per_tick`.
+    pub const MAX_MAX_PER_TICK: i64 = 50;
+}
+
 // ============================================================================
 // Re-exports from pierre_core::constants
 // ============================================================================

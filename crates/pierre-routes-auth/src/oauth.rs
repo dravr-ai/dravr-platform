@@ -34,6 +34,7 @@ use pierre_services::oauth_redirects;
 use pierre_services::provider_refresh::RefreshService;
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
+use pierre_services::provider_revocation::DisconnectReason;
 
 use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::strava_pool;
@@ -819,7 +820,12 @@ pub async fn handle_disconnect_provider_rest(
     // (like the chat and /mcp tool paths) emits nothing itself.
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     oauth_service
-        .disconnect_provider(user_id, &provider, auth_result.active_tenant_id)
+        .disconnect_provider(
+            user_id,
+            &provider,
+            auth_result.active_tenant_id,
+            DisconnectReason::Athlete,
+        )
         .await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())

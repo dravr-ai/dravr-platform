@@ -734,8 +734,9 @@ impl OAuthService {
     /// The domain chokepoint for provider disconnects: every surface (REST
     /// route, chat tool loop, `/mcp` + SSE carve-out) funnels here, so the
     /// backend resolution, the lockstep deletes and the `provider.disconnected`
-    /// notify event cannot drift apart per transport. Returns what the
-    /// provider said about the grant, which never blocks the local deletion.
+    /// notify event cannot drift apart per transport; `reason` says on that
+    /// event who asked. Returns what the provider said about the grant, which
+    /// never blocks the local deletion.
     ///
     /// # Errors
     /// Returns error if provider is unsupported or disconnection fails
@@ -744,6 +745,7 @@ impl OAuthService {
         user_id: uuid::Uuid,
         provider: &str,
         active_tenant_id: Option<uuid::Uuid>,
+        reason: provider_revocation::DisconnectReason,
     ) -> AppResult<provider_revocation::RevocationOutcome> {
         debug!(
             "Processing OAuth provider disconnect for user {} provider {}",
@@ -805,6 +807,7 @@ impl OAuthService {
             provider = %user_facing,
             user_id = %user_id,
             tenant_id = %tenant_id,
+            reason = reason.as_str(),
             "user disconnected fitness provider"
         );
 

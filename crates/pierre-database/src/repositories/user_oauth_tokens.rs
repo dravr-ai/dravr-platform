@@ -195,18 +195,18 @@ pub(crate) const COUNT_STRAVA_SEAT_USAGE_BY_APP_SQL: &str = concat!(
             "
 );
 
-/// Every Strava token with its holder, the issuing app, the matching
-/// connection's state and whether it holds a seat. `counts_as_seat` is the
-/// seat filter itself, evaluated per row, so this listing cannot disagree with
-/// the counts above about any one athlete. The users join is an outer one: the
-/// counts include a token whose account row is gone (`SQLite` carries no
-/// foreign key from the token to its user), so the listing names it too, with
-/// no email. Ordered by email, an absent one first, then user and tenant, so
+/// Every Strava token with its holder and when they were last active, the
+/// issuing app, the matching connection's state and whether it holds a seat.
+/// `counts_as_seat` is the seat filter itself, evaluated per row, so this
+/// listing cannot disagree with the counts above about any one athlete. The
+/// users join is an outer one: the counts include a token whose account row is
+/// gone (`SQLite` carries no foreign key from the token to its user), so the
+/// listing names it too, with no email and no last activity. Ordered by email, an absent one first, then user and tenant, so
 /// both engines return the same order (their NULL ordering differs, so no
 /// nullable column leads the sort bare).
 pub(crate) const LIST_STRAVA_SEAT_HOLDERS_SQL: &str = concat!(
     "
-            SELECT t.user_id, u.email, t.tenant_id, t.oauth_app_client_id,
+            SELECT t.user_id, u.email, u.last_active, t.tenant_id, t.oauth_app_client_id,
                    c.status AS connection_status,
                    c.connected_at AS connection_connected_at,
                    t.created_at AS token_created_at,
@@ -514,6 +514,9 @@ where
             .map_err(|e| column_error("oauth_app_client_id", e))?,
         connection_status: status.as_deref().map(ConnectionStatus::from_str_value),
         connected_at: connection_connected_at.unwrap_or(token_created_at),
+        last_active: row
+            .try_get("last_active")
+            .map_err(|e| column_error("last_active", e))?,
         counts_as_seat: counts != 0,
     })
 }

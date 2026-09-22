@@ -249,28 +249,86 @@ pub async fn resolve_strava_credentials(
     env_app()
 }
 
+/// One Strava application whose seats [`strava_seat_summary`] counts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StravaAppSeats {
+    /// The app as a token's `oauth_app_client_id` names it: `None` for the
+    /// env-default app, the pool app's `client_id` otherwise.
+    pub attribution: Option<String>,
+    /// The app's seat cap.
+    pub cap: u32,
+    /// Distinct athletes holding a seat on it, which may exceed `cap` (an env
+    /// cap lowered below the athletes already connected, a pool cap edited
+    /// down).
+    pub holders: u32,
+}
+
+impl StravaAppSeats {
+    /// Seats the summary counts as used on this app: its holders, capped.
+    #[must_use]
+    pub fn used(&self) -> u32 {
+        self.holders.min(self.cap)
+    }
+
+    /// Whether one athlete fewer on this app frees a seat the summary counts:
+    /// true while its holders do not exceed its cap. On an app past its cap
+    /// the cap absorbs the departure, and the free count does not move.
+    #[must_use]
+    pub const fn departure_frees_a_seat(&self) -> bool {
+        self.holders <= self.cap
+    }
+}
+
+/// Every Strava application whose seats count, with its cap and holders: the
+/// env app first, then every enabled pool app in registration order.
+///
+/// A disabled pool app is left out: it takes no new athlete, so its seats are
+/// not seats anyone can connect to, whether or not tokens it issued still
+/// hold a grant.
+///
+/// # Errors
+/// Returns an error only on a repository failure.
+pub async fn strava_seat_apps(
+    oauth_tokens: &dyn OAuthTokenRepository,
+) -> AppResult<Vec<StravaAppSeats>> {
+    let (env_used, per_app) = usage(oauth_tokens, None).await?;
+    let mut apps = vec![StravaAppSeats {
+        attribution: None,
+        cap: strava_oauth_seat_cap(),
+        holders: env_used,
+    }];
+    for app in oauth_tokens.list_strava_pool_apps(true).await? {
+        apps.push(StravaAppSeats {
+            holders: per_app.get(&app.client_id).copied().unwrap_or(0),
+            attribution: Some(app.client_id),
+            cap: app.seat_cap,
+        });
+    }
+    Ok(apps)
+}
+
 /// Total and used Strava OAuth seats across the env app and the pool.
 ///
 /// The connect recommender uses this to keep offering OAuth while any seat
-/// (env or pool) remains, before falling back to the Sciotte mirror.
+/// (env or pool) remains, before falling back to the Sciotte mirror. It is
+/// the sum of [`strava_seat_apps`].
 ///
 /// # Errors
 /// Returns an error only on a repository failure.
 pub async fn strava_seat_summary(
     oauth_tokens: &dyn OAuthTokenRepository,
 ) -> AppResult<StravaSeatSummary> {
-    let (env_used, per_app) = usage(oauth_tokens, None).await?;
-    let env_cap = strava_oauth_seat_cap();
-    let mut total = env_cap;
-    let mut used = env_used.min(env_cap);
-    for app in oauth_tokens.list_strava_pool_apps(true).await? {
-        total = total.saturating_add(app.seat_cap);
-        let app_used = per_app
-            .get(&app.client_id)
-            .copied()
-            .unwrap_or(0)
-            .min(app.seat_cap);
-        used = used.saturating_add(app_used);
-    }
-    Ok(StravaSeatSummary { total, used })
+    Ok(summarize_seats(&strava_seat_apps(oauth_tokens).await?))
+}
+
+/// The summary of a [`strava_seat_apps`] listing.
+#[must_use]
+pub fn summarize_seats(apps: &[StravaAppSeats]) -> StravaSeatSummary {
+    apps.iter()
+        .fold(StravaSeatSummary { total: 0, used: 0 }, |summary, app| {
+            StravaSeatSummary {
+                total: summary.total.saturating_add(app.cap),
+                used: summary.used.saturating_add(app.used()),
+            }
+        })
 }

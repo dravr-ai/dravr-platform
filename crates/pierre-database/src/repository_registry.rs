@@ -23,12 +23,13 @@ use crate::repositories::{
     PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
     RecoveryRepository, ResumableTurnRepository, RosterRepository, RouteSummaryRepository,
     SecurityRepository, SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository,
-    SleepRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
-    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
-    WorkerRunRepository, WorkoutTemplateRepository,
+    SleepRepository, StoreListingsRepository, StravaSeatReclaimWarningRepository,
+    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, TrainingPlanRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
+    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
+    UserToolOverrideRepository, WeatherCacheRepository, WorkerRunRepository,
+    WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -95,6 +96,8 @@ pub struct RepositoryRegistry {
     pub training_plans: Arc<dyn TrainingPlanRepository>,
     /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
     pub short_links: Arc<dyn ShortLinkRepository>,
+    /// Warnings the Strava seat-reclaim sweeper sent before a reclaim
+    pub strava_seat_reclaim_warnings: Arc<dyn StravaSeatReclaimWarningRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
     /// Store listings for agent marketplace
@@ -225,6 +228,7 @@ impl RepositoryRegistry {
             playbooks: db.clone(),
             training_plans: db.clone(),
             short_links: db.clone(),
+            strava_seat_reclaim_warnings: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -300,6 +304,7 @@ impl RepositoryRegistry {
             playbooks: db.clone(),
             training_plans: db.clone(),
             short_links: db.clone(),
+            strava_seat_reclaim_warnings: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),

@@ -251,8 +251,12 @@ describe('client locale corpus', () => {
     // is the note for a turn the idle stop dropped, and `chat.turnTryAgain` the
     // suffix a mobile failure row carries, both read by the clients in the
     // athlete's language instead of English literals. +2.
+    // 2330 once the Strava seat reclaimer warns an athlete before giving their
+    // seat to someone else: `notifications.event.seat_release_warning` title
+    // and body, rendered on the server into the notification feed, the push
+    // and the linked chat channels. +2 (carnet#505).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2328);
+    expect(reference).toHaveLength(2330);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

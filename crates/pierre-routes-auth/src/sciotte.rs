@@ -20,6 +20,7 @@ use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_services::provider_revocation::DisconnectReason;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tracing::{error, info, warn};
@@ -1069,7 +1070,8 @@ pub async fn handle_sciotte_disconnect(
     // backend-pinned — it tears down the "sciotte" session specifically,
     // while the service resolves user-facing names and would delete a Strava
     // OAuth token instead for a user holding both. Field shape mirrors
-    // `notify_sciotte_connected` so the pair stays on one measurement axis.
+    // `notify_sciotte_connected` so the pair stays on one measurement axis,
+    // plus the `reason` every disconnect event carries.
     info!(
         target: "notify",
         event = "provider.disconnected",
@@ -1077,6 +1079,7 @@ pub async fn handle_sciotte_disconnect(
         backend = "sciotte",
         user_id = %user_id,
         tenant_id = %tenant_id,
+        reason = DisconnectReason::Athlete.as_str(),
         "user disconnected fitness provider (scrape session)"
     );
 

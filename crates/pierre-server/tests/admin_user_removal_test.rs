@@ -72,7 +72,7 @@ use pierre_routes_admin::handlers::user_removal::{
 use pierre_routes_admin::handlers::users::handle_get_user;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::OAuthService;
-use pierre_services::provider_revocation::RevocationOutcome;
+use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
 use pierre_services::user_removal::{Interruption, ProviderDisconnector};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
@@ -1335,7 +1335,10 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             user_id: Uuid,
             _: &str,
             tenant_id: TenantId,
+            reason: DisconnectReason,
         ) -> AppResult<RevocationOutcome> {
+            // An operator removal names itself on the provider.disconnected event.
+            assert_eq!(reason, DisconnectReason::Operator);
             seed_group(&self.resources.common.repos, user_id, tenant_id, "Race Day").await;
             Ok(RevocationOutcome::Revoked)
         }
@@ -1412,7 +1415,13 @@ async fn a_disconnect_failing_after_another_succeeded_names_both() {
 
     #[async_trait]
     impl ProviderDisconnector for SecondCallFails {
-        async fn disconnect(&self, _: Uuid, _: &str, _: TenantId) -> AppResult<RevocationOutcome> {
+        async fn disconnect(
+            &self,
+            _: Uuid,
+            _: &str,
+            _: TenantId,
+            _: DisconnectReason,
+        ) -> AppResult<RevocationOutcome> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 Ok(RevocationOutcome::Revoked)
             } else {
@@ -1927,7 +1936,13 @@ async fn a_first_disconnect_that_fails_is_reported_as_an_interrupted_removal() {
 
     #[async_trait]
     impl ProviderDisconnector for AlwaysFails {
-        async fn disconnect(&self, _: Uuid, _: &str, _: TenantId) -> AppResult<RevocationOutcome> {
+        async fn disconnect(
+            &self,
+            _: Uuid,
+            _: &str,
+            _: TenantId,
+            _: DisconnectReason,
+        ) -> AppResult<RevocationOutcome> {
             Err(AppError::internal(
                 "the token delete broke after the revocation",
             ))
@@ -2343,6 +2358,7 @@ async fn disconnecting_a_provider_this_build_cannot_revoke_changes_nothing() {
             _: Uuid,
             provider: &str,
             _: TenantId,
+            _: DisconnectReason,
         ) -> AppResult<RevocationOutcome> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Err(AppError::invalid_input(format!(

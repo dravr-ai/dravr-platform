@@ -1,4 +1,4 @@
-// ABOUTME: Test-side capture of `target: "notify"` events — the product-analytics chokepoint
+// ABOUTME: Test-side capture of `target: "notify"` events — the product-analytics chokepoint — or of every log line
 // ABOUTME: Installed per thread so a test asserts which events fired, how often, and with which fields
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -19,9 +19,12 @@ use tracing::subscriber::{set_default, DefaultGuard};
 use tracing::{Event, Metadata, Subscriber};
 
 /// One `target: "notify"` event, with every field rendered as a string.
+///
+/// Under [`capture_logs`] it is any log line, and `event` is its message.
 #[derive(Clone, Debug)]
 pub struct NotifyEvent {
-    /// The catalogued event name (`agent.installed`, `group.created`, …).
+    /// The catalogued event name (`agent.installed`, `group.created`, …), or
+    /// the message of a line [`capture_logs`] recorded.
     pub event: String,
     /// Every field the emission carried, rendered as text.
     pub fields: HashMap<String, String>,
@@ -42,6 +45,8 @@ pub type CapturedEvents = Arc<Mutex<Vec<NotifyEvent>>>;
 #[derive(Clone, Default)]
 struct NotifyCapture {
     events: CapturedEvents,
+    /// Record every event under its message, not only `target: "notify"`.
+    every_line: bool,
 }
 
 #[derive(Debug, Default)]
@@ -112,16 +117,20 @@ impl Subscriber for NotifyCapture {
     fn exit(&self, _span: &Id) {}
 
     fn event(&self, event: &Event<'_>) {
-        if event.metadata().target() != "notify" {
+        if !self.every_line && event.metadata().target() != "notify" {
             return;
         }
         let mut visitor = FieldVisitor::default();
         event.record(&mut visitor);
-        let name = visitor
-            .fields
-            .get("event")
-            .cloned()
-            .unwrap_or_else(|| panic!("notify event with no `event` field: {visitor:?}"));
+        let name = if self.every_line {
+            visitor.fields.get("message").cloned().unwrap_or_default()
+        } else {
+            visitor
+                .fields
+                .get("event")
+                .cloned()
+                .unwrap_or_else(|| panic!("notify event with no `event` field: {visitor:?}"))
+        };
         self.events.lock().unwrap().push(NotifyEvent {
             event: name,
             fields: visitor.fields,
@@ -136,6 +145,22 @@ impl Subscriber for NotifyCapture {
 /// is seen, which is every handler and route a `#[tokio::test]` drives inline.
 pub fn capture_notify() -> (CapturedEvents, DefaultGuard) {
     let capture = NotifyCapture::default();
+    let events = Arc::clone(&capture.events);
+    let guard = set_default(capture);
+    (events, guard)
+}
+
+/// Install a capture subscriber for the current thread that records every log
+/// line, at any level and target, named by its message.
+///
+/// For asserting a structured log line that is itself the product — an
+/// observe-mode report — rather than a notify event. The same guard rules as
+/// [`capture_notify`] apply.
+pub fn capture_logs() -> (CapturedEvents, DefaultGuard) {
+    let capture = NotifyCapture {
+        every_line: true,
+        ..NotifyCapture::default()
+    };
     let events = Arc::clone(&capture.events);
     let guard = set_default(capture);
     (events, guard)

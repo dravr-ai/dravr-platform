@@ -81,15 +81,44 @@ pub const PERSONA_GATED_DATA_KEY: &str = "persona_gated";
 ///
 /// Implemented once, by the messaging sink in `pierre-services`, and consumed
 /// once, by [`NotificationService::dispatch`]. Delivery is best-effort by
-/// contract: a sink reports nothing and must not fail the dispatch, because the
-/// notification is already persisted and visible in-app by the time a sink runs.
+/// contract: a sink must not fail the dispatch, because the notification is
+/// already persisted and visible in-app by the time a sink runs. It reports
+/// how many channels it reached, which is how a caller that must know whether
+/// the recipient was reached outside the app (see
+/// [`Delivery::reached_outside_the_app`]) learns it.
 #[async_trait]
 pub trait NotificationChannelSink: Send + Sync {
-    /// Deliver `request` on whatever channels this sink owns.
+    /// Deliver `request` on whatever channels this sink owns, returning how
+    /// many accepted it.
     ///
     /// Called only for notifications the upstream pipeline accepted — never
     /// for one suppressed by category, quiet hours or a frequency cap.
-    async fn deliver(&self, request: &DispatchRequest);
+    async fn deliver(&self, request: &DispatchRequest) -> usize;
+}
+
+/// How far one [`NotificationService::dispatch_event`] got.
+#[derive(Debug)]
+pub struct Delivery {
+    /// The pipeline's verdict. [`DispatchOutcome::PersistedNoDevices`] also
+    /// stands for a notification the persona gate withheld from push and
+    /// every channel.
+    pub outcome: DispatchOutcome,
+    /// Linked chat channels the channel sink delivered it to; zero when the
+    /// notification was suppressed, persona-gated, or the recipient links no
+    /// channel.
+    pub channels: usize,
+}
+
+impl Delivery {
+    /// Whether the notification reached its recipient outside the app: a push
+    /// to at least one device, or a message on at least one linked chat
+    /// channel. A notification that was only persisted is in the in-app list,
+    /// which the recipient sees only when they next open the app.
+    #[must_use]
+    pub const fn reached_outside_the_app(&self) -> bool {
+        self.channels > 0
+            || matches!(self.outcome, DispatchOutcome::Delivered { devices, .. } if devices > 0)
+    }
 }
 
 /// The user-facing text of one notification, rendered in one locale.
@@ -239,6 +268,11 @@ impl NotificationService {
     /// row keeps the event plus its parameters so the notification centre can
     /// render it again when the athlete changes language.
     ///
+    /// The returned [`Delivery`] carries the pipeline's verdict and how many
+    /// linked channels were reached, so a caller that acts on the recipient
+    /// having been told can tell a notification that reached them from one
+    /// only persisted in-app.
+    ///
     /// # Errors
     ///
     /// Returns the upstream [`CommereError`] when the pipeline itself fails.
@@ -246,7 +280,7 @@ impl NotificationService {
         &self,
         dispatch: &EventDispatch,
         tier: PushTier,
-    ) -> CommereResult<DispatchOutcome> {
+    ) -> CommereResult<Delivery> {
         let text = match &self.localizer {
             Some(localizer) => localizer.localize(dispatch).await,
             None => NotificationText::keys(dispatch),
@@ -277,7 +311,7 @@ impl NotificationService {
             actions,
             bypass_frequency_cap: dispatch.bypass_frequency_cap,
         };
-        self.dispatch_with_tier(&request, tier).await
+        self.route(&request, tier).await
     }
     /// Dispatch a notification at an explicit [`PushTier`] through the persona
     /// gate, the upstream pipeline, and every platform sink.
@@ -290,7 +324,8 @@ impl NotificationService {
     /// runs. The returned [`DispatchOutcome::PersistedNoDevices`] is then
     /// indistinguishable from an ungated dispatch to a device-less user: the
     /// true verdict (gated vs no-devices) lives in this method's structured
-    /// logs, not in the outcome.
+    /// logs, not in the outcome. [`Self::dispatch_event`] returns the whole
+    /// [`Delivery`], whose channel count tells the two apart.
     ///
     /// When the policy is **not armed** (shadow mode), a structured
     /// shadow-verdict log records what enforcement would have done and the
@@ -312,6 +347,14 @@ impl NotificationService {
         request: &DispatchRequest,
         tier: PushTier,
     ) -> CommereResult<DispatchOutcome> {
+        self.route(request, tier)
+            .await
+            .map(|delivery| delivery.outcome)
+    }
+
+    /// The persona gate, then the pipeline and every sink: the body of
+    /// [`Self::dispatch_with_tier`], reporting the whole [`Delivery`].
+    async fn route(&self, request: &DispatchRequest, tier: PushTier) -> CommereResult<Delivery> {
         if let Some(gate) = &self.policy_gate {
             if let Some(push_policy) = gate.policy_for(request.user_id, request.tenant_id).await {
                 let would_gate = push_policy.gates(tier);
@@ -343,7 +386,7 @@ impl NotificationService {
         request: &DispatchRequest,
         tier: PushTier,
         push_policy: &PushPolicy,
-    ) -> CommereResult<DispatchOutcome> {
+    ) -> CommereResult<Delivery> {
         // Every shipping call site passes an object or None; a non-object
         // payload is preserved under "payload" so the marker never destroys
         // caller data.
@@ -379,13 +422,16 @@ impl NotificationService {
             notification_id = %notification.id,
             "persona notification policy gated a push; persisted for the digest"
         );
-        Ok(DispatchOutcome::PersistedNoDevices {
-            notification_id: notification.id,
+        Ok(Delivery {
+            outcome: DispatchOutcome::PersistedNoDevices {
+                notification_id: notification.id,
+            },
+            channels: 0,
         })
     }
 
     /// Run the upstream pipeline, then the channel sink when it accepted.
-    async fn deliver(&self, request: &DispatchRequest) -> CommereResult<DispatchOutcome> {
+    async fn deliver(&self, request: &DispatchRequest) -> CommereResult<Delivery> {
         let outcome = self.inner.dispatch(request).await?;
 
         if matches!(outcome, DispatchOutcome::Suppressed(_)) {
@@ -394,14 +440,18 @@ impl NotificationService {
                 category = %request.category,
                 "Notification suppressed upstream; channel sink skipped"
             );
-            return Ok(outcome);
+            return Ok(Delivery {
+                outcome,
+                channels: 0,
+            });
         }
 
-        if let Some(sink) = &self.channel_sink {
-            sink.deliver(request).await;
-        }
+        let channels = match &self.channel_sink {
+            Some(sink) => sink.deliver(request).await,
+            None => 0,
+        };
 
-        Ok(outcome)
+        Ok(Delivery { outcome, channels })
     }
 }
 

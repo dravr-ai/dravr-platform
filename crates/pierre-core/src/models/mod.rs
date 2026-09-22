@@ -170,8 +170,8 @@ pub use dravr_cageux::periodization::{
 pub use oauth::{
     connection_needs_reauth, AuthRequest, AuthResponse, ConnectionStatus, ConnectionType,
     DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification, ProviderConnection,
-    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
-    UserSession,
+    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning, StravaTokenApp,
+    UserOAuthApp, UserOAuthToken, UserSession,
 };
 
 // OAuth client state for provider authorization flows

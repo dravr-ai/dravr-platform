@@ -36,14 +36,14 @@ mod persona_gate_tests {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_notifications::models::{Notification, NotificationCategory};
     use pierre_notifications::{
-        DigestCadence, DispatchOutcome, DispatchRequest, NotificationChannelSink,
-        NotificationService, PersonaPolicyGate, PushPolicy, PushTier, TenantId as CommTenantId,
-        PERSONA_GATED_DATA_KEY,
+        DigestCadence, DispatchOutcome, DispatchRequest, EventDispatch, NotificationChannelSink,
+        NotificationEvent, NotificationService, PersonaPolicyGate, PushPolicy, PushTier,
+        TenantId as CommTenantId, PERSONA_GATED_DATA_KEY,
     };
     use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicyGate;
 
     /// A sink that records deliveries, so "the push side ran" is asserted by
-    /// content rather than log lines.
+    /// content rather than log lines. It stands for one linked channel.
     #[derive(Default)]
     struct RecordingSink {
         seen: Mutex<Vec<String>>,
@@ -51,11 +51,12 @@ mod persona_gate_tests {
 
     #[async_trait]
     impl NotificationChannelSink for RecordingSink {
-        async fn deliver(&self, request: &DispatchRequest) {
+        async fn deliver(&self, request: &DispatchRequest) -> usize {
             self.seen
                 .lock()
                 .unwrap()
                 .push(request.notification_type.clone());
+            1
         }
     }
 
@@ -210,6 +211,50 @@ personas:
             row.data.as_ref().and_then(|d| d.get("screen")),
             Some(&json!("recovery")),
             "gating augments the payload, it does not replace it"
+        );
+    }
+
+    /// A product event the armed gate withholds reached nobody outside the app,
+    /// and its [`Delivery`](pierre_notifications::Delivery) says so, while the
+    /// same event at P0 — which no floor gates — reaches the linked channel. A
+    /// caller that acts on the recipient having been told (the Strava seat
+    /// reclaimer's warning) reads exactly this.
+    #[tokio::test]
+    async fn a_gated_event_is_reported_as_reaching_nobody() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user, tenant) = seed_user(&resources, "gate_reach@example.com").await;
+        let sink = Arc::new(RecordingSink::default());
+        let service = notification_service(&resources.agent.database)
+            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
+            .with_policy_gate(Arc::new(StubGate {
+                policy: casual_policy(true),
+            }));
+        let event = EventDispatch {
+            user_id: user.id,
+            tenant_id: tenant,
+            category: NotificationCategory::System,
+            event: NotificationEvent::SeatReleaseWarning,
+            params: json!({ "provider_name": "Strava", "idle_days": "12", "days_left": "3" }),
+            route: json!({ "screen": "connections" }),
+            actions: None,
+            bypass_frequency_cap: true,
+        };
+
+        let gated = service.dispatch_event(&event, PushTier::P1).await.unwrap();
+        assert!(
+            matches!(gated.outcome, DispatchOutcome::PersistedNoDevices { .. }),
+            "{gated:?}"
+        );
+        assert_eq!(gated.channels, 0);
+        assert!(!gated.reached_outside_the_app(), "held back for the digest");
+        assert!(sink.seen.lock().unwrap().is_empty());
+
+        let break_glass = service.dispatch_event(&event, PushTier::P0).await.unwrap();
+        assert_eq!(break_glass.channels, 1, "{break_glass:?}");
+        assert!(break_glass.reached_outside_the_app());
+        assert_eq!(
+            sink.seen.lock().unwrap().as_slice(),
+            ["seat_release_warning"]
         );
     }
 

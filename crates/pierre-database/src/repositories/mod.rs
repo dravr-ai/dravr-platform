@@ -110,6 +110,8 @@ pub mod short_links;
 /// Repository trait for the agent marketplace: review workflow, catalogue browsing, installs, the @handle.
 pub mod store_listings;
 pub(crate) mod store_listings_backend;
+/// Repository trait for the warnings the Strava seat-reclaim sweeper sent before a reclaim.
+pub mod strava_seat_reclaim_warnings;
 /// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
 pub mod subscriptions;
 /// Shared statements, decoders and body for provider sync cursors and the connected-user roster.
@@ -198,6 +200,7 @@ pub use security::*;
 pub use seeder::*;
 pub use short_links::*;
 pub use store_listings::*;
+pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;
 pub use tenants::*;
 pub use tool_selection::*;

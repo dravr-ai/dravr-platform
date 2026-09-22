@@ -220,6 +220,9 @@ pub mod provider_revocation;
 /// What a Strava reconnect owes the grants it replaces: a guarded store, then revocation
 pub mod strava_reconnect;
 
+/// Hourly sweeper that warns, then disconnects, idle Strava seat holders under the runtime policy
+pub mod strava_seat_reclaim;
+
 /// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
 pub mod oauth_redirects;
 

@@ -124,6 +124,7 @@ pub mod startup_banner;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 pub use crate::services::coaching_workers::start_coaching_workers;
+pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;
 pub use pierre_services::agent_followup_scheduler::start_followup_scheduler;
 pub use pierre_services::mcp_task_sweeper::start_mcp_task_sweeper;
 #[cfg(feature = "client-messaging")]

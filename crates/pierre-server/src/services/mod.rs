@@ -73,6 +73,9 @@ pub mod coaching_workers;
 /// fetches, so a quiet athlete's window still gets counted.
 pub mod commitment_refresher;
 
+/// Assembles and starts the Strava seat reclaimer (carnet#505).
+pub mod seat_reclaim_worker;
+
 /// Delivers a swept commitment verdict back to the athlete, applying the
 /// per-channel proactive-messaging policy.
 #[cfg(feature = "client-messaging")]

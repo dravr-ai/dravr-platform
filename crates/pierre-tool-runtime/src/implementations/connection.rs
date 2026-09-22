@@ -42,6 +42,7 @@ use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::backend_resolver::{self, BackendKind};
 use pierre_providers::ProviderRegistry;
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tools_core::ToolResult;
 
 /// The user-facing providers this build actually ships, in name order.
@@ -769,7 +770,12 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             let service = OAuthService::new(ctx.resources.data(), ctx.resources.config().clone());
 
             match service
-                .disconnect_provider(user_uuid, provider, Some(tenant_id))
+                .disconnect_provider(
+                    user_uuid,
+                    provider,
+                    Some(tenant_id),
+                    DisconnectReason::Athlete,
+                )
                 .await
             {
                 // Report the user-facing name — the mirror backend is internal.

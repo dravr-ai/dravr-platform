@@ -53,7 +53,7 @@ impl MessagingChannelSink {
 
 #[async_trait]
 impl NotificationChannelSink for MessagingChannelSink {
-    async fn deliver(&self, request: &DispatchRequest) {
+    async fn deliver(&self, request: &DispatchRequest) -> usize {
         // The commere `TenantId` newtype wraps the same UUID the platform's
         // does; channel links are stored under the platform tenant.
         let tenant_id = TenantId::from_uuid(request.tenant_id.0);
@@ -78,5 +78,6 @@ impl NotificationChannelSink for MessagingChannelSink {
             delivered,
             "Notification fanned out to linked messaging channels"
         );
+        delivered
     }
 }

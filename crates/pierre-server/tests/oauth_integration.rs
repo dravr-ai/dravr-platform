@@ -29,6 +29,7 @@ use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
+use pierre_services::provider_revocation::DisconnectReason;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
@@ -1237,13 +1238,23 @@ async fn test_disconnect_provider() {
 
     // Test disconnecting Strava (should succeed even if not connected)
     let result = oauth_routes
-        .disconnect_provider(user_id, "strava", Some(tenant.id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant.id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await;
     assert!(result.is_ok());
 
     // Test disconnecting invalid provider
     let result = oauth_routes
-        .disconnect_provider(user_id, "invalid", Some(tenant.id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "invalid",
+            Some(tenant.id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await;
     assert!(result.is_err());
     assert!(result

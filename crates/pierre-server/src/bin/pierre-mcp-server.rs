@@ -935,6 +935,16 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
+    // Start the Strava seat reclaimer (carnet#505): an hourly pass that frees
+    // the OAuth seats of athletes idle past `strava_seat_reclaim.idle_days`,
+    // warning each one first. The policy is runtime configuration
+    // (`pierre-cli config set strava_seat_reclaim.*`), read every pass; it
+    // ships in observe, which only logs who it would act on.
+    {
+        use pierre_mcp_server::start_seat_reclaim_worker;
+        start_seat_reclaim_worker(&resources);
+    }
+
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
     // tasks extension stamps every handle with `expires_at_ms` and advertises
     // the same budget to the client as `ttlMs`; reads filter on it, but until

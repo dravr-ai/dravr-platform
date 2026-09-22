@@ -97,6 +97,8 @@ pub mod session_refresh_tokens;
 pub mod short_links;
 /// Store listings for agent publishing workflow (`SQLite`)
 pub mod store_listings;
+/// Warnings sent before a Strava seat is reclaimed (`SQLite`)
+pub mod strava_seat_reclaim_warnings;
 /// Stripe-backed subscription persistence (Phase 5 billing)
 pub mod subscriptions;
 /// System settings for admin-configurable options

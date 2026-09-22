@@ -29,6 +29,7 @@ use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, LoginRequest, OAuthService, RegisterRequest};
+use pierre_services::provider_revocation::DisconnectReason;
 use serial_test::serial;
 use std::{env, sync::Arc};
 use uuid::Uuid;
@@ -1417,7 +1418,12 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
 
     // Disconnecting a provider that wasn't connected should succeed (idempotent)
     let result = oauth_routes
-        .disconnect_provider(user_id, "strava", Some(tenant.id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant.id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await;
 
     assert!(result.is_ok());
@@ -1461,7 +1467,7 @@ async fn test_oauth_disconnect_invalid_provider() -> Result<()> {
     database.repositories().users.create(&user).await?;
 
     let result = oauth_routes
-        .disconnect_provider(user_id, "invalid_provider", None)
+        .disconnect_provider(user_id, "invalid_provider", None, DisconnectReason::Athlete)
         .await;
 
     assert!(result.is_err());

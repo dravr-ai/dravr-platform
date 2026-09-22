@@ -345,6 +345,7 @@ mod notification_event_locale_tests {
             NotificationEvent::PlanUpdated,
             NotificationEvent::AgentFeedback,
             NotificationEvent::SyncFailure,
+            NotificationEvent::SeatReleaseWarning,
             NotificationEvent::PersonaDigest,
         ] {
             assert_eq!(NotificationEvent::from_wire(event.wire()), Some(event));

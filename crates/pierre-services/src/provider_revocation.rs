@@ -32,6 +32,34 @@ use uuid::Uuid;
 
 use crate::oauth_flow::OAuthService;
 
+/// Who asked for a provider to be disconnected, as the `provider.disconnected`
+/// notify event reports it.
+///
+/// The event used to read the same whoever acted, so an athlete leaving, an
+/// operator cleaning up and the seat-reclaim sweeper freeing a seat were one
+/// indistinguishable count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectReason {
+    /// The athlete disconnected, from the app, the chat tool loop or `/mcp`.
+    Athlete,
+    /// An operator disconnected them, or removed their account.
+    Operator,
+    /// The seat-reclaim sweeper freed the Strava seat of an idle athlete.
+    SeatReclaim,
+}
+
+impl DisconnectReason {
+    /// The `reason` field value the notify event carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Athlete => "athlete",
+            Self::Operator => "operator",
+            Self::SeatReclaim => "seat_reclaim",
+        }
+    }
+}
+
 /// What happened to a backend's grant at the provider when it was withdrawn.
 ///
 /// Local deletion never waits on this, so it is reported rather than enforced:

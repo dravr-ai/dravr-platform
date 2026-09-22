@@ -1959,6 +1959,10 @@
         "body": "{0} a mis à jour ton plan d'entraînement",
         "title": "Plan d'entraînement mis à jour"
       },
+      "seat_release_warning": {
+        "body": "Tu n'as pas utilisé Dravr depuis {0} jour(s). Strava limite le nombre d'athlètes que nous pouvons connecter : ta connexion à {1} sera libérée dans {2} jour(s) pour laisser la place à un autre athlète. Envoie un message ou ouvre l'app pour la garder ; tu pourras te reconnecter à tout moment.",
+        "title": "Ta connexion à {0} va bientôt être libérée"
+      },
       "sync_failure": {
         "body": "{0}",
         "collapsed_body": "{0} synchronisations d'activités ont échoué récemment",

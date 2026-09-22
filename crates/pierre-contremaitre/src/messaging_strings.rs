@@ -1072,6 +1072,13 @@ pub const KEY_NOTIFICATION_SYNC_FAILURE_COLLAPSED_TITLE: &str =
 /// Key: the collapsed group's body. `{0}` = how many syncs failed.
 pub const KEY_NOTIFICATION_SYNC_FAILURE_COLLAPSED_BODY: &str =
     "notifications.event.sync_failure.collapsed_body";
+/// Key: the athlete's shared seat will be released. `{0}` = the provider's name.
+pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_TITLE: &str =
+    "notifications.event.seat_release_warning.title";
+/// Key: why and when. `{0}` idle days, `{1}` provider name, `{2}` days until
+/// the release.
+pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_BODY: &str =
+    "notifications.event.seat_release_warning.body";
 
 /// Key: the "reply to your coach" action button. No format placeholders.
 pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";

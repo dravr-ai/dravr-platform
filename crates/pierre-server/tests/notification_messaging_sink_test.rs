@@ -35,15 +35,19 @@ mod sink_tests {
     use pierre_database::backends::CreateChannelLinkParams;
     use pierre_notifications::models::{NotificationCategory, UpsertNotificationPreferenceParams};
     use pierre_notifications::{
-        DispatchOutcome, DispatchRequest, NotificationChannelSink, NotificationService, PushTier,
-        SuppressionReason, TenantId as CommTenantId,
+        DispatchOutcome, DispatchRequest, EventDispatch, NotificationChannelSink,
+        NotificationEvent, NotificationService, PushTier, SuppressionReason,
+        TenantId as CommTenantId,
     };
     use pierre_services::messaging_broadcast::{resolve_linked_targets, LinkedChannelTarget};
+    use pierre_services::notification_channel_sink::MessagingChannelSink;
+    use serde_json::json;
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
     /// A sink that records what it was handed, so "the sink ran" is asserted by
-    /// the notification's own title and body rather than by a log line.
+    /// the notification's own title and body rather than by a log line. It
+    /// stands for one linked channel.
     #[derive(Default)]
     struct RecordingSink {
         seen: Mutex<Vec<(Uuid, String, String)>>,
@@ -51,12 +55,13 @@ mod sink_tests {
 
     #[async_trait]
     impl NotificationChannelSink for RecordingSink {
-        async fn deliver(&self, request: &DispatchRequest) {
+        async fn deliver(&self, request: &DispatchRequest) -> usize {
             self.seen.lock().unwrap().push((
                 request.user_id,
                 request.title.clone(),
                 request.body.clone(),
             ));
+            1
         }
     }
 
@@ -264,6 +269,92 @@ mod sink_tests {
                 },
             ],
             "both linked channels resolve, each carrying its own locale"
+        );
+    }
+
+    /// `dispatch_event` reports how many linked channels the sink reached: one
+    /// here, and zero for the production messaging sink when the athlete links
+    /// no channel, or when their settings suppress the notification — so a
+    /// persisted row alone never reads as the athlete having been told.
+    #[tokio::test]
+    async fn dispatch_event_reports_the_channels_it_reached() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user, _token) = create_test_tenant(&resources, "sink_reach@example.com")
+            .await
+            .unwrap();
+        let tenant = resources
+            .common
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap()
+            .first()
+            .unwrap()
+            .id;
+        let event = EventDispatch {
+            user_id: user.id,
+            tenant_id: CommTenantId(tenant.as_uuid()),
+            category: NotificationCategory::Coach,
+            event: NotificationEvent::SeatReleaseWarning,
+            params: json!({ "provider_name": "Strava", "idle_days": "12", "days_left": "3" }),
+            route: json!({ "screen": "connections" }),
+            actions: None,
+            bypass_frequency_cap: false,
+        };
+
+        let sink = Arc::new(RecordingSink::default());
+        let linked = notification_service(&resources.agent.database)
+            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
+        let delivery = linked.dispatch_event(&event, PushTier::P1).await.unwrap();
+        assert_eq!(delivery.channels, 1, "{delivery:?}");
+        assert!(delivery.reached_outside_the_app());
+
+        let production = notification_service(&resources.agent.database).with_channel_sink(
+            Arc::new(MessagingChannelSink::new(
+                Arc::clone(&resources.common.repos),
+                Arc::clone(&resources.mcp.messaging_strings_registry),
+            )),
+        );
+        let unlinked = production
+            .dispatch_event(&event, PushTier::P1)
+            .await
+            .unwrap();
+        assert!(
+            matches!(unlinked.outcome, DispatchOutcome::PersistedNoDevices { .. }),
+            "{unlinked:?}"
+        );
+        assert_eq!(unlinked.channels, 0, "no link, no channel reached");
+        assert!(!unlinked.reached_outside_the_app());
+
+        linked
+            .upsert_notification_preference(&UpsertNotificationPreferenceParams {
+                user_id: user.id,
+                tenant_id: CommTenantId(tenant.as_uuid()),
+                category: NotificationCategory::Coach.as_str().to_owned(),
+                enabled: false,
+                sub_preferences: None,
+                quiet_hours_start: None,
+                quiet_hours_end: None,
+                timezone: None,
+                max_per_day: None,
+            })
+            .await
+            .unwrap();
+        let suppressed = linked.dispatch_event(&event, PushTier::P1).await.unwrap();
+        assert!(
+            matches!(
+                suppressed.outcome,
+                DispatchOutcome::Suppressed(SuppressionReason::CategoryDisabled)
+            ),
+            "{suppressed:?}"
+        );
+        assert_eq!(suppressed.channels, 0);
+        assert!(!suppressed.reached_outside_the_app());
+        assert_eq!(
+            sink.seen.lock().unwrap().len(),
+            1,
+            "the sink ran once, unsuppressed"
         );
     }
 

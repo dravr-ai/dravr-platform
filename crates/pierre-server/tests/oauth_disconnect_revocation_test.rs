@@ -24,7 +24,8 @@ use pierre_core::models::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::OAuthService;
 use pierre_services::provider_revocation::{
-    revocation_shape, revoke_for_disconnect, revoke_upstream_grant, RevocationShape,
+    revocation_shape, revoke_for_disconnect, revoke_upstream_grant, DisconnectReason,
+    RevocationShape,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -474,7 +475,12 @@ async fn disconnect_revokes_upstream_and_deletes_provider_data() {
     config.external_services.strava_api.revoke_url = revoke_url.clone();
     let oauth_service = OAuthService::new(resources.data(), Arc::new(config));
     oauth_service
-        .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds");
 
@@ -595,7 +601,12 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
     )
     .await;
     service
-        .disconnect_provider(user_id, "whoop", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "whoop",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds");
     let request = upstream.next_request("WHOOP deregistration").await;
@@ -619,7 +630,12 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
     )
     .await;
     service
-        .disconnect_provider(user_id, "whoop", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "whoop",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds");
     let refresh = upstream.next_request("WHOOP token refresh").await;
@@ -659,7 +675,12 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
     )
     .await;
     service
-        .disconnect_provider(user_id, "whoop", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "whoop",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds despite upstream 500");
     let request = upstream.next_request("WHOOP deregistration (500)").await;
@@ -679,7 +700,12 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
     )
     .await;
     service
-        .disconnect_provider(user_id, "whoop", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "whoop",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds with the provider unreachable");
     assert_locally_disconnected(&resources, user_id, tenant_id, "whoop").await;
@@ -907,7 +933,12 @@ async fn local_only_backends_send_nothing_upstream() {
     )
     .await;
     service
-        .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds");
     strava_upstream.assert_silent("a sciotte-backed Strava disconnect");
@@ -923,7 +954,12 @@ async fn local_only_backends_send_nothing_upstream() {
     )
     .await;
     service
-        .disconnect_provider(user_id, "intervals_icu", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "intervals_icu",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds");
     strava_upstream.assert_silent("an Intervals.icu disconnect");
@@ -964,7 +1000,12 @@ async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
 
     // Disconnect naming the CARD's id, which is what both clients send.
     service
-        .disconnect_provider(user_id, "sciotte", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "sciotte",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnect succeeds");
 
@@ -998,26 +1039,46 @@ async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
 
     // First click clears the grant.
     service
-        .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("first disconnect succeeds");
     assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
 
     // Second click has nothing left to delete — still a success, not a 500.
     service
-        .disconnect_provider(user_id, "strava", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("a repeat disconnect is a no-op, not a failure");
 
     // Naming the card id on an already-clear pair is likewise a no-op.
     service
-        .disconnect_provider(user_id, "sciotte", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "sciotte",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnecting an already-clear pair by card id is a no-op");
 
     // A provider this user never connected must not trip the guard either.
     service
-        .disconnect_provider(user_id, "whoop", Some(tenant_id.as_uuid()))
+        .disconnect_provider(
+            user_id,
+            "whoop",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
         .await
         .expect("disconnecting a never-connected provider is a no-op");
 }

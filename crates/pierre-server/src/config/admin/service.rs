@@ -13,9 +13,9 @@ use pierre_config::admin_definitions::{
     register_group_permissions, register_heart_rate_zones, register_llm_pricing,
     register_llm_provider_config, register_mcp_network, register_monitoring, register_nutrition,
     register_rate_limiting, register_recommendation_engine, register_sleep_recovery,
-    register_sqlx_pool, register_strava_provider, register_tokio_runtime, register_tool_execution,
-    register_training_stress_balance, register_usage_quotas, register_weather_analysis,
-    ParameterDefinition,
+    register_sqlx_pool, register_strava_provider, register_strava_seat_reclaim,
+    register_tokio_runtime, register_tool_execution, register_training_stress_balance,
+    register_usage_quotas, register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
@@ -273,6 +273,9 @@ impl AdminConfigService {
         // Tool Execution — per-turn tool-loop budget — see config::admin::definitions::register_tool_execution
         register_tool_execution(&mut defs);
 
+        // Strava seat reclaim policy — see config::admin::definitions::register_strava_seat_reclaim
+        register_strava_seat_reclaim(&mut defs);
+
         defs
     }
 
@@ -446,6 +449,87 @@ impl AdminConfigService {
     ) -> Result<(), Box<ConfigValidationError>> {
         validate_parameter_value(def, value)
     }
+
+    /// Every reason `request` may not be written at `scope`: a value its own
+    /// parameter's type, range or options refuse, else a pair it would leave
+    /// out of order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading a current value for the ordering fails.
+    async fn write_errors(
+        &self,
+        request: &UpdateConfigRequest,
+        scope: ConfigScope<'_>,
+    ) -> AppResult<Vec<ConfigValidationError>> {
+        let validation = self
+            .validate(&ValidateConfigRequest {
+                parameters: request.parameters.clone(),
+            })
+            .await;
+        if !validation.is_valid {
+            return Ok(validation.errors);
+        }
+        self.ordering_errors(&request.parameters, scope).await
+    }
+
+    /// The writes in `parameters` that would leave an [`ORDERED_PARAMETERS`]
+    /// pair out of order at `scope`.
+    ///
+    /// Each side of a pair is the value the request writes when it carries
+    /// one, else the value `scope` resolves to now, so a write of either key
+    /// alone is checked against the other as it stands.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading the current value fails.
+    async fn ordering_errors(
+        &self,
+        parameters: &HashMap<String, serde_json::Value>,
+        scope: ConfigScope<'_>,
+    ) -> AppResult<Vec<ConfigValidationError>> {
+        let lookup = ConfigLookupScope {
+            user_id: scope.user_id(),
+            tenant_id: scope.tenant_id(),
+        };
+        let mut errors = Vec::new();
+        for &(lower, upper) in ORDERED_PARAMETERS {
+            let Some((written_key, written_value)) = parameters
+                .get_key_value(lower)
+                .or_else(|| parameters.get_key_value(upper))
+            else {
+                continue;
+            };
+            let low = self.written_or_resolved(parameters, lower, lookup).await?;
+            let high = self.written_or_resolved(parameters, upper, lookup).await?;
+            if let (Some(low), Some(high)) = (low, high) {
+                if low >= high {
+                    errors.push(ConfigValidationError {
+                        parameter: written_key.clone(),
+                        message: format!("{lower} ({low}) must stay below {upper} ({high})"),
+                        provided_value: written_value.clone(),
+                        valid_range: None,
+                    });
+                }
+            }
+        }
+        Ok(errors)
+    }
+
+    /// `key` as an integer: the value `parameters` writes, else the one
+    /// `lookup` resolves to now.
+    async fn written_or_resolved(
+        &self,
+        parameters: &HashMap<String, serde_json::Value>,
+        key: &str,
+        lookup: ConfigLookupScope<'_>,
+    ) -> AppResult<Option<i64>> {
+        if let Some(value) = parameters.get(key) {
+            return Ok(value.as_i64());
+        }
+        let resolved = self.get_value(key, lookup).await?;
+        Ok(resolved.as_ref().and_then(serde_json::Value::as_i64))
+    }
 }
 
 /// Audit context threaded through [`AdminConfigService::update_config`].
@@ -497,17 +581,12 @@ impl AdminConfigService {
             user_agent,
         } = ctx;
         // First validate
-        let validation = self
-            .validate(&ValidateConfigRequest {
-                parameters: request.parameters.clone(),
-            })
-            .await;
-
-        if !validation.is_valid {
+        let validation_errors = self.write_errors(request, scope).await?;
+        if !validation_errors.is_empty() {
             return Ok(UpdateConfigResponse {
                 success: false,
                 updated_count: 0,
-                validation_errors: validation.errors,
+                validation_errors,
                 requires_restart: false,
                 effective_at: Utc::now(),
                 shadowed_by_env: Vec::new(),
@@ -621,6 +700,13 @@ impl AdminConfigService {
             )));
         }
 
+        if let Some(message) = self
+            .reset_ordering_error(&definitions, category, request.keys.as_deref(), ctx.scope)
+            .await?
+        {
+            return Err(AppError::invalid_input(message));
+        }
+
         let (reset_count, reset_keys) = if let Some(keys) = &request.keys {
             self.reset_keys_in_category(
                 &definitions,
@@ -647,6 +733,91 @@ impl AdminConfigService {
             reset_count,
             reset_keys,
         })
+    }
+
+    /// Why resetting `keys` of `category` (every key when `None`) at `scope`
+    /// would leave an [`ORDERED_PARAMETERS`] pair out of order, or `None` when
+    /// it would not.
+    ///
+    /// The write path checks the pair on every `config set`; a reset changes
+    /// the effective values just as much, so it is checked the same way: a
+    /// reset key takes the value `scope` falls back to once its own row is
+    /// gone, the other keeps the value it resolves to now.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading a current value fails.
+    async fn reset_ordering_error(
+        &self,
+        definitions: &HashMap<String, ParameterDefinition>,
+        category: &str,
+        keys: Option<&[String]>,
+        scope: ConfigScope<'_>,
+    ) -> AppResult<Option<String>> {
+        let is_reset = |key: &str| {
+            definitions
+                .get(key)
+                .is_some_and(|def| def.category == category)
+                && keys.is_none_or(|keys| keys.iter().any(|k| k == key))
+        };
+        let lookup = ConfigLookupScope {
+            user_id: scope.user_id(),
+            tenant_id: scope.tenant_id(),
+        };
+        for &(lower, upper) in ORDERED_PARAMETERS {
+            if !is_reset(lower) && !is_reset(upper) {
+                continue;
+            }
+            let mut sides = [None, None];
+            for (side, key) in sides.iter_mut().zip([lower, upper]) {
+                let value = if is_reset(key) {
+                    self.fallback_value(definitions, key, scope).await?
+                } else {
+                    self.get_value(key, lookup).await?
+                };
+                *side = value.as_ref().and_then(serde_json::Value::as_i64);
+            }
+            if let [Some(low), Some(high)] = sides {
+                if low >= high {
+                    return Ok(Some(format!(
+                        "{lower} ({low}) must stay below {upper} ({high}) after this reset; \
+                         reset both keys together, or set the one you keep first"
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// What `key` resolves to at `scope` once that scope's own row is gone:
+    /// its environment pin, else (below the system-wide scope) the
+    /// system-wide row, else its default.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading the system-wide row fails.
+    async fn fallback_value(
+        &self,
+        definitions: &HashMap<String, ParameterDefinition>,
+        key: &str,
+        scope: ConfigScope<'_>,
+    ) -> AppResult<Option<serde_json::Value>> {
+        let Some(def) = definitions.get(key) else {
+            return Ok(None);
+        };
+        if let Some(pinned) = self.env_pins.get(key) {
+            return Ok(Some(pinned.clone()));
+        }
+        if !matches!(scope, ConfigScope::Global) {
+            if let Some(row) = self
+                .manager
+                .get_override(&def.category, key, ConfigScope::Global)
+                .await?
+            {
+                return Ok(Some(row.config_value));
+            }
+        }
+        Ok(Some(def.default_value.clone()))
     }
 
     /// Reset a specific list of keys within `category`. Returns the count and

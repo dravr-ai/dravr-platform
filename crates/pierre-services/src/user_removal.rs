@@ -40,7 +40,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::oauth_flow::OAuthService;
-use crate::provider_revocation::RevocationOutcome;
+use crate::provider_revocation::{DisconnectReason, RevocationOutcome};
 
 /// How many blocking references a refusal names before summarising the rest.
 const BLOCKERS_NAMED: usize = 10;
@@ -56,13 +56,15 @@ pub trait ProviderDisconnector: Send + Sync {
     /// user's own disconnect does: the grant is revoked at the provider, the
     /// token and connection rows (for both halves of a coalesced pair) are
     /// deleted, the provider-derived cache is purged, and success is refused
-    /// while any row survives. Returns what the provider said about the grant,
-    /// since the local deletion never waits on it.
+    /// while any row survives. `reason` names who asked on the
+    /// `provider.disconnected` event. Returns what the provider said about
+    /// the grant, since the local deletion never waits on it.
     async fn disconnect(
         &self,
         user_id: Uuid,
         provider: &str,
         tenant_id: TenantId,
+        reason: DisconnectReason,
     ) -> AppResult<RevocationOutcome>;
 
     /// Whether this server can disconnect `provider` at all. A provider this
@@ -78,8 +80,9 @@ impl ProviderDisconnector for OAuthService {
         user_id: Uuid,
         provider: &str,
         tenant_id: TenantId,
+        reason: DisconnectReason,
     ) -> AppResult<RevocationOutcome> {
-        self.disconnect_provider(user_id, provider, Some(tenant_id.as_uuid()))
+        self.disconnect_provider(user_id, provider, Some(tenant_id.as_uuid()), reason)
             .await
     }
 
@@ -244,7 +247,12 @@ async fn disconnect_each(
     let mut disconnected = Vec::with_capacity(targets.len());
     for target in targets {
         match disconnector
-            .disconnect(user_id, &target.provider, target.tenant_id)
+            .disconnect(
+                user_id,
+                &target.provider,
+                target.tenant_id,
+                DisconnectReason::Operator,
+            )
             .await
         {
             Ok(revocation) => {
