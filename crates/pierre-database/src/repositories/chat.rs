@@ -336,6 +336,25 @@ pub trait ChatRepository: Send + Sync {
         conversation_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<ConversationParticipant>>;
+
+    /// Whether `agent_id` has already introduced itself in `thread_id`: the
+    /// coaching group id of a shared room, else the conversation id.
+    /// Tenant-scoped.
+    async fn has_agent_introduction(
+        &self,
+        thread_id: &str,
+        agent_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Record that `agent_id` has introduced itself in `thread_id`, once a
+    /// reply that named it reached the thread. Idempotent.
+    async fn record_agent_introduction(
+        &self,
+        thread_id: &str,
+        agent_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<()>;
 }
 
 /// How many leading characters of the newest row travel with a list row.
@@ -717,6 +736,19 @@ pub(crate) const SET_AGENT_ID_SQL: &str = r"
     UPDATE chat_conversations
     SET agent_id = $1
     WHERE id = $2 AND tenant_id = $3";
+
+/// Whether an agent has introduced itself in a thread. `thread_id` is text on
+/// both backends: a conversation id, or a group id already rendered as text.
+pub(crate) const HAS_AGENT_INTRODUCTION_SQL: &str = r"
+    SELECT 1 FROM agent_introductions
+    WHERE tenant_id = $1 AND thread_id = $2 AND agent_id = $3";
+
+/// Record an introduction; a second write for the same thread and agent — two
+/// turns racing in one room — keeps the first.
+pub(crate) const RECORD_AGENT_INTRODUCTION_SQL: &str = r"
+    INSERT INTO agent_introductions (tenant_id, thread_id, agent_id, created_at)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT DO NOTHING";
 
 /// Add a member, idempotently. `ON CONFLICT DO NOTHING` keeps an existing
 /// row (the owner's included) untouched; the WHERE EXISTS gate refuses a

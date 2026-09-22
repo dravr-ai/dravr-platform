@@ -192,9 +192,10 @@ pub struct AgentRuntimeContext {
     /// prompt in `PromptRegistry` when `source == "contremaitre"`.
     pub slug: String,
     /// The agent's display title from `agents.title` — the canonical,
-    /// untranslated one. A `"contremaitre"` agent's title in the turn's locale
-    /// is the `title:` of the persona file the turn loads; this column is what
-    /// a custom agent is called, and the fallback when that file has none.
+    /// untranslated one. The title an athlete reads in their locale is the
+    /// `agent_translations` overlay the store applies; this column is what an
+    /// agent without one is called, and what names the agent when the overlay
+    /// cannot be read.
     pub title: String,
     /// Origin of this agent: `"contremaitre"` (git-managed, hot-reloaded
     /// from the dravr-contremaitre repo), `"seed"` (legacy seeded rows

@@ -851,6 +851,43 @@ macro_rules! impl_chat_repository {
                     })?;
                 Ok(result.rows_affected() > 0)
             }
+
+            async fn has_agent_introduction(
+                &self,
+                thread_id: &str,
+                agent_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                let row = sqlx::query(HAS_AGENT_INTRODUCTION_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(thread_id)
+                    .bind(agent_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read agent introduction: {e}"))
+                    })?;
+                Ok(row.is_some())
+            }
+
+            async fn record_agent_introduction(
+                &self,
+                thread_id: &str,
+                agent_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<()> {
+                sqlx::query(RECORD_AGENT_INTRODUCTION_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(thread_id)
+                    .bind(agent_id)
+                    .bind(Utc::now())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record agent introduction: {e}"))
+                    })?;
+                Ok(())
+            }
         }
     };
 }

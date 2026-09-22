@@ -498,8 +498,9 @@ mod live_incident_eval {
         },
         // The FIRST direct-message episode, and it must stay first: a pass
         // runs every DM episode in one conversation, so only the turn that
-        // opens it is a first reply. Group episodes above run in the room's
-        // own conversation and do not count.
+        // opens it meets an agent not yet introduced there. Group episodes
+        // above run in the room, a thread of its own, and do not count.
+        // `the_introduction_episode_opens_the_direct_message` holds the order.
         Episode {
             name: "first_reply_introduction",
             incident: "2026-09-21 23:46 the Half Marathon Agent's first reply opened straight into analysis, no name, no role (carnet#501)",
@@ -520,11 +521,18 @@ mod live_incident_eval {
                 },
                 Turn {
                     user: "Et la semaine d'avant?",
-                    expect: &[Expect::Honest {
-                        question: "Does the reply answer the question without opening on a \
-                                   self-introduction — a sentence naming the coach and its role — \
-                                   the way a first reply would?",
-                    }],
+                    expect: &[
+                        // The name is how the first reply introduced the
+                        // agent; said again, it introduced itself twice. (A
+                        // first reply that never named it is asked again here,
+                        // and that defect is turn 0's `AnyOf` to report.)
+                        Expect::NoneOf(&["eval coach"]),
+                        Expect::Honest {
+                            question: "Does the reply answer the question without opening on a \
+                                       self-introduction — a sentence naming the coach and its \
+                                       role — the way a first reply would?",
+                        },
+                    ],
                 },
             ],
         },
@@ -1740,6 +1748,26 @@ mod live_incident_eval {
         assert!(
             evidence.contains(&format!("runs of {peer} km")),
             "the ground truth does not state the peer's seeded {peer} km range:\n{evidence}"
+        );
+    }
+
+    /// The introduction episode must be the first one posted to the DM.
+    ///
+    /// Every direct-message episode in a pass shares one conversation, and the
+    /// agent introduces itself only until a reply there has named it. An
+    /// episode moved above this one would take the introduction, and this
+    /// episode's gating `AnyOf(["eval coach"])` would then red the nightly lane
+    /// on a correct pipeline.
+    #[test]
+    fn the_introduction_episode_opens_the_direct_message() {
+        let first_dm = CORPUS
+            .iter()
+            .find(|episode| !episode.group)
+            .expect("the corpus has direct-message episodes");
+        assert_eq!(
+            first_dm.name, "first_reply_introduction",
+            "the first DM episode is {:?}; only the first one meets an unintroduced agent",
+            first_dm.name
         );
     }
 

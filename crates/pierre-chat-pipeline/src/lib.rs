@@ -479,6 +479,8 @@ struct FinishTurnInputs<'a> {
     assistant_reply: &'a str,
     assistant_message_id: &'a str,
     onboarding: Option<&'a stages::onboarding::OnboardingTurn>,
+    /// The introduction the reply was asked to open with, if any.
+    introduction: Option<&'a stages::introduction::PendingIntroduction>,
     leak_replaced: bool,
     /// Whether `save_training_plan` ran on this turn. Decides whether the
     /// memory extractor may drop an agent-prescription schedule fact on the
@@ -487,9 +489,10 @@ struct FinishTurnInputs<'a> {
 }
 
 /// Everything the turn still owes once its reply is persisted: Tier 2 memory
-/// extraction, playbook advice capture, and the guided-flow probe record.
+/// extraction, playbook advice capture, the guided-flow probe record and the
+/// agent's introduction.
 ///
-/// Grouped because all three answer the same question — did this reply actually
+/// Grouped because all four answer the same question — did this reply actually
 /// reach the athlete? — and a caller that got that branch half-right is exactly
 /// how a withheld turn used to orphan both the athlete's answer and the walk's
 /// progress.
@@ -499,9 +502,15 @@ async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
         input,
         conv,
         onboarding,
+        introduction,
         leak_replaced,
         ..
     } = inputs;
+    if let Some(pending) = introduction {
+        let reply = inputs.assistant_reply;
+        stages::introduction::record_if_named(ctx, pending, reply, input.conversation_tenant_id)
+            .await;
+    }
     // The message being extracted answers the probe the PREVIOUS turn delivered
     // — `onboarding.target` is the question this turn asks, one topic further
     // on. Stamping with it filed every guided answer under the next topic's
@@ -828,7 +837,7 @@ async fn run_turn(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, pending_followup_ids, mut llm_messages, source_ids, group_roster) =
+    let (prompt_guard, pending_followup_ids, mut llm_messages, source_ids, group_roster, intro) =
         assemble_prompt_stage(AssemblePromptArgs {
             hooks,
             ctx,
@@ -941,10 +950,11 @@ async fn run_turn(
     )
     .await;
 
-    // Stages 21/21b/21c: end-of-turn follow-through — Tier 2 memory extraction,
-    // playbook advice capture, and the guided-flow probe record. All three key on
-    // whether the reply actually reached the athlete, so the branch lives in one
-    // place (see `finish_turn_follow_through`).
+    // Stages 21/21b/21c/21d: end-of-turn follow-through — Tier 2 memory
+    // extraction, playbook advice capture, the guided-flow probe record and the
+    // agent's introduction. All four key on whether the reply actually reached
+    // the athlete, so the branch lives in one place (see
+    // `finish_turn_follow_through`).
     finish_turn_follow_through(FinishTurnInputs {
         ctx,
         input: &input,
@@ -952,6 +962,7 @@ async fn run_turn(
         assistant_reply: &result.content,
         assistant_message_id: &assistant_message.id,
         onboarding: onboarding_turn.as_ref(),
+        introduction: intro.as_ref(),
         leak_replaced,
         plan_was_saved: result
             .tools_called

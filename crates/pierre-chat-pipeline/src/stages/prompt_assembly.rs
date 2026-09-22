@@ -583,14 +583,16 @@ pub fn resolve_agent_base_prompt(
 /// pending-followup ids, the flattened LLM message list, the parallel
 /// `source_ids` vector (`None` for the system prompt, `Some(history-row id)`
 /// per surviving message) that Tier 1 compaction uses to anchor block ids,
-/// and the group roster snapshots (empty outside a group conversation) that
-/// peer grounding and the peer-claim verifier match names against.
+/// the group roster snapshots (empty outside a group conversation) that
+/// peer grounding and the peer-claim verifier match names against, and the
+/// introduction the reply was asked to open with, recorded once it has.
 pub(crate) type AssembledPrompt = (
     prompt_leak::PromptGuard,
     Vec<String>,
     Vec<ChatMessage>,
     Vec<Option<String>>,
     Vec<MemberFitnessSnapshot>,
+    Option<super::introduction::PendingIntroduction>,
 );
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -978,16 +980,15 @@ pub(crate) async fn assemble_prompt_and_messages(
     // already qualifies: "call the tool and report what it actually returned"
     // is as turn-scoped as an interview probe.
     //
-    // The ordinary arm is also where an agent's first reply is told to open by
-    // introducing itself (carnet#501): a task for this turn alone, so it rides
-    // with the turn's task. A guided flow's directive owns every other arm.
-    let introduction = super::introduction::first_reply_introduction(
-        history,
-        agent_ctx,
-        &persona_prompt,
-        input.is_direct_message,
-    )
-    .unwrap_or_default();
+    // An agent not yet introduced in this thread opens its reply by naming
+    // itself (carnet#501), whichever arm owns the slot: one line after that
+    // arm's directive, one sentence ahead of its task, never in place of it.
+    let introduction =
+        super::introduction::resolve(ctx, input, conv, agent_ctx, &profile.locale).await;
+    let introduction_line = introduction.as_ref().map_or_else(
+        String::new,
+        super::introduction::PendingIntroduction::directive,
+    );
     let raw_system_prompt = match onboarding {
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
         None if super::onboarding::just_completed_interview(
@@ -1000,8 +1001,8 @@ pub(crate) async fn assemble_prompt_and_messages(
                 super::onboarding::release_directive(conv.onboarding_state.as_deref())
             )
         }
-        None => format!("{raw_system_prompt}{TURN_DIRECTIVE}{introduction}"),
-    };
+        None => format!("{raw_system_prompt}{TURN_DIRECTIVE}"),
+    } + introduction_line.as_str();
 
     // Stage 7g.3b: State the language this turn is conducted in.
     //
@@ -1142,6 +1143,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         llm_messages,
         source_ids,
         group_roster,
+        introduction,
     ))
 }
 

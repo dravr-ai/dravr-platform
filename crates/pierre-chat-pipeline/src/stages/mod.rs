@@ -53,7 +53,8 @@ pub mod guardian_confirm;
 /// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
 pub mod guardian_denied;
 pub mod guardrails;
-/// First-reply introduction: a bound agent names itself and its role.
+/// Agent introduction: an agent names itself and its role the first time it
+/// answers in a thread.
 pub mod introduction;
 pub mod memory;
 pub mod onboarding;

@@ -255,7 +255,7 @@ impl LlmProvider for InstructionCapturingEditor {
 
 /// A word-budget repair must not cut the agent's introduction (carnet#501).
 ///
-/// An agent's first reply opens with one sentence naming itself and its role.
+/// The reply introducing an agent opens with one sentence naming it and its role.
 /// That sentence is not a fact, a number, a recommendation or a citation — the
 /// four things the editor is told to preserve — and it is precisely the
 /// sentence that pushes a reply over its word budget, so without a word about
