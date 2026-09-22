@@ -166,10 +166,25 @@ fi
 git commit -F "$TMP_MESSAGE"
 echo ""
 
+# A squash that moves a submodule pointer (.build) leaves the checkout on the
+# old one — a merge never updates submodules — so the gate below would run the
+# PREVIOUS build-config against the new tree. That is how a squash that taught
+# registre.toml a new key failed its own gate here: the vendored gate it needed
+# was committed and not checked out. Sync first, so the gate is the one the
+# commit records.
+git submodule update --init --recursive
+
 # The pre-push hook checks a per-commit marker; the feature worktree's marker
-# is for another commit, so the gate runs again here, on the squash.
+# is for another commit, so the gate runs again here, on the squash. A failure
+# leaves the squash on local main with nothing pushed or cleaned up, and says
+# so rather than exiting on the gate's last line.
 echo "Running the pre-push gate on the squash commit..."
-./scripts/ci/pre-push-validate.sh
+if ! ./scripts/ci/pre-push-validate.sh; then
+    echo ""
+    echo "Error: the gate failed on the squash commit $(git rev-parse --short HEAD), which is on local main."
+    echo "Nothing was pushed and nothing was cleaned up. Fix the cause, rerun the gate, push, then rerun this script."
+    exit 1
+fi
 
 # Main can move while the gate runs (auto-bumps land on their own). Look
 # before pushing so the failure names itself instead of surfacing as a
@@ -181,7 +196,10 @@ if [[ "$(git rev-parse HEAD~1)" != "$(git rev-parse origin/main)" ]]; then
     echo ""
     echo "Error: origin/main moved to $(git rev-parse --short origin/main) while the gate ran."
     echo "The squash commit $(git rev-parse --short HEAD) is on local main. To land it:"
-    echo "   git pull --rebase origin main"
+    # submodule.recurse=true makes pull refuse to rebase a commit that moves a
+    # submodule pointer ("cannot rebase with locally recorded submodule
+    # modifications"), and a squash bumping .build is exactly that commit.
+    echo "   git -c submodule.recurse=false pull --rebase origin main && git submodule update --init --recursive"
     echo "   ./scripts/ci/pre-push-validate.sh"
     echo "   git push origin main"
     echo "then rerun this script for the cleanup (it will find nothing to merge and only clean up)."
@@ -192,7 +210,7 @@ echo "Pushing main..."
 if ! git push origin main; then
     echo ""
     echo "Error: the push was rejected. The squash commit $(git rev-parse --short HEAD) is on local main."
-    echo "Nothing was cleaned up. Reconcile with 'git pull --rebase origin main', rerun the gate, push, then rerun this script."
+    echo "Nothing was cleaned up. Reconcile with 'git -c submodule.recurse=false pull --rebase origin main && git submodule update --init --recursive', rerun the gate, push, then rerun this script."
     exit 2
 fi
 LANDED="$(git rev-parse --short HEAD)"

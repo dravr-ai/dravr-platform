@@ -810,7 +810,17 @@ fi
 
 echo ""
 LIMITATION_GATES=".build/vendor/llm-registre/limitation-gates.sh"
-if [ -x "$LIMITATION_GATES" ]; then
+# A checkout whose .build is behind what HEAD records runs the previous
+# build-config's gate against this tree's registre.toml. When the scope moved
+# into registre.toml (scan_dirs), the old gate read no directories and failed
+# with "no scan directories given", which names nothing to do. The '+' that
+# `git submodule status` prints for a checked-out commit other than the
+# recorded one is the precise signal, so name it and the fix.
+STALE_BUILD=$(git submodule status --recursive .build 2>/dev/null | grep '^+' || true)
+if [ -n "$STALE_BUILD" ]; then
+    fail_validation ".build is checked out at a commit HEAD does not record — run: git submodule update --init --recursive"
+    printf '%s\n' "$STALE_BUILD"
+elif [ -x "$LIMITATION_GATES" ]; then
     if "$LIMITATION_GATES"; then
         pass_validation "Limitation register gates passed"
     else
