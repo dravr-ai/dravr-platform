@@ -29,7 +29,9 @@ use pierre_services::conversation_forge::{
 };
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::messaging_broadcast::proactive_text;
-use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
+use pierre_services::messaging_group_bind::{
+    refresh_channel_group_title, resolve_or_create_channel_group, ChannelChatBinding,
+};
 
 use super::linking::hydrate_analytics_consent;
 use super::ResolvedSession;
@@ -645,8 +647,8 @@ async fn open_new_session(
 ///
 /// `chat_ref.chat_title` carries the human-readable group name from the
 /// inbound payload (Telegram `chat.title`, Discord `channel.name`). When
-/// `None`, the binding helper falls back to the synthetic
-/// `{channel} group {id}` label so existing groups still resolve.
+/// `None`, the binding helper names the group with the fallback
+/// `{channel} group {id}` label, and replaces it once a title arrives.
 async fn resolve_group_for_new_session(
     resources: &ServerContext,
     tenant_id: TenantId,
@@ -659,9 +661,6 @@ async fn resolve_group_for_new_session(
         return None;
     }
     let chat_id = chat_ref.chat_id?;
-    let chat_title_hint = chat_ref
-        .chat_title
-        .map_or_else(|| format!("{channel_type} group {chat_id}"), str::to_owned);
     let auth = resources.common.repos.auth_repos();
     let agent = resources.common.repos.agent_repos();
     let binding = ChannelChatBinding {
@@ -669,7 +668,7 @@ async fn resolve_group_for_new_session(
         channel_type,
         channel_chat_id: chat_id,
         user_id,
-        chat_title_hint: &chat_title_hint,
+        chat_title: chat_ref.chat_title,
     };
     match resolve_or_create_channel_group(&auth, &agent, resources.group_service(), &binding).await
     {
@@ -708,20 +707,24 @@ async fn ensure_conversation_group_binding(
         return;
     };
     if already_bound {
+        let binding = ChannelChatBinding {
+            tenant_id,
+            channel_type,
+            channel_chat_id,
+            user_id,
+            chat_title,
+        };
+        refresh_bound_group_title(resources, &binding).await;
         return;
     }
 
-    let chat_title_hint = chat_title.map_or_else(
-        || format!("{channel_type} group {channel_chat_id}"),
-        str::to_owned,
-    );
     let Some(new_group_id) = resolve_group_for_retrofit(
         resources,
         tenant_id,
         channel_type,
         channel_chat_id,
         user_id,
-        &chat_title_hint,
+        chat_title,
     )
     .await
     else {
@@ -779,6 +782,19 @@ async fn conversation_already_bound(
     }
 }
 
+/// Let an already-bound chat's title replace its group's fallback name.
+/// Failures are logged, never surfaced: a stale name must not block a message.
+async fn refresh_bound_group_title(resources: &ServerContext, binding: &ChannelChatBinding<'_>) {
+    if let Err(e) = refresh_channel_group_title(resources.group_service(), binding).await {
+        warn!(
+            error = %e,
+            channel_type = binding.channel_type,
+            channel_chat_id = binding.channel_chat_id,
+            "Failed to look up the channel group to refresh its title"
+        );
+    }
+}
+
 /// Resolve (or auto-create on first sender) the channel-bound
 /// `coaching_groups.id` for a retrofit pass. Logs and returns `None` on
 /// failure or when no agent is available to bootstrap the group.
@@ -788,7 +804,7 @@ async fn resolve_group_for_retrofit(
     channel_type: &str,
     channel_chat_id: &str,
     user_id: &str,
-    chat_title_hint: &str,
+    chat_title: Option<&str>,
 ) -> Option<String> {
     let auth = resources.common.repos.auth_repos();
     let agent = resources.common.repos.agent_repos();
@@ -797,7 +813,7 @@ async fn resolve_group_for_retrofit(
         channel_type,
         channel_chat_id,
         user_id,
-        chat_title_hint,
+        chat_title,
     };
     match resolve_or_create_channel_group(&auth, &agent, resources.group_service(), &binding).await
     {

@@ -1080,6 +1080,55 @@ pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_TITLE: &str =
 pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_BODY: &str =
     "notifications.event.seat_release_warning.body";
 
+// ── Group weekly digest ───────────────────────────────────────────────────
+//
+// The group digest body is composed line by line by
+// `pierre_services::notification_text` from the event's stored parameters:
+// the summary, one trend sentence, then a line per member under each header.
+
+/// Key: the group digest's title. `{0}` = the group's name.
+pub const KEY_GROUP_DIGEST_TITLE: &str = "notifications.group_digest.title";
+/// Key: the digest's opening line. `{0}` active members, `{1}` members,
+/// `{2}` average weekly km per member.
+pub const KEY_GROUP_DIGEST_SUMMARY: &str = "notifications.group_digest.summary";
+/// Key: group volume rose on the prior week. No format placeholders.
+pub const KEY_GROUP_DIGEST_TREND_IMPROVING: &str = "notifications.group_digest.trend.improving";
+/// Key: group volume held on the prior week. No format placeholders.
+pub const KEY_GROUP_DIGEST_TREND_STABLE: &str = "notifications.group_digest.trend.stable";
+/// Key: group volume fell on the prior week. No format placeholders.
+pub const KEY_GROUP_DIGEST_TREND_DECLINING: &str = "notifications.group_digest.trend.declining";
+/// Key: heading over the per-member volume lines. No format placeholders.
+pub const KEY_GROUP_DIGEST_MEMBERS_HEADER: &str = "notifications.group_digest.members_header";
+/// Key: one member's week. `{0}` name, `{1}` km.
+pub const KEY_GROUP_DIGEST_MEMBER_LINE: &str = "notifications.group_digest.member_line";
+/// Key: one member's week beside the one before. `{0}` name, `{1}` km,
+/// `{2}` previous week's km.
+pub const KEY_GROUP_DIGEST_MEMBER_LINE_PREV: &str = "notifications.group_digest.member_line_prev";
+/// Key: heading over the members in fresh form. No format placeholders.
+pub const KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER: &str = "notifications.group_digest.highlights_header";
+/// Key: a member in fresh form. `{0}` name, `{1}` form as a signed % of CTL.
+pub const KEY_GROUP_DIGEST_FRESH: &str = "notifications.group_digest.fresh";
+/// Key: heading over the flagged members. No format placeholders.
+pub const KEY_GROUP_DIGEST_CONCERNS_HEADER: &str = "notifications.group_digest.concerns_header";
+/// Key: form in the deepest fatigue band. `{0}` name, `{1}` form as a signed % of CTL.
+pub const KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE: &str =
+    "notifications.group_digest.concern.deep_fatigue";
+/// Key: form at the deep end of the productive zone. `{0}` name, `{1}` form
+/// as a signed % of CTL.
+pub const KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK: &str =
+    "notifications.group_digest.concern.heavy_block";
+/// Key: no form reading, high overtraining risk. `{0}` name.
+pub const KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK: &str =
+    "notifications.group_digest.concern.overtraining_risk";
+/// Key: no recent activity. `{0}` name, `{1}` days.
+pub const KEY_GROUP_DIGEST_CONCERN_INACTIVE: &str = "notifications.group_digest.concern.inactive";
+/// Key: volume below the group average. `{0}` name, `{1}` percent below.
+pub const KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP: &str =
+    "notifications.group_digest.concern.volume_drop";
+/// Key: closing line when no member is highlighted or flagged. No format
+/// placeholders.
+pub const KEY_GROUP_DIGEST_ALL_CLEAR: &str = "notifications.group_digest.all_clear";
+
 /// Key: the "reply to your coach" action button. No format placeholders.
 pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";
 /// Key: the "reconnect this provider" action button. No format placeholders.

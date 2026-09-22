@@ -150,6 +150,7 @@ describe('GroupInfoPanel', () => {
           flag_type: 'inactive',
           severity: 'warning',
           detail: 'no activity for 11 days',
+          evidence: { kind: 'inactive_days', days: 11 },
         },
         {
           user_id: CALLER_ID,
@@ -157,6 +158,7 @@ describe('GroupInfoPanel', () => {
           flag_type: 'volume_drop',
           severity: 'warning',
           detail: 'weekly volume down 35%',
+          evidence: { kind: 'volume_below_group', pct_below: 35 },
         },
       ],
       total: 2,

@@ -1974,6 +1974,29 @@
         "title": "Trainingsbelastung erhöht"
       }
     },
+    "group_digest": {
+      "all_clear": "Diese Woche nichts Auffälliges bei Form und Regelmäßigkeit.",
+      "concern": {
+        "deep_fatigue": "• {0}: Form bei {1} % der chronischen Belastung, tiefste Ermüdungsstufe",
+        "heavy_block": "• {0}: Form bei {1} % der chronischen Belastung, unteres Ende der produktiven Zone",
+        "inactive": "• {0}: seit {1} Tagen keine Aktivität",
+        "overtraining_risk": "• {0}: hohes Übertrainingsrisiko, Erholung einplanen",
+        "volume_drop": "• {0}: Volumen {1} % unter dem Gruppenschnitt"
+      },
+      "concerns_header": "Im Auge behalten:",
+      "fresh": "• {0}: frische Form ({1} % der chronischen Belastung)",
+      "highlights_header": "In frischer Form:",
+      "member_line": "• {0}: {1} km",
+      "member_line_prev": "• {0}: {1} km (Vorwoche: {2} km)",
+      "members_header": "Volumen dieser Woche:",
+      "summary": "{0}/{1} Mitglieder diese Woche aktiv, im Schnitt {2} km pro Mitglied.",
+      "title": "Wochenrückblick: {0}",
+      "trend": {
+        "declining": "Das Gruppenvolumen liegt unter der Vorwoche – melde dich bei den weniger aktiven Mitgliedern.",
+        "improving": "Das Gruppenvolumen liegt über der Vorwoche – achte darauf, dass die Erholung mithält.",
+        "stable": "Das Gruppenvolumen ist gegenüber der Vorwoche stabil."
+      }
+    },
     "hoursAgo": "vor {{count}} Std.",
     "justNow": "Gerade eben",
     "minutesAgo": "vor {{count}} Min."

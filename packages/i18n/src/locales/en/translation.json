@@ -1974,6 +1974,29 @@
         "title": "Training load elevated"
       }
     },
+    "group_digest": {
+      "all_clear": "Nothing to flag on form or consistency this week.",
+      "concern": {
+        "deep_fatigue": "• {0}: form at {1}% of chronic load, deepest fatigue band",
+        "heavy_block": "• {0}: form at {1}% of chronic load, deep end of the productive zone",
+        "inactive": "• {0}: no activity for {1} days",
+        "overtraining_risk": "• {0}: high overtraining risk, plan some recovery",
+        "volume_drop": "• {0}: volume {1}% below the group average"
+      },
+      "concerns_header": "Keep an eye on:",
+      "fresh": "• {0}: fresh form ({1}% of chronic load)",
+      "highlights_header": "Looking fresh:",
+      "member_line": "• {0}: {1} km",
+      "member_line_prev": "• {0}: {1} km (previous week: {2} km)",
+      "members_header": "This week's volume:",
+      "summary": "{0}/{1} members active this week, averaging {2} km each.",
+      "title": "Weekly recap: {0}",
+      "trend": {
+        "declining": "Group volume is down on last week — check in with the less active members.",
+        "improving": "Group volume is up on last week — make sure recovery keeps pace.",
+        "stable": "Group volume is steady compared with last week."
+      }
+    },
     "hoursAgo": "{{count}}h ago",
     "justNow": "Just now",
     "minutesAgo": "{{count}}m ago"

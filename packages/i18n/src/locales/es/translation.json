@@ -1974,6 +1974,29 @@
         "title": "Carga de entrenamiento elevada"
       }
     },
+    "group_digest": {
+      "all_clear": "Nada que señalar en forma ni constancia esta semana.",
+      "concern": {
+        "deep_fatigue": "• {0}: forma al {1} % de su carga crónica, fatiga profunda",
+        "heavy_block": "• {0}: forma al {1} % de su carga crónica, límite de la zona productiva",
+        "inactive": "• {0}: sin actividad desde hace {1} días",
+        "overtraining_risk": "• {0}: riesgo alto de sobreentrenamiento, planifica recuperación",
+        "volume_drop": "• {0}: volumen un {1} % por debajo de la media del grupo"
+      },
+      "concerns_header": "A vigilar:",
+      "fresh": "• {0}: forma fresca ({1} % de su carga crónica)",
+      "highlights_header": "En buena forma:",
+      "member_line": "• {0}: {1} km",
+      "member_line_prev": "• {0}: {1} km (semana anterior: {2} km)",
+      "members_header": "Volumen de la semana:",
+      "summary": "{0}/{1} miembros activos esta semana, con una media de {2} km cada uno.",
+      "title": "Resumen semanal: {0}",
+      "trend": {
+        "declining": "El volumen del grupo baja respecto a la semana pasada: habla con los miembros menos activos.",
+        "improving": "El volumen del grupo sube respecto a la semana pasada: asegúrate de que la recuperación acompañe.",
+        "stable": "El volumen del grupo se mantiene estable respecto a la semana pasada."
+      }
+    },
     "hoursAgo": "hace {{count}} h",
     "justNow": "Ahora mismo",
     "minutesAgo": "hace {{count}} min"

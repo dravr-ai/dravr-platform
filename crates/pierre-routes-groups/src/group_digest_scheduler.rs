@@ -23,10 +23,15 @@
 //!    ([`pierre_database::repositories::CoachingGroupRepository::list_active_groups_for_tenant`]).
 //! 4. Builds member fitness snapshots via the canonical
 //!    [`fetch_member_snapshots`] builder (the same all-providers + deduplicated
-//!    path the chat agent and the REST analytics endpoints use), computes the
-//!    weekly report with [`pierre_groups::GroupService::compute_weekly_report`],
-//!    and dispatches it as a `Agent`-category notification to every member who
-//!    can manage the group (owner + admins).
+//!    path the chat agent and the REST analytics endpoints use), reduces them
+//!    to the digest's parameters with [`digest_params`], and dispatches a
+//!    [`NotificationEvent::GroupWeeklyDigest`] to every member who can manage
+//!    the group (owner + admins).
+//!
+//! The digest is dispatched as an event, never as a sentence: the notification
+//! localizer renders it in each recipient's own language, and the stored row
+//! keeps the parameters so the feed can render it again after a language
+//! change.
 //!
 //! Dispatch is best-effort: a failed snapshot fetch or notification send is
 //! logged and counted but never aborts the rest of the sweep. There is no
@@ -38,24 +43,39 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::groups::{CoachingGroup, GroupMember};
+use pierre_core::models::groups::{
+    CoachingGroup, FlagEvidence, GroupAggregateStats, GroupHealthFlag, GroupMember, GroupTrend,
+    MemberFitnessSnapshot, MemberFlag,
+};
 use pierre_core::models::TenantId;
 use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_groups::GroupService;
+use pierre_notifications::events::NotificationEvent;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::notification_text::{
+    CONCERN_DEEP_FATIGUE, CONCERN_HEAVY_BLOCK, CONCERN_INACTIVE, CONCERN_OVERTRAINING_RISK,
+    CONCERN_VOLUME_DROP,
+};
 use pierre_services::periodic::spawn_periodic;
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use serde_json::{json, Value};
 use tracing::{debug, error, info, warn};
+#[cfg(feature = "client-notifications")]
 use uuid::Uuid;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::{
-    models::NotificationCategory, DispatchRequest, NotificationService, PushTier,
+    models::NotificationCategory, EventDispatch, NotificationService, PushTier,
     TenantId as CommTenantId,
 };
 
 /// How often the digest tick fires. One week — the digest cadence.
 pub const DEFAULT_TICK_INTERVAL: StdDuration = StdDuration::from_hours(168);
+
+/// Most members the digest lists by volume. A larger group keeps its summary,
+/// trend, highlights and concerns, and loses only the tail of the roster.
+pub const MAX_DIGEST_MEMBER_LINES: usize = 12;
 
 /// Outcome of a single scheduler tick — exposed for tests and metrics.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -205,11 +225,11 @@ async fn process_group<C>(
         }
     };
 
-    let user_ids: Vec<Uuid> = members.iter().map(|m| m.user_id).collect();
+    let user_ids: Vec<_> = members.iter().map(|m| m.user_id).collect();
     let snapshots = fetch_member_snapshots(runtime, &user_ids, tenant_id).await;
-    let report = ctx
-        .group_service()
-        .compute_weekly_report(&snapshots, &group.name);
+    let stats = ctx.group_service().compute_aggregate_stats(&snapshots);
+    let flags = GroupService::compute_health_flags(&snapshots);
+    let params = digest_params(&group.name, &stats, &snapshots, &flags);
     outcome.groups_reported += 1;
 
     #[cfg(feature = "client-notifications")]
@@ -218,7 +238,7 @@ async fn process_group<C>(
         tenant_id,
         group,
         &members,
-        &report.summary,
+        &params,
         outcome,
     )
     .await;
@@ -238,13 +258,13 @@ async fn dispatch_to_managers(
     tenant_id: TenantId,
     group: &CoachingGroup,
     members: &[GroupMember],
-    summary: &str,
+    params: &Value,
     outcome: &mut DigestTickOutcome,
 ) {
     let Some(service) = service else { return };
     for member in members.iter().filter(|m| m.role.can_manage_members()) {
         outcome.dispatched += 1;
-        if let Err(e) = dispatch_digest(service, tenant_id, group, member.user_id, summary).await {
+        if let Err(e) = dispatch_digest(service, tenant_id, member.user_id, params).await {
             warn!(
                 group_id = %group.id,
                 user_id = %member.user_id,
@@ -260,25 +280,91 @@ async fn dispatch_to_managers(
 async fn dispatch_digest(
     service: &NotificationService,
     tenant_id: TenantId,
-    group: &CoachingGroup,
     user_id: Uuid,
-    summary: &str,
-) -> Result<pierre_notifications::DispatchOutcome, pierre_notifications::CommereError> {
-    let request = DispatchRequest {
+    params: &Value,
+) -> Result<pierre_notifications::Delivery, pierre_notifications::CommereError> {
+    let dispatch = EventDispatch {
         user_id,
         tenant_id: CommTenantId(tenant_id.into()),
         category: NotificationCategory::Coach,
-        notification_type: "group_weekly_digest".to_owned(),
-        title: format!("Weekly digest: {}", group.name),
-        body: summary.to_owned(),
-        data: None,
-        image_url: None,
+        event: NotificationEvent::GroupWeeklyDigest,
+        params: params.clone(),
+        route: Value::Null,
         actions: None,
         bypass_frequency_cap: false,
     };
     // P3: a weekly roll-up is ambient by construction — any persona floor
     // below "everything" prefers it in the in-app list over a push.
-    service.dispatch_with_tier(&request, PushTier::P3).await
+    service.dispatch_event(&dispatch, PushTier::P3).await
+}
+
+/// The parameters of one group's [`NotificationEvent::GroupWeeklyDigest`].
+///
+/// Numbers stay numbers and states stay codes, so the renderer can phrase
+/// them in each reader's language: the summary counts, the trend, the
+/// members by weekly volume (at most [`MAX_DIGEST_MEMBER_LINES`]), the members
+/// in fresh form, and one concern per health flag.
+#[must_use]
+pub fn digest_params(
+    group_name: &str,
+    stats: &GroupAggregateStats,
+    snapshots: &[MemberFitnessSnapshot],
+    flags: &[GroupHealthFlag],
+) -> Value {
+    let trend = match stats.weekly_trend {
+        GroupTrend::Improving => "improving",
+        GroupTrend::Stable => "stable",
+        GroupTrend::Declining => "declining",
+    };
+
+    let mut by_volume: Vec<&MemberFitnessSnapshot> = snapshots.iter().collect();
+    by_volume.sort_by(|a, b| b.weekly_volume_km.total_cmp(&a.weekly_volume_km));
+    let members: Vec<Value> = by_volume
+        .into_iter()
+        .take(MAX_DIGEST_MEMBER_LINES)
+        .map(|s| {
+            json!({
+                "name": s.display_name,
+                "km": s.weekly_volume_km,
+                "prev_km": s.previous_week_volume_km,
+            })
+        })
+        .collect();
+
+    let highlights: Vec<Value> = GroupService::fresh_members(snapshots)
+        .map(|(s, form_pct)| json!({ "name": s.display_name, "form_pct": form_pct }))
+        .collect();
+
+    let concerns: Vec<Value> = flags
+        .iter()
+        .map(|flag| {
+            let (code, value) = match flag.evidence {
+                FlagEvidence::FormShare { form_pct, .. }
+                    if flag.flag_type == MemberFlag::DeepFatigue =>
+                {
+                    (CONCERN_DEEP_FATIGUE, json!(form_pct))
+                }
+                FlagEvidence::FormShare { form_pct, .. } => (CONCERN_HEAVY_BLOCK, json!(form_pct)),
+                FlagEvidence::OvertrainingRisk => (CONCERN_OVERTRAINING_RISK, Value::Null),
+                FlagEvidence::InactiveDays { days } => (CONCERN_INACTIVE, json!(days)),
+                FlagEvidence::VolumeBelowGroup { pct_below } => {
+                    (CONCERN_VOLUME_DROP, json!(pct_below))
+                }
+            };
+            json!({ "code": code, "name": flag.display_name, "value": value })
+        })
+        .collect();
+
+    json!({
+        "group_name": group_name,
+        "active_members": stats.active_members,
+        "total_members": stats.total_members,
+        "avg_volume_km": stats.avg_weekly_volume_km,
+        "trend": trend,
+        "members": members,
+        "highlights": highlights,
+        "concerns": concerns,
+    })
 }
 
 /// Spawn the weekly-digest scheduler as a background tokio task.

@@ -136,7 +136,15 @@ export interface GroupHealthFlag {
   flag_type: MemberFlag;
   severity: HealthFlagSeverity;
   detail: string;
+  evidence: FlagEvidence;
 }
+
+/** The measurement that raised a health flag, for locale-aware phrasing */
+export type FlagEvidence =
+  | { kind: 'form_share'; form_pct: number; tsb: number }
+  | { kind: 'overtraining_risk' }
+  | { kind: 'inactive_days'; days: number }
+  | { kind: 'volume_below_group'; pct_below: number };
 
 /** Weekly report for a coaching group */
 export interface GroupWeeklyReport {

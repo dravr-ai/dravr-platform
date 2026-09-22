@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
-    GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary,
-    GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag,
-    MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
+    CoachingGroup, CreateGroupRequest, FlagEvidence, GroupAggregateStats, GroupContext,
+    GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
+    GroupSummary, GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
+    MemberFlag, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::TenantId;
@@ -991,6 +991,7 @@ impl GroupService {
                             detail: format!(
                                 "Form at {pct:.0}% of fitness (TSB {tsb:+.0}), deepest fatigue band"
                             ),
+                            evidence: FlagEvidence::FormShare { form_pct: pct, tsb },
                         }),
                         FormBand::HeavyBlock => flags.push(GroupHealthFlag {
                             user_id: s.user_id,
@@ -1000,6 +1001,7 @@ impl GroupService {
                             detail: format!(
                                 "Form at {pct:.0}% of fitness (TSB {tsb:+.0}), deep end of the productive zone"
                             ),
+                            evidence: FlagEvidence::FormShare { form_pct: pct, tsb },
                         }),
                         _ => {}
                     }
@@ -1011,6 +1013,7 @@ impl GroupService {
                         flag_type: MemberFlag::Overreaching,
                         severity: HealthFlagSeverity::Warning,
                         detail: "High overtraining risk detected, recommend recovery".to_owned(),
+                        evidence: FlagEvidence::OvertrainingRisk,
                     });
                 }
 
@@ -1023,6 +1026,7 @@ impl GroupService {
                             flag_type: MemberFlag::Inactive,
                             severity: HealthFlagSeverity::Warning,
                             detail: format!("No activity for {days} days"),
+                            evidence: FlagEvidence::InactiveDays { days },
                         });
                     }
                 }
@@ -1041,6 +1045,7 @@ impl GroupService {
                             detail: format!(
                                 "Weekly volume {pct}% below group average, possible detraining"
                             ),
+                            evidence: FlagEvidence::VolumeBelowGroup { pct_below: pct },
                         });
                     }
                 }
@@ -1068,6 +1073,20 @@ impl GroupService {
         active.iter().sum::<f64>() / active.len() as f64
     }
 
+    /// Members whose form reads Fresh against their own chronic base, each
+    /// with that form as a percentage of CTL.
+    ///
+    /// A merely positive TSB is not freshness — 0 to +5% of CTL is balanced,
+    /// and the same +8 is fresh at CTL 40 but balanced at CTL 150.
+    pub fn fresh_members(
+        snapshots: &[MemberFitnessSnapshot],
+    ) -> impl Iterator<Item = (&MemberFitnessSnapshot, f64)> {
+        snapshots.iter().filter_map(|s| {
+            let pct = FormBand::form_pct(s.tsb?, s.ctl?)?;
+            (FormBand::from_form_pct(Some(pct)) == FormBand::Fresh).then_some((s, pct))
+        })
+    }
+
     /// Generate a deterministic (non-AI) weekly report from member snapshots.
     ///
     /// Includes summary, highlights (members in fresh form), concerns from
@@ -1093,20 +1112,13 @@ impl GroupService {
             stats.active_members, stats.total_members, stats.avg_weekly_volume_km
         );
 
-        // Highlights: members whose form reads Fresh against their own chronic
-        // base. A merely positive TSB is not freshness — 0 to +5% of CTL is
-        // balanced, and the same +8 is fresh at CTL 40 but balanced at CTL 150.
-        let highlights: Vec<String> = snapshots
-            .iter()
-            .filter_map(|s| {
-                let pct = FormBand::form_pct(s.tsb?, s.ctl?)?;
-                (FormBand::from_form_pct(Some(pct)) == FormBand::Fresh).then(|| {
-                    format!(
-                        "{} is in fresh form (TSB {:+.0}, {pct:.0}% of CTL)",
-                        s.display_name,
-                        s.tsb.unwrap_or_default()
-                    )
-                })
+        let highlights: Vec<String> = Self::fresh_members(snapshots)
+            .map(|(s, pct)| {
+                format!(
+                    "{} is in fresh form (TSB {:+.0}, {pct:.0}% of CTL)",
+                    s.display_name,
+                    s.tsb.unwrap_or_default()
+                )
             })
             .collect();
 

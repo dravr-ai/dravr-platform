@@ -638,6 +638,35 @@ pub struct GroupHealthFlag {
     pub severity: HealthFlagSeverity,
     /// Human-readable detail
     pub detail: String,
+    /// The measurement behind the flag, so a surface can phrase it in the
+    /// reader's language instead of relaying [`Self::detail`]'s English.
+    pub evidence: FlagEvidence,
+}
+
+/// The measurement that raised a [`GroupHealthFlag`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FlagEvidence {
+    /// Form sits in a fatigue band, read as a share of the member's own
+    /// chronic load rather than as an absolute TSB.
+    FormShare {
+        /// Form as a percentage of CTL (negative when fatigued).
+        form_pct: f64,
+        /// The TSB the percentage was read from.
+        tsb: f64,
+    },
+    /// No form reading was available; the overtraining risk level is high.
+    OvertrainingRisk,
+    /// Days since the member's last recorded activity.
+    InactiveDays {
+        /// Whole days without an activity.
+        days: i32,
+    },
+    /// Weekly volume below the group's average for active members.
+    VolumeBelowGroup {
+        /// How far below the group average, in whole percent.
+        pct_below: u32,
+    },
 }
 
 /// Severity level for health flags

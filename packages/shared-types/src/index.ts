@@ -200,6 +200,7 @@ export type {
   CreateInviteRequest,
   GroupAggregateStats,
   GroupHealthFlag,
+  FlagEvidence,
   GroupWeeklyReport,
   GroupMembersResponse,
   GroupTranscriptEntry,

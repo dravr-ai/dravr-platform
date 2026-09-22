@@ -66,6 +66,12 @@ pub enum NotificationEvent {
     SeatReleaseWarning,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
+    /// A coaching group's weekly roll-up, sent to the members who manage it.
+    ///
+    /// Its body is the summary line [`Self::body_params`] fills, followed by
+    /// the trend and one line per member drawn from the `trend`, `members`,
+    /// `highlights` and `concerns` parameters.
+    GroupWeeklyDigest,
 }
 
 impl NotificationEvent {
@@ -86,6 +92,7 @@ impl NotificationEvent {
             Self::SyncFailure => "sync_failure",
             Self::SeatReleaseWarning => "seat_release_warning",
             Self::PersonaDigest => "persona_digest",
+            Self::GroupWeeklyDigest => "group_weekly_digest",
         }
     }
 
@@ -107,6 +114,7 @@ impl NotificationEvent {
             Self::SyncFailure,
             Self::SeatReleaseWarning,
             Self::PersonaDigest,
+            Self::GroupWeeklyDigest,
         ]
         .into_iter()
         .find(|event| event.wire() == wire)
@@ -129,6 +137,7 @@ impl NotificationEvent {
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
             Self::PersonaDigest => "notifications.digest.title",
+            Self::GroupWeeklyDigest => "notifications.group_digest.title",
         }
     }
 
@@ -149,6 +158,7 @@ impl NotificationEvent {
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
             Self::PersonaDigest => "notifications.digest.body",
+            Self::GroupWeeklyDigest => "notifications.group_digest.summary",
         }
     }
 
@@ -157,6 +167,7 @@ impl NotificationEvent {
     pub const fn title_params(self) -> &'static [&'static str] {
         match self {
             Self::SyncFailure | Self::SeatReleaseWarning => &["provider_name"],
+            Self::GroupWeeklyDigest => &["group_name"],
             _ => &[],
         }
     }
@@ -177,6 +188,7 @@ impl NotificationEvent {
             Self::SyncFailure => &["error_summary"],
             Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
             Self::PersonaDigest => &["item_count"],
+            Self::GroupWeeklyDigest => &["active_members", "total_members", "avg_volume_km"],
         }
     }
 

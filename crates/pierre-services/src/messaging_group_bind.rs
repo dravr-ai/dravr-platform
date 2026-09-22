@@ -40,6 +40,7 @@
 //! chat operates without group context until an agent exists.
 
 use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::models::groups::{CoachingGroup, UpdateGroupRequest};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::{AgentRepos, AuthRepos};
@@ -64,9 +65,27 @@ pub struct ChannelChatBinding<'a> {
     pub channel_chat_id: &'a str,
     /// Sender's Dravr user id, as a string.
     pub user_id: &'a str,
-    /// Name for the auto-created group (e.g. `"Telegram group -100123456"`);
-    /// operators can rename via REST.
-    pub chat_title_hint: &'a str,
+    /// The chat's own title from the inbound payload (Telegram `chat.title`,
+    /// Discord `channel.name`), when the platform sends one.
+    pub chat_title: Option<&'a str>,
+}
+
+impl ChannelChatBinding<'_> {
+    /// The chat's title, when it carries a non-blank one.
+    fn title(&self) -> Option<&str> {
+        self.chat_title.map(str::trim).filter(|t| !t.is_empty())
+    }
+}
+
+/// The label a channel-bound group is created under when its chat sends no
+/// title: `"{channel} group {chat_id}"`.
+///
+/// It names the chat by its raw platform id, which means nothing to a reader,
+/// so [`resolve_or_create_channel_group`] replaces it with the chat's title
+/// the first time one arrives.
+#[must_use]
+pub fn fallback_group_name(channel_type: &str, channel_chat_id: &str) -> String {
+    format!("{channel_type} group {channel_chat_id}")
 }
 
 /// Resolve (or auto-create on first sender) the `coaching_group` bound
@@ -107,6 +126,7 @@ pub async fn resolve_or_create_channel_group(
         )
         .await?
     {
+        adopt_chat_title(groups, &group, binding).await;
         if groups.enroll_channel_member(&group, user_uuid).await? {
             return Ok(Some(group.id.to_string()));
         }
@@ -139,8 +159,9 @@ pub async fn resolve_or_create_channel_group(
     // chat-admin status across all three platforms without per-channel API
     // calls; first-sender = Owner is the channel-agnostic baseline. Operators
     // can transfer ownership via REST PUT /api/groups/{id}/members/{user}/role.)
+    let fallback_name = fallback_group_name(binding.channel_type, binding.channel_chat_id);
     let spec = ChannelGroupSpec {
-        name: binding.chat_title_hint,
+        name: binding.title().unwrap_or(&fallback_name),
         agent_id: &agent_id,
         channel_type: binding.channel_type,
         channel_chat_id: binding.channel_chat_id,
@@ -172,6 +193,77 @@ pub async fn resolve_or_create_channel_group(
             Ok(None)
         }
         Err(e) => Err(e),
+    }
+}
+
+/// Give an already-bound chat's group its chat title when the group still
+/// carries the fallback label.
+///
+/// Groups created before a platform sent chat titles hold
+/// [`fallback_group_name`] for good unless something renames them, and their
+/// conversations never reach [`resolve_or_create_channel_group`] again, so the
+/// per-message path calls this instead. A chat with no title costs nothing;
+/// one with a title costs a single keyed lookup.
+///
+/// # Errors
+///
+/// Returns the database error from the group lookup. The rename itself is
+/// best-effort and never fails the call.
+pub async fn refresh_channel_group_title(
+    groups: &GroupService,
+    binding: &ChannelChatBinding<'_>,
+) -> AppResult<()> {
+    if binding.title().is_none() {
+        return Ok(());
+    }
+    if let Some(group) = groups
+        .get_group_by_channel(
+            binding.tenant_id,
+            binding.channel_type,
+            binding.channel_chat_id,
+        )
+        .await?
+    {
+        adopt_chat_title(groups, &group, binding).await;
+    }
+    Ok(())
+}
+
+/// Replace a group's fallback label with its chat's title, once the chat
+/// sends one.
+///
+/// Only the fallback is replaced: a name that differs from it was chosen by
+/// someone, and a chat title never overrides that. Best-effort — a failed
+/// rename leaves the old label and never blocks the message.
+async fn adopt_chat_title(
+    groups: &GroupService,
+    group: &CoachingGroup,
+    binding: &ChannelChatBinding<'_>,
+) {
+    let Some(title) = binding.title() else {
+        return;
+    };
+    if group.name != fallback_group_name(binding.channel_type, binding.channel_chat_id) {
+        return;
+    }
+    let request = UpdateGroupRequest {
+        name: Some(title.to_owned()),
+        description: None,
+        agent_id: None,
+        max_members: None,
+        peer_data_sharing: None,
+        respond_mode: None,
+        is_active: None,
+    };
+    if let Err(e) = groups
+        .update_group(&group.id.to_string(), binding.tenant_id, &request)
+        .await
+    {
+        warn!(
+            group_id = %group.id,
+            error = %e,
+            "Could not replace the channel group's fallback name with the chat title"
+        );
     }
 }
 

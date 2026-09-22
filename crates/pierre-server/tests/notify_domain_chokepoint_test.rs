@@ -38,7 +38,10 @@ use pierre_core::models::TenantId;
 use pierre_groups::service::ChannelGroupSpec;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
-use pierre_services::messaging_group_bind::{resolve_or_create_channel_group, ChannelChatBinding};
+use pierre_services::messaging_group_bind::{
+    fallback_group_name, refresh_channel_group_title, resolve_or_create_channel_group,
+    ChannelChatBinding,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -101,8 +104,94 @@ fn binding<'a>(
         channel_type: "telegram",
         channel_chat_id: chat_id,
         user_id,
-        chat_title_hint: title,
+        chat_title: Some(title),
     }
+}
+
+// ============================================================================
+// Group name — the chat title replaces the fallback label
+// ============================================================================
+
+/// A chat that sent no title at bootstrap is named by its raw id; the first
+/// message that carries a title renames it. The Telegram weekly digest went
+/// out as "telegram group -5284201188" for months because nothing did.
+#[tokio::test]
+async fn a_chat_title_replaces_the_fallback_group_name() {
+    let (res, user_id, tenant_id, _agent_id) =
+        chat_fixture("autobind-title@test.com", "professional").await;
+    let auth = res.common.repos.auth_repos();
+    let agent = res.common.repos.agent_repos();
+    let user_str = user_id.to_string();
+
+    let untitled = ChannelChatBinding {
+        tenant_id,
+        channel_type: "telegram",
+        channel_chat_id: "-5284201188",
+        user_id: &user_str,
+        chat_title: None,
+    };
+    let group_id = resolve_or_create_channel_group(&auth, &agent, res.group_service(), &untitled)
+        .await
+        .unwrap()
+        .unwrap();
+    let group = res
+        .group_service()
+        .get_group(&group_id, tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(group.name, fallback_group_name("telegram", "-5284201188"));
+
+    refresh_channel_group_title(
+        res.group_service(),
+        &binding(tenant_id, "-5284201188", &user_str, "Les Rouleurs"),
+    )
+    .await
+    .unwrap();
+
+    let group = res
+        .group_service()
+        .get_group(&group_id, tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(group.name, "Les Rouleurs");
+}
+
+/// A name someone chose is theirs: a chat title only ever replaces the
+/// fallback label, never a name that differs from it.
+#[tokio::test]
+async fn a_chat_title_never_overrides_a_chosen_name() {
+    let (res, user_id, tenant_id, _agent_id) =
+        chat_fixture("autobind-keep@test.com", "professional").await;
+    let auth = res.common.repos.auth_repos();
+    let agent = res.common.repos.agent_repos();
+    let user_str = user_id.to_string();
+
+    let group_id = resolve_or_create_channel_group(
+        &auth,
+        &agent,
+        res.group_service(),
+        &binding(tenant_id, "-100999", &user_str, "Tuesday Swim"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    refresh_channel_group_title(
+        res.group_service(),
+        &binding(tenant_id, "-100999", &user_str, "renamed in Telegram"),
+    )
+    .await
+    .unwrap();
+
+    let group = res
+        .group_service()
+        .get_group(&group_id, tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(group.name, "Tuesday Swim");
 }
 
 // ============================================================================

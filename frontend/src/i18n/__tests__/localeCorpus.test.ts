@@ -255,8 +255,13 @@ describe('client locale corpus', () => {
     // seat to someone else: `notifications.event.seat_release_warning` title
     // and body, rendered on the server into the notification feed, the push
     // and the linked chat channels. +2 (carnet#505).
+    // 2347 once the group weekly digest stopped reaching Telegram as one
+    // English line naming the group by its raw chat id:
+    // `notifications.group_digest.*` is its title, summary, trend, and the
+    // per-member volume, fresh-form and concern lines, rendered on the server
+    // in each manager's language. +17.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2330);
+    expect(reference).toHaveLength(2347);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

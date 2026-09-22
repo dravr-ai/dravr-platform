@@ -1974,6 +1974,29 @@
         "title": "Charge d'entraînement élevée"
       }
     },
+    "group_digest": {
+      "all_clear": "Rien à signaler côté forme et assiduité cette semaine.",
+      "concern": {
+        "deep_fatigue": "• {0} : forme à {1} % de sa charge chronique, fatigue profonde",
+        "heavy_block": "• {0} : forme à {1} % de sa charge chronique, fin de zone productive",
+        "inactive": "• {0} : aucune activité depuis {1} jours",
+        "overtraining_risk": "• {0} : risque de surentraînement élevé, prévois de la récupération",
+        "volume_drop": "• {0} : volume {1} % sous la moyenne du groupe"
+      },
+      "concerns_header": "À surveiller :",
+      "fresh": "• {0} : forme fraîche ({1} % de sa charge chronique)",
+      "highlights_header": "En forme :",
+      "member_line": "• {0} : {1} km",
+      "member_line_prev": "• {0} : {1} km (semaine précédente : {2} km)",
+      "members_header": "Volume de la semaine :",
+      "summary": "{0}/{1} membres actifs cette semaine, {2} km en moyenne par membre.",
+      "title": "Récap hebdo : {0}",
+      "trend": {
+        "declining": "Volume du groupe en baisse par rapport à la semaine dernière — prends des nouvelles des membres moins actifs.",
+        "improving": "Volume du groupe en hausse par rapport à la semaine dernière — veille à ce que la récupération suive.",
+        "stable": "Volume du groupe stable par rapport à la semaine dernière."
+      }
+    },
     "hoursAgo": "il y a {{count}} h",
     "justNow": "à l'instant",
     "minutesAgo": "il y a {{count}} min"
