@@ -1042,6 +1042,8 @@
     "toolBudgetSection": "Orçamento de ferramentas",
     "trainingPlanTitle": "Plano de treino",
     "tryAgain": "Tentar de novo",
+    "turnIdleAborted": "A app ficou inativa antes de esta resposta chegar, por isso pode ter sido escrita na mesma. Volta a abrir esta conversa para confirmares, ou envia a tua mensagem outra vez.",
+    "turnTryAgain": "Tenta de novo.",
     "typeMessage": "Escreve uma mensagem…",
     "unreadCountAria": "{{count}} por ler",
     "untitledChat": "Conversa sem título",

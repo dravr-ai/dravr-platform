@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { ReplyBlock, TurnEnvelope, TurnProgress } from '@pierre/shared-types';
 import { TurnRequestError } from '@pierre/api-client';
+import { TurnIdleAbortedError } from '@pierre/api-client';
 
 import { chatApi, pierreApi } from '../index';
 
@@ -233,12 +234,9 @@ describe('sendTurn — the one request every surface sends', () => {
     });
 
     expect(onDone).not.toHaveBeenCalled();
-    // The server finishes the turn after the stream goes, so the athlete is
-    // told the reply may already be written — not that the turn was stopped.
-    expect((failure as Error | null)?.message).toBe(
-      'The app went idle before this reply arrived, so it may still have been written. ' +
-        'Reopen this conversation to check, or send your message again.',
-    );
+    // The transport reports the idle stop as a typed error with no
+    // athlete-facing words; each client words it from the shared catalogue.
+    expect(failure).toBeInstanceOf(TurnIdleAbortedError);
   });
 
   it('reads a slash-command answer, which is one JSON document and no stream', async () => {

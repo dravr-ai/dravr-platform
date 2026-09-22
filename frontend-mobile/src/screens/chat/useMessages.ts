@@ -12,7 +12,7 @@ import {
   trackAbsence,
   whenAthleteReturns,
 } from '../../services/idleSignal';
-import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
+import { replySceneBlocks, TurnIdleAbortedError, type MessagesResponse } from '@pierre/api-client';
 import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
 import { filterDisplayMessages, replyLandedSince, statusForProgress } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
@@ -297,6 +297,17 @@ export function useMessages(): MessagesState & MessagesActions {
   }, [recoverLostReply]);
 
   /**
+   * What the athlete reads for a failed turn. The idle stop's error carries no
+   * athlete-facing words, so its note comes from the shared catalogue, in the
+   * athlete's language; every other failure already arrives worded.
+   */
+  const turnFailureText = useCallback(
+    (failure: Error): string =>
+      failure instanceof TurnIdleAbortedError ? t('chat.turnIdleAborted') : failure.message,
+    [t],
+  );
+
+  /**
    * The row a failed turn leaves in the thread.
    *
    * A turn the idle stop dropped carries its own guidance — the reply may
@@ -305,10 +316,12 @@ export function useMessages(): MessagesState & MessagesActions {
   const failedTurnRow = useCallback((failure: Error, aborted: boolean): Message => ({
     id: `error-${Date.now()}`,
     role: 'assistant',
-    content: aborted ? `⚠️ ${failure.message}` : `⚠️ ${failure.message}\n\nPlease try again.`,
+    content: aborted
+      ? `⚠️ ${turnFailureText(failure)}`
+      : `⚠️ ${turnFailureText(failure)}\n\n${t('chat.turnTryAgain')}`,
     created_at: new Date().toISOString(),
     isError: true,
-  }), []);
+  }), [t, turnFailureText]);
 
   const sendTurn = useCallback(async (
     conversationId: string,
@@ -399,7 +412,7 @@ export function useMessages(): MessagesState & MessagesActions {
           rotatedTo = turn.rotated_to_conversation_id ?? null;
         },
         onError: sendErr => {
-          setError(sendErr.message);
+          setError(turnFailureText(sendErr));
           invalidateConversationList();
           const errorResponse = failedTurnRow(sendErr, signal.aborted);
           const question: Message = { ...userMessage, id: `user-${Date.now()}` };
@@ -411,7 +424,7 @@ export function useMessages(): MessagesState & MessagesActions {
               heldIds,
               question,
               note: errorResponse,
-              failure: sendErr.message,
+              failure: turnFailureText(sendErr),
             };
           }
           setMessages(prev => [
@@ -490,7 +503,7 @@ export function useMessages(): MessagesState & MessagesActions {
           invalidateConversationList();
         },
         onError: err => {
-          setError(err.message);
+          setError(turnFailureText(err));
           invalidateConversationList();
           const errorRow = failedTurnRow(err, signal.aborted);
           if (leftDuringTurn()) {
@@ -501,7 +514,7 @@ export function useMessages(): MessagesState & MessagesActions {
               // where it was in the transcript.
               question: { ...userMessage, id: `user-${Date.now()}` },
               note: errorRow,
-              failure: err.message,
+              failure: turnFailureText(err),
             };
           }
           setMessages(prev => [...prev, errorRow]);

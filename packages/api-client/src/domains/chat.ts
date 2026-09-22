@@ -19,7 +19,12 @@ import type {
 } from '@pierre/shared-types';
 import type { PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
-import { parseTurnBody, TurnRequestError, type TurnCallbacks } from '../core/turn-stream';
+import {
+  parseTurnBody,
+  TurnIdleAbortedError,
+  TurnRequestError,
+  type TurnCallbacks,
+} from '../core/turn-stream';
 import { readHeader, recoverFromRefusal } from '../core/auth-challenge';
 
 // Re-export types for consumers
@@ -98,17 +103,6 @@ export interface SendTurnOptions extends TurnCallbacks {
    */
   signal?: AbortSignal;
 }
-
-/**
- * What {@link ChatApi.sendTurn} reports when the idle watch dropped a turn.
- *
- * It must not tell the athlete the turn was lost: the server kept going after
- * the stream closed, so the reply may well be written by the time they read
- * this. The client hides the note once a re-read of the conversation shows
- * that reply; the note is what they see when it has not landed yet.
- */
-const ABORTED_MESSAGE =
-  'The app went idle before this reply arrived, so it may still have been written. Reopen this conversation to check, or send your message again.';
 
 /**
  * Build the headers one turn goes out with.
@@ -390,7 +384,7 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         });
       } catch (error) {
         if (options?.signal?.aborted) {
-          options.onError?.(new Error(ABORTED_MESSAGE));
+          options.onError?.(new TurnIdleAbortedError());
           return;
         }
         options?.onError?.(

@@ -44,7 +44,7 @@ import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
 import { useCoachInfo } from '../hooks/useCoachInfo';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { replySceneBlocks } from '@pierre/api-client';
+import { replySceneBlocks, TurnIdleAbortedError } from '@pierre/api-client';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type {
   Message,
@@ -615,14 +615,17 @@ export default function ChatTab({
         }
       },
       onError: error => {
-        setErrorMessage(error.message);
+        // The idle stop's error carries no athlete-facing words; its note
+        // comes from the shared catalogue, in the athlete's language.
+        const note = error instanceof TurnIdleAbortedError ? t('chat.turnIdleAborted') : error.message;
+        setErrorMessage(note);
         queryClient.invalidateQueries({ queryKey: conversationKey });
         // Failed while the athlete was away — the idle stop dropped the
         // stream, or the network went with a sleeping laptop. The server kept
         // going, so the note stands only until a read of the thread holds the
         // reply; the messages query re-reads it on their return.
         if (leftDuringTurn()) {
-          setLostTurn({ conversationId: selectedConversation, heldIds, note: error.message });
+          setLostTurn({ conversationId: selectedConversation, heldIds, note });
         }
       },
     });
@@ -634,7 +637,7 @@ export default function ChatTab({
     // line has nothing left to say.
     setProgressStatusText(null);
     usageStatus.invalidate();
-  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation]);
+  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t]);
 
   /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
   const handleSendMessage = useCallback(() => {

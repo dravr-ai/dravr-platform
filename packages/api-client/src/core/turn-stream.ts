@@ -66,6 +66,22 @@ export class TurnRequestError extends Error {
   }
 }
 
+/**
+ * What {@link ChatApi.sendTurn} reports when the idle watch dropped a turn.
+ *
+ * It carries no athlete-facing words. The server kept going after the stream
+ * closed, so the reply may well be written by the time the athlete reads the
+ * note; each client renders `chat.turnIdleAborted` from the shared catalogue,
+ * in the athlete's language, and hides it once a re-read of the conversation
+ * shows the reply. The message below is for logs and tests only.
+ */
+export class TurnIdleAbortedError extends Error {
+  constructor() {
+    super('The idle stop dropped the turn stream; the server may still have finished the reply.');
+    this.name = 'TurnIdleAbortedError';
+  }
+}
+
 /** Prefixes that mark a body as a `text/event-stream` document. */
 const SSE_LINE_PREFIXES = ['event:', 'data:', 'id:', 'retry:', ':'] as const;
 

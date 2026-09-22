@@ -1042,6 +1042,8 @@
     "toolBudgetSection": "Budget d’outils",
     "trainingPlanTitle": "Plan d’entraînement",
     "tryAgain": "Réessayer",
+    "turnIdleAborted": "L’application s’est mise en veille avant l’arrivée de cette réponse : elle a peut-être quand même été écrite. Rouvre cette conversation pour vérifier, ou renvoie ton message.",
+    "turnTryAgain": "Réessaie.",
     "typeMessage": "Écris un message…",
     "unreadCountAria": "{{count}} non lus",
     "untitledChat": "Discussion sans titre",

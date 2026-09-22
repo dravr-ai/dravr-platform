@@ -114,11 +114,11 @@ jest.mock('../src/screens/chat/useChatPlusActions', () => {
 import { ChatScreen } from '../src/screens/chat/ChatScreen';
 import { idleAbort, registerIdleWatch, resetIdleAbort } from '../src/services/idleSignal';
 import type { Message } from '../src/types';
+import { TurnIdleAbortedError } from '@pierre/api-client';
+import { i18n } from '@pierre/i18n';
 
-/** What the transport reports for an aborted turn — `sendTurn`'s own text, pinned by its unit test. */
-const LOST_NOTE =
-  'The app went idle before this reply arrived, so it may still have been written. ' +
-  'Reopen this conversation to check, or send your message again.';
+/** The note the chat shows for a turn the idle stop dropped: the catalogue's own words. */
+const LOST_NOTE = i18n.t('chat.turnIdleAborted');
 const QUESTION = 'How was my week?';
 const REPLY = 'Your week: 42 km, all of it easy.';
 
@@ -147,7 +147,7 @@ function streamUntilAborted() {
     ) =>
       new Promise<void>(resolve => {
         options.signal?.addEventListener('abort', () => {
-          options.onError?.(new Error(LOST_NOTE));
+          options.onError?.(new TurnIdleAbortedError());
           resolve();
         });
       }),

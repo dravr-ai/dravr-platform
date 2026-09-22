@@ -11,6 +11,8 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import type { Message } from '@pierre/shared-types';
 import { IDLE_STOP_AFTER_MS } from '@pierre/shared-constants';
+import { TurnIdleAbortedError } from '@pierre/api-client';
+import { i18n } from '@pierre/i18n';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
 import { useIdleWatch } from '../../hooks/useIdleWatch';
@@ -61,10 +63,8 @@ vi.mock('../../hooks/useUsageStatus', () => ({
   }),
 }));
 
-/** What the transport reports for an aborted turn — `sendTurn`'s own text, pinned by its unit test. */
-const LOST_NOTE =
-  'The app went idle before this reply arrived, so it may still have been written. ' +
-  'Reopen this conversation to check, or send your message again.';
+/** The note the chat shows for a turn the idle stop dropped: the catalogue's own words. */
+const LOST_NOTE = i18n.t('chat.turnIdleAborted');
 const QUESTION = 'How was my week?';
 const REPLY = 'Your week: 42 km, all of it easy.';
 
@@ -136,7 +136,7 @@ function streamUntilAborted() {
       new Promise<void>(resolve => {
         signal = options.signal;
         options.signal?.addEventListener('abort', () => {
-          options.onError?.(new Error(LOST_NOTE));
+          options.onError?.(new TurnIdleAbortedError());
           resolve();
         });
       }),

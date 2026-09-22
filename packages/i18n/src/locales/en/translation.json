@@ -1042,6 +1042,8 @@
     "toolBudgetSection": "Tool Budget",
     "trainingPlanTitle": "Training plan",
     "tryAgain": "Try Again",
+    "turnIdleAborted": "The app went idle before this reply arrived, so it may still have been written. Reopen this conversation to check, or send your message again.",
+    "turnTryAgain": "Please try again.",
     "typeMessage": "Write a message...",
     "unreadCountAria": "{{count}} unread",
     "untitledChat": "Untitled Chat",

@@ -247,8 +247,12 @@ describe('client locale corpus', () => {
     // button: `commands.reset.quota` is the refusal the athlete hears on
     // every surface, with the cap interpolated, in place of the error's wire
     // text. +1.
+    // 2328 once a failed turn's words left the transport: `chat.turnIdleAborted`
+    // is the note for a turn the idle stop dropped, and `chat.turnTryAgain` the
+    // suffix a mobile failure row carries, both read by the clients in the
+    // athlete's language instead of English literals. +2.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2326);
+    expect(reference).toHaveLength(2328);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

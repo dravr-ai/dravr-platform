@@ -1042,6 +1042,8 @@
     "toolBudgetSection": "Werkzeug-Budget",
     "trainingPlanTitle": "Trainingsplan",
     "tryAgain": "Erneut versuchen",
+    "turnIdleAborted": "Die App war inaktiv, bevor diese Antwort ankam, sie wurde also vielleicht trotzdem geschrieben. Öffne diese Unterhaltung erneut, um nachzusehen, oder schick deine Nachricht noch einmal.",
+    "turnTryAgain": "Versuch es noch einmal.",
     "typeMessage": "Schreib eine Nachricht…",
     "unreadCountAria": "{{count}} ungelesen",
     "untitledChat": "Unterhaltung ohne Titel",

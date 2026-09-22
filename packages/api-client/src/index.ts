@@ -54,7 +54,12 @@ export type {
 // app-wide error surface asks this before saying anything, so a permission
 // message is never flashed at an athlete on their way to the login form.
 export { droveReauthentication } from './core/auth-challenge';
-export { parseTurnBody, readEventStream, TurnRequestError } from './core/turn-stream';
+export {
+  parseTurnBody,
+  readEventStream,
+  TurnIdleAbortedError,
+  TurnRequestError,
+} from './core/turn-stream';
 export type { TurnCallbacks, TurnProgressSink, SseFrame } from './core/turn-stream';
 export type { ClaimVerdict, ChatVerdictsResponse } from './domains/chat';
 

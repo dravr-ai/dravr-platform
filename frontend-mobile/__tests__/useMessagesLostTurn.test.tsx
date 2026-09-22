@@ -25,11 +25,11 @@ jest.mock('../src/services/api', () => ({
 import { useMessages } from '../src/screens/chat/useMessages';
 import { idleAbort, registerIdleWatch, resetIdleAbort } from '../src/services/idleSignal';
 import type { Message } from '../src/types';
+import { TurnIdleAbortedError } from '@pierre/api-client';
+import { i18n } from '@pierre/i18n';
 
-/** What the transport reports for an aborted turn — `sendTurn`'s own text, pinned by its unit test. */
-const LOST_NOTE =
-  'The app went idle before this reply arrived, so it may still have been written. ' +
-  'Reopen this conversation to check, or send your message again.';
+/** The note the chat shows for a turn the idle stop dropped: the catalogue's own words. */
+const LOST_NOTE = i18n.t('chat.turnIdleAborted');
 const QUESTION = 'How was my week?';
 const REPLY = 'Your week: 42 km, all of it easy.';
 
@@ -95,7 +95,7 @@ function holdTurnOpen(): OpenTurn {
         // Faithful to `sendTurn`: an aborted signal ends the turn with the
         // idle note, a transport failure with the runtime's own text.
         options.signal?.addEventListener('abort', () => {
-          options.onError?.(new Error(LOST_NOTE));
+          options.onError?.(new TurnIdleAbortedError());
           resolve();
         });
         turn.dropConnection = () => {
@@ -267,8 +267,57 @@ describe('useMessages turn lost while the app was backgrounded', () => {
     expect(rows).toHaveLength(4);
     // The athlete's line, then the note whose Retry re-sends it.
     expect(rows[2]).toMatchObject({ role: 'user', content: QUESTION });
-    expect(rows[3]).toMatchObject({ isError: true, content: '⚠️ Network request failed\n\nPlease try again.' });
+    expect(rows[3]).toMatchObject({
+      isError: true,
+      content: `⚠️ Network request failed\n\n${i18n.t('chat.turnTryAgain')}`,
+    });
     expect(result.current.error).toBe('Network request failed');
+  });
+
+  it('words the idle note in the athlete\'s language', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      holdTurnOpen();
+      const { result } = renderHook(() => useMessages());
+      const sending = await sendThenBackground(result);
+      mockGetConversationMessages.mockResolvedValue({ messages: QUESTION_ONLY });
+      await act(async () => {
+        jest.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+        await sending();
+      });
+      const note = result.current.messages.find(m => m.isError);
+      expect(note?.content).toBe(`⚠️ ${i18n.t('chat.turnIdleAborted')}`);
+      expect(note?.content).toContain('Rouvre cette conversation');
+      expect(result.current.error).toBe(i18n.t('chat.turnIdleAborted'));
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+  });
+
+  it('words the try-again suffix of a dropped turn in the athlete\'s language', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const turn = holdTurnOpen();
+      const { result } = renderHook(() => useMessages());
+      const sending = await sendThenBackground(result);
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+        turn.dropConnection();
+        await sending();
+      });
+      const note = result.current.messages.find(m => m.isError);
+      expect(note?.content).toBe('⚠️ Network request failed\n\nRéessaie.');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('holds the re-read back when the athlete sends a new turn before it lands', async () => {
