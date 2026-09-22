@@ -185,6 +185,8 @@ pub struct DetailedActivityResponse {
     pub pr_count: Option<u32>,
     /// Name of the recording device
     pub device_name: Option<String>,
+    /// The athlete's free-text notes on the activity. Untrusted text.
+    pub description: Option<String>,
 
     // Complex nested data
     /// Metric splits (1km or 1mi intervals)

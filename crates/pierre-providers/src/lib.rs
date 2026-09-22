@@ -52,6 +52,9 @@ mod intervals_icu_calendar;
 /// Intervals.icu pull-only provider (Endurance Phase 4)
 #[cfg(feature = "provider-intervals-icu")]
 pub mod intervals_icu_provider;
+/// Intervals.icu athlete self-report: the inverted `feel` scale, RPE, and the activity comment thread.
+#[cfg(feature = "provider-intervals-icu")]
+mod intervals_icu_self_report;
 /// Sciotte remote-service provider — routes scrapes to the dedicated dravr-sciotte service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;

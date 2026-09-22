@@ -312,6 +312,7 @@ impl StravaProvider {
         Ok(Self::strava_activity_builder(detailed.summary)?
             .splits_opt(splits)
             .laps_opt(laps)
+            .description_opt(detailed.description.filter(|d| !d.trim().is_empty()))
             .time_series_data_opt(streams)
             .build())
     }

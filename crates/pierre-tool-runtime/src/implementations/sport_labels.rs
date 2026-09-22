@@ -1,16 +1,28 @@
-// ABOUTME: Localized short sport labels for the prose surfaces the athlete and the agent both read
-// ABOUTME: One five-locale table per SportType variant, exhaustive so a new variant cannot ship untranslated
+// ABOUTME: Localized short sport and self-report labels for the prose surfaces the athlete and the agent both read
+// ABOUTME: Five-locale tables per SportType and Feel variant, exhaustive so a new variant cannot ship untranslated
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The sport nouns an activity row carries.
+//! The sport nouns and self-report words an activity row carries.
 //!
 //! fr "course à pied" / "rando", not the English `display_name`, so a French
-//! list reads natively. Split out of `fitness_support` so the table can be
-//! found and extended on its own.
+//! list reads natively. Split out of `fitness_support` so the tables can be
+//! found and extended on their own.
 
-use pierre_core::models::SportType;
+use pierre_core::models::{Feel, SportType};
+
+/// Column of a `[fr, en, es, de, pt]` table for a BCP-47 locale; English for
+/// any locale without a column.
+fn locale_column(locale: &str) -> usize {
+    match locale.get(0..2).unwrap_or("en") {
+        "fr" => 0,
+        "es" => 2,
+        "de" => 3,
+        "pt" => 4,
+        _ => 1,
+    }
+}
 
 /// Localized short sport-type label for the activity list, keyed by BCP-47
 /// locale.
@@ -154,12 +166,56 @@ pub fn localized_sport_name(sport: &SportType, locale: &str) -> String {
             "patinação inline",
         ],
     };
-    let idx = match locale.get(0..2).unwrap_or("en") {
-        "fr" => 0,
-        "es" => 2,
-        "de" => 3,
-        "pt" => 4,
-        _ => 1,
+    names[locale_column(locale)].to_owned()
+}
+
+/// How the athlete said they felt, as the localized phrase an activity row
+/// carries (fr "ressenti : mauvais", en "felt poor").
+///
+/// The rating is spelled out rather than numbered: the one provider that
+/// reports it ranks 1 as the best, and a number invites exactly the backwards
+/// reading the named [`Feel`] scale exists to prevent. The match has no
+/// wildcard arm, so a new variant fails compilation here until its five
+/// translations are added.
+#[must_use]
+pub fn localized_feel(feel: Feel, locale: &str) -> &'static str {
+    // [fr, en, es, de, pt]
+    let phrases: [&str; 5] = match feel {
+        Feel::Strong => [
+            "ressenti : très bon",
+            "felt strong",
+            "sensación: muy buena",
+            "Gefühl: sehr gut",
+            "sensação: muito boa",
+        ],
+        Feel::Good => [
+            "ressenti : bon",
+            "felt good",
+            "sensación: buena",
+            "Gefühl: gut",
+            "sensação: boa",
+        ],
+        Feel::Normal => [
+            "ressenti : normal",
+            "felt normal",
+            "sensación: normal",
+            "Gefühl: normal",
+            "sensação: normal",
+        ],
+        Feel::Poor => [
+            "ressenti : mauvais",
+            "felt poor",
+            "sensación: mala",
+            "Gefühl: schlecht",
+            "sensação: ruim",
+        ],
+        Feel::Weak => [
+            "ressenti : très mauvais",
+            "felt weak",
+            "sensación: muy mala",
+            "Gefühl: sehr schlecht",
+            "sensação: muito ruim",
+        ],
     };
-    names[idx].to_owned()
+    phrases[locale_column(locale)]
 }

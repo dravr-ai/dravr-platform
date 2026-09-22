@@ -46,7 +46,7 @@ use pierre_core::civil_time::{
 use pierre_core::models::Activity;
 use pierre_providers::deduplication::FragmentReport;
 
-use super::sport_labels::localized_sport_name;
+use super::sport_labels::{localized_feel, localized_sport_name};
 
 /// Format activities as a numbered human-readable list for LLM output.
 ///
@@ -226,6 +226,16 @@ pub fn format_activities_as_list<S: BuildHasher>(
             // the agent reasoning loop and the providers report 1-decimal at
             // best. The leading sign survives `{:.0}` for sub-zero readings.
             let _ = write!(extras, " - {temp:.0}°C");
+        }
+        // The athlete's own report of the session, when their provider
+        // carries one. Ranked beside the sensors because it is the one signal
+        // no sensor measures: a ride at a routine heart rate the athlete
+        // rated 8/10 and felt poor on is the session a coach asks about.
+        if let Some(rpe) = activity.perceived_exertion() {
+            let _ = write!(extras, " - RPE {rpe:.0}/10");
+        }
+        if let Some(feel) = activity.feel() {
+            let _ = write!(extras, " - {}", localized_feel(feel, locale));
         }
 
         lines.push(format!(

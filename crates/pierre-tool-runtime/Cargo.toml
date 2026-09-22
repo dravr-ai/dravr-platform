@@ -119,6 +119,10 @@ name = "activity_list_local_clock_test"
 required-features = ["tools-data"]
 
 [[test]]
+name = "activity_self_report_render_test"
+required-features = ["tools-data"]
+
+[[test]]
 name = "activity_revalidation_dedup_test"
 required-features = ["tools-groups"]
 

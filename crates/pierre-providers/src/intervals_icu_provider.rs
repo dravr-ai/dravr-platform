@@ -69,9 +69,12 @@ use crate::http_client::{shared_client, SharedHttpClient, SharedHttpError, Share
 use crate::intervals_icu_calendar::{
     event_body, event_id_segment, CreatedEvent, DeleteEventsResponse,
 };
+use crate::intervals_icu_self_report::{
+    comments_from_messages, feel_from_icu, rpe_from_icu, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
+};
 use crate::models::{
-    Activity, ActivityBuilder, Athlete, CalendarEventRef, PersonalRecord, PlannedSession,
-    SportType, Stats, TimeSeriesData,
+    Activity, ActivityBuilder, ActivityComment, Athlete, CalendarEventRef, PersonalRecord,
+    PlannedSession, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 
@@ -198,9 +201,10 @@ pub fn default_config() -> ProviderConfig {
 
 /// Intervals.icu activity payload shape (subset we map to `Activity`).
 ///
-/// LIMITATION(registre#46): `IntervalsIcuActivity` and `IntervalsIcuWellness` deserialize the
-/// numeric fields only — `feel` (inverted: 1 is best), `icu_rpe`, `session_rpe`, `description`,
-/// the per-activity message stream and wellness `comments` / `lactate` are dropped on read.
+/// Carries the athlete's self-report alongside the sensor fields: `feel`,
+/// `icu_rpe` and the free-text `description`. `session_rpe` is not read — it
+/// is `icu_rpe` × moving minutes, a load figure derived from two fields the
+/// activity already carries, not a separate report.
 #[derive(Debug, Deserialize)]
 struct IntervalsIcuActivity {
     id: String,
@@ -235,6 +239,16 @@ struct IntervalsIcuActivity {
     weighted_average_watts: Option<f64>,
     #[serde(default)]
     icu_ftp: Option<f64>,
+    /// How the athlete felt, 1–5 with **1 as the best** — the reverse of most
+    /// scales. Read only through [`feel_from_icu`].
+    #[serde(default)]
+    feel: Option<i32>,
+    /// Rating of perceived exertion, 1–10.
+    #[serde(default)]
+    icu_rpe: Option<i32>,
+    /// The athlete's free-text notes on the activity.
+    #[serde(default)]
+    description: Option<String>,
 }
 
 /// Intervals.icu athlete profile shape.
@@ -371,7 +385,7 @@ impl IntervalsIcuProvider {
         })?;
         Ok(raw
             .into_iter()
-            .filter_map(|a| map_activity(a, None))
+            .filter_map(|a| map_activity(a, None, None))
             .collect())
     }
 
@@ -479,8 +493,83 @@ impl IntervalsIcuProvider {
         Ok(Some(streams_to_time_series(&raw)))
     }
 
-    /// Fetch the daily wellness rows for the date range — Intervals.icu's
-    /// canonical feed for HRV / RHR / sleep / weight.
+    /// Fetch the comments on an activity — its message thread
+    /// (`/api/v1/activity/{id}/messages`), oldest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError`] when credentials are missing, the upstream HTTP
+    /// call fails, or the response cannot be deserialised.
+    pub async fn get_activity_comments(
+        &self,
+        activity_id: &str,
+    ) -> AppResult<Vec<ActivityComment>> {
+        let (_, api_key) = self.require_credentials().await?;
+        let url = self.activity_url(activity_id, "/messages");
+        let req = self
+            .http
+            .get(&url)
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+            .header("Accept", "application/json")
+            .query(&[("limit", MAX_ACTIVITY_MESSAGES.to_string())]);
+        let response = send_traced(req, "get_activity_comments", &url)
+            .await
+            .map_err(|e| {
+                AppError::external_service("intervals_icu", format!("get_activity_comments: {e}"))
+            })?;
+        if !response.status().is_success() {
+            return Err(AppError::external_service(
+                "intervals_icu",
+                format!("get_activity_comments returned {}", response.status()),
+            ));
+        }
+        let raw: Vec<IntervalsIcuMessage> = response.json().await.map_err(|e| {
+            AppError::external_service(
+                "intervals_icu",
+                format!("get_activity_comments decode: {e}"),
+            )
+        })?;
+        Ok(comments_from_messages(raw))
+    }
+
+    /// The comments on an activity, or `None` when the thread could not be
+    /// read. Best-effort: a detail read that lost its comments still serves
+    /// the activity, exactly as a lost streams fetch does.
+    async fn comments_best_effort(&self, activity_id: &str) -> Option<Vec<ActivityComment>> {
+        match self.get_activity_comments(activity_id).await {
+            Ok(comments) => Some(comments),
+            Err(e) => {
+                warn!(activity_id = %activity_id, error = %e, "intervals_icu comments fetch failed; serving the activity without them");
+                None
+            }
+        }
+    }
+
+    /// Fetch one activity's raw payload.
+    async fn fetch_activity(&self, id: &str) -> AppResult<IntervalsIcuActivity> {
+        let (_, api_key) = self.require_credentials().await?;
+        let url = self.activity_url(id, "");
+        let req = self
+            .http
+            .get(&url)
+            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
+            .header("Accept", "application/json");
+        let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("get_activity: {e}"))
+        })?;
+        if !response.status().is_success() {
+            return Err(AppError::external_service(
+                "intervals_icu",
+                format!("get_activity returned {}", response.status()),
+            ));
+        }
+        response.json().await.map_err(|e| {
+            AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
+        })
+    }
+
+    /// LIMITATION(registre#508): `get_wellness` has no production caller — the daily
+    /// HRV / RHR / sleep / weight rows and the athlete's note reach no recovery surface.
     ///
     /// # Errors
     ///
@@ -560,6 +649,11 @@ impl Default for IntervalsIcuProvider {
 }
 
 /// Daily wellness row from Intervals.icu (`/api/v1/athlete/{id}/wellness`).
+///
+/// Intervals.icu names these fields in camelCase on the wire (`restingHR`,
+/// `sleepSecs`, `sleepQuality`); each is renamed explicitly, because a
+/// `snake_case` name with `#[serde(default)]` does not fail to decode — it
+/// silently reads `None` for every row.
 #[derive(Debug, Clone, Deserialize)]
 pub struct IntervalsIcuWellness {
     /// Calendar date (YYYY-MM-DD).
@@ -574,14 +668,24 @@ pub struct IntervalsIcuWellness {
     #[serde(default)]
     pub weight: Option<f64>,
     /// Sleep duration in seconds.
-    #[serde(default)]
+    #[serde(default, rename = "sleepSecs")]
     pub sleep_secs: Option<u64>,
     /// Sleep quality (Intervals.icu 0-5 scale).
-    #[serde(default)]
+    #[serde(default, rename = "sleepQuality")]
     pub sleep_quality: Option<u8>,
     /// Athlete's perceived form (1-10 scale).
     #[serde(default)]
     pub readiness: Option<f64>,
+    /// Blood lactate (mmol/L).
+    #[serde(default)]
+    pub lactate: Option<f64>,
+    /// Carbohydrate intake for the day (g).
+    #[serde(default)]
+    pub carbohydrates: Option<f64>,
+    /// The athlete's free-text note for the day. Untrusted text: fence it with
+    /// `pierre_core::untrusted::fence_athlete_text` before a model reads it.
+    #[serde(default)]
+    pub comments: Option<String>,
 }
 
 /// Calendar event row from Intervals.icu (`/api/v1/athlete/{id}/events`).
@@ -710,7 +814,11 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
     }
 }
 
-fn map_activity(raw: IntervalsIcuActivity, streams: Option<TimeSeriesData>) -> Option<Activity> {
+fn map_activity(
+    raw: IntervalsIcuActivity,
+    streams: Option<TimeSeriesData>,
+    comments: Option<Vec<ActivityComment>>,
+) -> Option<Activity> {
     let start_date = parse_local_dt(&raw.start_date_local)?;
     let sport = sport_for(raw.activity_type.as_deref());
     let name = raw
@@ -760,11 +868,18 @@ fn map_activity(raw: IntervalsIcuActivity, streams: Option<TimeSeriesData>) -> O
     if let Some(ftp) = raw.icu_ftp {
         builder = builder.ftp(ftp as u32);
     }
-    builder = builder.time_series_data_opt(streams);
+    builder = builder
+        .feel_opt(raw.feel.and_then(feel_from_icu))
+        .perceived_exertion_opt(raw.icu_rpe.and_then(rpe_from_icu))
+        .description_opt(raw.description.filter(|d| !d.trim().is_empty()))
+        // An empty thread is a thread with nothing to say; `None` keeps it
+        // off the wire rather than serializing an empty list.
+        .comments_opt(comments.filter(|c| !c.is_empty()))
+        .time_series_data_opt(streams);
     Some(builder.build())
 }
 
-fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
         .ok()
@@ -898,52 +1013,27 @@ impl FitnessProvider for IntervalsIcuProvider {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        let (_, api_key) = self.require_credentials().await?;
-        let url = self.activity_url(id, "");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
-            .header("Accept", "application/json");
-        let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_activity: {e}"))
-        })?;
-        if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_activity returned {}", response.status()),
-            ));
-        }
-        let raw: IntervalsIcuActivity = response.json().await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
-        })?;
-        map_activity(raw, None)
+        let raw = self.fetch_activity(id).await?;
+        map_activity(raw, None, None)
             .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
     }
 
-    // The streams endpoint is a second round trip, so only this tier pays
+    // The comment thread is a second round trip, so the plain read skips it
+    // and the detail tier pays it: a detail read is the one that answers
+    // "how did that session go", and the comments are the athlete's answer.
+    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
+        let raw = self.fetch_activity(id).await?;
+        let comments = self.comments_best_effort(id).await;
+        map_activity(raw, None, comments)
+            .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
+    }
+
+    // The streams endpoint is a further round trip, so only this tier pays
     // it. Best-effort: a streams failure degrades to the plain activity —
     // stale-less summary beats a dead export.
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
-        let (_, api_key) = self.require_credentials().await?;
-        let url = self.activity_url(id, "");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
-            .header("Accept", "application/json");
-        let response = send_traced(req, "get_activity", &url).await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_activity: {e}"))
-        })?;
-        if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_activity returned {}", response.status()),
-            ));
-        }
-        let raw: IntervalsIcuActivity = response.json().await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_activity decode: {e}"))
-        })?;
+        let raw = self.fetch_activity(id).await?;
+        let comments = self.comments_best_effort(id).await;
         let streams = match self.get_streams(id).await {
             Ok(streams) => streams,
             Err(e) => {
@@ -951,7 +1041,7 @@ impl FitnessProvider for IntervalsIcuProvider {
                 None
             }
         };
-        map_activity(raw, streams)
+        map_activity(raw, streams, comments)
             .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
     }
 

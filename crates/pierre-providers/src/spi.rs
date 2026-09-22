@@ -681,13 +681,12 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // Activities + wellness (HRV / resting HR / weight). API-key auth, not
-        // OAuth — which is why this builds its own set rather than reusing
-        // `full_health()`, and why the cheap-detail flag has to be named here
-        // too: detail is one more HTTP GET, not a browser page load.
-        ProviderCapabilities::ACTIVITIES
-            .union(ProviderCapabilities::HEALTH_METRICS)
-            .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
+        // Activities only. The wellness feed (HRV / resting HR / weight) is
+        // read by no health path (registre#508), so advertising it would put a
+        // false "health" chip on the connect card and route freshness to an
+        // orchestrator that never syncs this provider. The cheap-detail flag is
+        // named because detail is one more HTTP GET, not a browser page load.
+        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

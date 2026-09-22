@@ -21,7 +21,7 @@
 
 use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_list_render::format_activities_as_list;
-use crate::implementations::activity_summary::ActivitySummary;
+use crate::implementations::activity_summary::{detail_json, ActivitySummary};
 use crate::implementations::athlete_stats::{GetAthleteResult, GetStatsResult};
 use crate::implementations::data_helpers::activity_coverage_note;
 use crate::protocol::format::formatted_response;
@@ -788,12 +788,12 @@ fn prepare_activity_data(
             .map(|v| (v, "summary"))
             .map_err(|e| format!("Failed to serialize activity summaries: {e}"))
     } else {
-        // Detail mode serializes the raw `Activity` (UTC `start_date`). Mirror
-        // the summary-mode localization by injecting `start_date_local` per
-        // element when the user has a timezone on file, so deep-dive responses
-        // display local start times just like list responses.
+        // Detail mode serializes the `Activity` (UTC `start_date`, athlete text
+        // fenced by `detail_json`). Mirror the summary-mode localization by
+        // injecting `start_date_local` per element when the user has a
+        // timezone on file, so deep-dive responses display local start times.
         let mut value =
-            to_value(activities).map_err(|e| format!("Failed to serialize activities: {e}"))?;
+            detail_json(activities).map_err(|e| format!("Failed to serialize activities: {e}"))?;
         if let Some(tz) = user_timezone.and_then(|s| s.parse::<chrono_tz::Tz>().ok()) {
             if let Some(arr) = value.as_array_mut() {
                 for (obj, activity) in arr.iter_mut().zip(activities.iter()) {

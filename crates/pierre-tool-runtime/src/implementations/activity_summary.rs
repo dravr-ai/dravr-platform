@@ -10,8 +10,22 @@
 // reasons over, so a sensor the provider reports but this struct omits is
 // invisible to the agent no matter how faithfully it was fetched.
 
-use pierre_core::models::{Activity, SportType, ZoneDistribution};
+use pierre_core::models::{Activity, Feel, SportType, ZoneDistribution};
+use pierre_core::untrusted::{cap, defang_for_display, fence_athlete_text, flatten_line};
 use serde::Serialize;
+use serde_json::{Map, Value};
+
+/// Longest athlete description `mode=detailed` carries, in characters.
+const MAX_DESCRIPTION_CHARS: usize = 600;
+
+/// Longest single comment `mode=detailed` carries, in characters.
+const MAX_COMMENT_CHARS: usize = 300;
+
+/// Most comments `mode=detailed` carries per activity — the newest ones.
+const MAX_COMMENTS: usize = 10;
+
+/// Longest comment author name, in characters.
+const MAX_AUTHOR_CHARS: usize = 60;
 
 /// Activity summary with scalar sensor fields for efficient list queries.
 ///
@@ -72,6 +86,14 @@ pub struct ActivitySummary {
     /// perceived exertion grounded in HR-in-zone time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suffer_score: Option<u32>,
+    /// The athlete's own rating of perceived exertion (1–10 CR-10 scale), when
+    /// their provider records one. Self-reported, unlike `suffer_score`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub perceived_exertion: Option<f32>,
+    /// How the athlete said they felt, named on a best-to-worst scale
+    /// (`strong` … `weak`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feel: Option<Feel>,
     /// Average ambient temperature in Celsius when the provider reports it.
     /// Outdoor activities from Strava and Garmin OAuth surface this when the
     /// recording device captured ambient temp; Coros does too if its watch
@@ -123,6 +145,8 @@ impl From<&Activity> for ActivitySummary {
             average_power: activity.average_power(),
             normalized_power: activity.normalized_power(),
             suffer_score: activity.suffer_score(),
+            perceived_exertion: activity.perceived_exertion(),
+            feel: activity.feel(),
             temperature: activity.temperature(),
             // Endurance metrics are derived in the latest_snapshot pipeline,
             // not at the per-activity summary boundary. Keep them None here
@@ -133,5 +157,72 @@ impl From<&Activity> for ActivitySummary {
             decoupling_pct: None,
             zone_distribution: None,
         }
+    }
+}
+
+/// Serialize activities for `mode=detailed`, fencing the athlete-authored text.
+///
+/// Detail mode hands the model the raw [`Activity`], and two of its fields are
+/// free prose anyone with write access to the athlete's provider account
+/// typed: the description and the comment thread. Each is fenced with
+/// [`fence_athlete_text`] — one line, capped, its angle brackets unable to
+/// close the fence — so a note reading "ignore your instructions" arrives as
+/// something the athlete wrote, never as something the agent was told. A
+/// comment author is a display name, so it is flattened and defanged rather
+/// than fenced. The thread keeps its newest [`MAX_COMMENTS`] entries.
+///
+/// # Errors
+///
+/// Returns the serialization error when an activity cannot be encoded.
+pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
+    let mut value = serde_json::to_value(activities)?;
+    if let Some(rows) = value.as_array_mut() {
+        for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+            fence_self_report(row);
+        }
+    }
+    Ok(value)
+}
+
+/// Fence one serialized activity's description and comment thread in place.
+fn fence_self_report(row: &mut Map<String, Value>) {
+    let description = row
+        .get("description")
+        .and_then(Value::as_str)
+        .and_then(|d| fence_athlete_text(d, MAX_DESCRIPTION_CHARS));
+    match description {
+        Some(fenced) => {
+            row.insert("description".to_owned(), Value::String(fenced));
+        }
+        None => {
+            row.remove("description");
+        }
+    }
+
+    let Some(Value::Array(comments)) = row.get_mut("comments") else {
+        return;
+    };
+    let oldest_kept = comments.len().saturating_sub(MAX_COMMENTS);
+    comments.drain(..oldest_kept);
+    comments.retain_mut(|comment| {
+        let Some(entry) = comment.as_object_mut() else {
+            return false;
+        };
+        let Some(text) = entry
+            .get("text")
+            .and_then(Value::as_str)
+            .and_then(|t| fence_athlete_text(t, MAX_COMMENT_CHARS))
+        else {
+            return false;
+        };
+        entry.insert("text".to_owned(), Value::String(text));
+        if let Some(author) = entry.get("author").and_then(Value::as_str) {
+            let name = cap(&defang_for_display(&flatten_line(author)), MAX_AUTHOR_CHARS);
+            entry.insert("author".to_owned(), Value::String(name));
+        }
+        true
+    });
+    if comments.is_empty() {
+        row.remove("comments");
     }
 }

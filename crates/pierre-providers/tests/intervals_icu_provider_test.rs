@@ -23,7 +23,7 @@ use pierre_providers::models::periodization::{
     EvidenceTier, PhaseFit, PhaseKind, Progression, ReadinessLevel, WorkoutParams, WorkoutPurpose,
 };
 use pierre_providers::models::{
-    IntensityDistribution, PlannedSession, SportType, WorkoutTargetZones, WorkoutTemplate,
+    Feel, IntensityDistribution, PlannedSession, SportType, WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::ProviderRegistry;
@@ -223,6 +223,22 @@ async fn registry_registers_intervals_icu_as_non_oauth() {
         .create_provider("intervals_icu")
         .expect("factory creates provider");
     assert_eq!(provider.name(), "intervals_icu");
+
+    // Only what a path actually serves: activities with cheap detail. The
+    // wellness feed reaches no health surface (registre#508), and a HEALTH
+    // flag would put a false "health" chip on the connect card and send the
+    // freshness check to an orchestrator that never syncs this provider.
+    let caps = registry
+        .get_descriptor("intervals_icu")
+        .expect("descriptor registered")
+        .capabilities();
+    assert!(caps.supports_activities());
+    assert!(
+        !caps.supports_health(),
+        "no health path serves intervals.icu"
+    );
+    assert!(!caps.supports_recovery());
+    assert!(!caps.supports_sleep());
 }
 
 #[tokio::test]
@@ -643,7 +659,8 @@ async fn a_deep_request_pages_past_the_single_response_cap() {
 
 /// `get_activity_with_streams` folds the streams endpoint's response —
 /// including the flat interleaved `latlng` list — into the activity's
-/// time-series data. Two sequential requests: the activity, then its streams.
+/// time-series data. Three sequential requests: the activity, its comment
+/// thread (the tier sits above the detail read), then its streams.
 #[tokio::test]
 async fn get_activity_with_streams_folds_the_streams_response() {
     let activity_body = serde_json::json!({
@@ -662,7 +679,12 @@ async fn get_activity_with_streams_folds_the_streams_response() {
     ])
     .to_string();
 
-    let (base_url, stub) = stub_pages(vec![activity_body, streams_body]).await;
+    let messages_body = serde_json::json!([
+        { "id": 1, "name": "Alex", "type": "TEXT", "created": "2026-08-30T12:00:00Z",
+          "content": "Short test ride" }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![activity_body, messages_body, streams_body]).await;
     let mut config = default_config();
     config.api_base_url = base_url;
     let provider = IntervalsIcuProvider::with_config(config);
@@ -680,12 +702,20 @@ async fn get_activity_with_streams_folds_the_streams_response() {
         .await
         .expect("stub finished")
         .expect("join");
-    assert_eq!(heads.len(), 2, "activity then streams");
+    assert_eq!(heads.len(), 3, "activity, comments, then streams");
     assert!(
-        heads[1].contains("/api/v1/activity/i777/streams.json"),
-        "second request is the streams endpoint; got: {}",
+        heads[1].contains("/api/v1/activity/i777/messages"),
+        "second request is the comment thread; got: {}",
         heads[1]
     );
+    assert!(
+        heads[2].contains("/api/v1/activity/i777/streams.json"),
+        "third request is the streams endpoint; got: {}",
+        heads[2]
+    );
+    let comments = activity.comments().expect("thread attached");
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0].text, "Short test ride");
 
     let stream = activity
         .time_series_data()
@@ -710,5 +740,244 @@ async fn get_activity_with_streams_folds_the_streams_response() {
         stream.timestamps.len(),
         4,
         "timestamps synthesised per sample"
+    );
+}
+
+async fn provider_against(base_url: String) -> IntervalsIcuProvider {
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("credentials");
+    provider
+}
+
+fn self_reported_activity_body() -> String {
+    serde_json::json!({
+        "id": "i901",
+        "name": "Threshold intervals",
+        "type": "Ride",
+        "start_date_local": "2026-09-20T17:00:00",
+        "elapsed_time": 3600,
+        "feel": 4,
+        "icu_rpe": 8,
+        "session_rpe": 480,
+        "description": "Legs heavy after the long weekend"
+    })
+    .to_string()
+}
+
+/// The detail tier reads the athlete's self-report and the comment thread.
+///
+/// `feel` 4 on Intervals.icu is *Poor* — its scale ranks 1 as the best. A
+/// mapping that assumed higher is better would call this session good.
+#[tokio::test]
+async fn detail_read_carries_the_self_report_and_the_comment_thread() {
+    let messages_body = serde_json::json!([
+        { "id": 3, "name": "Coach Marie", "type": "TEXT", "created": "2026-09-20T19:30:00Z",
+          "content": "Back off the last set next time" },
+        { "id": 1, "name": "Alex", "type": "TEXT", "created": "2026-09-20T18:10:00Z",
+          "content": "Could not hold the power on rep 4" },
+        { "id": 2, "name": "Alex", "type": "TEXT", "created": "2026-09-20T18:20:00Z",
+          "content": "deleted by me", "deleted": "2026-09-20T18:21:00Z" },
+        { "id": 4, "name": "Sam", "type": "COACH_REQ", "created": "2026-09-20T20:00:00Z",
+          "content": "Coach me?" },
+        { "id": 5, "name": "Alex", "type": "TEXT", "created": "2026-09-20T20:10:00Z",
+          "content": "   " }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![self_reported_activity_body(), messages_body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activity = provider
+        .get_activity_detailed("i901")
+        .await
+        .expect("detail read");
+
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+    assert_eq!(heads.len(), 2, "activity then its messages");
+    assert_eq!(
+        request_target(&heads[1]),
+        "/api/v1/activity/i901/messages?limit=50"
+    );
+    assert_eq!(basic_credentials(&heads[1]), "API_KEY:test-api-key");
+
+    assert_eq!(
+        activity.feel(),
+        Some(Feel::Poor),
+        "feel 4 is Poor, not Good"
+    );
+    assert_eq!(activity.perceived_exertion(), Some(8.0));
+    assert_eq!(
+        activity.description(),
+        Some("Legs heavy after the long weekend")
+    );
+
+    let comments = activity.comments().expect("thread attached");
+    let texts: Vec<&str> = comments.iter().map(|c| c.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "Could not hold the power on rep 4",
+            "Back off the last set next time"
+        ],
+        "live TEXT comments only, oldest first"
+    );
+    assert_eq!(comments[1].author.as_deref(), Some("Coach Marie"));
+    assert_eq!(
+        comments[0].created_at.map(|t| t.to_rfc3339()).as_deref(),
+        Some("2026-09-20T18:10:00+00:00")
+    );
+}
+
+/// A thread that cannot be read costs the comments, never the activity.
+#[tokio::test]
+async fn detail_read_survives_an_unreadable_comment_thread() {
+    let (base_url, stub) =
+        stub_pages(vec![self_reported_activity_body(), "not json".to_owned()]).await;
+    let provider = provider_against(base_url).await;
+
+    let activity = provider
+        .get_activity_detailed("i901")
+        .await
+        .expect("the activity is still served");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert!(activity.comments().is_none());
+    assert_eq!(activity.feel(), Some(Feel::Poor));
+    assert_eq!(activity.perceived_exertion(), Some(8.0));
+}
+
+/// The plain read pays one round trip: the thread belongs to the detail tier.
+#[tokio::test]
+async fn plain_read_carries_the_self_report_without_fetching_comments() {
+    let (base_url, stub) = stub_pages(vec![self_reported_activity_body()]).await;
+    let provider = provider_against(base_url).await;
+
+    let activity = provider.get_activity("i901").await.expect("plain read");
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert_eq!(heads.len(), 1);
+    assert_eq!(activity.feel(), Some(Feel::Poor));
+    assert!(activity.comments().is_none());
+}
+
+/// Every rank on Intervals.icu's inverted feel scale lands on its name, and
+/// the ranks and ratings that are not on the scale land on nothing.
+#[tokio::test]
+async fn list_read_maps_the_whole_inverted_feel_scale() {
+    let row = |id: &str, feel: i64, rpe: i64| {
+        serde_json::json!({
+            "id": id,
+            "start_date_local": (Utc::now() - Duration::days(2))
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
+            "feel": feel,
+            "icu_rpe": rpe
+        })
+    };
+    let body = serde_json::Value::Array(vec![
+        row("f1", 1, 1),
+        row("f2", 2, 10),
+        row("f3", 3, 5),
+        row("f4", 4, 0),
+        row("f5", 5, 11),
+        row("f0", 0, -1),
+        row("f6", 6, 7),
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activities = provider
+        .get_activities(Some(50), None)
+        .await
+        .expect("list read");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    let by_id = |id: &str| {
+        activities
+            .iter()
+            .find(|a| a.id() == id)
+            .unwrap_or_else(|| panic!("{id} in the list"))
+    };
+    assert_eq!(by_id("f1").feel(), Some(Feel::Strong), "1 is the best");
+    assert_eq!(by_id("f2").feel(), Some(Feel::Good));
+    assert_eq!(by_id("f3").feel(), Some(Feel::Normal));
+    assert_eq!(by_id("f4").feel(), Some(Feel::Poor));
+    assert_eq!(by_id("f5").feel(), Some(Feel::Weak), "5 is the worst");
+    assert_eq!(by_id("f0").feel(), None, "0 is not a rating");
+    assert_eq!(by_id("f6").feel(), None, "6 is not a rating");
+
+    assert_eq!(by_id("f1").perceived_exertion(), Some(1.0));
+    assert_eq!(by_id("f2").perceived_exertion(), Some(10.0));
+    assert_eq!(
+        by_id("f4").perceived_exertion(),
+        None,
+        "RPE 0 is not a rating"
+    );
+    assert_eq!(
+        by_id("f5").perceived_exertion(),
+        None,
+        "RPE 11 is off the scale"
+    );
+    assert_eq!(by_id("f0").perceived_exertion(), None);
+    assert!(
+        activities.iter().all(|a| a.comments().is_none()),
+        "the list never fetches threads"
+    );
+}
+
+/// Intervals.icu sends wellness in `camelCase`. `sleep_secs` and `sleep_quality`
+/// used to be read under their `snake_case` names and decoded as `None` on every
+/// row; the qualitative fields ride the same row.
+#[tokio::test]
+async fn wellness_reads_the_camel_case_wire_names_and_the_daily_note() {
+    let body = serde_json::json!([{
+        "id": "2026-09-20",
+        "hrv": 62.5,
+        "restingHR": 48,
+        "sleepSecs": 27000,
+        "sleepQuality": 2,
+        "readiness": 71.0,
+        "lactate": 1.8,
+        "carbohydrates": 420.0,
+        "comments": "Slept badly, stressful week at work"
+    }])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let from = NaiveDate::from_ymd_opt(2026, 9, 20).expect("valid date");
+    let rows = provider.get_wellness(from, from).await.expect("wellness");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert_eq!(rows.len(), 1);
+    let day = &rows[0];
+    assert_eq!(day.resting_hr, Some(48.0));
+    assert_eq!(day.sleep_secs, Some(27_000), "sleepSecs on the wire");
+    assert_eq!(day.sleep_quality, Some(2), "sleepQuality on the wire");
+    assert_eq!(day.lactate, Some(1.8));
+    assert_eq!(day.carbohydrates, Some(420.0));
+    assert_eq!(
+        day.comments.as_deref(),
+        Some("Slept badly, stressful week at work")
     );
 }
