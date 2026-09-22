@@ -38,7 +38,7 @@ use super::{
     ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, EmbacleProvider, LlmCapabilities,
     LlmProvider, Tool,
 };
-use crate::config::LlmProviderType;
+use crate::config::{LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
 use crate::health::TierProbe;
 use crate::model_check::validate_model_for_provider;
@@ -65,6 +65,11 @@ pub enum ChatProvider {
 pub struct ChainTiers {
     /// `PIERRE_LLM_PROVIDER`'s provider.
     pub primary: Result<EmbacleProvider, AppError>,
+    /// The primary's further accounts, in order (`CLAUDE_CODE_OAUTH_TOKEN_2`,
+    /// `_3`, …), each its own tier right behind it — a spent account moves
+    /// the turn to the next account before the chain leaves the runner.
+    /// Empty when the primary is not a pooled CLI runner or has one account.
+    pub accounts: Vec<EmbacleProvider>,
     /// `PIERRE_LLM_FALLBACK_PROVIDER`'s provider.
     pub secondary: Result<EmbacleProvider, AppError>,
     /// `PIERRE_LLM_TERTIARY_PROVIDER`'s provider, when one is configured that
@@ -158,9 +163,20 @@ impl ChatProvider {
             None => None,
         };
 
+        // Only a CLI primary pools: its further accounts sit right behind
+        // it, so a spent account moves the turn to the next account before
+        // the chain leaves the runner (carnet#480).
+        let accounts = match primary_type.construction() {
+            ProviderConstruction::Cli(runner_type) => {
+                EmbacleProvider::pooled_accounts(runner_type, None)
+            }
+            _ => Vec::new(),
+        };
+
         Self::assemble_runtime_chain(
             ChainTiers {
                 primary: primary_result,
+                accounts,
                 secondary: secondary_result,
                 tertiary,
             },
@@ -211,11 +227,16 @@ impl ChatProvider {
     ) -> Result<Self, AppError> {
         let ChainTiers {
             primary,
+            accounts,
             secondary,
             tertiary,
         } = tiers;
 
-        let tail = Self::tail_tiers(secondary, tertiary, fallback_type);
+        let tail = Self::with_accounts(
+            accounts,
+            Self::tail_tiers(secondary, tertiary, fallback_type),
+            fallback_type,
+        );
         let tiers = match (primary, tail) {
             (Ok(primary), Ok(tail)) => {
                 info!(
@@ -259,6 +280,28 @@ impl ChatProvider {
             validate_model_for_provider(tier);
         }
         Ok(Self::Embacle(EmbacleProvider::chain(tiers)?))
+    }
+
+    /// The primary's further accounts lead the tail: a spent account moves the
+    /// turn to the next account before the chain leaves the runner. With no
+    /// fallback tier built, the accounts alone are the tail.
+    fn with_accounts(
+        accounts: Vec<EmbacleProvider>,
+        rest: Result<Vec<EmbacleProvider>, AppError>,
+        fallback_type: LlmProviderType,
+    ) -> Result<Vec<EmbacleProvider>, AppError> {
+        match rest {
+            Ok(rest) => Ok(accounts.into_iter().chain(rest).collect()),
+            Err(err) if accounts.is_empty() => Err(err),
+            Err(err) => {
+                warn!(
+                    secondary = %fallback_type,
+                    error = %err,
+                    "No fallback tier built; the primary's accounts are the whole tail"
+                );
+                Ok(accounts)
+            }
+        }
     }
 
     /// The tiers behind the primary: the secondary, then the tertiary when it

@@ -358,6 +358,24 @@ resource "google_secret_manager_secret_version" "claude_code_oauth_token_placeho
   }
 }
 
+# A second Claude Code account's OAuth token, from `claude setup-token` on
+# that account. The platform pools it as its own chain tier right behind the
+# primary (claude-code#2, carnet#480): a spent account moves the turn to the
+# next account before the chain leaves Claude. Filled by hand, like the
+# first — and deliberately WITHOUT a placeholder version: the service binds
+# `latest`, so a placeholder added after the real token would sign the
+# account out.
+resource "google_secret_manager_secret" "claude_code_oauth_token_2" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-claude-code-oauth-token-2"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
 resource "google_secret_manager_secret" "posthog_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-posthog-api-key"

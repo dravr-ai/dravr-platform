@@ -32,6 +32,7 @@ output "secret_ids" {
     resend_api_key                   = google_secret_manager_secret.resend_api_key.secret_id
     copilot_github_token             = google_secret_manager_secret.copilot_github_token.secret_id
     claude_code_oauth_token          = google_secret_manager_secret.claude_code_oauth_token.secret_id
+    claude_code_oauth_token_2        = google_secret_manager_secret.claude_code_oauth_token_2.secret_id
     posthog_api_key                  = google_secret_manager_secret.posthog_api_key.secret_id
     slack_bot_token                  = google_secret_manager_secret.slack_bot_token.secret_id
     slack_signing_secret             = google_secret_manager_secret.slack_signing_secret.secret_id
@@ -71,6 +72,7 @@ output "secret_names" {
     resend_api_key                   = google_secret_manager_secret.resend_api_key.name
     copilot_github_token             = google_secret_manager_secret.copilot_github_token.name
     claude_code_oauth_token          = google_secret_manager_secret.claude_code_oauth_token.name
+    claude_code_oauth_token_2        = google_secret_manager_secret.claude_code_oauth_token_2.name
     posthog_api_key                  = google_secret_manager_secret.posthog_api_key.name
     slack_bot_token                  = google_secret_manager_secret.slack_bot_token.name
     slack_signing_secret             = google_secret_manager_secret.slack_signing_secret.name

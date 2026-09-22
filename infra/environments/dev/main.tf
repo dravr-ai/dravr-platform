@@ -295,7 +295,10 @@ module "backend" {
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider chain, as it runs today (JF, 2026-09-21): claude_code
-      # primary, copilot_sdk second, Gemini third; Cohere is out.
+      # primary, then its second account (claude-code#2, from
+      # CLAUDE_CODE_OAUTH_TOKEN_2 below — a spent account moves the turn to
+      # the next account before the chain leaves Claude, carnet#480),
+      # copilot_sdk, then Gemini; Cohere is out.
       #
       # Primary = the Claude Code CLI in the image on CLAUDE_CODE_OAUTH_TOKEN,
       # serving claude-sonnet-5. It is the primary until the jfarcand Copilot
@@ -626,9 +629,13 @@ module "backend" {
     GEMINI_API_KEY          = module.secrets.secret_ids["gemini_api_key"]
     COPILOT_GITHUB_TOKEN    = module.secrets.secret_ids["copilot_github_token"]
     CLAUDE_CODE_OAUTH_TOKEN = module.secrets.secret_ids["claude_code_oauth_token"]
-    OPENWEATHER_API_KEY     = module.secrets.secret_ids["openweather_api_key"]
-    RESEND_API_KEY          = module.secrets.secret_ids["resend_api_key"]
-    POSTHOG_API_KEY         = module.secrets.secret_ids["posthog_api_key"]
+    # The second Claude account, pooled as the tier right behind the primary
+    # (claude-code#2). Further accounts are _3, _4, … — the platform reads
+    # them in order and stops at the first unset one (carnet#480).
+    CLAUDE_CODE_OAUTH_TOKEN_2 = module.secrets.secret_ids["claude_code_oauth_token_2"]
+    OPENWEATHER_API_KEY       = module.secrets.secret_ids["openweather_api_key"]
+    RESEND_API_KEY            = module.secrets.secret_ids["resend_api_key"]
+    POSTHOG_API_KEY           = module.secrets.secret_ids["posthog_api_key"]
 
     # Provider webhook secrets: the WHOOP push endpoint verifies each event's
     # HMAC against the first; Strava's subscription verification checks

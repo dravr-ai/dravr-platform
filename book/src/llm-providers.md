@@ -350,11 +350,22 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 
 ### Runtime fallback chain
 
-`PIERRE_LLM_RUNTIME_FALLBACK=true` keeps every configured tier alive and walks them per request instead of switching once at boot: the primary, then `PIERRE_LLM_FALLBACK_PROVIDER`, then `PIERRE_LLM_TERTIARY_PROVIDER` when set. The chain is embacle's `FallbackProvider` under `ResponsePolicy::strict()`:
+`PIERRE_LLM_RUNTIME_FALLBACK=true` keeps every configured tier alive and walks them per request instead of switching once at boot: the primary, then the primary's further accounts (below), then `PIERRE_LLM_FALLBACK_PROVIDER`, then `PIERRE_LLM_TERTIARY_PROVIDER` when set. The chain is embacle's `FallbackProvider` under `ResponsePolicy::strict()`:
 
-- a **provider fault** (timeout, vendor error, auth failure, runner crash, unavailable model) moves the request to the next tier; a deterministic rejection (a malformed request, a quota refusal, a config error) propagates unchanged, because a second tier would reject it the same way;
+- a **provider fault** (timeout, vendor error, auth failure, runner crash, unavailable model, and a **quota or rate-limit refusal** — the account is spent, not the request) moves the request to the next tier; a deterministic rejection (a malformed request, a context overflow, a config error) propagates unchanged, because a second tier would reject it the same way;
+- a tier that refused on quota is passed over for 15 minutes rather than asked on every turn, then asked again — that is how a reset window is discovered. The last tier is always asked;
 - an `Ok` that carries neither prose nor a tool call is treated as a failed tier;
 - each tier resolves its own model: the forwarded request drops the primary's `model`, so `PIERRE_LLM_FALLBACK_PROVIDER_MODEL` / `PIERRE_LLM_TERTIARY_PROVIDER_MODEL` are what the later tiers run on.
+
+#### A pool of accounts for a CLI primary
+
+One account's quota must never dead-end a turn. When the primary is a CLI runner that reads its login from the environment (`claude_code`, `copilot`, `gemini` CLI, `codex`), each further account's token goes in a numbered variable — `CLAUDE_CODE_OAUTH_TOKEN_2`, `CLAUDE_CODE_OAUTH_TOKEN_3`, … — read in order until the first unset one. Every account becomes its own tier right behind the primary, carrying its token as explicit child environment, so a spent account moves the turn to the next account before the chain leaves the runner:
+
+```
+claude-code → claude-code#2 → … → PIERRE_LLM_FALLBACK_PROVIDER → PIERRE_LLM_TERTIARY_PROVIDER
+```
+
+Account N is named `<runner>#N` in everything that reports a tier: the probe's `served_by`, the chain's fall-through lines, the quota alert's `tier` label, and a refusal's error text. Pricing keys on the runner before the `#`. There is no load spreading: account 1 serves every turn until it refuses.
 
 The platform contributes `ChainObserver` (`crates/pierre-llm/src/chain_observer.rs`): it consults the chain guard before the primary (GitHub budget headroom from the rate-limit probe, and a 3-failure / 60 s circuit breaker on the primary's faults) and emits `embacle.fallback_triggered`, `llm.circuit_opened` and `llm.circuit_closed`. Only the primary is measured — a later tier's failure never opens the circuit, and its success never closes it. The chain reports its primary's `name()` and `capabilities()`: `llm_usage.provider` and the price table are keyed on that name, and the tool loop routes on those capabilities.
 

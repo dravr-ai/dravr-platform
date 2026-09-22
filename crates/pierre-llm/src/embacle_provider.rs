@@ -12,6 +12,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use embacle::auth::check_readiness;
 use embacle::config::parse_timeout;
+use embacle::pool::{credential_env_key, PooledTier};
 use embacle::quota_http::{AnthropicUsageChecker, GithubHeadroomChecker};
 use embacle::router::{Backend, PreferInOrder, RouterProvider};
 use embacle::types::LlmProvider as EmbacleLlmProvider;
@@ -195,11 +196,58 @@ impl EmbacleProvider {
         }
     }
 
-    /// Build a CLI subprocess runner
-    fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
-        let binary_path = config.binary_path.clone();
+    /// The further accounts of a CLI primary, each an ordinary tier behind
+    /// it: account N is the runner's config with the token found under
+    /// `<CREDENTIAL>_N` (`CLAUDE_CODE_OAUTH_TOKEN_2`, `_3`, …, read until
+    /// the first unset one) set on the child explicitly, named
+    /// `<runner>#N` by [`PooledTier`]. Empty when the runner reads no
+    /// credential from its environment, or no numbered token is set.
+    ///
+    /// An account whose runner fails to build is skipped with a warning:
+    /// the binary is the primary's, so what breaks one breaks all, and the
+    /// primary's own failure is the one the chain assembly reports.
+    ///
+    #[must_use]
+    pub fn pooled_accounts(runner_type: CliRunnerType, model_override: Option<&str>) -> Vec<Self> {
+        let Some(key) = credential_env_key(runner_type) else {
+            return Vec::new();
+        };
+        let mut accounts = Vec::new();
+        for position in 1.. {
+            let Ok(token) = env::var(format!("{key}_{}", position + 1)) else {
+                break;
+            };
+            if token.trim().is_empty() {
+                break;
+            }
+            match cli_runner_config(runner_type, model_override) {
+                Ok(config) => {
+                    let runner = Self::cli_runner(runner_type, config.with_env(key, token));
+                    let tier = PooledTier::new(runner, position);
+                    info!(
+                        runner = %runner_type,
+                        account = tier.name(),
+                        "Pooled a further account as a chain tier"
+                    );
+                    accounts.push(Self::from_runner(
+                        Box::new(tier),
+                        runner_display_name(runner_type),
+                    ));
+                }
+                Err(err) => warn!(
+                    runner = %runner_type,
+                    account = position + 1,
+                    error = %err,
+                    "A pooled account did not build; skipped"
+                ),
+            }
+        }
+        accounts
+    }
 
-        let runner: Box<dyn EmbacleLlmProvider> = match runner_type {
+    /// The embacle runner for a CLI type, on this config.
+    fn cli_runner(runner_type: CliRunnerType, config: RunnerConfig) -> Box<dyn EmbacleLlmProvider> {
+        match runner_type {
             CliRunnerType::ClaudeCode => Box::new(ClaudeCodeRunner::new(config)),
             CliRunnerType::Copilot => Box::new(CopilotRunner::new(config)),
             CliRunnerType::CursorAgent => Box::new(CursorAgentRunner::new(config)),
@@ -212,13 +260,21 @@ impl EmbacleProvider {
             CliRunnerType::WarpCli => Box::new(WarpCliRunner::new(config)),
             CliRunnerType::KiroCli => Box::new(KiroCliRunner::new(config)),
             CliRunnerType::KiloCli => Box::new(KiloCliRunner::new(config)),
-            CliRunnerType::CopilotHeadless => {
-                return Self::build_headless(config.model.as_deref());
+            CliRunnerType::CopilotHeadless | CliRunnerType::CopilotSdk => {
+                unreachable!("the Copilot runtimes are built by build_headless and build_sdk")
             }
-            CliRunnerType::CopilotSdk => {
-                return Self::build_sdk(config.model.as_deref());
-            }
-        };
+        }
+    }
+
+    /// Build a CLI subprocess runner
+    fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
+        match runner_type {
+            CliRunnerType::CopilotHeadless => return Self::build_headless(config.model.as_deref()),
+            CliRunnerType::CopilotSdk => return Self::build_sdk(config.model.as_deref()),
+            _ => {}
+        }
+        let binary_path = config.binary_path.clone();
+        let runner = Self::cli_runner(runner_type, config);
 
         info!(
             runner = %runner_type,

@@ -19,7 +19,7 @@ tokio = { version = "1.50", features = ["rt", "time", "sync"] }
 tracing = "0.1"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
-embacle = { version = "0.28.2", features = ["copilot-headless", "copilot-sdk", "http-api", "openai-api", "quota-http"] }
+embacle = { version = "0.29.0", features = ["copilot-headless", "copilot-sdk", "http-api", "openai-api", "quota-http"] }
 # Compiled-in prompt/config baseline (replaces the vendor/contremaitre submodule).
 # Pinned by rev — the contremaitre-bump workflow advances this to contremaitre main.
 dravr-contremaitre = { workspace = true }

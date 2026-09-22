@@ -195,6 +195,7 @@ fn every_tier_built_assembles_three_deep() {
     let chain = ChatProvider::assemble_runtime_chain(
         ChainTiers {
             primary: Ok(copilot_like()),
+            accounts: Vec::new(),
             secondary: Ok(cohere_like()),
             tertiary: Some(Ok(gemini_like())),
         },
@@ -214,6 +215,7 @@ fn a_failed_secondary_promotes_the_tertiary() {
     let chain = ChatProvider::assemble_runtime_chain(
         ChainTiers {
             primary: Ok(copilot_like()),
+            accounts: Vec::new(),
             secondary: Err(AppError::config("COHERE_API_KEY unset")),
             tertiary: Some(Ok(gemini_like())),
         },
@@ -235,6 +237,7 @@ fn a_failed_tertiary_leaves_the_two_tier_chain() {
     let chain = ChatProvider::assemble_runtime_chain(
         ChainTiers {
             primary: Ok(copilot_like()),
+            accounts: Vec::new(),
             secondary: Ok(cohere_like()),
             tertiary: Some(Err(AppError::config("GEMINI_API_KEY unset"))),
         },
@@ -253,6 +256,7 @@ fn a_failed_tail_runs_the_primary_alone() {
     let chain = ChatProvider::assemble_runtime_chain(
         ChainTiers {
             primary: Ok(copilot_like()),
+            accounts: Vec::new(),
             secondary: Err(AppError::config("COHERE_API_KEY unset")),
             tertiary: Some(Err(AppError::config("GEMINI_API_KEY unset"))),
         },
@@ -273,6 +277,7 @@ fn a_failed_primary_runs_the_tail_alone() {
     let chain = ChatProvider::assemble_runtime_chain(
         ChainTiers {
             primary: Err(AppError::config("copilot binary missing")),
+            accounts: Vec::new(),
             secondary: Ok(cohere_like()),
             tertiary: Some(Ok(gemini_like())),
         },
@@ -294,6 +299,7 @@ fn every_tier_failing_is_a_config_error() {
     let err = ChatProvider::assemble_runtime_chain(
         ChainTiers {
             primary: Err(AppError::config("copilot binary missing")),
+            accounts: Vec::new(),
             secondary: Err(AppError::config("COHERE_API_KEY unset")),
             tertiary: None,
         },
@@ -308,4 +314,56 @@ fn every_tier_failing_is_a_config_error() {
         "both reasons reach the operator: {}",
         err.message
     );
+}
+
+// ---------------------------------------------------------------------------
+// A pooled primary: its further accounts sit right behind it
+// ---------------------------------------------------------------------------
+
+#[test]
+fn further_accounts_sit_between_the_primary_and_the_fallback() {
+    let chain = ChatProvider::assemble_runtime_chain(
+        ChainTiers {
+            primary: Ok(copilot_like()),
+            accounts: vec![cohere_like()],
+            secondary: Ok(gemini_like()),
+            tertiary: None,
+        },
+        LlmProviderType::CopilotHeadless,
+        LlmProviderType::Gemini,
+    )
+    .unwrap();
+
+    assert_eq!(chain.name(), "copilot_headless");
+    let second = chain.fallback_tail().expect("the next account");
+    assert_eq!(
+        second.name(),
+        "cohere",
+        "account 2 is asked before the fallback"
+    );
+    assert_eq!(
+        second.fallback_tail().expect("then the fallback").name(),
+        "gemini"
+    );
+}
+
+#[test]
+fn accounts_alone_are_a_tail_when_no_fallback_built() {
+    let chain = ChatProvider::assemble_runtime_chain(
+        ChainTiers {
+            primary: Ok(copilot_like()),
+            accounts: vec![cohere_like()],
+            secondary: Err(AppError::config("GEMINI_API_KEY unset")),
+            tertiary: None,
+        },
+        LlmProviderType::CopilotHeadless,
+        LlmProviderType::Gemini,
+    )
+    .unwrap();
+
+    let tail = chain
+        .fallback_tail()
+        .expect("the second account is still a tier");
+    assert_eq!(tail.name(), "cohere");
+    assert!(tail.fallback_tail().is_none());
 }
