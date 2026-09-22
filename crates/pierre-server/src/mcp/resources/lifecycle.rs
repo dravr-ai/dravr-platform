@@ -14,7 +14,8 @@ use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 #[cfg(feature = "client-messaging")]
-use crate::services::backfill_notifier::{ChatReentry, ServerBackfillNotifier};
+use crate::services::backfill_notifier::ServerBackfillNotifier;
+use crate::services::backfill_reentry::ChatReentry;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;

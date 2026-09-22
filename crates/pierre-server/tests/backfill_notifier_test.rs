@@ -28,8 +28,9 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, ConnectionStatus, ConnectionType, MessageRecord};
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_server::services::backfill_notifier::{
-    engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest, ServerBackfillNotifier,
+use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
+use pierre_mcp_server::services::backfill_reentry::{
+    engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest,
 };
 use pierre_messaging::channel::MessagingChannel;
 use pierre_tool_runtime::runtime::BackfillNotifier;

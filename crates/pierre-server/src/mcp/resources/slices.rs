@@ -116,7 +116,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
-use crate::services::backfill_notifier::ChatReentry;
+use crate::services::backfill_reentry::ChatReentry;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::AbortHandle;
 

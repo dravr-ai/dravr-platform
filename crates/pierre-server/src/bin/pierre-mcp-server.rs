@@ -860,7 +860,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // push a real in-persona agent answer instead of a templated activity list.
     #[cfg(feature = "client-messaging")]
     {
-        use pierre_mcp_server::services::backfill_notifier::install_backfill_reentry;
+        use pierre_mcp_server::services::backfill_reentry::install_backfill_reentry;
         install_backfill_reentry(&resources);
     }
 

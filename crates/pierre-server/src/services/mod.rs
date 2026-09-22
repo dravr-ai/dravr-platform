@@ -51,6 +51,13 @@ pub(crate) mod user_approval_notifier;
 #[cfg(feature = "client-messaging")]
 pub mod backfill_notifier;
 
+/// Chat re-entry for that notifier.
+///
+/// Re-runs the athlete's question through the pipeline once the history is
+/// warm, with the messaging scene publisher wired.
+#[cfg(feature = "client-messaging")]
+pub mod backfill_reentry;
+
 /// The two ways a backfill-completion notice reaches an athlete: out through a
 /// messaging channel's adapter, or into a first-party conversation as a
 /// persisted turn. Gated with the notifier it serves: both arms are reached
