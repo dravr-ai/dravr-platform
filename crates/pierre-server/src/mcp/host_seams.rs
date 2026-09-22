@@ -38,7 +38,7 @@ use dravr_tronc::mcp::schema::{
     ResourcesCapability, Root, SamplingCapability, ServerCapabilities, TaskSupport, Tool,
     ToolResponse, ToolSchema, ToolsCapability,
 };
-use dravr_tronc::mcp::server::McpServer;
+use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
@@ -168,6 +168,39 @@ fn insufficient_scope_challenge(base_url: &str, missing: OAuthScope) -> String {
     format!(
         "Bearer resource_metadata=\"{metadata_url}\", error=\"insufficient_scope\", scope=\"{missing}\""
     )
+}
+
+/// Resolves the instructions advertised in `initialize` from the prompt
+/// registry, on every handshake.
+///
+/// The catalogue's `mcp_server_instructions` prompt hot-reloads like its
+/// twenty-one siblings — a webhook or the poll writes it into the registry in
+/// about a minute. Reading it per handshake rather than once at construction
+/// is what carries that edit to clients; captured at build time it reached
+/// them only on the next process start, which is the one prompt in the
+/// catalogue that still needed a redeploy.
+///
+/// MCP hands `instructions` to a client once, during the handshake, so an edit
+/// reaches an already-connected client when it reconnects, not mid-session.
+pub struct CatalogueInstructions {
+    /// Shared server resources, for the prompt registry behind them.
+    pub resources: Arc<ServerContext>,
+}
+
+impl InstructionsSource for CatalogueInstructions {
+    fn instructions(&self) -> Option<String> {
+        let prompt = self
+            .resources
+            .mcp
+            .prompt_registry
+            .mcp_server_instructions_prompt();
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    }
 }
 
 /// Single-source authentication for the MCP HTTP transport.
@@ -1084,13 +1117,11 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     let task_manager = dispatcher.task_manager().clone();
 
     // Natural-language instructions advertised to MCP clients in `initialize`:
-    // the catalogue's `mcp_server_instructions` prompt. The engine takes them
-    // once at construction, so this is the registry's content at startup — an
-    // edit upstream reaches clients on the next start, not the next sync tick.
-    let instructions = resources
-        .mcp
-        .prompt_registry
-        .mcp_server_instructions_prompt();
+    // the catalogue's `mcp_server_instructions` prompt, resolved per handshake
+    // so a synced edit reaches the next client to connect without a redeploy.
+    let instructions = Arc::new(CatalogueInstructions {
+        resources: resources.clone(),
+    });
 
     let server = McpServer::new(
         server_name_multitenant(),
@@ -1099,7 +1130,7 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
         state,
     )
     .with_capabilities(server_capabilities())
-    .with_instructions(instructions.trim())
+    .with_instructions_source(instructions)
     .with_supported_versions(supported)
     .with_allowed_origins(allowed_origins)
     .with_auth_hook(Arc::new(PierreAuthHook {

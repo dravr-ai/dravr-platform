@@ -483,7 +483,13 @@ This is a pre-1.0 project with zero external API consumers — **no backward com
 
 <important if="you are bumping or releasing a crate that sibling repos consume (e.g. dravr-tronc)">
 
-`dravr-tronc` backs every satellite's `-server`/`-mcp` crate plus the platform's `pierre-server`/`-services`/`-logging`/`-contremaitre`. When you bump/release it, **open a notification PR on each consumer repo** bumping its dependency (this is the sanctioned cross-repo carve-out to the no-PR rule — it governs platform self-merges only). A satellite that *publishes* to crates.io must republish member crates in dependency order (root lib → `-mcp` → `-server`) so the graph resolves a single version — a local `cargo check` won't catch the skew, only `cargo publish --dry-run` does. Full procedure: dravr-vault `Development/Runbooks/Releasing dravr-tronc — Notify Consumers`.
+`dravr-tronc` backs every satellite's `-server`/`-mcp` crate plus the platform's `pierre-server`/`-services`/`-logging`/`-contremaitre`.
+
+**Releasing it is the ordinary move, not a cost to weigh.** `gh workflow run Release -f bump=<patch|minor|major>` in dravr-tronc does the version bump, the tag, the crates.io publish, and then calls `notify-consumers.yml`, which dispatches `tronc-released` at every non-archived org repo. A consumer carrying `tronc-bump.yml` answers by calling tronc's `consumer-bump.yml`, which bumps its own pins, gates on its own CI and squash-merges on green — **so the consumer PRs are machinery, not yours to open.** Enrolment is opt-in: a repo with no `tronc-bump.yml` ignores the dispatch silently, and the fix is to add that ten-line caller, not to hand-bump it forever. (The hand procedure in dravr-vault `Development/Runbooks/Releasing dravr-tronc — Notify Consumers` predates this lane; PRs on sibling repos remain the sanctioned carve-out to the no-PR rule, which governs platform self-merges only.)
+
+**Count the blast radius before calling a tronc change expensive.** Nine platform crates name `dravr-tronc` and all nine inherit `workspace = true`, so the version lives at the root `Cargo.toml` alone — one edit, not nine. A change behind a private field with an unchanged public signature costs its consumers a recompile and nothing else. "It cascades to eleven consumers" is a claim to verify, and saying it without verifying is how a fix gets skipped: `mcp_server_instructions` shipped unable to hot-reload for exactly that reason, while the other twenty-one catalogue prompts swapped in a minute.
+
+A satellite that *publishes* to crates.io must republish member crates in dependency order (root lib → `-mcp` → `-server`) so the graph resolves a single version — a local `cargo check` won't catch the skew, only `cargo publish --dry-run` does.
 </important>
 
 <important if="you are adding, removing, or changing a dravr-* satellite pin, or touching a bump lane">
