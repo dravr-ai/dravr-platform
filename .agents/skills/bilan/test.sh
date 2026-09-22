@@ -164,6 +164,22 @@ check "filed is reported separately from held" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("filed this session and still open"))] | length')"
 rm -f "$CFG/carnet-claims/$SID.jsonl"
 
+# ---- the register's scope comes from the register
+#
+# Where a marker counts is llm-registre's decision — scan_dirs in registre.toml, the configured
+# extensions, minus test, bench, example and generated trees — and bilan asks
+# `limitation-gates.sh --list-files` for it instead of keeping a copy. So these cases run the REAL
+# gate, installed into the fixture where a checkout carries it: a stubbed scope would only prove
+# bilan agrees with a register that does not exist.
+REAL_GATES="$HERE/../../../.build/vendor/llm-registre/limitation-gates.sh"
+[ -x "$REAL_GATES" ] || die "llm-registre is not checked out at .build/vendor/llm-registre — git submodule update --init --recursive"
+command -v rg >/dev/null 2>&1 || die "ripgrep is required: llm-registre scans with it"
+mkdir -p "$R/.build/vendor/llm-registre" "$R/src"
+cp "$REAL_GATES" "$R/.build/vendor/llm-registre/limitation-gates.sh"
+printf 'tracker = "dravr-ai/dravr-carnet"\nscan_dirs = "src,crates"\n' > "$R/registre.toml"
+printf 'fn main() {}\n' > "$R/src/lib.rs"
+git -C "$R" add -A && git -C "$R" commit -qm "the register" && git -C "$R" push -q origin HEAD:refs/heads/main
+
 # ---- a registered limitation is a register entry, not work owed
 #
 # The LIMITATION procedure requires an OPEN issue for as long as a marker names it, so a session
@@ -172,10 +188,9 @@ rm -f "$CFG/carnet-claims/$SID.jsonl"
 # starving a turn, a classifier was rejected for failing the same way, static narrowing was already
 # done — nothing to fix, and nothing honest to close.
 #
-# The exemption needs the `limitation` LABEL *and* a marker in source naming that issue. Either
-# half alone still caps, which is what stops a bug being relabelled out of the score. These three
-# cases are the whole contract, and they need the full run: --cheap cannot consult the tracker, so
-# it keeps the cap, which is the safe direction and is asserted last.
+# The exemption needs the `limitation` LABEL *and* a marker naming that issue in a file the
+# register scans. Either half alone still caps, which is what stops a bug being relabelled out of
+# the score.
 STUB=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh.XXXXXX") || die "mktemp -d failed for the gh stub"
 cat > "$STUB/gh" <<'GH'
 #!/usr/bin/env bash
@@ -200,59 +215,101 @@ chmod +x "$STUB/gh"
 run_full() { local repo=$1; shift; ( cd "$repo" && CLAUDE_CONFIG_DIR="$CFG" \
     CLAUDE_CODE_SESSION_ID="$SID" PATH="$STUB:$PATH" bash "$BILAN" "$@" 2>/dev/null ); }
 filed_caps() { printf '%s' "$1" | jq '[.caps[] | select(.evidence | test("filed this session and still open"))] | length'; }
+IDENTITY="{\"v\":1,\"session\":\"$SID\",\"name\":\"test\",\"user\":\"t\",\"host\":\"h\",\"pid\":1,\"repo\":\"dravr-platform\",\"branch\":\"main\",\"at\":\"2026-09-08T00:00:00Z\",\"kind\":\"identity\"}"
 
-cat > "$CFG/carnet-claims/$SID.jsonl" <<LEDGER
-{"v":1,"session":"$SID","name":"test","user":"t","host":"h","pid":1,"repo":"dravr-platform","branch":"main","at":"2026-09-08T00:00:00Z","kind":"identity"}
-{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}
-LEDGER
+printf '%s\n%s\n' "$IDENTITY" '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}' \
+    > "$CFG/carnet-claims/$SID.jsonl"
 
-# Label but NO marker in source — still work owed.
+# Label but NO marker — still work owed.
 check "a limitation label alone does not exempt a filed issue" 1 "$(filed_caps "$(run_full "$R" --json)")"
 
-# Label AND a marker naming it — a register entry.
-echo 'let x = 1; // LIMITATION(registre#2001): the width this names' >> "$R/a.txt"
+# Label AND a marker in scanned source — a register entry.
+echo '// LIMITATION(registre#2001): the width this names' >> "$R/src/lib.rs"
 out=$(run_full "$R" --json)
 check "label plus a marker naming it exempts the filed issue" 0 "$(filed_caps "$out")"
 check "and the registered limitation is still REPORTED, not silently dropped" 1 \
     "$(run_full "$R" | grep -c 'carnet#2001 is a registered limitation')"
+git -C "$R" checkout -q -- src/lib.rs
+
+# The same marker where the register does not look. Neither the gate nor bilan scans a test
+# tree, so a marker there is validated by nothing and must credit nothing: carnet#493 was
+# registered on a test harness and sat at 6 until the marker moved to the production function
+# the harness fails to cover.
+mkdir -p "$R/crates/x/tests"
+echo '// LIMITATION(registre#2001): the width this names' > "$R/crates/x/tests/helper.rs"
+check "a marker under tests/ does not credit the limitation" 1 "$(filed_caps "$(run_full "$R" --json)")"
+rm -rf "$R/crates"
 
 # A marker naming an issue that is NOT labelled `limitation` — still work owed, so a bug cannot
 # be exempted by dropping a marker next to it.
-sed -i.bak 's/registre#2001/registre#2002/' "$R/a.txt" && rm -f "$R/a.txt.bak"
+echo '// LIMITATION(registre#2002): the width this names' >> "$R/src/lib.rs"
 printf '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2002,"at":"2026-09-08T00:00:00Z"}\n' \
     >> "$CFG/carnet-claims/$SID.jsonl"
 check "a marker without the limitation label does not exempt" 1 "$(filed_caps "$(run_full "$R" --json)")"
+git -C "$R" checkout -q -- src/lib.rs
 
-# --cheap cannot reach the tracker, so it must KEEP the cap rather than guess an exemption.
-check "--cheap keeps the cap it cannot verify" 1 "$(filed_caps "$(run "$R")")"
+# --cheap never touches the network, and the status line runs it. It used to keep this cap
+# unconditionally, which held every correctly registered limitation at 6 there for as long as
+# the register required the issue open. It now reads the label from the line carnet.sh writes
+# when it applies it — and without that line it still keeps the cap.
+printf '%s\n%s\n' "$IDENTITY" '{"kind":"filed","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}' \
+    > "$CFG/carnet-claims/$SID.jsonl"
+echo '// LIMITATION(registre#2001): the width this names' >> "$R/src/lib.rs"
+check "--cheap with no recorded label keeps the cap" 1 "$(filed_caps "$(run "$R")")"
+printf '{"kind":"limitation","tracker":"dravr-ai/dravr-carnet","issue":2001,"at":"2026-09-08T00:00:00Z"}\n' \
+    >> "$CFG/carnet-claims/$SID.jsonl"
+out=$(run "$R")
+check "--cheap credits a limitation carnet recorded, with a marker in scope" 0 "$(filed_caps "$out")"
+check "--cheap and the full run agree on it" "$(filed_caps "$(run_full "$R" --json)")" "$(filed_caps "$out")"
+git -C "$R" checkout -q -- src/lib.rs
+check "--cheap still wants the marker, not the label alone" 1 "$(filed_caps "$(run "$R")")"
 
-git -C "$R" checkout -q -- a.txt
 rm -rf "$STUB"
 rm -f "$CFG/carnet-claims/$SID.jsonl"
 
 # ---- an unregistered LIMITATION marker caps at 6
-echo 'let x = 1; // LIMITATION(registre#): nothing reads this' >> "$R/a.txt"
+echo '// LIMITATION(registre#): nothing reads this' >> "$R/src/lib.rs"
 out=$(run "$R")
 check "LIMITATION naming no issue caps at 6" 6 "$(printf '%s' "$out" | jq -r .score)"
-git -C "$R" checkout -q -- a.txt
+git -C "$R" checkout -q -- src/lib.rs
 
-# ---- the scan must not see prose, fixtures, or its own tree. The commit that installed bilan
-# reported three markers that were all its own: the fixture here, the row in SKILL.md, and the
-# grep pattern in bilan.sh. A scanner that reports itself is worse than no scanner.
+# ---- the scan is the register's: prose, fixtures, specs and bilan's own tree are outside it.
+# The commit that installed bilan reported three markers that were all its own: the fixture here,
+# the row in SKILL.md, and the grep pattern in bilan.sh. A scanner that reports itself is worse
+# than no scanner. The files are STAGED: bilan reads the session's diff, and an untracked file is
+# in no diff — the version of this case before 2026-09-21 left them untracked and passed without
+# looking at any of them.
 mkdir -p "$R/.agents/skills/bilan" "$R/crates/x/tests"
 echo 'LIMITATION(registre#[^)]*) is the pattern' > "$R/.agents/skills/bilan/bilan.sh"
 echo '| LIMITATION(registre#…) marker | caps at 6 |'  > "$R/doc.md"
 echo 'assert LIMITATION(registre#) fires'             > "$R/crates/x/tests/fixture.rs"
-echo 'let y = 2; // LIMITATION(registre#) in a spec'  > "$R/thing.spec.ts"
+echo 'let y = 2; // LIMITATION(registre#) in a spec'  > "$R/src/thing.spec.ts"
+git -C "$R" add -A
 out=$(run "$R")
 check "the scan does not report its own tree, prose, tests or specs" 0 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("LIMITATION"))] | length')"
-echo 'let z = 3; // LIMITATION(registre#) in real source' >> "$R/a.txt"
+echo 'let z = 3; // LIMITATION(registre#) in real source' >> "$R/src/lib.rs"
 out=$(run "$R")
 check "…but still reports a marker in real source" 1 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("LIMITATION"))] | length')"
-git -C "$R" checkout -q -- a.txt
-rm -rf "$R/.agents" "$R/doc.md" "$R/crates" "$R/thing.spec.ts"
+git -C "$R" reset -q
+git -C "$R" checkout -q -- src/lib.rs
+rm -rf "$R/.agents" "$R/doc.md" "$R/crates" "$R/src/thing.spec.ts"
+
+# ---- without the register's gate a marker this session wrote cannot be verified. That fails
+# closed on exactly that case: a session that wrote no marker has nothing unverifiable, and a
+# checkout with an uninitialised submodule must not cap every session in it.
+R2=$(fixture) || exit 2
+mkdir -p "$R2/src" && echo 'fn a() {}' > "$R2/src/lib.rs"
+git -C "$R2" add -A && git -C "$R2" commit -qm src && git -C "$R2" push -q origin HEAD:refs/heads/main
+check "no gate and no marker: nothing to verify, no cap" 0 \
+    "$(run "$R2" | jq '[.caps[] | select(.evidence | test("cannot scope"))] | length')"
+echo '// LIMITATION(registre#7): the width this names' >> "$R2/src/lib.rs"
+check "no gate and a new marker: fails closed and names the remedy" 1 \
+    "$(run "$R2" | jq '[.caps[] | select(.evidence | test("cannot scope")) | select(.remedy | test("submodule"))] | length')"
+rm -rf "$(dirname "$R2")"
+rm -f "$CFG/bilan/"*.baseline*
+baseline_now "$R"
 
 # ---- ack accounts for files this session must not touch, for exactly that set
 echo peer >> "$R/a.txt"
@@ -384,6 +441,15 @@ check "the report carries the opening ask" 1 \
     "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) | grep -c 'asked: Build the thing')"
 check "and skips the system-reminder that precedes it" 0 \
     "$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) | grep -c 'ignore me')"
+# A long session is not what it opened with. The report names the LATEST prompt ChefFamille typed,
+# and keeps the opening beside it; a scheduled wakeup is text the session wrote for itself, and the
+# transcript marks it so (promptSource "system", isMeta, scheduledTaskId).
+printf '%s\n' '{"type":"user","promptSource":"typed","message":{"content":"Now publish the report"}}' >> "$TX"
+printf '%s\n' '{"type":"user","promptSource":"system","isMeta":true,"scheduledTaskId":"t1","message":{"content":"Check CI again and report"}}' >> "$TX"
+report=$( ( cd "$R" && CLAUDE_CONFIG_DIR="$CFG" CLAUDE_CODE_SESSION_ID="$SID" bash "$BILAN" --cheap 2>/dev/null ) )
+check "asked names the latest typed prompt" 1 "$(printf '%s\n' "$report" | grep -c 'asked: Now publish the report')"
+check "a wakeup the session wrote is not an ask" 0 "$(printf '%s\n' "$report" | grep -c 'Check CI again')"
+check "the opening ask is kept beside it" 1 "$(printf '%s\n' "$report" | grep -c 'opened: Build the thing')"
 rm -rf "$CFG/projects"
 
 # ---- a peer's dev stack in the shared checkout is not this session's to stop. Third instance

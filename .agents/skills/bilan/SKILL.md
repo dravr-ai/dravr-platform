@@ -22,9 +22,11 @@ or had left a dev stack running. Every one of those facts is machine-checkable, 
 
 Exit code: `0` = 10/10 · `1` = incomplete · `2` = the script itself failed.
 
-**`--cheap` can never report 10.** It skips CI entirely, and a session quoted its cheap 10/10 as
-completion while a lane was still red and four subagents were running. A measurement taken with
-checks switched off is not a completion verdict, and now says so as a standing cap at 9.
+**`--cheap` and the full run give the same number.** CI is printed, never scored (below), so
+skipping it changes what is shown, not the score — and every other check answers from local
+evidence in both modes. The status line runs `--cheap`, which is why that has to hold: a check
+that only the full run can pass holds the status line below it for as long as the condition
+stands. The registered-limitation exemption was one, until 2026-09-21.
 
 ## The rules
 
@@ -154,12 +156,26 @@ classifier was rejected for failing the same way, static narrowing was already d
 are provider-agnostic. Nothing to fix, and nothing honest to close.
 
 So the exemption needs **both** halves: the issue carries the `limitation` label, *and* a
-`LIMITATION(registre#n)` marker in source names that issue. A label alone still caps, so a bug
-cannot be relabelled out of the score; a marker naming a dead issue is already caught by the
-marker check from the other side. Both together mean the issue is a register entry rather than
-deferred work, and it prints as a **note** — the gap stays visible instead of disappearing into a
-clean pass, which is the entire point of registering it. `--cheap` cannot consult the tracker, so
-it keeps the cap.
+`LIMITATION(registre#n)` marker names that issue **in a file the register scans**. A label alone
+still caps, so a bug cannot be relabelled out of the score; a marker naming a dead issue is
+already caught by the marker check from the other side. Both together mean the issue is a
+register entry rather than deferred work, and it prints as a **note** — the gap stays visible
+instead of disappearing into a clean pass, which is the entire point of registering it.
+
+**Where a marker counts is the register's decision, not bilan's.** bilan asks
+`.build/vendor/llm-registre/limitation-gates.sh --list-files`, which prints the files the gates
+scan: the directories `registre.toml` declares in `scan_dirs`, the configured extensions, minus
+test, bench, example and generated trees. bilan used to keep its own copy of those exclusions; it
+drifted from the gate's both ways, and a marker one tool honoured was invisible to the other. A
+test tree is outside both, so a gap in test *coverage* is marked on the production item that goes
+uncovered — carnet#493's marker sits on `assemble_prompt_and_messages`, not on the eval driver
+that fails to call it. If the gate is missing, a session that wrote a marker caps at 6 (it cannot
+be verified) and every other session is unaffected.
+
+**Both halves are local, so `--cheap` credits it too.** The full run reads the label from the
+tracker. `--cheap` reads the line `carnet.sh` writes to the session ledger when it applies the
+label — `create --label limitation` or `label <n> +limitation` — and removes on `-limitation`.
+A label applied any other way (the web UI) reaches only the full run.
 
 ## When there is nothing to measure
 
@@ -178,9 +194,13 @@ The verdict is measured against an ask, so it waits for one. The status line ren
 first prompt arrives, and until this was gated every session opened at "9/10 nothing measurable"
 for having done nothing in its first second. A session nobody has asked anything of scores clean.
 
-Every report also carries the session's **opening ask**, verbatim. bilan cannot judge whether
-the work satisfies it — that would be narration again, the thing it exists to treat — but it can
-refuse to let a session claim completion without the request in view.
+Every report also carries the **ask**, verbatim: `asked:` is the latest prompt ChefFamille
+typed, and `opened:` the first, when they differ. bilan cannot judge whether the work satisfies
+it — that would be narration again, the thing it exists to treat — but it can refuse to let a
+session claim completion without the request in view. The latest counts because a long session is
+not what it opened with: one that opened on "Another session reported" and shipped four fixes
+reported under those words. A scheduled wakeup, a task notification or a peer message is text the
+session or the harness wrote, not an ask, and the transcript marks it so.
 
 ## CI, and one thing it cannot see
 

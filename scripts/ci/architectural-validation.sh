@@ -801,15 +801,17 @@ fi
 # feature-phases.yaml dark-launch ledger format come from the Apache-2.0 tool
 # at github.com/dravr-ai/llm-registre, vendored as a submodule of
 # dravr-build-config so every consumer gets the same gates. registre.toml at
-# the repo root points it at the private tracker and requires the ledger;
-# platform passes a wider scan scope than the default (frontend + packages TS).
+# the repo root points it at the private tracker, requires the ledger, and
+# declares the scan scope (scan_dirs) — wider than the default, because the
+# frontend and packages TypeScript is in it. Called with no directories so that
+# declaration is the only list; bilan reads the same one via --list-files.
 # Hard-required: a missing submodule fails, never skips — CI checks out
 # recursively for exactly this reason.
 
 echo ""
 LIMITATION_GATES=".build/vendor/llm-registre/limitation-gates.sh"
 if [ -x "$LIMITATION_GATES" ]; then
-    if "$LIMITATION_GATES" crates frontend/src frontend-mobile/src packages; then
+    if "$LIMITATION_GATES"; then
         pass_validation "Limitation register gates passed"
     else
         fail_validation "Limitation register gates failed (see above)"

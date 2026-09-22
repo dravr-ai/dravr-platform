@@ -3,14 +3,20 @@
 name: "Guard: bilan skill"
 
 on:
+  # registre.toml and .build decide which files the register scans, and bilan asks the gate for
+  # exactly that set — so a change to either changes what bilan credits.
   push:
     paths:
       - '.agents/skills/bilan/**'
       - '.github/workflows/bilan.yml'
+      - 'registre.toml'
+      - '.build'
   pull_request:
     paths:
       - '.agents/skills/bilan/**'
       - '.github/workflows/bilan.yml'
+      - 'registre.toml'
+      - '.build'
   workflow_dispatch:
 
 permissions:
@@ -32,6 +38,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The suite runs the real llm-registre gate (.build/vendor/llm-registre): bilan asks it
+          # which files the register scans, and a stubbed scope would test against a register
+          # that does not exist. dravr-build-config and llm-registre are public, so no token.
+          submodules: recursive
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       # test.sh is linted too, unlike carnet.yml's equivalent: its own empty-path bug is what
       # once made the suite commit to the real checkout, and shellcheck names that shape.
       - name: shellcheck

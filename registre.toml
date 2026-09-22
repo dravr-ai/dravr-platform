@@ -9,3 +9,9 @@ tracker = "dravr-ai/dravr-carnet"
 # Every dark-launched feature must be ledgered here, so an unarmed phase always
 # carries a review date.
 require_ledger = true
+
+# The register's scope: the directories the gates scan, declared once. The pre-push
+# validation calls the gate with no directories so it reads this line, and bilan asks
+# `limitation-gates.sh --list-files` for the same set when it decides whether a marker
+# credits an issue — two tools, one list.
+scan_dirs = "crates,frontend/src,frontend-mobile/src,packages"

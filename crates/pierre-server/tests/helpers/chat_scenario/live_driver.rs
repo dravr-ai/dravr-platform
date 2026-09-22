@@ -738,11 +738,13 @@ impl ScenarioDriver for LiveScenarioDriver {
 
 /// Build the system prompt the way `prompt_assembly` builds it in production.
 ///
-/// LIMITATION(registre#493): `build_system_prompt` mirrors production's layering
-/// by hand instead of calling `prompt_assembly`, so this lane cannot see a block
-/// reordered, dropped or added there. It grades how a model behaves under the
-/// contract and the persona — vocabulary, refusals, tool discipline, fabrication
-/// under pushback — on a prompt a CPU-bound 7b can carry; production's assembled
+/// `build_system_prompt` mirrors production's layering by hand instead of calling
+/// `prompt_assembly`, so this lane cannot see a block reordered, dropped or added
+/// there — registered where that happens, on `assemble_prompt_and_messages`
+/// (registre#493), because test trees are outside the register's scan. It grades
+/// how a model behaves under the contract and the persona — vocabulary, refusals,
+/// tool discipline, fabrication under pushback — on a prompt a CPU-bound 7b can
+/// carry; production's assembled
 /// prompt is some 10-15 KB larger, and every scenario's assertions were tuned
 /// against this one. Ordering is pinned where it is decided, by the four
 /// `pierre-chat-pipeline` tests over `prompt_assembly.rs`, and the live incident

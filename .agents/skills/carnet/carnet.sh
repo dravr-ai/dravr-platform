@@ -190,6 +190,24 @@ ledger_filed() {
         '{kind:"filed", tracker:$t, issue:$n, at:$at}' >> "$f"
 }
 
+# Labelled `limitation` by this session. bilan exempts a filed issue that is a registered
+# limitation — the label plus a marker in the register's scope — and the status line runs it
+# with --cheap, which never touches the network. This line is how the label reaches it: without
+# it, --cheap capped every correctly registered limitation at 6 for as long as the register
+# required the issue to stay open (carnet#493). `off` drops it when the label is removed.
+ledger_limitation() { # <n> <on|off>
+    local f tmp
+    f=$(ledger_file) || return 0
+    mkdir -p "$LEDGER_DIR"
+    [ -s "$f" ] || identity_json | jq -c '. + {kind:"identity"}' > "$f"
+    tmp=$(mktemp)
+    jq -c --arg t "$TRACKER" --argjson n "$1" \
+        'select((.kind == "limitation" and .tracker == $t and .issue == $n) | not)' "$f" > "$tmp"
+    mv "$tmp" "$f"
+    [ "$2" = off ] || jq -cn --arg t "$TRACKER" --argjson n "$1" --arg at "$(now)" \
+        '{kind:"limitation", tracker:$t, issue:$n, at:$at}' >> "$f"
+}
+
 # Closing an issue this session filed clears its "filed" line: bilan caps on issues a session
 # opened and did not fix, and the cap has to end when the fix lands.
 ledger_drop_filed() {
@@ -459,6 +477,7 @@ cmd_create() { # <title> <body> <body_file> <claim> labels...
     rm -f "$bf" "$payload"
     n=${url##*/}
     [ "$DRY_RUN" = 1 ] || [ "$n" = 0 ] || ledger_filed "$n"
+    [ "$DRY_RUN" = 1 ] || [ "$n" = 0 ] || [ $has_limitation = 0 ] || ledger_limitation "$n" on
     say "📝 $url"
     say "   $title"
     [ $has_limitation = 0 ] || say "   marker: LIMITATION(registre#$n): <name the limited item on this line>"
@@ -473,9 +492,12 @@ cmd_label() { # <n> [+label|-label|label]...
     local a
     for a in "$@"; do
         case "$a" in
-            -*) api_label_rm  "$n" "${a#-}" ;;
-            +*) api_label_add "$n" "${a#+}" ;;
-            *)  api_label_add "$n" "$a" ;;
+            -*) api_label_rm  "$n" "${a#-}"
+                [ "$DRY_RUN" = 1 ] || [ "${a#-}" != limitation ] || ledger_limitation "$n" off ;;
+            +*) api_label_add "$n" "${a#+}"
+                [ "$DRY_RUN" = 1 ] || [ "${a#+}" != limitation ] || ledger_limitation "$n" on ;;
+            *)  api_label_add "$n" "$a"
+                [ "$DRY_RUN" = 1 ] || [ "$a" != limitation ] || ledger_limitation "$n" on ;;
         esac
     done
     say "🏷  carnet#$n: $*"

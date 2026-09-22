@@ -607,6 +607,12 @@ pub(crate) type AssembledPrompt = (
 /// list, and the parallel `source_ids` vector mapping each message to its
 /// history-row id (`None` for the system prompt) for Tier 1 compaction.
 ///
+/// LIMITATION(registre#493): `assemble_prompt_and_messages` is never executed by the
+/// live scenario eval lane — its driver (`tests/helpers/chat_scenario/live_driver.rs`)
+/// layers the contract and the persona by hand — so a block reordered, dropped or added
+/// here is caught by the source-order tests in `pierre-chat-pipeline/tests` and by the
+/// live incident lane, never by a scenario.
+///
 /// # Errors
 ///
 /// Returns [`pierre_core::errors::AppError`] from the group context resolver

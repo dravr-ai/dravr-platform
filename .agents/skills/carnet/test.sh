@@ -257,11 +257,14 @@ assert_grep "title gets the project prefix" '^TITLE \[test\] Thing is wrong' "$S
 assert_grep "project label always, extra labels after" '^LABELS dravr-test,limitation' "$S/calls.log"
 assert_grep "prints the URL" "issues/321" "$tmp/out"
 assert_grep "prints the marker hint for a limitation" 'LIMITATION\(registre#321\)' "$tmp/out"
+# bilan --cheap credits a registered limitation from this line, never from the network.
+assert_grep "the ledger records the limitation label" '"kind":"limitation","tracker":"dravr-ai/dravr-carnet","issue":321' "$ledger"
 assert_grep "checked the tracker is private" '^CALL api repos/dravr-ai/dravr-carnet -q .private' "$S/calls.log"
 
 reset
 run_carnet create --title "[platform] Already prefixed" --body b
 assert_grep "an existing prefix is kept" '^TITLE \[platform\] Already prefixed' "$S/calls.log"
+assert_no_grep "an issue filed without the label is not recorded as a limitation" '"kind":"limitation"' "$ledger"
 
 reset
 printf 'false\n' > "$S/private.txt"
@@ -285,6 +288,15 @@ run_carnet label 42 +critical -bug
 assert_eq "label exits 0" "$rc" 0
 assert_grep "adds a label" 'issues/42/labels -X POST -f labels\[\]=critical' "$S/calls.log"
 assert_grep "removes a label" 'issues/42/labels/bug -X DELETE' "$S/calls.log"
+assert_no_grep "an unrelated label leaves no limitation line" '"kind":"limitation"' "$ledger"
+
+reset
+run_carnet label 42 +limitation
+assert_grep "labelling limitation records it in the ledger" '"kind":"limitation","tracker":"dravr-ai/dravr-carnet","issue":42' "$ledger"
+run_carnet label 42 +limitation
+assert_eq "relabelling does not duplicate the line" "$(grep -c '"kind":"limitation"' "$ledger")" 1
+run_carnet label 42 -limitation
+assert_no_grep "removing the label drops the line" '"kind":"limitation"' "$ledger"
 
 # ================================================================== status
 section "status"

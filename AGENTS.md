@@ -230,9 +230,11 @@ act on. For CI on your own commit, ask for that sha by name.
   close it with the fix. A session does not file its way out of work — fix first, file only the
   residue, and if something truly cannot be fixed here, put that decision in front of ChefFamille.
   **The exception is a registered limitation**, which the register contract requires to stay open:
-  an issue labelled `limitation` that a `LIMITATION(registre#n)` marker in source names is a
-  register entry, not deferred work, and is reported as a note instead of capping. Both halves are
-  required — a label alone still caps, so this is not a way to relabel a bug out of the score.
+  an issue labelled `limitation` that a `LIMITATION(registre#n)` marker names, in a file the
+  register scans, is a register entry, not deferred work, and is reported as a note instead of
+  capping. Both halves are required — a label alone still caps, so this is not a way to relabel a
+  bug out of the score. The register scans `scan_dirs` in `registre.toml` and never a test tree,
+  so a gap in test coverage is marked on the production item it leaves uncovered.
 - **A loop ends at bilan 10, or at a blocker named to ChefFamille — never at a filed issue.**
   *Blocked* means a credential the session does not hold, an issue a live peer holds, an
   external dependency, or a product decision only ChefFamille makes; size, the hour, and "not in

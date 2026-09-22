@@ -84,7 +84,7 @@ fi
 # where a completion number is least likely to be checked by hand. An explicit
 # path with X's behaves identically on both.
 CAPS=$(mktemp "${TMPDIR:-/tmp}/bilan.XXXXXX") || die "mktemp failed"
-trap 'rm -f "$CAPS" "$NOTES"' EXIT
+trap 'rm -f "$CAPS" "$NOTES" "$SCOPE"' EXIT
 
 cap() { # <cap> <icon> <evidence> <remedy>
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$CAPS"
@@ -96,6 +96,10 @@ cap() { # <cap> <icon> <evidence> <remedy>
 # do about it.
 NOTES=$(mktemp "${TMPDIR:-/tmp}/bilan-notes.XXXXXX") || die "mktemp failed"
 say_note() { printf '%s\n' "$1" >> "$NOTES"; }
+
+# The register's scope, fetched at most once per run (see register_scope). A file rather than a
+# variable for the same reason CAPS is one: the checks run in subshells.
+SCOPE=$(mktemp "${TMPDIR:-/tmp}/bilan-scope.XXXXXX") || die "mktemp failed"
 
 # ------------------------------------------------------------------ session facts
 ledger_file() { [ -n "$SESSION_ID" ] && printf '%s' "$LEDGER_DIR/$SESSION_ID.jsonl"; }
@@ -465,21 +469,32 @@ check_carnet_held() {
 #
 # The exemption needs BOTH halves, which is what keeps it from being a loophole:
 #   - the `limitation` label on the issue, and
-#   - a LIMITATION(registre#n) marker in source naming that same issue.
+#   - a LIMITATION(registre#n) marker naming that same issue, in a file the register scans.
 # A label alone still caps, so a bug cannot be relabelled out of the score. A marker naming a dead
 # issue is already caught by check_limitation_markers, from the other side. Both together mean the
 # issue is a register entry rather than deferred work — and it is printed as a NOTE, so the gap
 # stays visible instead of disappearing into a clean pass, which is the whole point of registering.
+#
+# Both halves are answerable without the network, and have to be: the status line runs --cheap,
+# and while the label could only be read from GitHub, --cheap capped every correctly registered
+# limitation at 6 for as long as the register required it to stay open — carnet#493, 2026-09-21,
+# against a documented promise that the two runs give the same number. carnet.sh records the label
+# in the session ledger when it applies it (`create --label limitation`, `label +limitation`), so
+# --cheap reads that line, and the full run still asks the tracker, which is the authority.
+labelled_limitation() { # <issue-number>
+    local f
+    if [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
+        gh issue view "$1" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" --json labels \
+            -q '.labels[].name' 2>/dev/null | grep -qx limitation
+        return
+    fi
+    f=$(ledger_file) || return 1
+    [ -f "$f" ] || return 1
+    jq -c --argjson n "$1" 'select(.kind == "limitation" and .issue == $n)' "$f" 2>/dev/null | grep -q .
+}
+
 registered_limitation() { # <issue-number> -> 0 when this is a register entry, not work owed
-    local n="$1" skip=() hits
-    command -v gh >/dev/null 2>&1 || return 1
-    gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" --json labels \
-        -q '.labels[].name' 2>/dev/null | grep -qx limitation || return 1
-    # Same exclusions the marker scan uses: a marker lives at the limited item's declaration in
-    # source, never in prose, a fixture, or this skill's own tree.
-    while IFS= read -r p; do [ -n "$p" ] && skip+=("$p"); done <<< "$LIMITATION_SKIP"
-    hits=$(git grep -l "LIMITATION(registre#$n)" -- . "${skip[@]}" 2>/dev/null | wc -l | tr -d ' ')
-    [ "${hits:-0}" -gt 0 ]
+    labelled_limitation "$1" && marker_in_scope "$1"
 }
 
 check_carnet_filed() {
@@ -493,10 +508,10 @@ check_carnet_filed() {
             state=$(gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" \
                     --json state -q .state 2>/dev/null || echo OPEN)
             [ "$state" = CLOSED ] && continue
-            if registered_limitation "$n"; then
-                say_note "carnet#$n is a registered limitation, not work owed: labelled \`limitation\` and named by a LIMITATION(registre#$n) marker in source, which the register contract requires to stay open"
-                continue
-            fi
+        fi
+        if registered_limitation "$n"; then
+            say_note "carnet#$n is a registered limitation, not work owed: labelled \`limitation\` and named by a LIMITATION(registre#$n) marker in the register's scope, which the register contract requires to stay open"
+            continue
         fi
         list="$list carnet#$n"
     done
@@ -506,38 +521,65 @@ check_carnet_filed() {
 }
 
 # A LIMITATION marker is the sanctioned way to ship a gap, but only when it names a live issue.
-# A marker registers a gap at the declaration of the limited item, in source. It never lives in
-# prose or in a fixture — so those paths are not scanned, and the first thing excluded is this
-# skill's own tree. The commit that installed bilan made it report three markers that were all
-# its own artifacts: the fixture in test.sh, the table row in SKILL.md, and the grep pattern on
-# the line below. A scanner that cannot see itself is the whole point; the same self-match cost
-# the friction counter its accuracy an hour earlier.
 #
-# The loose `[^)]*` is deliberate and is why the exclusions have to carry the weight: the
-# repo's own gate matches `registre#[0-9]+` and therefore cannot see a marker that names no
-# issue at all, which is exactly the case worth failing on.
-LIMITATION_SKIP=':(exclude).agents/skills/bilan/**
-:(exclude)*.md
-:(exclude)**/tests/**
-:(exclude)**/__tests__/**
-:(exclude)*.test.*
-:(exclude)*.spec.*'
+# Where a marker counts is the register's decision, not bilan's. The gates scan the directories
+# registre.toml declares (scan_dirs), for the configured source extensions, minus test, bench,
+# example and generated trees — and `limitation-gates.sh --list-files` prints exactly that set.
+# bilan asks for it rather than keeping a copy. It kept one until 2026-09-21, and the copy had
+# drifted both ways: it skipped Markdown and its own tree, which the gate never scanned anyway,
+# and scanned benches, examples, vendored and generated code, which the gate does not. A marker
+# one tool honoured was invisible to the other, and a limitation registered by the book was never
+# credited (carnet#493). Asking cannot drift.
+#
+# The self-match that motivated the old skip list stays impossible: bilan's own tree is shell and
+# Markdown, neither of which the register scans.
+REGISTRE_GATES="$REPO_ROOT/.build/vendor/llm-registre/limitation-gates.sh"
+SCOPE_UNKNOWN="#unknown"
 
-limitation_diff() { # <range-or-empty>
-    local skip=()
-    while IFS= read -r p; do [ -n "$p" ] && skip+=("$p"); done <<< "$LIMITATION_SKIP"
-    if [ -n "$1" ]; then
-        git diff -U0 "$1" -- . "${skip[@]}" 2>/dev/null
-    else
-        git diff -U0 HEAD -- . "${skip[@]}" 2>/dev/null
+register_scope() { # -> 0 with every in-scope path in $SCOPE; 1 when the register cannot say
+    if [ ! -s "$SCOPE" ]; then
+        if [ -x "$REGISTRE_GATES" ] \
+           && ( cd "$REPO_ROOT" && "$REGISTRE_GATES" --list-files ) > "$SCOPE" 2>/dev/null; then
+            :
+        else
+            printf '%s\n' "$SCOPE_UNKNOWN" > "$SCOPE"
+        fi
     fi
+    [ "$(head -1 "$SCOPE")" != "$SCOPE_UNKNOWN" ]
 }
 
+marker_in_scope() { # <issue-number> -> 0 when a marker in a scanned file names that issue
+    register_scope || return 1
+    ( cd "$REPO_ROOT" && tr '\n' '\0' < "$SCOPE" \
+        | xargs -0 grep -l -F "LIMITATION(registre#$1):" 2>/dev/null | grep -q . )
+}
+
+# The gate's own format check already fails a malformed marker; what no gate does is ask the
+# tracker whether the issue a marker names exists. That is this check, and it asks only about the
+# markers this session added. The loose `[^)]*` is kept so a marker naming no issue at all is
+# reported here too, in the session that wrote it.
 check_limitation_markers() {
-    local upstream added marker n bad=""
+    local upstream changed files=() p added marker n bad=""
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo origin/main)
     # Both halves of the session's work: committed but unpushed, and still in the tree.
-    added=$( { limitation_diff "$upstream..HEAD"; limitation_diff ""; } \
+    changed=$( { git diff --name-only "$upstream..HEAD"; git diff --name-only HEAD; } 2>/dev/null | sort -u )
+    [ -n "$changed" ] || return 0
+    if ! register_scope; then
+        # The register cannot say what it scans — the vendored gate is missing, or it listed
+        # nothing. That leaves a marker this session wrote unverifiable, so fail closed on
+        # exactly that case, and stay silent for every session that wrote none.
+        if { git diff -U0 "$upstream..HEAD"; git diff -U0 HEAD; } 2>/dev/null \
+             | grep '^+' | grep -q 'LIMITATION('; then
+            cap 6 "❌" "added a LIMITATION marker the register cannot scope" \
+                  "git submodule update --init --recursive (bilan asks .build/vendor/llm-registre which files it scans), then rerun"
+        fi
+        return 0
+    fi
+    while IFS= read -r p; do
+        [ -n "$p" ] && grep -qxF "$p" "$SCOPE" && files+=("$p")
+    done <<< "$changed"
+    [ "${#files[@]}" -gt 0 ] || return 0
+    added=$( { git diff -U0 "$upstream..HEAD" -- "${files[@]}"; git diff -U0 HEAD -- "${files[@]}"; } 2>/dev/null \
              | grep '^+' | grep -o 'LIMITATION(registre#[^)]*)' | sort -u )
     [ -n "$added" ] || return 0
     while IFS= read -r marker; do
@@ -678,6 +720,27 @@ opening_ask() {
            | select(test("^\\s*$")|not)' "$tx" 2>/dev/null \
       | grep -vE '^\s*$' | grep -vE '^\s*[│┌└├─╭╰|+=#]' | grep -vE '│.*│' \
       | head -1 | tr '\t\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' | cut -c1-150
+}
+
+# The latest thing ChefFamille typed, which is what the session is being measured against NOW.
+# The opening ask alone named a long session by its first words: one that opened on "Another
+# session reported" and went on to ship four fixes still reported under them. Only typed
+# prompts count: a scheduled wakeup, a task notification or a peer message is text the session
+# or the harness wrote, and the transcript says so (`promptSource: "system"`, `isMeta`,
+# `scheduledTaskId` — the same fields carnet's claim hook reads to refuse a self-written claim).
+latest_ask() {
+    local tx
+    tx=$(transcript_path 2>/dev/null) || return 0
+    [ -f "$tx" ] || return 0
+    jq -r 'select(.type == "user")
+           | select((.promptSource // "") != "system" and (.isMeta // false) != true
+                    and ((.scheduledTaskId // "") | tostring) == "")
+           | (if (.message.content | type) == "string" then .message.content
+              else ([.message.content[]? | select(.type == "text") | .text] | join("\n")) end)
+           | select(test("<command-name>|<local-command|<system-reminder>|<task-notification>|<cross-session-message")|not)
+           | [splits("\n") | select(test("^\\s*$")|not) | select(test("^\\s*[│┌└├─╭╰|+=#]")|not)]
+           | first // empty' "$tx" 2>/dev/null \
+      | tail -1 | tr '\t' ' ' | sed -e 's/  */ /g' -e 's/^ //' | cut -c1-150
 }
 
 # ------------------------------------------------------------------ checks · dev stack
@@ -873,8 +936,10 @@ report() {
     if [ "$s" = 10 ] && [ "$QUIET" = 1 ]; then return 0; fi
 
     say "BILAN · ${SESSION_ID:0:8} · $(basename "$REPO_ROOT") @ $BRANCH ${HEAD_SHA:0:8}"
-    local ask; ask=$(opening_ask)
-    [ -z "$ask" ] || say "asked: $ask"
+    local ask latest; ask=$(opening_ask); latest=$(latest_ask)
+    [ -n "$latest" ] || latest=$ask
+    [ -z "$latest" ] || say "asked: $latest"
+    [ -z "$ask" ] || [ "$ask" = "$latest" ] || say "opened: $ask"
     say ""
     if [ ! -s "$CAPS" ]; then
         say "  ✅ nothing outstanding — tree clean, nothing unpushed, no issue held"
