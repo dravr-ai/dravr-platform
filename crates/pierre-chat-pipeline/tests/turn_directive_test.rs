@@ -125,7 +125,7 @@ fn the_ordinary_turn_arm_is_never_empty() {
     let stage = slice_between(&source, "// Stage 7g.3:", "// Stage 7g.4:");
 
     assert!(
-        stage.contains("None => format!(\"{raw_system_prompt}{TURN_DIRECTIVE}\")"),
+        stage.contains("None => format!(\"{raw_system_prompt}{TURN_DIRECTIVE}{introduction}\")"),
         "the ordinary-turn arm must append TURN_DIRECTIVE; an empty slot is the defect \
          this change exists to close"
     );

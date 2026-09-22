@@ -41,6 +41,7 @@ const SCOPE_NOTE: &str = "This is a window, not the athlete's whole history: up 
 fn agent(data_requirements: Option<&str>) -> AgentRuntimeContext {
     AgentRuntimeContext {
         slug: "endurance-coach".to_owned(),
+        title: "Endurance Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "You are a coach.".to_owned(),
         startup_query: None,

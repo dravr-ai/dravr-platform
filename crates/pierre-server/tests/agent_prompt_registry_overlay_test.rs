@@ -33,6 +33,7 @@ fn contremaitre_agent_reads_registry_overlay_not_db_column() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "ultra-cycling-workout-builder-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "DB_STALE_VALUE".to_owned(),
         startup_query: None,
@@ -71,6 +72,7 @@ fn custom_agent_reads_db_column_ignoring_registry() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "user-authored-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "custom".to_owned(),
         system_prompt: "USER_AUTHORED_PROMPT".to_owned(),
         startup_query: None,
@@ -101,6 +103,7 @@ fn contremaitre_agent_falls_back_to_db_on_registry_miss() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "unseeded-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "DB_FALLBACK_VALUE".to_owned(),
         startup_query: None,
@@ -141,6 +144,7 @@ fn contremaitre_agent_locale_routing_picks_caller_locale() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "bilingual-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "DB_FALLBACK".to_owned(),
         startup_query: None,
@@ -185,6 +189,7 @@ fn unsupported_locale_falls_back_to_default_locale_markdown_not_db_column() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "endurance-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "INSTRUCTIONS_ONLY_DB_COLUMN".to_owned(),
         startup_query: None,
@@ -229,6 +234,7 @@ fn present_locale_is_never_replaced_by_the_default_locale() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "endurance-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "INSTRUCTIONS_ONLY_DB_COLUMN".to_owned(),
         startup_query: None,
@@ -261,6 +267,7 @@ fn agent_absent_in_every_locale_still_falls_back_to_db_column() {
 
     let agent_ctx = AgentRuntimeContext {
         slug: "never-synced-coach".to_owned(),
+        title: "Test Agent".to_owned(),
         source: "contremaitre".to_owned(),
         system_prompt: "DB_COLUMN_IS_ALL_WE_HAVE".to_owned(),
         startup_query: None,

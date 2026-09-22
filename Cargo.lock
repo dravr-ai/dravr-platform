@@ -3689,6 +3689,7 @@ dependencies = [
  "embacle-tool-host",
  "futures-util",
  "jsonschema",
+ "pierre-agent-parser",
  "pierre-agui",
  "pierre-commands",
  "pierre-config",

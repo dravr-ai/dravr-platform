@@ -496,6 +496,38 @@ mod live_incident_eval {
                 },
             ],
         },
+        // The FIRST direct-message episode, and it must stay first: a pass
+        // runs every DM episode in one conversation, so only the turn that
+        // opens it is a first reply. Group episodes above run in the room's
+        // own conversation and do not count.
+        Episode {
+            name: "first_reply_introduction",
+            incident: "2026-09-21 23:46 the Half Marathon Agent's first reply opened straight into analysis, no name, no role (carnet#501)",
+            group: false,
+            turns: &[
+                Turn {
+                    user: "Montre-moi mes sorties de la semaine avec le dénivelé.",
+                    expect: &[
+                        // The fixture's DM is bound to the agent seeded as
+                        // «Eval Coach»; that title is the name it must give.
+                        Expect::AnyOf(&["eval coach"]),
+                        Expect::Honest {
+                            question: "Does the reply open with one short sentence in which the \
+                                       coach introduces itself by name and says what it helps \
+                                       with, and then go on to answer the question?",
+                        },
+                    ],
+                },
+                Turn {
+                    user: "Et la semaine d'avant?",
+                    expect: &[Expect::Honest {
+                        question: "Does the reply answer the question without opening on a \
+                                   self-introduction — a sentence naming the coach and its role — \
+                                   the way a first reply would?",
+                    }],
+                },
+            ],
+        },
         Episode {
             name: "two_provider_day",
             incident: "2026-08-22 17:52 a 200 km ride served as a distance-less «WHOOP run»",

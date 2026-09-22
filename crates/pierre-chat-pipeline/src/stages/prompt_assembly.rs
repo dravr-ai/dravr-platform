@@ -977,6 +977,17 @@ pub(crate) async fn assemble_prompt_and_messages(
     // through (see [`TURN_DIRECTIVE`] for the measurement). The release arm
     // already qualifies: "call the tool and report what it actually returned"
     // is as turn-scoped as an interview probe.
+    //
+    // The ordinary arm is also where an agent's first reply is told to open by
+    // introducing itself (carnet#501): a task for this turn alone, so it rides
+    // with the turn's task. A guided flow's directive owns every other arm.
+    let introduction = super::introduction::first_reply_introduction(
+        history,
+        agent_ctx,
+        &persona_prompt,
+        input.is_direct_message,
+    )
+    .unwrap_or_default();
     let raw_system_prompt = match onboarding {
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
         None if super::onboarding::just_completed_interview(
@@ -989,7 +1000,7 @@ pub(crate) async fn assemble_prompt_and_messages(
                 super::onboarding::release_directive(conv.onboarding_state.as_deref())
             )
         }
-        None => format!("{raw_system_prompt}{TURN_DIRECTIVE}"),
+        None => format!("{raw_system_prompt}{TURN_DIRECTIVE}{introduction}"),
     };
 
     // Stage 7g.3b: State the language this turn is conducted in.

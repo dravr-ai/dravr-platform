@@ -331,8 +331,14 @@ async fn rewrite_to_satisfy_contract(
     // the right rule here rather than the turn's locale — a style pass repairs
     // format, and Stage 7g.3b in `prompt_assembly` is what settles the
     // language upstream of it.
+    //
+    // An agent's first reply opens by introducing itself (carnet#501). That
+    // sentence is neither a fact nor a recommendation, so "change length" alone
+    // reads as a licence to cut it — and a word-budget repair is exactly the
+    // rewrite a reply grown by one sentence triggers. It is named as something
+    // to keep for the same reason the language is.
     let system = format!(
-        "You are a style editor for the '{}' coaching persona. The assistant reply below broke these output-style rules:\n{rules}\n\nRewrite the reply so it follows the rules. Preserve every fact, number, recommendation, and citation exactly — change only wording, structure, and length. Write the rewrite in the same language as the reply below; never translate it, whatever language these instructions are in. Output only the rewritten reply, with no preamble.",
+        "You are a style editor for the '{}' coaching persona. The assistant reply below broke these output-style rules:\n{rules}\n\nRewrite the reply so it follows the rules. Preserve every fact, number, recommendation, and citation exactly — change only wording, structure, and length. If the reply opens with a sentence in which its speaker introduces itself, keep that sentence. Write the rewrite in the same language as the reply below; never translate it, whatever language these instructions are in. Output only the rewritten reply, with no preamble.",
         persona.as_str()
     );
     let request = ChatRequest::new(vec![

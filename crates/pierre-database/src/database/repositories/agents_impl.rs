@@ -1083,6 +1083,7 @@ impl AgentsRepository for Database {
             Option<String>,
             String,
             String,
+            String,
             Option<String>,
             Option<String>,
             Option<String>,
@@ -1091,7 +1092,7 @@ impl AgentsRepository for Database {
             String,
         );
         let row: Option<Row> = sqlx::query_as(
-            r"SELECT slug, source, system_prompt, startup_query, data_requirements, visuals, max_tool_iterations, temperature, category
+            r"SELECT slug, title, source, system_prompt, startup_query, data_requirements, visuals, max_tool_iterations, temperature, category
             FROM agents WHERE id = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
         )
         .bind(agent_id)
@@ -1102,6 +1103,7 @@ impl AgentsRepository for Database {
         Ok(row.map(
             |(
                 slug,
+                title,
                 source,
                 system_prompt,
                 startup_query,
@@ -1113,6 +1115,7 @@ impl AgentsRepository for Database {
             )| {
                 AgentRuntimeContext {
                     slug: slug.unwrap_or_default(),
+                    title,
                     source,
                     system_prompt,
                     startup_query,

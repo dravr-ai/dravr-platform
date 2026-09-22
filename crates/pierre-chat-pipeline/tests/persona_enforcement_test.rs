@@ -206,6 +206,93 @@ async fn the_repair_runs_on_the_same_model_as_the_turn() {
     );
 }
 
+/// Records the instructions the style editor was given.
+struct InstructionCapturingEditor {
+    seen: Arc<Mutex<Vec<String>>>,
+    models: Vec<String>,
+}
+
+#[async_trait]
+impl LlmProvider for InstructionCapturingEditor {
+    fn name(&self) -> &'static str {
+        "instruction-capturing-editor"
+    }
+    fn display_name(&self) -> &'static str {
+        "Instruction Capturing Editor"
+    }
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::SYSTEM_MESSAGES
+    }
+    fn default_model(&self) -> &'static str {
+        "instruction-capturing-editor"
+    }
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+    async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        let system = request
+            .messages
+            .first()
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        self.seen.lock().expect("capture lock").push(system);
+        Ok(ChatResponse {
+            content: REWRITTEN.to_owned(),
+            model: "instruction-capturing-editor".to_owned(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+        Err(AppError::internal("not used"))
+    }
+    async fn health_check(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+}
+
+/// A word-budget repair must not cut the agent's introduction (carnet#501).
+///
+/// An agent's first reply opens with one sentence naming itself and its role.
+/// That sentence is not a fact, a number, a recommendation or a citation — the
+/// four things the editor is told to preserve — and it is precisely the
+/// sentence that pushes a reply over its word budget, so without a word about
+/// it the repair that the introduction triggers is the one that deletes it.
+#[tokio::test]
+async fn the_editor_is_told_to_keep_an_opening_introduction() {
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let provider = Arc::new(ChatProvider::Custom(Arc::new(InstructionCapturingEditor {
+        seen: Arc::clone(&seen),
+        models: vec!["instruction-capturing-editor".to_owned()],
+    })));
+
+    let out = enforce_conformance(
+        Some(&provider),
+        &strict_registry(),
+        CoachingPersona::Casual,
+        "Salut, je suis l'Agent Semi-Marathon, là pour préparer ton 21,1 km avec toi. \
+         Mars a été un mois de fond plutôt que de spécifique semi."
+            .to_owned(),
+        &[a_violation()],
+        "claude-sonnet-5",
+    )
+    .await;
+    assert_eq!(
+        out, REWRITTEN,
+        "the repair must have gone through the editor"
+    );
+
+    let instructions = seen.lock().expect("capture lock").clone();
+    assert_eq!(instructions.len(), 1, "one repair request");
+    assert!(
+        instructions[0].contains("introduces itself, keep that sentence"),
+        "the editor must be told to keep the opening introduction: {}",
+        instructions[0]
+    );
+}
+
 /// A registry holding one strict contract for `casual`.
 fn strict_registry() -> Arc<PersonaContractRegistry> {
     let registry = Arc::new(PersonaContractRegistry::new());

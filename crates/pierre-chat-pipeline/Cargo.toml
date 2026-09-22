@@ -39,6 +39,8 @@ transport-sse = [
 # TokenCounts for the per-call cost the recorder prices through the registry.
 embacle = { version = "0.29.0" }
 embacle-tool-host = "0.29.0"
+# The frontmatter parser, for the localized agent title the first reply names.
+pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 pierre-commands = { version = "0.3.0", path = "../pierre-commands" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }

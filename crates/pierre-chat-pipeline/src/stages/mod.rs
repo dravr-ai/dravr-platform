@@ -15,7 +15,7 @@
 //! Stages are grouped by the pipeline phase they belong to:
 //!
 //! - Prompt assembly: [`prompt_builder`], [`refresh`], [`memory`],
-//!   [`followups`]
+//!   [`followups`], [`introduction`]
 //! - Pre-LLM preparation: [`prefetch`], [`compaction`]
 //! - Post-LLM processing: [`guardrails`], [`verification`]
 //! - Lifecycle I/O: [`persistence`], [`command_persistence`]
@@ -53,6 +53,8 @@ pub mod guardian_confirm;
 /// for safety" reply when the runtime Guardian blocked a tool in enforce mode.
 pub mod guardian_denied;
 pub mod guardrails;
+/// First-reply introduction: a bound agent names itself and its role.
+pub mod introduction;
 pub mod memory;
 pub mod onboarding;
 /// Peer-mention grounding: a turn naming a roster member fetches their data.

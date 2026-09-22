@@ -191,6 +191,11 @@ pub struct AgentRuntimeContext {
     /// markdown filename without `.md`). Used to look up the live agent
     /// prompt in `PromptRegistry` when `source == "contremaitre"`.
     pub slug: String,
+    /// The agent's display title from `agents.title` — the canonical,
+    /// untranslated one. A `"contremaitre"` agent's title in the turn's locale
+    /// is the `title:` of the persona file the turn loads; this column is what
+    /// a custom agent is called, and the fallback when that file has none.
+    pub title: String,
     /// Origin of this agent: `"contremaitre"` (git-managed, hot-reloaded
     /// from the dravr-contremaitre repo), `"seed"` (legacy seeded rows
     /// from before the contremaitre migration), or `"custom"` (user/admin

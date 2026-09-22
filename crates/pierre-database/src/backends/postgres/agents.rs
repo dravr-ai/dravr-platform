@@ -1394,10 +1394,10 @@ impl AgentsRepository for PostgresDatabase {
         agent_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<AgentRuntimeContext>> {
-        // Column order matches the SQLite impl in
-        // `database/repositories/coaches_impl.rs` — keep both in lock-step.
+        // Column order matches the SQLite impl in `agents_impl.rs`; keep both in lock-step.
         type Row = (
             Option<String>,
+            String,
             String,
             String,
             Option<String>,
@@ -1409,11 +1409,9 @@ impl AgentsRepository for PostgresDatabase {
         );
         let row: Option<Row> = sqlx::query_as(
             r"
-            SELECT slug, source, system_prompt, startup_query, data_requirements, visuals, max_tool_iterations, temperature, category
+            SELECT slug, title, source, system_prompt, startup_query, data_requirements, visuals, max_tool_iterations, temperature, category
             FROM agents
-            WHERE id = $1
-              AND (tenant_id = $2 OR is_system = TRUE)
-            LIMIT 1
+            WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE) LIMIT 1
             ",
         )
         .bind(agent_id)
@@ -1425,6 +1423,7 @@ impl AgentsRepository for PostgresDatabase {
         Ok(row.map(
             |(
                 slug,
+                title,
                 source,
                 system_prompt,
                 startup_query,
@@ -1436,6 +1435,7 @@ impl AgentsRepository for PostgresDatabase {
             )| {
                 AgentRuntimeContext {
                     slug: slug.unwrap_or_default(),
+                    title,
                     source,
                     system_prompt,
                     startup_query,
