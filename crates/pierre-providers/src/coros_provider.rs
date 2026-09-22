@@ -33,6 +33,10 @@
 //! aggregates enable it). The HTTP client and response parsing are real, but the
 //! provider **cannot authenticate**:
 //!
+//! LIMITATION(registre#509): `CorosProvider` targets placeholder endpoints that
+//! match none of COROS API Reference V2.1.1, and COROS workout/daily push
+//! receivers, `deviceName` capture and `bindState` unbind detection do not exist.
+//!
 //! - **Placeholder OAuth endpoints.** `auth_url`, `token_url`, `revoke_url`, and
 //!   `api_base_url` point at `open.coros.com/oauth2/*` / `open.coros.com/api/v1`
 //!   guesses. COROS's API is private — access must be requested at

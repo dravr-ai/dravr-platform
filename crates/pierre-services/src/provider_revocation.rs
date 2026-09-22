@@ -120,10 +120,10 @@ pub enum RevocationShape {
 /// `sciotte` and `sciotte_garmin` are scrape sessions: the credential is a
 /// browser cookie jar, and there is nothing upstream to revoke either.
 ///
-/// LIMITATION(registre#50): `revocation_shape` returns `None` for `coros`
-/// because COROS publishes no API documentation — its OAuth endpoints in the
-/// registry are placeholders, so its revocation surface cannot be confirmed
-/// and a COROS disconnect stays local-delete-only.
+/// LIMITATION(registre#509): `revocation_shape` returns `None` for `coros`
+/// because the COROS provider's OAuth endpoints are placeholders and no COROS
+/// credentials are issued, so `POST /oauth2/deauthorize` is not called and a
+/// COROS disconnect stays local-delete-only.
 #[must_use]
 pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<RevocationShape> {
     let config = service.config();
