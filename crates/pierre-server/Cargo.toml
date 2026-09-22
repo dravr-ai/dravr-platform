@@ -181,7 +181,7 @@ server-production = ["protocol-all", "transport-all", "client-all", "client-mess
 
 [dependencies]
 embacle = { version = "0.29.0" }
-embacle-tool-host = "0.28.2"
+embacle-tool-host = "0.29.0"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
