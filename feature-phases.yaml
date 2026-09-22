@@ -80,7 +80,12 @@ features:
   - name: live-incident-corpus-off-the-account
     surface: .github/workflows/live-incident-eval.yml
     current: dispatch-only, on a runner-local Qwen 2.5 7B that cannot fit the corpus — the Copilot CLI refuses before calling the model (static context over the 32k budget) and one call took 26.8 min. It left the hosted account on 2026-09-21, when the account's monthly premium quota ran out
-    advance_when: the Copilot account's quota resets on 2026-10-01 and JF re-enables the nightly schedule on the hosted model (carnet#504). Budget it first — the lane sent 186 ACP prompts a night at 3 passes (run 35502201927), about 5,600 a month against a 7,000 premium-request entitlement if each prompt counts as one request, so 1 pass or a narrower corpus may be the shape to arm
+    advance_when: the Copilot account's quota resets on 2026-10-01, dev's chain flips back to Copilot first (dev-llm-chain-claude-first below), and the nightly schedule returns on that chain with copilot_sdk leading (carnet#504). Budget it first — the lane sent 186 ACP prompts a night at 3 passes (run 35502201927), about 5,600 a month against a 7,000 premium-request entitlement if each prompt counts as one request, so 1 pass may be the shape to arm. Decide too whether the Claude and Gemini tiers run in CI, since a Copilot quota hit would otherwise spend the Claude accounts
+    review_by: 2026-10-01
+  - name: dev-llm-chain-claude-first
+    surface: infra/environments/dev/main.tf
+    current: month-end arrangement since 2026-09-21 — PIERRE_LLM_PROVIDER is claude_code (its second account next, carnet#480), then copilot_sdk, then gemini, because the jfarcand Copilot account's monthly premium quota was drained by a development session
+    advance_when: 2026-10-01, the Copilot quota reset (the Copilot Account Probe reads it for free). JF — Copilot leads, then Claude, at worst Gemini. Set PIERRE_LLM_PROVIDER to copilot_sdk, PIERRE_LLM_FALLBACK_PROVIDER to claude_code, keep PIERRE_LLM_TERTIARY_PROVIDER at gemini, check that the second Claude account (carnet#480) still follows claude_code now that Claude is not the primary, update the chain comment above them, apply terraform (the deploy-infra skill), confirm the startup probe names copilot_sdk as the tier that answered, then delete this entry
     review_by: 2026-10-01
   - name: frontend-dual-origin-window
     surface: infra/environments/dev/terraform.tfvars
