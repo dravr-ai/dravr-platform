@@ -186,6 +186,11 @@ export function QueryProvider({ children }: QueryProviderProps) {
         watch.suspend();
       }
     });
+    // An app launched into the background — a notification action, a
+    // background fetch — reports no change until it is opened, so the watch
+    // is told where it starts. Only an explicit `background`: a state the
+    // platform has not resolved yet is not evidence that nobody is here.
+    if (Platform.OS !== 'web' && AppState.currentState === 'background') watch.suspend();
 
     return () => {
       registerIdleWatch(null);

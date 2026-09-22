@@ -50,14 +50,12 @@ describe('IdleWatch', () => {
 
     watch.suspend();
     expect(events).toEqual(['suspend']);
-    expect(watch.isHidden).toBe(true);
     expect(watch.isIdle).toBe(false);
 
     // A minute on the Strava tab, then back.
     vi.advanceTimersByTime(60_000);
     watch.resume();
     expect(events).toEqual(['suspend', 'active']);
-    expect(watch.isHidden).toBe(false);
 
     // The return is an interaction: a full threshold again from here.
     vi.advanceTimersByTime(IDLE_STOP_AFTER_MS - 1);
@@ -120,32 +118,80 @@ describe('IdleWatch', () => {
     const { watch, events } = watchWithLog();
     watch.suspend();
 
-    // A reply scrolling itself into view in a background tab is not a human.
+    // A reply scrolling itself into view in a background tab is not a human:
+    // it neither brings the client back nor buys it a fresh deadline.
+    vi.advanceTimersByTime(IDLE_STOP_AFTER_MS - 1);
     watch.noteInteraction();
-    expect(watch.isHidden).toBe(true);
     expect(events).toEqual(['suspend']);
-
-    vi.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+    vi.advanceTimersByTime(1);
     expect(events).toEqual(['suspend', 'idle']);
+
     watch.noteInteraction();
     expect(events).toEqual(['suspend', 'idle']);
     watch.stop();
   });
 
-  it('counts each departure once: hidden, or idle while visible', () => {
+  it('answers whether the athlete was away while work ran: hidden, or idle while visible', () => {
     const { watch } = watchWithLog();
-    expect(watch.absences).toBe(0);
 
+    // In front of the athlete from start to finish.
+    const watched = watch.trackAbsence();
+    vi.advanceTimersByTime(60_000);
+    expect(watched()).toBe(false);
+
+    // They switch tabs and come back before it ends: still away in between.
+    const hidden = watch.trackAbsence();
     watch.suspend();
-    expect(watch.absences).toBe(1);
-    // Idle while already hidden is the same absence, not a second one.
+    watch.resume();
+    expect(hidden()).toBe(true);
+
+    // Nobody touched the visible client for the whole threshold.
+    const forgotten = watch.trackAbsence();
     vi.advanceTimersByTime(IDLE_STOP_AFTER_MS);
-    expect(watch.absences).toBe(1);
+    expect(forgotten()).toBe(true);
+
+    // Work started after the return knows nothing of the earlier absence.
+    watch.noteInteraction();
+    const afterReturn = watch.trackAbsence();
+    expect(afterReturn()).toBe(false);
+    watch.stop();
+  });
+
+  it('counts work started while the client was already away, idle stop included', () => {
+    const { watch, events } = watchWithLog();
+
+    // A prompt queued before the athlete switched tabs goes out while hidden,
+    // and the idle stop drops it before they are back.
+    watch.suspend();
+    const release = watch.holdWhileBusy();
+    const sentWhileHidden = watch.trackAbsence();
+    vi.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+    expect(events).toEqual(['suspend', 'idle']);
+    expect(sentWhileHidden()).toBe(true);
+    release();
+
+    // Work started on an idle, visible client was not watched either.
+    watch.resume();
+    vi.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+    const sentWhileIdle = watch.trackAbsence();
+    expect(sentWhileIdle()).toBe(true);
+    watch.stop();
+  });
+
+  it('brings back an idle client when it is shown, though its hide was never reported', () => {
+    // A tab opened in the background: the client missed the hidden edge and
+    // went idle on its own deadline; the athlete then switches to it.
+    const { watch, events } = watchWithLog();
+    vi.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+    expect(events).toEqual(['idle']);
 
     watch.resume();
-    expect(watch.absences).toBe(1);
-    vi.advanceTimersByTime(IDLE_STOP_AFTER_MS);
-    expect(watch.absences).toBe(2);
+    expect(events).toEqual(['idle', 'active']);
+    expect(watch.isIdle).toBe(false);
+
+    // Shown while already active and visible, it has nothing to end.
+    watch.resume();
+    expect(events).toEqual(['idle', 'active']);
     watch.stop();
   });
 

@@ -68,17 +68,24 @@ export function stripToolScaffolding(content: string): string {
 }
 
 /**
- * Whether a re-read transcript holds a reply the client did not have when it
- * sent a turn.
+ * Whether a re-read transcript holds the reply to a turn whose stream the
+ * client lost.
  *
- * Asked about a turn whose stream the client lost while the athlete was away
- * — the idle stop dropped it, or the platform dropped a backgrounded app's
- * connection. The server finishes a turn whether or not anyone is still
- * reading, so its answer may already be persisted. `heldIds` are the ids of
- * the rows the client held when it sent the turn, so an `assistant` row
- * outside them is written since — the reply, or the interrupted notice the
- * server writes when a shutdown drain gave up on the turn, which answers it
- * too.
+ * Asked about a turn the client lost while the athlete was away — the idle
+ * stop dropped it, or the platform dropped a backgrounded app's connection.
+ * The server finishes a turn whether or not anyone is still reading, so its
+ * answer may already be persisted. `heldIds` are the ids of the rows the
+ * client held when it sent the turn.
+ *
+ * Answered by position. The server writes the turn's question before any
+ * reply, so the question is the last `user` row outside `heldIds`, and the
+ * answer is an `assistant` row after it — the reply, or the interrupted
+ * notice the server writes when a shutdown drain gave up on the turn, which
+ * answers it too. "Any assistant row the client did not hold" is not enough:
+ * a regenerate drops the stored reply from the client's rows while the server
+ * keeps it, and an earlier turn's late reply can land between two reads, and
+ * neither answers this turn. No question outside `heldIds` means the server
+ * never received the turn, so nothing it holds answers it.
  *
  * Both clients ask exactly this before they drop the note that told the
  * athlete the reply had not arrived.
@@ -87,7 +94,11 @@ export function replyLandedSince(
   rows: readonly Pick<Message, 'id' | 'role'>[],
   heldIds: ReadonlySet<string>,
 ): boolean {
-  return rows.some((row) => row.role === 'assistant' && !heldIds.has(row.id));
+  let question = -1;
+  rows.forEach((row, index) => {
+    if (row.role === 'user' && !heldIds.has(row.id)) question = index;
+  });
+  return question >= 0 && rows.slice(question + 1).some((row) => row.role === 'assistant');
 }
 
 /** Origin of a conversation that started on an external messaging channel. */

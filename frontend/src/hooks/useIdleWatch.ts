@@ -59,9 +59,9 @@ export function useIdleWatch(): void {
       onIdle: () => {
         focusManager.setFocused(false);
         // A turn still streaming holds the connection — and the instance
-        // behind it — open indefinitely. The send path re-reads the
-        // conversation when the athlete returns, so a reply the server went on
-        // to write is shown rather than lost.
+        // behind it — open indefinitely. The chat's messages query re-reads
+        // the conversation on the focus `onActive` restores, so a reply the
+        // server went on to write is shown rather than lost.
         idleAbort();
       },
       // Hidden: nothing on screen is being read, so the polls stop now. The
@@ -93,6 +93,9 @@ export function useIdleWatch(): void {
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
+    // A tab opened in the background — a middle-click from an email — never
+    // fires the hidden edge, so the watch is told where it starts.
+    if (document.visibilityState === 'hidden') watch.suspend();
 
     return () => {
       registerIdleWatch(null);

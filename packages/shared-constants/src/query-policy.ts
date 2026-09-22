@@ -180,21 +180,21 @@ export class IdleWatch {
     return this.#idle;
   }
 
-  /** `true` while the platform reports the client hidden. */
-  get isHidden(): boolean {
-    return this.#hidden;
-  }
-
   /**
-   * How many times the client has gone away — hidden, or idle while visible —
-   * since the watch started.
+   * Note where the athlete is as work starts, and return the question to ask
+   * when it ends: were they away at any point while it ran?
    *
-   * A caller reads it when work starts and again when the work ends, to learn
-   * whether the athlete looked away in between: a turn that failed while
-   * nobody was looking may still have been answered.
+   * Away counts two ways — already away when the work started (a turn sent
+   * from a hidden tab, a prompt queued before the athlete switched away), or
+   * gone since (hidden, or idle while visible). A turn that failed while
+   * nobody was looking may still have been answered, because the server
+   * finishes a turn whether or not anyone is reading; one that failed in
+   * front of the athlete was not lost to their absence.
    */
-  get absences(): number {
-    return this.#absences;
+  trackAbsence(): () => boolean {
+    const awayAtStart = this.#hidden || this.#idle;
+    const departuresAtStart = this.#absences;
+    return () => awayAtStart || this.#absences !== departuresAtStart;
   }
 
   /**
@@ -270,9 +270,13 @@ export class IdleWatch {
    * The platform shows the client again. Coming back to it is the
    * interaction that ends the absence, whether or not the deadline passed
    * while it was hidden.
+   *
+   * It ends an idle stretch too, hidden or not: a platform saying "shown" is
+   * somebody looking, even when the hide it pairs with never reached the
+   * watch.
    */
   resume(): void {
-    if (this.#stopped || !this.#hidden) return;
+    if (this.#stopped || (!this.#hidden && !this.#idle)) return;
     this.#hidden = false;
     this.#idle = false;
     this.#arm();
@@ -326,7 +330,8 @@ export class IdleWatch {
   #goIdle(): void {
     if (this.#idle) return;
     this.#idle = true;
-    // A hidden client already counted its absence when it was hidden.
+    // A hidden client already counted its absence when it was hidden; work
+    // started while it was hidden is answered by `trackAbsence`'s start check.
     if (!this.#hidden) this.#absences += 1;
     this.#options.onIdle();
   }

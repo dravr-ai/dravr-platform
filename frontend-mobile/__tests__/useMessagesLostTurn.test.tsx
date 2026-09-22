@@ -26,8 +26,10 @@ import { useMessages } from '../src/screens/chat/useMessages';
 import { idleAbort, registerIdleWatch, resetIdleAbort } from '../src/services/idleSignal';
 import type { Message } from '../src/types';
 
-/** What the transport reports for an aborted turn — `sendTurn`'s own path. */
-const LOST_NOTE = 'The app went idle before this reply arrived, so it may still have been written.';
+/** What the transport reports for an aborted turn — `sendTurn`'s own text, pinned by its unit test. */
+const LOST_NOTE =
+  'The app went idle before this reply arrived, so it may still have been written. ' +
+  'Reopen this conversation to check, or send your message again.';
 const QUESTION = 'How was my week?';
 const REPLY = 'Your week: 42 km, all of it easy.';
 
@@ -44,6 +46,22 @@ const QUESTION_ONLY: Message[] = [
 const ANSWERED: Message[] = [
   ...QUESTION_ONLY,
   { id: 'm4', role: 'assistant', content: REPLY, created_at: '2026-09-21T23:47:19Z' },
+];
+
+const OLD_REPLY = 'Your week: 40 km, mostly easy.';
+/** A thread whose question already has a stored answer the athlete regenerates. */
+const ANSWERED_BEFORE: Message[] = [
+  ...QUESTION_ONLY,
+  { id: 'm4', role: 'assistant', content: OLD_REPLY, created_at: '2026-09-21T23:46:30Z' },
+];
+/** Regenerate deletes nothing: the old reply stays, and the re-sent question is new. */
+const REGENERATING: Message[] = [
+  ...ANSWERED_BEFORE,
+  { id: 'm5', role: 'user', content: QUESTION, created_at: '2026-09-21T23:48:00Z' },
+];
+const REGENERATED: Message[] = [
+  ...REGENERATING,
+  { id: 'm6', role: 'assistant', content: REPLY, created_at: '2026-09-21T23:48:41Z' },
 ];
 
 function renderHook<T>(hook: () => T) {
@@ -227,5 +245,123 @@ describe('useMessages turn lost while the app was backgrounded', () => {
 
     expect(mockGetConversationMessages.mock.calls.length).toBe(reads);
     expect(result.current.messages).toEqual([]);
+  });
+  it('puts the question back under a reload when the server never received the turn', async () => {
+    const turn = holdTurnOpen();
+    const { result } = renderHook(() => useMessages());
+    const sending = await sendThenBackground(result);
+    await act(async () => {
+      jest.advanceTimersByTime(60_000);
+      turn.dropConnection();
+      await sending();
+    });
+
+    // The screen reloads the thread; the server holds nothing of this turn.
+    mockGetConversationMessages.mockResolvedValue({ messages: EARLIER });
+    await act(async () => {
+      await result.current.loadMessages('conv-1');
+    });
+
+    const rows = result.current.messages;
+    expect(rows.map(m => m.id).slice(0, 2)).toEqual(['m1', 'm2']);
+    expect(rows).toHaveLength(4);
+    // The athlete's line, then the note whose Retry re-sends it.
+    expect(rows[2]).toMatchObject({ role: 'user', content: QUESTION });
+    expect(rows[3]).toMatchObject({ isError: true, content: '⚠️ Network request failed\n\nPlease try again.' });
+    expect(result.current.error).toBe('Network request failed');
+  });
+
+  it('holds the re-read back when the athlete sends a new turn before it lands', async () => {
+    const turn = holdTurnOpen();
+    const { result } = renderHook(() => useMessages());
+    const sending = await sendThenBackground(result);
+    mockGetConversationMessages.mockResolvedValue({ messages: QUESTION_ONLY });
+    await act(async () => {
+      jest.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+      await sending();
+    });
+
+    // Back in the app; the re-read is on the wire when the athlete asks again.
+    let landRead: (response: { messages: Message[] }) => void = () => undefined;
+    mockGetConversationMessages.mockImplementation(
+      () => new Promise(resolve => {
+        landRead = resolve;
+      }),
+    );
+    const reads = mockGetConversationMessages.mock.calls.length;
+    await act(async () => {
+      watch.resume();
+    });
+    expect(mockGetConversationMessages.mock.calls.length).toBe(reads + 1);
+
+    const SECOND = 'And next week?';
+    await act(async () => {
+      void result.current.sendTurn('conv-1', SECOND);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      landRead({ messages: ANSWERED });
+      await Promise.resolve();
+    });
+
+    // The new turn's question is still on screen: the late transcript, which
+    // has never heard of it, did not paint over it.
+    expect(result.current.messages.some(m => m.content === SECOND)).toBe(true);
+    expect(result.current.isSending).toBe(true);
+
+    await act(async () => {
+      turn.dropConnection();
+      await Promise.resolve();
+    });
+  });
+
+  it('keeps a regenerated turn\'s note until its own reply lands, though the old one comes back', async () => {
+    holdTurnOpen();
+    mockGetConversationMessages.mockResolvedValue({ messages: ANSWERED_BEFORE });
+    const { result } = renderHook(() => useMessages());
+    await act(async () => {
+      await result.current.loadMessages('conv-1');
+    });
+
+    // Long-press, Retry on the stored answer, then off to another app.
+    let retrying: Promise<void> = Promise.resolve();
+    await act(async () => {
+      retrying = result.current.retryMessage('m4', 'conv-1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      watch.suspend();
+    });
+    mockGetConversationMessages.mockResolvedValue({ messages: REGENERATING });
+    await act(async () => {
+      jest.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+      await retrying;
+    });
+    expect(result.current.messages.some(m => m.isError)).toBe(true);
+
+    // Back: the server still stores the old reply and has the re-sent
+    // question, and nothing answers it yet.
+    const reads = mockGetConversationMessages.mock.calls.length;
+    await act(async () => {
+      watch.resume();
+    });
+    await waitFor(() => expect(mockGetConversationMessages.mock.calls.length).toBe(reads + 1));
+    await waitFor(() =>
+      expect(result.current.messages.map(m => m.id).slice(0, 5)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5']),
+    );
+    const note = result.current.messages[5];
+    expect(note?.isError).toBe(true);
+    expect(note?.content).toBe(`⚠️ ${LOST_NOTE}`);
+    expect(result.current.messages.some(m => m.content === REPLY)).toBe(false);
+
+    // The regenerated reply lands, and the next read of the thread shows it
+    // once and takes the note down.
+    mockGetConversationMessages.mockResolvedValue({ messages: REGENERATED });
+    await act(async () => {
+      await result.current.loadMessages('conv-1');
+    });
+    expect(result.current.messages.map(m => m.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6']);
+    expect(result.current.messages.filter(m => m.content === REPLY)).toHaveLength(1);
+    expect(result.current.error).toBeNull();
   });
 });

@@ -141,6 +141,38 @@ describe('useIdleWatch', () => {
     unmount();
   });
 
+  it('treats a tab opened in the background as hidden from the start, and brings it back when shown', async () => {
+    // A middle-click from an email: the page mounts hidden and no hidden edge
+    // ever fires, yet nobody is looking at it. A turn it sends — a deep link's
+    // first line — is on the same clock as one sent before hiding.
+    resetIdleAbort();
+    const queryFn = vi.fn().mockResolvedValue(1);
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const { unmount } = renderHook(() => usePollingScreen(queryFn), {
+      wrapper: wrapper(client),
+    });
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    const inFlight = idleSignal();
+    const release = holdIdleWhileBusy();
+    // Nobody can be watching this turn, so the hold does not suspend the deadline.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_STOP_AFTER_MS);
+    });
+    expect(inFlight.aborted).toBe(true);
+
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(focusManager.isFocused()).toBe(true);
+    expect(idleSignal().aborted).toBe(false);
+
+    release();
+    visibility.mockRestore();
+    unmount();
+  });
+
   it('keeps a turn in flight streaming across a hidden stretch shorter than the threshold', async () => {
     // carnet#500: the athlete switched to the Strava tab mid-turn and came
     // back to "the turn was stopped" for a reply the server had finished.

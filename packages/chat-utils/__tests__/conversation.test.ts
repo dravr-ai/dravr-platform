@@ -143,4 +143,53 @@ describe('replyLandedSince', () => {
     ];
     expect(replyLandedSince(reread, held)).toBe(false);
   });
+
+  it('does not take a regenerated reply the server still stores for the new one', () => {
+    // Regenerate drops the stored reply m2 from the client's rows before the
+    // turn goes out; the server keeps it and writes the re-sent question m3.
+    const heldAfterRegenerate = new Set(['m1']);
+    const beforeTheNewReply = [
+      { id: 'm1', role: 'user' as const },
+      { id: 'm2', role: 'assistant' as const },
+      { id: 'm3', role: 'user' as const },
+    ];
+    expect(replyLandedSince(beforeTheNewReply, heldAfterRegenerate)).toBe(false);
+    expect(
+      replyLandedSince(
+        [...beforeTheNewReply, { id: 'm4', role: 'assistant' as const }],
+        heldAfterRegenerate,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not take an earlier turn's late reply for this turn's", () => {
+    // The client read the earlier question m3 back before it sent the next
+    // one; its reply m4 landed after that read, ahead of this turn's m5.
+    const heldAtSecondTurn = new Set(['m1', 'm2', 'm3']);
+    const lateEarlierReply = [
+      { id: 'm1', role: 'user' as const },
+      { id: 'm2', role: 'assistant' as const },
+      { id: 'm3', role: 'user' as const },
+      { id: 'm4', role: 'assistant' as const },
+      { id: 'm5', role: 'user' as const },
+    ];
+    expect(replyLandedSince(lateEarlierReply, heldAtSecondTurn)).toBe(false);
+    expect(
+      replyLandedSince(
+        [...lateEarlierReply, { id: 'm6', role: 'assistant' as const }],
+        heldAtSecondTurn,
+      ),
+    ).toBe(true);
+  });
+
+  it('is false when the server never received the question, whatever else it wrote', () => {
+    // An assistant row with no new question before it — a reply delivered on
+    // another channel — answers nothing this client sent.
+    const reread = [
+      { id: 'm1', role: 'user' as const },
+      { id: 'm2', role: 'assistant' as const },
+      { id: 'm9', role: 'assistant' as const },
+    ];
+    expect(replyLandedSince(reread, held)).toBe(false);
+  });
 });

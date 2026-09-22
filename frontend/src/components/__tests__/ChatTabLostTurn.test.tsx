@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A turn whose stream the idle stop dropped while the tab was hidden, and the athlete's return
-// ABOUTME: The re-read on return renders the reply the server finished exactly once and takes the note down
+// ABOUTME: The focus re-read on return renders this turn's reply exactly once and only then takes the note down
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -61,8 +61,10 @@ vi.mock('../../hooks/useUsageStatus', () => ({
   }),
 }));
 
-/** What the mocked transport reports for an aborted turn — `sendTurn`'s own path. */
-const LOST_NOTE = 'The app went idle before this reply arrived, so it may still have been written.';
+/** What the transport reports for an aborted turn — `sendTurn`'s own text, pinned by its unit test. */
+const LOST_NOTE =
+  'The app went idle before this reply arrived, so it may still have been written. ' +
+  'Reopen this conversation to check, or send your message again.';
 const QUESTION = 'How was my week?';
 const REPLY = 'Your week: 42 km, all of it easy.';
 
@@ -79,6 +81,22 @@ const QUESTION_ONLY: Message[] = [
 const ANSWERED: Message[] = [
   ...QUESTION_ONLY,
   { id: 'm4', role: 'assistant', content: REPLY, created_at: '2026-09-21T23:47:19Z' },
+];
+
+const OLD_REPLY = 'Your week: 40 km, mostly easy.';
+/** A thread whose question already has a stored answer the athlete regenerates. */
+const QUESTION_ONLY_ANSWERED_BEFORE: Message[] = [
+  ...QUESTION_ONLY,
+  { id: 'm4', role: 'assistant', content: OLD_REPLY, created_at: '2026-09-21T23:46:30Z' },
+];
+/** Regenerate deletes nothing: the old reply stays, and the re-sent question is new. */
+const REGENERATING: Message[] = [
+  ...QUESTION_ONLY_ANSWERED_BEFORE,
+  { id: 'm5', role: 'user', content: QUESTION, created_at: '2026-09-21T23:48:00Z' },
+];
+const REGENERATED: Message[] = [
+  ...REGENERATING,
+  { id: 'm6', role: 'assistant', content: REPLY, created_at: '2026-09-21T23:48:41Z' },
 ];
 
 /** The chat surface under the idle watch, as `App` mounts them. */
@@ -224,5 +242,76 @@ describe('ChatTab turn lost while the tab was hidden', () => {
     // Still being written: the note stays and says what to do.
     expect(screen.getByText(LOST_NOTE)).toBeInTheDocument();
     expect(screen.queryByText(REPLY)).toBeNull();
+  });
+  it('keeps the note for a regenerated reply until the new one lands, though the old one comes back', async () => {
+    // The thread already holds an answer the athlete asks to regenerate.
+    getConversationMessages.mockResolvedValue({ messages: QUESTION_ONLY_ANSWERED_BEFORE });
+    streamUntilAborted();
+    renderWatchedChat();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await screen.findByText(OLD_REPLY);
+    // Every reply carries the control; the stored answer is the last one.
+    const regenerate = screen.getAllByTitle('Regenerate response');
+    await user.click(regenerate[regenerate.length - 1]);
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(OLD_REPLY)).toBeNull();
+
+    visibility.mockReturnValue('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    // The server still stores the old reply and has the re-sent question;
+    // the new reply is not written yet.
+    getConversationMessages.mockResolvedValue({ messages: REGENERATING });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_STOP_AFTER_MS);
+    });
+    await screen.findByText(LOST_NOTE);
+
+    const readsBeforeReturn = getConversationMessages.mock.calls.length;
+    await showTab();
+    await waitFor(() =>
+      expect(getConversationMessages.mock.calls.length).toBeGreaterThan(readsBeforeReturn),
+    );
+    // The old reply is back from the transcript, and it answers nothing new.
+    expect(await screen.findByText(OLD_REPLY)).toBeInTheDocument();
+    expect(screen.getByText(LOST_NOTE)).toBeInTheDocument();
+
+    // The regenerated reply lands; the next read takes the note down.
+    getConversationMessages.mockResolvedValue({ messages: REGENERATED });
+    visibility.mockReturnValue('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await showTab();
+    expect(await screen.findByText(REPLY)).toBeInTheDocument();
+    expect(screen.queryByText(LOST_NOTE)).toBeNull();
+  });
+
+  it('recovers a turn that went out while the tab was already hidden', async () => {
+    // A prompt queued before the athlete switched away goes out while the
+    // tab is hidden, and the idle stop drops it before they are back.
+    streamUntilAborted();
+    renderWatchedChat();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const input = await screen.findByPlaceholderText('Message Dravr...');
+    await user.type(input, QUESTION);
+    visibility.mockReturnValue('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+
+    getConversationMessages.mockResolvedValue({ messages: QUESTION_ONLY });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_STOP_AFTER_MS);
+    });
+    await screen.findByText(LOST_NOTE);
+
+    getConversationMessages.mockResolvedValue({ messages: ANSWERED });
+    await showTab();
+    expect(await screen.findByText(REPLY)).toBeInTheDocument();
+    expect(screen.queryByText(LOST_NOTE)).toBeNull();
   });
 });

@@ -7,12 +7,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, providersApi } from '../services/api';
-import {
-  holdIdleWhileBusy,
-  idleSignal,
-  trackAbsence,
-  whenAthleteReturns,
-} from '../services/api/idleSignal';
+import { holdIdleWhileBusy, idleSignal, trackAbsence } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
 import {
   avatarSlot,
@@ -82,7 +77,8 @@ function latestPersistedMessageId(messages: Message[] | undefined): string | nul
  * The server finishes a turn whether or not anyone is still reading it, so
  * the note shown for the failure stays only until a read of the conversation
  * holds the reply. `heldIds` are the rows the client had when the turn was
- * sent: an assistant row outside them is that turn's answer.
+ * sent; `replyLandedSince` finds the turn's question among the rows outside
+ * them and its answer after it.
  */
 interface LostTurn {
   conversationId: string;
@@ -183,7 +179,10 @@ export default function ChatTab({
     // Messaging turns arrive async via inbound webhook with no websocket push
     // to the web client. Refetch when the tab/window regains focus so a reply
     // sent from Telegram (or any channel) into an open conversation appears
-    // without a manual reload.
+    // without a manual reload. The same refetch is how a turn lost while the
+    // athlete was away shows its reply: the idle watch's return is the focus
+    // edge (`onActive` sets it), so the thread is re-read the moment they are
+    // back, and the note below comes down once that read holds the answer.
     refetchOnWindowFocus: true,
   });
 
@@ -198,9 +197,8 @@ export default function ChatTab({
 
   // A lost turn's note belongs to its own thread, and only for as long as the
   // reply has not landed: any read of the conversation that holds it — the
-  // re-read on the athlete's return, a focus refetch, reopening the thread —
-  // takes the note down, and the reply renders from the transcript like any
-  // other row.
+  // focus refetch on the athlete's return, reopening the thread — takes the
+  // note down, and the reply renders from the transcript like any other row.
   const shownError = useMemo<string | null>(() => {
     if (!lostTurn || errorMessage !== lostTurn.note) return errorMessage;
     if (lostTurn.conversationId !== selectedConversation) return null;
@@ -621,13 +619,10 @@ export default function ChatTab({
         queryClient.invalidateQueries({ queryKey: conversationKey });
         // Failed while the athlete was away — the idle stop dropped the
         // stream, or the network went with a sleeping laptop. The server kept
-        // going, so re-read the thread when they are back: the reply it wrote
-        // renders from the transcript and takes this note down with it.
+        // going, so the note stands only until a read of the thread holds the
+        // reply; the messages query re-reads it on their return.
         if (leftDuringTurn()) {
           setLostTurn({ conversationId: selectedConversation, heldIds, note: error.message });
-          whenAthleteReturns(() => {
-            void queryClient.invalidateQueries({ queryKey: conversationKey });
-          });
         }
       },
     });

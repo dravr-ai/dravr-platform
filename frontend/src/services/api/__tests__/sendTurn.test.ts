@@ -195,6 +195,52 @@ describe('sendTurn — the one request every surface sends', () => {
     );
   });
 
+  it('reports an idle abort mid-stream as a reply that may still land, never as a lost turn', async () => {
+    // The stream is open and has said something when the idle stop drops it:
+    // the body errors the way a fetch body does once its signal aborts.
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `event: progress\ndata: ${JSON.stringify({
+                kind: 'tool',
+                id: 'call-1',
+                title: 'get_activities',
+                status: 'InProgress',
+              })}\n\n`,
+            ),
+          );
+          init?.signal?.addEventListener('abort', () => {
+            controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    });
+
+    const idle = new AbortController();
+    const onDone = vi.fn();
+    let failure: Error | null = null;
+    await chatApi.sendTurn(CONVERSATION_ID, 'How was my week?', {
+      signal: idle.signal,
+      onProgress: () => idle.abort(),
+      onDone,
+      onError: (error) => {
+        failure = error;
+      },
+    });
+
+    expect(onDone).not.toHaveBeenCalled();
+    // The server finishes the turn after the stream goes, so the athlete is
+    // told the reply may already be written — not that the turn was stopped.
+    expect((failure as Error | null)?.message).toBe(
+      'The app went idle before this reply arrived, so it may still have been written. ' +
+        'Reopen this conversation to check, or send your message again.',
+    );
+  });
+
   it('reads a slash-command answer, which is one JSON document and no stream', async () => {
     const turn = envelope();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

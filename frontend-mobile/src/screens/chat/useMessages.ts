@@ -104,6 +104,28 @@ export interface MessagesActions {
   flatListRef: React.RefObject<FlashListRef<ChatRow> | null>;
 }
 
+/**
+ * A turn whose stream was lost while the athlete was away.
+ *
+ * The server finishes a turn whether or not anyone is still reading, so the
+ * failure's note stands only until a read of the conversation holds the
+ * reply. Every read of the thread goes through `showTranscript`, which puts
+ * the note back under a transcript that does not answer the turn yet and
+ * drops it once one does — so the screen's own reloads (a focus, the end of a
+ * send) cannot take the note down before the reply is there.
+ */
+interface LostTurn {
+  conversationId: string;
+  /** The rows the client held when it sent the turn. */
+  heldIds: ReadonlySet<string>;
+  /** The question the turn sent, for a transcript that never received it. */
+  question: Message;
+  /** The failure's row: the note and its Retry. */
+  note: Message;
+  /** The failure's text, which `error` carries while the note stands. */
+  failure: string;
+}
+
 export function useMessages(): MessagesState & MessagesActions {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -122,9 +144,9 @@ export function useMessages(): MessagesState & MessagesActions {
   // The thread these rows belong to, so a re-read scheduled for one thread
   // never paints its rows over another the athlete has opened since.
   const openConversationRef = useRef<string | null>(null);
-  // Turns on the wire right now. A re-read that lands while one is would
-  // replace its optimistic rows with a transcript that does not have them.
-  const turnsInFlightRef = useRef(0);
+  // The turn lost while the athlete was away whose reply has not landed yet.
+  // A new turn supersedes it, so it is cleared the moment one starts.
+  const lostTurnRef = useRef<LostTurn | null>(null);
 
   const scrollToBottom = useCallback(() => {
     if (flatListRef.current && messages.length > 0) {
@@ -175,13 +197,33 @@ export function useMessages(): MessagesState & MessagesActions {
     }
   }, []);
 
-  // Put a conversation's transcript on screen exactly as the server holds it.
+  // Put a conversation's transcript on screen exactly as the server holds it,
+  // with a lost turn's note under it for as long as the transcript does not
+  // answer that turn.
   const showTranscript = useCallback(async (conversationId: string, response: MessagesResponse) => {
     // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
     // <tool_call>/<tool_result> XML never renders — critical for
     // messaging-origin conversations (Telegram etc.) that carry the same
     // scaffolding rows as native chat.
-    setMessages(filterDisplayMessages(response.messages || []));
+    const transcript = response.messages || [];
+    const rows = filterDisplayMessages(transcript);
+    const lost = lostTurnRef.current;
+    if (lost?.conversationId !== conversationId) {
+      setMessages(rows);
+    } else if (replyLandedSince(transcript, lost.heldIds)) {
+      // The reply is written: it renders from the transcript, once, and the
+      // note and its failure are done.
+      lostTurnRef.current = null;
+      setError(null);
+      setMessages(rows);
+    } else {
+      // Not answered yet. The note sits under the question — the server's
+      // copy when it received the turn, the client's own when it never did —
+      // so its Retry re-sends the right line.
+      const received = transcript.some(m => m.role === 'user' && !lost.heldIds.has(m.id));
+      setMessages(received ? [...rows, lost.note] : [...rows, lost.question, lost.note]);
+      setError(lost.failure);
+    }
 
     // Hydrate thumbs up/down state (and any saved reason) from the server so
     // feedback survives reloads and conversation switches.
@@ -214,27 +256,45 @@ export function useMessages(): MessagesState & MessagesActions {
   }, [showTranscript]);
 
   /**
-   * Re-read a thread whose turn was lost while the athlete was away.
+   * Re-read a thread whose turn was lost while the athlete was away, now that
+   * they are back.
    *
    * The server finishes a turn whether or not anyone is still reading, so the
-   * reply is often already persisted by the time the athlete is back. When it
-   * is, the transcript replaces what is on screen — the reply once, in place
-   * of the note and the optimistic question. When it is not, the note stays:
-   * it says what to do, and the next reload of the thread shows the reply.
+   * reply is often already persisted by then, and the transcript shows it
+   * once, in place of the note. When it is not, the note stays: it says what
+   * to do, and the next read of the thread shows the reply.
+   *
+   * Checked again after the read lands, because the athlete may have moved on
+   * while it was on the wire: a new turn supersedes the lost one, and painting
+   * the transcript over it would drop that turn's question and reply.
    */
-  const recoverLostReply = useCallback(async (conversationId: string, heldIds: ReadonlySet<string>) => {
+  const recoverLostReply = useCallback(async (lost: LostTurn) => {
     const stillShowing = () =>
-      openConversationRef.current === conversationId && turnsInFlightRef.current === 0;
+      lostTurnRef.current === lost && openConversationRef.current === lost.conversationId;
     if (!stillShowing()) return;
     try {
-      const response = await chatApi.getConversationMessages(conversationId);
-      if (!stillShowing() || !replyLandedSince(response.messages ?? [], heldIds)) return;
-      setError(null);
-      await showTranscript(conversationId, response);
+      const response = await chatApi.getConversationMessages(lost.conversationId);
+      if (!stillShowing()) return;
+      await showTranscript(lost.conversationId, response);
     } catch (err) {
       console.error('Failed to re-read the interrupted turn:', err);
     }
   }, [showTranscript]);
+
+  /**
+   * Once a turn has settled, schedule the re-read for the athlete's return if
+   * it was lost while they were away.
+   *
+   * After the turn, so the re-read never races the rows the turn is still
+   * writing. `heldIds` names the turn: only its own lost record is re-read.
+   */
+  const recoverOnReturn = useCallback((heldIds: ReadonlySet<string>) => {
+    const lost = lostTurnRef.current;
+    if (lost?.heldIds !== heldIds) return;
+    whenAthleteReturns(() => {
+      void recoverLostReply(lost);
+    });
+  }, [recoverLostReply]);
 
   /**
    * The row a failed turn leaves in the thread.
@@ -259,13 +319,12 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
     openConversationRef.current = conversationId;
-    turnsInFlightRef.current += 1;
+    lostTurnRef.current = null;
 
     // What the thread held before this turn, so a re-read after a lost stream
     // can tell this turn's reply from the rows that were already there.
     const heldIds: ReadonlySet<string> = new Set(messages.map(m => m.id));
     const leftDuringTurn = trackAbsence();
-    let lostWhileAway = false;
 
     const userMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -342,33 +401,35 @@ export function useMessages(): MessagesState & MessagesActions {
         onError: sendErr => {
           setError(sendErr.message);
           invalidateConversationList();
-          lostWhileAway = leftDuringTurn();
           const errorResponse = failedTurnRow(sendErr, signal.aborted);
-          setMessages(prev => {
-            const updated = prev.map(m =>
-              m.id === userMessage.id ? { ...m, id: `user-${Date.now()}` } : m
-            );
-            return [...updated, errorResponse];
-          });
+          const question: Message = { ...userMessage, id: `user-${Date.now()}` };
+          // Failed while the athlete was away: every read of the thread keeps
+          // the note until the reply has landed.
+          if (leftDuringTurn()) {
+            lostTurnRef.current = {
+              conversationId,
+              heldIds,
+              question,
+              note: errorResponse,
+              failure: sendErr.message,
+            };
+          }
+          setMessages(prev => [
+            ...prev.map(m => (m.id === userMessage.id ? question : m)),
+            errorResponse,
+          ]);
         },
       });
     } finally {
       releaseIdleHold();
-      turnsInFlightRef.current -= 1;
     }
 
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
-    // Scheduled once the turn has settled, so the re-read never races the
-    // rows this turn is still writing.
-    if (lostWhileAway) {
-      whenAthleteReturns(() => {
-        void recoverLostReply(conversationId, heldIds);
-      });
-    }
+    recoverOnReturn(heldIds);
     return rotatedTo;
-  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverLostReply]);
+  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -381,15 +442,15 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
     openConversationRef.current = conversationId;
-    turnsInFlightRef.current += 1;
+    lostTurnRef.current = null;
 
     setProgressText(null);
 
-    const heldIds: ReadonlySet<string> = new Set(
-      messages.filter(m => m.id !== messageId).map(m => m.id),
-    );
+    // Every row the client held, the retried one included: a stored reply
+    // being regenerated is still on the server, where it answers the original
+    // question and not the one re-sent here.
+    const heldIds: ReadonlySet<string> = new Set(messages.map(m => m.id));
     const leftDuringTurn = trackAbsence();
-    let lostWhileAway = false;
     const retriedBlocks: ReplyBlock[] = [];
     // A streaming turn holds the client active: the athlete asked and is
     // waiting, even with the screen untouched. Released in the finally so
@@ -431,25 +492,30 @@ export function useMessages(): MessagesState & MessagesActions {
         onError: err => {
           setError(err.message);
           invalidateConversationList();
-          lostWhileAway = leftDuringTurn();
           const errorRow = failedTurnRow(err, signal.aborted);
+          if (leftDuringTurn()) {
+            lostTurnRef.current = {
+              conversationId,
+              heldIds,
+              // The re-sent line, as a row of its own: the original stays
+              // where it was in the transcript.
+              question: { ...userMessage, id: `user-${Date.now()}` },
+              note: errorRow,
+              failure: err.message,
+            };
+          }
           setMessages(prev => [...prev, errorRow]);
         },
       });
     } finally {
       releaseIdleHold();
-      turnsInFlightRef.current -= 1;
     }
 
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
-    if (lostWhileAway) {
-      whenAthleteReturns(() => {
-        void recoverLostReply(conversationId, heldIds);
-      });
-    }
-  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverLostReply]);
+    recoverOnReturn(heldIds);
+  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.

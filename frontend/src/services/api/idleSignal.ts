@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The abort signal every open turn stream rides, so going idle can drop it
-// ABOUTME: One controller per active stretch; a turn lost while the athlete was away is re-read on return
+// ABOUTME: One controller per active stretch; the send path asks it whether the athlete was away
 
 import type { IdleWatch } from '@pierre/shared-constants';
 
@@ -31,7 +31,7 @@ export function idleAbort(): void {
 }
 
 /** The part of the idle watch the send path talks to. */
-type SendPathWatch = Pick<IdleWatch, 'holdWhileBusy' | 'whenPresent' | 'absences'>;
+type SendPathWatch = Pick<IdleWatch, 'holdWhileBusy' | 'trackAbsence'>;
 
 /**
  * The live idle watch, registered by {@link useIdleWatch} at the app root.
@@ -60,33 +60,17 @@ export function holdIdleWhileBusy(): () => void {
 
 /**
  * Note where the athlete is as a turn starts, and return the question to ask
- * if it fails: did they look away while it ran?
+ * if it fails: were they away at any point while it ran?
  *
  * A turn that failed while nobody was looking — the idle stop dropped its
  * stream, or the network went with a sleeping laptop — may well have been
  * answered, because the server finishes a turn whether or not anyone is
  * still reading it. One that failed in front of the athlete was not lost to
- * their absence, and is reported as it stands.
+ * their absence, and is reported as it stands. With no watch registered
+ * nobody can have been away.
  */
 export function trackAbsence(): () => boolean {
-  const watched = watch;
-  const at = watched?.absences ?? 0;
-  return () => watched !== null && watched.absences !== at;
-}
-
-/**
- * Run `work` once the athlete is here: now if they are, otherwise when they
- * come back.
- *
- * With no watch registered there is nobody to wait for, and the work runs at
- * once.
- */
-export function whenAthleteReturns(work: () => void): void {
-  if (watch) {
-    watch.whenPresent(work);
-  } else {
-    work();
-  }
+  return watch?.trackAbsence() ?? (() => false);
 }
 
 /** Start a fresh stretch, so turns sent from here on are not born aborted. */

@@ -144,6 +144,50 @@ describe('QueryProvider idle contract', () => {
     expect(focusManager.isFocused()).toBe(true);
   });
 
+  it('treats an app launched into the background as backgrounded from the start', async () => {
+    // A notification action or a background fetch starts the app with no
+    // change event at all; nobody is looking until it is opened. A turn it
+    // holds is on the same clock as one sent before leaving.
+    resetIdleAbort();
+    const launched = Object.getOwnPropertyDescriptor(AppState, 'currentState');
+    Object.defineProperty(AppState, 'currentState', {
+      value: 'background',
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const queryFn = jest.fn().mockResolvedValue(1);
+      render(
+        <QueryProvider>
+          <PollingScreen queryFn={queryFn} />
+        </QueryProvider>,
+      );
+      await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+      expect(focusManager.isFocused()).toBe(false);
+
+      const inFlight = idleSignal();
+      const release = holdIdleWhileBusy();
+      await act(async () => {
+        jest.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+      });
+      expect(inFlight.aborted).toBe(true);
+
+      // Opening the app is the return.
+      await act(async () => {
+        appStateListeners[0]('active');
+      });
+      expect(focusManager.isFocused()).toBe(true);
+      expect(idleSignal().aborted).toBe(false);
+      release();
+    } finally {
+      if (launched) {
+        Object.defineProperty(AppState, 'currentState', launched);
+      } else {
+        delete (AppState as { currentState?: unknown }).currentState;
+      }
+    }
+  });
+
   it('keeps a turn in flight across a trip to another app shorter than the threshold', async () => {
     // carnet#500: an athlete who leaves for the Strava app to authorize is
     // back in a minute, and the reply the server is still writing must be

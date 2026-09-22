@@ -28,7 +28,7 @@ export function idleSignal(): AbortSignal {
 }
 
 /** The part of the idle watch the send path talks to. */
-type SendPathWatch = Pick<IdleWatch, 'holdWhileBusy' | 'whenPresent' | 'absences'>;
+type SendPathWatch = Pick<IdleWatch, 'holdWhileBusy' | 'whenPresent' | 'trackAbsence'>;
 
 /**
  * The live idle watch, registered by QueryProvider at the app root.
@@ -56,19 +56,17 @@ export function holdIdleWhileBusy(): () => void {
 
 /**
  * Note where the athlete is as a turn starts, and return the question to ask
- * if it fails: did they leave the app while it ran?
+ * if it fails: were they out of the app at any point while it ran?
  *
  * A turn that failed while nobody was looking — the idle stop dropped its
  * stream, or the platform dropped a backgrounded app's connection while the
  * athlete was authorizing Strava — may well have been answered, because the
  * server finishes a turn whether or not anyone is still reading it. One that
  * failed in front of the athlete was not lost to their absence, and is
- * reported as it stands.
+ * reported as it stands. With no watch registered nobody can have been away.
  */
 export function trackAbsence(): () => boolean {
-  const watched = watch;
-  const at = watched?.absences ?? 0;
-  return () => watched !== null && watched.absences !== at;
+  return watch?.trackAbsence() ?? (() => false);
 }
 
 /**
