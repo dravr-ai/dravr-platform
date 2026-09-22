@@ -94,6 +94,20 @@ pub struct RenderedReply {
 }
 
 impl RenderedReply {
+    /// A reply that is one platform-authored text and nothing else.
+    ///
+    /// The shape of everything the platform says without running the
+    /// pipeline — a templated activity list, an "ask me again" nudge. The
+    /// body is left whole here; the sender splits it at the channel's ceiling
+    /// exactly as it splits a pipeline reply's prose.
+    #[must_use]
+    pub fn plain(body: String) -> Self {
+        Self {
+            prose: vec![body],
+            attachments: Vec::new(),
+        }
+    }
+
     /// Whether this turn produced nothing the athlete can be sent.
     ///
     /// Both halves, not just the prose. A reply that is one chart and no words

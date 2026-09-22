@@ -17,16 +17,16 @@ use std::iter::once;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_PUSH_BODY, KEY_BACKFILL_PUSH_TITLE,
 };
-use pierre_core::models::messaging::{ChannelConfig, ChannelType, OutgoingMessage};
+use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
 use pierre_core::models::{AddMessageParams, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
-use pierre_services::messaging_broadcast::proactive_text;
+use pierre_messaging::turn::ConversationTurnId;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::services::backfill_notifier::AdapterResolver;
-use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out};
+use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out, RenderedReply};
 use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
 
 #[cfg(feature = "client-notifications")]
@@ -76,14 +76,17 @@ impl ChannelDelivery<'_> {
     /// A warmed history can be long — an agent answer over a deep window, or the
     /// templated list itself. The channel accepts a bounded message and rejects
     /// anything past it, so the notice goes out as ordered parts, each inside
-    /// the ceiling, rather than being dropped whole. Every part is a fresh
-    /// proactive turn, not a reply to the originating one.
+    /// the ceiling, rather than being dropped whole. The prose lands first and
+    /// the reply's attachments — the charts a re-asked question drew — follow
+    /// it, one message each, exactly as the live reply path orders them. Every
+    /// part carries one fresh proactive turn id, not the originating turn's,
+    /// so a split notice still reads as one turn in the transcript.
     pub async fn send(
         &self,
         route: ResolvedRoute,
         user_id: Uuid,
         tenant_id: TenantId,
-        body: String,
+        reply: RenderedReply,
         count: usize,
     ) {
         let ResolvedRoute {
@@ -95,10 +98,29 @@ impl ChannelDelivery<'_> {
             channel_tenant_id,
         } = route;
 
-        let parts = fan_out(
-            proactive_text(channel_type, recipient, body),
-            channel_ceiling(channel_type),
-        );
+        let turn_id = ConversationTurnId::new();
+        let ceiling = channel_ceiling(channel_type);
+        let outgoing = |content: MessageContent| OutgoingMessage {
+            channel_type,
+            recipient_id: recipient.clone(),
+            content,
+            turn_id,
+            reply_to: None,
+            thread_id: None,
+        };
+        let mut parts: Vec<OutgoingMessage> = reply
+            .prose
+            .into_iter()
+            .flat_map(|body| fan_out(outgoing(MessageContent::Text { body }), ceiling))
+            .collect();
+        parts.extend(reply.attachments.into_iter().map(outgoing));
+        if parts.is_empty() {
+            warn!(
+                channel = %channel_str,
+                "Backfill push: the reply rendered to nothing for this channel; nothing sent"
+            );
+            return;
+        }
 
         // Load the channel config + adapter from the BOT/channel-owner tenant
         // (resolved via the channel link), NOT the user's own tenant — the

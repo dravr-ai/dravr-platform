@@ -41,7 +41,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_chat_pipeline::{
-    CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
+    AssistantTurn, CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
 };
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE,
@@ -69,9 +69,13 @@ use pierre_notifications::NotificationService;
 use crate::mcp::resources::ServerContext;
 use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
 use crate::services::messaging_ingress::addressing::reply_recipient;
-use crate::services::messaging_ingress::block_render::plain_prose;
+use crate::services::messaging_ingress::block_render::{render_reply, RenderedReply};
 use crate::services::messaging_ingress::build_messaging_profile;
 use crate::services::messaging_ingress::outbound_retry::{enqueue_failed_outbound, FailedOutbound};
+use crate::services::messaging_ingress::scene_publisher::{
+    athlete_color_scheme, MessagingScenePublisher,
+};
+use crate::services::messaging_ingress::surface::messaging_render_profile;
 use pierre_chat_pipeline::TurnTelemetry;
 use pierre_services::messaging_broadcast::proactive_text;
 
@@ -197,12 +201,16 @@ pub struct ReentryRequest<'a> {
 /// prepended to the analysis on delivery so the user SEES their activities,
 /// mirroring the live messaging path.
 pub struct ReentryReply {
-    /// The reply exactly as the channel will send it.
+    /// The turn's blocks, as the pipeline laid them out for the channel.
     ///
     /// A messaging surface has no activity panel, so the athlete's list is
-    /// already folded into this string by the pipeline — the push sends it
-    /// verbatim rather than composing it a second time.
-    pub body: String,
+    /// already folded into the prose block — and a chart the agent drew rides
+    /// as its own `SceneImage` block, minted against the durable message. The
+    /// push lays the blocks out through the same egress a live reply takes
+    /// rather than reading the prose off and composing a second time; that
+    /// shortcut is how `⟦viz:0⟧` reached a Telegram bubble as literal text
+    /// with the chart it stood for never sent (2026-09-22).
+    pub assistant: AssistantTurn,
     /// Whether the re-entry turn answered from the athlete's activities — see
     /// [`engaged_with_activities`].
     ///
@@ -305,6 +313,15 @@ impl ChatReentry for PipelineChatReentry {
     async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
         let resources = self.ctx.upgrade()?;
         let profile = build_messaging_profile(&resources, req.channel_type, req.locale.to_owned());
+        // Charts: this channel cannot draw a spec, so the pipeline asks the
+        // publisher for a signed image URL per block once the assistant row is
+        // durable — the same seam the live reply wires, so a re-asked question
+        // that draws a chart delivers it rather than its marker.
+        let scene_publisher = MessagingScenePublisher::new(
+            Arc::clone(&resources),
+            profile.render,
+            athlete_color_scheme(&resources, req.user_id).await,
+        );
         let ctx = resources.chat_pipeline_context();
         let channel_slug = req.channel_type.to_string();
         let request = TurnRequest {
@@ -331,7 +348,10 @@ impl ChatReentry for PipelineChatReentry {
             sender_id: None,
             // No AG-UI wiring: this is a detached background turn, not a live
             // request with a status placeholder to edit.
-            hooks: PipelineHooks::none(),
+            hooks: PipelineHooks {
+                scene_publisher: Some(&scene_publisher),
+                ..PipelineHooks::none()
+            },
         };
         // Through the same turn service a live turn takes, so this synthesized
         // reply spends the athlete's budget, honours their BYO LLM key and is
@@ -344,13 +364,14 @@ impl ChatReentry for PipelineChatReentry {
             Ok(ServedTurn::Pipeline(result)) if !result.assistant.prose().trim().is_empty() => {
                 let canonical_refusals = [KEY_SCOPE_REFUSAL, KEY_CAPABILITY_REFUSAL]
                     .map(|key| ctx.messaging_strings_registry.get(key, req.locale));
+                let fetched_activities = engaged_with_activities(
+                    &result.telemetry,
+                    result.assistant.prose(),
+                    &canonical_refusals,
+                );
                 Some(ReentryReply {
-                    body: result.assistant.prose().to_owned(),
-                    fetched_activities: engaged_with_activities(
-                        &result.telemetry,
-                        result.assistant.prose(),
-                        &canonical_refusals,
-                    ),
+                    assistant: result.assistant,
+                    fetched_activities,
                 })
             }
             // An empty reply, a slash command (the prompt is platform-authored
@@ -937,12 +958,12 @@ impl BackfillNotifier for ServerBackfillNotifier {
         let warmed = self
             .read_warmed_window(user_id, tenant_id, provider, after_ts)
             .await;
-        let body = if warmed.is_empty() {
+        let reply = if warmed.is_empty() {
             // Cache read came back empty (it shouldn't, post-backfill): fall back
             // to the templated "your history is ready, ask again" nudge so the
             // user still hears that their history loaded.
             let count = activity_count.to_string();
-            self.strings.render(KEY_BACKFILL_READY, &locale, &[&count])
+            RenderedReply::plain(self.strings.render(KEY_BACKFILL_READY, &locale, &[&count]))
         } else if let Destination::Channel(route) = &destination {
             // DECOUPLING (data delivery ≠ LLM judgment): the deterministic list,
             // rendered from the warmed cache the backfill just wrote, is the SPINE
@@ -966,10 +987,16 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 .await
                 .filter(|r| r.fetched_activities)
             {
-                // The same reduction the live reply path applies: a channel
-                // shows prose as typed, so the model's markup must not reach it.
-                Some(agent_reply) => plain_prose(&agent_reply.body),
-                None => self.render_list_body(&locale, &warmed),
+                // The same layout the live reply path applies: the prose is
+                // reduced to what a channel shows as typed, with the chart
+                // markers stripped, and each chart follows as its own message.
+                Some(agent_reply) => render_reply(
+                    &messaging_render_profile(route.channel_type, &locale).render,
+                    &agent_reply.assistant,
+                    &self.strings,
+                    &locale,
+                ),
+                None => RenderedReply::plain(self.render_list_body(&locale, &warmed)),
             }
         } else {
             // In-app: the list, never a re-entry turn. `pierre_chat_pipeline::execute`
@@ -982,7 +1009,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // the spine and leaves the fabricated turn unwritten. The fabricated
             // row is itself a defect on the channel surfaces, where the unified
             // chat list shows it: carnet#246.
-            self.render_list_body(&locale, &warmed)
+            RenderedReply::plain(self.render_list_body(&locale, &warmed))
         };
 
         // The window's true size: `warmed` when the cache read landed, else the
@@ -995,7 +1022,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     repos: &self.repos,
                     resolver: self.resolver.as_ref(),
                 }
-                .send(*route, user_id, tenant_id, body, count)
+                .send(*route, user_id, tenant_id, reply, count)
                 .await;
             }
             Destination::InApp => {
@@ -1005,12 +1032,14 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     #[cfg(feature = "client-notifications")]
                     notifications: self.notifications.as_ref(),
                 }
+                // The in-app arm always ships the plain list — one text, no
+                // attachments — so the persisted turn is that single part.
                 .deliver(
                     user_id,
                     tenant_id,
                     pierre_conversation_id,
                     &locale,
-                    body,
+                    reply.prose.join("\n\n"),
                     count,
                 )
                 .await;

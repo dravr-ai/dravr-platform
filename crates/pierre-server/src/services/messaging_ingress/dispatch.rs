@@ -9,12 +9,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
-use pierre_core::models::{ColorScheme, ConversationTurnId, TenantId};
+use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_database::backends::MessagingRepository;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use tracing::{error, info, warn};
 
-use super::scene_publisher::MessagingScenePublisher;
+use super::scene_publisher::{athlete_color_scheme, MessagingScenePublisher};
 use pierre_chat_pipeline::{
     self, CommandPersistence, PipelineHooks, ServedTurn, SurfaceProfile, TurnOrigin, TurnRequest,
 };
@@ -471,32 +471,6 @@ async fn send_quota_denial_reply(
     send_plain_reply(dispatch, channel_config, &body).await;
 }
 
-/// Read the colour scheme the athlete pinned, for the charts this turn mints.
-///
-/// A messaging chart is fetched by the channel's servers, not the athlete's
-/// device, so nothing on the wire can report the scheme the athlete is looking
-/// at — the `users.theme` pin is the only signal there is. An athlete who
-/// pinned nothing, or whose row cannot be read, gets
-/// [`ColorScheme::Dark`]: messaging clients overwhelmingly draw media bubbles
-/// on dark, and a chart in the wrong scheme still beats no chart.
-async fn athlete_color_scheme(dispatch: &PendingDispatch) -> ColorScheme {
-    match dispatch
-        .resources
-        .common
-        .repos
-        .users
-        .get_global(dispatch.auth_result.user_id)
-        .await
-    {
-        Ok(Some(user)) => ColorScheme::resolve(user.theme.as_deref()),
-        Ok(None) => ColorScheme::default(),
-        Err(e) => {
-            warn!(error = %e, "theme lookup failed for chart minting; painting dark");
-            ColorScheme::default()
-        }
-    }
-}
-
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
@@ -817,7 +791,7 @@ async fn serve_turn(
     let scene_publisher = MessagingScenePublisher::new(
         Arc::clone(&dispatch.resources),
         profile.render,
-        athlete_color_scheme(dispatch).await,
+        athlete_color_scheme(&dispatch.resources, dispatch.auth_result.user_id).await,
     );
     let hooks = PipelineHooks {
         agui: messaging_agui.map(MessagingAgUiWiring::run),

@@ -21,12 +21,12 @@ use std::time::Duration as StdDuration;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
-use pierre_chat_pipeline::TurnTelemetry;
+use pierre_chat_pipeline::{AssistantTurn, ReplyBlock, TurnTelemetry};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
 };
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{AddMessageParams, ConnectionStatus, ConnectionType};
+use pierre_core::models::{AddMessageParams, ConnectionStatus, ConnectionType, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::{
     engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest, ServerBackfillNotifier,
@@ -442,20 +442,171 @@ struct FakeReentry {
     /// surface — activity list already folded into the prose, because the
     /// surface has no panel to draw it in.
     body: String,
+    /// The charts the pipeline minted for the channel, in reply order — what
+    /// the scene publisher returns once the assistant row is durable.
+    charts: Vec<ReplyBlock>,
     /// Whether the re-entry turn actually fetched the athlete's activities.
     fetched_activities: bool,
     seen_prompt: Mutex<Option<String>>,
+}
+
+impl FakeReentry {
+    fn prose(body: &str, fetched_activities: bool) -> Self {
+        Self {
+            body: body.to_owned(),
+            charts: Vec::new(),
+            fetched_activities,
+            seen_prompt: Mutex::new(None),
+        }
+    }
 }
 
 #[async_trait]
 impl ChatReentry for FakeReentry {
     async fn synthesize_reply(&self, req: ReentryRequest<'_>) -> Option<ReentryReply> {
         *self.seen_prompt.lock().unwrap() = Some(req.prompt.to_owned());
+        let mut blocks = vec![ReplyBlock::Prose {
+            text: self.body.clone(),
+        }];
+        blocks.extend(self.charts.iter().cloned());
         Some(ReentryReply {
-            body: self.body.clone(),
+            assistant: AssistantTurn {
+                message: MessageRecord {
+                    id: "msg-asst".to_owned(),
+                    conversation_id: req.conversation_id.to_owned(),
+                    role: "assistant".to_owned(),
+                    content: self.body.clone(),
+                    token_count: Some(42),
+                    prompt_tokens: Some(120),
+                    model: Some("opus".to_owned()),
+                    finish_reason: Some("stop".to_owned()),
+                    content_blocks: None,
+                    created_at: "2026-09-22T20:22:00Z".to_owned(),
+                },
+                blocks,
+                finish_reason: Some("stop".to_owned()),
+            },
             fetched_activities: self.fetched_activities,
         })
     }
+}
+
+/// The regression of 2026-09-22: an athlete on Telegram asked for a month-on-
+/// month comparison "avec un graph", the deep history warmed, and the push
+/// delivered the agent's prose with `⟦viz:0⟧` in it as literal text — and no
+/// chart at all, because the re-entry ran with no scene publisher and the push
+/// read the prose off the envelope instead of laying the blocks out. The push
+/// must go through the same egress as a live reply: the marker is stripped,
+/// the prose lands first, and the chart follows as its own media message,
+/// under the same turn id.
+#[tokio::test]
+async fn push_sends_the_chart_and_never_its_marker() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "telegram",
+        "tg_user_777",
+        Some("tg_chat_888"),
+        &conversation_id,
+    )
+    .await;
+    db.repositories()
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id,
+            conversation_id: &conversation_id,
+            user_id: &user_id,
+            role: "user",
+            content: "Peux tu comparer mon mois de septembre 2026 avec celui de septembre 2023 avec un graph, par sport, et distance",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+        })
+        .await
+        .unwrap();
+    seed_activity_cache(
+        &db,
+        user_uuid,
+        tenant_id,
+        &[cached_activity("a1", "Le Massif", 400)],
+    )
+    .await;
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(
+        channel.clone() as Arc<dyn MessagingChannel>
+    ));
+    let chart_url = "https://dev.dravr.ai/api/viz/signed-token.png";
+    let reentry = Arc::new(FakeReentry {
+        body: "Voici la comparaison.\n\n⟦viz:0⟧\n\nLe vrai contraste : en 2023 t'étais un pur coureur de trail."
+            .to_owned(),
+        charts: vec![ReplyBlock::SceneImage {
+            url: chart_url.to_owned(),
+            mime_type: "image/png".to_owned(),
+            caption: Some("Septembre 2023 vs 2026".to_owned()),
+        }],
+        fetched_activities: true,
+        seen_prompt: Mutex::new(None),
+    });
+    let notifier =
+        ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
+
+    notifier
+        .push_backfill_complete(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "strava",
+            1_700_000_000,
+            38,
+        )
+        .await;
+
+    let sent = channel.sent.lock().unwrap();
+    assert_eq!(
+        sent.len(),
+        2,
+        "the prose and then the chart, as two messages: {sent:?}"
+    );
+    let MessageContent::Text { body } = &sent[0].content else {
+        panic!("the prose goes first, as text: {:?}", sent[0].content);
+    };
+    assert!(
+        !body.contains("viz:"),
+        "the chart marker must never reach the athlete: {body}"
+    );
+    assert_eq!(
+        body,
+        "Voici la comparaison.\n\nLe vrai contraste : en 2023 t'étais un pur coureur de trail.",
+        "the marker's blank run collapses like a live reply's"
+    );
+    let MessageContent::Media {
+        url,
+        mime_type,
+        caption,
+    } = &sent[1].content
+    else {
+        panic!(
+            "the chart follows the prose as media: {:?}",
+            sent[1].content
+        );
+    };
+    assert_eq!(url, chart_url);
+    assert_eq!(mime_type, "image/png");
+    assert_eq!(caption.as_deref(), Some("Septembre 2023 vs 2026"));
+    assert_eq!(
+        sent[0].turn_id, sent[1].turn_id,
+        "a split notice is one turn in the transcript"
+    );
+    assert_eq!(sent[1].recipient_id, "tg_chat_888");
 }
 
 /// Decoupling guarantee: when the re-entry's reply does NOT carry an activity
@@ -515,12 +666,10 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
         channel.clone() as Arc<dyn MessagingChannel>
     ));
     // The model refused without ever calling `get_activities`.
-    let reentry = Arc::new(FakeReentry {
-        body: "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness."
-            .to_owned(),
-        fetched_activities: false,
-        seen_prompt: Mutex::new(None),
-    });
+    let reentry = Arc::new(FakeReentry::prose(
+        "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.",
+        false,
+    ));
     let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
         repos,
         strings(),
@@ -631,11 +780,10 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
     ));
     // Written in markdown, as the fallback chain does when the persona rewrite
     // cannot run; the channel must receive the words without the markers.
-    let reentry = Arc::new(FakeReentry {
-        body: "## Septembre\n\n**5 918 m** de D+.".to_owned(),
-        fetched_activities: true,
-        seen_prompt: Mutex::new(None),
-    });
+    let reentry = Arc::new(FakeReentry::prose(
+        "## Septembre\n\n**5 918 m** de D+.",
+        true,
+    ));
     let notifier = ServerBackfillNotifier::with_resolver_and_reentry(
         repos,
         strings(),
@@ -730,11 +878,10 @@ async fn push_prepends_activity_list_to_agent_reply() {
     let resolver = Arc::new(FakeResolver::new(
         channel.clone() as Arc<dyn MessagingChannel>
     ));
-    let reentry = Arc::new(FakeReentry {
-        body: format!("{folded}\n\nAnalyse: belle progression sur tes longues sorties."),
-        fetched_activities: true,
-        seen_prompt: Mutex::new(None),
-    });
+    let reentry = Arc::new(FakeReentry::prose(
+        &format!("{folded}\n\nAnalyse: belle progression sur tes longues sorties."),
+        true,
+    ));
     let notifier =
         ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
 
@@ -829,11 +976,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
     ));
     let folded =
         shape_for_fold(Some(&list), &strings(), "fr").expect("a long list must shape into prose");
-    let reentry = Arc::new(FakeReentry {
-        body: format!("{folded}\n\nAnalyse."),
-        fetched_activities: true,
-        seen_prompt: Mutex::new(None),
-    });
+    let reentry = Arc::new(FakeReentry::prose(&format!("{folded}\n\nAnalyse."), true));
     let notifier =
         ServerBackfillNotifier::with_resolver_and_reentry(repos, strings(), resolver, reentry);
 

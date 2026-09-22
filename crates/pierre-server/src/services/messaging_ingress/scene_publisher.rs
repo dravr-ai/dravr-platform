@@ -18,9 +18,34 @@ use std::sync::Arc;
 
 use pierre_chat_pipeline::{RenderCapabilities, SceneImage, ScenePublishRequest, ScenePublisher};
 use pierre_core::models::ColorScheme;
+use tracing::warn;
+use uuid::Uuid;
 
 use super::viz_delivery::{plan_media, target as viz_target, VizDelivery};
 use crate::mcp::resources::ServerContext;
+
+/// The colour scheme a messaging chart is painted in for `user_id`.
+///
+/// A messaging chart is fetched by the channel's servers, not the athlete's
+/// device, so nothing on the wire can report the scheme the athlete is looking
+/// at — the `users.theme` pin is the only signal there is. An athlete who
+/// pinned nothing, or whose row cannot be read, gets
+/// [`ColorScheme::Dark`]: messaging clients overwhelmingly draw media bubbles
+/// on dark, and a chart in the wrong scheme still beats no chart.
+///
+/// Shared by every path that mints a chart for a channel — the live reply and
+/// the backfill push that re-asks a question once the history has loaded — so
+/// the two paint the same athlete the same way.
+pub async fn athlete_color_scheme(resources: &ServerContext, user_id: Uuid) -> ColorScheme {
+    match resources.common.repos.users.get_global(user_id).await {
+        Ok(Some(user)) => ColorScheme::resolve(user.theme.as_deref()),
+        Ok(None) => ColorScheme::default(),
+        Err(e) => {
+            warn!(error = %e, "theme lookup failed for chart minting; painting dark");
+            ColorScheme::default()
+        }
+    }
+}
 
 /// Mints one signed image URL per stored chart spec.
 pub struct MessagingScenePublisher {

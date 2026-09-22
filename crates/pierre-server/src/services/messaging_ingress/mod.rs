@@ -68,7 +68,7 @@ pub use locale::resolve_messaging_locale;
 pub mod block_render;
 mod channel_auth_outcome;
 pub mod identity_leak_notify;
-mod scene_publisher;
+pub(crate) mod scene_publisher;
 /// Per-conversation dispatch ordering + the pipeline panic boundary.
 pub mod turn_guard;
 use channel_auth_outcome::{
