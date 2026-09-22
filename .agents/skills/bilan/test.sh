@@ -81,9 +81,10 @@ CFG=$(mktemp -d "${TMPDIR:-/tmp}/bilan-cfg.XXXXXX") || die "mktemp -d failed for
 SID="00000000-0000-0000-0000-00000000test"
 trap 'rm -rf "$CFG"' EXIT
 
-# Every fixture repo starts with nothing committed by the "session", so check_measurable would
-# fire on every case. A completed todo makes the harness measurable; the unmeasured case has its
-# own block below, where it is the thing under test.
+# Every fixture repo starts with nothing committed by the "session", so any case that also writes
+# a transcript would pick up the unmeasured cap alongside the thing it tests. A completed todo
+# keeps the harness measurable throughout; the unmeasured case has its own block below, where it
+# is the thing under test.
 measurable() {
     mkdir -p "$CFG/tasks/$SID"
     printf '{"status":"completed","subject":"harness"}\n' > "$CFG/tasks/$SID/0.json"
@@ -347,12 +348,22 @@ rm -rf "$CFG/tasks"
 # ---- a session that checked nothing must not report a verdict. This is the case that scored
 # 10/10 with its artifact unwritten: research and writing touch no commit, no issue and no CI,
 # so every check came back clean because every check came back empty.
+#
+# But the verdict is measured against an ask. The status line renders before the first prompt,
+# and without this every session opened at "9/10 nothing measurable" for having done nothing in
+# its first second.
 rm -rf "$CFG/tasks"; rm -f "$CFG/bilan/"*.baseline*
 baseline_now "$R"
 out=$(run "$R")
-check "no commit and no todo means unmeasured, not 10" 9 "$(printf '%s' "$out" | jq -r .score)"
-check "and it says why" 1 \
+check "before anything is asked there is no verdict to withhold" 0 \
     "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
+check "so a session that has not started scores clean, not 9" 10 "$(printf '%s' "$out" | jq -r .score)"
+mkdir -p "$CFG/projects/fixture"
+printf '%s\n' '{"type":"user","message":{"content":"Evaluate the integration options"}}' > "$CFG/projects/fixture/$SID.jsonl"
+out=$(run "$R")
+check "once asked, no commit and no todo means unmeasured, not 10" 9 "$(printf '%s' "$out" | jq -r .score)"
+check "and it says why, within the width the status line has" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.evidence | test("nothing measurable")) | select(.evidence | length <= 56)] | length')"
 mkdir -p "$CFG/tasks/$SID"
 printf '{"status":"completed","subject":"published the artifact"}\n' > "$CFG/tasks/$SID/1.json"
 check "a declared todo makes the session measurable" 0 \
@@ -362,7 +373,7 @@ echo measurable > "$R/m.txt" && git -C "$R" add m.txt && git -C "$R" commit -qm 
 check "a commit makes the session measurable" 0 \
     "$(run "$R" | jq '[.caps[] | select(.evidence | test("nothing measurable"))] | length')"
 git -C "$R" push -q origin HEAD:refs/heads/main
-rm -f "$CFG/bilan/"*.baseline*
+rm -f "$CFG/bilan/"*.baseline*; rm -rf "$CFG/projects"
 
 # ---- the opening ask is carried into the report, so completion is claimed against the request
 mkdir -p "$CFG/projects/fixture"

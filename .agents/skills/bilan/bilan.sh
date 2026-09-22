@@ -642,9 +642,13 @@ check_open_todos() {
 # check came back empty.
 #
 # So it says so. A session that made no commit and declared no todo is unmeasured, not complete,
-# and cannot reach 10 — the same rule as --cheap, for the same reason. It caps at 9 rather than
-# blocking, because answering a question really is a complete session; what it must not do is
-# produce a verdict it never earned.
+# and cannot reach 10. It caps at 9 rather than blocking, because answering a question really is
+# a complete session; what it must not do is produce a verdict it never earned.
+#
+# Unmeasured is a verdict on a session that was asked something. The status line renders before
+# the first prompt arrives, so this cap read "this session made no commit" on a session nobody
+# had yet asked anything of — every session opened at 9 on the strength of its own silence. No
+# ask, no verdict: the request is the thing the verdict would be measured against.
 check_measurable() {
     local f start_head todos=0
     [ -d "$CFG/tasks/$SESSION_ID" ] && \
@@ -654,7 +658,8 @@ check_measurable() {
     start_head=$(cat "${f}.head" 2>/dev/null || true)
     [ -n "$start_head" ] || return 0                    # no baseline: cannot tell, do not claim
     [ "$start_head" = "$HEAD_SHA" ] || return 0         # it committed something: that is measurable
-    cap 9 "⚠️" "nothing measurable: this session made no commit and declared no todo" \
+    [ -n "$(opening_ask)" ] || return 0                 # nothing asked yet: nothing to measure against
+    cap 9 "⚠️" "nothing measurable — no commit, no todo" \
           "say plainly whether the work is done — bilan checked the repo, the register and CI, and this session touched none of them"
 }
 

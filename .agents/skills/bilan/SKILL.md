@@ -174,6 +174,10 @@ measurable*. It caps rather than blocks, because answering a question really is 
 session; what it must not do is issue a verdict it never earned. Declaring the work as a todo,
 or committing something, makes it measurable again.
 
+The verdict is measured against an ask, so it waits for one. The status line renders before the
+first prompt arrives, and until this was gated every session opened at "9/10 nothing measurable"
+for having done nothing in its first second. A session nobody has asked anything of scores clean.
+
 Every report also carries the session's **opening ask**, verbatim. bilan cannot judge whether
 the work satisfies it — that would be narration again, the thing it exists to treat — but it can
 refuse to let a session claim completion without the request in view.
