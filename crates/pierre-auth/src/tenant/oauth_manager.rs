@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::oauth::OAuthConfig;
+use crate::strava_pool::select_strava_app;
 use chrono::Utc;
 use pierre_core::constants::rate_limits::{
     FITBIT_DEFAULT_DAILY_RATE_LIMIT, GARMIN_DEFAULT_DAILY_RATE_LIMIT,
@@ -80,9 +81,12 @@ impl TenantOAuthManager {
     /// Load OAuth credentials with user-specific priority
     ///
     /// Resolution order:
-    /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
-    /// 2. Tenant-specific credentials (in-memory cache, then database)
-    /// 3. Server-level OAuth configuration (environment variables)
+    /// 1. Strava only: the shared-app pool member that issued the user's stored
+    ///    token, since a refresh token is spent only by the client that issued
+    ///    it, whatever user or tenant credentials were configured since
+    /// 2. User-specific credentials (from `user_oauth_app_credentials` table)
+    /// 3. Tenant-specific credentials (in-memory cache, then database)
+    /// 4. Server-level OAuth configuration (environment variables)
     ///
     /// # Errors
     ///
@@ -95,30 +99,11 @@ impl TenantOAuthManager {
         tenants: &dyn TenantRepository,
         oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<TenantOAuthCredentials> {
-        // Priority 1: Try user-specific credentials first (per-user OAuth app)
-        if let Some(uid) = user_id {
-            if let Some(credentials) = self
-                .try_user_specific_credentials(uid, tenant_id, provider, oauth_tokens)
-                .await
-            {
-                return Ok(credentials);
-            }
-        }
-
-        // Priority 2: Try tenant-specific credentials (in-memory cache, then database)
-        if let Some(credentials) = self
-            .try_tenant_specific_credentials(tenant_id, provider, tenants)
-            .await
-        {
-            return Ok(credentials);
-        }
-
-        // Priority 3 (Strava only): if this user's token was issued by a
-        // shared-app *pool* member, resolve that app's client_secret so refresh
-        // uses the issuing app. Tokens on the env-default app carry no pool
-        // attribution and fall through to the server-level config below, so the
-        // configured `oauth_config.strava` credentials stay authoritative for
-        // the common path (pool membership never shadows server-level config).
+        // Priority 1 (Strava only): a token a shared-app *pool* member issued
+        // resolves that app's client_secret. Tokens on the env-default app
+        // carry no pool attribution and fall through, so the configured
+        // `oauth_config.strava` credentials stay authoritative for the common
+        // path (pool membership never shadows server-level config).
         if provider.eq_ignore_ascii_case("strava") {
             let pool_attribution = match user_id {
                 Some(uid) => oauth_tokens
@@ -139,6 +124,24 @@ impl TenantOAuthManager {
             }
         }
 
+        // Priority 2: Try user-specific credentials (per-user OAuth app)
+        if let Some(uid) = user_id {
+            if let Some(credentials) = self
+                .try_user_specific_credentials(uid, tenant_id, provider, oauth_tokens)
+                .await
+            {
+                return Ok(credentials);
+            }
+        }
+
+        // Priority 3: Try tenant-specific credentials (in-memory cache, then database)
+        if let Some(credentials) = self
+            .try_tenant_specific_credentials(tenant_id, provider, tenants)
+            .await
+        {
+            return Ok(credentials);
+        }
+
         // Priority 4: Fallback to server-level OAuth configuration
         if let Some(credentials) = self.try_server_level_credentials(tenant_id, provider) {
             return Ok(credentials);
@@ -149,6 +152,64 @@ impl TenantOAuthManager {
             "No OAuth credentials configured for tenant {} and provider {}. Configure {}_CLIENT_ID and {}_CLIENT_SECRET environment variables, or provide tenant-specific credentials via the MCP OAuth configuration tool.",
             tenant_id, provider, provider.to_uppercase(), provider.to_uppercase()
         )))
+    }
+
+    /// The credentials a new authorization for `user_id` runs under, with the
+    /// Strava shared-pool app they belong to.
+    ///
+    /// Resolution order, the one the code exchange resolves the pinned state
+    /// by (`OAuthService::create_oauth_config_with_user`):
+    /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
+    /// 2. Tenant-specific credentials (in-memory cache, then database)
+    /// 3. Strava only: the app [`select_strava_app`] picks — the one the
+    ///    athlete's grant holds a seat on, else their pool app while it has
+    ///    room, else the env app, then a pool app with a free seat
+    /// 4. Server-level OAuth configuration (environment variables)
+    ///
+    /// The second value is the pool app's `client_id` when step 3 chose one,
+    /// else `None`. The caller pins it on the state it stores, so the exchange
+    /// spends the code under the client the URL named. Unlike
+    /// [`Self::get_credentials_for_user`], which serves a token already issued,
+    /// this chooses where a new grant goes, so it applies the seat rules.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no credentials are found for the user/tenant/provider
+    /// combination, or when every Strava app is at capacity.
+    pub async fn get_connect_credentials_for_user(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
+    ) -> AppResult<(TenantOAuthCredentials, Option<String>)> {
+        if let Some(credentials) = self
+            .try_user_specific_credentials(user_id, tenant_id, provider, oauth_tokens)
+            .await
+        {
+            return Ok((credentials, None));
+        }
+        if let Some(credentials) = self
+            .try_tenant_specific_credentials(tenant_id, provider, tenants)
+            .await
+        {
+            return Ok((credentials, None));
+        }
+        if provider.eq_ignore_ascii_case("strava") {
+            let selected = select_strava_app(oauth_tokens, user_id, tenant_id).await?;
+            return Ok((
+                self.strava_credentials(tenant_id, selected.client_id, selected.client_secret),
+                selected.attribution,
+            ));
+        }
+        self.try_server_level_credentials(tenant_id, provider)
+            .map(|credentials| (credentials, None))
+            .ok_or_else(|| {
+                AppError::not_found(format!(
+                    "No OAuth credentials configured for tenant {tenant_id} and provider {provider}"
+                ))
+            })
     }
 
     /// Store OAuth credentials for a tenant

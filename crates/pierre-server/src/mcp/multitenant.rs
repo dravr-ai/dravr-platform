@@ -778,6 +778,12 @@ impl ProviderToolRouter {
             {
                 admin_context.approval_notifier = Some(ApprovalNotifier::from_context(resources));
             }
+            // The same chokepoint the athlete's own disconnect runs through, so
+            // an operator disconnect or delete revokes every grant upstream.
+            admin_context.provider_disconnector = Some(Arc::new(OAuthService::new(
+                resources.data(),
+                resources.common.config.clone(),
+            )));
 
             // Tool-selection and diagnostic sub-routes use pierre-server-internal
             // types (`ToolSelectionService`, `ToolRegistry`) and so are

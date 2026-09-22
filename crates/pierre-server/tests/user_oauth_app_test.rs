@@ -19,7 +19,7 @@ use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
 use pierre_config::environment::{OAuthConfig, OAuthProviderConfig};
 use pierre_core::models::CoachingPersona;
-use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
@@ -641,6 +641,75 @@ async fn test_tenant_credentials_priority() -> Result<()> {
         credentials.client_id, "user_strava_id",
         "Should prefer user-specific over tenant-specific"
     );
+
+    Ok(())
+}
+
+/// Test: A Strava token a shared-pool app issued resolves to that app's
+/// credentials ahead of the user's own app and the tenant's, since a refresh
+/// token is spent only by the client that issued it.
+#[tokio::test]
+#[serial]
+async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Result<()> {
+    let database = setup_test_database().await?;
+    let tenant_id = TenantId::generate();
+    let user_id = create_test_user_with_tenant(&database, "pooled@example.com", tenant_id).await?;
+    let repos = database.repositories();
+
+    let oauth_config = Arc::new(create_test_oauth_config());
+    let mut oauth_manager = TenantOAuthManager::new(oauth_config);
+    oauth_manager.store_credentials(
+        tenant_id,
+        "strava",
+        CredentialConfig {
+            client_id: "tenant_strava_id".to_owned(),
+            client_secret: "tenant_strava_secret".to_owned(),
+            redirect_uri: "http://tenant.example.com/callback".to_owned(),
+            scopes: vec!["read".to_owned()],
+            configured_by: user_id,
+        },
+    )?;
+    repos
+        .oauth_tokens
+        .store_user_oauth_app(
+            user_id,
+            "strava",
+            "user_strava_id",
+            "user_strava_secret",
+            "http://user.com/callback",
+        )
+        .await?;
+    repos
+        .oauth_tokens
+        .upsert_strava_pool_app("pool_strava_id", "pool_strava_secret", 50, Some("pool"))
+        .await?;
+    let token = UserOAuthToken::new(
+        user_id,
+        tenant_id.to_string(),
+        "strava".to_owned(),
+        "pool-issued-access".to_owned(),
+        Some("pool-issued-refresh".to_owned()),
+        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some("read".to_owned()),
+    )
+    .with_oauth_app_client_id(Some("pool_strava_id".to_owned()));
+    repos.oauth_tokens.upsert_token(&token).await?;
+
+    let credentials = oauth_manager
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*repos.tenants,
+            &*repos.oauth_tokens,
+        )
+        .await?;
+
+    assert_eq!(
+        credentials.client_id, "pool_strava_id",
+        "the pool app that issued the token wins over the user's and the tenant's apps"
+    );
+    assert_eq!(credentials.client_secret, "pool_strava_secret");
 
     Ok(())
 }

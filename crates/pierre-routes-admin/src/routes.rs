@@ -29,7 +29,7 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, device_auth, device_web, feature_flags, guardian_config, harness_config,
-    memory_worker, myth_busting, settings, setup, strava_pool, tokens, users,
+    memory_worker, myth_busting, settings, setup, strava_pool, tokens, user_removal, users,
 };
 
 /// Admin routes implementation (Axum).
@@ -311,7 +311,13 @@ impl AdminRoutes {
             )
             .route(
                 "/admin/users/{user_id}",
-                get(users::handle_get_user).delete(users::handle_delete_user),
+                get(users::handle_get_user).delete(user_removal::handle_delete_user),
+            )
+            // Disconnect one provider for a user through the same chokepoint
+            // their own disconnect uses, so the grant is revoked upstream.
+            .route(
+                "/admin/users/{user_id}/providers/{provider}",
+                delete(user_removal::handle_disconnect_user_provider),
             )
             .route(
                 "/admin/users/{user_id}/tier",
@@ -467,7 +473,8 @@ impl AdminRoutes {
     }
 
     /// Super-admin CRUD for the Strava shared-app OAuth credential pool
-    /// (`strava_oauth_app_pool`). The server KMS-encrypts `client_secret`.
+    /// (`strava_oauth_app_pool`), plus the per-athlete seat listing. The server
+    /// KMS-encrypts `client_secret`.
     fn strava_pool_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -479,6 +486,10 @@ impl AdminRoutes {
                 "/admin/strava-pool/apps/{client_id}",
                 patch(strava_pool::handle_set_strava_pool_app_enabled)
                     .delete(strava_pool::handle_delete_strava_pool_app),
+            )
+            .route(
+                "/admin/strava-pool/seats",
+                get(strava_pool::handle_list_strava_seats),
             )
             .with_state(context)
     }

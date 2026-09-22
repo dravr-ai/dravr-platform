@@ -162,7 +162,13 @@ mod snapshot_tenant_tests {
             .common
             .repos
             .provider_connections
-            .mark_needs_reauth(member, tenant_a, "strava", Some("invalid_grant"))
+            .mark_needs_reauth(
+                member,
+                tenant_a,
+                "strava",
+                Some("invalid_grant"),
+                Utc::now(),
+            )
             .await
             .unwrap();
 

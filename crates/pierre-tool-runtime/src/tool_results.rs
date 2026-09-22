@@ -68,14 +68,17 @@ pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> Stri
 /// request ("Response includes `has_more` and pagination info"), and `provider`
 /// names whose data it is on a merged multi-provider window.
 ///
-/// `reconnect_required` is the one sidecar that survives, and it is here for
-/// the same reason `coverage` is: it changes what the model may legitimately
-/// say. A window served without a dead connection is a PARTIAL window, and a
+/// `reconnect_required` and `provider_unavailable` are the two sidecars that
+/// survive, and they are here for the same reason `coverage` is: they change
+/// what the model may legitimately say. A window served without a connection
+/// that is dead, or that could not answer just now, is a PARTIAL window, and an
 /// agent that never learns so answers it as if it were the whole history. The
-/// projection is the only thing between that sidecar and the prompt — both
-/// [`render_tool_payload_for_prompt`] and [`format_tool_results_as_text`]
-/// project through it, so a key absent from this list reaches no model at all.
-const ACTIVITIES_ENVELOPE_KEPT: [&str; 10] = [
+/// projection is the only thing between those sidecars and the tool-loop
+/// prompt — both [`render_tool_payload_for_prompt`] and
+/// [`format_tool_results_as_text`] project through it, so a key absent from
+/// this list reaches no model at all. The prefetch, which keeps the prose
+/// alone, carries them through [`served_without_notes`].
+const ACTIVITIES_ENVELOPE_KEPT: [&str; 11] = [
     "activity_list",
     "provider",
     "count",
@@ -85,8 +88,30 @@ const ACTIVITIES_ENVELOPE_KEPT: [&str; 10] = [
     "offset",
     "limit",
     "has_more",
-    "reconnect_required",
+    SERVED_WITHOUT_SIDECARS[0],
+    SERVED_WITHOUT_SIDECARS[1],
 ];
+
+/// The sidecars a `get_activities` window carries when it was served without
+/// one of the athlete's connections, each with a `note` addressed to the
+/// model: `reconnect_required` for a dead connection, `provider_unavailable`
+/// for one that could not answer just now.
+const SERVED_WITHOUT_SIDECARS: [&str; 2] = ["reconnect_required", "provider_unavailable"];
+
+/// The notes of the served-without-a-provider sidecars a `get_activities`
+/// payload carries: a dead connection's (`reconnect_required`), then an
+/// unreachable one's (`provider_unavailable`).
+///
+/// A render that keeps the prose `activity_list` alone appends these, or the
+/// partial window reads as the athlete's whole history and the answer never
+/// says which sessions are missing.
+#[must_use]
+pub fn served_without_notes(payload: &Value) -> Vec<&str> {
+    SERVED_WITHOUT_SIDECARS
+        .iter()
+        .filter_map(|key| payload.get(key)?.get("note")?.as_str())
+        .collect()
+}
 
 /// The per-activity fields that survive projection.
 ///

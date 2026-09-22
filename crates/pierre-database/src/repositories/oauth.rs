@@ -11,8 +11,8 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, StravaPoolApp,
-    UserOAuthApp, UserOAuthToken,
+    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, ReauthMark, StravaPoolApp,
+    StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -21,6 +21,17 @@ use uuid::Uuid;
 pub trait OAuthTokenRepository: Send + Sync {
     /// Store or update user OAuth token for a tenant-provider combination
     async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()>;
+    /// Store `token` only while the row it replaces is still the one the
+    /// caller read: none at all when `expected_id` is `None`, else the row
+    /// whose `id` is `expected_id` (every store writes a fresh `id`, so a row
+    /// another writer stored since carries a different one). Returns whether
+    /// the token was stored; `false` means another write landed first and
+    /// nothing changed.
+    async fn replace_token_if_current(
+        &self,
+        token: &UserOAuthToken,
+        expected_id: Option<&str>,
+    ) -> AppResult<bool>;
     /// Get user OAuth token for a specific tenant-provider combination
     async fn get_token(
         &self,
@@ -52,15 +63,6 @@ pub trait OAuthTokenRepository: Send + Sync {
         provider: &str,
         provider_user_id: &str,
     ) -> AppResult<Option<(Uuid, String)>>;
-    /// Count distinct users occupying a shared-app OAuth seat for `provider`.
-    ///
-    /// A "seat" is one athlete connected through the platform's shared OAuth
-    /// application. Users who registered their own (BYO) OAuth app run on their
-    /// own athlete quota and are excluded. The count is intentionally
-    /// cross-tenant: the shared app's athlete cap is a single global limit
-    /// enforced upstream (Strava) across every tenant that uses it.
-    async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32>;
-
     /// List Strava shared-app pool apps — the extra DB-configured apps beside
     /// the env `STRAVA_CLIENT_ID` app. Secrets are never included. When
     /// `only_enabled` is true, disabled apps are omitted (the connect-selection
@@ -72,10 +74,55 @@ pub trait OAuthTokenRepository: Send + Sync {
     /// the same app that minted the token.
     async fn get_strava_pool_app_secret(&self, client_id: &str) -> AppResult<Option<String>>;
 
-    /// Distinct-user seat usage grouped by the issuing Strava app, excluding
-    /// BYO-app users. Each entry is `(oauth_app_client_id, distinct_user_count)`;
-    /// the `None` key is the env-default app (NULL attribution + legacy tokens).
-    async fn count_strava_seat_usage_by_app(&self) -> AppResult<Vec<(Option<String>, u32)>>;
+    /// Distinct-user seat usage grouped by the issuing Strava app. Each entry
+    /// is `(oauth_app_client_id, distinct_user_count)`; the `None` key is the
+    /// env-default app (NULL attribution + legacy tokens).
+    ///
+    /// A "seat" is one athlete whose grant on the platform's shared Strava
+    /// application is still authorized. Users who registered their own (BYO)
+    /// OAuth app run on their own athlete quota and hold none, and neither does
+    /// a token whose connection is `revoked` or is `needs_reauth` for any
+    /// reason but our own client credentials; a `needs_reauth` over those
+    /// leaves the grant live at Strava and keeps its seat. The
+    /// count is intentionally cross-tenant: the shared app's athlete cap is a
+    /// single global limit enforced upstream across every tenant that uses it.
+    /// `excluded_user`, when set, is left out of every bucket, so the authorize
+    /// path can score an athlete's reconnect against everyone else.
+    async fn count_strava_seat_usage_by_app(
+        &self,
+        excluded_user: Option<Uuid>,
+    ) -> AppResult<Vec<(Option<String>, u32)>>;
+
+    /// The Strava app each of a user's stored tokens names, the tenant it is
+    /// stored in and whether it holds a seat, read from the attribution column
+    /// without decrypting the tokens: tokens holding a seat first, then the
+    /// one stored in `tenant_id`, then the most recently written, since Strava
+    /// counts the athlete per app whatever our tenant. Empty when the user
+    /// holds no Strava token.
+    ///
+    /// `holds_seat` is the seat counts' own filter, so an athlete this names
+    /// as holding a seat is one those counts include.
+    async fn list_strava_token_apps(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<StravaTokenApp>>;
+
+    /// Every stored Strava token with its holder's email, the issuing app, the
+    /// matching connection's status and whether it holds a shared-app seat —
+    /// the per-athlete view behind [`Self::count_strava_seat_usage_by_app`].
+    ///
+    /// `counts_as_seat` is computed by the same filter those counts apply, so
+    /// the listing and the counts agree on every athlete. Cross-tenant, like
+    /// the counts: the seat cap is one limit across every tenant.
+    async fn list_strava_seat_holders(&self) -> AppResult<Vec<StravaSeatHolder>>;
+
+    /// The `(tenant_id, provider)` of every token a user holds, across every
+    /// tenant, read without decrypting the tokens.
+    ///
+    /// The enumeration a complete removal walks: a token that no longer
+    /// decrypts is still listed, so the disconnect that clears it still runs.
+    async fn list_token_providers(&self, user_id: Uuid) -> AppResult<Vec<(String, String)>>;
 
     /// Insert or update a pool app, encrypting `client_secret` at rest with the
     /// same AES-256-GCM envelope used for user tokens.
@@ -104,16 +151,20 @@ pub trait OAuthTokenRepository: Send + Sync {
     ) -> AppResult<()>;
     /// Delete all OAuth tokens for a user within a tenant scope
     async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()>;
-    /// Update OAuth token expiration and refresh info
+    /// Store a refreshed access and refresh token over `stored`, the row the
+    /// refresh read; the row keeps its `id` and every other column.
+    ///
+    /// Returns `false`, writing nothing, when that row is no longer the one
+    /// stored for its user, tenant and provider: a reconnect replaced it
+    /// (every store writes a fresh `id`) while the refresh was in flight, and
+    /// the refreshed pair belongs to the grant the reconnect superseded.
     async fn refresh_token(
         &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
+        stored: &UserOAuthToken,
         access_token: &str,
         refresh_token: Option<&str>,
         expires_at: Option<DateTime<Utc>>,
-    ) -> AppResult<()>;
+    ) -> AppResult<bool>;
     /// Store user OAuth app credentials (`client_id`, `client_secret`)
     async fn store_user_oauth_app(
         &self,
@@ -352,20 +403,42 @@ pub trait ProviderConnectionRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Option<ProviderConnection>>;
-    /// Mark a connection as needing re-authentication after a non-recoverable token
-    /// refresh failure.
+    /// Mark a connection as needing re-authentication after an attempt that
+    /// began at `attempt_started_at` found its credential or session dead.
     ///
     /// Transitions `status` to `needs_reauth` and records the token-free error class in
     /// `last_error`. Guarded so the transition timestamp reflects the first failure, not
-    /// every retry. `error_code` is a short OAuth error class (e.g. `invalid_request`) —
-    /// NEVER token material. No-op when the row does not exist.
+    /// every retry, and so a connection reconnected or re-armed after the attempt began
+    /// is left as it is: the attempt's verdict is on the credential it read, not on the
+    /// one that replaced it. `error_code` is a short OAuth error class (e.g.
+    /// `invalid_request`) — NEVER token material. No-op when the row does not exist.
+    ///
+    /// Returns what the connection is now, so a caller that follows the flag with a
+    /// reconnect prompt sends it only to a connection that needs one:
+    /// [`ReauthMark::ReconnectedSince`] is a connection the guard left active.
     async fn mark_needs_reauth(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
         error_code: Option<&str>,
-    ) -> AppResult<()>;
+        attempt_started_at: DateTime<Utc>,
+    ) -> AppResult<ReauthMark>;
+    /// Flip the connection `token` belongs to to `needs_reauth` for a refresh
+    /// of `token` the provider refused, only while `token` is still its stored
+    /// row exactly as the refresh read it: the same `id` and `updated_at`.
+    ///
+    /// A reconnect stores its token under a fresh `id` and re-arms the
+    /// connection, and a refresh that landed meanwhile rewrote the row under the
+    /// same `id`, so a refusal of the grant a reconnect replaced, or of a
+    /// refresh token a concurrent refresh already spent, leaves the connection
+    /// as it is. Returns whether the connection flipped: `false` when it was
+    /// already `needs_reauth`, has no row, or its token changed since the read.
+    async fn mark_needs_reauth_if_token_current(
+        &self,
+        token: &UserOAuthToken,
+        error_code: &str,
+    ) -> AppResult<bool>;
     /// Re-arm a connection after a successful (re)connect or token refresh.
     ///
     /// Transitions `status` back to `active` and clears the disconnect notification

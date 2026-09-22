@@ -34,6 +34,19 @@ pub struct StoreCredentialsRequest {
     pub configured_by: Uuid,
 }
 
+/// An authorization URL and the Strava shared-pool app it names.
+///
+/// The app is `None` for the env app and for every other credential source.
+/// The caller pins it on the OAuth state so the code exchange uses that
+/// client.
+#[derive(Debug, Clone)]
+pub struct ConnectAuthorization {
+    /// The provider's authorization URL.
+    pub url: String,
+    /// The pool app's `client_id` when the URL names one.
+    pub oauth_app_client_id: Option<String>,
+}
+
 /// Tenant-aware OAuth client with credential isolation and rate limiting
 pub struct TenantOAuthClient {
     /// Shared OAuth manager instance for handling tenant-specific OAuth operations
@@ -99,7 +112,52 @@ impl TenantOAuthClient {
         OAuth2Client::new(oauth_config)
     }
 
+    /// The client a new authorization for this tenant context runs under, and
+    /// the Strava shared-pool app it belongs to.
+    ///
+    /// Resolves credentials the way the code exchange resolves a pinned state
+    /// ([`TenantOAuthManager::get_connect_credentials_for_user`]), so the
+    /// authorize URL and the exchange cannot name different clients.
+    async fn connect_client(
+        &self,
+        tenant_context: &TenantContext,
+        provider: &str,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
+    ) -> AppResult<(OAuth2Client, Option<String>)> {
+        let manager = self.oauth_manager.lock().await;
+        let (current_usage, daily_limit) =
+            manager.check_rate_limit(tenant_context.tenant_id, provider)?;
+        if current_usage >= daily_limit {
+            return Err(AppError::invalid_input(format!(
+                "Tenant {} has exceeded daily rate limit for provider {}: {}/{}",
+                tenant_context.tenant_id, provider, current_usage, daily_limit
+            )));
+        }
+        let (credentials, attribution) = manager
+            .get_connect_credentials_for_user(
+                tenant_context.user_id,
+                tenant_context.tenant_id,
+                provider,
+                tenants,
+                oauth_tokens,
+            )
+            .await?;
+        drop(manager);
+
+        let oauth_config = Self::build_oauth_config(&credentials, provider)?;
+        info!(
+            "Created OAuth connect client for tenant={}, provider={}, client_id={}",
+            tenant_context.tenant_id, provider, credentials.client_id
+        );
+        Ok((OAuth2Client::new(oauth_config)?, attribution))
+    }
+
     /// Get authorization URL for tenant-specific OAuth flow
+    ///
+    /// The result names the Strava shared-pool app the URL sends the athlete
+    /// to, which the caller pins on the state it stores so the exchange spends
+    /// the code under the same client.
     ///
     /// # Errors
     ///
@@ -111,19 +169,25 @@ impl TenantOAuthClient {
         state: &str,
         tenants: &dyn TenantRepository,
         oauth_tokens: &dyn OAuthTokenRepository,
-    ) -> AppResult<String> {
-        let oauth_client = self
-            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
+    ) -> AppResult<ConnectAuthorization> {
+        let (oauth_client, oauth_app_client_id) = self
+            .connect_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
-        oauth_client.get_authorization_url(state).map_err(|e| {
+        let url = oauth_client.get_authorization_url(state).map_err(|e| {
             AppError::external_service(
                 "oauth2",
                 format!("OAuth authorization URL generation failed: {e}"),
             )
+        })?;
+        Ok(ConnectAuthorization {
+            url,
+            oauth_app_client_id,
         })
     }
 
     /// Get authorization URL with PKCE for tenant-specific OAuth flow
+    ///
+    /// Names the Strava shared-pool app as [`Self::get_authorization_url`] does.
     ///
     /// # Errors
     ///
@@ -136,18 +200,22 @@ impl TenantOAuthClient {
         pkce: &PkceParams,
         tenants: &dyn TenantRepository,
         oauth_tokens: &dyn OAuthTokenRepository,
-    ) -> AppResult<String> {
-        let oauth_client = self
-            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
+    ) -> AppResult<ConnectAuthorization> {
+        let (oauth_client, oauth_app_client_id) = self
+            .connect_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
-        oauth_client
+        let url = oauth_client
             .get_authorization_url_with_pkce(state, pkce)
             .map_err(|e| {
                 AppError::external_service(
                     "oauth2",
                     format!("OAuth authorization URL with PKCE generation failed: {e}"),
                 )
-            })
+            })?;
+        Ok(ConnectAuthorization {
+            url,
+            oauth_app_client_id,
+        })
     }
 
     /// Exchange authorization code for access token

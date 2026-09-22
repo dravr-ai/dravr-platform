@@ -315,7 +315,7 @@ async fn a_connection_needing_reauth_is_excluded_from_the_snapshot() {
     );
 
     connections
-        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"))
+        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"), Utc::now())
         .await
         .unwrap();
 

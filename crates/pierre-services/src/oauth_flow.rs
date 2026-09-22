@@ -19,6 +19,7 @@ use crate::analytics::cache_user_email;
 use crate::oauth_bridge_notify;
 use crate::oauth_redirects::extract_mobile_redirect_from_state;
 use crate::provider_revocation;
+use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::get_oauth_config;
 use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
 use pierre_auth::oauth2_client::{
@@ -117,13 +118,21 @@ impl OAuthService {
         info!("Processing OAuth callback for user {user_id} provider {provider}{flow_label}");
 
         // Get user and tenant from database
-        let (user, tenant_id) = self.get_user_and_tenant(user_id, provider).await?;
+        let (user, tenant_id) = self
+            .get_user_and_tenant(user_id, provider, parsed_state.tenant_id)
+            .await?;
 
         // Record IDs on the current span so the NotifyLayer can attribute the
         // provider.connected event without re-passing tenant/user fields.
         let span = Span::current();
         span.record("user_id", field::display(&user_id));
         span.record("tenant_id", field::display(&tenant_id));
+
+        // The Strava tokens this connect replaces, read before the exchange so
+        // the store lands only over the row read here (`strava_reconnect`).
+        let storage_tenant = TenantId::parse_str(&tenant_id)
+            .map_err(|_| AppError::internal(format!("Invalid tenant_id: {tenant_id}")))?;
+        let replaced = ReplacedGrants::read(self, user_id, storage_tenant, provider).await;
 
         // Exchange OAuth code for access token (with PKCE if verifier was stored)
         // Pass tenant_id from state so exchange uses tenant-specific credentials if available
@@ -144,16 +153,31 @@ impl OAuthService {
         // so a provider push event can be routed to this user.
         let token = self.with_provider_user_id(provider, user_id, token).await;
 
-        // Persist token and dispatch all post-connection side effects
-        let expires_at = self
+        // Persist token and dispatch all post-connection side effects. A failure
+        // there still settles the grants: see `ReplacedGrants::abandon`.
+        let attribution = oauth_app_client_id.as_deref();
+        let expires_at = match self
             .finalize_oauth_connection(
                 user_id,
                 tenant_id,
                 provider,
                 &token,
-                oauth_app_client_id.as_deref(),
+                attribution,
+                replaced.precondition(),
             )
-            .await?;
+            .await
+        {
+            Ok(expires_at) => expires_at,
+            Err(error) => {
+                replaced
+                    .abandon(self, user_id, storage_tenant, &token, attribution)
+                    .await;
+                return Err(error);
+            }
+        };
+        // Now that the token is durable, a move onto another Strava app
+        // withdraws the grants it supersedes.
+        replaced.revoke_superseded(self, attribution).await;
 
         // notify: provider successfully linked. Fires after token persist +
         // notifications dispatch so a Slack ping only goes out for a usable link.
@@ -189,9 +213,17 @@ impl OAuthService {
         provider: &str,
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
+        precondition: StorePrecondition,
     ) -> AppResult<chrono::DateTime<chrono::Utc>> {
         let expires_at = self
-            .store_oauth_token(user_id, tenant_id, provider, token, oauth_app_client_id)
+            .store_oauth_token(
+                user_id,
+                tenant_id,
+                provider,
+                token,
+                oauth_app_client_id,
+                precondition,
+            )
             .await?;
         self.store_oauth_notification(user_id, provider, &expires_at)
             .await?;
@@ -292,50 +324,6 @@ impl OAuthService {
                 "Unsupported provider: {provider}"
             )))
         }
-    }
-
-    /// Get user and tenant from database
-    ///
-    /// Tenant is determined from the `tenant_users` junction table.
-    async fn get_user_and_tenant(
-        &self,
-        user_id: uuid::Uuid,
-        provider: &str,
-    ) -> AppResult<(User, String)> {
-        let repos = self.data.repos();
-        let user = repos
-            .users
-            .get_global(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
-            .ok_or_else(|| {
-                error!(
-                    "OAuth callback failed: User not found - user_id: {}, provider: {}",
-                    user_id, provider
-                );
-                AppError::not_found("User")
-            })?;
-
-        // Get tenant from tenant_users table (user's default/first tenant).
-        // NOTE: We use tenants.first() here intentionally because this is an OAuth callback
-        // where the user has not yet established a JWT session with active_tenant_id.
-        // The resulting token will carry this tenant_id as the default active_tenant_id.
-        let tenants = repos
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-
-        let tenant_id = tenants.first().map(|t| t.id.to_string()).ok_or_else(|| {
-            error!(
-                user_id = %user.id,
-                provider = %provider,
-                "OAuth callback failed: user has no tenant"
-            );
-            AppError::invalid_input("User has no tenant")
-        })?;
-
-        Ok((user, tenant_id))
     }
 
     /// Exchange OAuth code for access token, using PKCE when a code verifier is available
@@ -447,7 +435,10 @@ impl OAuthService {
 
     /// Create `OAuth2` config with user-specific credential priority
     ///
-    /// Resolution order (matching `TenantOAuthManager::get_credentials_for_user`):
+    /// A Strava pool app `oauth_app_client_id` names comes first: it is the
+    /// client that issued the grant (pinned at authorize for the exchange,
+    /// recorded on the token for a revocation). Otherwise, resolution order
+    /// (matching `TenantOAuthManager::get_credentials_for_user`):
     /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
     /// 2. Tenant-specific credentials (from `tenant_oauth_credentials` table)
     /// 3. Server-level OAuth configuration (environment variables)
@@ -464,6 +455,16 @@ impl OAuthService {
         tenant_id: Option<uuid::Uuid>,
         oauth_app_client_id: Option<&str>,
     ) -> AppResult<OAuth2Config> {
+        // A Strava pool app named on the state or the token issued the grant:
+        // its client, whatever user or tenant credentials exist since.
+        if let Some(app) = oauth_app_client_id.filter(|_| provider.eq_ignore_ascii_case("strava")) {
+            let tokens = self.data.repos().oauth_tokens.as_ref();
+            if tokens.get_strava_pool_app_secret(app).await?.is_some() {
+                return self
+                    .create_oauth_config_with_tenant(provider, None, Some(app))
+                    .await;
+            }
+        }
         // Priority 1: Try user-specific credentials (per-user OAuth app)
         if let Ok(Some(user_app)) = self
             .data
@@ -634,7 +635,7 @@ impl OAuthService {
         self.create_oauth_config(provider)
     }
 
-    /// Store OAuth token in database
+    /// Store OAuth token in database, over the row `precondition` names
     async fn store_oauth_token(
         &self,
         user_id: uuid::Uuid,
@@ -642,6 +643,7 @@ impl OAuthService {
         provider: &str,
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
+        precondition: StorePrecondition,
     ) -> AppResult<chrono::DateTime<chrono::Utc>> {
         let expires_at = token
             .expires_at
@@ -668,12 +670,12 @@ impl OAuthService {
             updated_at: chrono::Utc::now(),
         };
 
-        self.data
-            .repos()
-            .oauth_tokens
-            .upsert_token(&user_oauth_token)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to upsert OAuth token: {e}")))?;
+        strava_reconnect::store_guarded(
+            self.data.repos().oauth_tokens.as_ref(),
+            &user_oauth_token,
+            precondition,
+        )
+        .await?;
 
         // Register provider connection alongside the OAuth token
         let raw_tenant = &user_oauth_token.tenant_id;
@@ -732,7 +734,8 @@ impl OAuthService {
     /// The domain chokepoint for provider disconnects: every surface (REST
     /// route, chat tool loop, `/mcp` + SSE carve-out) funnels here, so the
     /// backend resolution, the lockstep deletes and the `provider.disconnected`
-    /// notify event cannot drift apart per transport.
+    /// notify event cannot drift apart per transport. Returns what the
+    /// provider said about the grant, which never blocks the local deletion.
     ///
     /// # Errors
     /// Returns error if provider is unsupported or disconnection fails
@@ -741,7 +744,7 @@ impl OAuthService {
         user_id: uuid::Uuid,
         provider: &str,
         active_tenant_id: Option<uuid::Uuid>,
-    ) -> AppResult<()> {
+    ) -> AppResult<provider_revocation::RevocationOutcome> {
         debug!(
             "Processing OAuth provider disconnect for user {} provider {}",
             user_id, provider
@@ -763,9 +766,12 @@ impl OAuthService {
         let user_facing = backend_resolver::user_facing_name(provider).to_owned();
         let backends = backend_resolver::backend_pair_for(provider);
 
+        let mut outcomes = Vec::with_capacity(backends.len());
         for backend in &backends {
-            provider_revocation::clear_backend(self, &self.data, user_id, tenant_id, backend)
-                .await?;
+            outcomes.push(
+                provider_revocation::clear_backend(self, &self.data, user_id, tenant_id, backend)
+                    .await?,
+            );
         }
 
         // Post-condition: prove the state changed before reporting success (see
@@ -802,7 +808,7 @@ impl OAuthService {
             "user disconnected fitness provider"
         );
 
-        Ok(())
+        Ok(provider_revocation::RevocationOutcome::combine(outcomes))
     }
 
     /// Generate OAuth authorization URL for provider
@@ -912,11 +918,16 @@ impl OAuthService {
             let scope = creds.scopes.join(params.scope_separator);
             (creds.client_id, scope, None)
         } else if provider.eq_ignore_ascii_case("strava") {
-            // Server-level Strava: fill the env-default app first, then a pool
-            // app with a free seat, and pin the choice on the state so the
-            // token exchange uses the same client_id/secret.
-            let selected =
-                strava_pool::select_strava_app(self.data.repos().oauth_tokens.as_ref()).await?;
+            // Server-level Strava: an athlete reconnects on the app that issued
+            // their token while it has room; anyone else fills the env-default
+            // app first, then a pool app with a free seat. The choice is pinned
+            // on the state so the token exchange uses the same client_id/secret.
+            let selected = strava_pool::select_strava_app(
+                self.data.repos().oauth_tokens.as_ref(),
+                user_id,
+                tenant_id,
+            )
+            .await?;
             let scope = descriptor.default_scopes().join(params.scope_separator);
             (selected.client_id, scope, selected.attribution)
         } else {

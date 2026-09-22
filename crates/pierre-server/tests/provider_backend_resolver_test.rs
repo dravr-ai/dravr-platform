@@ -26,6 +26,7 @@ mod common;
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -775,6 +776,7 @@ async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
         tenant_id,
         oauth_providers::WHOOP,
         Some("invalid_request"),
+        Utc::now(),
     )
     .await
     .unwrap();
@@ -821,6 +823,7 @@ async fn multi_provider_status_reports_needs_reauth() {
         tenant_id,
         oauth_providers::WHOOP,
         Some("invalid_request"),
+        Utc::now(),
     )
     .await
     .unwrap();
@@ -984,6 +987,7 @@ async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
         tenant_id,
         oauth_providers::WHOOP,
         Some("invalid_request"),
+        Utc::now(),
     )
     .await
     .unwrap();

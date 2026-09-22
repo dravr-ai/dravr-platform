@@ -493,6 +493,25 @@ impl fmt::Display for ConnectionStatus {
     }
 }
 
+/// What flagging a connection `needs_reauth` after a failed attempt found.
+///
+/// The flag is guarded on when the attempt began, so a caller that goes on to
+/// tell the athlete to reconnect has to know which of these it got: a
+/// connection reconnected while the attempt ran is healthy, and a reconnect
+/// prompt sent over it contradicts the connection the app shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReauthMark {
+    /// The connection flipped to `needs_reauth`.
+    Flagged,
+    /// It already required re-authorizing (`needs_reauth` or `revoked`).
+    AlreadyFlagged,
+    /// It was reconnected or re-armed after the attempt began, and stands
+    /// active: the failure was the credential the attempt read, not its own.
+    ReconnectedSince,
+    /// The user has no such connection.
+    NoConnection,
+}
+
 /// Provider connection record: single source of truth for provider connectivity
 ///
 /// Tracks whether a provider (OAuth, synthetic, or manual) is connected for a user.
@@ -617,4 +636,58 @@ pub struct StravaPoolApp {
     pub created_at: i64,
     /// Row last-update time, Unix epoch seconds.
     pub updated_at: i64,
+}
+
+/// The Strava app an athlete's stored token names, the tenant it is stored
+/// in, and whether that token still holds its seat there (the seat counts'
+/// rule, read per athlete).
+///
+/// The authorize path reads it to keep an athlete on the app Strava already
+/// counts them on: a grant that holds a seat costs nothing more to reconnect
+/// on, where one that does not has to find room like anyone new. A reconnect
+/// reads it to tell a grant Strava still counts from a dead one before it
+/// revokes anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StravaTokenApp {
+    /// Tenant the token is stored in.
+    pub tenant_id: String,
+    /// Pool app that issued the token; `None` is the env-default app.
+    pub attribution: Option<String>,
+    /// Whether the token holds a shared-app seat, by the filter the counts
+    /// apply.
+    pub holds_seat: bool,
+    /// Whether the token's grant is still authorized at Strava, by the rule
+    /// the seat filter applies, a user's own OAuth app aside: a user with one
+    /// holds no seat and still holds a live grant.
+    pub grant_live: bool,
+}
+
+/// One stored Strava token and whether it holds a shared-app seat.
+///
+/// The per-holder view behind the seat counts: the counts answer "how full is
+/// each app", this answers "who is in it". `counts_as_seat` applies the same
+/// rule the counts do, from the same SQL filter, so a listing and a count can
+/// never disagree about one athlete.
+#[derive(Debug, Clone)]
+pub struct StravaSeatHolder {
+    /// The athlete's user id.
+    pub user_id: Uuid,
+    /// The athlete's account email; `None` for a token whose account row is
+    /// gone, which the seat counts still include.
+    pub email: Option<String>,
+    /// Tenant the token is stored under.
+    pub tenant_id: String,
+    /// Pool app that issued the token; `None` is the env-default app.
+    pub oauth_app_client_id: Option<String>,
+    /// Status of the matching provider connection; `None` when the token has
+    /// no connection row (it still counts as a seat).
+    pub connection_status: Option<ConnectionStatus>,
+    /// When the athlete connected: the connection's `connected_at`, else the
+    /// token's `created_at` for a token with no connection row.
+    pub connected_at: DateTime<Utc>,
+    /// Whether this token holds a seat on the shared app. False for a BYO-app
+    /// user, a `revoked` connection, and a `needs_reauth` one for any reason
+    /// but our own client credentials; a `needs_reauth` over those still holds
+    /// its seat.
+    pub counts_as_seat: bool,
 }

@@ -234,7 +234,13 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
     let notifier = ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver);
 
     notifier
-        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
+        .push_provider_reauth(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "sciotte_garmin",
+            Utc::now(),
+        )
         .await;
 
     // (a) Exactly one send attempt — the notifier itself must not retry; the

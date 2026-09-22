@@ -24,6 +24,7 @@
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -96,15 +97,21 @@ pub trait BackfillNotifier: Send + Sync {
     ///
     /// Fired from the DETACHED backfill path, where an auth failure would
     /// otherwise be silent (the foreground tool loop already nudges inline).
-    /// Best-effort and deduped per `(user, provider)` window via
-    /// `claim_reauth_notification`, so a flapping connection nudges once, not
-    /// every failed turn. Implementations swallow and log their own failures.
+    /// Best-effort and not deduped: the link is re-sent on every expired-session
+    /// backfill until the athlete reconnects, so a first link that was broken or
+    /// never clicked does not silence them. Implementations swallow and log
+    /// their own failures.
+    ///
+    /// `attempt_started_at` is when the backfill that failed began: a
+    /// connection the athlete reconnected after it is left active and sent
+    /// nothing, since the failure was the session the backfill read.
     async fn push_provider_reauth(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         pierre_conversation_id: &str,
         provider: &str,
+        attempt_started_at: DateTime<Utc>,
     );
 }
 

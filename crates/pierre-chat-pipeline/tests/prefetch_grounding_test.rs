@@ -28,6 +28,8 @@ use pierre_chat_pipeline::stages::prefetch::{
 use pierre_core::models::agents::ActivityDataRequirements;
 use pierre_core::models::{AgentCategory, AgentRuntimeContext};
 use pierre_llm::{ChatMessage, MessageRole};
+use pierre_tool_runtime::implementations::data_helpers::PrimaryStandIn;
+use serde_json::Value;
 
 /// A window statement as the prefetch stage writes it; these tests are about
 /// where and whether the block lands, so any fixed note will do.
@@ -372,6 +374,44 @@ fn grounding_injects_the_readable_list_not_the_whole_tool_response() {
         injected.len(),
         payload.len()
     );
+}
+
+/// A window served without one of the athlete's connections says why in a
+/// sidecar beside the list. The injection keeps the prose alone, so the note
+/// has to follow it there: without it the partial window reads as the
+/// athlete's whole training, and the agent never says which sessions are
+/// missing. Both sidecars, the dead connection's and the unreachable one's.
+#[test]
+fn a_window_served_without_a_connection_carries_its_note_into_the_prompt() {
+    for stand_in in [
+        PrimaryStandIn::Unreachable("strava".to_owned()),
+        PrimaryStandIn::Dead("sciotte_garmin".to_owned()),
+    ] {
+        let (key, caveat) = stand_in.caveat();
+        let mut payload: Value = serde_json::from_str(&tool_payload(3)).unwrap();
+        payload[key] = caveat.clone();
+        let mut messages = vec![
+            ChatMessage::system("system prompt"),
+            ChatMessage::user("comment s'est passée ma semaine?"),
+        ];
+
+        assert!(inject_activity_refresh(
+            &mut messages,
+            &payload.to_string(),
+            SCOPE_NOTE
+        ));
+        let injected = &messages[1].content;
+        assert!(injected.contains("Morning Run #1"), "{injected}");
+        let note = caveat["note"].as_str().expect("every caveat has a note");
+        assert!(
+            injected.contains(note),
+            "{key}: the note must reach the model: {injected}"
+        );
+        assert!(
+            !injected.contains("provider_slug"),
+            "{key}: the mint's backend key is not the model's to read: {injected}"
+        );
+    }
 }
 
 /// An unrecognised payload still reaches the model whole — the reducer must

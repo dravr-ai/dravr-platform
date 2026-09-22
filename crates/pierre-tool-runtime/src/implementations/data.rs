@@ -50,8 +50,7 @@ use crate::implementations::activities_output::{BackfillPlaceholder, GetActiviti
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::data_helpers::{
     backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
-    provider_reconnect_note, read_only_annotations, response_cache_eligible,
-    HISTORICAL_COVERAGE_BOUND_SECS,
+    read_only_annotations, response_cache_eligible, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -541,14 +540,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // API provider fetches inline.
             let route_to_backfill =
                 is_historical && backend_resolver::is_mirror_backend(&provider_name);
-            // Set to the BACKEND KEY of the elected provider when it is auth-dead
-            // and a sibling connection answered in its place: the served window is
-            // real, and the reconnect prompt for this provider rides along as a
-            // caveat on it. The backend rather than the display name because the
-            // chat pipeline mints the reconnect URL from it, and the two mint
-            // routes are chosen by backend. `served_by` then names the connections
-            // the rows actually came from.
-            let mut dead_primary: Option<String> = None;
+            // Set when the elected provider could not answer and a sibling
+            // connection did in its place: the served window is real, and why the
+            // provider is missing from it rides along as a caveat — a reconnect
+            // prompt when it is auth-dead, a "could not be reached" note when its
+            // grant stands. Keyed by the BACKEND rather than the display name
+            // because the chat pipeline mints the reconnect URL from it, and the
+            // two mint routes are chosen by backend. `served_by` then names the
+            // connections the rows actually came from.
+            let mut stood_in: Option<PrimaryStandIn> = None;
             // Set when the historical branch answered out of the durable cache, so
             // the write-through below can tell rows we just read from rows a
             // provider just produced. Writing the former back re-stamps their
@@ -687,7 +687,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         let Some(fallback) = fallback else {
                             return Err(AppError::provider_auth_required(provider_name.clone()));
                         };
-                        dead_primary = Some(provider_name.clone());
+                        stood_in = Some(PrimaryStandIn::Dead(provider_name.clone()));
                         served_by = fallback.served_by;
                         (fallback.activities, None)
                     } else if ctx.supports_tasks() {
@@ -804,28 +804,13 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         }
                     }
                     Err(response) => {
-                        // An auth-shaped creation failure surfaces as the typed
-                        // provider_auth_required error: the executor re-raises
-                        // it and the chat pipeline answers with the localized
-                        // reconnect link. A plain error payload here strands
-                        // the athlete with a generic failure the model can
-                        // only apologise about (live incident 2026-08-11).
-                        let Some(dead) = auth_required_provider(&response) else {
-                            let fallback_error = response.error.clone().unwrap_or_else(|| {
-                                "get_activities authentication failed".to_owned()
-                            });
-                            let error_payload = response.result.unwrap_or_else(|| {
-                                json!({
-                                    "error": fallback_error,
-                                })
-                            });
-                            return Ok(ToolResult::error(error_payload));
-                        };
-                        // The dead connection is one of several: an athlete whose
-                        // watch token expired still has years of GPS history behind
-                        // a healthy connection. Answer from the connections that
-                        // still work and carry the reconnect prompt as a caveat;
-                        // only a total blackout becomes the reconnect message.
+                        // The elected connection is one of several: an athlete whose
+                        // watch token expired, or whose Strava refresh is rate
+                        // limited, still has years of GPS history behind a healthy
+                        // connection. Answer from the connections that still work
+                        // and carry why this one is missing as a caveat; only a
+                        // total blackout becomes the failure alone.
+                        let dead = auth_required_provider(&response);
                         let fallback = if provider_pinned {
                             None
                         } else {
@@ -838,9 +823,28 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             .await
                         };
                         let Some(fallback) = fallback else {
-                            return Err(AppError::provider_auth_required(dead));
+                            // An auth-shaped creation failure surfaces as the typed
+                            // provider_auth_required error: the executor re-raises
+                            // it and the chat pipeline answers with the localized
+                            // reconnect link. A plain error payload there strands
+                            // the athlete with a generic failure the model can
+                            // only apologise about (live incident 2026-08-11).
+                            if let Some(dead) = dead {
+                                return Err(AppError::provider_auth_required(dead));
+                            }
+                            let fallback_error = response.error.clone().unwrap_or_else(|| {
+                                "get_activities authentication failed".to_owned()
+                            });
+                            return Ok(ToolResult::error(
+                                response
+                                    .result
+                                    .unwrap_or_else(|| json!({ "error": fallback_error })),
+                            ));
                         };
-                        dead_primary = Some(dead);
+                        stood_in = Some(dead.map_or_else(
+                            || PrimaryStandIn::Unreachable(provider_name.clone()),
+                            PrimaryStandIn::Dead,
+                        ));
                         served_by = fallback.served_by;
                         (fallback.activities, None)
                     }
@@ -848,13 +852,14 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             };
 
             // Only rows a PROVIDER produced are written through — never rows this
-            // table produced, and never a sibling's rows filed under a dead primary.
-            // `write_through_served_window` carries both reasons. A capture whose
-            // head the provider never saw is served but not persisted either: the
-            // upsert would stamp it fresh and disarm `refresh_stale_head`, the
-            // gate `fetch_provider_head` applies (carnet#149, carnet#151).
+            // table produced, and never a sibling's rows filed under a missing
+            // primary. `write_through_served_window` carries both reasons. A
+            // capture whose head the provider never saw is served but not
+            // persisted either: the upsert would stamp it fresh and disarm
+            // `refresh_stale_head`, the gate `fetch_provider_head` applies
+            // (carnet#149, carnet#151).
             let head_complete = provider.as_ref().is_none_or(|p| p.head_complete());
-            if dead_primary.is_none()
+            if stood_in.is_none()
                 && !served_from_cache
                 && head_complete
                 && context.tenant_id.is_some()
@@ -871,9 +876,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // Record the serve against the connection that actually produced it, so
             // `resolve_most_recent` elects the backend the athlete trains on rather
-            // than whichever connection was added last. A dead primary that a
+            // than whichever connection was added last. A missing primary that a
             // sibling answered for is not a serve.
-            if dead_primary.is_none() && context.tenant_id.is_some() {
+            if stood_in.is_none() && context.tenant_id.is_some() {
                 touch_connection_used(
                     &context.resources,
                     context.user_id,
@@ -886,9 +891,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Fold in the athlete's other connections and dedup (no-op for an
             // explicit provider arg or the coverage-gated historical branch) —
             // see `maybe_merge_other_connections` for the 2026-08-22 incident
-            // this exists for. Already done when a dead primary sent the window
+            // this exists for. Already done when a missing primary sent the window
             // through `serve_without_primary`, which merges the same set.
-            let activities = if dead_primary.is_some() {
+            let activities = if stood_in.is_some() {
                 activities
             } else {
                 maybe_merge_other_connections(
@@ -988,10 +993,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // auto-promoted detail payload (the key omits mode) and the historical
             // window (its serve never reads this cache, so a write here is dead —
             // it would only accrete never-read historical entries). A window a
-            // sibling served for a dead primary is skipped too: the key is the dead
-            // provider's, and a later hit would replay the answer without the
-            // reconnect caveat that makes it honest.
-            if dead_primary.is_none()
+            // sibling served for a missing primary is skipped too: the key is the
+            // missing provider's, and a later hit would replay the answer without
+            // the caveat that makes it honest.
+            if stood_in.is_none()
                 && response_cache_eligible(
                     auto_promote_to_detail,
                     is_historical,
@@ -1041,17 +1046,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_span,
             });
 
-            // The reconnect prompt ACCOMPANIES the answer instead of replacing it.
-            // It rides in the result payload the model reads, never in the metadata
-            // the tool loop scans for `auth_required_provider` — that key aborts the
-            // turn into the deterministic reconnect reply, which is exactly the
-            // blanking this path exists to avoid.
-            if let Some(dead) = dead_primary.as_ref() {
+            // Why the elected provider is missing ACCOMPANIES the answer instead of
+            // replacing it. It rides in the result payload the model reads, never in
+            // the metadata the tool loop scans for `auth_required_provider` — that
+            // key aborts the turn into the deterministic reconnect reply, which is
+            // exactly the blanking this path exists to avoid.
+            if let Some(stand_in) = stood_in.as_ref() {
                 if let Some(obj) = response.result.as_mut().and_then(Value::as_object_mut) {
-                    obj.insert(
-                        "reconnect_required".to_owned(),
-                        provider_reconnect_note(backend_resolver::user_facing_name(dead), dead),
-                    );
+                    let (key, caveat) = stand_in.caveat();
+                    obj.insert(key.to_owned(), caveat);
                 }
             }
             // Declared, so the shape above is the shape the schema names.

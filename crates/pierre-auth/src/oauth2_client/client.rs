@@ -236,7 +236,7 @@ impl OAuth2Client {
         let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "oauth",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -290,7 +290,7 @@ impl OAuth2Client {
         let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "oauth",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -335,7 +335,7 @@ impl OAuth2Client {
         let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "oauth",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -475,7 +475,7 @@ pub mod strava {
         let response: StravaTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "strava",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -541,7 +541,7 @@ pub mod strava {
         let response: StravaTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "strava",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -609,7 +609,7 @@ pub mod strava {
         let response: StravaTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "strava",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -703,7 +703,7 @@ pub mod fitbit {
         let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "fitbit",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -769,7 +769,7 @@ pub mod fitbit {
         let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "fitbit",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -835,7 +835,7 @@ pub mod fitbit {
         let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "fitbit",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 
@@ -919,7 +919,7 @@ pub mod whoop {
         let response: WhoopTokenResponse = serde_json::from_str(&body).map_err(|e| {
             AppError::external_service(
                 "whoop",
-                format!("Failed to parse token response: {e}, body: {body}"),
+                format!("Failed to parse token response ({} bytes): {e}", body.len()),
             )
         })?;
 

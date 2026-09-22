@@ -150,18 +150,16 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
     repos.oauth_tokens.upsert_token(&expired).await.unwrap();
 
     let renewed_until = seconds_ago(-6 * 3600);
-    repos
+    assert!(repos
         .oauth_tokens
         .refresh_token(
-            user_id,
-            tenant_id,
-            "strava",
+            &expired,
             "access-after-refresh",
             Some("refresh-after-refresh"),
             Some(renewed_until),
         )
         .await
-        .unwrap();
+        .unwrap());
 
     let stored = repos
         .oauth_tokens
@@ -187,14 +185,15 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
         stored.scope, expired.scope,
         "a refresh leaves the grant alone"
     );
+    assert_eq!(stored.id, expired.id, "a refresh keeps the row's id");
 
     // A provider that rotates nothing hands back no refresh token; the row
     // then holds none rather than the stale one.
-    repos
+    assert!(repos
         .oauth_tokens
-        .refresh_token(user_id, tenant_id, "strava", "access-third", None, None)
+        .refresh_token(&stored, "access-third", None, None)
         .await
-        .unwrap();
+        .unwrap());
     let stored = repos
         .oauth_tokens
         .get_token(user_id, tenant_id, "strava")
@@ -210,11 +209,11 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
     let other_tenant = TenantId::generate();
     let other = token(user_id, &other_tenant, "strava", seconds_ago(10));
     repos.oauth_tokens.upsert_token(&other).await.unwrap();
-    repos
+    assert!(repos
         .oauth_tokens
-        .refresh_token(user_id, tenant_id, "strava", "access-fourth", None, None)
+        .refresh_token(&stored, "access-fourth", None, None)
         .await
-        .unwrap();
+        .unwrap());
     let untouched = repos
         .oauth_tokens
         .get_token(user_id, other_tenant, "strava")
@@ -222,6 +221,76 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
         .unwrap()
         .unwrap();
     assert_eq!(untouched.access_token, other.access_token);
+}
+
+/// A refresh lands only over the row it read. A reconnect that stored a new
+/// token while the refresh was in flight wrote a fresh `id`, and the
+/// refreshed pair, which belongs to the grant the reconnect replaced, is
+/// dropped instead of overwriting the new token.
+#[tokio::test]
+async fn a_refresh_of_a_replaced_row_writes_nothing() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(&repos).await;
+    let tenant_id = TenantId::generate();
+
+    let mut read_by_the_refresh = token(user_id, &tenant_id, "strava", seconds_ago(7 * 3600));
+    read_by_the_refresh.oauth_app_client_id = Some("201455".to_owned());
+    repos
+        .oauth_tokens
+        .upsert_token(&read_by_the_refresh)
+        .await
+        .unwrap();
+
+    let mut reconnected = token(user_id, &tenant_id, "strava", seconds_ago(5));
+    reconnected.access_token = "access-of-the-reconnect".to_owned();
+    reconnected.refresh_token = Some("refresh-of-the-reconnect".to_owned());
+    reconnected.oauth_app_client_id = Some("201456".to_owned());
+    assert!(repos
+        .oauth_tokens
+        .replace_token_if_current(&reconnected, Some(&read_by_the_refresh.id))
+        .await
+        .unwrap());
+
+    let landed = repos
+        .oauth_tokens
+        .refresh_token(
+            &read_by_the_refresh,
+            "access-of-the-replaced-grant",
+            Some("refresh-of-the-replaced-grant"),
+            Some(seconds_ago(-6 * 3600)),
+        )
+        .await
+        .unwrap();
+    assert!(!landed, "the refresh read a row that is gone");
+
+    let stored = repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, "strava")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.id, reconnected.id);
+    assert_eq!(stored.access_token, "access-of-the-reconnect");
+    assert_eq!(
+        stored.refresh_token.as_deref(),
+        Some("refresh-of-the-reconnect")
+    );
+    assert_eq!(stored.oauth_app_client_id.as_deref(), Some("201456"));
+    assert_eq!(stored.expires_at, reconnected.expires_at);
+}
+
+/// Shared-app Strava seat usage by issuing app, sorted so an assertion does
+/// not depend on row order: the count the authorize path and the seat summary
+/// read.
+async fn seat_usage(repos: &RepositoryRegistry) -> Vec<(Option<String>, u32)> {
+    let mut usage = repos
+        .oauth_tokens
+        .count_strava_seat_usage_by_app(None)
+        .await
+        .unwrap();
+    usage.sort();
+    usage
 }
 
 #[tokio::test]
@@ -243,12 +312,8 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
     repos.oauth_tokens.upsert_token(&byo_token).await.unwrap();
 
     assert_eq!(
-        repos
-            .oauth_tokens
-            .count_shared_app_seat_usage("strava")
-            .await
-            .unwrap(),
-        2,
+        seat_usage(&repos).await,
+        vec![(None, 1), (Some("201455".to_owned()), 1)],
         "both users sit on the shared app before either registers their own"
     );
 
@@ -265,21 +330,10 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
         .unwrap();
 
     assert_eq!(
-        repos
-            .oauth_tokens
-            .count_shared_app_seat_usage("strava")
-            .await
-            .unwrap(),
-        1,
+        seat_usage(&repos).await,
+        vec![(Some("201455".to_owned()), 1)],
         "a user with their own app no longer counts against the shared app"
     );
-    let mut by_app = repos
-        .oauth_tokens
-        .count_strava_seat_usage_by_app()
-        .await
-        .unwrap();
-    by_app.sort();
-    assert_eq!(by_app, vec![(Some("201455".to_owned()), 1)]);
 
     let app = repos
         .oauth_tokens
@@ -321,12 +375,8 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
         .await
         .unwrap();
     assert_eq!(
-        repos
-            .oauth_tokens
-            .count_shared_app_seat_usage("strava")
-            .await
-            .unwrap(),
-        2,
+        seat_usage(&repos).await,
+        vec![(None, 1), (Some("201455".to_owned()), 1)],
         "removing the BYO app puts the user back on the shared app"
     );
 }

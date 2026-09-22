@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 
 use pierre_formatters::OutputFormat;
 use pierre_mcp_schema::ToolAnnotations;
+use pierre_providers::backend_resolver::user_facing_name;
 
 /// How far forward the coverage probe looks from `after`.
 ///
@@ -169,8 +170,10 @@ pub fn activity_coverage_note(
 /// Two readers, and they need different halves. `provider` and `note` address
 /// the model, in the vocabulary an athlete uses: `reconnect_required` is on
 /// `tool_results::ACTIVITIES_ENVELOPE_KEPT`, so the whole sidecar survives the
-/// projection every prompt-facing render runs the payload through, and the
-/// agent reads that the window it is about to answer from is missing a source.
+/// projection the tool loop runs the payload through, and the prefetch, which
+/// keeps the prose alone, appends the note after it
+/// (`tool_results::served_without_notes`). Either way the agent reads that the
+/// window it is about to answer from is missing a source.
 /// `provider_slug` is the backend key `tool_results::reconnect_offer_in_responses`
 /// lifts out for the chat pipeline to mint a reconnect URL from —
 /// `sciotte_garmin` takes the Dravr-hosted login page and `garmin` takes an
@@ -184,6 +187,57 @@ pub fn provider_reconnect_note(display_name: &str, backend: &str) -> Value {
             "The activities above were served WITHOUT {display_name}: that connection expired and the athlete must re-authorize it. Answer the question from the activities shown, then add one short sentence that {display_name} is disconnected and that reconnecting it restores the sessions only it records."
         ),
     })
+}
+
+/// Build the `provider_unavailable` sidecar for a window served WITHOUT a
+/// connection that could not answer just now.
+///
+/// Its grant stands: a rate-limited or failing token refresh over a connection
+/// no refusal flagged (a flagged one is reported dead instead), a provider
+/// outage. The window is as partial as one served without a dead connection,
+/// so the agent is told so, but nothing here is the athlete's to fix: the note
+/// says the connection is intact, and carries no `provider_slug`, since no
+/// reconnect link is owed. It reaches the model by both routes
+/// `reconnect_required` does: kept by the tool-loop projection on
+/// `tool_results::ACTIVITIES_ENVELOPE_KEPT`, and appended to the prose by the
+/// prefetch.
+#[must_use]
+pub fn provider_unavailable_note(display_name: &str) -> Value {
+    json!({
+        "provider": display_name,
+        "note": format!(
+            "The activities above were served WITHOUT {display_name}: its data could not be fetched just now, and its connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown, then add one short sentence that sessions only {display_name} records are missing from this answer."
+        ),
+    })
+}
+
+/// Why the elected provider's window was served by the athlete's other
+/// connections, keyed by that provider's backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrimaryStandIn {
+    /// Its grant or session is dead: the athlete must reconnect it.
+    Dead(String),
+    /// It could not answer just now, and its connection stands.
+    Unreachable(String),
+}
+
+impl PrimaryStandIn {
+    /// The sidecar the served window carries for it, and the key it rides
+    /// under: `reconnect_required` for a dead provider, `provider_unavailable`
+    /// for one that could not answer.
+    #[must_use]
+    pub fn caveat(&self) -> (&'static str, Value) {
+        match self {
+            Self::Dead(backend) => (
+                "reconnect_required",
+                provider_reconnect_note(user_facing_name(backend), backend),
+            ),
+            Self::Unreachable(backend) => (
+                "provider_unavailable",
+                provider_unavailable_note(user_facing_name(backend)),
+            ),
+        }
+    }
 }
 
 /// Pull the `format` arg, defaulting to JSON.

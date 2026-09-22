@@ -616,7 +616,7 @@ pub async fn handle_mobile_oauth_init(
         None
     };
 
-    let authorization_url = if let Some(ref pkce_params) = pkce {
+    let authorization = if let Some(ref pkce_params) = pkce {
         resources
             .tenant_oauth_client
             .get_authorization_url_with_pkce(
@@ -665,7 +665,8 @@ pub async fn handle_mobile_oauth_init(
         redirect_uri: oauth_redirect_uri,
         scope: None,
         pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
-        oauth_app_client_id: None,
+        // The shared-pool app the URL names, so the exchange uses its client.
+        oauth_app_client_id: authorization.oauth_app_client_id,
         created_at: now,
         expires_at: now + chrono::Duration::minutes(10),
         used: false,
@@ -697,7 +698,7 @@ pub async fn handle_mobile_oauth_init(
     Ok((
         StatusCode::OK,
         Json(json!({
-            "authorization_url": authorization_url,
+            "authorization_url": authorization.url,
             "provider": provider,
             "state": state,
             "message": format!("Visit the authorization URL to connect your {} account", provider)

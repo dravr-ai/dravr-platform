@@ -162,7 +162,7 @@ async fn test_pg_reauth_connection_is_excluded() {
         .unwrap();
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"))
+        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"), Utc::now())
         .await
         .unwrap();
 

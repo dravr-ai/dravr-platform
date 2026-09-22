@@ -116,7 +116,7 @@ async fn strava_seat_usage_is_grouped_by_issuing_app() {
     repo.upsert_token(&pool_token).await.unwrap();
 
     let usage = repo
-        .count_strava_seat_usage_by_app()
+        .count_strava_seat_usage_by_app(None)
         .await
         .expect("count by app");
     // The athlete is attributed to app 201455 (its own bucket), not the env/None

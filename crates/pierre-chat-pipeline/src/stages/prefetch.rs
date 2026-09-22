@@ -46,6 +46,7 @@ use tracing::{info, warn};
 use pierre_core::models::TenantId;
 use pierre_llm::ChatMessage;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalResponse};
+use pierre_tool_runtime::tool_results::served_without_notes;
 
 /// Extract the formatted content string from a `get_activities` response.
 ///
@@ -493,6 +494,10 @@ pub fn should_refresh_activity_context(
 /// rows" signal survives without the sidecar. The structured copy exists for
 /// tool consumers, and the prefetch is not one; the agent reads prose.
 ///
+/// A window served without one of the athlete's connections says so in a
+/// sidecar beside the list, and its note follows the list here: kept to the
+/// prose alone, that window reached the model as if it were complete.
+///
 /// Falls back to the raw payload whenever the list is absent or empty, so a
 /// response shape this does not recognise still reaches the model intact.
 fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
@@ -503,7 +508,15 @@ fn injectable_activity_text(raw: &str) -> Cow<'_, str> {
         .ok()
         .and_then(|value| {
             let list = value.get("activity_list")?.as_str()?;
-            (!list.trim().is_empty()).then(|| Cow::Owned(list.to_owned()))
+            if list.trim().is_empty() {
+                return None;
+            }
+            let notes = served_without_notes(&value);
+            Some(Cow::Owned(if notes.is_empty() {
+                list.to_owned()
+            } else {
+                format!("{list}\n\n{}", notes.join("\n"))
+            }))
         })
         .unwrap_or(Cow::Borrowed(raw))
 }

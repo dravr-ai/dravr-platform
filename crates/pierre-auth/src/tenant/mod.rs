@@ -25,7 +25,7 @@ pub mod schema;
 pub use llm_manager::{
     CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
 };
-pub use oauth_client::{StoreCredentialsRequest, TenantOAuthClient};
+pub use oauth_client::{ConnectAuthorization, StoreCredentialsRequest, TenantOAuthClient};
 pub use oauth_manager::{CredentialConfig, TenantOAuthManager};
 pub use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantOAuthCredentials};
 pub use schema::{Tenant, TenantProviderUsage, TenantRole, TenantUser};

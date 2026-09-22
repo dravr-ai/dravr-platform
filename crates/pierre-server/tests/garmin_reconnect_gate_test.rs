@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
 use pierre_tool_runtime::implementations::data_helpers::connection_needs_reauth;
@@ -48,7 +49,13 @@ async fn gate_flips_with_connection_status_active_then_reauth_then_reconnect() {
     // backfill + "fetching shortly" loop.
     repos
         .provider_connections
-        .mark_needs_reauth(user, tenant, "sciotte_garmin", Some("session_expired"))
+        .mark_needs_reauth(
+            user,
+            tenant,
+            "sciotte_garmin",
+            Some("session_expired"),
+            Utc::now(),
+        )
         .await
         .unwrap();
     let conns = repos

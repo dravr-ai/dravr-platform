@@ -262,6 +262,9 @@ enum StravaPoolCommand {
     /// List pool apps and aggregate seat usage
     List,
 
+    /// List who holds a Strava token, on which app, and whether it counts as a seat
+    Seats,
+
     /// Enable a pool app
     Enable {
         /// The pool app's `client_id`
@@ -483,6 +486,12 @@ enum UserCommand {
         #[arg(long)]
         token: Option<String>,
     },
+
+    /// Disconnect one provider for a user over the admin API, revoking the grant at the provider
+    Disconnect(commands::user_admin::DisconnectArgs),
+
+    /// Remove a user completely over the admin API; every provider grant is revoked first
+    Delete(commands::user_admin::DeleteArgs),
 
     /// Suspend a user (status → suspended); they can no longer log in
     Suspend {
@@ -878,8 +887,8 @@ async fn main() -> Result<()> {
         return commands::config::dispatch(action).await;
     }
 
-    // `user get` / `user set` and the three pre-approval verbs are remote, and
-    // have to dispatch here for the reason they exist: every other user command
+    // `user get` / `set` / `disconnect` / `delete` and the three pre-approval
+    // verbs are remote, and have to dispatch here for the reason they exist: every other user command
     // holds a repository handle and therefore needs DATABASE_URL plus
     // PIERRE_MASTER_ENCRYPTION_KEY. A deployed environment has neither reachable
     // from a laptop — dev's Cloud SQL is on a private IP — so a command that
@@ -895,6 +904,8 @@ async fn main() -> Result<()> {
                 | UserCommand::Allow { .. }
                 | UserCommand::Disallow { .. }
                 | UserCommand::ListAllowed { .. }
+                | UserCommand::Disconnect(_)
+                | UserCommand::Delete(_)
         ) {
             return dispatch::dispatch_remote_user(action).await;
         }
@@ -987,7 +998,9 @@ async fn main() -> Result<()> {
             | UserCommand::Set { .. }
             | UserCommand::Allow { .. }
             | UserCommand::Disallow { .. }
-            | UserCommand::ListAllowed { .. } => {
+            | UserCommand::ListAllowed { .. }
+            | UserCommand::Disconnect(_)
+            | UserCommand::Delete(_) => {
                 unreachable!("remote user commands dispatch before the database bootstrap")
             }
             UserCommand::SetTier { email, tier, note } => {

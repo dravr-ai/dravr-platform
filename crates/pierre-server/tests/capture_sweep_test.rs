@@ -22,7 +22,9 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
+use pierre_database::backends::factory::Database;
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, RefreshOutcome, SweepBudget, DEFAULT_CONNECTION_LIMIT,
 };
@@ -144,6 +146,74 @@ async fn a_flagged_connection_is_not_swept_again() {
         "it has left the snapshot entirely, got {:?}",
         second.connections
     );
+}
+
+/// Stamp the connection's `connected_at`, as a reconnect does, at `at`.
+async fn stamp_connected_at(f: &Fixture, provider: &str, at: DateTime<Utc>) {
+    let sql = "UPDATE provider_connections SET connected_at = $1 \
+               WHERE user_id = $2 AND tenant_id = $3 AND provider = $4";
+    let (user, tenant) = (f.user_id.to_string(), f.tenant.to_string());
+    let affected = match &**f.runtime.database() {
+        Database::SQLite(db) => sqlx::query(sql)
+            .bind(at)
+            .bind(&user)
+            .bind(&tenant)
+            .bind(provider)
+            .execute(db.pool())
+            .await
+            .unwrap()
+            .rows_affected(),
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => sqlx::query(sql)
+            .bind(at)
+            .bind(&user)
+            .bind(&tenant)
+            .bind(provider)
+            .execute(db.pool())
+            .await
+            .unwrap()
+            .rows_affected(),
+    };
+    assert_eq!(affected, 1, "the connection row is stamped");
+}
+
+/// A reconnect that lands while the sweep's fetch is in flight is newer than
+/// the failure that fetch reports, so the connection stays active. The sweep
+/// must then not report it flagged: the operator reading the report would count
+/// a disconnect the athlete never had.
+///
+/// The reconnect is stamped ahead of the sweep's start, which is exactly what
+/// one that lands after the fetch began looks like to the guard.
+#[tokio::test]
+async fn a_connection_reconnected_while_its_fetch_ran_is_not_reported_flagged() {
+    let f = fixture_with_connection("strava").await;
+    stamp_connected_at(&f, "strava", Utc::now() + Duration::minutes(5)).await;
+
+    let report = refresh_captures(&f.runtime, SweepBudget::default())
+        .await
+        .expect("refresh report");
+
+    let line = report
+        .connections
+        .iter()
+        .find(|c| c.user_id == f.user_id.to_string() && c.provider == "strava")
+        .expect("the connection was walked");
+    assert!(
+        matches!(&line.outcome, RefreshOutcome::Failed { error } if error.contains("reconnect")),
+        "a connection the guard left active is not a flag: {:?}",
+        line.outcome
+    );
+    assert_eq!(report.flagged, 0);
+    assert_eq!(report.failed, 1);
+
+    let connections = f
+        .runtime
+        .repos()
+        .provider_connections
+        .get_for_user(f.user_id, Some(f.tenant))
+        .await
+        .unwrap();
+    assert_eq!(connections[0].status, ConnectionStatus::Active);
 }
 
 /// A sweep that runs out of time says so, per connection and in the summary.

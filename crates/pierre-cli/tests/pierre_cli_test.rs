@@ -371,7 +371,7 @@ fn test_cli_user_disallow_and_list_allowed_help_offer_remote_arguments() {
 #[test]
 fn test_remote_user_verbs_never_open_the_local_database() {
     const CLOSED_PORT: &str = "http://127.0.0.1:1";
-    let invocations: [&[&str]; 4] = [
+    let invocations: [&[&str]; 6] = [
         &[
             "user",
             "allow",
@@ -403,6 +403,29 @@ fn test_remote_user_verbs_never_open_the_local_database() {
         &[
             "user",
             "list-allowed",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "disconnect",
+            "--email",
+            "someone@example.com",
+            "--provider",
+            "strava",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "delete",
+            "--email",
+            "someone@example.com",
+            "--yes",
             "--server",
             CLOSED_PORT,
             "--token",

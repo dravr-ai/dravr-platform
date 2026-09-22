@@ -18,7 +18,7 @@
 # shape is what gets reviewed; a `&str` constant is resolved to its value, so
 # changing the constant fails this gate rather than slipping past it.
 #
-# Three entries below reach an admin-token holder only, and each names something
+# Four entries below reach an admin-token holder only, and each names something
 # about that caller's OWN token — the permission it lacks, the permission set it
 # carries, the tenant it is scoped to. That is the caller's own scope, the same
 # thing an OAuth `insufficient_scope` challenge names, not a cross-principal
@@ -43,6 +43,7 @@ crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit 
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
+crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tenant-scoped tool operations require super-admin privileges
 crates/pierre-routes-agents/src/roster.rs:Athlete does not belong to the caller's active tenant
 crates/pierre-routes-agents/src/roster.rs:Roster management is not enabled for your account

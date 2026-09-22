@@ -4,15 +4,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{ConnectionType, ProviderConnection, TenantId};
+use pierre_core::models::{
+    ConnectionType, ProviderConnection, ReauthMark, TenantId, UserOAuthToken,
+};
 use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::provider_connections::{
-    connection_from_row, impl_provider_connection_repository, CLAIM_REAUTH_NOTIFICATION_SQL,
-    GET_FOR_USER_IN_TENANT_SQL, GET_FOR_USER_SQL, IS_CONNECTED_SQL, MARK_ACTIVE_SQL,
+    connection_from_row, impl_provider_connection_repository, reauth_mark,
+    CLAIM_REAUTH_NOTIFICATION_SQL, CONNECTION_STATUS_SQL, GET_FOR_USER_IN_TENANT_SQL,
+    GET_FOR_USER_SQL, IS_CONNECTED_SQL, MARK_ACTIVE_SQL, MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL,
     MARK_NEEDS_REAUTH_SQL, REGISTER_CONNECTION_SQL, REMOVE_CONNECTION_SQL,
     RESOLVE_MOST_RECENT_IN_TENANT_SQL, RESOLVE_MOST_RECENT_SQL, TOUCH_LAST_USED_SQL,
 };

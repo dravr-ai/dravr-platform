@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use pierre_enforme::error::{EnformeError, EnformeResult};
 use pierre_enforme::models::connection::ProviderCredentials;
 use pierre_services::health_sync::SyncCredentialRefresher;
-use pierre_tool_runtime::protocol::auth::TokenData;
+use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
 use pierre_tool_runtime::protocol::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
@@ -63,6 +63,16 @@ fn token_to_credentials(user_id: Uuid, token: TokenData) -> ProviderCredentials 
     }
 }
 
+/// The enforme error a failed token read or refresh is: a refresh the
+/// provider did not complete is that provider's transient failure, and
+/// anything else is the store's (`what` names the operation).
+fn credential_error(provider: &str, what: &str, error: &OAuthError) -> EnformeError {
+    match error {
+        OAuthError::RefreshUnavailable(_) => EnformeError::provider(provider, error.to_string()),
+        _ => EnformeError::store(format!("{what}: {error}")),
+    }
+}
+
 #[async_trait]
 impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
     async fn valid_credentials(
@@ -75,7 +85,7 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
         let token = auth
             .get_valid_token(user_id, provider, Some(tenant_id))
             .await
-            .map_err(|e| EnformeError::store(format!("OAuth token lookup failed: {e}")))?;
+            .map_err(|e| credential_error(provider, "OAuth token lookup failed", &e))?;
         Ok(token.map(|t| token_to_credentials(user_id, t)))
     }
 
@@ -89,7 +99,7 @@ impl SyncCredentialRefresher for AuthServiceCredentialRefresher {
         let token = auth
             .force_refresh_token(user_id, tenant_id, provider)
             .await
-            .map_err(|e| EnformeError::store(format!("OAuth token refresh failed: {e}")))?;
+            .map_err(|e| credential_error(provider, "OAuth token refresh failed", &e))?;
         Ok(token.map(|t| token_to_credentials(user_id, t)))
     }
 }

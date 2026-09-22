@@ -126,8 +126,9 @@ pub use roster::CoachAthleteAssignment;
 
 // User domain
 pub use user::{
-    default_locale, CoachingPersona, ColorScheme, PreApprovedEmail, User, UserId,
-    UserPhysiologicalProfile, UserStatus, UserTier, SUPPORTED_LOCALES,
+    default_locale, CoachingPersona, ColorScheme, PreApprovedEmail, User, UserDeletion, UserId,
+    UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
+    SUPPORTED_LOCALES,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
@@ -168,7 +169,8 @@ pub use dravr_cageux::periodization::{
 pub use oauth::{
     connection_needs_reauth, AuthRequest, AuthResponse, ConnectionStatus, ConnectionType,
     DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification, ProviderConnection,
-    StravaPoolApp, UserOAuthApp, UserOAuthToken, UserSession,
+    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    UserSession,
 };
 
 // OAuth client state for provider authorization flows

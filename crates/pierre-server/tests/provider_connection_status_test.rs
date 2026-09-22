@@ -15,8 +15,12 @@
 //! clears the notification marker. This is the persisted half of the "tell the user his
 //! OAuth is disconnected, and update our state" work.
 
-use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
+use std::time::Duration;
+
+use chrono::Utc;
+use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId};
 use pierre_database::backends::factory::Database;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 mod common;
@@ -73,11 +77,18 @@ async fn mark_needs_reauth_flips_status() {
         .await
         .unwrap();
 
-    repos
+    let mark = repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_request"))
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "whoop",
+            Some("invalid_request"),
+            Utc::now(),
+        )
         .await
         .unwrap();
+    assert_eq!(mark, ReauthMark::Flagged);
 
     let conns = repos
         .provider_connections
@@ -103,7 +114,13 @@ async fn mark_active_rearms_after_reauth() {
         .unwrap();
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_request"))
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "whoop",
+            Some("invalid_request"),
+            Utc::now(),
+        )
         .await
         .unwrap();
     repos
@@ -130,11 +147,12 @@ async fn mark_needs_reauth_is_noop_for_unknown_provider() {
     let tenant_id = sole_tenant(&database, user_id).await;
     let repos = database.repositories();
 
-    repos
+    let mark = repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "made_up_provider", None)
+        .mark_needs_reauth(user_id, tenant_id, "made_up_provider", None, Utc::now())
         .await
         .expect("mark_needs_reauth on nonexistent row must not error");
+    assert_eq!(mark, ReauthMark::NoConnection);
 
     let all = repos
         .provider_connections
@@ -162,13 +180,31 @@ async fn mark_needs_reauth_is_idempotent() {
         .register_connection(user_id, tenant_id, "whoop", &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    let mut marks = Vec::new();
     for _ in 0..3 {
-        repos
-            .provider_connections
-            .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_request"))
-            .await
-            .unwrap();
+        marks.push(
+            repos
+                .provider_connections
+                .mark_needs_reauth(
+                    user_id,
+                    tenant_id,
+                    "whoop",
+                    Some("invalid_request"),
+                    Utc::now(),
+                )
+                .await
+                .unwrap(),
+        );
     }
+    assert_eq!(
+        marks,
+        [
+            ReauthMark::Flagged,
+            ReauthMark::AlreadyFlagged,
+            ReauthMark::AlreadyFlagged
+        ],
+        "only the first flag flips it; the rest find it already flagged"
+    );
 
     let conns = repos
         .provider_connections
@@ -192,9 +228,15 @@ async fn claim_reauth_notification_fires_once_per_disconnect() {
     pc.register_connection(user_id, tenant_id, "whoop", &ConnectionType::OAuth, None)
         .await
         .unwrap();
-    pc.mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_request"))
-        .await
-        .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        "whoop",
+        Some("invalid_request"),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
 
     assert!(
         pc.claim_reauth_notification(user_id, tenant_id, "whoop")
@@ -211,9 +253,15 @@ async fn claim_reauth_notification_fires_once_per_disconnect() {
 
     // Reconnect clears the marker; a fresh disconnect can claim again.
     pc.mark_active(user_id, tenant_id, "whoop").await.unwrap();
-    pc.mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_request"))
-        .await
-        .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        "whoop",
+        Some("invalid_request"),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
     assert!(
         pc.claim_reauth_notification(user_id, tenant_id, "whoop")
             .await
@@ -239,5 +287,123 @@ async fn claim_reauth_notification_noop_for_active_connection() {
             .await
             .unwrap(),
         "a healthy connection must not be claimable for a reconnect nudge"
+    );
+}
+
+/// The status of the athlete's one connection to `provider`.
+async fn status_of(
+    database: &Database,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> ConnectionStatus {
+    database
+        .repositories()
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.provider == provider)
+        .expect("the connection exists")
+        .status
+}
+
+/// A failure an attempt observed is a verdict on the credential it read. The
+/// athlete reconnecting while it runs stores a new one, so the attempt's flag,
+/// written after, leaves the reconnected connection active and its seat held;
+/// a later attempt that fails still flags it.
+#[tokio::test]
+async fn a_flag_from_an_attempt_that_began_before_a_reconnect_leaves_it_active() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = sole_tenant(&database, user_id).await;
+    let pc = &database.repositories().provider_connections;
+    pc.register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+
+    let attempt_started_at = Utc::now();
+    sleep(Duration::from_millis(10)).await;
+    pc.register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let mark = pc
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "strava",
+            Some("session_expired"),
+            attempt_started_at,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        mark,
+        ReauthMark::ReconnectedSince,
+        "the caller is told the connection it failed on was replaced, not that it was flagged"
+    );
+    assert_eq!(
+        status_of(&database, user_id, tenant_id, "strava").await,
+        ConnectionStatus::Active,
+        "the reconnect is newer than the failure the attempt reports"
+    );
+
+    let mark = pc
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "strava",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mark, ReauthMark::Flagged);
+    assert_eq!(
+        status_of(&database, user_id, tenant_id, "strava").await,
+        ConnectionStatus::NeedsReauth
+    );
+}
+
+/// A refresh that succeeded after an attempt began re-arms the connection and
+/// proves the grant alive, so that attempt's flag leaves it active.
+#[tokio::test]
+async fn a_flag_from_an_attempt_that_began_before_a_rearm_leaves_it_active() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = sole_tenant(&database, user_id).await;
+    let pc = &database.repositories().provider_connections;
+    pc.register_connection(user_id, tenant_id, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        "whoop",
+        Some("invalid_request"),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+
+    let attempt_started_at = Utc::now();
+    sleep(Duration::from_millis(10)).await;
+    pc.mark_active(user_id, tenant_id, "whoop").await.unwrap();
+    let mark = pc
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "whoop",
+            Some("session_expired"),
+            attempt_started_at,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(mark, ReauthMark::ReconnectedSince);
+    assert_eq!(
+        status_of(&database, user_id, tenant_id, "whoop").await,
+        ConnectionStatus::Active
     );
 }

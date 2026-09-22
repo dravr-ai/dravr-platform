@@ -397,9 +397,11 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         )
         .await?;
 
-    // Verify URLs contain tenant-specific client IDs
-    assert!(acme_auth_url.contains("acme_strava_client_123"));
-    assert!(beta_auth_url.contains("beta_strava_client_456"));
+    // Verify URLs contain tenant-specific client IDs, which no pool app owns
+    assert!(acme_auth_url.url.contains("acme_strava_client_123"));
+    assert!(beta_auth_url.url.contains("beta_strava_client_456"));
+    assert_eq!(acme_auth_url.oauth_app_client_id, None);
+    assert_eq!(beta_auth_url.oauth_app_client_id, None);
 
     println!("Tenant-specific OAuth authorization URLs generated");
 

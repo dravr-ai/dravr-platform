@@ -567,7 +567,7 @@ pub async fn fetch_provider_activities(
         Err(e) => Err(UniversalResponse {
             success: false,
             result: None,
-            error: Some(format!("Authentication error for {provider_name}: {e}")),
+            error: Some(e.tool_error_text(&format!("Authentication error for {provider_name}"))),
             metadata: None,
         }),
     }

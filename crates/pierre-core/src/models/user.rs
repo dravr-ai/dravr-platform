@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
@@ -726,4 +727,156 @@ pub struct PreApprovedEmail {
     pub note: Option<String>,
     /// When the allow was recorded.
     pub created_at: DateTime<Utc>,
+}
+
+/// What kind of row still points at a user, blocking the account's deletion.
+///
+/// Most name a foreign key onto `users(id)` that neither cascades nor sets
+/// NULL, so deleting the user while one such row exists fails in the database.
+/// The rest name something the delete would take from other people or leave
+/// running elsewhere: a tenant only this user owns while others belong to it,
+/// an agent other users rely on, a billing subscription still live at the
+/// provider. An operator reassigns (or removes) the row first; a group owned
+/// out from under its members, or an audit trail rewritten to a deleted
+/// account, is not something a delete does silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserReferenceKind {
+    /// The user owns a coaching group (`coaching_groups.owner_id`).
+    OwnsCoachingGroup,
+    /// The user is the human coach attached to a group (`coaching_groups.coach_user_id`).
+    CoachesCoachingGroup,
+    /// The user created a group invite (`group_invites.created_by`).
+    CreatedGroupInvite,
+    /// The user wrote a runtime config override (`admin_config_overrides.created_by`).
+    AdminConfigOverride,
+    /// The user is the actor on a config audit entry (`admin_config_audit.admin_user_id`).
+    AdminConfigAudit,
+    /// The user configured a tenant's provider OAuth app (`tenant_oauth_credentials.configured_by`).
+    TenantOAuthCredentials,
+    /// The user created LLM credentials held by someone else or by the tenant
+    /// (`user_llm_credentials.created_by`).
+    LlmCredentials,
+    /// The user approved another account (`users.approved_by`).
+    ApprovedUser,
+    /// The user is the only owner of a tenant other users belong to
+    /// (`tenant_users.role = 'owner'`); every tenant read joins its owner, so
+    /// the tenant would vanish for those members.
+    OwnsTenant,
+    /// The user authored an agent other users rely on (`agents.user_id`): one
+    /// shared with a tenant or globally, or one another user's conversation, a
+    /// group or another user's assignment is bound to. The agent's rows go
+    /// with its author.
+    AuthoredAgent,
+    /// The user holds a billing subscription the provider may still charge
+    /// (`subscriptions.user_id`, any status but `canceled` or
+    /// `incomplete_expired`); deleting the row cancels nothing there.
+    BillingSubscription,
+}
+
+impl UserReferenceKind {
+    /// The stable identifier the storage query and the admin API both use.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OwnsCoachingGroup => "owns_coaching_group",
+            Self::CoachesCoachingGroup => "coaches_coaching_group",
+            Self::CreatedGroupInvite => "created_group_invite",
+            Self::AdminConfigOverride => "admin_config_override",
+            Self::AdminConfigAudit => "admin_config_audit",
+            Self::TenantOAuthCredentials => "tenant_oauth_credentials",
+            Self::LlmCredentials => "llm_credentials",
+            Self::ApprovedUser => "approved_user",
+            Self::OwnsTenant => "owns_tenant",
+            Self::AuthoredAgent => "authored_agent",
+            Self::BillingSubscription => "billing_subscription",
+        }
+    }
+
+    /// An operator-facing phrase for one reference of this kind; `detail` is
+    /// what the storage query names the referencing row by.
+    #[must_use]
+    pub fn describe(self, detail: &str) -> String {
+        match self {
+            Self::OwnsCoachingGroup => format!("owns coaching group '{detail}'"),
+            Self::CoachesCoachingGroup => format!("coaches coaching group '{detail}'"),
+            Self::CreatedGroupInvite => {
+                format!("created an invite to coaching group '{detail}'")
+            }
+            Self::AdminConfigOverride => format!("created admin config override {detail}"),
+            Self::AdminConfigAudit => format!("is the actor on admin config audit entry {detail}"),
+            Self::TenantOAuthCredentials => {
+                format!("configured tenant OAuth credentials for {detail}")
+            }
+            Self::LlmCredentials => format!("created LLM credentials for {detail}"),
+            Self::ApprovedUser => format!("approved the account {detail}"),
+            Self::OwnsTenant => {
+                format!("is the only owner of tenant '{detail}', which has other members")
+            }
+            Self::AuthoredAgent => format!("authored agent '{detail}', which other users rely on"),
+            Self::BillingSubscription => {
+                format!("holds a billing subscription the provider may still charge: {detail}")
+            }
+        }
+    }
+}
+
+impl FromStr for UserReferenceKind {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "owns_coaching_group" => Ok(Self::OwnsCoachingGroup),
+            "coaches_coaching_group" => Ok(Self::CoachesCoachingGroup),
+            "created_group_invite" => Ok(Self::CreatedGroupInvite),
+            "admin_config_override" => Ok(Self::AdminConfigOverride),
+            "admin_config_audit" => Ok(Self::AdminConfigAudit),
+            "tenant_oauth_credentials" => Ok(Self::TenantOAuthCredentials),
+            "llm_credentials" => Ok(Self::LlmCredentials),
+            "approved_user" => Ok(Self::ApprovedUser),
+            "owns_tenant" => Ok(Self::OwnsTenant),
+            "authored_agent" => Ok(Self::AuthoredAgent),
+            "billing_subscription" => Ok(Self::BillingSubscription),
+            other => Err(AppError::internal(format!(
+                "Unknown user reference kind: {other}"
+            ))),
+        }
+    }
+}
+
+/// One row that still references a user and blocks deleting the account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserReference {
+    /// Which foreign key the row holds.
+    pub kind: UserReferenceKind,
+    /// What the referencing row is named by: a group name, a config key, a
+    /// provider, or the approved account's email.
+    pub detail: String,
+}
+
+impl UserReference {
+    /// The operator-facing sentence fragment naming this reference.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        self.kind.describe(&self.detail)
+    }
+}
+
+/// What a complete user delete removed beyond the account row itself.
+///
+/// The rows its foreign keys cascade to go unrecorded; these are the user's
+/// own rows in every table that holds them without a cascade on one engine or
+/// the other, deleted explicitly in the same transaction as the account.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserDeletion {
+    /// Rows deleted per table, for each table that held any.
+    pub rows_removed: BTreeMap<String, u64>,
+}
+
+impl UserDeletion {
+    /// Rows the delete removed from `table`; zero for a table that held none.
+    #[must_use]
+    pub fn removed_from(&self, table: &str) -> u64 {
+        self.rows_removed.get(table).copied().unwrap_or(0)
+    }
 }

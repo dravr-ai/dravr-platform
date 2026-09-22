@@ -33,7 +33,9 @@ use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{StravaPoolApp, UserOAuthApp, UserOAuthToken};
+use pierre_core::models::{
+    ConnectionStatus, StravaPoolApp, StravaSeatHolder, UserOAuthApp, UserOAuthToken,
+};
 use uuid::Uuid;
 
 use crate::backends::shared::encryption::{decrypt_oauth_token, HasEncryption};
@@ -58,6 +60,28 @@ pub(crate) const UPSERT_TOKEN_SQL: &str = r"
                 provider_user_id = EXCLUDED.provider_user_id,
                 oauth_app_client_id = EXCLUDED.oauth_app_client_id,
                 updated_at = EXCLUDED.updated_at
+            ";
+
+/// Store a token only while the user holds none for its tenant and provider:
+/// [`UPSERT_TOKEN_SQL`]'s columns and binds, with a conflict left untouched.
+pub(crate) const INSERT_TOKEN_IF_ABSENT_SQL: &str = r"
+            INSERT INTO user_oauth_tokens (
+                id, user_id, tenant_id, provider, access_token, refresh_token,
+                token_type, expires_at, scope, created_at, updated_at, provider_user_id,
+                oauth_app_client_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (user_id, tenant_id, provider) DO NOTHING
+            ";
+
+/// Replace a token only while the stored row is still the one whose `id` is
+/// `$13`: every store writes a fresh `id` (a refresh keeps the row's), so a
+/// row another writer stored since no longer matches and nothing changes.
+pub(crate) const REPLACE_TOKEN_IF_CURRENT_SQL: &str = r"
+            UPDATE user_oauth_tokens SET
+                id = $1, access_token = $2, refresh_token = $3, token_type = $4,
+                expires_at = $5, scope = $6, updated_at = $7, provider_user_id = $8,
+                oauth_app_client_id = $9
+            WHERE user_id = $10 AND tenant_id = $11 AND provider = $12 AND id = $13
             ";
 
 /// One read of the token columns. `$filter` is the `WHERE` clause; `$order`
@@ -104,31 +128,137 @@ pub(crate) const FIND_USER_BY_PROVIDER_USER_ID_SQL: &str = r"
             LIMIT 1
             ";
 
-/// Distinct users on the shared app for a provider, across every tenant;
-/// a user with a BYO app for that provider runs on their own quota and is
-/// left out.
-pub(crate) const COUNT_SHARED_APP_SEAT_USAGE_SQL: &str = r"
-            SELECT COUNT(DISTINCT t.user_id)
-            FROM user_oauth_tokens t
-            WHERE t.provider = $1
+/// The conditions under which a token `t`'s grant is still authorized at the
+/// provider, appended to a `WHERE`.
+///
+/// A grant is live until its connection (same user, tenant and provider) is
+/// `revoked`, or is `needs_reauth` for any reason but our own client
+/// credentials. Every writer of `needs_reauth` records why in `last_error`: a
+/// refresh the provider refused as a dead grant (`invalid_grant`, which
+/// Strava's `RefreshToken` rejection is classified as, or `invalid_request`
+/// for a consumed, rotated refresh token), a bare HTTP 401/403
+/// (`unauthorized`, `forbidden`), a session a background sync found expired
+/// (`session_expired`). None of those leaves a grant we can use. A
+/// `needs_reauth` over our own client credentials (`invalid_client`,
+/// `unauthorized_client`) is the one exception: the athlete's grant stays
+/// authorized at the provider, which still counts them; so does a token with
+/// no connection row. `provider_connections.user_id` is TEXT on both backends
+/// while the token's is `uuid` on Postgres, so the token side is cast down to
+/// text.
+macro_rules! live_grant_filter_sql {
+    () => {
+        "
+              AND NOT EXISTS (
+                  SELECT 1 FROM provider_connections c
+                  WHERE c.user_id = CAST(t.user_id AS TEXT)
+                    AND c.tenant_id = t.tenant_id
+                    AND c.provider = t.provider
+                    AND (c.status = 'revoked'
+                         OR (c.status = 'needs_reauth'
+                             AND (c.last_error IS NULL
+                                  OR c.last_error NOT IN ('invalid_client', 'unauthorized_client'))))
+              )"
+    };
+}
+
+/// The conditions under which a token `t` holds a shared-app seat, appended to
+/// the `WHERE` of every seat count so the counts cannot disagree on what a seat
+/// is. A seat is the athlete's grant at the provider, so a token holds one
+/// while that grant is live ([`live_grant_filter_sql`]); a dead one goes back
+/// to the pool. A user with a BYO app for the provider runs on their own
+/// quota and holds none.
+macro_rules! seat_holder_filter_sql {
+    () => {
+        concat!(
+            "
               AND NOT EXISTS (
                   SELECT 1 FROM user_oauth_app_credentials a
-                  WHERE a.user_id = t.user_id AND a.provider = $1
-              )
-            ";
+                  WHERE a.user_id = t.user_id AND a.provider = t.provider
+              )",
+            live_grant_filter_sql!()
+        )
+    };
+}
 
-/// Shared-app seat usage grouped by the Strava app that issued the token;
-/// the NULL group is the env-default app and every pre-pool token.
-pub(crate) const COUNT_STRAVA_SEAT_USAGE_BY_APP_SQL: &str = r"
+/// Strava seat holders grouped by the app that issued the token; the NULL
+/// group is the env-default app and every pre-pool token. A non-NULL `$1`
+/// leaves that user out of every group.
+pub(crate) const COUNT_STRAVA_SEAT_USAGE_BY_APP_SQL: &str = concat!(
+    "
             SELECT t.oauth_app_client_id AS app, COUNT(DISTINCT t.user_id) AS n
             FROM user_oauth_tokens t
             WHERE t.provider = 'strava'
-              AND NOT EXISTS (
-                  SELECT 1 FROM user_oauth_app_credentials a
-                  WHERE a.user_id = t.user_id AND a.provider = 'strava'
-              )
+              AND ($1 IS NULL OR t.user_id <> $1)",
+    seat_holder_filter_sql!(),
+    "
             GROUP BY t.oauth_app_client_id
+            "
+);
+
+/// Every Strava token with its holder, the issuing app, the matching
+/// connection's state and whether it holds a seat. `counts_as_seat` is the
+/// seat filter itself, evaluated per row, so this listing cannot disagree with
+/// the counts above about any one athlete. The users join is an outer one: the
+/// counts include a token whose account row is gone (`SQLite` carries no
+/// foreign key from the token to its user), so the listing names it too, with
+/// no email. Ordered by email, an absent one first, then user and tenant, so
+/// both engines return the same order (their NULL ordering differs, so no
+/// nullable column leads the sort bare).
+pub(crate) const LIST_STRAVA_SEAT_HOLDERS_SQL: &str = concat!(
+    "
+            SELECT t.user_id, u.email, t.tenant_id, t.oauth_app_client_id,
+                   c.status AS connection_status,
+                   c.connected_at AS connection_connected_at,
+                   t.created_at AS token_created_at,
+                   CAST(CASE WHEN 1 = 1",
+    seat_holder_filter_sql!(),
+    "
+                        THEN 1 ELSE 0 END AS BIGINT) AS counts_as_seat
+            FROM user_oauth_tokens t
+            LEFT JOIN users u ON u.id = t.user_id
+            LEFT JOIN provider_connections c
+              ON c.user_id = CAST(t.user_id AS TEXT)
+             AND c.tenant_id = t.tenant_id
+             AND c.provider = t.provider
+            WHERE t.provider = 'strava'
+            ORDER BY COALESCE(u.email, ''), CAST(t.user_id AS TEXT), t.tenant_id
+            "
+);
+
+/// The `(tenant, provider)` of every token a user holds, read without
+/// touching the encrypted token columns — so an undecryptable token still
+/// shows up for the disconnect that would clear it.
+pub(crate) const LIST_TOKEN_PROVIDERS_SQL: &str = r"
+            SELECT tenant_id, provider
+            FROM user_oauth_tokens
+            WHERE user_id = $1
+            ORDER BY tenant_id, provider
             ";
+
+/// The app attribution of each of a user's Strava tokens, the tenant it is
+/// stored in, whether it holds a seat and whether its grant is live, read
+/// without touching the encrypted token columns: tokens holding a seat first,
+/// then the one stored in tenant `$2`, then the most recently written. Strava
+/// counts the athlete per app whatever our tenant, so a token in another
+/// tenant still names the app they hold a seat on.
+pub(crate) const LIST_STRAVA_TOKEN_APPS_SQL: &str = concat!(
+    "
+            SELECT t.tenant_id, t.oauth_app_client_id AS app,
+                   CAST(CASE WHEN 1 = 1",
+    seat_holder_filter_sql!(),
+    "
+                        THEN 1 ELSE 0 END AS BIGINT) AS holds_seat,
+                   CAST(CASE WHEN 1 = 1",
+    live_grant_filter_sql!(),
+    "
+                        THEN 1 ELSE 0 END AS BIGINT) AS grant_live
+            FROM user_oauth_tokens t
+            WHERE t.user_id = $1 AND t.provider = 'strava'
+            ORDER BY holds_seat DESC,
+                     CASE WHEN t.tenant_id = $2 THEN 0 ELSE 1 END,
+                     t.updated_at DESC
+            "
+);
 
 /// Every pool app, in registration order.
 pub(crate) const LIST_STRAVA_POOL_APPS_SQL: &str = r"
@@ -181,14 +311,17 @@ pub(crate) const DELETE_TOKENS_SQL: &str = r"
             ";
 
 /// Replace the credentials after a refresh: the path every expired token
-/// takes, with the new pair encrypted under the same AAD as the old.
+/// takes, with the new pair encrypted under the same AAD as the old. The row
+/// keeps its `id`, and is written only while it is still the one the refresh
+/// read (`$8`): a reconnect that stored a new token meanwhile wrote a fresh
+/// `id`, and the refresh of the grant it replaced must not land over it.
 pub(crate) const REFRESH_TOKEN_SQL: &str = r"
             UPDATE user_oauth_tokens
             SET access_token = $4,
                 refresh_token = $5,
                 expires_at = $6,
                 updated_at = $7
-            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND id = $8
             ";
 
 /// Register or replace a user's own OAuth app for a provider.
@@ -343,6 +476,48 @@ where
     })
 }
 
+/// Decode one [`LIST_STRAVA_SEAT_HOLDERS_SQL`] row. `user_id` is read by the
+/// caller through its backend's codec.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded.
+pub(crate) fn strava_seat_holder_from_row<R>(row: &R, user_id: Uuid) -> AppResult<StravaSeatHolder>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<DateTime<Utc>>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let status: Option<String> = row
+        .try_get("connection_status")
+        .map_err(|e| column_error("connection_status", e))?;
+    let connection_connected_at: Option<DateTime<Utc>> = row
+        .try_get("connection_connected_at")
+        .map_err(|e| column_error("connection_connected_at", e))?;
+    let token_created_at: DateTime<Utc> = row
+        .try_get("token_created_at")
+        .map_err(|e| column_error("token_created_at", e))?;
+    let counts: i64 = row
+        .try_get("counts_as_seat")
+        .map_err(|e| column_error("counts_as_seat", e))?;
+    Ok(StravaSeatHolder {
+        user_id,
+        email: row.try_get("email").map_err(|e| column_error("email", e))?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|e| column_error("tenant_id", e))?,
+        oauth_app_client_id: row
+            .try_get("oauth_app_client_id")
+            .map_err(|e| column_error("oauth_app_client_id", e))?,
+        connection_status: status.as_deref().map(ConnectionStatus::from_str_value),
+        connected_at: connection_connected_at.unwrap_or(token_created_at),
+        counts_as_seat: counts != 0,
+    })
+}
+
 /// Decode one `user_oauth_app_credentials` row. `user_id` is read by the
 /// caller through its backend's codec.
 ///
@@ -399,34 +574,14 @@ macro_rules! impl_oauth_token_repository {
         #[async_trait::async_trait]
         impl OAuthTokenRepository for $ty {
             async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()> {
-                let encrypted_access_token = encrypt_oauth_token(
-                    self,
-                    &token.access_token,
-                    &token.tenant_id,
-                    token.user_id,
-                    &token.provider,
-                )?;
-                let encrypted_refresh_token = token
-                    .refresh_token
-                    .as_deref()
-                    .map(|rt| {
-                        encrypt_oauth_token(
-                            self,
-                            rt,
-                            &token.tenant_id,
-                            token.user_id,
-                            &token.provider,
-                        )
-                    })
-                    .transpose()?;
-
+                let (access, refresh) = self.encrypted_token_columns(token)?;
                 sqlx::query(UPSERT_TOKEN_SQL)
                     .bind(&token.id)
                     .bind($ids::bind(token.user_id))
                     .bind(&token.tenant_id)
                     .bind(&token.provider)
-                    .bind(&encrypted_access_token)
-                    .bind(encrypted_refresh_token.as_deref())
+                    .bind(&access)
+                    .bind(refresh.as_deref())
                     .bind(&token.token_type)
                     .bind(token.expires_at)
                     .bind(token.scope.as_deref().unwrap_or(""))
@@ -441,6 +596,57 @@ macro_rules! impl_oauth_token_repository {
                     })?;
 
                 Ok(())
+            }
+
+            async fn replace_token_if_current(
+                &self,
+                token: &UserOAuthToken,
+                expected_id: Option<&str>,
+            ) -> AppResult<bool> {
+                let (access, refresh) = self.encrypted_token_columns(token)?;
+                let result = match expected_id {
+                    None => {
+                        sqlx::query(INSERT_TOKEN_IF_ABSENT_SQL)
+                            .bind(&token.id)
+                            .bind($ids::bind(token.user_id))
+                            .bind(&token.tenant_id)
+                            .bind(&token.provider)
+                            .bind(&access)
+                            .bind(refresh.as_deref())
+                            .bind(&token.token_type)
+                            .bind(token.expires_at)
+                            .bind(token.scope.as_deref().unwrap_or(""))
+                            .bind(token.created_at)
+                            .bind(token.updated_at)
+                            .bind(token.provider_user_id.as_deref())
+                            .bind(token.oauth_app_client_id.as_deref())
+                            .execute(self.pool())
+                            .await
+                    }
+                    Some(expected) => {
+                        sqlx::query(REPLACE_TOKEN_IF_CURRENT_SQL)
+                            .bind(&token.id)
+                            .bind(&access)
+                            .bind(refresh.as_deref())
+                            .bind(&token.token_type)
+                            .bind(token.expires_at)
+                            .bind(token.scope.as_deref().unwrap_or(""))
+                            .bind(token.updated_at)
+                            .bind(token.provider_user_id.as_deref())
+                            .bind(token.oauth_app_client_id.as_deref())
+                            .bind($ids::bind(token.user_id))
+                            .bind(&token.tenant_id)
+                            .bind(&token.provider)
+                            .bind(expected)
+                            .execute(self.pool())
+                            .await
+                    }
+                }
+                .map_err(|e| {
+                    AppError::database(format!("Failed to store user OAuth token: {e}"))
+                })?;
+
+                Ok(result.rows_affected() > 0)
             }
 
             async fn get_token(
@@ -532,18 +738,6 @@ macro_rules! impl_oauth_token_repository {
                 .transpose()
             }
 
-            async fn count_shared_app_seat_usage(&self, provider: &str) -> AppResult<u32> {
-                let count: i64 = sqlx::query_scalar(COUNT_SHARED_APP_SEAT_USAGE_SQL)
-                    .bind(provider)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to count shared-app OAuth seats: {e}"))
-                    })?;
-
-                Ok(u32::try_from(count).unwrap_or(u32::MAX))
-            }
-
             async fn list_strava_pool_apps(
                 &self,
                 only_enabled: bool,
@@ -588,10 +782,50 @@ macro_rules! impl_oauth_token_repository {
                 .transpose()
             }
 
+            async fn list_strava_token_apps(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+            ) -> AppResult<Vec<StravaTokenApp>> {
+                let rows = sqlx::query(LIST_STRAVA_TOKEN_APPS_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(tenant_id.to_string())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read Strava token attribution: {e}"))
+                    })?;
+
+                rows.iter()
+                    .map(|row| {
+                        let tenant_id: String = row.try_get("tenant_id").map_err(|e| {
+                            AppError::database(format!("Failed to get tenant_id: {e}"))
+                        })?;
+                        let attribution: Option<String> = row
+                            .try_get("app")
+                            .map_err(|e| AppError::database(format!("Failed to get app: {e}")))?;
+                        let holds_seat: i64 = row.try_get("holds_seat").map_err(|e| {
+                            AppError::database(format!("Failed to get holds_seat: {e}"))
+                        })?;
+                        let grant_live: i64 = row.try_get("grant_live").map_err(|e| {
+                            AppError::database(format!("Failed to get grant_live: {e}"))
+                        })?;
+                        Ok(StravaTokenApp {
+                            tenant_id,
+                            attribution,
+                            holds_seat: holds_seat != 0,
+                            grant_live: grant_live != 0,
+                        })
+                    })
+                    .collect()
+            }
+
             async fn count_strava_seat_usage_by_app(
                 &self,
+                excluded_user: Option<Uuid>,
             ) -> AppResult<Vec<(Option<String>, u32)>> {
                 let rows = sqlx::query(COUNT_STRAVA_SEAT_USAGE_BY_APP_SQL)
+                    .bind($ids::bind_opt(excluded_user))
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -607,6 +841,44 @@ macro_rules! impl_oauth_token_repository {
                             .try_get("n")
                             .map_err(|e| AppError::database(format!("Failed to get n: {e}")))?;
                         Ok((app, u32::try_from(n).unwrap_or(u32::MAX)))
+                    })
+                    .collect()
+            }
+
+            async fn list_strava_seat_holders(&self) -> AppResult<Vec<StravaSeatHolder>> {
+                let rows = sqlx::query(LIST_STRAVA_SEAT_HOLDERS_SQL)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list Strava seat holders: {e}"))
+                    })?;
+
+                rows.iter()
+                    .map(|row| strava_seat_holder_from_row(row, $ids::read(row, "user_id")?))
+                    .collect()
+            }
+
+            async fn list_token_providers(
+                &self,
+                user_id: Uuid,
+            ) -> AppResult<Vec<(String, String)>> {
+                let rows = sqlx::query(LIST_TOKEN_PROVIDERS_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list user token providers: {e}"))
+                    })?;
+
+                rows.iter()
+                    .map(|row| {
+                        let tenant_id: String = row.try_get("tenant_id").map_err(|e| {
+                            AppError::database(format!("Failed to get tenant_id: {e}"))
+                        })?;
+                        let provider: String = row.try_get("provider").map_err(|e| {
+                            AppError::database(format!("Failed to get provider: {e}"))
+                        })?;
+                        Ok((tenant_id, provider))
                     })
                     .collect()
             }
@@ -699,35 +971,35 @@ macro_rules! impl_oauth_token_repository {
 
             async fn refresh_token(
                 &self,
-                user_id: Uuid,
-                tenant_id: TenantId,
-                provider: &str,
+                stored: &UserOAuthToken,
                 access_token: &str,
                 refresh_token: Option<&str>,
                 expires_at: Option<DateTime<Utc>>,
-            ) -> AppResult<()> {
-                let tid = tenant_id.to_string();
-                let encrypted_access_token =
-                    encrypt_oauth_token(self, access_token, &tid, user_id, provider)?;
-                let encrypted_refresh_token = refresh_token
-                    .map(|rt| encrypt_oauth_token(self, rt, &tid, user_id, provider))
-                    .transpose()?;
+            ) -> AppResult<bool> {
+                let refreshed = UserOAuthToken {
+                    access_token: access_token.to_owned(),
+                    refresh_token: refresh_token.map(str::to_owned),
+                    ..stored.clone()
+                };
+                let (encrypted_access_token, encrypted_refresh_token) =
+                    self.encrypted_token_columns(&refreshed)?;
 
-                sqlx::query(REFRESH_TOKEN_SQL)
-                    .bind($ids::bind(user_id))
-                    .bind(&tid)
-                    .bind(provider)
+                let result = sqlx::query(REFRESH_TOKEN_SQL)
+                    .bind($ids::bind(stored.user_id))
+                    .bind(&stored.tenant_id)
+                    .bind(&stored.provider)
                     .bind(&encrypted_access_token)
                     .bind(encrypted_refresh_token.as_deref())
                     .bind(expires_at)
                     .bind(Utc::now())
+                    .bind(&stored.id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to refresh user OAuth token: {e}"))
                     })?;
 
-                Ok(())
+                Ok(result.rows_affected() > 0)
             }
 
             async fn store_user_oauth_app(
@@ -845,6 +1117,35 @@ macro_rules! impl_oauth_token_repository {
         }
 
         impl $ty {
+            /// The access and refresh token of `token`, encrypted under its
+            /// row's AAD, as the token columns store them.
+            fn encrypted_token_columns(
+                &self,
+                token: &UserOAuthToken,
+            ) -> AppResult<(String, Option<String>)> {
+                let access = encrypt_oauth_token(
+                    self,
+                    &token.access_token,
+                    &token.tenant_id,
+                    token.user_id,
+                    &token.provider,
+                )?;
+                let refresh = token
+                    .refresh_token
+                    .as_deref()
+                    .map(|rt| {
+                        encrypt_oauth_token(
+                            self,
+                            rt,
+                            &token.tenant_id,
+                            token.user_id,
+                            &token.provider,
+                        )
+                    })
+                    .transpose()?;
+                Ok((access, refresh))
+            }
+
             /// Decode a token row, reading `user_id` through this backend's codec
             /// and decrypting under the row's own AAD.
             fn token_from_row(&self, row: &$row) -> AppResult<UserOAuthToken> {

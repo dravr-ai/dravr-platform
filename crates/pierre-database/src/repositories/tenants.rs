@@ -42,6 +42,14 @@ pub trait TenantRepository: Send + Sync {
     async fn get_by_slug(&self, slug: &str) -> AppResult<Tenant>;
     /// List tenants for a user
     async fn list_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>>;
+    /// Every tenant the user holds a membership row in, whatever the tenant's
+    /// state or ownership, ordered by id.
+    ///
+    /// [`Self::list_for_user`] names only active tenants that have an owner,
+    /// which is what a session may act in. This is how far a user's rows
+    /// reach, which is what an operator acting on the whole user must be
+    /// allowed to touch.
+    async fn list_membership_tenant_ids(&self, user_id: Uuid) -> AppResult<Vec<TenantId>>;
 
     /// The agent this user has selected within this tenant, if any.
     ///
@@ -147,6 +155,10 @@ pub(crate) const LIST_TENANTS_FOR_USER_SQL: &str = r"
             WHERE tu.user_id = $1 AND t.is_active = true
             ORDER BY tu.joined_at ASC
             ";
+
+/// Every tenant a user holds a membership row in, active or not, owned or not.
+pub(crate) const LIST_MEMBERSHIP_TENANT_IDS_SQL: &str =
+    "SELECT tenant_id FROM tenant_users WHERE user_id = $1 ORDER BY tenant_id";
 
 /// Every active tenant, oldest first.
 pub(crate) const GET_ALL_TENANTS_SQL: &str = concat!(
@@ -473,6 +485,24 @@ macro_rules! impl_tenant_repository {
 
                 rows.iter()
                     .map(|row| tenant_from_row(row, $ids::read(row, "owner_user_id")?))
+                    .collect()
+            }
+
+            async fn list_membership_tenant_ids(&self, user_id: Uuid) -> AppResult<Vec<TenantId>> {
+                let rows = sqlx::query(LIST_MEMBERSHIP_TENANT_IDS_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list tenant memberships: {e}"))
+                    })?;
+
+                rows.iter()
+                    .map(|row| {
+                        row.try_get::<TenantId, _>("tenant_id").map_err(|e| {
+                            AppError::database(format!("Failed to get tenant_users.tenant_id: {e}"))
+                        })
+                    })
                     .collect()
             }
 

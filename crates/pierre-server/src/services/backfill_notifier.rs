@@ -39,7 +39,7 @@ use std::str::FromStr;
 use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
-use chrono::{Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_chat_pipeline::{
     CommandPersistence, PipelineHooks, ServedTurn, TurnOrigin, TurnRequest,
 };
@@ -49,7 +49,8 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{
-    is_in_app_channel, Activity, ConversationRecord, ConversationTurnId as CoreTurnId, TenantId,
+    is_in_app_channel, Activity, ConversationRecord, ConversationTurnId as CoreTurnId, ReauthMark,
+    TenantId,
 };
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
@@ -1023,6 +1024,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         tenant_id: TenantId,
         pierre_conversation_id: &str,
         provider: &str,
+        attempt_started_at: DateTime<Utc>,
     ) {
         // Light the needs_reauth flag (web/mobile badge + the synchronous
         // get_activities reconnect gate). Deliberately NO dedup claim: the
@@ -1031,13 +1033,33 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // A user whose first nudge carried a broken/never-clicked link must not
         // be permanently silenced — so this nudge fires each time, matching the
         // synchronous in-chat reconnect path (which also re-injects every turn).
-        if let Err(e) = self
+        // A reconnect that landed after the backfill began is left active, and
+        // is sent nothing: its session is the new one, and "your session
+        // expired" over it would contradict the connection the app shows. An
+        // already-flagged connection is re-nudged, as above.
+        match self
             .repos
             .provider_connections
-            .mark_needs_reauth(user_id, tenant_id, provider, Some("session_expired"))
+            .mark_needs_reauth(
+                user_id,
+                tenant_id,
+                provider,
+                Some("session_expired"),
+                attempt_started_at,
+            )
             .await
         {
-            warn!(error = %e, provider = %provider, "Reauth nudge: mark_needs_reauth failed");
+            Ok(ReauthMark::ReconnectedSince) => {
+                info!(
+                    provider = %provider,
+                    "Reauth nudge: reconnected since the backfill began; nothing to send"
+                );
+                return;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!(error = %e, provider = %provider, "Reauth nudge: mark_needs_reauth failed");
+            }
         }
 
         // Resolve the originating channel — cross-channel, DM-correct (the same

@@ -26,11 +26,12 @@ use pierre_database::RepositoryRegistry;
 use pierre_services::admin_ops;
 use pierre_services::analytics::cache_user_email;
 use pierre_services::pre_approval::{self, AllowOutcome};
+use pierre_services::user_removal::held_providers;
 
 use super::api_keys::json_response;
 use super::types::{
-    AdminResponse, AllowEmailRequest, ApproveUserRequest, DeleteUserRequest, ListUsersQuery,
-    SuspendUserRequest, UserActivityQuery,
+    AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
+    UserActivityQuery,
 };
 use crate::context::AdminApiContext;
 
@@ -180,9 +181,16 @@ pub(crate) async fn handle_list_users(
 /// `/admin/users/{user_id}` carried only `delete` until now, so an operator
 /// could remove a user but never read one — `pierre-cli user get <email>` hit a
 /// 405 on a path that plainly looked like a fetch. Returns more than the
-/// listing's summary does (status, admin flag) because the reason to
-/// ask about ONE user is usually a field the list does not show.
-pub(crate) async fn handle_get_user(
+/// listing's summary does (status, admin flag, the providers the user holds in
+/// each tenant) because the reason to ask about ONE user is usually a field the
+/// list does not show.
+///
+/// # Errors
+///
+/// Returns an invalid-input error for a malformed id, a not-found error for an
+/// unknown user, and a database error when the user or their providers cannot
+/// be read.
+pub async fn handle_get_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Path(user_id): Path<String>,
@@ -221,6 +229,10 @@ pub(crate) async fn handle_get_user(
             AppError::not_found("User not found")
         })?;
 
+    // The providers the user holds, across tenants: what a delete would
+    // disconnect, and what `pierre-cli user delete` previews without --yes.
+    let connected_providers = held_providers(&context.repos, user_uuid).await?;
+
     info!(service = %admin_token.service_name, "Read user {user_id}");
 
     Ok(json_response(
@@ -236,6 +248,7 @@ pub(crate) async fn handle_get_user(
                 "is_admin": user.is_admin,
                 "created_at": user.created_at.to_rfc3339(),
                 "last_active": user.last_active.to_rfc3339(),
+                "connected_providers": connected_providers,
             })),
         },
         StatusCode::OK,
@@ -475,85 +488,6 @@ pub(crate) async fn handle_suspend_user(
                     "id": updated_user.id.to_string(),
                     "email": updated_user.email,
                     "user_status": user_status_str(updated_user.user_status),
-                },
-                "reason": reason
-            }))
-            .ok(),
-        },
-        StatusCode::OK,
-    ))
-}
-
-/// Handle user deletion workflow
-///
-/// Permanently deletes a user and all associated data (cascades via foreign keys).
-/// This action cannot be undone.
-pub(crate) async fn handle_delete_user(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Path(user_id): Path<String>,
-    Json(request): Json<DeleteUserRequest>,
-) -> AppResult<impl IntoResponse> {
-    if !admin_token
-        .permissions
-        .has_permission(&AdminPerm::ManageUsers)
-    {
-        return Ok(json_response(
-            AdminResponse {
-                success: false,
-                message: "Permission denied: ManageUsers required".to_owned(),
-                data: None,
-            },
-            StatusCode::FORBIDDEN,
-        ));
-    }
-
-    info!(
-        "Deleting user {} by service: {}",
-        user_id, admin_token.service_name
-    );
-
-    let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        error!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
-
-    let user = ctx
-        .repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", user_id);
-            AppError::not_found("User not found")
-        })?;
-
-    let user_email = user.email.clone();
-
-    ctx.repos.users.delete(user_uuid).await.map_err(|e| {
-        error!(error = %e, "Failed to delete user from database");
-        AppError::internal(format!("Failed to delete user: {e}"))
-    })?;
-
-    let reason = request.reason.as_deref().unwrap_or("No reason provided");
-    info!(
-        "User {} ({}) deleted successfully. Reason: {}",
-        user_id, user_email, reason
-    );
-
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: "User deleted successfully".to_owned(),
-            data: to_value(json!({
-                "deleted_user": {
-                    "id": user_id,
-                    "email": user_email,
                 },
                 "reason": reason
             }))
@@ -903,7 +837,7 @@ async fn operator_user_id(repos: &RepositoryRegistry, token: &ValidatedAdminToke
 }
 
 /// Deny a request whose token lacks `ManageUsers`.
-fn deny_without_manage_users(token: &ValidatedAdminToken) -> Option<impl IntoResponse> {
+pub(crate) fn deny_without_manage_users(token: &ValidatedAdminToken) -> Option<impl IntoResponse> {
     (!token.permissions.has_permission(&AdminPerm::ManageUsers)).then(|| {
         json_response(
             AdminResponse {

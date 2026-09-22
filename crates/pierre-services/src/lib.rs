@@ -217,6 +217,9 @@ mod oauth_exchange_lookups;
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 
+/// What a Strava reconnect owes the grants it replaces: a guarded store, then revocation
+pub mod strava_reconnect;
+
 /// Post-OAuth redirect URL validation and construction (allowlist, state decoding)
 pub mod oauth_redirects;
 
@@ -307,6 +310,9 @@ pub mod user_status_gate;
 
 /// User-approval notification seam (email + linked-channel messages).
 pub mod user_approval;
+
+/// Operator removal of a user and of one provider grant, through the disconnect chokepoint.
+pub mod user_removal;
 
 /// Standing per-email pre-approval allow-list.
 pub mod pre_approval;

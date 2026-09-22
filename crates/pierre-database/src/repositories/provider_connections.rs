@@ -23,7 +23,7 @@ use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{ConnectionStatus, ConnectionType, ProviderConnection};
+use pierre_core::models::{ConnectionStatus, ConnectionType, ProviderConnection, ReauthMark};
 
 use crate::column_decode::uuid_column;
 
@@ -95,8 +95,12 @@ pub(crate) const RESOLVE_MOST_RECENT_SQL: &str = connection_select_sql!(
     " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
 );
 
-/// Flag a connection after a non-recoverable refresh failure. Guarded so the
-/// transition timestamp reflects the first failure, not every retry.
+/// Flag a connection after a failure an attempt that began at `$6` observed.
+/// Guarded so the transition timestamp reflects the first failure, not every
+/// retry, and so a connection (re)connected or re-armed since `$6` stands: a
+/// reconnect stamps `connected_at` and a re-arm `status_changed_at`, and the
+/// failure is a verdict on the credential the attempt read, not on theirs. A
+/// row that never changed status has no `status_changed_at`.
 pub(crate) const MARK_NEEDS_REAUTH_SQL: &str = r"
             UPDATE provider_connections
                SET status = 'needs_reauth',
@@ -104,6 +108,55 @@ pub(crate) const MARK_NEEDS_REAUTH_SQL: &str = r"
                    last_error = $2
              WHERE user_id = $3 AND tenant_id = $4 AND provider = $5
                AND status != 'needs_reauth'
+               AND connected_at <= $6
+               AND (status_changed_at IS NULL OR status_changed_at <= $6)
+            ";
+
+/// The status of one connection, read after [`MARK_NEEDS_REAUTH_SQL`] changed
+/// nothing to say why: no row, already flagged, or reconnected since.
+pub(crate) const CONNECTION_STATUS_SQL: &str =
+    "SELECT status FROM provider_connections WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
+
+/// What [`MARK_NEEDS_REAUTH_SQL`] left the connection as: `flipped` when it
+/// changed a row, else read from the status it has now. Unflipped, a status
+/// that does not require re-authorizing can only be a connection the time
+/// guard protected, since every other one would have flipped.
+pub(crate) fn reauth_mark(flipped: bool, status_now: Option<&str>) -> ReauthMark {
+    if flipped {
+        return ReauthMark::Flagged;
+    }
+    match status_now.map(ConnectionStatus::from_str_value) {
+        None => ReauthMark::NoConnection,
+        Some(status) if status.requires_reauth() => ReauthMark::AlreadyFlagged,
+        Some(_) => ReauthMark::ReconnectedSince,
+    }
+}
+
+/// [`MARK_NEEDS_REAUTH_SQL`]'s flip, only while the connection's stored token
+/// is still the row the refused refresh read: the same `id` (`$6`) and the same
+/// `updated_at` (`$7`). A reconnect stores its token under a fresh `id`, and a
+/// refresh that landed meanwhile rewrote the pair and `updated_at` under the
+/// same `id`, so a refusal of a grant a reconnect replaced, or of a refresh
+/// token another refresh already spent, changes nothing. `$7` is the value the
+/// read decoded, bound back unchanged: `TIMESTAMPTZ` equality on Postgres, and
+/// on `SQLite` the RFC 3339 text every writer binds, which a decode and an
+/// encode return verbatim. The token's `user_id` is `uuid` on Postgres and
+/// `TEXT` on `SQLite`, so it is cast down to the connection's `TEXT`; its `id`,
+/// `tenant_id` and `provider` are text on both (`VARCHAR` on Postgres).
+pub(crate) const MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL: &str = r"
+            UPDATE provider_connections
+               SET status = 'needs_reauth',
+                   status_changed_at = $1,
+                   last_error = $2
+             WHERE user_id = $3 AND tenant_id = $4 AND provider = $5
+               AND status != 'needs_reauth'
+               AND EXISTS (
+                   SELECT 1 FROM user_oauth_tokens t
+                   WHERE t.id = $6
+                     AND t.updated_at = $7
+                     AND CAST(t.user_id AS TEXT) = provider_connections.user_id
+                     AND t.tenant_id = provider_connections.tenant_id
+                     AND t.provider = provider_connections.provider)
             ";
 
 /// Re-arm a connection after a successful (re)connect or refresh. Guarded so
@@ -314,17 +367,49 @@ macro_rules! impl_provider_connection_repository {
                 tenant_id: TenantId,
                 provider: &str,
                 error_code: Option<&str>,
-            ) -> AppResult<()> {
-                sqlx::query(MARK_NEEDS_REAUTH_SQL)
+                attempt_started_at: DateTime<Utc>,
+            ) -> AppResult<ReauthMark> {
+                let flipped = sqlx::query(MARK_NEEDS_REAUTH_SQL)
                     .bind(Utc::now())
                     .bind(error_code)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
+                    .bind(attempt_started_at)
+                    .execute(self.pool())
+                    .await?
+                    .rows_affected()
+                    > 0;
+                if flipped {
+                    return Ok(reauth_mark(true, None));
+                }
+                let status_now: Option<String> = sqlx::query_scalar(CONNECTION_STATUS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .fetch_optional(self.pool())
+                    .await?;
+
+                Ok(reauth_mark(false, status_now.as_deref()))
+            }
+
+            async fn mark_needs_reauth_if_token_current(
+                &self,
+                token: &UserOAuthToken,
+                error_code: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL)
+                    .bind(Utc::now())
+                    .bind(error_code)
+                    .bind(token.user_id.to_string())
+                    .bind(&token.tenant_id)
+                    .bind(&token.provider)
+                    .bind(&token.id)
+                    .bind(token.updated_at)
                     .execute(self.pool())
                     .await?;
 
-                Ok(())
+                Ok(result.rows_affected() > 0)
             }
 
             async fn mark_active(

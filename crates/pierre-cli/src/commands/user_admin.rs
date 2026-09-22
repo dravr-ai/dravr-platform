@@ -1,4 +1,4 @@
-// ABOUTME: `user get` / `user set` — the operator's view of users and tiers over the admin API
+// ABOUTME: `user get` / `set` / `disconnect` / `delete` — the operator's view of users over the admin API
 // ABOUTME: HTTP rather than a direct DB handle, so one binary serves local and deployed alike
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,10 +16,13 @@
 //! `get` with no selector lists; `get <email|id>` reads one; `set` writes. The
 //! listing pages with an opaque cursor and prints each page as it arrives, so
 //! `--all` streams rather than accumulating — the table only grows.
+//! `disconnect` and `delete` hand the server's disconnect chokepoint the work,
+//! so every grant they drop is revoked at the provider too.
 
 use std::fmt::Write as _;
 use std::io::{self, Write as _};
 
+use clap::Args;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::{json, Value};
 
@@ -189,13 +192,18 @@ pub async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> AppResult<
     Ok(())
 }
 
+/// Every status the admin listing filters by, in the order a lookup walks them.
+const USER_STATUSES: [&str; 3] = ["active", "pending", "suspended"];
+
 /// Resolve an email or id to a user id.
 ///
 /// The admin routes are keyed by id, but an operator reaches for the email —
 /// it is what they see in Telegram, in a support thread, and in this command's
 /// own listing. A value that parses as a UUID is taken as an id; anything else
 /// is looked up by paging the listing, so `user set jf@dravr.ai --tier ...`
-/// works without a round trip through the UI to copy an id.
+/// works without a round trip through the UI to copy an id. Every status is
+/// searched, because the listing defaults to active and the account an
+/// operator is about to delete is often suspended.
 ///
 /// # Errors
 ///
@@ -206,9 +214,23 @@ pub async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult
         return Ok(selector.to_owned());
     }
     let wanted = selector.to_ascii_lowercase();
+    for status in USER_STATUSES {
+        if let Some(id) = find_user_in_status(client, &wanted, status).await? {
+            return Ok(id);
+        }
+    }
+    Err(AppError::not_found(format!("User with email {selector}")))
+}
+
+/// Page one status of the listing for a lowercase email.
+async fn find_user_in_status(
+    client: &RemoteClient,
+    wanted: &str,
+    status: &str,
+) -> AppResult<Option<String>> {
     let mut cursor: Option<String> = None;
     loop {
-        let mut path = String::from("/admin/users?limit=100&");
+        let mut path = format!("/admin/users?status={status}&limit=100&");
         if let Some(c) = cursor.as_deref() {
             let _ = write!(path, "cursor={c}&");
         }
@@ -217,7 +239,7 @@ pub async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult
         if let Some(users) = data.get("users").and_then(Value::as_array) {
             for u in users {
                 if field(u, "email").to_ascii_lowercase() == wanted {
-                    return Ok(field(u, "id"));
+                    return Ok(Some(field(u, "id")));
                 }
             }
         }
@@ -230,10 +252,179 @@ pub async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
         if !has_more || cursor.is_none() {
-            break;
+            return Ok(None);
         }
     }
-    Err(AppError::not_found(format!("User with email {selector}")))
+}
+
+/// `user disconnect` — disconnect one provider for a user.
+#[derive(Debug, Args)]
+pub struct DisconnectArgs {
+    /// Email (or user id) of the account
+    #[arg(long)]
+    pub email: String,
+
+    /// Provider to disconnect, e.g. strava
+    #[arg(long)]
+    pub provider: String,
+
+    /// Server base URL (defaults to the cached login)
+    #[arg(long)]
+    pub server: Option<String>,
+
+    /// Admin token (defaults to the cached login)
+    #[arg(long)]
+    pub token: Option<String>,
+}
+
+/// `user delete` — remove a user completely.
+#[derive(Debug, Args)]
+pub struct DeleteArgs {
+    /// Email (or user id) of the account
+    #[arg(long)]
+    pub email: String,
+
+    /// Reason recorded with the deletion
+    #[arg(long)]
+    pub reason: Option<String>,
+
+    /// Delete for real. Without it, print what would be removed and exit
+    /// non-zero, deleting nothing.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Server base URL (defaults to the cached login)
+    #[arg(long)]
+    pub server: Option<String>,
+
+    /// Admin token (defaults to the cached login)
+    #[arg(long)]
+    pub token: Option<String>,
+}
+
+/// One `{tenant_id, provider}` entry as a readable line.
+fn provider_line(entry: &Value) -> String {
+    format!(
+        "{} (tenant {})",
+        field(entry, "provider"),
+        field(entry, "tenant_id")
+    )
+}
+
+/// One disconnected `{tenant_id, provider, revocation}` entry as a readable
+/// line. Only a `revoked` status is reported as revoked: anything else,
+/// including a status this build does not know, says the grant may still be
+/// authorized at the provider.
+fn disconnected_line(entry: &Value) -> String {
+    let held = provider_line(entry);
+    let revocation = entry.get("revocation").unwrap_or(&Value::Null);
+    match revocation.get("status").and_then(Value::as_str) {
+        Some("revoked") => format!("{held} revoked at the provider"),
+        Some("no_grant") => format!("{held} disconnected; it held no grant at the provider"),
+        _ => {
+            let reason = revocation
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("no confirmation recorded");
+            format!(
+                "{held} disconnected here, but the provider did not confirm the revocation ({reason}); the grant may still be authorized there"
+            )
+        }
+    }
+}
+
+/// The `{tenant_id, provider}` entries under `data.<key>`.
+fn provider_entries(body: &Value, key: &str) -> Vec<Value> {
+    body.get("data")
+        .and_then(|d| d.get(key))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Disconnect one provider for a user over the admin API.
+///
+/// The server runs the user's own disconnect on their behalf, so the grant is
+/// revoked at the provider and the seat is freed on both sides; each tenant's
+/// line says whether the provider confirmed the revocation.
+///
+/// # Errors
+///
+/// Returns the client's error when the call fails, including the server's 404
+/// for a provider the user holds no connection to.
+pub async fn disconnect_provider(
+    client: &RemoteClient,
+    user_id: &str,
+    provider: &str,
+) -> AppResult<()> {
+    let encoded = urlencoding::encode(provider);
+    let body: Value = client
+        .delete_json(&format!("/admin/users/{user_id}/providers/{encoded}"))
+        .await?;
+    println!("{}", message_or_json(&body));
+    for entry in provider_entries(&body, "disconnected") {
+        println!("  - {}", disconnected_line(&entry));
+    }
+    Ok(())
+}
+
+/// Remove a user completely over the admin API.
+///
+/// Without `confirmed`, reads the user and prints what a delete would remove —
+/// the account and each connected provider, revoked at the provider — then
+/// fails, so a script that forgot `--yes` exits non-zero having deleted
+/// nothing.
+///
+/// # Errors
+///
+/// Returns [`AppError::invalid_input`] when not confirmed, and the client's
+/// error when a call fails — including the server's 409 naming the groups or
+/// operator records that must be reassigned first.
+pub async fn delete_user(
+    client: &RemoteClient,
+    user_id: &str,
+    reason: Option<&str>,
+    confirmed: bool,
+) -> AppResult<()> {
+    if !confirmed {
+        let body: Value = client.get_json(&format!("/admin/users/{user_id}")).await?;
+        let user = body.get("data").unwrap_or(&Value::Null);
+        println!(
+            "Would delete {} ({}) and everything the account owns.",
+            field(user, "email"),
+            field(user, "id")
+        );
+        let providers = provider_entries(&body, "connected_providers");
+        if providers.is_empty() {
+            println!("  No connected providers.");
+        }
+        for entry in &providers {
+            println!(
+                "  - {} would be disconnected and revoked at the provider",
+                provider_line(entry)
+            );
+        }
+        println!("Re-run with --yes to delete.");
+        return Err(AppError::invalid_input(
+            "user delete not confirmed: nothing was deleted (re-run with --yes)",
+        ));
+    }
+
+    let payload = json!({ "reason": reason });
+    let body: Value = client
+        .delete_json_with_body(&format!("/admin/users/{user_id}"), &payload)
+        .await?;
+    println!("{}", message_or_json(&body));
+    for entry in provider_entries(&body, "disconnected") {
+        println!("  - {}", disconnected_line(&entry));
+    }
+    for entry in provider_entries(&body, "not_revocable") {
+        println!(
+            "  - {} removed locally; this server cannot revoke it upstream",
+            provider_line(&entry)
+        );
+    }
+    Ok(())
 }
 
 /// Read one user by id.

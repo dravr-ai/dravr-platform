@@ -6,23 +6,30 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CoachingPersona, TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{
+    CoachingPersona, TenantId, User, UserDeletion, UserReference, UserStatus, UserTier,
+};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
 use serde_json::Value;
 use sqlx::error::DatabaseError;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use super::user_preferences as preferences;
 use crate::backends::shared::enums::user_status_to_str;
+use crate::backends::shared::transactions::TransactionGuard;
 use crate::database::Database;
 use crate::repositories::user_profiles::{
     apply_progress_fields, impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL,
     GET_USER_GOALS_SQL, GET_USER_GOAL_SQL, GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL,
     UPDATE_USER_GOAL_SQL, UPSERT_USER_PROFILE_SQL,
+};
+use crate::repositories::user_references::{
+    delete_user_completely, delete_user_error, user_reference_from_row, DELETION_BLOCKERS_SQL,
+    SQLITE_USER_PURGE,
 };
 use crate::repositories::users::{
     impl_user_repository, user_from_row, user_status_filter, users_by_ids_sql,
@@ -71,5 +78,11 @@ fn duplicate_user_error(error: &sqlx::Error) -> Option<AppError> {
     })
 }
 
-impl_user_repository!(Database, SqliteRow, TextUuid, duplicate_user_error);
+impl_user_repository!(
+    Database,
+    SqliteRow,
+    TextUuid,
+    duplicate_user_error,
+    SQLITE_USER_PURGE
+);
 impl_profile_repository!(Database, TextUuid);

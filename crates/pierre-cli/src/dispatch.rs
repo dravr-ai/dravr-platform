@@ -89,6 +89,16 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
             let format = commands::user_admin::OutputFormat::parse(&format)?;
             commands::user_admin::list_allowed(&client, format).await
         }
+        UserCommand::Disconnect(args) => {
+            let client = commands::auth::admin_client(args.server, args.token)?;
+            let id = commands::user_admin::resolve_user_id(&client, &args.email).await?;
+            commands::user_admin::disconnect_provider(&client, &id, &args.provider).await
+        }
+        UserCommand::Delete(args) => {
+            let client = commands::auth::admin_client(args.server, args.token)?;
+            let id = commands::user_admin::resolve_user_id(&client, &args.email).await?;
+            commands::user_admin::delete_user(&client, &id, args.reason.as_deref(), args.yes).await
+        }
         _ => Err(AppError::internal(
             "dispatch_remote_user received a database-backed user command",
         )),
@@ -124,6 +134,7 @@ pub async fn dispatch_strava_pool(action: StravaPoolCommand) -> Result<()> {
             label,
         } => commands::strava_pool::add(client_id, client_secret, seat_cap, label).await,
         StravaPoolCommand::List => commands::strava_pool::list().await,
+        StravaPoolCommand::Seats => commands::strava_pool::seats().await,
         StravaPoolCommand::Enable { client_id } => {
             commands::strava_pool::set_enabled(client_id, true).await
         }

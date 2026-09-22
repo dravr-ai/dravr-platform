@@ -901,9 +901,6 @@ pub(crate) fn build_activities_success_response(
         chrono::Utc::now(),
     );
 
-    // Calculate token estimate for context management
-    let token_estimate = TokenEstimate::from_activities(activities.len(), mode_used);
-
     // Calculate retrieval context for LLM data sufficiency guidance
     let retrieval_context = ActivityRetrievalContext::from_activities_with_dedup(
         activities,
@@ -931,10 +928,12 @@ pub(crate) fn build_activities_success_response(
         offset: pagination.map(|p| p.offset),
         limit: pagination.map(|p| p.limit),
         has_more: pagination.map(|p| p.has_more),
-        token_estimate: token_estimate.clone(),
+        // Calculate token estimate for context management
+        token_estimate: TokenEstimate::from_activities(activities_len, mode_used),
         retrieval_context: retrieval_context.clone(),
         coverage: None,
         reconnect_required: None,
+        provider_unavailable: None,
     };
 
     let (mut payload, format_used) = match output_format {

@@ -45,6 +45,9 @@ pub mod strava_pool;
 /// Admin endpoints for issuing and revoking admin / service API tokens.
 pub mod tokens;
 pub mod types;
+/// Admin endpoints that remove a user completely, or disconnect one provider
+/// for them, through the provider-disconnect chokepoint.
+pub mod user_removal;
 /// Admin endpoints for listing tenant users and managing their access.
 ///
 /// Includes the standing pre-approval allow-list

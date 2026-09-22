@@ -156,7 +156,7 @@ pub async fn mint_oauth_authorize_url(
 
     let state = build_oauth_state(user_id, redirect_url);
 
-    let url = resources
+    let authorization = resources
         .tenant_oauth_client()
         .get_authorization_url(
             &tenant_context,
@@ -179,7 +179,8 @@ pub async fn mint_oauth_authorize_url(
         redirect_uri: oauth_callback_uri,
         scope: None,
         pkce_code_verifier: None,
-        oauth_app_client_id: None,
+        // The shared-pool app the URL names, so the exchange uses its client.
+        oauth_app_client_id: authorization.oauth_app_client_id,
         created_at: now,
         expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
         used: false,
@@ -190,7 +191,7 @@ pub async fn mint_oauth_authorize_url(
         .store_oauth_client_state(&client_state)
         .await?;
 
-    Ok((url, state))
+    Ok((authorization.url, state))
 }
 
 /// Annotations for tools that interact with external OAuth services
@@ -772,7 +773,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
                 .await
             {
                 // Report the user-facing name — the mirror backend is internal.
-                Ok(()) => ok_typed(
+                Ok(_) => ok_typed(
                     "disconnect_provider",
                     DisconnectProviderResult {
                         provider: provider.to_owned(),

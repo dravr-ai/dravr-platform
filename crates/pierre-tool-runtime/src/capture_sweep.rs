@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::TenantId;
+use pierre_core::models::{ReauthMark, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use serde::Serialize;
 use tokio::time::timeout;
@@ -118,15 +118,16 @@ pub enum RefreshOutcome {
         activities: usize,
     },
     /// The provider rejected the stored credential or session, so the connection
-    /// was flipped to `needs_reauth` and the athlete's next turn will offer a
-    /// reconnect.
+    /// is `needs_reauth` (flipped by this attempt, or already by another path)
+    /// and the athlete's next turn will offer a reconnect.
     Flagged {
         /// Reason recorded on the connection.
         reason: String,
     },
     /// The attempt failed in a way that is not the athlete's session dying — a
-    /// timeout, a 5xx, an unsupported provider, a malformed stored id. Recorded,
-    /// never flagged: a flake is not a disconnect.
+    /// timeout, a 5xx, an unsupported provider, a malformed stored id, or a
+    /// session a reconnect replaced while the fetch ran. Recorded, never
+    /// flagged: a flake is not a disconnect.
     Failed {
         /// Error text, for the operator reading the report.
         error: String,
@@ -161,7 +162,7 @@ pub struct RefreshReport {
     pub attempted: usize,
     /// Attempts whose provider answered.
     pub refreshed: usize,
-    /// Attempts that flipped a connection to `needs_reauth`.
+    /// Attempts that left their connection `needs_reauth`.
     pub flagged: usize,
     /// Attempts that failed transiently.
     pub failed: usize,
@@ -285,6 +286,9 @@ async fn refresh_one(
         };
     };
 
+    // Taken before the fetch reads the credential, so a reconnect that lands
+    // while the fetch is in flight is newer than the failure it reports.
+    let attempt_started_at = Utc::now();
     let fetch = fetch_provider_head(runtime, provider, parsed_user, tenant_id, params);
     let Ok(result) = timeout(per_connection, fetch).await else {
         // A bound the sweep imposed, not a verdict on the connection — a slow
@@ -305,7 +309,14 @@ async fn refresh_one(
             activities: activities.len(),
         },
         Err(e) if e.provider_auth_required_provider().is_some() => {
-            flag_connection(runtime, tenant_id, parsed_user, provider).await
+            flag_connection(
+                runtime,
+                tenant_id,
+                parsed_user,
+                provider,
+                attempt_started_at,
+            )
+            .await
         }
         Err(e) => {
             warn!(
@@ -321,6 +332,39 @@ async fn refresh_one(
     }
 }
 
+/// What the sweep reports for an auth-shaped failure, given what flagging its
+/// connection found. Only a connection that now needs re-authorizing is a flag.
+fn flag_outcome(user_id: Uuid, provider: &str, mark: ReauthMark) -> RefreshOutcome {
+    match mark {
+        ReauthMark::Flagged | ReauthMark::AlreadyFlagged => {
+            info!(
+                user_id = %user_id,
+                provider = %provider,
+                reason = FLAG_REASON,
+                already_flagged = mark == ReauthMark::AlreadyFlagged,
+                "Capture sweep: connection needs re-authorizing"
+            );
+            RefreshOutcome::Flagged {
+                reason: FLAG_REASON.to_owned(),
+            }
+        }
+        ReauthMark::ReconnectedSince => {
+            info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Capture sweep: connection reconnected while its fetch ran; left active"
+            );
+            RefreshOutcome::Failed {
+                error: "the fetch failed on a credential a reconnect replaced while it ran"
+                    .to_owned(),
+            }
+        }
+        ReauthMark::NoConnection => RefreshOutcome::Failed {
+            error: "the connection was removed while its fetch ran".to_owned(),
+        },
+    }
+}
+
 /// Flip a connection to `needs_reauth` so the athlete's next turn offers a
 /// reconnect instead of silence.
 ///
@@ -330,11 +374,17 @@ async fn refresh_one(
 /// design buys. Flipping the status also drops the connection out of the
 /// staleness snapshot, so the reader stops counting a failure that now has a
 /// known reason and a stated remedy.
+///
+/// A connection the athlete reconnected after `attempt_started_at` is left
+/// active: the failure was the credential the fetch read, not the new one. It
+/// is reported as a failed attempt rather than a flag, as is a connection
+/// removed while the fetch ran, since neither was flipped.
 async fn flag_connection(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: &str,
     user_id: Uuid,
     provider: &str,
+    attempt_started_at: DateTime<Utc>,
 ) -> RefreshOutcome {
     let Ok(tenant) = TenantId::parse_str(tenant_id) else {
         warn!(
@@ -350,20 +400,16 @@ async fn flag_connection(
     match runtime
         .repos()
         .provider_connections
-        .mark_needs_reauth(user_id, tenant, provider, Some(FLAG_REASON))
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            provider,
+            Some(FLAG_REASON),
+            attempt_started_at,
+        )
         .await
     {
-        Ok(()) => {
-            info!(
-                user_id = %user_id,
-                provider = %provider,
-                reason = FLAG_REASON,
-                "Capture sweep: connection flipped to needs_reauth"
-            );
-            RefreshOutcome::Flagged {
-                reason: FLAG_REASON.to_owned(),
-            }
-        }
+        Ok(mark) => flag_outcome(user_id, provider, mark),
         Err(e) => {
             warn!(
                 user_id = %user_id,

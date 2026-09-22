@@ -106,4 +106,10 @@ pub struct ActivitiesPayload {
     /// which is the blanking this path exists to avoid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reconnect_required: Option<Value>,
+    /// Present when a connection could not answer just now while its grant
+    /// stands (a rate-limited or failing token refresh) and its siblings
+    /// answered in its place. Nothing for the athlete to reconnect: it tells
+    /// the agent the window is missing that provider's sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_unavailable: Option<Value>,
 }

@@ -20,6 +20,7 @@
 
 use std::time::Duration;
 
+use chrono::Utc;
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
 use tokio::time::sleep;
 
@@ -186,7 +187,13 @@ async fn resolve_most_recent_refuses_to_elect_a_connection_needing_reauth() {
     // Its refresh dies non-recoverably.
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_grant"))
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "whoop",
+            Some("invalid_grant"),
+            Utc::now(),
+        )
         .await
         .unwrap();
 
@@ -232,12 +239,24 @@ async fn resolve_most_recent_still_returns_a_flagged_connection_when_all_are_dea
         .unwrap();
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "strava", Some("invalid_grant"))
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "strava",
+            Some("invalid_grant"),
+            Utc::now(),
+        )
         .await
         .unwrap();
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "whoop", Some("invalid_grant"))
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "whoop",
+            Some("invalid_grant"),
+            Utc::now(),
+        )
         .await
         .unwrap();
 

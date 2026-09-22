@@ -29,7 +29,8 @@ use crate::backends::shared::enums::str_to_user_status;
 use pierre_core::models::default_locale;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    CoachingPersona, PreApprovedEmail, SessionRefreshToken, User, UserStatus, UserTier,
+    CoachingPersona, PreApprovedEmail, SessionRefreshToken, User, UserDeletion, UserReference,
+    UserStatus, UserTier,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use serde_json::Value;
@@ -102,8 +103,23 @@ pub trait UserRepository: Send + Sync {
     async fn update_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()>;
     /// Update user's display name
     async fn update_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User>;
-    /// Delete a user and all associated data
-    async fn delete(&self, user_id: Uuid) -> AppResult<()>;
+    /// Delete a user and all associated data, in one transaction.
+    ///
+    /// The user's rows in every table no foreign key cascades to on the
+    /// engine (its `UserPurge`, group memberships among them:
+    /// `SQLITE_USER_PURGE`, or `POSTGRES_USER_PURGE`, which adds the tables
+    /// only `PostgreSQL` carries)
+    /// are deleted explicitly, then the account row, whose foreign keys take
+    /// the rest; the listed tables are read again and the delete refuses to
+    /// commit while any row survives. A row that still references the user
+    /// without cascading (see [`Self::deletion_blockers`]) fails the delete
+    /// with `ErrorCode::ResourceLocked`, not a database error, and rolls every
+    /// statement back.
+    async fn delete(&self, user_id: Uuid) -> AppResult<UserDeletion>;
+    /// The rows that reference this user without cascading, each of which would
+    /// fail a [`Self::delete`]: groups they own or coach, invites they created,
+    /// and operator or audit attribution. Empty when the account can go.
+    async fn deletion_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>>;
     /// Get the first admin user by creation date
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
     /// Update user's analytics consent preference
@@ -530,7 +546,7 @@ pub(crate) const UPDATE_USER_PASSWORD_SQL: &str =
 pub(crate) const UPDATE_USER_DISPLAY_NAME_SQL: &str =
     "UPDATE users SET display_name = $1, last_active = CURRENT_TIMESTAMP WHERE id = $2";
 
-/// Remove the account; every dependent row cascades.
+/// Remove the account row; the rows whose foreign keys cascade go with it.
 pub(crate) const DELETE_USER_SQL: &str = "DELETE FROM users WHERE id = $1";
 
 /// Move the account to a billing tier.
@@ -651,13 +667,15 @@ where
 /// [`uuid_columns`](super::uuid_columns) codec, and
 /// `$duplicate` is its `fn(&sqlx::Error) -> Option<AppError>`, which reads a
 /// violated unique index off the driver's error and names the column it was
-/// on. The body is written once here; each backend's shell invokes it with
+/// on, and `$purge` is the
+/// [`UserPurge`](super::user_references::UserPurge) its schema's user delete
+/// clears. The body is written once here; each backend's shell invokes it with
 /// its own type, and sqlx resolves the driver from `self.pool()` per
 /// expansion. The single-column preference writes come from
 /// `preferences`, the backend's expansion of the shared
 /// [`user_preferences`](super::user_preferences) body.
 macro_rules! impl_user_repository {
-    ($ty:ty, $row:ty, $ids:ident, $duplicate:path) => {
+    ($ty:ty, $row:ty, $ids:ident, $duplicate:path, $purge:ident) => {
         impl $ty {
             /// Decode a row through the backend's codec for its two uuid columns.
             fn user_row(row: &$row) -> AppResult<User> {
@@ -1055,17 +1073,20 @@ macro_rules! impl_user_repository {
                     .ok_or_else(|| AppError::not_found("User after display name update"))
             }
 
-            async fn delete(&self, user_id: Uuid) -> AppResult<()> {
-                let result = sqlx::query(DELETE_USER_SQL)
-                    .bind($ids::bind(user_id))
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to delete user: {e}")))?;
+            async fn delete(&self, user_id: Uuid) -> AppResult<UserDeletion> {
+                delete_user_completely!(self, $ids, user_id, $purge)
+            }
 
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!("User {user_id} not found")));
-                }
-                Ok(())
+            async fn deletion_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>> {
+                let rows = sqlx::query(DELETION_BLOCKERS_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read user deletion blockers: {e}"))
+                    })?;
+
+                rows.iter().map(user_reference_from_row).collect()
             }
 
             async fn get_first_admin_user(&self) -> AppResult<Option<User>> {

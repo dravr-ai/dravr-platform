@@ -145,6 +145,26 @@ impl RemoteClient {
         Self::json_or_error(path, resp).await
     }
 
+    /// DELETE carrying a JSON body, requiring a 2xx; returns the parsed body.
+    ///
+    /// For the delete routes that take a payload — `DELETE /admin/users/{id}`
+    /// records the operator's reason from it.
+    ///
+    /// # Errors
+    /// Returns an error on transport failure or a non-2xx status.
+    pub async fn delete_json_with_body<B: Serialize + Sync>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> AppResult<Value> {
+        let resp = self
+            .authed(self.http.delete(self.url(path)).json(body))
+            .send()
+            .await
+            .map_err(|e| Self::transport_error(path, &e))?;
+        Self::json_or_error(path, resp).await
+    }
+
     fn transport_error(path: &str, err: &reqwest::Error) -> AppError {
         AppError::external_service("pierre-server", format!("request to {path} failed: {err}"))
     }

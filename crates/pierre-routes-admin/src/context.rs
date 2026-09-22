@@ -24,6 +24,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_services::user_approval::UserApprovalNotifier;
+use pierre_services::user_removal::ProviderDisconnector;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use tracing::info;
 
@@ -60,6 +61,11 @@ pub struct AdminApiContext {
     /// Notifier that emails and messages a just-approved user across their
     /// linked channels (injected by the composition root; `None` until wired).
     pub approval_notifier: Option<Arc<dyn UserApprovalNotifier>>,
+    /// The provider-disconnect chokepoint, through which the admin user
+    /// routes disconnect a provider for a user and revoke every grant before
+    /// deleting one (injected by the composition root; `None` until wired, in
+    /// which case those routes refuse rather than strand a grant upstream).
+    pub provider_disconnector: Option<Arc<dyn ProviderDisconnector>>,
     /// Shared coaching harness config registry, mutated by the
     /// `PUT /admin/settings/harness` handler so subsequent chat turns
     /// pick up the new compaction / Tier 6 guardrail values without a
@@ -152,6 +158,7 @@ impl AdminApiContext {
             email_service: None,
             frontend_url: None,
             approval_notifier: None,
+            provider_disconnector: None,
             harness_config_registry: init.harness_config_registry,
             guardian_config_registry: init.guardian_config_registry,
             prompt_registry: init.prompt_registry,

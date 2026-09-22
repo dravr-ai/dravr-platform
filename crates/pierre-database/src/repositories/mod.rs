@@ -144,6 +144,9 @@ pub mod user_preferences;
 pub mod user_profiles;
 /// Repository trait, statements and shared body for per-user rate-limit overrides.
 pub mod user_rate_limit_overrides;
+/// The rows that block deleting a user, the ones the delete clears itself, and
+/// the conflict a residual reference maps to.
+pub(crate) mod user_references;
 /// Repository trait, statements and shared body for per-user admin tier overrides.
 pub mod user_tier_overrides;
 /// Repository trait, statements and shared body for per-user admin tool overrides.
@@ -204,6 +207,10 @@ pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
 pub use user_physiological_profiles::*;
 pub use user_rate_limit_overrides::*;
+pub use user_references::{
+    UserPurge, DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, POSTGRES_USER_PURGE,
+    SQLITE_USER_PURGE,
+};
 pub use user_tier_overrides::*;
 pub use user_tool_overrides::*;
 pub use users::*;

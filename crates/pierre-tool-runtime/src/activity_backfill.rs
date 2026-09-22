@@ -43,7 +43,7 @@ use std::env;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
@@ -755,13 +755,16 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
     // athlete's own backfill, so it carries the self grant.
     let executor =
         UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
+    // Taken before the fetch reads the session: a reconnect that lands during
+    // a long scrape is newer than the failure the scrape reports.
+    let attempt_started_at = Utc::now();
     let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
         BackfillFetch::AuthRequired => {
             // The provider session expired mid-backfill. This detached path is
             // otherwise silent, so nudge the user to reconnect on the channel
             // that asked instead of leaving them on a perpetual "ask again".
-            notify_backfill_reauth(job).await;
+            notify_backfill_reauth(job, attempt_started_at).await;
             return BackfillRunOutcome::AuthRequired;
         }
         BackfillFetch::Failed => return BackfillRunOutcome::Failed,
@@ -902,7 +905,7 @@ async fn persist_backfill_activities(
 /// reflects the expiry). By design the nudge is NOT deduped: it re-sends every
 /// expired-session turn until a real reconnect clears the flag, so a user whose
 /// first link was broken or never clicked is not permanently silenced.
-async fn notify_backfill_reauth(job: &ActivityBackfillJob) {
+async fn notify_backfill_reauth(job: &ActivityBackfillJob, attempt_started_at: DateTime<Utc>) {
     let (Some(conversation_id), Some(notifier)) = (
         job.pierre_conversation_id.as_deref(),
         job.resources.backfill_notifier(),
@@ -915,6 +918,7 @@ async fn notify_backfill_reauth(job: &ActivityBackfillJob) {
             job.tenant_id,
             conversation_id,
             &job.provider_name,
+            attempt_started_at,
         )
         .await;
 }

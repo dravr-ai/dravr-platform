@@ -15,6 +15,7 @@
 //! machine. Usable today via `curl` with a super-admin token; the gcloud-style
 //! `pierre-cli auth login` + `pierre-cli strava-pool` client layers on later.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::{
@@ -60,8 +61,9 @@ pub(crate) fn deny_if_not_super_admin(admin_token: &ValidatedAdminToken) -> Opti
 ///
 /// # Errors
 ///
-/// Returns an error if a required field is missing or invalid, or if the
-/// repository upsert (including secret encryption) fails.
+/// Returns an error if a required field is missing or invalid, if `client_id`
+/// is the env app's own, or if the repository upsert (including secret
+/// encryption) fails.
 pub async fn handle_upsert_strava_pool_app(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -86,6 +88,14 @@ pub async fn handle_upsert_strava_pool_app(
         .filter(|&c| c > 0)
         .ok_or_else(|| AppError::invalid_input("seat_cap must be a positive integer"))?;
     let label = request.get("label").and_then(Value::as_str);
+    // The env app is the pool's implicit member already; listed again, its
+    // athletes would read as two apps and a reconnect between the two
+    // entries would revoke the grant it had just made.
+    if strava_pool::strava_client_id(None).as_deref() == Some(client_id) {
+        return Err(AppError::invalid_input(
+            "client_id is the env Strava app (STRAVA_CLIENT_ID), which the pool already includes",
+        ));
+    }
 
     context
         .repos
@@ -153,6 +163,91 @@ pub async fn handle_list_strava_pool_apps(
             message: format!("{} Strava pool app(s)", apps.len()),
             data: Some(json!({
                 "apps": apps_json,
+                "seats": { "total": summary.total, "used": summary.used, "left": summary.left() },
+            })),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// `GET /admin/strava-pool/seats` — who holds a Strava token, on which app,
+/// and whether it counts as a seat.
+///
+/// One row per stored Strava token: the holder's email (`null` for a token
+/// whose account row is gone), the issuing app (`null` for the env app), the
+/// connection's status, when they connected, and `counts_as_seat` under the
+/// same rule the seat counts apply (a BYO-app user, a `revoked` connection or
+/// a `needs_reauth` one for anything but our own client credentials holds
+/// none).
+///
+/// Two totals answer two questions. `seats_held` is the distinct athletes
+/// holding a seat on any app, a disabled pool app and an app over its cap
+/// included: what Strava counts across our applications. `seats` is the
+/// capacity the connect path offers: the env app and the enabled pool apps,
+/// each app's use capped at its `seat_cap`, so `left` is what a newcomer can
+/// still take. They differ exactly by the holders on disabled apps and the
+/// excess over a cap. Emails go to the super-admin in the body only; the log
+/// carries counts.
+///
+/// # Errors
+///
+/// Returns an error if listing the holders or computing the seat summary fails.
+pub async fn handle_list_strava_seats(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+) -> AppResult<Response> {
+    if let Some(denied) = deny_if_not_super_admin(&admin_token) {
+        return Ok(denied);
+    }
+
+    let holders = context
+        .repos
+        .oauth_tokens
+        .list_strava_seat_holders()
+        .await?;
+    let summary = strava_pool::strava_seat_summary(context.repos.oauth_tokens.as_ref()).await?;
+    let seats_held = holders
+        .iter()
+        .filter(|h| h.counts_as_seat)
+        .map(|h| h.user_id)
+        .collect::<HashSet<_>>()
+        .len();
+
+    let holders_json: Vec<Value> = holders
+        .iter()
+        .map(|h| {
+            json!({
+                "user_id": h.user_id.to_string(),
+                "email": h.email,
+                "tenant_id": h.tenant_id,
+                "app": h.oauth_app_client_id,
+                "status": h.connection_status.map(|s| s.as_str()),
+                "connected_at": h.connected_at.to_rfc3339(),
+                "counts_as_seat": h.counts_as_seat,
+            })
+        })
+        .collect();
+
+    info!(
+        holders = holders.len(),
+        seats_held = seats_held,
+        service = %admin_token.service_name,
+        "Strava seat holders listed by super-admin"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!(
+                "{} Strava token holder(s), {seats_held} holding a seat on any app; {} of {} offered seat(s) in use",
+                holders.len(),
+                summary.used,
+                summary.total
+            ),
+            data: Some(json!({
+                "holders": holders_json,
+                "seats_held": seats_held,
                 "seats": { "total": summary.total, "used": summary.used, "left": summary.left() },
             })),
         },

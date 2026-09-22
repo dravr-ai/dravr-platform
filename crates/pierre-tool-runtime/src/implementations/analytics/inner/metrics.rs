@@ -276,7 +276,7 @@ async fn fetch_and_calculate_metrics(
             return Ok(UniversalResponse {
                 success: false,
                 result: None,
-                error: Some(format!("Authentication error: {e}")),
+                error: Some(e.tool_error_text("Authentication error")),
                 metadata: None,
             });
         }

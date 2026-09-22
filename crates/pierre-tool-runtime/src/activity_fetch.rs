@@ -171,7 +171,7 @@ pub async fn maybe_merge_other_connections(
 }
 
 /// A window the athlete's other connections served after the elected primary
-/// failed to authenticate.
+/// failed to authenticate, dead or only unreachable just now.
 pub struct FallbackServe {
     /// The merged (and, when more than one connection contributed, deduplicated)
     /// activities those connections produced.
@@ -185,11 +185,12 @@ pub struct FallbackServe {
 /// elected primary cannot authenticate.
 ///
 /// A multi-source aggregator answers with what it holds: an athlete whose WHOOP
-/// token died still has years of Strava behind a healthy connection, and the
-/// reconnect prompt belongs BESIDE that answer rather than instead of it. The
-/// caller keeps the reconnect signal and attaches it as a caveat; only when this
-/// returns `None` — no other connection produced a single row — does the turn
-/// become the reconnect message alone.
+/// token died, or whose Strava refresh is rate limited, still has years of
+/// history behind a healthy connection, and why the primary is missing belongs
+/// BESIDE that answer rather than instead of it. The caller keeps that signal
+/// (a reconnect prompt, or a "could not be reached" note) and attaches it as a
+/// caveat; only when this returns `None` — no other connection produced a
+/// single row — does the turn become the primary's failure alone.
 ///
 /// Health-aware: a sibling already flagged `needs_reauth`/`revoked` is skipped
 /// instead of fetched into the same failure. Cross-tenant like the peer path, so
@@ -274,10 +275,10 @@ pub async fn serve_without_primary(
     }
     warn!(
         user_id = %context.user_id,
-        dead_provider = %primary_backend,
+        primary = %primary_backend,
         count = served.len(),
         served_by = %served_by.join(", "),
-        "elected provider needs re-auth; serving the window from the athlete's other connections"
+        "elected provider could not authenticate; serving the window from the athlete's other connections"
     );
     Some(FallbackServe {
         activities: served,

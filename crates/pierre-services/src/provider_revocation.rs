@@ -1,10 +1,15 @@
-// ABOUTME: Upstream grant revocation + provider-data purge for the disconnect chokepoint
-// ABOUTME: Best-effort by contract — every bail logs and local deletion always proceeds
+// ABOUTME: Upstream grant revocation + provider-data purge for the disconnect chokepoint and an app switch
+// ABOUTME: Never blocks local deletion, and reports whether the provider confirmed the revocation
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! What "disconnect" owes the provider, split out of `oauth_flow`.
+//!
+//! It also owes the provider the same when a reconnect moves an athlete from
+//! one Strava shared-pool app to another: `strava_reconnect` revokes each
+//! grant the new token supersedes through [`revoke_stored_grant`], under the
+//! app that issued it, so the athlete is not counted against two applications.
 //!
 //! The chokepoint stays a thin orchestrator; this module revokes the grant
 //! upstream (Strava API Policy §2.1 makes consent withdrawal an obligation,
@@ -21,10 +26,50 @@ use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_providers::utils::{refresh_oauth_token, ClientAuth, RefreshRequest};
 use pierre_runtime_context::DataContext;
+use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::oauth_flow::OAuthService;
+
+/// What happened to a backend's grant at the provider when it was withdrawn.
+///
+/// Local deletion never waits on this, so it is reported rather than enforced:
+/// an operator who asked for a seat to be freed needs to know whether the
+/// provider confirmed it, and "the rows are gone" is not that.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", content = "reason", rename_all = "snake_case")]
+pub enum RevocationOutcome {
+    /// The provider answered the revocation with success.
+    Revoked,
+    /// There was no upstream grant to withdraw: the backend holds none (an
+    /// API key, a scrape session) or no token was stored for it.
+    NoGrant,
+    /// A grant may still be authorized at the provider: the revocation was
+    /// refused, never reached it, or could not be built. The reason names
+    /// which, and never carries token material.
+    Unconfirmed(String),
+}
+
+impl RevocationOutcome {
+    /// The outcome of withdrawing several backends of one provider together
+    /// (a coalesced pair): unconfirmed if any is, else revoked if any grant
+    /// was, else nothing to withdraw.
+    #[must_use]
+    pub fn combine(outcomes: Vec<Self>) -> Self {
+        let mut combined = Self::NoGrant;
+        for outcome in outcomes {
+            let replaces = match (&combined, &outcome) {
+                (Self::Unconfirmed(_), _) | (_, Self::NoGrant) => false,
+                (_, Self::Unconfirmed(_) | Self::Revoked) => true,
+            };
+            if replaces {
+                combined = outcome;
+            }
+        }
+        combined
+    }
+}
 
 /// The wire shape a backend expects "this app no longer has my data" in.
 ///
@@ -136,27 +181,58 @@ fn registry_endpoints(data: &DataContext, backend: &str) -> Option<(String, Stri
 
 /// The disconnect chokepoint's revocation step.
 ///
-/// Reads the stored token, resolves the client credentials through the
-/// service (the same user→tenant→env chain that minted the grant, pinned to
-/// the pool app the token names so a pool-app token revokes under its own
-/// client) and spends the token against the provider.
+/// Reads the stored token, then revokes it as [`revoke_stored_grant`] does.
 pub async fn revoke_for_disconnect(
     service: &OAuthService,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-) {
+) -> RevocationOutcome {
     let Some(shape) = revocation_shape(service, backend) else {
         debug!(
             user_id = %user_id,
             backend = %backend,
             "Backend holds no upstream grant to revoke; local deletion is the whole disconnect"
         );
-        return;
+        return RevocationOutcome::NoGrant;
     };
-    let Some(token) = stored_token(&service.data, user_id, tenant_id, backend).await else {
-        return;
+    let token = match stored_token(&service.data, user_id, tenant_id, backend).await {
+        Ok(Some(token)) => token,
+        Ok(None) => return RevocationOutcome::NoGrant,
+        Err(outcome) => return outcome,
     };
+    revoke_with_shape(service, &shape, token, user_id, tenant_id, backend).await
+}
+
+/// Revoke the grant a stored token row holds, under the client that issued it.
+///
+/// Resolves the client credentials through the service: the pool app the
+/// token names when it names one, so a pool-app token revokes under its own
+/// client whether or not that app still takes new athletes and whatever user
+/// or tenant credentials were configured since; else the user→tenant→env
+/// chain that minted the grant. Then spends the token against the provider.
+pub async fn revoke_stored_grant(
+    service: &OAuthService,
+    token: UserOAuthToken,
+    tenant_id: TenantId,
+) -> RevocationOutcome {
+    let backend = token.provider.clone();
+    let user_id = token.user_id;
+    let Some(shape) = revocation_shape(service, &backend) else {
+        return RevocationOutcome::NoGrant;
+    };
+    revoke_with_shape(service, &shape, token, user_id, tenant_id, &backend).await
+}
+
+/// Resolve the issuing client's credentials and send the revocation.
+async fn revoke_with_shape(
+    service: &OAuthService,
+    shape: &RevocationShape,
+    token: UserOAuthToken,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> RevocationOutcome {
     let creds = match service
         .create_oauth_config_with_user(
             backend,
@@ -174,13 +250,15 @@ pub async fn revoke_for_disconnect(
                 error = %e,
                 "No OAuth client credentials for upstream revocation; local deletion proceeds"
             );
-            return;
+            return RevocationOutcome::Unconfirmed(
+                "no OAuth client credentials to revoke with".to_owned(),
+            );
         }
     };
-    revoke_upstream_grant(&shape, &creds, token, user_id, tenant_id, backend).await;
+    revoke_upstream_grant(shape, &creds, token, user_id, tenant_id, backend).await
 }
 
-/// Revoke the user's grant at the provider, best-effort.
+/// Revoke the user's grant at the provider.
 ///
 /// Builds the request the backend's [`RevocationShape`] calls for from the
 /// client credentials and the stored token, sends it once, and reports the
@@ -192,14 +270,16 @@ pub async fn revoke_upstream_grant(
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-) {
+) -> RevocationOutcome {
     let result = match shape {
         RevocationShape::TokenRevocation {
             revoke_url,
             token_type_hint,
         } => {
             let Some((revoke_token, hint)) = revocation_material(token, user_id, backend) else {
-                return;
+                return RevocationOutcome::Unconfirmed(
+                    "the stored token row carries no token material".to_owned(),
+                );
             };
             let mut form = vec![("token", revoke_token.as_str())];
             if *token_type_hint {
@@ -219,7 +299,9 @@ pub async fn revoke_upstream_grant(
             let Some(access_token) =
                 live_access_token(token, token_url, creds, user_id, backend).await
             else {
-                return;
+                return RevocationOutcome::Unconfirmed(
+                    "no live access token to deregister with".to_owned(),
+                );
             };
             api_client()
                 .delete(revoke_url)
@@ -234,7 +316,9 @@ pub async fn revoke_upstream_grant(
                     backend = %backend,
                     "Stored token row carries no provider user id; nothing to deauthenticate upstream"
                 );
-                return;
+                return RevocationOutcome::Unconfirmed(
+                    "the stored token row carries no provider user id".to_owned(),
+                );
             }
             api_client()
                 .delete(revoke_url)
@@ -245,7 +329,7 @@ pub async fn revoke_upstream_grant(
                 .await
         }
     };
-    log_revocation_outcome(result, user_id, tenant_id, backend);
+    revocation_outcome(result, user_id, tenant_id, backend)
 }
 
 /// Delete the provider-derived cached activity rows on disconnect.
@@ -280,29 +364,29 @@ pub async fn purge_provider_cache(
     }
 }
 
-/// The stored token row a revocation spends, or `None` — with its reason
-/// logged — when there is none, which the best-effort caller treats as
-/// "skip, local deletion proceeds".
+/// The stored token row a revocation spends: `Ok(None)` — logged — when
+/// there is none, and the unconfirmed outcome when the row exists but cannot
+/// be read, since a grant may stand behind it.
 async fn stored_token(
     data: &DataContext,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-) -> Option<UserOAuthToken> {
+) -> Result<Option<UserOAuthToken>, RevocationOutcome> {
     match data
         .repos()
         .oauth_tokens
         .get_token(user_id, tenant_id, backend)
         .await
     {
-        Ok(Some(token)) => Some(token),
+        Ok(Some(token)) => Ok(Some(token)),
         Ok(None) => {
             debug!(
                 user_id = %user_id,
                 backend = %backend,
                 "No stored token at disconnect; nothing to revoke upstream"
             );
-            None
+            Ok(None)
         }
         Err(e) => {
             warn!(
@@ -311,7 +395,9 @@ async fn stored_token(
                 error = %e,
                 "Could not read stored token for upstream revocation; local deletion proceeds"
             );
-            None
+            Err(RevocationOutcome::Unconfirmed(
+                "the stored token could not be read".to_owned(),
+            ))
         }
     }
 }
@@ -403,34 +489,48 @@ async fn live_access_token(
     }
 }
 
-/// Report the revocation attempt: success at INFO, every failure shape at
-/// WARN — never an error, because the caller's contract is best-effort and
-/// local deletion proceeds regardless.
-fn log_revocation_outcome(
+/// Classify and log the revocation attempt: success at INFO, every failure
+/// shape at WARN — never an error, because local deletion proceeds
+/// regardless; the caller reports the outcome instead. The reason names the
+/// HTTP status or that the provider was unreachable, never the transport
+/// error's text, which can carry the request URL.
+fn revocation_outcome(
     result: Result<reqwest::Response, SharedHttpError>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-) {
+) -> RevocationOutcome {
     match result {
-        Ok(response) if response.status().is_success() => info!(
-            user_id = %user_id,
-            tenant_id = %tenant_id,
-            backend = %backend,
-            "Revoked the user's grant at the provider"
-        ),
-        Ok(response) => warn!(
-            user_id = %user_id,
-            backend = %backend,
-            status = %response.status(),
-            "Provider answered revocation with non-success; local deletion proceeds"
-        ),
-        Err(e) => warn!(
-            user_id = %user_id,
-            backend = %backend,
-            error = %e,
-            "Provider unreachable for revocation; local deletion proceeds"
-        ),
+        Ok(response) if response.status().is_success() => {
+            info!(
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                backend = %backend,
+                "Revoked the user's grant at the provider"
+            );
+            RevocationOutcome::Revoked
+        }
+        Ok(response) => {
+            warn!(
+                user_id = %user_id,
+                backend = %backend,
+                status = %response.status(),
+                "Provider answered revocation with non-success; local deletion proceeds"
+            );
+            RevocationOutcome::Unconfirmed(format!(
+                "the provider answered HTTP {}",
+                response.status()
+            ))
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                backend = %backend,
+                error = %e,
+                "Provider unreachable for revocation; local deletion proceeds"
+            );
+            RevocationOutcome::Unconfirmed("the provider could not be reached".to_owned())
+        }
     }
 }
 
@@ -493,19 +593,22 @@ pub async fn surviving_rows(
 /// Clearing a backend the user never held is a no-op, which is what makes
 /// clearing a whole coalesced pair safe.
 ///
+/// Returns what the provider said about the grant. Upstream revocation never
+/// blocks local deletion; the outcome is how a caller learns the grant may
+/// still stand.
+///
 /// # Errors
-/// Returns a database error if either delete fails. Upstream revocation is
-/// best-effort by contract and never blocks local deletion.
+/// Returns a database error if either delete fails.
 pub async fn clear_backend(
     service: &OAuthService,
     data: &DataContext,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-) -> AppResult<()> {
+) -> AppResult<RevocationOutcome> {
     // Revoke BEFORE deleting — the stored token is the credential the
     // revocation call spends.
-    revoke_for_disconnect(service, user_id, tenant_id, backend).await;
+    let outcome = revoke_for_disconnect(service, user_id, tenant_id, backend).await;
 
     data.repos()
         .oauth_tokens
@@ -520,5 +623,5 @@ pub async fn clear_backend(
         .map_err(|e| AppError::database(format!("Failed to remove provider connection: {e}")))?;
 
     purge_provider_cache(data, user_id, tenant_id, backend).await;
-    Ok(())
+    Ok(outcome)
 }

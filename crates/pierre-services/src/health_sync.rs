@@ -70,7 +70,12 @@ pub struct PierreSyncStorage {
 pub trait SyncCredentialRefresher: Send + Sync {
     /// Return valid credentials for the user+provider, refreshing through the
     /// platform OAuth flow when the stored token is expired or near expiry.
-    /// `None` means no usable token exists (absent, or refresh failed).
+    /// `None` means no usable token exists and reconnecting is the remedy: none
+    /// is stored, none can be refreshed, or the provider refused the refresh,
+    /// now or earlier with the connection still flagged. An error means the
+    /// lookup failed, or a refresh failed without the provider refusing it (a
+    /// rate limit, a 5xx, a transport failure) over an unflagged connection:
+    /// the grant stands, and a later sync can refresh it.
     async fn valid_credentials(
         &self,
         user_id: Uuid,
@@ -80,7 +85,8 @@ pub trait SyncCredentialRefresher: Send + Sync {
 
     /// Refresh the stored token regardless of its recorded expiry — the
     /// reactive path after the provider rejected the current token (e.g. a
-    /// 401 despite a DB-valid `expires_at`).
+    /// 401 despite a DB-valid `expires_at`). `None` and an error mean what
+    /// they mean for [`Self::valid_credentials`].
     async fn force_refresh(
         &self,
         user_id: Uuid,

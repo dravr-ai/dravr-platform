@@ -12,8 +12,12 @@ pub mod executor;
 pub mod format;
 /// Shared provider helper functions (tenant-aware credential resolution, provider creation)
 pub mod provider_helpers;
+/// Classification of a failed token refresh: a refusal of the grant or client, or transient
+mod refresh_failure;
 /// Provider-agnostic sleep fetch + conversion helpers (reused by analytics + sleep tools)
 pub mod sleep_helpers;
+/// Write-back of a pair a provider refreshed on its own, over the row it was read from
+mod token_writeback;
 /// Core universal protocol types (`UniversalRequest`, `UniversalResponse`, executor alias)
 pub mod types;
 
