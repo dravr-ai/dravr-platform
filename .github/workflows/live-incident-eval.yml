@@ -1,5 +1,5 @@
-# ABOUTME: The live-model eval lane — the 2026-08 incident corpus against a REAL model over production's transport, nightly
-# ABOUTME: Schedule + dispatch only, deliberately: it must be able to red without blocking a merge
+# ABOUTME: The live-model eval lane — the 2026-08 incident corpus against a REAL model over production's transport
+# ABOUTME: Dispatch only: no model host that CI may use fits it yet (carnet#504)
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -30,6 +30,17 @@
 # are a 7B grading a 7B. Every run before this change is a different baseline; do not
 # diff across it.
 #
+# WHY IT IS DISPATCH-ONLY FOR NOW (carnet#504)
+#
+# A runner-local model does not fit this corpus. With Pierre's tool surface attached
+# over MCP, Copilot's static context exceeds the 32k budget this job gives the model,
+# and the CLI refuses before calling it — "Static system messages and tool definitions
+# exceed the model's usable context budget … No response was returned." — which is the
+# 219-char reply every turn delivered in run 35666766933. Where it does fit it is too
+# slow: one call took 26.8 min on the runner, so three passes of ~13 turns need far
+# more than GitHub's 6 h job ceiling. Which model host this lane gets instead is a
+# decision (carnet#504); until then a nightly run could only grade the refusal.
+#
 # WHY THERE IS NO `push:` TRIGGER
 #
 # The lane is non-gating by construction rather than by `continue-on-error`, which is
@@ -42,9 +53,8 @@
 # COST
 #
 # No metered call, but wall clock: every model call evaluates 6-10k tokens of prompt on
-# four vCPUs, and one turn makes several. So this runs once a day and on demand, never
-# per push, and the corpus stays small (~13 turns): an incident regression suite, not a
-# benchmark.
+# four vCPUs, and one turn makes several. So this never runs per push, and the corpus
+# stays small (~13 turns): an incident regression suite, not a benchmark.
 #
 # WHY THE CORPUS IS DRIVEN MORE THAN ONCE
 #
@@ -69,10 +79,6 @@ on:
         description: "Comma-separated episode names; empty runs the corpus. Not behaviour-neutral — see episode_filter()"
         required: false
         default: ""
-  schedule:
-    # 04:30 UTC — after the chat-eval nightly (03:30) so a structural break there
-    # is already visible before this heavier lane starts.
-    - cron: "30 4 * * *"
 
 permissions:
   contents: read
@@ -113,8 +119,8 @@ jobs:
       # hyper, h2 and reqwest across 11 episodes x 3 passes in one job,
       # risking truncation of the very log this exists to read. Both target
       # lines are info!, so INFO is sufficient. If a run is truncated anyway,
-      # drop this key rather than lowering it further — the cron is daily, so a
-      # flooded run costs a day.
+      # drop this key rather than lowering it further — a flooded run costs
+      # hours of wall clock.
       TEST_LOG: "INFO"
       # Take production's transport, not the text-catalog simulation.
       #
@@ -148,7 +154,7 @@ jobs:
       COPILOT_PROVIDER_BASE_URL: http://127.0.0.1:11434/v1
       COPILOT_PROVIDER_MAX_PROMPT_TOKENS: "32768"
       # No fallback tier. Production's is Cohere on the key that, with the
-      # Copilot quota spent, is what answers athletes; a nightly corpus falling
+      # Copilot quota spent, is what answers athletes; a corpus falling
       # through to it would repeat on the fallback what this lane did to the
       # primary. A turn the local model cannot finish is an infra error here.
       PIERRE_LLM_RUNTIME_FALLBACK: "false"
@@ -259,7 +265,8 @@ jobs:
             -H 'Content-Type: application/json' \
             -d "{\"model\":\"$PIERRE_LLM_MODEL\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: PONG\"}]}")"
           echo "$reply"
-          echo "$reply" | grep -qi 'pong'
+          # The endpoint answers; what it says is the corpus's verdict to give.
+          test -n "$(echo "$reply" | jq -er '.choices[0].message.content | select(length > 0)')"
 
       # A prefix this user owns, and after Ollama on purpose: its installer
       # re-creates /usr/local/bin as root:root 755, which turns a later
