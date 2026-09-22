@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Binds the browser's interaction and visibility signals to the shared idle contract
-// ABOUTME: An idle tab stops polling and drops its open turn stream; the next interaction resumes it
+// ABOUTME: Hidden stops polling at once; idle also drops the open turn stream; coming back resumes both
 
 import { useEffect } from 'react';
 import { focusManager } from '@tanstack/react-query';
@@ -40,6 +40,11 @@ const INTERACTION_EVENTS = [
  * stops every recurring poll, and any turn still streaming is aborted. The
  * next pointer move, key, or scroll resumes both.
  *
+ * Hiding the tab stops the polls at once but leaves a turn in flight alone
+ * until that same deadline: an athlete who switched to the Strava tab to
+ * authorize is back in a minute, and the reply the server is still writing
+ * must be there when they are.
+ *
  * `focusManager.setFocused` is the single switch, so the idle stop and the
  * hidden-tab pause are the same mechanism rather than two that must agree.
  * Taking manual ownership of it means this hook also owns the visibility
@@ -54,9 +59,15 @@ export function useIdleWatch(): void {
       onIdle: () => {
         focusManager.setFocused(false);
         // A turn still streaming holds the connection — and the instance
-        // behind it — open indefinitely. The athlete re-sends on their way
-        // back in; `sendTurn` tells them so in as many words.
+        // behind it — open indefinitely. The send path re-reads the
+        // conversation when the athlete returns, so a reply the server went on
+        // to write is shown rather than lost.
         idleAbort();
+      },
+      // Hidden: nothing on screen is being read, so the polls stop now. The
+      // stream stays open until the idle deadline.
+      onSuspend: () => {
+        focusManager.setFocused(false);
       },
       onActive: () => {
         resetIdleAbort();
@@ -71,11 +82,12 @@ export function useIdleWatch(): void {
       window.addEventListener(event, noteInteraction, { passive: true, capture: true });
     }
 
-    // A hidden tab is idle immediately — there is no threshold to wait out
-    // when the athlete has demonstrably looked away.
+    // A hidden tab stops polling at once; its open turn waits out the same
+    // deadline an untouched visible tab does. Coming back to the tab is the
+    // interaction that ends the absence.
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        watch.noteInteraction();
+        watch.resume();
       } else {
         watch.suspend();
       }

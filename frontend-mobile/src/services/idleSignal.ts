@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 // ABOUTME: The abort signal every open turn stream rides, so going idle can drop it
-// ABOUTME: One controller per active stretch; a fresh one is minted when the athlete returns
+// ABOUTME: One controller per active stretch; a turn lost while the athlete was away is re-read on return
+
+import type { IdleWatch } from '@pierre/shared-constants';
 
 /**
  * The controller the current active stretch shares.
  *
- * A turn opened while the athlete is present is aborted when they leave, and
- * a turn opened after they come back must not be — hence a new controller per
- * stretch rather than one for the life of the process.
+ * A turn opened while the athlete is present is aborted when the app goes
+ * idle, and a turn opened after they come back must not be — hence a new
+ * controller per stretch rather than one for the life of the process.
  *
  * Deliberately a mirror of the web module of the same name: both clients open
  * the same stream through the same `sendTurn`, so they drop it the same way.
@@ -25,16 +27,19 @@ export function idleSignal(): AbortSignal {
   return controller.signal;
 }
 
+/** The part of the idle watch the send path talks to. */
+type SendPathWatch = Pick<IdleWatch, 'holdWhileBusy' | 'whenPresent' | 'absences'>;
+
 /**
  * The live idle watch, registered by QueryProvider at the app root.
  *
  * Mirrors the web module: the send path is several screens away from where
  * the watch is mounted.
  */
-let watch: { holdWhileBusy: () => () => void } | null = null;
+let watch: SendPathWatch | null = null;
 
 /** Register the app's idle watch so streaming turns can hold it active. */
-export function registerIdleWatch(w: { holdWhileBusy: () => () => void } | null): void {
+export function registerIdleWatch(w: SendPathWatch | null): void {
   watch = w;
 }
 
@@ -47,6 +52,38 @@ export function registerIdleWatch(w: { holdWhileBusy: () => () => void } | null)
  */
 export function holdIdleWhileBusy(): () => void {
   return watch?.holdWhileBusy() ?? (() => {});
+}
+
+/**
+ * Note where the athlete is as a turn starts, and return the question to ask
+ * if it fails: did they leave the app while it ran?
+ *
+ * A turn that failed while nobody was looking — the idle stop dropped its
+ * stream, or the platform dropped a backgrounded app's connection while the
+ * athlete was authorizing Strava — may well have been answered, because the
+ * server finishes a turn whether or not anyone is still reading it. One that
+ * failed in front of the athlete was not lost to their absence, and is
+ * reported as it stands.
+ */
+export function trackAbsence(): () => boolean {
+  const watched = watch;
+  const at = watched?.absences ?? 0;
+  return () => watched !== null && watched.absences !== at;
+}
+
+/**
+ * Run `work` once the athlete is here: now if they are, otherwise when they
+ * come back to the app.
+ *
+ * With no watch registered there is nobody to wait for, and the work runs at
+ * once.
+ */
+export function whenAthleteReturns(work: () => void): void {
+  if (watch) {
+    watch.whenPresent(work);
+  } else {
+    work();
+  }
 }
 
 /** Abort every stream opened during this active stretch. */

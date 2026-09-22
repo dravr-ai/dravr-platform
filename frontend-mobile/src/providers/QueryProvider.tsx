@@ -1,5 +1,5 @@
 // ABOUTME: React Query provider with MMKV persistence and the shared focus/idle contract
-// ABOUTME: Backgrounded or untouched, the app stops polling; the next touch resumes it
+// ABOUTME: Backgrounded stops polling at once; untouched also drops the open turn; coming back resumes both
 
 import React, { useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus, Platform, View } from 'react-native';
@@ -155,9 +155,15 @@ export function QueryProvider({ children }: QueryProviderProps) {
       onIdle: () => {
         focusManager.setFocused(false);
         // A turn still streaming holds the connection — and the Cloud Run
-        // instance behind it — open indefinitely. The athlete re-sends on
-        // their way back in; `sendTurn` tells them so in as many words.
+        // instance behind it — open indefinitely. The send path re-reads the
+        // conversation when the athlete returns, so a reply the server went on
+        // to write is shown rather than lost.
         idleAbort();
+      },
+      // Backgrounded: nothing on screen is being read, so the polls stop now.
+      // The stream stays open until the idle deadline.
+      onSuspend: () => {
+        focusManager.setFocused(false);
       },
       onActive: () => {
         resetIdleAbort();
@@ -167,13 +173,15 @@ export function QueryProvider({ children }: QueryProviderProps) {
     watchRef.current = watch;
     registerIdleWatch(watch);
 
-    // Backgrounding is idleness we do not have to wait out: the athlete has
-    // demonstrably looked away. Returning to the foreground counts as the
-    // interaction that brought them back.
+    // Backgrounding stops the polls at once, but an open turn waits out the
+    // same deadline an untouched screen does: an athlete who left for the
+    // Strava app to authorize is back in a minute, and the reply the server is
+    // still writing must be there when they are. Returning to the foreground
+    // is the interaction that ends the absence.
     const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
       if (Platform.OS === 'web') return;
       if (status === 'active') {
-        watch.noteInteraction();
+        watch.resume();
       } else {
         watch.suspend();
       }

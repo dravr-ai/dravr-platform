@@ -7,6 +7,7 @@ import {
   isToolPlumbingMessage,
   filterDisplayMessages,
   stripToolScaffolding,
+  replyLandedSince,
   resolveChannelOrigin,
 } from '../src/conversation';
 
@@ -106,5 +107,40 @@ describe('resolveChannelOrigin', () => {
     expect(resolveChannelOrigin({ channel_type: '' })).toBeNull();
     expect(resolveChannelOrigin({ channel_type: null })).toBeNull();
     expect(resolveChannelOrigin({})).toBeNull();
+  });
+});
+
+describe('replyLandedSince', () => {
+  // What the client held when it sent the turn: the thread so far plus its
+  // own optimistic question, which never comes back from the server.
+  const held = new Set(['m1', 'm2', 'user-1726963582000']);
+
+  it('finds the reply the server wrote after the stream was lost', () => {
+    const reread = [
+      { id: 'm1', role: 'user' as const },
+      { id: 'm2', role: 'assistant' as const },
+      { id: 'm3', role: 'user' as const },
+      { id: 'm4', role: 'tool_call' as const },
+      { id: 'm5', role: 'assistant' as const },
+    ];
+    expect(replyLandedSince(reread, held)).toBe(true);
+  });
+
+  it('is false while the server has persisted only the question', () => {
+    const reread = [
+      { id: 'm1', role: 'user' as const },
+      { id: 'm2', role: 'assistant' as const },
+      { id: 'm3', role: 'user' as const },
+      { id: 'm4', role: 'tool_result' as const },
+    ];
+    expect(replyLandedSince(reread, held)).toBe(false);
+  });
+
+  it('does not mistake an answer the client already held for the new one', () => {
+    const reread = [
+      { id: 'm1', role: 'user' as const },
+      { id: 'm2', role: 'assistant' as const },
+    ];
+    expect(replyLandedSince(reread, held)).toBe(false);
   });
 });

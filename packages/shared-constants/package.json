@@ -46,13 +46,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
+    "test": "vitest run",
     "generate": "node ../../scripts/sdk/generate-surface-capabilities.js"
   },
   "dependencies": {
     "@pierre/shared-types": "*"
   },
   "devDependencies": {
-    "typescript": "~5.8.3"
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.8"
   },
   "files": [
     "src"

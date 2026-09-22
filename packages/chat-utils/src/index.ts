@@ -17,11 +17,13 @@ export { COMMAND_FINISH_REASON, transcriptBlocks } from './blocks';
 export { splitActivityContent, countActivities } from './activity';
 
 // Cross-surface conversation rendering helpers (web + mobile parity):
-// hide tool-plumbing rows, strip residual tool XML, label the channel.
+// hide tool-plumbing rows, strip residual tool XML, tell whether a lost
+// turn's reply has since been written, label the channel.
 export {
   isToolPlumbingMessage,
   filterDisplayMessages,
   stripToolScaffolding,
+  replyLandedSince,
   resolveChannelOrigin,
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';

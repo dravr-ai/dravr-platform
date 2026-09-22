@@ -7,13 +7,19 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, providersApi } from '../services/api';
-import { holdIdleWhileBusy, idleSignal } from '../services/api/idleSignal';
+import {
+  holdIdleWhileBusy,
+  idleSignal,
+  trackAbsence,
+  whenAthleteReturns,
+} from '../services/api/idleSignal';
 import { track } from '../services/analytics';
 import {
   avatarSlot,
   COMMAND_FINISH_REASON,
   initialsFor,
   providerStatusLine,
+  replyLandedSince,
   statusForProgress,
   threadSubtitle,
   trustedActionUrl,
@@ -71,6 +77,21 @@ function latestPersistedMessageId(messages: Message[] | undefined): string | nul
 }
 
 /**
+ * A turn whose stream was lost while the athlete was away.
+ *
+ * The server finishes a turn whether or not anyone is still reading it, so
+ * the note shown for the failure stays only until a read of the conversation
+ * holds the reply. `heldIds` are the rows the client had when the turn was
+ * sent: an assistant row outside them is that turn's answer.
+ */
+interface LostTurn {
+  conversationId: string;
+  heldIds: ReadonlySet<string>;
+  /** The error text the failure put on screen. */
+  note: string;
+}
+
+/**
  * A composer action the shell hands the chat surface.
  *
  * `draft` seeds the composer and leaves the athlete to press send; `send`
@@ -116,6 +137,7 @@ export default function ChatTab({
   // response body the reply arrives on, so there is nothing to correlate.
   const [progressStatusText, setProgressStatusText] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lostTurn, setLostTurn] = useState<LostTurn | null>(null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
@@ -173,6 +195,17 @@ export default function ChatTab({
     [messagesData],
   );
   useMarkConversationRead(selectedConversation, latestMessageId);
+
+  // A lost turn's note belongs to its own thread, and only for as long as the
+  // reply has not landed: any read of the conversation that holds it — the
+  // re-read on the athlete's return, a focus refetch, reopening the thread —
+  // takes the note down, and the reply renders from the transcript like any
+  // other row.
+  const shownError = useMemo<string | null>(() => {
+    if (!lostTurn || errorMessage !== lostTurn.note) return errorMessage;
+    if (lostTurn.conversationId !== selectedConversation) return null;
+    return replyLandedSince(messagesData?.messages ?? [], lostTurn.heldIds) ? null : errorMessage;
+  }, [errorMessage, lostTurn, selectedConversation, messagesData]);
 
   // Hydrate thumbs up/down state (and any saved reason) from the server whenever
   // the messages load/refetch, so feedback survives reloads and conversation
@@ -446,7 +479,16 @@ export default function ChatTab({
     setIsStreaming(true);
     setStreamingContent('');
     setErrorMessage(null);
+    setLostTurn(null);
     track({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
+
+    // What the thread held before this turn, so a re-read after a lost stream
+    // can tell this turn's reply from the rows that were already there.
+    const conversationKey = QUERY_KEYS.chat.messages(selectedConversation);
+    const heldIds: ReadonlySet<string> = new Set(
+      (queryClient.getQueryData<{ messages: Message[] }>(conversationKey)?.messages ?? []).map(m => m.id),
+    );
+    const leftDuringTurn = trackAbsence();
 
     const userMessageId = `${OPTIMISTIC_USER_ID_PREFIX}${Date.now()}`;
     const tempUserMessage: Message = {
@@ -456,7 +498,7 @@ export default function ChatTab({
       created_at: new Date().toISOString(),
     };
 
-    queryClient.setQueryData(QUERY_KEYS.chat.messages(selectedConversation), (old: { messages: Message[] } | undefined) => ({
+    queryClient.setQueryData(conversationKey, (old: { messages: Message[] } | undefined) => ({
       messages: [...(old?.messages || []), tempUserMessage],
     }));
 
@@ -576,7 +618,17 @@ export default function ChatTab({
       },
       onError: error => {
         setErrorMessage(error.message);
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
+        queryClient.invalidateQueries({ queryKey: conversationKey });
+        // Failed while the athlete was away — the idle stop dropped the
+        // stream, or the network went with a sleeping laptop. The server kept
+        // going, so re-read the thread when they are back: the reply it wrote
+        // renders from the transcript and takes this note down with it.
+        if (leftDuringTurn()) {
+          setLostTurn({ conversationId: selectedConversation, heldIds, note: error.message });
+          whenAthleteReturns(() => {
+            void queryClient.invalidateQueries({ queryKey: conversationKey });
+          });
+        }
       },
     });
 
@@ -887,7 +939,7 @@ export default function ChatTab({
             isStreaming={isStreaming}
             streamingContent={streamingContent}
             progressStatusText={progressStatusText}
-            errorMessage={errorMessage}
+            errorMessage={shownError}
             oauthNotification={oauthNotification}
             onDismissError={() => setErrorMessage(null)}
             onDismissOAuthNotification={() => setOauthNotification(null)}

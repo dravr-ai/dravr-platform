@@ -97,11 +97,22 @@ export const QUERY_FOCUS_POLICY = {
 /** Everything {@link IdleWatch} needs to run. */
 export interface IdleWatchOptions {
   /**
-   * Called when the client crosses from active to idle: stop the recurring
-   * polls and drop any open stream.
+   * Called when the client crosses into idle — {@link IDLE_STOP_AFTER_MS}
+   * without an interaction, hidden or visible: stop the recurring polls and
+   * drop any open stream.
    */
   onIdle: () => void;
-  /** Called when an interaction brings the client back. */
+  /**
+   * Called when the platform hides the client — a background tab, a
+   * backgrounded app: stop the recurring polls now. Nothing else stops. A
+   * turn still streaming keeps streaming until the idle deadline, because
+   * the server finishes it whether or not anyone is reading.
+   */
+  onSuspend: () => void;
+  /**
+   * Called when the client is back: an interaction after idleness, or the
+   * platform showing a hidden client again. Restart the polls.
+   */
   onActive: () => void;
   /** Override the threshold. Defaults to {@link IDLE_STOP_AFTER_MS}. */
   idleAfterMs?: number;
@@ -117,14 +128,28 @@ export interface IdleWatchOptions {
 
 /**
  * Stops a client talking to the server once nobody is driving it, and starts
- * it again on the next interaction.
+ * it again when somebody is.
  *
  * Deliberately platform-free: it knows nothing about DOM events, `AppState`,
  * or React Query. Each client feeds it interactions from whatever its
- * platform calls an interaction, and binds `onIdle` / `onActive` to
- * `focusManager.setFocused(false | true)`. That keeps one threshold and one
- * state machine for both, with only the event sources differing — which is
- * the part that genuinely cannot be shared.
+ * platform calls an interaction, reports visibility through
+ * {@link IdleWatch.suspend} / {@link IdleWatch.resume}, and binds the
+ * callbacks to `focusManager.setFocused(false | true)` plus the abort of its
+ * open turn stream. That keeps one threshold and one state machine for both,
+ * with only the event sources differing — which is the part that genuinely
+ * cannot be shared.
+ *
+ * Hidden and idle are two different stops, on purpose:
+ *
+ * - **Hidden** (`suspend`) is an athlete who switched tabs or apps — to
+ *   authorize Strava, to answer a message — and is often back within a
+ *   minute. Nothing on screen is being read, so the polls stop at once. A
+ *   turn in flight does not: the server finishes it whether or not anyone is
+ *   still reading, so dropping the stream saves nothing and costs the athlete
+ *   the reply they are about to come back for.
+ * - **Idle** is {@link IDLE_STOP_AFTER_MS} without an interaction, hidden or
+ *   visible. That is a client left alone, and only then is an open stream
+ *   dropped — what stops a tab forgotten for an hour holding an instance warm.
  *
  * The watch starts active: a client is created because somebody opened it.
  */
@@ -135,8 +160,11 @@ export class IdleWatch {
   readonly #clearTimer: (handle: unknown) => void;
   #handle: unknown = null;
   #idle = false;
+  #hidden = false;
   #stopped = false;
   #busy = 0;
+  #absences = 0;
+  #onReturn: (() => void)[] = [];
 
   constructor(options: IdleWatchOptions) {
     this.#options = options;
@@ -152,20 +180,41 @@ export class IdleWatch {
     return this.#idle;
   }
 
+  /** `true` while the platform reports the client hidden. */
+  get isHidden(): boolean {
+    return this.#hidden;
+  }
+
   /**
-   * Record that a human did something. Resumes a stopped client and pushes
-   * the idle deadline out.
+   * How many times the client has gone away — hidden, or idle while visible —
+   * since the watch started.
+   *
+   * A caller reads it when work starts and again when the work ends, to learn
+   * whether the athlete looked away in between: a turn that failed while
+   * nobody was looking may still have been answered.
+   */
+  get absences(): number {
+    return this.#absences;
+  }
+
+  /**
+   * Record that a human did something. Resumes an idle client and pushes the
+   * idle deadline out.
+   *
+   * Ignored while the client is hidden: nobody can be driving a client the
+   * platform is not showing, so whatever reaches it then is the page's own
+   * doing — a reply scrolling itself into view — and must not read as the
+   * athlete coming back. Only {@link IdleWatch.resume} ends a hidden stretch.
    *
    * Safe to call on every pointer move: the only work per call is resetting
    * one timer, and `onActive` fires solely on the idle → active edge.
    */
   noteInteraction(): void {
-    if (this.#stopped) return;
-    if (this.#idle) {
-      this.#idle = false;
-      this.#options.onActive();
-    }
+    if (this.#stopped || this.#hidden) return;
+    const returning = this.#idle;
+    this.#idle = false;
     this.#arm();
+    if (returning) this.#returned();
   }
 
   /**
@@ -176,6 +225,11 @@ export class IdleWatch {
    * this, a tool-heavy turn that outruns the threshold would be aborted and
    * the tokens already spent on it thrown away — the client would be
    * punishing the athlete for the model being slow.
+   *
+   * The hold covers a client somebody can see. Once it is hidden nobody is
+   * watching the answer arrive, so the deadline runs again from the moment it
+   * was hidden — the hold is what makes a slow turn not idle, not what makes a
+   * forgotten one immortal.
    *
    * Held as a count, not a flag, so two concurrent turns cannot have the
    * first one to finish release the second. The deadline is re-armed on
@@ -195,26 +249,67 @@ export class IdleWatch {
   }
 
   /**
-   * Go idle now, without waiting out the threshold — what a client calls when
-   * its platform says the app is no longer visible at all.
+   * The platform says the client is no longer visible: stop the polls now,
+   * and let the idle deadline decide the rest.
+   *
+   * An unheld client keeps the deadline its last interaction set. A held one
+   * had no deadline while somebody was watching; nobody is now, so its
+   * deadline starts here.
    */
   suspend(): void {
+    if (this.#stopped || this.#hidden) return;
+    this.#hidden = true;
+    // Already idle: the polls are stopped and nothing is left open.
+    if (this.#idle) return;
+    this.#absences += 1;
+    this.#options.onSuspend();
+    if (this.#handle === null) this.#arm();
+  }
+
+  /**
+   * The platform shows the client again. Coming back to it is the
+   * interaction that ends the absence, whether or not the deadline passed
+   * while it was hidden.
+   */
+  resume(): void {
+    if (this.#stopped || !this.#hidden) return;
+    this.#hidden = false;
+    this.#idle = false;
+    this.#arm();
+    this.#returned();
+  }
+
+  /**
+   * Run `work` once somebody is here: now when the client is visible and
+   * active, otherwise on its return, right after `onActive` has restarted the
+   * polls.
+   *
+   * What a turn that failed while the athlete was away queues: the re-read
+   * that shows them the reply the server went on to write. Queued work runs
+   * once, on the first return; a watch torn down first drops it.
+   */
+  whenPresent(work: () => void): void {
     if (this.#stopped) return;
-    this.#disarm();
-    this.#goIdle();
+    if (!this.#idle && !this.#hidden) {
+      work();
+      return;
+    }
+    this.#onReturn.push(work);
   }
 
   /** Tear the watch down. It reports and does nothing further. */
   stop(): void {
     this.#stopped = true;
     this.#disarm();
+    this.#onReturn = [];
   }
 
   #arm(): void {
     this.#disarm();
-    // Work the athlete is waiting on holds the client active with no timer at
-    // all: a turn that takes longer than the threshold is slow, not idle.
-    if (this.#busy > 0) return;
+    // Work the athlete is watching holds a visible client active with no
+    // timer at all: a turn that takes longer than the threshold is slow, not
+    // idle. Hidden, nobody is watching, and the deadline runs.
+    if (this.#busy > 0 && !this.#hidden) return;
     this.#handle = this.#setTimer(() => {
       this.#handle = null;
       this.#goIdle();
@@ -231,6 +326,15 @@ export class IdleWatch {
   #goIdle(): void {
     if (this.#idle) return;
     this.#idle = true;
+    // A hidden client already counted its absence when it was hidden.
+    if (!this.#hidden) this.#absences += 1;
     this.#options.onIdle();
+  }
+
+  #returned(): void {
+    this.#options.onActive();
+    const work = this.#onReturn;
+    this.#onReturn = [];
+    for (const run of work) run();
   }
 }

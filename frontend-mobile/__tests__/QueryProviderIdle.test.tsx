@@ -26,7 +26,7 @@ jest.mock('../src/utils/mmkvStorage', () => ({
 }));
 
 import { QueryProvider } from '../src/providers/QueryProvider';
-import { idleSignal } from '../src/services/idleSignal';
+import { holdIdleWhileBusy, idleSignal, resetIdleAbort } from '../src/services/idleSignal';
 
 /** Shorter than the idle threshold, so several polls land before it fires. */
 const POLL_INTERVAL_MS = 30_000;
@@ -116,7 +116,7 @@ describe('QueryProvider idle contract', () => {
     await waitFor(() => expect(queryFn.mock.calls.length).toBeGreaterThan(callsAtIdle));
   });
 
-  it('goes idle the moment the app is backgrounded, without waiting out the threshold', async () => {
+  it('stops polling the moment the app is backgrounded, and resumes on return', async () => {
     const queryFn = jest.fn().mockResolvedValue(1);
     render(
       <QueryProvider>
@@ -142,6 +142,75 @@ describe('QueryProvider idle contract', () => {
       appStateListeners[0]('active');
     });
     expect(focusManager.isFocused()).toBe(true);
+  });
+
+  it('keeps a turn in flight across a trip to another app shorter than the threshold', async () => {
+    // carnet#500: an athlete who leaves for the Strava app to authorize is
+    // back in a minute, and the reply the server is still writing must be
+    // there when they are. Earlier cases leave the shared controller tripped.
+    resetIdleAbort();
+    const queryFn = jest.fn().mockResolvedValue(1);
+    render(
+      <QueryProvider>
+        <PollingScreen queryFn={queryFn} />
+      </QueryProvider>,
+    );
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    const inFlight = idleSignal();
+    const release = holdIdleWhileBusy();
+
+    // iOS passes through `inactive` on the way out; neither state drops it.
+    await act(async () => {
+      appStateListeners[0]('inactive');
+      appStateListeners[0]('background');
+    });
+    expect(focusManager.isFocused()).toBe(false);
+    expect(inFlight.aborted).toBe(false);
+
+    await act(async () => {
+      jest.advanceTimersByTime(IDLE_STOP_AFTER_MS - 1_000);
+    });
+    expect(inFlight.aborted).toBe(false);
+
+    await act(async () => {
+      appStateListeners[0]('active');
+    });
+    expect(focusManager.isFocused()).toBe(true);
+    expect(inFlight.aborted).toBe(false);
+
+    release();
+  });
+
+  it('drops a turn stream once the app has stayed backgrounded for the whole threshold', async () => {
+    resetIdleAbort();
+    const queryFn = jest.fn().mockResolvedValue(1);
+    render(
+      <QueryProvider>
+        <PollingScreen queryFn={queryFn} />
+      </QueryProvider>,
+    );
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    const inFlight = idleSignal();
+    const release = holdIdleWhileBusy();
+
+    await act(async () => {
+      appStateListeners[0]('background');
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(IDLE_STOP_AFTER_MS);
+    });
+    expect(inFlight.aborted).toBe(true);
+
+    // The return starts a fresh stretch: the next turn is not born aborted.
+    await act(async () => {
+      appStateListeners[0]('active');
+    });
+    expect(idleSignal().aborted).toBe(false);
+    expect(focusManager.isFocused()).toBe(true);
+
+    release();
   });
 
   it('aborts the open turn stream when it goes idle, and hands back a fresh signal', async () => {

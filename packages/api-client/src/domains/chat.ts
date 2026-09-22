@@ -88,18 +88,27 @@ export interface SendTurnOptions extends TurnCallbacks {
   /**
    * Aborts the turn's request and drops its open body.
    *
-   * The client's idle contract owns one: a tab left open with a turn still
+   * The client's idle contract owns one: a tab left alone with a turn still
    * streaming holds a server instance warm indefinitely, so the idle watch
-   * aborts it and the athlete re-sends on their next interaction. `onError`
-   * receives a sentence that says exactly that rather than the runtime's own
-   * abort text.
+   * aborts it once the client has gone the full idle threshold without an
+   * interaction. Only the stream stops — the server finishes the turn and
+   * persists its reply regardless, and the client re-reads the conversation
+   * when the athlete returns. `onError` receives a sentence that says so
+   * rather than the runtime's own abort text.
    */
   signal?: AbortSignal;
 }
 
-/** What {@link ChatApi.sendTurn} reports when the idle watch dropped a turn. */
+/**
+ * What {@link ChatApi.sendTurn} reports when the idle watch dropped a turn.
+ *
+ * It must not tell the athlete the turn was lost: the server kept going after
+ * the stream closed, so the reply may well be written by the time they read
+ * this. The client hides the note once a re-read of the conversation shows
+ * that reply; the note is what they see when it has not landed yet.
+ */
 const ABORTED_MESSAGE =
-  'The turn was stopped because the app went idle. Send it again to pick up where you left off.';
+  'The app went idle before this reply arrived, so it may still have been written. Reopen this conversation to check, or send your message again.';
 
 /**
  * Build the headers one turn goes out with.

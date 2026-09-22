@@ -112,7 +112,7 @@ describe('useIdleWatch', () => {
     unmount();
   });
 
-  it('goes idle immediately when the tab is hidden, without waiting out the threshold', async () => {
+  it('stops polling the moment the tab is hidden, and resumes when it is shown', async () => {
     const queryFn = vi.fn().mockResolvedValue(1);
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     const { unmount } = renderHook(() => usePollingScreen(queryFn), {
@@ -137,6 +137,94 @@ describe('useIdleWatch', () => {
     });
     expect(focusManager.isFocused()).toBe(true);
 
+    visibility.mockRestore();
+    unmount();
+  });
+
+  it('keeps a turn in flight streaming across a hidden stretch shorter than the threshold', async () => {
+    // carnet#500: the athlete switched to the Strava tab mid-turn and came
+    // back to "the turn was stopped" for a reply the server had finished.
+    // Earlier cases leave the shared controller tripped.
+    resetIdleAbort();
+    const queryFn = vi.fn().mockResolvedValue(1);
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const { unmount } = renderHook(() => usePollingScreen(queryFn), {
+      wrapper: wrapper(client),
+    });
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    const inFlight = idleSignal();
+    const release = holdIdleWhileBusy();
+
+    visibility.mockReturnValue('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    // The polls stop at once; the stream does not.
+    expect(focusManager.isFocused()).toBe(false);
+    expect(inFlight.aborted).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_STOP_AFTER_MS - 1_000);
+    });
+    expect(inFlight.aborted).toBe(false);
+
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(focusManager.isFocused()).toBe(true);
+
+    // Back in front of it, the hold covers the turn again however long it runs.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_STOP_AFTER_MS * 2);
+    });
+    expect(inFlight.aborted).toBe(false);
+
+    release();
+    visibility.mockRestore();
+    unmount();
+  });
+
+  it('drops a turn stream once the tab has stayed hidden for the whole threshold', async () => {
+    resetIdleAbort();
+    const queryFn = vi.fn().mockResolvedValue(1);
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const { unmount } = renderHook(() => usePollingScreen(queryFn), {
+      wrapper: wrapper(client),
+    });
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    const inFlight = idleSignal();
+    const release = holdIdleWhileBusy();
+
+    visibility.mockReturnValue('hidden');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // A reply scrolling itself into view in the background tab is not the
+    // athlete coming back, and must not buy the stream more time.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_STOP_AFTER_MS - 1_000);
+      window.dispatchEvent(new Event('scroll'));
+    });
+    expect(inFlight.aborted).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(inFlight.aborted).toBe(true);
+
+    // The athlete's return starts a fresh stretch: the next turn is not born aborted.
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(idleSignal().aborted).toBe(false);
+    expect(focusManager.isFocused()).toBe(true);
+
+    release();
     visibility.mockRestore();
     unmount();
   });

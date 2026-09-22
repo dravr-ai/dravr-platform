@@ -67,6 +67,29 @@ export function stripToolScaffolding(content: string): string {
     .trim();
 }
 
+/**
+ * Whether a re-read transcript holds a reply the client did not have when it
+ * sent a turn.
+ *
+ * Asked about a turn whose stream the client lost while the athlete was away
+ * — the idle stop dropped it, or the platform dropped a backgrounded app's
+ * connection. The server finishes a turn whether or not anyone is still
+ * reading, so its answer may already be persisted. `heldIds` are the ids of
+ * the rows the client held when it sent the turn, so an `assistant` row
+ * outside them is written since — the reply, or the interrupted notice the
+ * server writes when a shutdown drain gave up on the turn, which answers it
+ * too.
+ *
+ * Both clients ask exactly this before they drop the note that told the
+ * athlete the reply had not arrived.
+ */
+export function replyLandedSince(
+  rows: readonly Pick<Message, 'id' | 'role'>[],
+  heldIds: ReadonlySet<string>,
+): boolean {
+  return rows.some((row) => row.role === 'assistant' && !heldIds.has(row.id));
+}
+
 /** Origin of a conversation that started on an external messaging channel. */
 export interface MessageChannelOrigin {
   /** Lowercased channel slug as stored, e.g. `telegram`, `whatsapp`. */

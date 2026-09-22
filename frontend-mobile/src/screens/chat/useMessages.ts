@@ -6,10 +6,15 @@ import { type FlashListRef } from '@shopify/flash-list';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { chatApi } from '../../services/api';
-import { holdIdleWhileBusy, idleSignal } from '../../services/idleSignal';
-import { replySceneBlocks } from '@pierre/api-client';
+import {
+  holdIdleWhileBusy,
+  idleSignal,
+  trackAbsence,
+  whenAthleteReturns,
+} from '../../services/idleSignal';
+import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
 import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
-import { filterDisplayMessages, statusForProgress } from '@pierre/chat-utils';
+import { filterDisplayMessages, replyLandedSince, statusForProgress } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
@@ -114,6 +119,12 @@ export function useMessages(): MessagesState & MessagesActions {
   const [progressText, setProgressText] = useState<string | null>(null);
   const flatListRef = useRef<FlashListRef<ChatRow>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The thread these rows belong to, so a re-read scheduled for one thread
+  // never paints its rows over another the athlete has opened since.
+  const openConversationRef = useRef<string | null>(null);
+  // Turns on the wire right now. A re-read that lands while one is would
+  // replace its optimistic rows with a transcript that does not have them.
+  const turnsInFlightRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
     if (flatListRef.current && messages.length > 0) {
@@ -164,39 +175,80 @@ export function useMessages(): MessagesState & MessagesActions {
     }
   }, []);
 
+  // Put a conversation's transcript on screen exactly as the server holds it.
+  const showTranscript = useCallback(async (conversationId: string, response: MessagesResponse) => {
+    // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
+    // <tool_call>/<tool_result> XML never renders — critical for
+    // messaging-origin conversations (Telegram etc.) that carry the same
+    // scaffolding rows as native chat.
+    setMessages(filterDisplayMessages(response.messages || []));
+
+    // Hydrate thumbs up/down state (and any saved reason) from the server so
+    // feedback survives reloads and conversation switches.
+    const ratings: Record<string, 'up' | 'down' | null> = {};
+    const comments: Record<string, string> = {};
+    for (const f of response.feedback ?? []) {
+      ratings[f.message_id] = f.rating;
+      if (f.comment) comments[f.message_id] = f.comment;
+    }
+    setMessageFeedback(ratings);
+    setMessageFeedbackComment(comments);
+
+    await refreshVerdicts(conversationId);
+
+    deferredScrollToBottom(100);
+  }, [deferredScrollToBottom, refreshVerdicts]);
+
   // LIMITATION(registre#440): `loadMessages` reads the caller's own conversation, so a channel group thread omits every other member's turns.
   const loadMessages = useCallback(async (conversationId: string) => {
+    openConversationRef.current = conversationId;
     try {
       setError(null);
       const response = await chatApi.getConversationMessages(conversationId);
-      const allMessages = response.messages || [];
-
-      // Drop internal LLM plumbing rows (tool_call / tool_result) so their raw
-      // <tool_call>/<tool_result> XML never renders — critical for
-      // messaging-origin conversations (Telegram etc.) that carry the same
-      // scaffolding rows as native chat.
-      setMessages(filterDisplayMessages(allMessages));
-
-      // Hydrate thumbs up/down state (and any saved reason) from the server so
-      // feedback survives reloads and conversation switches.
-      const ratings: Record<string, 'up' | 'down' | null> = {};
-      const comments: Record<string, string> = {};
-      for (const f of response.feedback ?? []) {
-        ratings[f.message_id] = f.rating;
-        if (f.comment) comments[f.message_id] = f.comment;
-      }
-      setMessageFeedback(ratings);
-      setMessageFeedbackComment(comments);
-
-      await refreshVerdicts(conversationId);
-
-      deferredScrollToBottom(100);
+      await showTranscript(conversationId, response);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMessages');
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
-  }, [deferredScrollToBottom, refreshVerdicts]);
+  }, [showTranscript]);
+
+  /**
+   * Re-read a thread whose turn was lost while the athlete was away.
+   *
+   * The server finishes a turn whether or not anyone is still reading, so the
+   * reply is often already persisted by the time the athlete is back. When it
+   * is, the transcript replaces what is on screen — the reply once, in place
+   * of the note and the optimistic question. When it is not, the note stays:
+   * it says what to do, and the next reload of the thread shows the reply.
+   */
+  const recoverLostReply = useCallback(async (conversationId: string, heldIds: ReadonlySet<string>) => {
+    const stillShowing = () =>
+      openConversationRef.current === conversationId && turnsInFlightRef.current === 0;
+    if (!stillShowing()) return;
+    try {
+      const response = await chatApi.getConversationMessages(conversationId);
+      if (!stillShowing() || !replyLandedSince(response.messages ?? [], heldIds)) return;
+      setError(null);
+      await showTranscript(conversationId, response);
+    } catch (err) {
+      console.error('Failed to re-read the interrupted turn:', err);
+    }
+  }, [showTranscript]);
+
+  /**
+   * The row a failed turn leaves in the thread.
+   *
+   * A turn the idle stop dropped carries its own guidance — the reply may
+   * still have been written — so it is not told to try again on top of that.
+   */
+  const failedTurnRow = useCallback((failure: Error, aborted: boolean): Message => ({
+    id: `error-${Date.now()}`,
+    role: 'assistant',
+    content: aborted ? `⚠️ ${failure.message}` : `⚠️ ${failure.message}\n\nPlease try again.`,
+    created_at: new Date().toISOString(),
+    isError: true,
+  }), []);
 
   const sendTurn = useCallback(async (
     conversationId: string,
@@ -206,6 +258,14 @@ export function useMessages(): MessagesState & MessagesActions {
 
     setIsSending(true);
     setError(null);
+    openConversationRef.current = conversationId;
+    turnsInFlightRef.current += 1;
+
+    // What the thread held before this turn, so a re-read after a lost stream
+    // can tell this turn's reply from the rows that were already there.
+    const heldIds: ReadonlySet<string> = new Set(messages.map(m => m.id));
+    const leftDuringTurn = trackAbsence();
+    let lostWhileAway = false;
 
     const userMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -229,11 +289,13 @@ export function useMessages(): MessagesState & MessagesActions {
     // waiting, even with the screen untouched. Released in the finally so
     // the idle threshold measures the quiet after the turn, not during it.
     const releaseIdleHold = holdIdleWhileBusy();
+    const signal = idleSignal();
     try {
       await chatApi.sendTurn(conversationId, messageText, {
-        // A turn left streaming into a backgrounded app holds a server instance
-        // open; the idle watch aborts it and the athlete re-sends on return.
-        signal: idleSignal(),
+        // A turn left streaming into an app nobody has touched for the idle
+        // threshold holds a server instance open; the idle watch aborts it,
+        // and the thread is re-read when the athlete returns.
+        signal,
         onProgress: progress => {
           const status = statusForProgress(progress);
           if (status !== null) setProgressText(t(status.key, status.params));
@@ -280,13 +342,8 @@ export function useMessages(): MessagesState & MessagesActions {
         onError: sendErr => {
           setError(sendErr.message);
           invalidateConversationList();
-          const errorResponse: Message = {
-            id: `error-${Date.now()}`,
-            role: 'assistant',
-            content: `⚠️ ${sendErr.message}\n\nPlease try again.`,
-            created_at: new Date().toISOString(),
-            isError: true,
-          };
+          lostWhileAway = leftDuringTurn();
+          const errorResponse = failedTurnRow(sendErr, signal.aborted);
           setMessages(prev => {
             const updated = prev.map(m =>
               m.id === userMessage.id ? { ...m, id: `user-${Date.now()}` } : m
@@ -297,13 +354,21 @@ export function useMessages(): MessagesState & MessagesActions {
       });
     } finally {
       releaseIdleHold();
+      turnsInFlightRef.current -= 1;
     }
 
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
+    // Scheduled once the turn has settled, so the re-read never races the
+    // rows this turn is still writing.
+    if (lostWhileAway) {
+      whenAthleteReturns(() => {
+        void recoverLostReply(conversationId, heldIds);
+      });
+    }
     return rotatedTo;
-  }, [isSending, deferredScrollToBottom, invalidateConversationList]);
+  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverLostReply]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -315,17 +380,25 @@ export function useMessages(): MessagesState & MessagesActions {
     setMessages(prev => prev.filter(m => m.id !== messageId));
     setIsSending(true);
     setError(null);
+    openConversationRef.current = conversationId;
+    turnsInFlightRef.current += 1;
 
     setProgressText(null);
 
+    const heldIds: ReadonlySet<string> = new Set(
+      messages.filter(m => m.id !== messageId).map(m => m.id),
+    );
+    const leftDuringTurn = trackAbsence();
+    let lostWhileAway = false;
     const retriedBlocks: ReplyBlock[] = [];
     // A streaming turn holds the client active: the athlete asked and is
     // waiting, even with the screen untouched. Released in the finally so
     // the idle threshold measures the quiet after the turn, not during it.
     const releaseIdleHold = holdIdleWhileBusy();
+    const signal = idleSignal();
     try {
       await chatApi.sendTurn(conversationId, userMessage.content, {
-        signal: idleSignal(),
+        signal,
         onProgress: progress => {
           const status = statusForProgress(progress);
           if (status !== null) setProgressText(t(status.key, status.params));
@@ -358,23 +431,25 @@ export function useMessages(): MessagesState & MessagesActions {
         onError: err => {
           setError(err.message);
           invalidateConversationList();
-          setMessages(prev => [...prev, {
-            id: `error-${Date.now()}`,
-            role: 'assistant',
-            content: `⚠️ ${err.message}\n\nPlease try again.`,
-            created_at: new Date().toISOString(),
-            isError: true,
-          }]);
+          lostWhileAway = leftDuringTurn();
+          const errorRow = failedTurnRow(err, signal.aborted);
+          setMessages(prev => [...prev, errorRow]);
         },
       });
     } finally {
       releaseIdleHold();
+      turnsInFlightRef.current -= 1;
     }
 
     deferredScrollToBottom(200);
     setIsSending(false);
     setProgressText(null);
-  }, [messages, deferredScrollToBottom, invalidateConversationList]);
+    if (lostWhileAway) {
+      whenAthleteReturns(() => {
+        void recoverLostReply(conversationId, heldIds);
+      });
+    }
+  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverLostReply]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.
@@ -442,6 +517,7 @@ export function useMessages(): MessagesState & MessagesActions {
   // The block lists are keyed by message id, so a thread's live turns would
   // otherwise keep drawing over whatever conversation is opened next.
   const clearMessages = useCallback(() => {
+    openConversationRef.current = null;
     setMessages([]);
     setMessageBlocks({});
     setVerdicts([]);
