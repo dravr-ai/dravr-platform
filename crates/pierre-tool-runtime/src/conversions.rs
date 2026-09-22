@@ -158,6 +158,23 @@ pub fn output_schema_for<T: schemars::JsonSchema>() -> Value {
     serde_json::to_value(schema).unwrap_or(Value::Null)
 }
 
+/// Convert a payload to a [`Value`] holding the numbers its JSON text holds.
+///
+/// `serde_json::to_value` widens every `f32` to `f64` on the way into a
+/// `Value`, so an `f32` field of 12.8 became 12.800000190734863 — in the reply
+/// an athlete reads, for every typed tool result with an `f32` in it (weather
+/// temperature, humidity and wind among them). Writing the payload to JSON
+/// text formats each `f32` at its own shortest precision, and parsing that
+/// text back keeps exactly those digits. The parse is exact for `f64` too
+/// because this crate enables `serde_json`'s `float_roundtrip`.
+///
+/// # Errors
+///
+/// Returns the serde error when `payload` does not serialize.
+fn to_value_as_written<T: Serialize>(payload: &T) -> serde_json::Result<Value> {
+    serde_json::from_str(&serde_json::to_string(payload)?)
+}
+
 /// Serialize a typed tool result into the payload the tool answers with.
 ///
 /// Fails loudly rather than degrading: a tool that declares an `outputSchema`
@@ -172,7 +189,7 @@ pub fn output_schema_for<T: schemars::JsonSchema>() -> Value {
 /// practice; it is an error rather than a panic because the alternative is
 /// taking the server down over one malformed reply.
 pub fn ok_typed<T: Serialize>(tool: &str, payload: T) -> AppResult<ToolResult> {
-    serde_json::to_value(payload)
+    to_value_as_written(&payload)
         .map(ToolResult::ok)
         .map_err(|e| AppError::internal(format!("{tool} result did not serialize: {e}")))
 }
@@ -229,7 +246,7 @@ pub enum Formatted<T> {
 pub fn apply_format<T: Serialize>(payload: T, format: OutputFormat) -> Formatted<T> {
     match format {
         OutputFormat::Json => Formatted::Json(payload),
-        OutputFormat::Toon => match serde_json::to_value(&payload) {
+        OutputFormat::Toon => match to_value_as_written(&payload) {
             Ok(value) => match format_output(&value, OutputFormat::Toon) {
                 Ok(formatted) => Formatted::Toon {
                     toon: formatted.data,

@@ -80,7 +80,13 @@ reqwest = { version = "0.12", features = ["json"] }
 # a date-time string rather than an opaque one.
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# float_roundtrip: tool results reach the client as JSON text, and
+# `to_value_as_written` gets there by writing the payload and parsing it back.
+# Without this feature the parse is best-effort and can move an f64 by one ULP,
+# which prints 0.1 as 0.10000000000000002. With it every JSON float the
+# platform parses is correctly rounded. Cargo unifies features, so enabling it
+# here enables it for the whole build.
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 thiserror = "2.0"
 tokio = { version = "1.50", features = ["sync", "macros"] }
 tokio-stream = "0.1"
