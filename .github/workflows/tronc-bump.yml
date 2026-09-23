@@ -29,9 +29,14 @@
 # The chain bumps embacle and embacle-tool-host to their latest release in
 # the same commit, after checking that release is on the target tronc; if it
 # is not, the run says which crate to release first and rewrites nothing.
-# dravr-stripe is NOT moved here. It stopped depending on dravr-tronc at
-# v0.1.15, so it is no longer the `git:<crate>` case consumer-bump.yml
-# documents (carnet#338) and has nothing to keep in lockstep.
+# dravr-stripe is NOT moved here, though it depends on dravr-tronc (it
+# dropped the dependency at v0.1.15 and took it back at v0.2.0, carnet#511).
+# It needs no lockstep entry because tronc is on 1.x: stripe asks for
+# ^1.3.0 and this repo for ^1.x, and a caret on a 1.x version admits every
+# later 1.y, so the lockfile always resolves both to one tronc without a
+# stripe release. carnet#338's hand commits were a 0.x problem, where each
+# minor was its own compatibility range. Only a tronc 2.0 would split the
+# lockfile, and consumer-bump.yml's single-version assertion refuses that.
 # `lockstep_crates` below lists only the two embacle crates. Nothing moved the
 # stripe pin at all until bump-stripe.yml, and check-satellite-drift.sh's lane
 # table meanwhile claimed this workflow owned it and suppressed its drift on

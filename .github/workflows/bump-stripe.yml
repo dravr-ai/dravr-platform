@@ -5,7 +5,8 @@
 # Copyright (c) 2026 dravr.ai
 #
 # dravr-stripe is the billing integration, pinned by pierre-core and pierre-server.
-# Compiled into the platform binary, no service of its own.
+# The platform compiles its library into the binary; the repo also ships
+# dravr-stripe-mcp and dravr-stripe-server, which the platform does not run.
 #
 # Read this before assuming tronc's chain covers it. tronc-bump.yml's header says
 # dravr-stripe moves in lockstep with a tronc bump, and consumer-bump.yml does support
@@ -15,11 +16,14 @@
 # moved this pin, while check-satellite-drift.sh's lane table claimed
 # "tronc-bump.yml (lockstep)" owned it and suppressed its drift on that basis.
 #
-# This lane is what actually moves it. dravr-stripe carried a dravr-tronc pin in its
-# own root until v0.1.15; while it did, a stripe release that moved tronc would split
-# the lockfile here — the spine stands down on that and names tronc's lane, which is
-# the correct outcome rather than a
-# branch that can never merge.
+# This lane is what actually moves it. dravr-stripe pins dravr-tronc (it dropped the
+# pin at v0.1.15 and restored it at v0.2.0), so a stripe release can require a newer
+# tronc than this repo has locked. The lockfile never ends up with two tronc 1.x
+# versions, but this lane runs `cargo update -p dravr-stripe`, which does not unlock
+# tronc: it refuses with "failed to select a version for `dravr-tronc`" and files a
+# stall. The fix is order, not force — tronc's own lane moves this repo's tronc first,
+# then this lane is re-run. That is what happened to stripe v0.2.0 on 2026-09-22,
+# which needed tronc 1.3.0 an hour before this repo had it (carnet#516).
 #
 # Shipping is not optional and not automatic. publish-images.yml deploys the platform
 # on `workflow_run` of "CI: Backend (Rust)" against main, and the spine's squash merge
@@ -97,6 +101,6 @@ jobs:
             echo "### Platform deploy dispatched"
             echo ""
             echo "dravr-stripe **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
-            echo "compiles it is now rebuilding. dravr-stripe has no service of its own — this"
-            echo "dispatch is the whole delivery."
+            echo "compiles it is now rebuilding. The platform runs no dravr-stripe service —"
+            echo "this dispatch is the whole delivery."
           } >> "$GITHUB_STEP_SUMMARY"
