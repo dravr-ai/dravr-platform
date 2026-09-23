@@ -14,6 +14,7 @@
 //! be two structs describing one thing.
 
 use chrono::{DateTime, Utc};
+use pierre_core::json_value::to_value_as_written;
 use pierre_intelligence::{
     recovery_calculator::{
         DataCompleteness, RecoveryCategory, RecoveryScore, RestDayRecommendation, TrainingReadiness,
@@ -21,6 +22,9 @@ use pierre_intelligence::{
     sleep_analysis::{HrvRecoveryStatus, HrvTrendAnalysis, SleepQualityScore},
 };
 use serde::Serialize;
+use serde_json::Value;
+
+use crate::protocols::ProtocolError;
 
 /// What `analyze_sleep_quality` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -288,4 +292,16 @@ pub fn recovery_score_payload(
             sleep_provider,
         },
     }
+}
+
+/// A payload as the response carries it. Through [`to_value_as_written`], so
+/// an `f32` field reaches the reader at the precision it was computed at
+/// rather than widened to its nearest `f64`.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::InternalError`] naming `tool` when the payload
+/// does not serialize.
+pub fn payload_value<T: Serialize>(tool: &str, payload: &T) -> Result<Value, ProtocolError> {
+    to_value_as_written(payload).map_err(|e| ProtocolError::InternalError(format!("{tool}: {e}")))
 }

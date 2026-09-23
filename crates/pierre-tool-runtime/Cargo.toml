@@ -123,6 +123,10 @@ name = "activity_revalidation_dedup_test"
 required-features = ["tools-groups"]
 
 [[test]]
+name = "sleep_payload_value_test"
+required-features = ["tools-sleep"]
+
+[[test]]
 name = "backfill_coverage_logic_test"
 required-features = ["tools-data"]
 
