@@ -80,37 +80,13 @@ pub fn build_provider(
                 .filter(|key| !key.is_empty())
                 .ok_or(WeatherConfigError::MissingOpenWeatherKey)?;
             let inner = OpenWeatherMapProvider::new(api_key);
-            Ok(Arc::new(CachedProvider::new(inner, CacheStoreArc(cache))))
+            Ok(Arc::new(CachedProvider::new(inner, cache)))
         }
         "openmeteo" => {
             let inner = OpenMeteoArchiveProvider::new();
-            Ok(Arc::new(CachedProvider::new(inner, CacheStoreArc(cache))))
+            Ok(Arc::new(CachedProvider::new(inner, cache)))
         }
         other => Err(WeatherConfigError::UnknownProvider(other.to_owned())),
-    }
-}
-
-/// Newtype wrapper letting `Arc<dyn WeatherCacheStore>` satisfy the
-/// `WeatherCacheStore: Sized` bound expected by `CachedProvider`.
-struct CacheStoreArc(Arc<dyn WeatherCacheStore>);
-
-#[async_trait::async_trait]
-impl WeatherCacheStore for CacheStoreArc {
-    async fn get(
-        &self,
-        key: &pierre_weather::CacheKey,
-        provider: &str,
-    ) -> Result<Option<WeatherSample>, pierre_weather::CacheError> {
-        self.0.get(key, provider).await
-    }
-
-    async fn put(
-        &self,
-        key: pierre_weather::CacheKey,
-        provider: &str,
-        sample: WeatherSample,
-    ) -> Result<(), pierre_weather::CacheError> {
-        self.0.put(key, provider, sample).await
     }
 }
 
