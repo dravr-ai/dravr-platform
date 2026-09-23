@@ -122,6 +122,11 @@ cmd_run() {
   guard_repo "${repo}"
   [ -z "${release}" ] || case "${release}" in patch|minor|major) ;; *) die "--release is patch, minor or major";; esac
 
+  # Checked first, before the scan: a repo that is already public either always
+  # is (it needs none of this) or has another session's window open.
+  if [ "$(gh api "repos/${ORG}/${repo}" --jq .visibility)" = "public" ]; then
+    die "${repo} is already public — either it always is (CI runs normally; nothing to do) or another session's window is open (wait for it to flip back)"
+  fi
   cmd_scan "${repo}" "${dir}"; local rc=$?
   if [ ${rc} -eq 2 ] && [ -z "${reviewed}" ]; then
     die "scan found secret-shaped content — review it; re-run with --scan-reviewed only if every line is a fixture or placeholder"
@@ -131,9 +136,31 @@ cmd_run() {
   echo "plan: ${repo} public → ${workflow} on main (${sha:0:9})${release:+ → Release bump=${release}} → private"
   [ -n "${dry}" ] && { echo "(dry run — nothing changed)"; return 0; }
 
-  # Private again on ANY exit: success, red CI, a failed step, Ctrl-C.
-  trap 'echo "   ${repo} → $(flip "${repo}" private) at $(date -u +%H:%M:%SZ)"' EXIT
-  echo "   ${repo} → $(flip "${repo}" public) at $(date -u +%H:%M:%SZ)"
+  # One window per repo. Two sessions running this on one repo would each flip
+  # it back to private from their own trap — the first to finish would cut the
+  # other's run off mid-flight. Guarded twice:
+  #   - on GitHub: a private repo that is already public has a window open, from
+  #     this machine or another; wait for it rather than share it.
+  #   - on this machine: an atomic mkdir lock naming its holder, stale when the
+  #     holder's pid is gone.
+  local lockroot="${TMPDIR:-/tmp}/dravr-private-ci-locks" lock
+  lock="${lockroot}/${repo}"
+  mkdir -p "${lockroot}"
+  if ! mkdir "${lock}" 2>/dev/null; then
+    local holder; holder=$(cat "${lock}/holder" 2>/dev/null)
+    if [ -n "${holder}" ] && kill -0 "${holder%% *}" 2>/dev/null; then
+      die "${repo} is locked by pid ${holder} — another session is running its window"
+    fi
+    rm -rf "${lock}" && mkdir "${lock}" || die "could not take the lock on ${repo}"
+    say "took over a stale lock (${holder:-no holder recorded})"
+  fi
+  echo "$$ ${CLAUDE_SESSION_ID:-session} $(date -u +%H:%M:%SZ)" > "${lock}/holder"
+
+  # Private again on ANY exit: success, red CI, a failed step, Ctrl-C. Only a
+  # repo this run made public is flipped back, and the lock goes with it.
+  local flipped=""
+  trap '[ -n "${flipped}" ] && echo "   ${repo} → $(flip "${repo}" private) at $(date -u +%H:%M:%SZ)"; rm -rf "${lock}"' EXIT
+  echo "   ${repo} → $(flip "${repo}" public) at $(date -u +%H:%M:%SZ)"; flipped=1
 
   # Runs queued before the flip can never start — billing was decided at queue time.
   for id in $(gh api "repos/${ORG}/${repo}/actions/runs?status=queued&per_page=30" --jq '.workflow_runs[].id' 2>/dev/null); do
