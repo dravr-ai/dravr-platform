@@ -26,6 +26,7 @@ use pierre_core::models::{
     merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, DataSource, Merged,
     StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
+use pierre_core::untrusted::fence_athlete_text;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -256,6 +257,29 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
     }
 }
 
+/// Longest athlete note, in characters, a recovery reading carries to a model.
+const MAX_ATHLETE_NOTE_CHARS: usize = 600;
+
+/// Fence each day's athlete note as untrusted text before a model reads it.
+///
+/// The note is whatever the athlete typed into their source's wellness log;
+/// fenced, it reads as quoted data rather than as instructions, and an empty
+/// note drops out.
+fn fence_athlete_notes(
+    days: Vec<Merged<StoredRecoveryMetrics>>,
+) -> Vec<Merged<StoredRecoveryMetrics>> {
+    days.into_iter()
+        .map(|mut day| {
+            day.record.athlete_note = day
+                .record
+                .athlete_note
+                .as_deref()
+                .and_then(|note| fence_athlete_text(note, MAX_ATHLETE_NOTE_CHARS));
+            day
+        })
+        .collect()
+}
+
 // ============================================================================
 // GetRecoveryMetricsTool - Query stored recovery and readiness metrics
 // ============================================================================
@@ -305,7 +329,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
                 .await
             {
                 Ok(metrics) => {
-                    let metrics = merge_recovery_metrics(metrics);
+                    let metrics = fence_athlete_notes(merge_recovery_metrics(metrics));
                     let payload = RecoveryMetricsResult {
                         count: metrics.len(),
                         metrics,
