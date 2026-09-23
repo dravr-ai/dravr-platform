@@ -395,6 +395,16 @@ mod strava_seat_reclaim_tests {
         assert!(response.success, "{:?}", response.validation_errors);
     }
 
+    async fn observe(resources: &ServerContext) {
+        let admin_id = admin(&resources.common.repos).await;
+        set_policy_ok(
+            resources,
+            &admin_id,
+            &[(keys::MODE_KEY, json!(keys::MODE_OBSERVE))],
+        )
+        .await;
+    }
+
     async fn enforce(resources: &ServerContext) {
         let admin_id = admin(&resources.common.repos).await;
         set_policy_ok(
@@ -557,6 +567,7 @@ mod strava_seat_reclaim_tests {
     #[tokio::test]
     async fn observe_reports_the_candidates_and_acts_on_nobody() {
         let resources = resources().await;
+        observe(&resources).await;
         let mut stub = RevokeStub::start().await;
         let t0 = Utc::now();
         let long_gone = holder(&resources, "long-gone", t0, 30).await;
@@ -1437,7 +1448,7 @@ mod strava_seat_reclaim_tests {
             .iter()
             .find(|p| p.key == keys::MODE_KEY)
             .unwrap();
-        assert_eq!(mode.current_value, json!("observe"));
+        assert_eq!(mode.current_value, json!("enforce"));
         assert_eq!(mode.value_source, "default");
 
         // A lead that no longer sits below idle_days is refused, naming both.

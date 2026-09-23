@@ -105,8 +105,9 @@ pub mod strava_seat_reclaim {
     pub const MODE_OBSERVE: &str = "observe";
     /// Warns, then disconnects.
     pub const MODE_ENFORCE: &str = "enforce";
-    /// Shipped dark: the sweeper reports and never acts until an operator arms it.
-    pub const DEFAULT_MODE: &str = MODE_OBSERVE;
+    /// Armed: the sweeper warns and reclaims. An operator stands it down with
+    /// `observe` (report only) or `off`, no deploy needed.
+    pub const DEFAULT_MODE: &str = MODE_ENFORCE;
 
     /// Ten idle days.
     ///
