@@ -1,4 +1,4 @@
-// ABOUTME: Shared statements, row decoders and body for coaching groups, their members, invites and transcript
+// ABOUTME: Shared statements, row decoders and body for coaching groups, members, invites, transcript, digest weeks
 // ABOUTME: One SQL text per operation; each backend shell supplies its type, row type and uuid codec
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,12 +6,12 @@
 
 //! Coaching groups, written once.
 //!
-//! The four tables (`coaching_groups`, `coaching_group_members`,
-//! `group_invites`, `group_transcript_entries`) key on uuid columns that are
-//! `uuid` on Postgres and hyphenated `TEXT` on `SQLite`, so every id bind and
-//! read goes through a [`super::uuid_columns`] codec, the macro's one
-//! per-backend argument besides the driver's row type. `tenant_id` is `TEXT`
-//! on both and binds as a string.
+//! The five tables (`coaching_groups`, `coaching_group_members`,
+//! `group_invites`, `group_transcript_entries`, `group_digest_deliveries`)
+//! key on uuid columns that are `uuid` on Postgres and hyphenated `TEXT` on
+//! `SQLite`, so every id bind and read goes through a [`super::uuid_columns`]
+//! codec, the macro's one per-backend argument besides the driver's row type.
+//! `tenant_id` is `TEXT` on both and binds as a string.
 //!
 //! Booleans bind as `bool` and are spelled `TRUE`/`FALSE` in the statements:
 //! Postgres has the type, `SQLite` stores 1/0 for both and reads them back as
@@ -331,6 +331,27 @@ pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = r"SELECT e.id, e.group_i
                 )
               ORDER BY e.created_at DESC, e.id DESC
               LIMIT $3";
+
+// ============================================================================
+// group_digest_deliveries
+// ============================================================================
+
+/// A missing row inserts (nobody has claimed the week); an existing one takes
+/// the new lease only when the week was never finished and the old lease has
+/// lapsed. Both drivers report zero rows changed when the WHERE fails — that
+/// zero is the losing claim.
+pub(crate) const CLAIM_GROUP_DIGEST_SQL: &str = r"INSERT INTO group_digest_deliveries
+              (tenant_id, group_id, week_key, leased_until_ms, finished_at_ms)
+              VALUES ($1, $2, $3, $4, 0)
+              ON CONFLICT(tenant_id, group_id, week_key) DO UPDATE
+              SET leased_until_ms = excluded.leased_until_ms
+              WHERE group_digest_deliveries.finished_at_ms = 0
+                AND group_digest_deliveries.leased_until_ms <= $5";
+
+/// Close one group's week: stamp it finished and release the lease.
+pub(crate) const FINISH_GROUP_DIGEST_SQL: &str = r"UPDATE group_digest_deliveries
+              SET finished_at_ms = $1, leased_until_ms = 0
+              WHERE tenant_id = $2 AND group_id = $3 AND week_key = $4";
 
 /// Read one column by name via `try_get`, never `Row::get`, so a corrupt row
 /// surfaces as a recoverable error naming the column rather than a panic.
@@ -927,6 +948,48 @@ macro_rules! impl_coaching_group_repository {
                     })?;
 
                 rows.iter().map(row_to_transcript_entry).collect()
+            }
+
+            async fn claim_group_digest(
+                &self,
+                tenant_id: TenantId,
+                group_id: Uuid,
+                week_key: &str,
+                now_ms: i64,
+                lease_ms: i64,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(CLAIM_GROUP_DIGEST_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind($ids::bind(group_id))
+                    .bind(week_key)
+                    .bind(now_ms.saturating_add(lease_ms))
+                    .bind(now_ms)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to claim group digest: {e}"))
+                    })?;
+                Ok(result.rows_affected() == 1)
+            }
+
+            async fn finish_group_digest(
+                &self,
+                tenant_id: TenantId,
+                group_id: Uuid,
+                week_key: &str,
+                now_ms: i64,
+            ) -> AppResult<()> {
+                sqlx::query(FINISH_GROUP_DIGEST_SQL)
+                    .bind(now_ms)
+                    .bind(tenant_id.to_string())
+                    .bind($ids::bind(group_id))
+                    .bind(week_key)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to finish group digest: {e}"))
+                    })?;
+                Ok(())
             }
         }
     };

@@ -285,10 +285,10 @@ pub mod groups;
 /// Notification screen vocabulary — the app-side destinations a push notification names
 pub mod notifications;
 pub use groups::{
-    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
-    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock, GroupTranscriptEntry,
-    GroupTrend, GroupWeeklyReport, HealthFlagSeverity, JoinGroupRequest, MemberFitnessSnapshot,
-    MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry, OvertrainingRiskLevel,
-    SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
+    CoachingGroup, CreateGroupRequest, FreshMember, GroupAggregateStats, GroupContext,
+    GroupHealthFlag, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock,
+    GroupTranscriptEntry, GroupTrend, GroupWeeklyReport, HealthFlagSeverity, JoinGroupRequest,
+    MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry,
+    OvertrainingRiskLevel, SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
 };
 pub use notifications::NotificationScreen;

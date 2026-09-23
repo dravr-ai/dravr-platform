@@ -7,7 +7,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { MENTION_PREFIX } from '@pierre/shared-constants';
+import { MENTION_PREFIX, oneDecimal } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
@@ -76,7 +76,7 @@ function errorText(err: unknown, fallback: string): string {
  * advertise a 403.
  */
 export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: GroupInfoSheetProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { user } = useAuth();
 
@@ -505,7 +505,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 {isLoadingStats
                   ? '…'
                   : stats?.avg_weekly_volume_km !== undefined
-                    ? stats.avg_weekly_volume_km.toFixed(1)
+                    ? oneDecimal(language, stats.avg_weekly_volume_km)
                     : '--'}
               </Text>
               <Text className="text-xs text-text-tertiary mt-0.5">{t('groups.avgVolumeKm')}</Text>

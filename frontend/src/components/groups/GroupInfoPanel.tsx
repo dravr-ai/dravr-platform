@@ -34,6 +34,7 @@ import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import type { GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
+import { oneDecimal } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 interface GroupInfoPanelProps {
@@ -85,7 +86,7 @@ function Section({
  * the two exits. Creating and joining are commands, so neither appears.
  */
 export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfoPanelProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { group, isLoading: isGroupLoading } = useGroup(groupId);
   const { members, isLoading: isMembersLoading } = useGroupMembers(groupId);
   const { stats, isLoading: isStatsLoading } = useGroupStats(groupId);
@@ -226,7 +227,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-outline">
           <span className="flex items-center gap-1.5">
             <Users className="w-3.5 h-3.5" aria-hidden="true" />
-            {members.length} {members.length === 1 ? 'member' : 'members'}
+            {t('groups.memberCount', { n: members.length })}
           </span>
           {isOwner && (
             <span className="flex items-center gap-1.5 text-warning">
@@ -338,7 +339,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
                 { value: 'all', label: t('groups.respondEvery') },
                 { value: 'mentions', label: t('groups.respondMentioned') },
               ]}
-              helpText={'"Only when mentioned" keeps the agent quiet unless someone @-mentions it or replies to one of its messages; it still follows the discussion for context.'}
+              helpText={t('groups.respondMentionedHint')}
             />
             <div className="flex justify-end">
               <Button
@@ -364,19 +365,19 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
             <div className="stat-card-dark">
               <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.activeMembers')}</p>
               <p className="text-xl font-bold text-on-surface">{stats.active_members}</p>
-              <p className="text-xs text-outline mt-1">of {stats.total_members} total</p>
+              <p className="text-xs text-outline mt-1">{t('groups.ofTotal', { n: stats.total_members })}</p>
             </div>
             <div className="stat-card-dark">
               <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgWeeklyVolume')}</p>
               <p className="text-xl font-bold text-on-surface">
-                {stats.avg_weekly_volume_km.toFixed(1)}
+                {oneDecimal(language, stats.avg_weekly_volume_km)}
                 <span className="text-sm text-on-surface-variant ml-1">km</span>
               </p>
             </div>
             <div className="stat-card-dark">
               <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgCtl')}</p>
               <p className="text-xl font-bold text-on-surface">
-                {stats.avg_ctl !== null ? stats.avg_ctl.toFixed(1) : '--'}
+                {stats.avg_ctl !== null ? oneDecimal(language, stats.avg_ctl) : '--'}
               </p>
             </div>
             <div className="stat-card-dark">

@@ -62,17 +62,27 @@ pub fn proactive_text(
 /// formatting.
 ///
 /// Separate from [`proactive_text`] rather than replacing it, because the two
-/// make opposite promises about the body. A `Text` body is escaped on the way
-/// out — Telegram's renderer runs `encode_text` over it — which is what keeps
-/// agent prose like "HR <100 bpm" from mangling the parse, and what makes
-/// interpolated values (agent titles, provider names) inert. A `RichText` body
-/// is parsed, so markup in it becomes formatting. Routing every proactive push
-/// through this one would turn a stored value that happens to contain a marker
-/// into live formatting.
+/// make opposite promises about the body. A `RichText` body is parsed, so
+/// markup in it becomes formatting, and each channel's renderer then escapes
+/// that channel's own metacharacters (Telegram's HTML, Slack's `& < >`,
+/// Discord's markdown). A `Text` body is not parsed, and it is escaped on the
+/// way out on Telegram only — its renderer runs `encode_text` over it, which
+/// keeps agent prose like "HR <100 bpm" from mangling the parse. Slack and
+/// Discord pass a `Text` body through as native markup, so a value
+/// interpolated into one is inert on Telegram alone. Routing every proactive
+/// push through this one would turn a stored value that happens to contain a
+/// marker into live formatting.
 ///
 /// Reach for it when the *string* owns the markup, as the intake questions do:
 /// they ship `**1**` in all five locales, and in a `Text` envelope the athlete
-/// reads the asterisks instead of a bold numeral.
+/// reads the asterisks instead of a bold numeral. Reach for it too, over a body
+/// passed through `escape_markdown` first, when text people typed — a member's
+/// name, a chat's title — goes into a chat: the escape stops their `*` and `_`
+/// being parsed as markup here, and each renderer escapes what its channel
+/// would parse (Telegram's HTML, Slack's `& < >`, Discord's markdown), which is
+/// how the group digest is posted into a group's chat. Slack's mrkdwn has no
+/// escape for `*`, `_` or `~`, so there a name wrapped in them still renders as
+/// formatting.
 #[must_use]
 pub fn proactive_rich_text(
     channel_type: ChannelType,

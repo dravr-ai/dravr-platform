@@ -31,8 +31,9 @@ const ROLE_BADGE: Record<GroupRole, { labelKey: string; color: string; Icon: typ
   member: { labelKey: 'groups.member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
 };
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString(undefined, {
+/** A date in the reader's language, not the browser's. */
+function formatDate(dateStr: string, language: string): string {
+  return new Date(dateStr).toLocaleDateString(language, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -46,7 +47,7 @@ export default function MemberList({
   currentUserId,
   isLoading,
 }: MemberListProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [sortField, setSortField] = useState<SortField>('role');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [confirmRemove, setConfirmRemove] = useState<GroupMember | null>(null);
@@ -189,7 +190,7 @@ export default function MemberList({
                     <span className="text-on-surface font-medium">
                       {member.display_name ?? t('settingsUi.unknownDate')}
                       {isSelf && (
-                        <span className="ml-2 text-xs text-outline">(you)</span>
+                        <span className="ml-2 text-xs text-outline">{t('groups.youSuffix')}</span>
                       )}
                     </span>
                   </td>
@@ -205,7 +206,7 @@ export default function MemberList({
                     </span>
                   </td>
                   <td className="py-3 px-4 text-on-surface-variant">
-                    {formatDate(member.joined_at)}
+                    {formatDate(member.joined_at, i18n.language)}
                   </td>
                   <td className="py-3 px-4">
                     {member.peer_sharing_consent ? (

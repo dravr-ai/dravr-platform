@@ -1557,6 +1557,13 @@
     "enabled": "Ativado",
     "expiredInvitesCount": "Expirados / usados ({{n}})",
     "flagDeepFatigue": "Fadiga profunda",
+    "flagDetail": {
+      "deepFatigue": "Forma a {{pct}}% da carga crónica (TSB {{tsb}}), fadiga profunda",
+      "heavyBlock": "Forma a {{pct}}% da carga crónica (TSB {{tsb}}), limite da zona produtiva",
+      "inactive": "Sem atividade há {{days}} dias",
+      "overtrainingRisk": "Risco elevado de sobretreino, planeia recuperação",
+      "volumeBelowGroup": "Volume semanal {{pct}}% abaixo da média do grupo"
+    },
     "flagFreshForm": "Boa frescura",
     "flagOverreaching": "Sobrecarga funcional",
     "flagPersonalRecord": "Recorde pessoal",
@@ -1591,6 +1598,8 @@
     "inviteType": "Tipo de convite",
     "inviteTypeMember": "Membro (atleta)",
     "inviteUnlimited": "Ilimitado",
+    "inviteUsed": "Utilizações: {{n}}",
+    "inviteUses": "Utilizações: {{used}} / {{max}}",
     "joinCode": "Código de convite",
     "joinGroup": "Juntar-se a um grupo",
     "joinInvalid": "Código de convite inválido ou expirado.",
@@ -1602,6 +1611,7 @@
     "leaveHint": "Vais perder o acesso a este grupo e aos seus dados.",
     "maxMembers": "Máximo de membros",
     "member": "Membro",
+    "memberCount": "Membros: {{n}}",
     "memberFallback": "membro",
     "name": "Nome do grupo",
     "namePlaceholder": "Equipa de maratona",
@@ -1609,6 +1619,7 @@
     "noStats": "Ainda não há estatísticas.",
     "noneFlagged": "Nenhum membro está sinalizado esta semana.",
     "notFound": "Grupo não encontrado.",
+    "ofTotal": "de {{n}} no total",
     "owner": "Proprietário",
     "peerSharing": "Partilha entre membros",
     "peerSharingDescription": "Permite aos membros que consintam ver os dados de treino agregados uns dos outros.",
@@ -1620,8 +1631,18 @@
     "removeMember": "Remover membro",
     "removeMemberAria": "Remover membro",
     "removeNamed": "Remover {{name}} do grupo",
+    "report": {
+      "concern": "{{name}}: {{detail}}",
+      "fresh": "{{name}}: forma fresca ({{pct}}% da carga crónica, TSB {{tsb}})",
+      "reviewFlagged": "Membros com risco elevado de sobretreino: {{n}}. Pondera ajustar a recuperação deles.",
+      "summary": "{{active}}/{{total}} membros ativos esta semana, com média de {{km}} km cada.",
+      "trendDeclining": "O volume do grupo caiu em relação à semana passada — fala com os membros menos ativos.",
+      "trendImproving": "O volume do grupo subiu em relação à semana passada — garante que a recuperação acompanha.",
+      "trendStable": "O volume do grupo está estável em relação à semana passada."
+    },
     "respondEvery": "A cada mensagem",
     "respondMentioned": "Só quando é mencionado",
+    "respondMentionedHint": "«Só quando é mencionado» mantém o agente em silêncio, a não ser que alguém o mencione com @ ou responda a uma das suas mensagens; mesmo assim, acompanha a conversa para ter contexto.",
     "respondMode": "O agente responde na conversa de grupo",
     "roleUpdateFailed": "Não foi possível atualizar a função",
     "roomEmpty": "Ainda não foi dito nada na sala.",
@@ -1644,7 +1665,8 @@
     "tabSettings": "Definições",
     "tabStats": "Estatísticas",
     "thisWeek": "Esta semana",
-    "weeklyReport": "Relatório semanal"
+    "weeklyReport": "Relatório semanal",
+    "youSuffix": "(tu)"
   },
   "humanCoach": {
     "attached": "Treinador humano associado",
@@ -1989,6 +2011,7 @@
       "member_line": "• {0}: {1} km",
       "member_line_prev": "• {0}: {1} km (semana anterior: {2} km)",
       "members_header": "Volume da semana:",
+      "room_scope": "Este resumo só inclui os membros que partilham o treino com o grupo ({0} de {1}). Para apareceres, envia /group consent yes",
       "summary": "{0}/{1} membros ativos esta semana, com média de {2} km cada.",
       "title": "Resumo semanal: {0}",
       "trend": {

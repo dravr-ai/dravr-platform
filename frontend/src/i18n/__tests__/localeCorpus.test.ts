@@ -260,8 +260,20 @@ describe('client locale corpus', () => {
     // `notifications.group_digest.*` is its title, summary, trend, and the
     // per-member volume, fresh-form and concern lines, rendered on the server
     // in each manager's language. +17.
+    // 2348 once the digest is posted into the group's own chat and names only
+    // the members who share their training: `notifications.group_digest.room_scope`
+    // says how many of the group that is and how to join in. +1 (carnet#518).
+    // 2361 once the group health flags and the weekly report stopped carrying
+    // English sentences from the server: `groups.flagDetail.*` phrases each
+    // flag's evidence (+5), `groups.report.*` the report's summary, fresh-form,
+    // concern, review and trend lines (+6), and `groups.ofTotal` and
+    // `groups.respondMentionedHint` replace two English literals in the same
+    // Group info panel (+2), and `groups.report.trendStable` so a steady
+    // week still says which way the group went (+1). The same panel's member
+    // count, "(you)" and invite-use lines (`groups.memberCount`, `youSuffix`,
+    // `inviteUses`, `inviteUsed`) replace English literals (+4). +18 (carnet#520).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2347);
+    expect(reference).toHaveLength(2366);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

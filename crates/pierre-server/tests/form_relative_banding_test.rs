@@ -9,7 +9,7 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
-use pierre_core::models::groups::{HealthFlagSeverity, MemberFlag};
+use pierre_core::models::groups::{FlagEvidence, HealthFlagSeverity, MemberFlag};
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, SportType};
 use pierre_core::models::{ActivityBuilder, FormBand};
@@ -282,10 +282,13 @@ fn health_flags_band_form_on_ctl_not_absolute_tsb() {
         .expect("elite gets the heavy-block warning");
     assert_eq!(elite_flag.flag_type, MemberFlag::Overreaching);
     assert_eq!(elite_flag.severity, HealthFlagSeverity::Warning);
-    assert!(
-        elite_flag.detail.contains("-25% of fitness"),
-        "detail should quote form, got: {}",
-        elite_flag.detail
+    assert_eq!(
+        elite_flag.evidence,
+        FlagEvidence::FormShare {
+            form_pct: -25.0,
+            tsb: -25.0
+        },
+        "the flag carries form as a share of CTL, next to the TSB it was read from"
     );
 
     let amateur_flag = flags
@@ -294,7 +297,13 @@ fn health_flags_band_form_on_ctl_not_absolute_tsb() {
         .expect("amateur is in the deepest fatigue band");
     assert_eq!(amateur_flag.flag_type, MemberFlag::DeepFatigue);
     assert_eq!(amateur_flag.severity, HealthFlagSeverity::Critical);
-    assert!(amateur_flag.detail.contains("-50% of fitness"));
+    assert_eq!(
+        amateur_flag.evidence,
+        FlagEvidence::FormShare {
+            form_pct: -50.0,
+            tsb: -25.0
+        }
+    );
 }
 
 #[test]

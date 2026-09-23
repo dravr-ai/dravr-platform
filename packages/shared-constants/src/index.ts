@@ -157,3 +157,17 @@ export {
   VERDICT_CHIP_N_KEY,
   verdictChipLabel,
 } from './verdicts';
+
+// Group health flags and the weekly report: the server sends evidence and
+// stats, and both clients phrase them through these keys with their own t()
+export {
+  HEALTH_FLAG_DETAIL_KEY,
+  WEEKLY_REPORT_KEY,
+  signedWhole,
+  oneDecimal,
+  healthFlagDetail,
+  healthFlagConcern,
+  freshMemberLine,
+  weeklyReportSummary,
+  weeklyReportRecommendations,
+} from './groups';

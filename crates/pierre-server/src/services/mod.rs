@@ -81,6 +81,11 @@ pub mod seat_reclaim_worker;
 #[cfg(feature = "client-messaging")]
 pub mod commitment_reporter;
 
+/// Posts a group's weekly digest into the group's bound chat — the
+/// implementation of the digest scheduler's chat seam.
+#[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+pub mod group_chat_poster;
+
 /// AuthService-backed credential refresher installed on the health-sync
 /// storage post-Arc (the refresh path needs the composition-root runtime).
 #[cfg(feature = "health-sync")]

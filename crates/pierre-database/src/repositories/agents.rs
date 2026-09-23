@@ -456,4 +456,34 @@ pub trait CoachingGroupRepository: Send + Sync {
         viewer_user_id: Uuid,
         limit: i64,
     ) -> AppResult<Vec<GroupTranscriptEntry>>;
+
+    // -- Weekly digest deliveries --
+
+    /// Take one group's weekly digest for one week, if nobody has.
+    ///
+    /// `week_key` names the ISO week in the group's own calendar. The first
+    /// claim for a week inserts its row and wins; a later one wins only when
+    /// that week was never finished and the earlier claim's lease has run out
+    /// — an instance that died mid-send. On success the lease runs to
+    /// `now_ms + lease_ms` and `true` comes back. The check and the write are
+    /// one statement, so two instances asking at once get one `true` between
+    /// them.
+    async fn claim_group_digest(
+        &self,
+        tenant_id: TenantId,
+        group_id: Uuid,
+        week_key: &str,
+        now_ms: i64,
+        lease_ms: i64,
+    ) -> AppResult<bool>;
+
+    /// Record that the week's digest attempt is over, whatever it delivered:
+    /// no later claim for that group and week wins.
+    async fn finish_group_digest(
+        &self,
+        tenant_id: TenantId,
+        group_id: Uuid,
+        week_key: &str,
+        now_ms: i64,
+    ) -> AppResult<()>;
 }

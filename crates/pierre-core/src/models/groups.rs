@@ -636,10 +636,8 @@ pub struct GroupHealthFlag {
     pub flag_type: MemberFlag,
     /// Severity (informational, warning, critical)
     pub severity: HealthFlagSeverity,
-    /// Human-readable detail
-    pub detail: String,
-    /// The measurement behind the flag, so a surface can phrase it in the
-    /// reader's language instead of relaying [`Self::detail`]'s English.
+    /// The measurement behind the flag. The flag carries no sentence: each
+    /// surface phrases this in its reader's language.
     pub evidence: FlagEvidence,
 }
 
@@ -681,19 +679,31 @@ pub enum HealthFlagSeverity {
     Critical,
 }
 
-/// Weekly report for a coaching group
+/// A member whose form reads Fresh against their own chronic base.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FreshMember {
+    /// The member
+    pub user_id: Uuid,
+    /// Display name
+    pub display_name: String,
+    /// Form as a percentage of CTL.
+    pub form_pct: f64,
+    /// The TSB the percentage was read from.
+    pub tsb: f64,
+}
+
+/// Weekly report for a coaching group.
+///
+/// Numbers only, never sentences: each client phrases them in its reader's
+/// language. The concerns are the group's health flags, and the recommended
+/// actions follow from [`GroupAggregateStats::flagged_members`] and
+/// [`GroupAggregateStats::weekly_trend`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupWeeklyReport {
-    /// Summary text
-    pub summary: String,
-    /// Notable achievements
-    pub highlights: Vec<String>,
-    /// Concerns requiring attention
-    pub concerns: Vec<String>,
-    /// Recommended actions
-    pub recommendations: Vec<String>,
     /// Stats for the reporting period
     pub stats: GroupAggregateStats,
+    /// Members in fresh form
+    pub fresh_members: Vec<FreshMember>,
 }
 
 /// Context passed to strategy traits for prompt building

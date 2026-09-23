@@ -23,6 +23,7 @@
 //! join risks the wrong language for no isolation gain.
 
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
+use pierre_core::models::User;
 use pierre_database::repositories::UserRepository;
 use uuid::Uuid;
 
@@ -33,12 +34,17 @@ use uuid::Uuid;
 /// thing to a caller — "we do not know, use the default" — so all three land on
 /// the default rather than three different behaviours per call site.
 pub async fn resolve_user_locale(users: &dyn UserRepository, user_id: Uuid) -> String {
-    users
-        .get_global(user_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|user| user.locale)
+    let user = users.get_global(user_id).await.ok().flatten();
+    user_locale(user.as_ref())
+}
+
+/// The locale of a user row the caller already holds — the rule
+/// [`resolve_user_locale`] applies, for a caller that read many users in one
+/// batch query instead of one lookup each.
+#[must_use]
+pub fn user_locale(user: Option<&User>) -> String {
+    user.map(|user| user.locale.as_str())
         .filter(|locale| !locale.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_LOCALE.to_owned())
+        .unwrap_or(DEFAULT_LOCALE)
+        .to_owned()
 }

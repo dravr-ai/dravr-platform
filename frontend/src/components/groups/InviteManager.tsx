@@ -50,8 +50,9 @@ function kind_options(t: (key: string) => string): SelectOption[] {
 ];
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString(undefined, {
+/** A date in the reader's language, not the browser's. */
+function formatDate(dateStr: string, language: string): string {
+  return new Date(dateStr).toLocaleDateString(language, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -71,7 +72,7 @@ function isExhausted(invite: GroupInvite): boolean {
 }
 
 export default function InviteManager({ groupId, currentUserRole }: InviteManagerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { invites, isLoading } = useGroupInvites(groupId);
   const { createInvite, isPending: isCreating } = useCreateInvite(groupId);
   const { deactivateInvite, isPending: isDeactivating } = useDeactivateInvite(groupId);
@@ -242,10 +243,13 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                   </div>
                   <div className="flex items-center gap-3 text-xs text-outline">
                     <span>
-                      {invite.use_count} / {invite.max_uses ?? 'unlimited'} uses
+                      {t('groups.inviteUses', {
+                        used: invite.use_count,
+                        max: invite.max_uses ?? t('groups.inviteUnlimited'),
+                      })}
                     </span>
                     {invite.expires_at && (
-                      <span>{t('frag.expires')} {formatDate(invite.expires_at)}</span>
+                      <span>{t('frag.expires')} {formatDate(invite.expires_at, i18n.language)}</span>
                     )}
                     {!invite.expires_at && <span>{t('groups.inviteNoExpiry')}</span>}
                   </div>
@@ -300,7 +304,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                     <code className="text-sm text-on-surface-variant font-mono truncate">{invite.code}</code>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-on-surface-variant">
-                    <span>{invite.use_count} uses</span>
+                    <span>{t('groups.inviteUsed', { n: invite.use_count })}</span>
                     {!invite.is_active && <span>{t('groups.inviteDeactivated')}</span>}
                     {invite.is_active && isExpired(invite) && <span>{t('groups.inviteExpired')}</span>}
                     {invite.is_active && isExhausted(invite) && <span>{t('groups.inviteMaxReached')}</span>}

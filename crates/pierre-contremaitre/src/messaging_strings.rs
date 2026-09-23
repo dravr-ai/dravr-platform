@@ -1128,6 +1128,10 @@ pub const KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP: &str =
 /// Key: closing line when no member is highlighted or flagged. No format
 /// placeholders.
 pub const KEY_GROUP_DIGEST_ALL_CLEAR: &str = "notifications.group_digest.all_clear";
+/// Key: the opening line of a digest posted into the group's chat when fewer
+/// than all members share their training, and the whole body when none do.
+/// `{0}` members who share, `{1}` members.
+pub const KEY_GROUP_DIGEST_ROOM_SCOPE: &str = "notifications.group_digest.room_scope";
 
 /// Key: the "reply to your coach" action button. No format placeholders.
 pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";

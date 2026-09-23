@@ -965,18 +965,28 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_coaching_workers(&resources);
     }
 
-    // Start group weekly-digest scheduler (weekly cadence). Reads the
-    // per-tenant `weekly_digest` tier flag to decide eligibility, computes
-    // the same weekly report the on-demand /report endpoint returns, and
-    // pushes it to each group's owner/admins. The spawned task is fire-and-
-    // forget: the scheduler is best-effort and a restart re-arms the timer.
+    // Start the group weekly-digest scheduler. Reads the per-tenant
+    // `weekly_digest` tier flag to decide eligibility and sends each group its
+    // digest at Monday 08:00 in the group's own zone, at most once a week:
+    // into the group's bound chat through the poster, and to its owner/admins
+    // as a notification. Fire-and-forget: the worker ledger and the per-group
+    // delivery ledger carry its schedule across restarts.
     #[cfg(feature = "client-groups")]
     {
+        #[cfg(feature = "client-messaging")]
+        use pierre_mcp_server::services::group_chat_poster::ServerGroupChatPoster;
         use pierre_routes_groups::group_digest_scheduler::start_digest_scheduler;
+        #[cfg(feature = "client-messaging")]
+        let poster = Some(ServerGroupChatPoster::from_repos(Arc::clone(
+            &resources.common.repos,
+        )));
+        #[cfg(not(feature = "client-messaging"))]
+        let poster = None;
         start_digest_scheduler(
             Arc::clone(&resources),
             #[cfg(feature = "client-notifications")]
             resources.common.notification_service.clone(),
+            poster,
         );
     }
 

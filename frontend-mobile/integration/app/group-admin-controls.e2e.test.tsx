@@ -5,6 +5,7 @@ import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Alert, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import type {
   CoachingGroup,
   GroupHealthFlagsResponse,
@@ -108,10 +109,7 @@ const PERMISSIONS: GroupPermissionsResponse = {
 
 const REPORT: GroupWeeklyReportResponse = {
   report: {
-    summary: 'Harricana 2027 had 2/2 active members this week with average volume of 61.5km.',
-    highlights: ['Phil is in fresh form (TSB +9, 12% of CTL)'],
-    concerns: ['ChefFamille: weekly volume down 35%'],
-    recommendations: ['Review 1 flagged member(s) and consider recovery adjustments.'],
+    fresh_members: [{ user_id: 'user-phil', display_name: 'Phil', form_pct: 12.4, tsb: 8.6 }],
     stats: {
       total_members: 2,
       active_members: 2,
@@ -130,7 +128,6 @@ const HEALTH: GroupHealthFlagsResponse = {
       display_name: 'ChefFamille',
       flag_type: 'volume_drop',
       severity: 'warning',
-      detail: 'weekly volume down 35%',
       evidence: { kind: 'volume_below_group', pct_below: 35 },
     },
     {
@@ -138,7 +135,6 @@ const HEALTH: GroupHealthFlagsResponse = {
       display_name: 'Phil',
       flag_type: 'inactive',
       severity: 'warning',
-      detail: 'no activity for 11 days',
       evidence: { kind: 'inactive_days', days: 11 },
     },
   ],
@@ -381,13 +377,51 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       fireEvent.press(await findByTestId('group-info-analytics-toggle'));
     });
     await waitFor(() => {
-      expect(getByTestId('group-report-summary').props.children).toBe(REPORT.report.summary);
+      expect(getByTestId('group-report-summary').props.children).toBe(
+        '2/2 members active this week, averaging 61.5 km each.',
+      );
     });
     expect(getAllByTestId('group-report-highlight')).toHaveLength(1);
-    expect(getAllByTestId('group-report-concern')).toHaveLength(1);
-    expect(getAllByTestId('group-report-recommendation')).toHaveLength(1);
+    expect(getByText('Phil: fresh form (+12% of chronic load, TSB +9)')).toBeTruthy();
+    // The concerns are the health flags, one line per flag.
+    expect(getAllByTestId('group-report-concern')).toHaveLength(2);
+    expect(getByText('ChefFamille: Weekly volume 35% below the group average')).toBeTruthy();
+    expect(getAllByTestId('group-report-recommendation')).toHaveLength(2);
+    expect(getByText('Members at high overtraining risk: 1. Consider adjusting their recovery.')).toBeTruthy();
+    // A steady week still says which way the group went.
+    expect(getByText('Group volume is steady compared with last week.')).toBeTruthy();
     expect(getAllByTestId('group-health-flag-row')).toHaveLength(2);
     expect(getByText('Health flags (2)')).toBeTruthy();
-    expect(getByText('no activity for 11 days')).toBeTruthy();
+    expect(getByText('No activity for 11 days')).toBeTruthy();
+  });
+
+  describe('in French', () => {
+    beforeEach(async () => {
+      await i18n.changeLanguage('fr');
+    });
+
+    afterEach(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    it('phrases the flags, the report and the decimals in French', async () => {
+      const { getByTestId, getByText, findByTestId } = renderGroup();
+
+      await act(async () => {
+        fireEvent.press(await findByTestId('group-info-analytics-toggle'));
+      });
+      await waitFor(() => {
+        expect(getByTestId('group-report-summary').props.children).toBe(
+          '2/2 membres actifs cette semaine, 61,5 km en moyenne par membre.',
+        );
+      });
+      expect(getByText('Aucune activité depuis 11 jours')).toBeTruthy();
+      expect(getByText('Volume hebdo 35 % sous la moyenne du groupe')).toBeTruthy();
+      expect(getByText('Phil : Aucune activité depuis 11 jours')).toBeTruthy();
+      expect(getByText('Phil : forme fraîche (+12 % de sa charge chronique, TSB +9)')).toBeTruthy();
+      await waitFor(() => {
+        expect(getByTestId('group-stat-volume').props.children).toBe('61,5');
+      });
+    });
   });
 });

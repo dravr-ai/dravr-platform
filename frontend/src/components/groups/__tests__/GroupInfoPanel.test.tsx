@@ -4,13 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GroupInfoPanel from '../GroupInfoPanel';
 import { ToastProvider } from '../../ui';
 import type { CoachingGroup, GroupMember } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 
 const CALLER_ID = 'user-caller';
 const OTHER_ID = 'user-other';
@@ -127,11 +128,7 @@ describe('GroupInfoPanel', () => {
     });
     vi.mocked(groupsApi.getWeeklyReport).mockResolvedValue({
       report: {
-        summary:
-          'Marathon Squad had 2/2 active members this week with average volume of 41.5km. Overall trend: stable.',
-        highlights: ['Caller is in fresh form (TSB +9, 12% of CTL)'],
-        concerns: ['Other: no activity for 11 days'],
-        recommendations: ['Review 1 flagged member(s) and consider recovery adjustments.'],
+        fresh_members: [{ user_id: CALLER_ID, display_name: 'Caller', form_pct: 12.4, tsb: 8.6 }],
         stats: {
           total_members: 2,
           active_members: 2,
@@ -149,7 +146,6 @@ describe('GroupInfoPanel', () => {
           display_name: 'Other',
           flag_type: 'inactive',
           severity: 'warning',
-          detail: 'no activity for 11 days',
           evidence: { kind: 'inactive_days', days: 11 },
         },
         {
@@ -157,7 +153,6 @@ describe('GroupInfoPanel', () => {
           display_name: 'Caller',
           flag_type: 'volume_drop',
           severity: 'warning',
-          detail: 'weekly volume down 35%',
           evidence: { kind: 'volume_below_group', pct_below: 35 },
         },
       ],
@@ -175,7 +170,7 @@ describe('GroupInfoPanel', () => {
 
     expect(await screen.findByTestId('group-info-name')).toHaveTextContent('Marathon Squad');
     expect(screen.getByTestId('group-info-description')).toHaveTextContent('Sunday long runs');
-    expect(await screen.findByText('2 members')).toBeInTheDocument();
+    expect(await screen.findByText('Members: 2')).toBeInTheDocument();
   });
 
   it('binds the consent switch to the caller own membership row', async () => {
@@ -231,13 +226,64 @@ describe('GroupInfoPanel', () => {
     renderPanel();
 
     expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(
-      'Marathon Squad had 2/2 active members this week',
+      '2/2 members active this week, averaging 41.5 km each.',
     );
-    expect(screen.getAllByTestId('group-report-highlight')).toHaveLength(1);
-    expect(screen.getAllByTestId('group-report-concern')).toHaveLength(1);
-    expect(screen.getAllByTestId('group-report-recommendation')).toHaveLength(1);
-    expect(screen.getAllByTestId('group-health-flag-row')).toHaveLength(2);
+    const highlights = screen.getAllByTestId('group-report-highlight');
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0]).toHaveTextContent('Caller: fresh form (+12% of chronic load, TSB +9)');
+    // The concerns are the health flags, one line per flag.
+    const concerns = screen.getAllByTestId('group-report-concern');
+    expect(concerns.map((c) => c.textContent)).toEqual([
+      'Other: No activity for 11 days',
+      'Caller: Weekly volume 35% below the group average',
+    ]);
+    const recommendations = screen.getAllByTestId('group-report-recommendation');
+    expect(recommendations.map((r) => r.textContent)).toEqual([
+      'Members at high overtraining risk: 1. Consider adjusting their recovery.',
+      'Group volume is steady compared with last week.',
+    ]);
+    const rows = screen.getAllByTestId('group-health-flag-row');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByText('No activity for 11 days')).toBeInTheDocument();
     expect(screen.getByText('Health flags (2)')).toBeInTheDocument();
+    expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
+  });
+
+  describe('in French', () => {
+    beforeEach(async () => {
+      await i18n.changeLanguage('fr');
+    });
+
+    afterEach(async () => {
+      // Unmount first: switching the language under a mounted panel re-renders
+      // it outside act().
+      cleanup();
+      await i18n.changeLanguage('en');
+    });
+
+    it('phrases the flags, the report and the decimals in French', async () => {
+      renderPanel();
+
+      expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(
+        '2/2 membres actifs cette semaine, 41,5 km en moyenne par membre.',
+      );
+      const rows = screen.getAllByTestId('group-health-flag-row');
+      expect(within(rows[0]).getByText('Aucune activité depuis 11 jours')).toBeInTheDocument();
+      expect(within(rows[1]).getByText('Volume hebdo 35 % sous la moyenne du groupe')).toBeInTheDocument();
+      expect(screen.getAllByTestId('group-report-concern')[0]).toHaveTextContent(
+        'Other : Aucune activité depuis 11 jours',
+      );
+      expect(screen.getByTestId('group-report-highlight')).toHaveTextContent(
+        'Caller : forme fraîche (+12 % de sa charge chronique, TSB +9)',
+      );
+      const stats = within(screen.getByTestId('group-info-stats'));
+      expect(stats.getByText('sur 2 au total')).toBeInTheDocument();
+      // The panel's own chrome reads French too: the member count, the
+      // caller's marker and the join dates.
+      expect(screen.getByText('Membres : 2')).toBeInTheDocument();
+      expect(screen.getByText('(toi)')).toBeInTheDocument();
+      expect(stats.getByText('41,5')).toBeInTheDocument();
+    });
   });
 
   it('withholds the report when the tenant tier does not enable the weekly digest', async () => {

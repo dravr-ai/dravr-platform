@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, FlagEvidence, GroupAggregateStats, GroupContext,
-    GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
-    GroupSummary, GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
+    CoachingGroup, CreateGroupRequest, FlagEvidence, FreshMember, GroupAggregateStats,
+    GroupContext, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode,
+    GroupRole, GroupSummary, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
     MemberFlag, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
@@ -185,46 +185,22 @@ impl GroupService {
 
         let member_count = members.len();
 
-        // Build summary cards from snapshots.
-        //
-        // Per-member `peer_sharing_consent` is the single source of
-        // truth: each individual member opts in independently and only
-        // their snapshot surfaces. A subset of members can be sharing
-        // while the rest stay private.
-        //
-        // `group.peer_data_sharing` is repurposed as an admin kill
-        // switch — when explicitly set to FALSE, every member's
-        // snapshot is hidden regardless of their consent (admin nuked
-        // sharing for the whole group). Default on auto-bound groups
-        // is TRUE so individual consent works without an extra step.
-        //
-        // The requester's own snapshot is always visible regardless of
-        // their own consent flag — they can see their own data even if
-        // they haven't opted in to peer sharing.
+        // Build summary cards from the snapshots of the members who share
+        // (see `peer_sharing_user_ids`). The requester's own snapshot is
+        // always visible regardless of their own consent flag — they can see
+        // their own data even if they haven't opted in to peer sharing.
         let summarizer = self.tier.summarization_strategy();
-        let consenting_user_ids: HashSet<Uuid> = members
+        let sharing_user_ids = Self::peer_sharing_user_ids(&group, &members);
+        let visible_snapshots: Vec<&MemberFitnessSnapshot> = member_snapshots
             .iter()
-            .filter(|m| m.peer_sharing_consent)
-            .map(|m| m.user_id)
+            .filter(|s| s.user_id == user_id || sharing_user_ids.contains(&s.user_id))
             .collect();
-        let visible_snapshots: Vec<&MemberFitnessSnapshot> = if group.peer_data_sharing {
-            member_snapshots
-                .iter()
-                .filter(|s| s.user_id == user_id || consenting_user_ids.contains(&s.user_id))
-                .collect()
-        } else {
-            // Kill switch: only the requester's own snapshot leaks.
-            member_snapshots
-                .iter()
-                .filter(|s| s.user_id == user_id)
-                .collect()
-        };
         info!(
             group_id = %group.id,
             requester_user_id = %user_id,
             peer_data_sharing = group.peer_data_sharing,
             total_members = members.len(),
-            consenting_count = consenting_user_ids.len(),
+            sharing_count = sharing_user_ids.len(),
             input_snapshot_count = member_snapshots.len(),
             visible_count = visible_snapshots.len(),
             "Group context visibility filter applied"
@@ -988,9 +964,6 @@ impl GroupService {
                             display_name: s.display_name.clone(),
                             flag_type: MemberFlag::DeepFatigue,
                             severity: HealthFlagSeverity::Critical,
-                            detail: format!(
-                                "Form at {pct:.0}% of fitness (TSB {tsb:+.0}), deepest fatigue band"
-                            ),
                             evidence: FlagEvidence::FormShare { form_pct: pct, tsb },
                         }),
                         FormBand::HeavyBlock => flags.push(GroupHealthFlag {
@@ -998,9 +971,6 @@ impl GroupService {
                             display_name: s.display_name.clone(),
                             flag_type: MemberFlag::Overreaching,
                             severity: HealthFlagSeverity::Warning,
-                            detail: format!(
-                                "Form at {pct:.0}% of fitness (TSB {tsb:+.0}), deep end of the productive zone"
-                            ),
                             evidence: FlagEvidence::FormShare { form_pct: pct, tsb },
                         }),
                         _ => {}
@@ -1012,7 +982,6 @@ impl GroupService {
                         display_name: s.display_name.clone(),
                         flag_type: MemberFlag::Overreaching,
                         severity: HealthFlagSeverity::Warning,
-                        detail: "High overtraining risk detected, recommend recovery".to_owned(),
                         evidence: FlagEvidence::OvertrainingRisk,
                     });
                 }
@@ -1025,7 +994,6 @@ impl GroupService {
                             display_name: s.display_name.clone(),
                             flag_type: MemberFlag::Inactive,
                             severity: HealthFlagSeverity::Warning,
-                            detail: format!("No activity for {days} days"),
                             evidence: FlagEvidence::InactiveDays { days },
                         });
                     }
@@ -1042,9 +1010,6 @@ impl GroupService {
                             display_name: s.display_name.clone(),
                             flag_type: MemberFlag::VolumeDrop,
                             severity: HealthFlagSeverity::Info,
-                            detail: format!(
-                                "Weekly volume {pct}% below group average, possible detraining"
-                            ),
                             evidence: FlagEvidence::VolumeBelowGroup { pct_below: pct },
                         });
                     }
@@ -1087,73 +1052,45 @@ impl GroupService {
         })
     }
 
-    /// Generate a deterministic (non-AI) weekly report from member snapshots.
+    /// The members whose training the rest of the group may see.
     ///
-    /// Includes summary, highlights (members in fresh form), concerns from
-    /// health flags, and recommendations derived from flag count and trend.
+    /// Per-member `peer_sharing_consent` is the single source of truth, so a
+    /// subset can share while the rest stay private. `peer_data_sharing` is
+    /// the admin kill switch: when FALSE nobody shares, whatever they
+    /// consented to. Auto-bound groups default it to TRUE so individual
+    /// consent works without an extra step. The agent's group context and
+    /// the digest posted into the group's chat both read this one rule.
     #[must_use]
-    pub fn compute_weekly_report(
-        &self,
-        snapshots: &[MemberFitnessSnapshot],
-        group_name: &str,
-    ) -> GroupWeeklyReport {
-        let stats = self.compute_aggregate_stats(snapshots);
-        let flags = Self::compute_health_flags(snapshots);
+    pub fn peer_sharing_user_ids(group: &CoachingGroup, members: &[GroupMember]) -> HashSet<Uuid> {
+        if !group.peer_data_sharing {
+            return HashSet::new();
+        }
+        members
+            .iter()
+            .filter(|m| m.peer_sharing_consent)
+            .map(|m| m.user_id)
+            .collect()
+    }
 
-        let trend_label = match stats.weekly_trend {
-            GroupTrend::Improving => "improving",
-            GroupTrend::Declining => "declining",
-            GroupTrend::Stable => "stable",
-        };
-
-        let summary = format!(
-            "{group_name} had {}/{} active members this week with average volume of {:.1}km. \
-             Overall trend: {trend_label}.",
-            stats.active_members, stats.total_members, stats.avg_weekly_volume_km
-        );
-
-        let highlights: Vec<String> = Self::fresh_members(snapshots)
-            .map(|(s, pct)| {
-                format!(
-                    "{} is in fresh form (TSB {:+.0}, {pct:.0}% of CTL)",
-                    s.display_name,
-                    s.tsb.unwrap_or_default()
-                )
+    /// Build the weekly report from member snapshots: the aggregate stats and
+    /// the members in fresh form, as numbers a client phrases in its reader's
+    /// language.
+    #[must_use]
+    pub fn compute_weekly_report(&self, snapshots: &[MemberFitnessSnapshot]) -> GroupWeeklyReport {
+        let fresh_members = Self::fresh_members(snapshots)
+            .filter_map(|(s, form_pct)| {
+                s.tsb.map(|tsb| FreshMember {
+                    user_id: s.user_id,
+                    display_name: s.display_name.clone(),
+                    form_pct,
+                    tsb,
+                })
             })
             .collect();
 
-        let concerns: Vec<String> = flags
-            .iter()
-            .map(|f| format!("{}: {}", f.display_name, f.detail))
-            .collect();
-
-        let mut recommendations = Vec::new();
-        if stats.flagged_members > 0 {
-            recommendations.push(format!(
-                "Review {} flagged member(s) and consider recovery adjustments.",
-                stats.flagged_members
-            ));
-        }
-        match stats.weekly_trend {
-            GroupTrend::Declining => {
-                recommendations.push(
-                    "Group volume is declining — check in with less active members.".to_owned(),
-                );
-            }
-            GroupTrend::Improving => {
-                recommendations.push(
-                    "Good momentum — ensure recovery keeps pace with rising volume.".to_owned(),
-                );
-            }
-            GroupTrend::Stable => {}
-        }
-
         GroupWeeklyReport {
-            summary,
-            highlights,
-            concerns,
-            recommendations,
-            stats,
+            stats: self.compute_aggregate_stats(snapshots),
+            fresh_members,
         }
     }
 

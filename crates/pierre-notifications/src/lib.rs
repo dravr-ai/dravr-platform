@@ -26,10 +26,11 @@
 //! installed the mobile app therefore received *nothing* — not for training, not
 //! for recovery, not for agent follow-ups. [`NotificationChannelSink`] is the
 //! seam that fixes that for every category at once:
-//! [`NotificationService::dispatch`] runs the
-//! upstream pipeline first, so preferences, quiet hours and frequency caps
-//! decide as they always did, and delivers to the linked channel only when the
-//! pipeline actually accepted the notification.
+//! [`NotificationService::dispatch_event`] and
+//! [`NotificationService::dispatch_with_tier`] run the upstream pipeline first,
+//! so preferences, quiet hours and frequency caps decide as they always did,
+//! and deliver to the linked channel only when the pipeline actually accepted
+//! the notification.
 //!
 //! The sink is an SPI rather than a direct dependency because the messaging
 //! adapters, channel-link repository and localized string registry live above
@@ -77,10 +78,21 @@ pub use policy::{DigestCadence, PersonaPolicyGate, PushPolicy, PushTier};
 /// in-app list shows them like any other notification.
 pub const PERSONA_GATED_DATA_KEY: &str = "persona_gated";
 
+/// Whether an accepted notification also goes out on the recipient's linked
+/// chat channels, or stays in the app (the stored row and the device push).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelFanOut {
+    /// The stored row, the device push and every linked chat channel.
+    LinkedChannels,
+    /// The stored row and the device push only.
+    InAppOnly,
+}
+
 /// A platform delivery sink for an accepted notification.
 ///
 /// Implemented once, by the messaging sink in `pierre-services`, and consumed
-/// once, by [`NotificationService::dispatch`]. Delivery is best-effort by
+/// once, by the delivery step behind [`NotificationService::dispatch_event`]
+/// and [`NotificationService::dispatch_with_tier`]. Delivery is best-effort by
 /// contract: a sink must not fail the dispatch, because the notification is
 /// already persisted and visible in-app by the time a sink runs. It reports
 /// how many channels it reached, which is how a caller that must know whether
@@ -104,8 +116,8 @@ pub struct Delivery {
     /// every channel.
     pub outcome: DispatchOutcome,
     /// Linked chat channels the channel sink delivered it to; zero when the
-    /// notification was suppressed, persona-gated, or the recipient links no
-    /// channel.
+    /// notification was suppressed, persona-gated, dispatched to the app
+    /// alone, or the recipient links no channel.
     pub channels: usize,
 }
 
@@ -180,10 +192,12 @@ pub trait NotificationLocalizer: Send + Sync {
 ///
 /// `dravr-commere`'s pipeline plus the delivery sinks this platform adds on
 /// top. [`Deref`]s to the upstream service, so device tokens, preferences,
-/// scheduled notifications and analytics are reached exactly as before. Only
-/// [`Self::dispatch`] is overridden — an inherent method takes precedence over
-/// the deref'd one — which is what keeps the fan-out in one place instead of at
-/// every call site that raises a notification.
+/// scheduled notifications and analytics are reached exactly as before. A
+/// notification is raised through [`Self::dispatch_event`] (or
+/// [`Self::dispatch_event_in_app`], or [`Self::dispatch_with_tier`] for a
+/// pre-rendered request), which is what keeps the persona gate and the channel
+/// fan-out in one place instead of at every call site. The upstream `dispatch`
+/// stays reachable through the deref and runs neither.
 pub struct NotificationService {
     /// The upstream pipeline: preferences, persistence, Expo push.
     inner: dravr_commere::NotificationService,
@@ -281,6 +295,39 @@ impl NotificationService {
         dispatch: &EventDispatch,
         tier: PushTier,
     ) -> CommereResult<Delivery> {
+        self.dispatch_event_to(dispatch, tier, ChannelFanOut::LinkedChannels)
+            .await
+    }
+
+    /// Dispatch a product event at an explicit [`PushTier`] to the app alone.
+    ///
+    /// The persona gate, the localizer, the stored row and the device push run
+    /// exactly as they do for [`Self::dispatch_event`]; the recipient's linked
+    /// chat channels do not. For an event whose chat copy reaches the
+    /// recipient another way — the group weekly digest a group's own chat
+    /// already receives — so that nobody is told the same thing twice in chat.
+    /// The returned [`Delivery`] always counts zero channels.
+    ///
+    /// # Errors
+    ///
+    /// Returns the upstream [`CommereError`] when the pipeline itself fails.
+    pub async fn dispatch_event_in_app(
+        &self,
+        dispatch: &EventDispatch,
+        tier: PushTier,
+    ) -> CommereResult<Delivery> {
+        self.dispatch_event_to(dispatch, tier, ChannelFanOut::InAppOnly)
+            .await
+    }
+
+    /// Render `dispatch` for its recipient and route it, fanning out to the
+    /// linked chat channels only when `fan_out` says so.
+    async fn dispatch_event_to(
+        &self,
+        dispatch: &EventDispatch,
+        tier: PushTier,
+        fan_out: ChannelFanOut,
+    ) -> CommereResult<Delivery> {
         let text = match &self.localizer {
             Some(localizer) => localizer.localize(dispatch).await,
             None => NotificationText::keys(dispatch),
@@ -311,7 +358,7 @@ impl NotificationService {
             actions,
             bypass_frequency_cap: dispatch.bypass_frequency_cap,
         };
-        self.route(&request, tier).await
+        self.route(&request, tier, fan_out).await
     }
     /// Dispatch a notification at an explicit [`PushTier`] through the persona
     /// gate, the upstream pipeline, and every platform sink.
@@ -347,14 +394,20 @@ impl NotificationService {
         request: &DispatchRequest,
         tier: PushTier,
     ) -> CommereResult<DispatchOutcome> {
-        self.route(request, tier)
+        self.route(request, tier, ChannelFanOut::LinkedChannels)
             .await
             .map(|delivery| delivery.outcome)
     }
 
-    /// The persona gate, then the pipeline and every sink: the body of
-    /// [`Self::dispatch_with_tier`], reporting the whole [`Delivery`].
-    async fn route(&self, request: &DispatchRequest, tier: PushTier) -> CommereResult<Delivery> {
+    /// The persona gate, then the pipeline and every sink `fan_out` allows:
+    /// the body of [`Self::dispatch_with_tier`] and of both event dispatches,
+    /// reporting the whole [`Delivery`].
+    async fn route(
+        &self,
+        request: &DispatchRequest,
+        tier: PushTier,
+        fan_out: ChannelFanOut,
+    ) -> CommereResult<Delivery> {
         if let Some(gate) = &self.policy_gate {
             if let Some(push_policy) = gate.policy_for(request.user_id, request.tenant_id).await {
                 let would_gate = push_policy.gates(tier);
@@ -374,7 +427,7 @@ impl NotificationService {
                 }
             }
         }
-        self.deliver(request).await
+        self.deliver(request, fan_out).await
     }
 
     /// Persist a persona-gated notification without running the pipeline's
@@ -430,8 +483,13 @@ impl NotificationService {
         })
     }
 
-    /// Run the upstream pipeline, then the channel sink when it accepted.
-    async fn deliver(&self, request: &DispatchRequest) -> CommereResult<Delivery> {
+    /// Run the upstream pipeline, then the channel sink when it accepted and
+    /// `fan_out` reaches the linked channels.
+    async fn deliver(
+        &self,
+        request: &DispatchRequest,
+        fan_out: ChannelFanOut,
+    ) -> CommereResult<Delivery> {
         let outcome = self.inner.dispatch(request).await?;
 
         if matches!(outcome, DispatchOutcome::Suppressed(_)) {
@@ -446,9 +504,9 @@ impl NotificationService {
             });
         }
 
-        let channels = match &self.channel_sink {
-            Some(sink) => sink.deliver(request).await,
-            None => 0,
+        let channels = match (&self.channel_sink, fan_out) {
+            (Some(sink), ChannelFanOut::LinkedChannels) => sink.deliver(request).await,
+            (None, _) | (Some(_), ChannelFanOut::InAppOnly) => 0,
         };
 
         Ok(Delivery { outcome, channels })

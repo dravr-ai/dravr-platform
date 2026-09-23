@@ -5,6 +5,11 @@
 // ABOUTME: Roster, invites, settings, consent, the digest gate, the exits, and the /groups/join landing
 
 import { test, expect, type Page } from '@playwright/test';
+import type {
+  GroupHealthFlag,
+  GroupStatsResponse,
+  GroupWeeklyReportResponse,
+} from '@pierre/shared-types';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
@@ -136,24 +141,24 @@ const mockInvites = {
 };
 
 /** Health flags exactly as `GET /api/groups/:id/health` serialises them. */
-const mockHealthFlags = [
+const mockHealthFlags: GroupHealthFlag[] = [
   {
     user_id: 'user-456',
     display_name: 'Alice Runner',
     flag_type: 'volume_drop',
     severity: 'warning',
-    detail: 'weekly volume down 35% from prior week',
+    evidence: { kind: 'volume_below_group', pct_below: 35 },
   },
   {
     user_id: 'user-789',
     display_name: 'Bob Cyclist',
     flag_type: 'inactive',
     severity: 'warning',
-    detail: 'no activity for 11 days',
+    evidence: { kind: 'inactive_days', days: 11 },
   },
 ];
 
-const mockStats = {
+const mockStats: GroupStatsResponse = {
   stats: {
     total_members: 5,
     active_members: 4,
@@ -312,18 +317,16 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
   });
 
   await page.route(`**/api/groups/${GROUP_ID}/report`, async (route) => {
+    const body: GroupWeeklyReportResponse = {
+      report: {
+        stats: mockStats.stats,
+        fresh_members: [{ user_id: 'user-456', display_name: 'Alice Runner', form_pct: 12, tsb: 9 }],
+      },
+    };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        report: {
-          summary: 'Marathon Training 2026 had 3/3 active members this week.',
-          highlights: ['Alice Runner is in fresh form (TSB +9, 12% of CTL)'],
-          concerns: ['Bob Cyclist: no activity for 11 days'],
-          recommendations: ['Review 1 flagged member(s) and consider recovery adjustments.'],
-          stats: mockStats.stats,
-        },
-      }),
+      body: JSON.stringify(body),
     });
   });
 
@@ -521,7 +524,7 @@ test.describe('Group info — invites', () => {
     await openGroupInfo(page, { userGroupRole: 'owner' });
 
     await expect(page.getByText('MRT2026X')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('3 / 10 uses')).toBeVisible();
+    await expect(page.getByText('Uses: 3 / 10')).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Copy invite link to clipboard' }),
     ).toBeVisible();
@@ -572,12 +575,22 @@ test.describe('Group info — settings and consent', () => {
     await openGroupInfo(page);
 
     await expect(page.getByTestId('group-report-summary')).toHaveText(
-      'Marathon Training 2026 had 3/3 active members this week.',
+      '4/5 members active this week, averaging 38.5 km each.',
     );
-    await expect(page.getByTestId('group-report-highlight')).toHaveCount(1);
-    await expect(page.getByTestId('group-report-concern')).toHaveCount(1);
-    await expect(page.getByTestId('group-report-recommendation')).toHaveCount(1);
+    await expect(page.getByTestId('group-report-highlight')).toHaveText([
+      'Alice Runner: fresh form (+12% of chronic load, TSB +9)',
+    ]);
+    // The concerns are the health flags, one line per flag.
+    await expect(page.getByTestId('group-report-concern')).toHaveText([
+      'Alice Runner: Weekly volume 35% below the group average',
+      'Bob Cyclist: No activity for 11 days',
+    ]);
+    await expect(page.getByTestId('group-report-recommendation')).toHaveText([
+      'Members at high overtraining risk: 1. Consider adjusting their recovery.',
+      'Group volume is up on last week — make sure recovery keeps pace.',
+    ]);
     await expect(page.getByTestId('group-health-flag-row')).toHaveCount(2);
+    await expect(page.getByTestId('group-health-flag-row').nth(1)).toContainText('No activity for 11 days');
     await expect(page.getByText('Health flags (2)')).toBeVisible();
   });
 

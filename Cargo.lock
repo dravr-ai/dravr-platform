@@ -4317,6 +4317,7 @@ dependencies = [
 name = "pierre-routes-groups"
 version = "0.3.0"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
  "chrono-tz",

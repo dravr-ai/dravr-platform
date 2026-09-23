@@ -10,6 +10,13 @@ import { Feather } from '@expo/vector-icons';
 import { useThemeColors } from '../../constants/theme';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '../../types';
+import {
+  freshMemberLine,
+  healthFlagConcern,
+  healthFlagDetail,
+  weeklyReportRecommendations,
+  weeklyReportSummary,
+} from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 /** Corpus key per flag. Module scope, so the section resolves it at render. */
@@ -43,13 +50,17 @@ interface GroupInsightsSectionProps {
  * its card fill and reads as a continuation of that section rather than a box
  * of its own. The severity badge on each flag row stays a chip (a legitimate
  * small status mark), not a card.
+ *
+ * The server sends numbers and evidence, never sentences, so every line here
+ * is phrased in the reader's language by the shared group formatter. The
+ * report's concerns are the health flags themselves, one line per flag.
  */
 export function GroupInsightsSection({
   groupId,
   isAdmin,
   weeklyDigestEnabled,
 }: GroupInsightsSectionProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
@@ -91,43 +102,49 @@ export function GroupInsightsSection({
     );
   }
 
+  const recommendations = report ? weeklyReportRecommendations(t, report.stats) : [];
+
   return (
     <View className="mt-4" testID="group-insights-section">
       {report && (
         <View className="mb-4">
           <Text className="text-text-primary text-sm font-semibold mb-2">{t('groups.thisWeek')}</Text>
           <Text className="text-text-secondary text-sm" testID="group-report-summary">
-            {report.summary}
+            {weeklyReportSummary(t, language, report.stats)}
           </Text>
 
-          {report.highlights.length > 0 && (
+          {report.fresh_members.length > 0 && (
             <View className="mt-3">
               <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.highlights')}</Text>
-              {report.highlights.map((highlight) => (
-                <View key={highlight} className="flex-row items-start mt-1" testID="group-report-highlight">
+              {report.fresh_members.map((member) => (
+                <View key={member.user_id} className="flex-row items-start mt-1" testID="group-report-highlight">
                   <Feather name="check-circle" size={12} color={colors.pierre.activity} />
-                  <Text className="text-text-secondary text-sm ml-2 flex-1">{highlight}</Text>
+                  <Text className="text-text-secondary text-sm ml-2 flex-1">{freshMemberLine(t, member)}</Text>
                 </View>
               ))}
             </View>
           )}
 
-          {report.concerns.length > 0 && (
+          {flags.length > 0 && (
             <View className="mt-3">
               <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.concerns')}</Text>
-              {report.concerns.map((concern) => (
-                <View key={concern} className="flex-row items-start mt-1" testID="group-report-concern">
+              {flags.map((flag) => (
+                <View
+                  key={`${flag.user_id}-${flag.flag_type}`}
+                  className="flex-row items-start mt-1"
+                  testID="group-report-concern"
+                >
                   <Feather name="alert-triangle" size={12} color={colors.error} />
-                  <Text className="text-text-secondary text-sm ml-2 flex-1">{concern}</Text>
+                  <Text className="text-text-secondary text-sm ml-2 flex-1">{healthFlagConcern(t, flag)}</Text>
                 </View>
               ))}
             </View>
           )}
 
-          {report.recommendations.length > 0 && (
+          {recommendations.length > 0 && (
             <View className="mt-3">
               <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.recommendations')}</Text>
-              {report.recommendations.map((recommendation) => (
+              {recommendations.map((recommendation) => (
                 <View
                   key={recommendation}
                   className="flex-row items-start mt-1"
@@ -161,7 +178,7 @@ export function GroupInsightsSection({
                 <Text className="text-text-primary text-sm font-medium" numberOfLines={1}>
                   {flag.display_name}
                 </Text>
-                <Text className="text-text-tertiary text-xs mt-0.5">{flag.detail}</Text>
+                <Text className="text-text-tertiary text-xs mt-0.5">{healthFlagDetail(t, flag)}</Text>
               </View>
               <View
                 className="px-2 py-0.5 rounded"

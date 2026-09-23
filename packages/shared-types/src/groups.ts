@@ -129,13 +129,15 @@ export interface GroupAggregateStats {
   weekly_trend: GroupTrend;
 }
 
-/** Health flag for a group member needing attention */
+/**
+ * Health flag for a group member needing attention. It carries no sentence:
+ * each client phrases `evidence` in its reader's language.
+ */
 export interface GroupHealthFlag {
   user_id: string;
   display_name: string;
   flag_type: MemberFlag;
   severity: HealthFlagSeverity;
-  detail: string;
   evidence: FlagEvidence;
 }
 
@@ -146,13 +148,24 @@ export type FlagEvidence =
   | { kind: 'inactive_days'; days: number }
   | { kind: 'volume_below_group'; pct_below: number };
 
-/** Weekly report for a coaching group */
+/** A member whose form reads fresh against their own chronic base */
+export interface FreshMember {
+  user_id: string;
+  display_name: string;
+  /** Form as a percentage of CTL */
+  form_pct: number;
+  /** The TSB the percentage was read from */
+  tsb: number;
+}
+
+/**
+ * Weekly report for a coaching group: numbers only, phrased by each client.
+ * The concerns are the group's health flags; the recommended actions follow
+ * from `stats.flagged_members` and `stats.weekly_trend`.
+ */
 export interface GroupWeeklyReport {
-  summary: string;
-  highlights: string[];
-  concerns: string[];
-  recommendations: string[];
   stats: GroupAggregateStats;
+  fresh_members: FreshMember[];
 }
 
 // ========== LIST RESPONSES ==========

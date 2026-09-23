@@ -30,6 +30,7 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 # delegate to so REST and chat see identical all-providers + deduplicated data.
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["tools-groups"] }
 
+async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"

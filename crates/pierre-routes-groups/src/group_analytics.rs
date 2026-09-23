@@ -147,6 +147,37 @@ impl GroupAnalyticsRoutes {
         Ok(fetch_member_snapshots(&runtime, &user_ids, tenant_id).await)
     }
 
+    /// The members whose training a caller's `/stats` may aggregate.
+    ///
+    /// A manager (owner or admin) sees the whole roster, as on `/report` and
+    /// `/health`. Any other member sees the members who share their training
+    /// with the group plus themself: an aggregate over a member who does not
+    /// share would give their week away to anyone who subtracts the sharers'
+    /// figures the weekly digest posts into the group's chat.
+    async fn stats_audience<C: ToolRuntime + MiddlewareCtx>(
+        resources: &Arc<C>,
+        group_id: &str,
+        tenant_id: TenantId,
+        caller: &GroupMember,
+    ) -> Result<Vec<Uuid>, AppError> {
+        let repos = MiddlewareCtx::repos(resources.as_ref());
+        let members = repos.groups.list_members(group_id).await?;
+        if caller.role.can_manage_members() {
+            return Ok(members.iter().map(|m| m.user_id).collect());
+        }
+        let group = repos
+            .groups
+            .get_group(group_id, tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
+        let sharing = GroupService::peer_sharing_user_ids(&group, &members);
+        Ok(members
+            .iter()
+            .map(|m| m.user_id)
+            .filter(|id| *id == caller.user_id || sharing.contains(id))
+            .collect())
+    }
+
     /// GET `/api/groups/:group_id/stats` — Aggregate stats for a group.
     async fn handle_get_stats<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
@@ -157,9 +188,11 @@ impl GroupAnalyticsRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        Self::require_member(&resources, &group_id, auth.user_id).await?;
+        let caller = Self::require_member(&resources, &group_id, auth.user_id).await?;
 
-        let member_snapshots = Self::fetch_snapshots(&resources, &group_id, tenant_id).await?;
+        let user_ids = Self::stats_audience(&resources, &group_id, tenant_id, &caller).await?;
+        let runtime = Self::as_runtime(&resources);
+        let member_snapshots = fetch_member_snapshots(&runtime, &user_ids, tenant_id).await;
 
         let stats = resources
             .group_service()
@@ -185,7 +218,8 @@ impl GroupAnalyticsRoutes {
 
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let group = MiddlewareCtx::repos(resources.as_ref())
+        // A group id with no row is a 404 before any snapshot is fetched.
+        MiddlewareCtx::repos(resources.as_ref())
             .groups
             .get_group(&group_id, tenant_id)
             .await?
@@ -195,7 +229,7 @@ impl GroupAnalyticsRoutes {
 
         let report = resources
             .group_service()
-            .compute_weekly_report(&member_snapshots, &group.name);
+            .compute_weekly_report(&member_snapshots);
 
         let response = WeeklyReportResponse {
             report,

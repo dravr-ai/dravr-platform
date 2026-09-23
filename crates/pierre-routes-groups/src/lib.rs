@@ -37,9 +37,18 @@
 /// `/api/groups/*` URL prefix.
 pub mod group_analytics;
 
-/// Background scheduler that pushes group weekly digests on a weekly cadence,
-/// gated by the per-tenant `weekly_digest` tier flag.
+/// The seam through which the weekly-digest scheduler posts into a group's
+/// own bound chat; implemented in `pierre-server` over the messaging adapters.
+pub mod group_chat_poster;
+
+/// Background scheduler that sends each group its weekly digest at a fixed
+/// local slot — into its bound chat and to its managers — gated by the
+/// per-tenant `weekly_digest` tier flag.
 pub mod group_digest_scheduler;
+
+/// When a group's weekly digest is due: Monday 08:00 in the group's own zone,
+/// caught up later that week in daytime, never at night.
+pub mod group_digest_slot;
 
 /// Group coaching endpoints (CRUD, membership, invites, analytics).
 pub mod groups;
@@ -47,6 +56,7 @@ pub mod groups;
 /// Push-notification endpoints (device tokens, preferences, feed, scheduling).
 pub mod notifications;
 
+pub use group_chat_poster::GroupChatPoster;
 pub use groups::{
     GroupMetadata, GroupRoutes, HealthFlagsResponse, StatsResponse, WeeklyReportResponse,
 };

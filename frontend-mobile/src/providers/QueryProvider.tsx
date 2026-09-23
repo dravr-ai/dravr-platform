@@ -215,8 +215,11 @@ export function QueryProvider({ children }: QueryProviderProps) {
       persistOptions={{
         persister: mmkvPersister,
         maxAge: CACHE_TIMES.MAX_CACHE_AGE,
-        // Buster changes invalidate all cached data (useful for schema changes)
-        buster: 'v1',
+        // Changing the buster drops every persisted query. It moves whenever a
+        // cached response changes shape, so a new bundle never renders a
+        // response its components no longer read: v2 is the group health flag
+        // `evidence` and the weekly report's `fresh_members`.
+        buster: 'v2',
       }}
     >
       <View

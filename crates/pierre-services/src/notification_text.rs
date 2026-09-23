@@ -12,7 +12,9 @@
 //! and the linked chat channels, through
 //! [`crate::notification_localizer::UserLocaleNotificationLocalizer`]) and the
 //! read path (`GET /api/notifications`) go through the same renderer, so the
-//! push and the notification centre can never say different things.
+//! push and the notification centre can never say different things. The group
+//! weekly digest a group's own chat receives is rendered here too, from the
+//! same event and parameters, in the language most of its members read.
 //!
 //! This mirrors [`crate::memory_facts::SentenceRenderer`]: one renderer over
 //! the live string catalogue, one locale, no surface gluing English to data.
@@ -23,9 +25,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
     KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP, KEY_GROUP_DIGEST_FRESH,
     KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MEMBERS_HEADER,
-    KEY_GROUP_DIGEST_MEMBER_LINE, KEY_GROUP_DIGEST_MEMBER_LINE_PREV, KEY_GROUP_DIGEST_SUMMARY,
-    KEY_GROUP_DIGEST_TREND_DECLINING, KEY_GROUP_DIGEST_TREND_IMPROVING,
-    KEY_GROUP_DIGEST_TREND_STABLE,
+    KEY_GROUP_DIGEST_MEMBER_LINE, KEY_GROUP_DIGEST_MEMBER_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
+    KEY_GROUP_DIGEST_SUMMARY, KEY_GROUP_DIGEST_TREND_DECLINING, KEY_GROUP_DIGEST_TREND_IMPROVING,
+    KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY,
 };
 use pierre_notifications::events::{action_label_key, NotificationEvent};
 use serde_json::{Map, Value};
@@ -40,6 +42,14 @@ pub const CONCERN_OVERTRAINING_RISK: &str = "overtraining_risk";
 pub const CONCERN_INACTIVE: &str = "inactive";
 /// Group-digest concern code: volume below the group average.
 pub const CONCERN_VOLUME_DROP: &str = "volume_drop";
+
+/// Group-digest parameter carried only by the copy posted into the group's
+/// chat: how many members share their training, which is the set every
+/// number and name in that copy was computed over.
+pub const PARAM_SHARED_MEMBERS: &str = "shared_members";
+/// Group-digest parameter carried beside [`PARAM_SHARED_MEMBERS`]: how many
+/// members the group holds.
+pub const PARAM_ROSTER_MEMBERS: &str = "roster_members";
 
 /// Renders notification events as sentences in one locale.
 #[derive(Clone, Copy)]
@@ -70,6 +80,16 @@ impl<'a> NotificationTextRenderer<'a> {
             return self.group_digest_body(params);
         }
         self.render(event.body_key(), event.body_params(), params)
+    }
+
+    /// The text a chat reads for `event`: its title and body inside the same
+    /// channel wrapper the notification sink puts around a notification on a
+    /// linked channel.
+    #[must_use]
+    pub fn channel_text(&self, event: NotificationEvent, params: &Map<String, Value>) -> String {
+        let title = self.title(event, params);
+        let body = self.body(event, params);
+        self.line(KEY_NOTIFICATION_CHANNEL_BODY, &[&title, &body])
     }
 
     /// The title and body a *group* of `count` consecutive `event` rows reads
@@ -113,15 +133,28 @@ impl<'a> NotificationTextRenderer<'a> {
     /// the same row again in whatever language the reader switches to. An
     /// entry whose code this build does not know is left out rather than
     /// shown as a key.
+    ///
+    /// The copy posted into the group's chat is computed over the members who
+    /// share their training, so every line — the all-clear included — is true
+    /// of that set. It opens with a line saying how many of the group that is
+    /// when it is not everyone, and is that line alone when it is nobody.
     fn group_digest_body(&self, params: &Map<String, Value>) -> String {
-        let mut lines = vec![self.line(
+        let scope = self.room_scope(params);
+        if params.get(PARAM_SHARED_MEMBERS).and_then(Value::as_u64) == Some(0) {
+            return scope.unwrap_or_default();
+        }
+        let mut lines: Vec<String> = scope
+            .into_iter()
+            .flat_map(|line| [line, String::new()])
+            .collect();
+        lines.push(self.line(
             KEY_GROUP_DIGEST_SUMMARY,
             &[
                 &whole(params.get("active_members")),
                 &whole(params.get("total_members")),
                 &self.decimal(params.get("avg_volume_km")),
             ],
-        )];
+        ));
         let trend_key = match params.get("trend").and_then(Value::as_str) {
             Some("improving") => Some(KEY_GROUP_DIGEST_TREND_IMPROVING),
             Some("declining") => Some(KEY_GROUP_DIGEST_TREND_DECLINING),
@@ -176,6 +209,20 @@ impl<'a> NotificationTextRenderer<'a> {
             lines.push(self.line(KEY_GROUP_DIGEST_ALL_CLEAR, &[]));
         }
         lines.join("\n")
+    }
+
+    /// The line saying how many members the chat copy of the digest covers,
+    /// when that is fewer than the group holds. `None` on the managers' copy,
+    /// which carries neither count because it covers everyone.
+    fn room_scope(&self, params: &Map<String, Value>) -> Option<String> {
+        let shared = params.get(PARAM_SHARED_MEMBERS).and_then(Value::as_u64)?;
+        let roster = params.get(PARAM_ROSTER_MEMBERS).and_then(Value::as_u64)?;
+        (shared < roster).then(|| {
+            self.line(
+                KEY_GROUP_DIGEST_ROOM_SCOPE,
+                &[&shared.to_string(), &roster.to_string()],
+            )
+        })
     }
 
     /// One flagged member's line, or `None` for a concern code this build

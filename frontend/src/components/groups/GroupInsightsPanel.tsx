@@ -8,6 +8,13 @@ import { AlertTriangle, CalendarRange, CheckCircle2, Info, Lightbulb } from 'luc
 import { Card } from '../ui';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '@pierre/shared-types';
+import {
+  freshMemberLine,
+  healthFlagConcern,
+  healthFlagDetail,
+  weeklyReportRecommendations,
+  weeklyReportSummary,
+} from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 interface GroupInsightsPanelProps {
@@ -40,13 +47,17 @@ const SEVERITY_STYLES: Record<HealthFlagSeverity, string> = {
  * snapshots the chat agent sees, and until now neither had a caller outside
  * the digest scheduler: an admin could read the numbers only if a digest
  * happened to be delivered to them.
+ *
+ * The server sends numbers and evidence, never sentences, so every line here
+ * is phrased in the reader's language by the shared group formatter. The
+ * report's concerns are the health flags themselves, one line per flag.
  */
 export default function GroupInsightsPanel({
   groupId,
   isAdmin,
   weeklyDigestEnabled,
 }: GroupInsightsPanelProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const enabled = isAdmin && weeklyDigestEnabled;
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
   const { flags, isLoading: isFlagsLoading } = useGroupHealthFlags(groupId, enabled);
@@ -81,6 +92,8 @@ export default function GroupInsightsPanel({
     );
   }
 
+  const recommendations = report ? weeklyReportRecommendations(t, report.stats) : [];
+
   return (
     <div className="space-y-4" data-testid="group-insights-panel">
       {report && (
@@ -90,50 +103,50 @@ export default function GroupInsightsPanel({
             <h4 className="text-sm font-semibold text-on-surface">{t('groups.thisWeek')}</h4>
           </div>
           <p className="text-sm text-on-surface-variant" data-testid="group-report-summary">
-            {report.summary}
+            {weeklyReportSummary(t, language, report.stats)}
           </p>
 
-          {report.highlights.length > 0 && (
+          {report.fresh_members.length > 0 && (
             <div className="mt-4">
               <p className="text-xs font-medium text-on-surface-variant mb-2">{t('groups.highlights')}</p>
               <ul className="space-y-1.5">
-                {report.highlights.map((highlight) => (
+                {report.fresh_members.map((member) => (
                   <li
-                    key={highlight}
+                    key={member.user_id}
                     className="flex items-start gap-2 text-sm text-on-surface"
                     data-testid="group-report-highlight"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 text-activity mt-0.5 flex-shrink-0" />
-                    <span>{highlight}</span>
+                    <span>{freshMemberLine(t, member)}</span>
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          {report.concerns.length > 0 && (
+          {flags.length > 0 && (
             <div className="mt-4">
               <p className="text-xs font-medium text-on-surface-variant mb-2">{t('groups.concerns')}</p>
               <ul className="space-y-1.5">
-                {report.concerns.map((concern) => (
+                {flags.map((flag) => (
                   <li
-                    key={concern}
+                    key={`${flag.user_id}-${flag.flag_type}`}
                     className="flex items-start gap-2 text-sm text-on-surface"
                     data-testid="group-report-concern"
                   >
                     <AlertTriangle className="w-3.5 h-3.5 text-warning mt-0.5 flex-shrink-0" />
-                    <span>{concern}</span>
+                    <span>{healthFlagConcern(t, flag)}</span>
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          {report.recommendations.length > 0 && (
+          {recommendations.length > 0 && (
             <div className="mt-4">
               <p className="text-xs font-medium text-on-surface-variant mb-2">{t('groups.recommendations')}</p>
               <ul className="space-y-1.5">
-                {report.recommendations.map((recommendation) => (
+                {recommendations.map((recommendation) => (
                   <li
                     key={recommendation}
                     className="flex items-start gap-2 text-sm text-on-surface"
@@ -172,7 +185,7 @@ export default function GroupInsightsPanel({
                   <p className="text-sm font-medium text-on-surface truncate">
                     {flag.display_name}
                   </p>
-                  <p className="text-xs text-on-surface-variant mt-0.5">{flag.detail}</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">{healthFlagDetail(t, flag)}</p>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${SEVERITY_STYLES[flag.severity]}`}

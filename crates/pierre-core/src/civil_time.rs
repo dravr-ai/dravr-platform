@@ -45,9 +45,18 @@ use chrono_tz::Tz;
 /// together.
 #[must_use]
 pub fn resolve_zone(user_timezone: Option<&str>) -> Tz {
-    user_timezone
-        .and_then(|tz| tz.parse::<Tz>().ok())
-        .unwrap_or(Tz::UTC)
+    parse_zone(user_timezone).unwrap_or(Tz::UTC)
+}
+
+/// Parse a stored `users.timezone`, or `None` when it is absent or names no
+/// zone.
+///
+/// [`resolve_zone`] is this plus its UTC fallback. A caller choosing between
+/// several people's zones needs the refusal instead of the fallback, so that
+/// an unparseable zone is passed over rather than read as UTC.
+#[must_use]
+pub fn parse_zone(user_timezone: Option<&str>) -> Option<Tz> {
+    user_timezone.and_then(|tz| tz.parse::<Tz>().ok())
 }
 
 /// Column index into the five-locale tables, shared with the sport-name table

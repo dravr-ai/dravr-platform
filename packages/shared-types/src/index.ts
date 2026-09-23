@@ -201,6 +201,7 @@ export type {
   GroupAggregateStats,
   GroupHealthFlag,
   FlagEvidence,
+  FreshMember,
   GroupWeeklyReport,
   GroupMembersResponse,
   GroupTranscriptEntry,
