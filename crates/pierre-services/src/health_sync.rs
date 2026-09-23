@@ -43,6 +43,9 @@ use uuid::Uuid;
 /// in the workspace `Cargo.toml` redirects the crates.io alias used by
 /// enforme to the same git tag pierre-core consumes), so the model types
 /// flow through this adapter without any cross-version translation.
+///
+/// LIMITATION(registre#539): `PierreSyncStorage` persists every WHOOP field it is handed,
+/// provider scores included, with no per-field retention tier and no owner-authorization check.
 pub struct PierreSyncStorage {
     /// Fitness-domain stores backing enforme's sleep / recovery / health /
     /// data-source / sync-cursor / time-series trait impls.
