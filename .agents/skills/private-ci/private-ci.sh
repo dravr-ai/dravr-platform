@@ -25,6 +25,21 @@ ORG="dravr-ai"
 REFUSED="dravr-carnet dravr-vault"
 BILLING_MARK="recent account payments have failed or your spending limit"
 
+# Window state lives in globals, not in cmd_run's locals: the EXIT trap fires when
+# the SCRIPT exits, after cmd_run has returned, and under `set -u` a trap that
+# reads a dead local errors out and flips nothing. That is how a successful run
+# once left dravr-meteo public (2026-09-23).
+PCI_REPO=""
+PCI_LOCK=""
+PCI_FLIPPED=""
+
+cleanup() {
+  if [ -n "${PCI_FLIPPED}" ] && [ -n "${PCI_REPO}" ]; then
+    echo "   ${PCI_REPO} → $(flip "${PCI_REPO}" private) at $(date -u +%H:%M:%SZ)"
+  fi
+  if [ -n "${PCI_LOCK}" ]; then rm -rf "${PCI_LOCK}"; fi
+}
+
 die() { echo "❌ $*" >&2; exit 1; }
 say() { echo "   $*"; }
 
@@ -158,9 +173,10 @@ cmd_run() {
 
   # Private again on ANY exit: success, red CI, a failed step, Ctrl-C. Only a
   # repo this run made public is flipped back, and the lock goes with it.
-  local flipped=""
-  trap '[ -n "${flipped}" ] && echo "   ${repo} → $(flip "${repo}" private) at $(date -u +%H:%M:%SZ)"; rm -rf "${lock}"' EXIT
-  echo "   ${repo} → $(flip "${repo}" public) at $(date -u +%H:%M:%SZ)"; flipped=1
+  PCI_REPO="${repo}"; PCI_LOCK="${lock}"
+  trap cleanup EXIT
+  PCI_FLIPPED=1
+  echo "   ${repo} → $(flip "${repo}" public) at $(date -u +%H:%M:%SZ)"
 
   # Runs queued before the flip can never start — billing was decided at queue time.
   for id in $(gh api "repos/${ORG}/${repo}/actions/runs?status=queued&per_page=30" --jq '.workflow_runs[].id' 2>/dev/null); do
@@ -197,9 +213,16 @@ cmd_run() {
   wait_idle "${repo}"
 }
 
-case "${1:-}" in
-  check) cmd_check ;;
-  scan)  shift; cmd_scan "${1:-}" "${2:-}" ;;
-  run)   shift; [ $# -ge 2 ] || die "run <repo> <local-checkout> [options]"; cmd_run "$@" ;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
-esac
+main() {
+  case "${1:-}" in
+    check) cmd_check ;;
+    scan)  shift; cmd_scan "${1:-}" "${2:-}" ;;
+    run)   shift; [ $# -ge 2 ] || die "run <repo> <local-checkout> [options]"; cmd_run "$@" ;;
+    *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  esac
+}
+
+# One line, read before anything runs, ending in exit: bash never reads past it,
+# so editing this file while a window is open cannot corrupt that run (a mid-run
+# edit once did, and its trap never ran).
+main "$@"; exit $?

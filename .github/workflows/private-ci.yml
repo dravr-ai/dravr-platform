@@ -1,0 +1,33 @@
+# ABOUTME: Runs the private-ci skill's suite against a stub gh — no repo flipped, no token
+# ABOUTME: Path-scoped to the skill, so a push that does not change it starts no job
+name: "Guard: private-ci skill"
+
+on:
+  push:
+    paths:
+      - '.agents/skills/private-ci/**'
+      - '.github/workflows/private-ci.yml'
+  pull_request:
+    paths:
+      - '.agents/skills/private-ci/**'
+      - '.github/workflows/private-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: false
+
+jobs:
+  suite:
+    name: every path ends private
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -S warning .agents/skills/private-ci/private-ci.sh .agents/skills/private-ci/private-ci.test.sh
+      - name: suite against a stub gh
+        run: bash .agents/skills/private-ci/private-ci.test.sh

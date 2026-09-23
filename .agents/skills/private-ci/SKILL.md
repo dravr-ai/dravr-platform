@@ -71,3 +71,12 @@ not a smaller one.
 - A release announced to dravr-platform is picked up by the platform's own lane
   (`bump-<name>.yml`, public, runs normally). Do not hand-bump that pin.
 - The repo's visibility is the last line `run` prints. Confirm it reads `private`.
+
+## Changing the script
+
+`private-ci.test.sh` runs the real script against a stub `gh` that keeps each repo's
+visibility in a file, and asserts it ends `private` on the green, red, release and
+failed-release paths, and that the refusals flip nothing. Run it before pushing a
+change; `Guard: private-ci skill` runs it on every push that touches this folder.
+The first version passed a read-through and left every *successful* repo public,
+because its EXIT trap read locals of a function that had already returned.
