@@ -26,7 +26,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::models::TenantId;
 use serde_json::{json, Value};
-use tracing::{debug, field, info, warn, Span};
+use tracing::{debug, error, field, info, warn, Span};
 
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
@@ -451,13 +451,23 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // Weather provider constructed once per request — both cache and
             // live response paths reuse it for the temperature backfill pass.
-            // None when WEATHER_BACKFILL_ENABLED=false.
+            // None when WEATHER_BACKFILL_ENABLED=false, and when the weather
+            // configuration cannot produce a provider: temperatures are an
+            // enrichment of the activity list, so a misconfiguration skips them
+            // and says so at ERROR rather than failing the list the athlete
+            // asked for.
             let weather_provider: Option<Arc<dyn WeatherProvider>> =
                 if weather_backfill::is_enabled() {
                     let cache_store = Arc::new(WeatherCacheRepoAdapter::new(
                         context.resources.repos().weather_cache.clone(),
                     ));
-                    Some(build_weather_provider(cache_store))
+                    match build_weather_provider(cache_store) {
+                        Ok(provider) => Some(provider),
+                        Err(e) => {
+                            error!(error = %e, "weather backfill skipped: the weather provider is misconfigured");
+                            None
+                        }
+                    }
                 } else {
                     None
                 };

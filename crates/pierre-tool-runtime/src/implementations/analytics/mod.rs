@@ -473,7 +473,16 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
 
         let cache_repo = context.resources.repos().weather_cache.clone();
         let cache_store = Arc::new(WeatherCacheRepoAdapter::new(cache_repo));
-        let provider = build_provider(cache_store);
+        let provider = match build_provider(cache_store) {
+            Ok(provider) => provider,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Weather is misconfigured on this server: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
 
         let weather = match provider
             .weather_at(WeatherQuery {

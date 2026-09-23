@@ -40,6 +40,17 @@ use dravr_cageux::physiological_constants::{
 /// Default weather vendor when `WEATHER_PROVIDER` is unset.
 const DEFAULT_WEATHER_PROVIDER: &str = "openmeteo";
 
+/// Weather configuration that cannot produce a working provider.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum WeatherConfigError {
+    /// `WEATHER_PROVIDER` names a vendor this build does not know.
+    #[error("WEATHER_PROVIDER={0} is not a known vendor; use `openmeteo` or `openweathermap`")]
+    UnknownProvider(String),
+    /// `openweathermap` was selected with no key to call it with.
+    #[error("WEATHER_PROVIDER=openweathermap needs OPENWEATHER_API_KEY, which is unset or empty")]
+    MissingOpenWeatherKey,
+}
+
 /// Build a fully-cached `WeatherProvider` from environment configuration.
 ///
 /// `WEATHER_PROVIDER` selects the vendor (`openmeteo` default,
@@ -48,18 +59,34 @@ const DEFAULT_WEATHER_PROVIDER: &str = "openmeteo";
 /// The returned provider is wrapped in a `CachedProvider` against the
 /// supplied `cache` so geographic+hourly buckets are reused across
 /// activities.
-#[must_use]
-pub fn build_provider(cache: Arc<dyn WeatherCacheStore>) -> Arc<dyn WeatherProvider> {
+///
+/// # Errors
+///
+/// A configuration that cannot work is refused here rather than built: an
+/// unknown vendor name used to fall through to Open-Meteo silently, and
+/// `openweathermap` without a key used to get a provider holding an empty key
+/// that failed every lookup at the vendor. Both are now a
+/// [`WeatherConfigError`] the caller reports.
+pub fn build_provider(
+    cache: Arc<dyn WeatherCacheStore>,
+) -> Result<Arc<dyn WeatherProvider>, WeatherConfigError> {
     let provider_name =
         env::var("WEATHER_PROVIDER").unwrap_or_else(|_| DEFAULT_WEATHER_PROVIDER.to_owned());
 
-    if provider_name == "openweathermap" {
-        let api_key = env::var("OPENWEATHER_API_KEY").unwrap_or_default();
-        let inner = OpenWeatherMapProvider::new(api_key);
-        Arc::new(CachedProvider::new(inner, CacheStoreArc(cache)))
-    } else {
-        let inner = OpenMeteoArchiveProvider::new();
-        Arc::new(CachedProvider::new(inner, CacheStoreArc(cache)))
+    match provider_name.as_str() {
+        "openweathermap" => {
+            let api_key = env::var("OPENWEATHER_API_KEY")
+                .ok()
+                .filter(|key| !key.is_empty())
+                .ok_or(WeatherConfigError::MissingOpenWeatherKey)?;
+            let inner = OpenWeatherMapProvider::new(api_key);
+            Ok(Arc::new(CachedProvider::new(inner, CacheStoreArc(cache))))
+        }
+        "openmeteo" => {
+            let inner = OpenMeteoArchiveProvider::new();
+            Ok(Arc::new(CachedProvider::new(inner, CacheStoreArc(cache))))
+        }
+        other => Err(WeatherConfigError::UnknownProvider(other.to_owned())),
     }
 }
 
