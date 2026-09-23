@@ -40,7 +40,7 @@ dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git
 
 # Health provider sync. default-features off so pierre-enforme's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.4.2", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.4.2", default-features = false }
+dravr-enforme = { version = "0.5.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.5.1", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.4.0" }
@@ -57,7 +57,7 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 
 # Provider capture. Moves with dravr-enforme, which pins it too -- see its
 # companions stanza in satellites.toml for why the two pins can never move apart.
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.14.0" }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.15.0" }
 
 # Billing capability, gated behind the billing-stripe feature.
 dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.2.0" }
