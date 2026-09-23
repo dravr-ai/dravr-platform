@@ -41,20 +41,23 @@ this lower bound" and that requires DESC ordering at the provider call.
 
 ### Sciotte (Strava-mirror scraper) emits midnight-UTC timestamps
 
-**Symptom:** Cross-provider dedup leaves the same workout in the snapshot
-twice — once from `strava` with the real start time, once from `sciotte`
-with a `00:00:00` UTC timestamp. Weekly volume and the `Recent:` block
+**Symptom:** The session merge leaves the same workout in a list twice —
+once from `strava` with the real start time, once from `sciotte` with a
+`00:00:00` UTC timestamp. Weekly volume and the `Recent:` block
 double-count.
 
 **Cause:** The scraper resolves activities at calendar-day precision only;
-it has no access to the actual workout start time. The default dedup uses
-a 15-minute time window which a 12-hour mismatch trivially blows past.
+it has no access to the actual workout start time. The cross-provider rule
+matches starts within 15 minutes, which a 12-hour mismatch trivially blows
+past.
 
 **Mitigation:**
-[`crates/pierre-server/src/services/group_fitness.rs`](https://github.com/dravr-ai/dravr-platform/blob/main/crates/pierre-server/src/services/group_fitness.rs)
-`is_likely_duplicate` falls back to calendar-date matching when either
-side's timestamp is exactly midnight UTC. Helper:
-`is_date_only_timestamp`.
+[`crates/pierre-providers/src/deduplication/detection.rs`](https://github.com/dravr-ai/dravr-platform/blob/main/crates/pierre-providers/src/deduplication/detection.rs)
+`starts_and_distances_agree` compares calendar dates instead of minutes
+when either side has no real start time (`has_known_time`), so the scrape
+pairs with the timed record of its day. Midnight rows never match on time
+overlap: every midnight row "overlaps" every other, which would fold
+distinct sessions together.
 
 ## GitHub Copilot
 
