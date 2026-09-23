@@ -122,6 +122,19 @@ check "  ...and this commit's own red is what decides, not the stale green" 1 "C
 run_gate 180 45 ""
 check "a satellite with no gates has nothing pending and passes" 0 "all gates green"
 
+DEFAULT_RUN=$(awk '/^      gate_timeout:/ { g = 1 } g && /default:/ { print $2; exit }' "${WORKFLOW}")
+run_gate 180 "${DEFAULT_RUN}" "ci-backend.yml" "0 ci-backend.yml in_progress -" "70 ci-backend.yml completed success"
+check "a 70m dispatched ci-backend passes the default run budget — the enforme 0.5.0 case" 0 "all gates green"
+
+# The run budget is a backstop against a stuck run, so it must not cut off a
+# job ci-backend itself would still judge. Its longest is a SQLite shard.
+SHARD=$(awk '/name: Backend Tests \(SQLite/ { getline; if ($1 == "timeout-minutes:") print $2 }' .github/workflows/ci-backend.yml | sort -n | tail -1)
+if [ -n "${SHARD}" ] && [ -n "${DEFAULT_RUN}" ] && [ "${DEFAULT_RUN}" -gt "${SHARD}" ]; then
+  pass "default run budget ${DEFAULT_RUN}m sits above ci-backend's longest shard timeout ${SHARD}m"
+else
+  fail "default run budget '${DEFAULT_RUN}' must exceed ci-backend's SQLite shard timeout '${SHARD}' (empty means the lookup broke)"
+fi
+
 echo
 [ "${FAILURES}" -eq 0 ] && { echo "all satellite-bump gate scenarios pass"; exit 0; }
 echo "${FAILURES} scenario(s) failed"; exit 1

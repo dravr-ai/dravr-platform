@@ -65,9 +65,9 @@ on:
         default: false
         type: boolean
       gate_timeout:
-        description: "Minutes the CI gates may RUN, counted from the moment every one of them has started"
+        description: "Minutes the CI gates may RUN, counted from the moment every one of them has started. A backstop against a stuck run, so it sits above the gated jobs' own timeouts: a dispatched ci-backend runs the SQLite shards (90m each, queued inside the run)"
         required: false
-        default: 45
+        default: 120
         type: number
       gate_queue:
         description: "Minutes the CI gates may wait for a runner before starting — queue time is not run time, and on a busy fleet it is most of the wait"
@@ -136,12 +136,12 @@ jobs:
           GATE_QUEUE: ${{ inputs.gate_queue }}
         run: |
           set -euo pipefail
-          # The gate job below hardcodes `timeout-minutes: 300`; a caller whose two
+          # The gate job below hardcodes `timeout-minutes: 330`; a caller whose two
           # budgets add up to that gets the job killed instead of the poll reporting
           # which budget ran out and on which gates. One caller could be told to get
           # this right by hand. Eleven cannot.
-          if [ $(( GATE_QUEUE + GATE_TIMEOUT )) -gt 290 ]; then
-            echo "::error::gate_queue ${GATE_QUEUE} + gate_timeout ${GATE_TIMEOUT} must be <= 290; the gate job is capped at 300 minutes"
+          if [ $(( GATE_QUEUE + GATE_TIMEOUT )) -gt 320 ]; then
+            echo "::error::gate_queue ${GATE_QUEUE} + gate_timeout ${GATE_TIMEOUT} must be <= 320; the gate job is capped at 330 minutes"
             exit 1
           fi
 
@@ -530,10 +530,10 @@ jobs:
     needs: [resolve, bump]
     if: needs.bump.outputs.state == 'pushed'
     # A backstop, not the gate: GitHub expressions cannot add, so this cannot be
-    # derived from the two budgets. It sits above their defaults (180 + 45), and
+    # derived from the two budgets. It sits above their defaults (180 + 120), and
     # the validation step refuses a pair that does not fit under it; the step
     # below enforces each budget itself and names which one ran out.
-    timeout-minutes: 300
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v6
 
@@ -556,7 +556,12 @@ jobs:
           # filed a stall about a tree its gate had not finished building.
           #   QUEUE_DEADLINE — from now; spent only while some gate has not started
           #   RUN_DEADLINE   — starts the first time every gate is running, and is
-          #                    GATE_TIMEOUT from then
+          #                    GATE_TIMEOUT from then. "Running" is the workflow:
+          #                    its jobs can still queue inside it, and the SQLite
+          #                    shards a dispatch runs take 20-30m each, which is
+          #                    why the default is well above one job's duration.
+          #                    The enforme 0.5.0 lane was cut off at 45m of a run
+          #                    whose shards were all green or still going.
           QUEUE_DEADLINE=$(( $(date +%s) + GATE_QUEUE * 60 ))
           RUN_DEADLINE=""
           # Runs are matched by the commit the bump job pushed, never by branch. The
