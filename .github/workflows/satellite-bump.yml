@@ -65,9 +65,14 @@ on:
         default: false
         type: boolean
       gate_timeout:
-        description: "Minutes to wait for the CI gates (must be <= 55)"
+        description: "Minutes the CI gates may RUN, counted from the moment every one of them has started"
         required: false
         default: 45
+        type: number
+      gate_queue:
+        description: "Minutes the CI gates may wait for a runner before starting — queue time is not run time, and on a busy fleet it is most of the wait"
+        required: false
+        default: 180
         type: number
     secrets:
       DRAVR_PRIVATE_DEPS_TOKEN:
@@ -128,14 +133,15 @@ jobs:
       - name: Validate the gate timeout against this workflow's own limit
         env:
           GATE_TIMEOUT: ${{ inputs.gate_timeout }}
+          GATE_QUEUE: ${{ inputs.gate_queue }}
         run: |
           set -euo pipefail
-          # The gate job below hardcodes `timeout-minutes: 60`; a caller asking for a
-          # poll deadline at or above that gets the job killed instead of the poll
-          # reporting which gates were still pending. One caller could be told to get
+          # The gate job below hardcodes `timeout-minutes: 300`; a caller whose two
+          # budgets add up to that gets the job killed instead of the poll reporting
+          # which budget ran out and on which gates. One caller could be told to get
           # this right by hand. Eleven cannot.
-          if [ "${GATE_TIMEOUT}" -gt 55 ]; then
-            echo "::error::gate_timeout ${GATE_TIMEOUT} must be <= 55; the gate job is capped at 60 minutes"
+          if [ $(( GATE_QUEUE + GATE_TIMEOUT )) -gt 290 ]; then
+            echo "::error::gate_queue ${GATE_QUEUE} + gate_timeout ${GATE_TIMEOUT} must be <= 290; the gate job is capped at 300 minutes"
             exit 1
           fi
 
@@ -346,6 +352,7 @@ jobs:
     if: needs.resolve.outputs.needed == 'true'
     outputs:
       branch: ${{ steps.push.outputs.branch }}
+      sha: ${{ steps.push.outputs.sha }}
       state: ${{ steps.state.outputs.state }}
     steps:
       - uses: actions/checkout@v6
@@ -485,6 +492,7 @@ jobs:
           git commit -m "chore(${SATELLITE}): bump ${SATELLITE} to ${VERSION}"
           git push --force-with-lease origin "${BRANCH}"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
           # GitHub suppresses workflow runs on pushes made with GITHUB_TOKEN, so this
           # branch triggers nothing on its own and the gate below would wait forever
@@ -521,7 +529,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [resolve, bump]
     if: needs.bump.outputs.state == 'pushed'
-    timeout-minutes: 60
+    # A backstop, not the gate: GitHub expressions cannot add, so this cannot be
+    # derived from the two budgets. It sits above their defaults (180 + 45), and
+    # the validation step refuses a pair that does not fit under it; the step
+    # below enforces each budget itself and names which one ran out.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v6
 
@@ -530,25 +542,42 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SATELLITE: ${{ inputs.satellite }}
           BRANCH: ${{ needs.bump.outputs.branch }}
+          SHA: ${{ needs.bump.outputs.sha }}
           GH_REPO: ${{ github.repository }}
           GATE_TIMEOUT: ${{ inputs.gate_timeout }}
+          GATE_QUEUE: ${{ inputs.gate_queue }}
         run: |
           set -uo pipefail
           WORKFLOWS=$(scripts/ci/satellite-pin.sh gates "${SATELLITE}")
-          DEADLINE=$(( $(date +%s) + GATE_TIMEOUT * 60 ))
-
-          # The branch is created fresh for this version and nothing else pushes to
-          # it, so the newest run per workflow on it is unambiguously ours. Matching
-          # by commit was rejected: `gh run list --commit` silently returns zero rows.
+          # Two budgets, because waiting for a runner is not the tree failing.
+          # With one 45-minute clock counting from here, a saturated fleet spent it
+          # in the queue: on 2026-09-23 the canot 0.4.30 lane timed out with
+          # ci-backend still in progress after sitting behind nine other lanes, and
+          # filed a stall about a tree its gate had not finished building.
+          #   QUEUE_DEADLINE — from now; spent only while some gate has not started
+          #   RUN_DEADLINE   — starts the first time every gate is running, and is
+          #                    GATE_TIMEOUT from then
+          QUEUE_DEADLINE=$(( $(date +%s) + GATE_QUEUE * 60 ))
+          RUN_DEADLINE=""
+          # Runs are matched by the commit the bump job pushed, never by branch. The
+          # branch is fix/<satellite>-<version> and a retry of one version force-pushes
+          # it, so "the newest run on the branch" is the previous attempt's run until
+          # this commit's dispatched run registers — green, on a different tree, if
+          # that attempt passed. `gh run list --commit` silently returns zero rows;
+          # the REST filter head_sha on the workflow's runs does work.
           while :; do
-            PENDING=""; FAILED=""
+            PENDING=""; FAILED=""; UNSTARTED=""
             for wf in ${WORKFLOWS}; do
-              LINE=$(gh run list --workflow "$wf" --branch "${BRANCH}" --limit 1 \
-                       --json status,conclusion \
-                       -q '.[0] | "\(.status) \(.conclusion // "-")"' 2>/dev/null || true)
-              STATUS="${LINE%% *}"; CONCL="${LINE##* }"
+              LINE=$(gh api "repos/${GH_REPO}/actions/workflows/${wf}/runs?head_sha=${SHA}&per_page=1" \
+                       -q '.workflow_runs[0] // empty | "\(.status) \(.conclusion // "-")"' 2>/dev/null || true)
+              read -r STATUS CONCL <<< "${LINE}"
               if [ -z "${LINE}" ] || [ "${STATUS}" != "completed" ]; then
                 PENDING="${PENDING} ${wf}(${STATUS:-not-started})"
+                # No run yet, or one GitHub has not handed a runner: it is waiting,
+                # not running, and must not spend the run budget.
+                case "${STATUS:-not-started}" in
+                  not-started|queued|waiting|requested|pending) UNSTARTED="${UNSTARTED} ${wf}" ;;
+                esac
               elif [ "${CONCL}" != "success" ]; then
                 # cancelled and skipped are not green. A cancelled run validated nothing.
                 FAILED="${FAILED} ${wf}(${CONCL})"
@@ -563,9 +592,21 @@ jobs:
               echo "all gates green on ${BRANCH}"
               break
             fi
-            if [ "$(date +%s)" -ge "${DEADLINE}" ]; then
-              echo "::error::timed out after ${GATE_TIMEOUT}m waiting on:${PENDING}"
-              exit 1
+            NOW=$(date +%s)
+            if [ -n "${UNSTARTED}" ]; then
+              if [ "${NOW}" -ge "${QUEUE_DEADLINE}" ]; then
+                echo "::error::no runner picked up${UNSTARTED} within ${GATE_QUEUE}m — the fleet is saturated; the tree was never built, so this says nothing about it"
+                exit 1
+              fi
+            else
+              if [ -z "${RUN_DEADLINE}" ]; then
+                RUN_DEADLINE=$(( NOW + GATE_TIMEOUT * 60 ))
+                echo "every gate is running — ${GATE_TIMEOUT}m run budget starts now"
+              fi
+              if [ "${NOW}" -ge "${RUN_DEADLINE}" ]; then
+                echo "::error::timed out after ${GATE_TIMEOUT}m of running on:${PENDING}"
+                exit 1
+              fi
             fi
             echo "waiting on:${PENDING}"
             sleep 60
@@ -579,7 +620,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [resolve, bump, gate]
     if: needs.bump.outputs.state == 'pushed'
-    # Eleven lanes resolve, bump and gate in parallel — the expensive 45 minutes —
+    # Eleven lanes resolve, bump and gate in parallel — the expensive part —
     # and serialize only this ~1-minute critical section, which is the only part that
     # actually races. A shared WORKFLOW-level group was rejected: it holds one waiting
     # run, so a third lane silently replaces the second's queued run with zero jobs
