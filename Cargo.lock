@@ -1526,8 +1526,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-meteo"
-version = "0.1.1"
-source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.1.1#33c8661d269f7e8cb045231d4f6480e67c5f287d"
+version = "0.2.0"
+source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.2.0#ebcac6c83f559d9e310cfaa6242b9ea69d72b751"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2522,7 +2522,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4890,7 +4890,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4928,7 +4928,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -6273,7 +6273,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
