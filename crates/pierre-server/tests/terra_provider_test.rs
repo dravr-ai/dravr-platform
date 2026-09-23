@@ -252,9 +252,11 @@ async fn test_descriptor() {
     let descriptor = TerraDescriptor;
     assert_eq!(descriptor.name(), "terra");
     assert_eq!(descriptor.display_name(), "Terra");
-    assert!(descriptor.capabilities().supports_sleep());
-    assert!(descriptor.capabilities().supports_recovery());
-    assert!(descriptor.capabilities().supports_health());
+    // Sleep and recovery come from synced rows; Terra has no sync adapter
+    // (registre#513), so it advertises activities only.
+    assert!(!descriptor.capabilities().supports_sleep());
+    assert!(!descriptor.capabilities().supports_recovery());
+    assert!(!descriptor.capabilities().supports_health());
     assert!(descriptor.capabilities().supports_activities());
 }
 
@@ -300,7 +302,7 @@ async fn test_stats_calculation() {
 }
 
 // ============================================================================
-// FitnessProvider Integration Tests
+// Webhook cache reads and FitnessProvider integration tests
 // ============================================================================
 
 #[tokio::test]
@@ -329,13 +331,10 @@ async fn test_get_sleep_sessions() {
     };
     cache.store_sleep_session(user_id, sleep_session).await;
 
-    // Test FitnessProvider::get_sleep_sessions
+    // The webhook cache serves the window it holds for the user
     let start = Utc::now() - Duration::days(1);
     let end = Utc::now() + Duration::hours(1);
-    let sessions = provider.get_sleep_sessions(start, end).await;
-    assert!(sessions.is_ok(), "get_sleep_sessions should succeed");
-    // Safe: Test assertion - expect sessions to be available
-    let sessions = sessions.unwrap();
+    let sessions = cache.get_sleep_sessions(user_id, start, end).await;
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, "sleep_001");
     assert_eq!(sessions[0].total_sleep_time, 450);
@@ -364,13 +363,10 @@ async fn test_get_recovery_metrics() {
     };
     cache.store_recovery_metrics(user_id, recovery).await;
 
-    // Test FitnessProvider::get_recovery_metrics
+    // The webhook cache serves the window it holds for the user
     let start = Utc::now() - Duration::days(1);
     let end = Utc::now() + Duration::hours(1);
-    let metrics = provider.get_recovery_metrics(start, end).await;
-    assert!(metrics.is_ok(), "get_recovery_metrics should succeed");
-    // Safe: Test assertion - expect metrics to be available
-    let metrics = metrics.unwrap();
+    let metrics = cache.get_recovery_metrics(user_id, start, end).await;
     assert_eq!(metrics.len(), 1);
     assert_eq!(metrics[0].recovery_score, Some(78.0));
     assert_eq!(metrics[0].resting_heart_rate, Some(52));
@@ -399,13 +395,10 @@ async fn test_get_health_metrics() {
     };
     cache.store_health_metrics(user_id, health).await;
 
-    // Test FitnessProvider::get_health_metrics
+    // The webhook cache serves the window it holds for the user
     let start = Utc::now() - Duration::days(1);
     let end = Utc::now() + Duration::hours(1);
-    let metrics = provider.get_health_metrics(start, end).await;
-    assert!(metrics.is_ok(), "get_health_metrics should succeed");
-    // Safe: Test assertion - expect metrics to be available
-    let metrics = metrics.unwrap();
+    let metrics = cache.get_health_metrics(user_id, start, end).await;
     assert_eq!(metrics.len(), 1);
     assert_eq!(metrics[0].weight, Some(75.5));
     assert_eq!(metrics[0].body_fat_percentage, Some(15.2));
@@ -513,9 +506,8 @@ async fn test_get_latest_sleep_session() {
     cache.store_sleep_session(user_id, older_sleep).await;
     cache.store_sleep_session(user_id, newer_sleep).await;
 
-    // Test FitnessProvider::get_latest_sleep_session
-    let latest = provider.get_latest_sleep_session().await;
-    assert!(latest.is_ok(), "get_latest_sleep_session should succeed");
+    // The webhook cache returns the newest session it holds
+    let latest = cache.get_latest_sleep_session(user_id).await;
     // Safe: Test assertion - expect latest to be available
     let latest = latest.unwrap();
     assert_eq!(latest.id, "sleep_new");

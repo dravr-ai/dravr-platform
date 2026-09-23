@@ -22,10 +22,10 @@ use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityCacheRepository, BackfillCoverage};
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
 use crate::protocol::types::{auth_required_provider, UniversalResponse};
@@ -89,11 +89,14 @@ pub(crate) fn activity_cache_retention_days() -> i64 {
         .unwrap_or(DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS)
 }
 
-/// Fold the athlete's OTHER connected providers into a primary fetch.
+/// Fold the athlete's OTHER connected providers into a primary fetch, then
+/// merge every recording of one workout into a single session.
 ///
-/// No-op when the caller pinned an explicit `provider` argument or the ask
-/// is the coverage-gated historical branch; otherwise every remaining
-/// connection is fetched and the union deduplicated.
+/// Folding is skipped when the caller pinned an explicit `provider` argument
+/// or the ask is the coverage-gated historical branch; the merge always runs,
+/// because one connection alone can hold two recordings of a workout (a watch
+/// and a bike computer uploading the same ride). The report names every group
+/// merged and every field a session took from another recording.
 ///
 /// `resolve_provider_for_tool` picks ONE provider (arg, env, or most recently
 /// used connection), which shows a multi-provider athlete only a slice of
@@ -102,9 +105,9 @@ pub(crate) fn activity_cache_retention_days() -> i64 {
 /// of the same session. This reuses the peer tool's cache-degrading
 /// [`fetch_provider_activities`] per remaining connection (cross-tenant, like
 /// the peer path, so a provider connected under the athlete's own tenant
-/// resolves from a group conversation) and the snapshot's deduplicator, whose
-/// `pick_best` keeps the GPS row and whose cross-sport rule pairs a watch's
-/// misclassified sport with the GPS provider's record of the same workout.
+/// resolves from a group conversation) and the session merger, which keeps the
+/// GPS row, pairs a watch's misclassified sport with the GPS provider's record
+/// of the same workout, and fills the GPS row's gaps from the watch's record.
 ///
 /// Best-effort by design: a secondary connection that fails to fetch is
 /// skipped (the helper already logs it) — the primary path alone decides
@@ -116,15 +119,24 @@ pub async fn maybe_merge_other_connections(
     primary_backend: &str,
     params: &ActivityQueryParams,
     mut activities: Vec<Activity>,
-) -> Vec<Activity> {
+) -> (Vec<Activity>, FragmentReport) {
     let explicit_provider_arg = args
         .get("provider")
         .and_then(Value::as_str)
         .is_some_and(|s| !s.is_empty());
-    if explicit_provider_arg || is_historical {
-        return activities;
+    if !explicit_provider_arg && !is_historical {
+        fold_other_connections(context, primary_backend, params, &mut activities).await;
     }
+    merge_duplicates(activities, &DedupConfig::from_env())
+}
 
+/// Append every non-primary connection's rows for `params` to `activities`.
+async fn fold_other_connections(
+    context: &ToolExecutionContext,
+    primary_backend: &str,
+    params: &ActivityQueryParams,
+    activities: &mut Vec<Activity>,
+) {
     let tenant = context.tenant_id.map(TenantId::from_uuid);
     let Ok(connections) = context
         .resources
@@ -133,10 +145,9 @@ pub async fn maybe_merge_other_connections(
         .get_for_user(context.user_id, None)
         .await
     else {
-        return activities;
+        return;
     };
 
-    let mut merged_any = false;
     for conn in &connections {
         let canonical = backend_resolver::resolve_backend(
             &context.resources.repos().auth_repos(),
@@ -157,25 +168,19 @@ pub async fn maybe_merge_other_connections(
         )
         .await
         {
-            if !fetched.is_empty() {
-                merged_any = true;
-            }
             activities.extend(fetched);
         }
     }
-
-    if merged_any {
-        activities = TimeWindowDeduplicator::from_env().deduplicate(activities);
-    }
-    activities
 }
 
 /// A window the athlete's other connections served after the elected primary
 /// failed to authenticate, dead or only unreachable just now.
 pub struct FallbackServe {
-    /// The merged (and, when more than one connection contributed, deduplicated)
-    /// activities those connections produced.
+    /// The activities those connections produced, every recording of one
+    /// workout merged into a single session.
     pub activities: Vec<Activity>,
+    /// The groups that merge collapsed and the fields each session gained.
+    pub merge_report: FragmentReport,
     /// User-facing names of the connections that contributed at least one row,
     /// so the response names its real sources instead of the dead provider.
     pub served_by: Vec<String>,
@@ -198,9 +203,8 @@ pub struct FallbackServe {
 /// conversation. A deep historical window on a scrape-backed mirror reads that
 /// sibling's durable cache rather than scraping inline — the historical branch
 /// exists precisely to keep a multi-year page out of the turn. The union is
-/// deduplicated whenever more than one connection contributed, so a watch's
-/// misclassified twin of a GPS session collapses the same way the merge path
-/// collapses it.
+/// merged the same way [`maybe_merge_other_connections`] merges it, so a
+/// watch's misclassified twin of a GPS session collapses into it.
 pub async fn serve_without_primary(
     context: &ToolExecutionContext,
     primary_backend: &str,
@@ -270,9 +274,7 @@ pub async fn serve_without_primary(
     if served.is_empty() {
         return None;
     }
-    if served_by.len() > 1 {
-        served = TimeWindowDeduplicator::from_env().deduplicate(served);
-    }
+    let (served, merge_report) = merge_duplicates(served, &DedupConfig::from_env());
     warn!(
         user_id = %context.user_id,
         primary = %primary_backend,
@@ -282,6 +284,7 @@ pub async fn serve_without_primary(
     );
     Some(FallbackServe {
         activities: served,
+        merge_report,
         served_by,
     })
 }

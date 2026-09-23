@@ -14,7 +14,6 @@
 //! effectively bridging Terra's push model to Pierre's pull model.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use std::cmp::Reverse;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -25,9 +24,7 @@ use crate::core::{
 };
 use crate::errors::provider::ProviderError;
 use crate::errors::AppResult;
-use crate::models::{
-    Activity, Athlete, HealthMetrics, PersonalRecord, RecoveryMetrics, SleepSession, Stats,
-};
+use crate::models::{Activity, Athlete, PersonalRecord, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::spi::{OAuthEndpoints, OAuthParams, ProviderCapabilities, ProviderDescriptor};
 
@@ -315,74 +312,6 @@ impl FitnessProvider for TerraProvider {
         // are none to return for this provider.
         Ok(Vec::new())
     }
-
-    #[instrument(
-        skip(self),
-        fields(provider = "terra", api_call = "get_sleep_sessions")
-    )]
-    async fn get_sleep_sessions(
-        &self,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Result<Vec<SleepSession>, ProviderError> {
-        let user_id = self.get_user_id().await?;
-        let sessions = self
-            .cache
-            .get_sleep_sessions(&user_id, start_date, end_date)
-            .await;
-        Ok(sessions)
-    }
-
-    #[instrument(
-        skip(self),
-        fields(provider = "terra", api_call = "get_latest_sleep_session")
-    )]
-    async fn get_latest_sleep_session(&self) -> Result<SleepSession, ProviderError> {
-        let user_id = self.get_user_id().await?;
-
-        self.cache
-            .get_latest_sleep_session(&user_id)
-            .await
-            .ok_or_else(|| ProviderError::NotFound {
-                provider: "terra".to_owned(),
-                resource_type: "sleep_session".to_owned(),
-                resource_id: "latest".to_owned(),
-            })
-    }
-
-    #[instrument(
-        skip(self),
-        fields(provider = "terra", api_call = "get_recovery_metrics")
-    )]
-    async fn get_recovery_metrics(
-        &self,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Result<Vec<RecoveryMetrics>, ProviderError> {
-        let user_id = self.get_user_id().await?;
-        let metrics = self
-            .cache
-            .get_recovery_metrics(&user_id, start_date, end_date)
-            .await;
-        Ok(metrics)
-    }
-
-    #[instrument(
-        skip(self),
-        fields(provider = "terra", api_call = "get_health_metrics")
-    )]
-    async fn get_health_metrics(
-        &self,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Result<Vec<HealthMetrics>, ProviderError> {
-        let user_id = self.get_user_id().await?;
-        let metrics = self
-            .cache
-            .get_health_metrics(&user_id, start_date, end_date)
-            .await;
-        Ok(metrics)
-    }
 }
 
 /// Terra provider descriptor for SPI
@@ -398,8 +327,10 @@ impl ProviderDescriptor for TerraDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // Terra supports all data types through its unified API
-        ProviderCapabilities::full_health()
+        // LIMITATION(registre#513): `TerraDescriptor::capabilities` advertises activities
+        // only: sleep and recovery are read from dravr-enforme's synced rows, and Terra has
+        // no enforme adapter yet.
+        ProviderCapabilities::OAUTH.union(ProviderCapabilities::ACTIVITIES)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

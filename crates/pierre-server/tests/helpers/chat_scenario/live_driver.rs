@@ -110,7 +110,7 @@ const RETRY_BASE_BACKOFF_MS: u64 = 2_000;
 /// `get_activities` flags a `fragment_dedup` sidecar. Mirrors
 /// Anti-Hallucination Rule 8 ("five or more activities in a single sport
 /// on the same day is almost always GPS fragments"); production derives
-/// this from temporal overlap in `detect_fragments`, which the driver
+/// this from temporal overlap in `merge_duplicates`, which the driver
 /// approximates by same-day/same-sport density since it carries no times.
 const FRAGMENT_DENSITY_THRESHOLD: usize = 5;
 
@@ -625,7 +625,7 @@ impl LiveScenarioDriver {
             summary_parts.join(". ")
         };
 
-        // Production's provider-side `detect_fragments` collapses
+        // Production's provider-side `merge_duplicates` collapses
         // overlapping same-day recordings (Garmin auto-splits, dual-device
         // captures) and hands the model a `retrieval_context.fragment_dedup`
         // sidecar so it cites sessions, not raw rows (Anti-Hallucination

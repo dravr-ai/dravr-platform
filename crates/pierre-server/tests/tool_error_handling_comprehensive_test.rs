@@ -420,9 +420,18 @@ async fn test_analyze_sleep_quality_missing_data() -> Result<()> {
 
     let request = create_request("analyze_sleep_quality", json!({}));
 
-    let result = executor.execute_tool(request).await;
-    // Should require either sleep_data or sleep_provider
-    assert!(result.is_err());
+    // No sleep_data and no synced night to read: the tool refuses and names
+    // the manual path instead of scoring nothing.
+    let response = executor.execute_tool(request).await?;
+    assert!(!response.success);
+    assert!(
+        response
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("sleep_data")),
+        "{:?}",
+        response.error
+    );
 
     Ok(())
 }

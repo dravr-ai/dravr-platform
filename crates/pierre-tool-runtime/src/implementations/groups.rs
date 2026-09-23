@@ -43,7 +43,6 @@ use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
-use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::activity_fetch::fetch_provider_activities;
 use crate::athlete_display_name::fetch_user_display_name;
 use crate::capabilities::ToolCapabilities;
@@ -54,6 +53,7 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 /// Number of peer activities returned when `limit` is omitted.
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
@@ -532,7 +532,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 })));
             }
 
-            let mut activities = TimeWindowDeduplicator::from_env().deduplicate(activities);
+            let (mut activities, _) = merge_duplicates(activities, &DedupConfig::from_env());
             if let Some(sport) = &sport_filter {
                 activities.retain(|a| format!("{:?}", a.sport_type()).to_lowercase().contains(sport));
             }

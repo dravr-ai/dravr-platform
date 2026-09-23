@@ -451,6 +451,7 @@ impl CredentialStore for PierreSyncStorage {
                 scopes,
                 user_id: t.user_id.to_string(),
                 provider: t.provider,
+                provider_user_id: t.provider_user_id,
             }
         }))
     }

@@ -134,8 +134,8 @@ pub(crate) const DELETE_DATA_SOURCE_SQL: &str = "DELETE FROM data_sources WHERE 
 
 /// Insert or refresh a sleep session; the arbiter is the session's start.
 pub(crate) const UPSERT_SLEEP_SESSION_SQL: &str = r"
-            INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            INSERT INTO sleep_sessions (id, user_id, tenant_id, provider, data_source_id, synced_at, start_time, end_time, time_in_bed, total_sleep_time, sleep_efficiency, sleep_score, stages_json, hrv_during_sleep, is_nap, created_at, deep_sleep_seconds, light_sleep_seconds, rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             ON CONFLICT(user_id, tenant_id, provider, start_time) DO UPDATE SET
                 end_time = EXCLUDED.end_time,
                 time_in_bed = EXCLUDED.time_in_bed,
@@ -144,7 +144,13 @@ pub(crate) const UPSERT_SLEEP_SESSION_SQL: &str = r"
                 sleep_score = EXCLUDED.sleep_score,
                 stages_json = EXCLUDED.stages_json,
                 hrv_during_sleep = EXCLUDED.hrv_during_sleep,
-                is_nap = EXCLUDED.is_nap
+                is_nap = EXCLUDED.is_nap,
+                deep_sleep_seconds = EXCLUDED.deep_sleep_seconds,
+                light_sleep_seconds = EXCLUDED.light_sleep_seconds,
+                rem_sleep_seconds = EXCLUDED.rem_sleep_seconds,
+                awake_seconds = EXCLUDED.awake_seconds,
+                avg_heart_rate = EXCLUDED.avg_heart_rate,
+                min_heart_rate = EXCLUDED.min_heart_rate
             ";
 
 /// The columns every sleep read decodes, in the order
@@ -153,7 +159,8 @@ macro_rules! sleep_session_columns {
     () => {
         "id, user_id, provider, data_source_id, start_time, end_time,
                    total_sleep_time, sleep_efficiency, sleep_score, stages_json,
-                   hrv_during_sleep, is_nap"
+                   hrv_during_sleep, is_nap, deep_sleep_seconds, light_sleep_seconds,
+                   rem_sleep_seconds, awake_seconds, avg_heart_rate, min_heart_rate"
     };
 }
 
@@ -206,12 +213,17 @@ pub(crate) const FIND_SLEEP_SESSION_TENANT_SQL: &str =
 
 /// Insert or refresh one day's recovery metrics.
 pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = r"
-            INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_status, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            INSERT INTO recovery_metrics (id, user_id, tenant_id, provider, data_source_id, synced_at, date, recovery_score, readiness_score, hrv_ms, stress_level, resting_heart_rate, body_temperature, resting_respiratory_rate, created_at, hrv_rmssd, body_battery, spo2, athlete_note, training_load)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
                 recovery_score = EXCLUDED.recovery_score,
                 readiness_score = EXCLUDED.readiness_score,
-                hrv_status = EXCLUDED.hrv_status,
+                hrv_ms = EXCLUDED.hrv_ms,
+                hrv_rmssd = EXCLUDED.hrv_rmssd,
+                body_battery = EXCLUDED.body_battery,
+                spo2 = EXCLUDED.spo2,
+                athlete_note = EXCLUDED.athlete_note,
+                training_load = EXCLUDED.training_load,
                 stress_level = EXCLUDED.stress_level,
                 resting_heart_rate = EXCLUDED.resting_heart_rate,
                 body_temperature = EXCLUDED.body_temperature,
@@ -223,8 +235,9 @@ pub(crate) const UPSERT_RECOVERY_METRICS_SQL: &str = r"
 macro_rules! recovery_metrics_columns {
     () => {
         "id, user_id, provider, data_source_id, date, recovery_score, readiness_score,
-                   hrv_status, stress_level, resting_heart_rate, body_temperature,
-                   resting_respiratory_rate, created_at"
+                   hrv_ms, hrv_rmssd, stress_level, resting_heart_rate, body_battery, spo2,
+                   body_temperature, resting_respiratory_rate, training_load, athlete_note,
+                   created_at"
     };
 }
 
@@ -274,10 +287,11 @@ pub(crate) const FIND_RECOVERY_METRIC_TENANT_SQL: &str =
 /// Insert or refresh one day's body metrics. `RETURNING id` reports the id
 /// actually stored, which on the update path is the pre-existing row's.
 pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
-            INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at, bmi)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
                 weight = EXCLUDED.weight,
+                bmi = EXCLUDED.bmi,
                 body_fat_percentage = EXCLUDED.body_fat_percentage,
                 muscle_mass = EXCLUDED.muscle_mass,
                 bone_mass = EXCLUDED.bone_mass,
@@ -293,7 +307,7 @@ pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
 macro_rules! health_snapshot_columns {
     () => {
         "id, user_id, provider, data_source_id, date, weight, body_fat_percentage,
-                   muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic,
+                   muscle_mass, bmi, bone_mass, body_water_percentage, bp_systolic, bp_diastolic,
                    blood_glucose, created_at"
     };
 }
@@ -392,6 +406,7 @@ where
     String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<i32>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i64>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
@@ -399,7 +414,12 @@ where
     let stages_json_str: String = column(row, "stages_json")?;
     let is_nap_int: i32 = column(row, "is_nap")?;
     let total_sleep_time: Option<i64> = column(row, "total_sleep_time")?;
+    let sleep_efficiency: Option<f64> = column(row, "sleep_efficiency")?;
     let sleep_score: Option<f64> = column(row, "sleep_score")?;
+    let seconds = |name: &str| -> AppResult<Option<u32>> {
+        let value: Option<i32> = column(row, name)?;
+        Ok(value.map(i32::cast_unsigned))
+    };
 
     let stages = serde_json::from_str(&stages_json_str)
         .map_err(|e| AppError::database(format!("Invalid stages_json: {e}")))?;
@@ -411,14 +431,17 @@ where
         is_nap: is_nap_int != 0,
         start_datetime: column(row, "start_time")?,
         end_datetime: column(row, "end_time")?,
-        total_sleep_seconds: total_sleep_time.map(|v| v as u32),
-        deep_sleep_seconds: None,
-        light_sleep_seconds: None,
-        rem_sleep_seconds: None,
-        awake_seconds: None,
-        sleep_efficiency: column(row, "sleep_efficiency")?,
-        avg_heart_rate: None,
-        min_heart_rate: None,
+        // Both columns are NOT NULL and the write stores 0 for a metric the
+        // record lacked; no real session sleeps 0 s or at 0 % efficiency, so a
+        // 0 reads back as absent and a merge can fill it from another source.
+        total_sleep_seconds: total_sleep_time.filter(|v| *v > 0).map(|v| v as u32),
+        deep_sleep_seconds: seconds("deep_sleep_seconds")?,
+        light_sleep_seconds: seconds("light_sleep_seconds")?,
+        rem_sleep_seconds: seconds("rem_sleep_seconds")?,
+        awake_seconds: seconds("awake_seconds")?,
+        sleep_efficiency: sleep_efficiency.filter(|v| *v > 0.0),
+        avg_heart_rate: column(row, "avg_heart_rate")?,
+        min_heart_rate: seconds("min_heart_rate")?,
         avg_hrv: column(row, "hrv_during_sleep")?,
         sleep_score: sleep_score.map(|v| v as u32),
         stages,
@@ -447,6 +470,7 @@ where
     let readiness_score: Option<f64> = column(row, "readiness_score")?;
     let stress_level: Option<f64> = column(row, "stress_level")?;
     let resting_heart_rate: Option<i32> = column(row, "resting_heart_rate")?;
+    let body_battery: Option<i32> = column(row, "body_battery")?;
 
     Ok(StoredRecoveryMetrics {
         id: column(row, "id")?,
@@ -455,14 +479,17 @@ where
         date: column(row, "date")?,
         recovery_score: recovery_score.map(|v| v as u32),
         readiness_score: readiness_score.map(|v| v as u32),
-        hrv_ms: None,
-        hrv_rmssd: None,
+        hrv_ms: column(row, "hrv_ms")?,
+        hrv_rmssd: column(row, "hrv_rmssd")?,
         resting_heart_rate: resting_heart_rate.map(i32::cast_unsigned),
         stress_score: stress_level.map(|v| v as u32),
-        body_battery: None,
-        spo2: None,
+        body_battery: body_battery.map(i32::cast_unsigned),
+        spo2: column(row, "spo2")?,
         respiratory_rate: column(row, "resting_respiratory_rate")?,
         skin_temp_deviation: column(row, "body_temperature")?,
+        // `training_load` is the provider's day load score: WHOOP day strain.
+        daily_strain: column(row, "training_load")?,
+        athlete_note: column(row, "athlete_note")?,
         source_name: column(row, "provider")?,
         recorded_at: column(row, "created_at")?,
     })
@@ -496,7 +523,7 @@ where
         weight_kg: column(row, "weight")?,
         body_fat_pct: column(row, "body_fat_percentage")?,
         muscle_mass_kg: column(row, "muscle_mass")?,
-        bmi: None,
+        bmi: column(row, "bmi")?,
         bone_mass_kg: column(row, "bone_mass")?,
         water_pct: column(row, "body_water_percentage")?,
         systolic_bp: bp_systolic.map(i32::cast_unsigned),
@@ -675,6 +702,12 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(session.avg_hrv)
                     .bind(is_nap)
                     .bind(now)
+                    .bind(session.deep_sleep_seconds.map(i64::from))
+                    .bind(session.light_sleep_seconds.map(i64::from))
+                    .bind(session.rem_sleep_seconds.map(i64::from))
+                    .bind(session.awake_seconds.map(i64::from))
+                    .bind(session.avg_heart_rate)
+                    .bind(session.min_heart_rate.map(i64::from))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -809,12 +842,17 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(metrics.date)
                     .bind(recovery_score)
                     .bind(readiness_score)
-                    .bind(metrics.hrv_ms.map(|v| format!("{v:.1}ms")))
+                    .bind(metrics.hrv_ms)
                     .bind(stress_level)
                     .bind(resting_heart_rate)
                     .bind(metrics.skin_temp_deviation)
                     .bind(metrics.respiratory_rate)
                     .bind(now)
+                    .bind(metrics.hrv_rmssd)
+                    .bind(metrics.body_battery.map(i64::from))
+                    .bind(metrics.spo2)
+                    .bind(metrics.athlete_note.as_deref())
+                    .bind(metrics.daily_strain)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -945,6 +983,7 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(bp_diastolic)
                     .bind(snapshot.blood_glucose)
                     .bind(now)
+                    .bind(snapshot.bmi)
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {

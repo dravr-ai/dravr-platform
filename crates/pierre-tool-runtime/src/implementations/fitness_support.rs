@@ -12,7 +12,7 @@
 //! can share them without forcing a single 2k-line file.
 //!
 //! Exposed types — `TokenEstimate`, `AnalysisType`, `ActivityRetrievalContext`,
-//! `FragmentDedupSummary`, `PaginationInfo`, and their sub-types — are
+//! `PaginationInfo`, and their sub-types — are
 //! consumed by the tools in
 //! `crate::implementations::data` and `crate::implementations::analytics`.
 //! The cache/format/response-build helpers (`try_get_cached_activities`,
@@ -24,6 +24,7 @@ use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, ActivitySummary};
 use crate::implementations::athlete_stats::{GetAthleteResult, GetStatsResult};
 use crate::implementations::data_helpers::activity_coverage_note;
+use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::format::formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
@@ -37,7 +38,7 @@ use pierre_intelligence::physiological_constants::api_limits::{
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
 use pierre_providers::core::FitnessProvider;
-use pierre_providers::deduplication::{detect_fragments, DedupConfig, FragmentReport};
+use pierre_providers::deduplication::FragmentReport;
 use pierre_services::weather_backfill;
 use pierre_weather::WeatherProvider;
 use serde::Serialize;
@@ -221,81 +222,6 @@ pub struct ActivityRetrievalContext {
     pub fragment_dedup: Option<FragmentDedupSummary>,
 }
 
-/// LLM-facing summary of fragment-group detection over an activity slice.
-///
-/// Counterpart of [`pierre_providers::deduplication::FragmentReport`] — the
-/// provider-side type carries `chrono::DateTime` values and the full sport
-/// enum, this serializes them to strings so the JSON shape stays portable
-/// across MCP / A2A / REST consumers and stable across cageux upgrades.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-pub struct FragmentDedupSummary {
-    /// Total activities the detector saw (one per row returned by the provider).
-    pub raw_count: usize,
-    /// Distinct training sessions after collapsing fragment groups.
-    pub session_count: usize,
-    /// One entry per multi-row group; absent when no fragments were detected
-    /// even though `fragment_dedup` itself is present.
-    pub groups: Vec<FragmentGroupSummary>,
-    /// Pre-formatted human-readable advice line the LLM should echo to the
-    /// user when reporting counts. Example: "20 GPS recordings represent 12
-    /// distinct sessions; the rest are likely re-uploads or auto-splits".
-    pub advice: String,
-}
-
-/// A single overlapping-recording group surfaced to the LLM.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-pub struct FragmentGroupSummary {
-    /// Activity id selected as the canonical session for this group.
-    pub canonical_id: String,
-    /// All member ids, canonical included — preserved for callers that want
-    /// to render or audit the grouping decision.
-    pub fragment_ids: Vec<String>,
-    /// Sport type shared by every member (RFC-safe rendering of the enum).
-    pub sport_type: String,
-    /// Earliest start time across the group, ISO 8601.
-    pub window_start: String,
-    /// Latest end time across the group, ISO 8601.
-    pub window_end: String,
-}
-
-impl FragmentDedupSummary {
-    /// Build an LLM-facing summary from a provider-side [`FragmentReport`].
-    /// Returns `None` when the report contains no fragment groups — the
-    /// caller skips serializing `fragment_dedup` in that case so the JSON
-    /// shape stays compact for the 95% of queries that have no fragments.
-    fn from_report(report: &FragmentReport) -> Option<Self> {
-        if !report.has_fragments() {
-            return None;
-        }
-        let groups = report
-            .groups
-            .iter()
-            .map(|g| FragmentGroupSummary {
-                canonical_id: g.canonical_id.clone(),
-                fragment_ids: g.fragment_ids.clone(),
-                sport_type: format!("{:?}", g.sport_type),
-                window_start: g.window_start.to_rfc3339(),
-                window_end: g.window_end.to_rfc3339(),
-            })
-            .collect();
-        let advice = format!(
-            "Fragment deduplication: {raw} GPS recordings collapse into {sessions} distinct \
-             training sessions after grouping overlapping captures (Garmin auto-splits, \
-             dual-device recordings, or Strava re-uploads). When reporting counts to the user, \
-             cite session_count ({sessions}), not raw_count ({raw}). The fragment_groups list \
-             names which rows belong together.",
-            raw = report.raw_count,
-            sessions = report.session_count,
-        );
-        Some(Self {
-            raw_count: report.raw_count,
-            session_count: report.session_count,
-            groups,
-            advice,
-        })
-    }
-}
-
 /// Date range for activity retrieval
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct DateRange {
@@ -321,9 +247,9 @@ impl ActivityRetrievalContext {
         Self::from_activities_with_dedup(activities, analysis_type, mode_used, None)
     }
 
-    /// Create retrieval context with optional fragment-deduplication metadata.
+    /// Create retrieval context with optional session-merge metadata.
     ///
-    /// When `fragment_report` is `Some` AND it contains at least one fragment
+    /// When `fragment_report` is `Some` AND it contains at least one merged
     /// group, the resulting context surfaces a `fragment_dedup` field whose
     /// `advice` string instructs the LLM to report `session_count` to the
     /// user (the deduplicated training-session count) rather than the raw
@@ -581,6 +507,9 @@ pub(crate) async fn try_get_cached_activities(
             // pre-truncation window total, so it emits no coverage sidecar.
             window_total: None,
             window_span: None,
+            // The slice was merged before it was cached; the grouping that
+            // produced it is not stored with it, so no merge note is emitted.
+            merge_report: None,
         });
         // Mark as cached in metadata
         if let Some(ref mut metadata) = response.metadata {
@@ -842,6 +771,10 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// window, paired with `window_total`. `None` leaves the `coverage` note
     /// count-only.
     pub window_span: Option<(String, String)>,
+    /// What the session merge collapsed to produce `activities`: every group of
+    /// recordings folded into one session and the fields each session took from
+    /// another recording. `None` when no merge report travels with the slice.
+    pub merge_report: Option<&'a FragmentReport>,
 }
 
 /// Build success response for activities with mode and format support
@@ -866,6 +799,7 @@ pub(crate) fn build_activities_success_response(
         locale,
         window_total,
         window_span,
+        merge_report,
     } = params;
 
     // Prepare the data based on mode
@@ -884,18 +818,15 @@ pub(crate) fn build_activities_success_response(
 
     let activities_len = activities.len();
 
-    // Detect fragment groups across the activity slice so the LLM (and any
-    // downstream telemetry) can distinguish raw GPS recordings from distinct
-    // training sessions. Computed once here, threaded into both the prose
-    // list and the structured retrieval context — the LLM sees the same
-    // signal whether it reads the inline note or the JSON sidecar.
-    let fragment_report = detect_fragments(activities, &DedupConfig::default());
+    // The merge ran over the whole fetched window; describe only the sessions
+    // this response returns.
+    let page_merge = merge_report.map(|report| report.scoped_to(activities));
 
     // Create pre-formatted activity list for LLM output (helps models include the list)
     let activity_list = format_activities_as_list(
         activities,
         backfill_temps,
-        Some(&fragment_report),
+        page_merge.as_ref(),
         &locale,
         user_timezone.as_deref(),
         chrono::Utc::now(),
@@ -906,7 +837,7 @@ pub(crate) fn build_activities_success_response(
         activities,
         analysis_type,
         mode_used,
-        Some(&fragment_report),
+        page_merge.as_ref(),
     );
 
     // One payload, three ways of filling it. The TOON key stays

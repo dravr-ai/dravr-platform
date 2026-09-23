@@ -81,6 +81,7 @@ use pierre_intelligence::physiological_constants::api_limits::{
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::deduplication::FragmentReport;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_services::weather_backfill;
 use pierre_tools_core::ToolResult;
@@ -549,6 +550,9 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // two mint routes are chosen by backend. `served_by` then names the
             // connections the rows actually came from.
             let mut stood_in: Option<PrimaryStandIn> = None;
+            // The merge `serve_without_primary` already ran when it stood in, so
+            // the fold below does not merge the same window twice.
+            let mut stand_in_merge: Option<FragmentReport> = None;
             // Set when the historical branch answered out of the durable cache, so
             // the write-through below can tell rows we just read from rows a
             // provider just produced. Writing the former back re-stamps their
@@ -689,6 +693,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         };
                         stood_in = Some(PrimaryStandIn::Dead(provider_name.clone()));
                         served_by = fallback.served_by;
+                        stand_in_merge = Some(fallback.merge_report);
                         (fallback.activities, None)
                     } else if ctx.supports_tasks() {
                         // A client that declared the tasks extension: the
@@ -846,6 +851,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             PrimaryStandIn::Dead,
                         ));
                         served_by = fallback.served_by;
+                        stand_in_merge = Some(fallback.merge_report);
                         (fallback.activities, None)
                     }
                 }
@@ -888,13 +894,14 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .await;
             }
 
-            // Fold in the athlete's other connections and dedup (no-op for an
-            // explicit provider arg or the coverage-gated historical branch) —
-            // see `maybe_merge_other_connections` for the 2026-08-22 incident
-            // this exists for. Already done when a missing primary sent the window
+            // Fold in the athlete's other connections (skipped for an explicit
+            // provider arg or the coverage-gated historical branch) and merge
+            // every recording of one workout into one session — see
+            // `maybe_merge_other_connections` for the 2026-08-22 incident this
+            // exists for. Already done when a missing primary sent the window
             // through `serve_without_primary`, which merges the same set.
-            let activities = if stood_in.is_some() {
-                activities
+            let (activities, merge_report) = if let Some(report) = stand_in_merge {
+                (activities, report)
             } else {
                 maybe_merge_other_connections(
                     &context,
@@ -967,7 +974,13 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         continue;
                     }
                     match provider.get_activity_detailed(activity.id()).await {
-                        Ok(detail) => detailed.push(detail),
+                        // The summary may carry fields the merge took from
+                        // another recording of the session; the detail row
+                        // keeps its own values and gains those.
+                        Ok(mut detail) => {
+                            detail.fill_missing_from(activity);
+                            detailed.push(detail);
+                        }
                         Err(err) => {
                             warn!(
                                 activity_id = %activity.id(),
@@ -1044,6 +1057,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 locale: user_locale,
                 window_total: Some(window_total),
                 window_span,
+                merge_report: Some(&merge_report),
             });
 
             // Why the elected provider is missing ACCOMPANIES the answer instead of

@@ -910,12 +910,13 @@ pub async fn handle_sync_provider(
     .into_response())
 }
 
-/// Spawn background health data backfill after a successful OAuth connection.
+/// Spawn background health data backfill after a provider connects.
 ///
 /// Triggers a 30-day backfill via the sync orchestrator so the user gets
-/// historical data immediately after connecting a wearable provider.
+/// historical data immediately after connecting a wearable provider, whether
+/// through OAuth or a pasted API key (intervals.icu).
 #[cfg(feature = "health-sync")]
-fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
+pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
     const BACKFILL_DAYS: u32 = 30;
 
     let Some(orchestrator) = resources.sync_orchestrator.clone() else {

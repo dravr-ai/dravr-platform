@@ -21,7 +21,9 @@ use axum::{
 use chrono::{Duration, Utc};
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
-use pierre_core::models::TenantId;
+use pierre_core::models::{
+    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, TenantId,
+};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use serde::Deserialize;
@@ -90,7 +92,7 @@ impl HealthDataRoutes {
         Ok((start, end))
     }
 
-    /// Handle GET /health-data/sleep - query stored sleep sessions
+    /// Handle GET /health-data/sleep - stored sleep, one entry per sleep merged across sources
     async fn handle_get_sleep(
         State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
@@ -107,10 +109,10 @@ impl HealthDataRoutes {
             .get_sleep_sessions(auth.user_id, &tenant_id, start, end)
             .await?;
 
-        Ok((StatusCode::OK, Json(sessions)).into_response())
+        Ok((StatusCode::OK, Json(merge_sleep_sessions(sessions))).into_response())
     }
 
-    /// Handle GET /health-data/recovery - query stored recovery metrics
+    /// Handle GET /health-data/recovery - stored recovery, one day per date merged across sources
     async fn handle_get_recovery(
         State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
@@ -127,10 +129,10 @@ impl HealthDataRoutes {
             .get_recovery_metrics(auth.user_id, &tenant_id, start, end)
             .await?;
 
-        Ok((StatusCode::OK, Json(metrics)).into_response())
+        Ok((StatusCode::OK, Json(merge_recovery_metrics(metrics))).into_response())
     }
 
-    /// Handle GET /health-data/snapshots - query stored health snapshots
+    /// Handle GET /health-data/snapshots - stored body metrics, one day per date merged across sources
     async fn handle_get_health_snapshots(
         State(resources): State<Arc<ServerContext>>,
         auth: AuthenticatedUser,
@@ -147,7 +149,7 @@ impl HealthDataRoutes {
             .get_health_snapshots(auth.user_id, &tenant_id, start, end)
             .await?;
 
-        Ok((StatusCode::OK, Json(snapshots)).into_response())
+        Ok((StatusCode::OK, Json(merge_health_metrics(snapshots))).into_response())
     }
 
     /// Handle GET /health-data/sources - list connected data sources

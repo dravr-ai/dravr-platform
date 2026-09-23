@@ -25,11 +25,11 @@ use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::activity_fetch::{activity_cache_retention_days, write_through_activity_cache};
 use crate::group_activity_cache::fetch_member_activities;
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 /// Lookback (days) for the `recent_activities` roster list rendered into
 /// the group context. One week is what agents ask about ("this week",
@@ -70,18 +70,18 @@ pub(crate) trait ActivityMergeStrategy: Send + Sync {
 /// This is the default strategy: every provider's activities contribute to the
 /// training load calculation, giving a complete picture of the athlete's workload.
 pub(crate) struct AllProvidersMerge {
-    deduplicator: Box<dyn ActivityDeduplicator>,
+    dedup: DedupConfig,
     activity_limit: usize,
 }
 
 impl AllProvidersMerge {
-    /// Create with the default time-window deduplicator (env-configured) and a
+    /// Create with the env-configured session-merge thresholds and a
     /// caller-supplied per-provider activity limit — typically sourced from
     /// `ServerConfig::activity_fetch_limit` so that a single env variable
     /// (`ACTIVITY_FETCH_LIMIT`) governs every activity-fetching path.
     pub(crate) fn new(activity_limit: usize) -> Self {
         Self {
-            deduplicator: Box::new(TimeWindowDeduplicator::from_env()),
+            dedup: DedupConfig::from_env(),
             activity_limit,
         }
     }
@@ -169,9 +169,9 @@ impl ActivityMergeStrategy for AllProvidersMerge {
             return Vec::new();
         }
 
-        // Deduplicate cross-provider overlaps
+        // Merge every recording of one workout into one session
         let before_dedup = all_activities.len();
-        let merged = self.deduplicator.deduplicate(all_activities);
+        let (merged, _) = merge_duplicates(all_activities, &self.dedup);
 
         info!(
             user_id = %user_id,
@@ -480,10 +480,7 @@ async fn fetch_member_activities_across_tenants(
         any_stale = any_stale || served_stale;
     }
     if tenants.len() > 1 {
-        return (
-            TimeWindowDeduplicator::from_env().deduplicate(all),
-            any_stale,
-        );
+        return (merge_duplicates(all, &DedupConfig::from_env()).0, any_stale);
     }
     (all, any_stale)
 }

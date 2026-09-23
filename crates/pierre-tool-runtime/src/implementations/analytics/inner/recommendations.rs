@@ -27,7 +27,7 @@ use pierre_intelligence::{
 };
 use pierre_mcp_schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
-use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 const RECOMMENDATION_TYPE_PLACEHOLDER: &str = "{recommendation_type}";
@@ -984,7 +984,7 @@ pub fn handle_generate_recommendations(
                         // — both are inflated by fragment duplicates. Collapse
                         // before recommendation logic runs.
                         let (activities, _fragment_report) =
-                            dedupe_and_report(&raw_activities, &DedupConfig::default());
+                            merge_duplicates(raw_activities, &DedupConfig::default());
                         // Report progress before generating recommendations
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(

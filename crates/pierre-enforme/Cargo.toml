@@ -15,6 +15,7 @@ default = []
 provider-whoop = ["dravr-enforme/provider-whoop"]
 provider-garmin = ["dravr-enforme/provider-garmin"]
 provider-strava = ["dravr-enforme/provider-strava"]
+provider-intervals-icu = ["dravr-enforme/provider-intervals-icu"]
 
 [dependencies]
 dravr-enforme = { workspace = true }

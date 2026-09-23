@@ -27,7 +27,10 @@
 //! - **Athlete**: User profile information
 //! - **Stats**: Aggregate performance statistics
 //! - **PersonalRecord**: Best performance achievements
-//! - **SleepSession**, **RecoveryMetrics**, **HealthMetrics**: Health data
+//!
+//! Sleep, recovery and body metrics are not read through this trait: every
+//! source's health data is synced into stored rows by dravr-enforme and read
+//! from there, merged across sources.
 //!
 //! ### Error Handling (Shared Result Type)
 //!
@@ -121,13 +124,9 @@
 //! This separation allows providers to adapt their specific API formats while
 //! maintaining a consistent interface for the rest of the application.
 
-use crate::errors::provider::ProviderError;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
-use crate::models::{
-    Activity, Athlete, CalendarEventRef, HealthMetrics, PersonalRecord, PlannedSession,
-    RecoveryMetrics, SleepSession, Stats,
-};
+use crate::models::{Activity, Athlete, CalendarEventRef, PersonalRecord, PlannedSession, Stats};
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -473,77 +472,6 @@ pub trait FitnessProvider: Send + Sync {
 
     /// Get user's personal records
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>>;
-
-    /// Get sleep sessions for a date range
-    ///
-    /// Returns sleep data from providers that support sleep tracking (Fitbit, Garmin).
-    /// Providers without sleep data support return `UnsupportedFeature` error.
-    async fn get_sleep_sessions(
-        &self,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Result<Vec<SleepSession>, ProviderError> {
-        let date_range = format!(
-            "{} to {}",
-            start_date.format("%Y-%m-%d"),
-            end_date.format("%Y-%m-%d")
-        );
-        Err(ProviderError::UnsupportedFeature {
-            provider: self.name().to_owned(),
-            feature: format!("sleep_sessions (requested: {date_range})"),
-        })
-    }
-
-    /// Get the most recent sleep session
-    ///
-    /// Convenience method for providers that support sleep tracking.
-    /// Returns `UnsupportedFeature` for providers without sleep data.
-    async fn get_latest_sleep_session(&self) -> Result<SleepSession, ProviderError> {
-        Err(ProviderError::UnsupportedFeature {
-            provider: self.name().to_owned(),
-            feature: "latest_sleep_session".to_owned(),
-        })
-    }
-
-    /// Get recovery and readiness metrics for a date range
-    ///
-    /// Returns daily recovery scores, HRV status, and training readiness.
-    /// Available from providers with recovery tracking (Fitbit, Garmin, Whoop).
-    async fn get_recovery_metrics(
-        &self,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Result<Vec<RecoveryMetrics>, ProviderError> {
-        let date_range = format!(
-            "{} to {}",
-            start_date.format("%Y-%m-%d"),
-            end_date.format("%Y-%m-%d")
-        );
-        Err(ProviderError::UnsupportedFeature {
-            provider: self.name().to_owned(),
-            feature: format!("recovery_metrics (requested: {date_range})"),
-        })
-    }
-
-    /// Get health metrics for a date range
-    ///
-    /// Returns comprehensive health data including weight, body composition, vital signs.
-    /// Supported by health-focused providers (Fitbit, Garmin, Apple Health).
-    async fn get_health_metrics(
-        &self,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-    ) -> Result<Vec<HealthMetrics>, ProviderError> {
-        let date_range = format!(
-            "{} to {}",
-            start_date.format("%Y-%m-%d"),
-            end_date.format("%Y-%m-%d")
-        );
-        Err(ProviderError::UnsupportedFeature {
-            provider: self.name().to_owned(),
-            feature: format!("health_metrics (requested: {date_range})"),
-        })
-    }
 
     // ── Training-calendar writes ─────────────────────────────────────────
     //

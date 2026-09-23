@@ -309,6 +309,10 @@ impl TerraWebhookHandler {
     }
 
     /// Process sleep data
+    ///
+    /// LIMITATION(registre#513): `process_sleep`, `process_body` and `process_daily` cache
+    /// Terra's sleep, recovery and body payloads that no tool reads: sleep and recovery
+    /// are read from the rows dravr-enforme syncs, and Terra has no enforme adapter yet.
     async fn process_sleep(&self, payload: &TerraWebhookPayload, user: &TerraUser) -> usize {
         let Some(data) = payload.data.as_ref() else {
             return 0;

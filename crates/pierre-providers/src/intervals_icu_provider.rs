@@ -568,43 +568,6 @@ impl IntervalsIcuProvider {
         })
     }
 
-    /// LIMITATION(registre#508): `get_wellness` has no production caller — the daily
-    /// HRV / RHR / sleep / weight rows and the athlete's note reach no recovery surface.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppError`] when credentials are missing or the upstream
-    /// HTTP call fails.
-    pub async fn get_wellness(
-        &self,
-        oldest: NaiveDate,
-        newest: NaiveDate,
-    ) -> AppResult<Vec<IntervalsIcuWellness>> {
-        let (athlete_id, api_key) = self.require_credentials().await?;
-        let url = self.athlete_url(&athlete_id, "/wellness");
-        let req = self
-            .http
-            .get(&url)
-            .basic_auth(BASIC_AUTH_USERNAME, Some(&api_key))
-            .header("Accept", "application/json")
-            .query(&[
-                ("oldest", oldest.format("%Y-%m-%d").to_string()),
-                ("newest", newest.format("%Y-%m-%d").to_string()),
-            ]);
-        let response = send_traced(req, "get_wellness", &url).await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_wellness: {e}"))
-        })?;
-        if !response.status().is_success() {
-            return Err(AppError::external_service(
-                "intervals_icu",
-                format!("get_wellness returned {}", response.status()),
-            ));
-        }
-        response.json().await.map_err(|e| {
-            AppError::external_service("intervals_icu", format!("get_wellness decode: {e}"))
-        })
-    }
-
     /// Fetch the calendar events (planned workouts + races) for the date range.
     ///
     /// # Errors
@@ -646,46 +609,6 @@ impl Default for IntervalsIcuProvider {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Daily wellness row from Intervals.icu (`/api/v1/athlete/{id}/wellness`).
-///
-/// Intervals.icu names these fields in camelCase on the wire (`restingHR`,
-/// `sleepSecs`, `sleepQuality`); each is renamed explicitly, because a
-/// `snake_case` name with `#[serde(default)]` does not fail to decode — it
-/// silently reads `None` for every row.
-#[derive(Debug, Clone, Deserialize)]
-pub struct IntervalsIcuWellness {
-    /// Calendar date (YYYY-MM-DD).
-    pub id: String,
-    /// HRV root-mean-square (ms).
-    #[serde(default)]
-    pub hrv: Option<f64>,
-    /// Resting heart rate (bpm).
-    #[serde(default, rename = "restingHR")]
-    pub resting_hr: Option<f64>,
-    /// Body weight (kg).
-    #[serde(default)]
-    pub weight: Option<f64>,
-    /// Sleep duration in seconds.
-    #[serde(default, rename = "sleepSecs")]
-    pub sleep_secs: Option<u64>,
-    /// Sleep quality (Intervals.icu 0-5 scale).
-    #[serde(default, rename = "sleepQuality")]
-    pub sleep_quality: Option<u8>,
-    /// Athlete's perceived form (1-10 scale).
-    #[serde(default)]
-    pub readiness: Option<f64>,
-    /// Blood lactate (mmol/L).
-    #[serde(default)]
-    pub lactate: Option<f64>,
-    /// Carbohydrate intake for the day (g).
-    #[serde(default)]
-    pub carbohydrates: Option<f64>,
-    /// The athlete's free-text note for the day. Untrusted text: fence it with
-    /// `pierre_core::untrusted::fence_athlete_text` before a model reads it.
-    #[serde(default)]
-    pub comments: Option<String>,
 }
 
 /// Calendar event row from Intervals.icu (`/api/v1/athlete/{id}/events`).

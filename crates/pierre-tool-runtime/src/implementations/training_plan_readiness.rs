@@ -29,7 +29,7 @@ use pierre_core::models::periodization::{
     PhaseKind, ReadinessInput, ReadinessLevel, RecoveryDay, SubstitutionVerdict, TrainingAlert,
     WorkoutPurpose,
 };
-use pierre_core::models::{FormReading, TenantId};
+use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, FormReading, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
@@ -266,8 +266,11 @@ async fn recovery_series(
             warn!(error = %e, "week readiness: recovery metrics unreadable");
             Vec::new()
         });
-    metrics
+    // One day per date: two providers reporting the same morning are one
+    // reading, not two days of evidence.
+    merge_recovery_metrics(metrics)
         .iter()
+        .map(|merged| &merged.record)
         .filter_map(|m| {
             let days_ago = today.signed_duration_since(m.date).num_days();
             u32::try_from(days_ago).ok().map(|days_ago| RecoveryDay {
@@ -301,8 +304,14 @@ async fn sleep_by_night(
             warn!(error = %e, "week readiness: sleep sessions unreadable");
             Vec::new()
         });
+    // Merged first, so one night two wearables both recorded counts once
+    // instead of being summed into a double night.
     let mut by_night: HashMap<NaiveDate, f64> = HashMap::new();
-    for session in sessions.iter().filter(|s| !s.is_nap) {
+    for merged in merge_sleep_sessions(sessions) {
+        let session = merged.record;
+        if session.is_nap {
+            continue;
+        }
         let Some(seconds) = session.total_sleep_seconds else {
             continue;
         };

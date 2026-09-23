@@ -64,7 +64,6 @@ pub mod activity_backfill;
 #[cfg(feature = "tools-data")]
 pub mod activity_backfill_resume;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
-pub mod activity_dedup;
 pub mod activity_fetch;
 /// The one display-name rule a member is rendered by, on every build.
 pub mod athlete_display_name;

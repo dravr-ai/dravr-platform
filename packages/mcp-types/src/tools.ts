@@ -271,7 +271,7 @@ export interface AnalyzeSleepQualityParams {
   /** Manual sleep data (used instead of a provider fetch) with fields: duration_hours, deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms */
   sleep_data?: Record<string, any>;
 
-  /** Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  /** Read only this source's synced sleep (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
   sleep_provider?: string;
 }
 
@@ -441,7 +441,7 @@ export interface CalculateRecoveryScoreParams {
   /** Manual sleep data for recovery calculation (used instead of a provider fetch) */
   sleep_data?: Record<string, any>;
 
-  /** Provider to fetch sleep from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  /** Read only this source's synced sleep (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
   sleep_provider?: string;
 
   /** Training load data with ctl, atl, tsb values (optional) */
@@ -1990,7 +1990,7 @@ export interface SuggestRestDayParams {
   /** Manual sleep data (used instead of a provider fetch) */
   sleep_data?: Record<string, any>;
 
-  /** Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  /** Read only this source's synced sleep (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
   sleep_provider?: string;
 
   /** Training load data (ctl, atl, tsb) */
@@ -2077,7 +2077,7 @@ export interface TrackSleepTrendsParams {
   duration_hours: number;
 }[];
 
-  /** Provider to fetch sleep history from (whoop, fitbit, garmin, terra). Omit to auto-select the best connected provider */
+  /** Read only this source's synced sleep history (whoop, garmin, intervals_icu). Omit to merge every connected source's sleep per night */
   sleep_provider?: string;
 }
 

@@ -224,21 +224,17 @@ async fn registry_registers_intervals_icu_as_non_oauth() {
         .expect("factory creates provider");
     assert_eq!(provider.name(), "intervals_icu");
 
-    // Only what a path actually serves: activities with cheap detail. The
-    // wellness feed reaches no health surface (registre#508), and a HEALTH
-    // flag would put a false "health" chip on the connect card and send the
-    // freshness check to an orchestrator that never syncs this provider.
+    // Activities with cheap detail, plus the wellness feed dravr-enforme
+    // syncs into sleep, recovery and body rows.
     let caps = registry
         .get_descriptor("intervals_icu")
         .expect("descriptor registered")
         .capabilities();
     assert!(caps.supports_activities());
-    assert!(
-        !caps.supports_health(),
-        "no health path serves intervals.icu"
-    );
-    assert!(!caps.supports_recovery());
-    assert!(!caps.supports_sleep());
+    assert!(caps.supports_sleep());
+    assert!(caps.supports_recovery());
+    assert!(caps.supports_health());
+    assert!(!caps.supports_continuous_data());
 }
 
 #[tokio::test]
@@ -364,11 +360,11 @@ async fn every_athlete_scoped_call_uses_the_literal_api_key_username() {
 
     let from = NaiveDate::from_ymd_opt(2026, 6, 1).expect("valid from date");
     let to = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid to date");
-    let wellness = provider
-        .get_wellness(from, to)
+    let events = provider
+        .get_events(from, to)
         .await
-        .expect("get_wellness succeeds");
-    assert!(wellness.is_empty(), "stub returns an empty wellness list");
+        .expect("get_events succeeds");
+    assert!(events.is_empty(), "stub returns an empty event list");
 
     let head = stub.await.expect("stub task joins");
     assert_eq!(basic_credentials(&head), "API_KEY:test-api-key");
@@ -939,45 +935,5 @@ async fn list_read_maps_the_whole_inverted_feel_scale() {
     assert!(
         activities.iter().all(|a| a.comments().is_none()),
         "the list never fetches threads"
-    );
-}
-
-/// Intervals.icu sends wellness in `camelCase`. `sleep_secs` and `sleep_quality`
-/// used to be read under their `snake_case` names and decoded as `None` on every
-/// row; the qualitative fields ride the same row.
-#[tokio::test]
-async fn wellness_reads_the_camel_case_wire_names_and_the_daily_note() {
-    let body = serde_json::json!([{
-        "id": "2026-09-20",
-        "hrv": 62.5,
-        "restingHR": 48,
-        "sleepSecs": 27000,
-        "sleepQuality": 2,
-        "readiness": 71.0,
-        "lactate": 1.8,
-        "carbohydrates": 420.0,
-        "comments": "Slept badly, stressful week at work"
-    }])
-    .to_string();
-    let (base_url, stub) = stub_pages(vec![body]).await;
-    let provider = provider_against(base_url).await;
-
-    let from = NaiveDate::from_ymd_opt(2026, 9, 20).expect("valid date");
-    let rows = provider.get_wellness(from, from).await.expect("wellness");
-    timeout(StdDuration::from_secs(2), stub)
-        .await
-        .expect("stub finished")
-        .expect("join");
-
-    assert_eq!(rows.len(), 1);
-    let day = &rows[0];
-    assert_eq!(day.resting_hr, Some(48.0));
-    assert_eq!(day.sleep_secs, Some(27_000), "sleepSecs on the wire");
-    assert_eq!(day.sleep_quality, Some(2), "sleepQuality on the wire");
-    assert_eq!(day.lactate, Some(1.8));
-    assert_eq!(day.carbohydrates, Some(420.0));
-    assert_eq!(
-        day.comments.as_deref(),
-        Some("Slept badly, stressful week at work")
     );
 }

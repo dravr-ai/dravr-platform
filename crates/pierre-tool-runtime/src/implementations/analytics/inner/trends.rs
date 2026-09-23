@@ -17,7 +17,7 @@ use pierre_intelligence::{
     MetricType, SafeMetricExtractor, StatisticalAnalyzer, TrendDataPoint, TrendDirection,
 };
 use pierre_providers::core::FitnessProvider;
-use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -53,7 +53,7 @@ async fn fetch_and_analyze_trends(
             // captures bias slope estimates toward the days that were
             // double-recorded.
             let (activities, _fragment_report) =
-                dedupe_and_report(&raw_activities, &DedupConfig::default());
+                merge_duplicates(raw_activities, &DedupConfig::default());
             let analysis = analyze_performance_trend(&activities, metric, timeframe);
 
             apply_format_typed(

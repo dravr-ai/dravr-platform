@@ -144,6 +144,9 @@ pub mod sport_labels;
 
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub mod fitness_support;
+/// The `fragment_dedup` sidecar: what the session merge behind a list combined.
+#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+pub mod session_merge_summary;
 
 /// Goal management tools: `set_goal`, `track_progress`, `suggest_goals`,
 /// `analyze_goal_feasibility` (`tools-goals` feature).

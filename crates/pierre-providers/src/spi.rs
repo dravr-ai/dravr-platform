@@ -445,7 +445,10 @@ impl ProviderDescriptor for FitbitDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::full_health()
+        // LIMITATION(registre#513): `FitbitDescriptor::capabilities` advertises activities
+        // only: sleep and recovery are read from dravr-enforme's synced rows, and Fitbit has
+        // no enforme adapter yet.
+        ProviderCapabilities::activity_only()
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -550,11 +553,10 @@ impl ProviderDescriptor for CorosDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // COROS supports activities, sleep tracking, and daily health summaries
-        ProviderCapabilities::OAUTH
-            .union(ProviderCapabilities::ACTIVITIES)
-            .union(ProviderCapabilities::SLEEP_TRACKING)
-            .union(ProviderCapabilities::RECOVERY_METRICS)
+        // LIMITATION(registre#513): `CorosDescriptor::capabilities` advertises activities
+        // only: sleep and recovery are read from dravr-enforme's synced rows, and COROS has
+        // no enforme adapter yet.
+        ProviderCapabilities::OAUTH.union(ProviderCapabilities::ACTIVITIES)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -664,7 +666,7 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
 /// Intervals.icu endurance-analytics provider descriptor.
 ///
 /// Intervals.icu authenticates with an athlete-generated API key over HTTP
-/// Basic auth (`athlete_id:api_key`) rather than OAuth, so `oauth_endpoints`
+/// Basic auth (literal user `API_KEY`, the key as password) rather than OAuth, so `oauth_endpoints`
 /// and `oauth_params` are `None` and the capability set omits `OAUTH`. Users
 /// link it by pasting their athlete id + API key, not via a redirect flow.
 #[cfg(feature = "provider-intervals-icu")]
@@ -681,12 +683,15 @@ impl ProviderDescriptor for IntervalsIcuDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // Activities only. The wellness feed (HRV / resting HR / weight) is
-        // read by no health path (registre#508), so advertising it would put a
-        // false "health" chip on the connect card and route freshness to an
-        // orchestrator that never syncs this provider. The cheap-detail flag is
-        // named because detail is one more HTTP GET, not a browser page load.
-        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
+        // Activities, plus the daily wellness feed dravr-enforme syncs into
+        // sleep (duration), recovery (HRV, resting HR, the athlete's note) and
+        // body (weight) rows. The cheap-detail flag is named because detail is
+        // one more HTTP GET, not a browser page load.
+        ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::CHEAP_ACTIVITY_DETAIL)
+            .union(ProviderCapabilities::SLEEP_TRACKING)
+            .union(ProviderCapabilities::RECOVERY_METRICS)
+            .union(ProviderCapabilities::HEALTH_METRICS)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

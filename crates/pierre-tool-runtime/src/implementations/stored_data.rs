@@ -23,7 +23,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{
-    DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, DataSource, Merged,
+    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -138,13 +139,15 @@ pub struct DateRange {
 /// The sessions are dravr-equilibre's own `StoredSleepSession`, forwarded
 /// rather than projected. That crate derives `JsonSchema` for exactly this
 /// reason, so the declared schema is the stored shape and cannot drift from
-/// it by a projection someone forgot to update.
+/// it by a projection someone forgot to update. Each is one sleep merged
+/// across the athlete's sources, carrying `sources` and the metrics it took
+/// from a source other than its primary.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct SleepSessionsResult {
-    /// How many sessions the window held.
+    /// How many sleeps the window held, after merging sources.
     pub count: usize,
-    /// The sessions, as stored.
-    pub sessions: Vec<StoredSleepSession>,
+    /// One entry per sleep, merged across sources.
+    pub sessions: Vec<Merged<StoredSleepSession>>,
     /// The window that was read.
     pub range: DateRange,
 }
@@ -152,10 +155,10 @@ pub struct SleepSessionsResult {
 /// What `get_recovery_metrics` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct RecoveryMetricsResult {
-    /// How many readings the window held.
+    /// How many days the window held, after merging sources.
     pub count: usize,
-    /// The readings, as stored.
-    pub metrics: Vec<StoredRecoveryMetrics>,
+    /// One reading per day, merged across sources.
+    pub metrics: Vec<Merged<StoredRecoveryMetrics>>,
     /// The window that was read.
     pub range: DateRange,
 }
@@ -163,10 +166,10 @@ pub struct RecoveryMetricsResult {
 /// What `get_health_snapshots` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct HealthSnapshotsResult {
-    /// How many snapshots the window held.
+    /// How many days the window held, after merging sources.
     pub count: usize,
-    /// The snapshots, as stored.
-    pub snapshots: Vec<StoredHealthMetrics>,
+    /// One snapshot per day, merged across sources.
+    pub snapshots: Vec<Merged<StoredHealthMetrics>>,
     /// The window that was read.
     pub range: DateRange,
 }
@@ -232,6 +235,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
                 .await
             {
                 Ok(sessions) => {
+                    let sessions = merge_sleep_sessions(sessions);
                     let payload = SleepSessionsResult {
                         count: sessions.len(),
                         sessions,
@@ -301,6 +305,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
                 .await
             {
                 Ok(metrics) => {
+                    let metrics = merge_recovery_metrics(metrics);
                     let payload = RecoveryMetricsResult {
                         count: metrics.len(),
                         metrics,
@@ -370,6 +375,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
                 .await
             {
                 Ok(snapshots) => {
+                    let snapshots = merge_health_metrics(snapshots);
                     let payload = HealthSnapshotsResult {
                         count: snapshots.len(),
                         snapshots,

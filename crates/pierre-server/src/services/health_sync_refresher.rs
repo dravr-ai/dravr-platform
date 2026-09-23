@@ -60,6 +60,7 @@ fn token_to_credentials(user_id: Uuid, token: TokenData) -> ProviderCredentials 
         scopes,
         user_id: user_id.to_string(),
         provider: token.provider,
+        provider_user_id: token.provider_user_id,
     }
 }
 

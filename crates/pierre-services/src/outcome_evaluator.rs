@@ -24,7 +24,7 @@ use std::time::Duration;
 use crate::periodic::spawn_periodic;
 use chrono::Utc;
 use pierre_contremaitre::registry::PromptRegistry;
-use pierre_core::models::{SportType, TenantId};
+use pierre_core::models::{merge_recovery_metrics, SportType, TenantId};
 use pierre_database::repositories::RecordedOutcome;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{judge, ChatProvider, LlmProvider};
@@ -271,24 +271,25 @@ async fn eval_activity_completed(ctx: &EvalCtx<'_>, sport: Option<&str>) -> Advi
 
 /// Recovery: did HRV improve over the window?
 async fn eval_hrv(ctx: &EvalCtx<'_>) -> AdviceResolution {
-    let mut recs = match ctx
+    // One row per date across the athlete's sources, ordered by date, so a
+    // day two providers both reported counts once.
+    let recs = match ctx
         .repos
         .recovery
         .get_recovery_metrics(ctx.user_id, &ctx.tenant_id, ctx.start(), ctx.end())
         .await
     {
-        Ok(r) => r,
+        Ok(r) => merge_recovery_metrics(r),
         Err(e) => {
             warn!(error = %e, "recovery read failed; will retry");
             return AdviceResolution::Retry;
         }
     };
-    recs.sort_by_key(|m| m.date);
     // HRV is captured sporadically, so the earliest/latest record in the window
     // may carry no HRV. Take the first and last records that actually have a
     // value so a boundary `None` cannot discard a computable mid-window delta.
-    let before = recs.iter().find_map(|m| m.hrv_ms);
-    let after = recs.iter().rev().find_map(|m| m.hrv_ms);
+    let before = recs.iter().find_map(|m| m.record.hrv_ms);
+    let after = recs.iter().rev().find_map(|m| m.record.hrv_ms);
     let verdict = delta_label(before, after, true, HRV_DEAD_BAND_MS);
     self_or_judge(ctx, verdict, "HRV (ms)", before, after).await
 }

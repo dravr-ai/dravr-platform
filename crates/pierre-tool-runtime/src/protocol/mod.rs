@@ -14,7 +14,7 @@ pub mod format;
 pub mod provider_helpers;
 /// Classification of a failed token refresh: a refusal of the grant or client, or transient
 mod refresh_failure;
-/// Provider-agnostic sleep fetch + conversion helpers (reused by analytics + sleep tools)
+/// Synced sleep and recovery reads, merged across sources (sleep + analytics tools)
 pub mod sleep_helpers;
 /// Write-back of a pair a provider refreshed on its own, over the row it was read from
 mod token_writeback;

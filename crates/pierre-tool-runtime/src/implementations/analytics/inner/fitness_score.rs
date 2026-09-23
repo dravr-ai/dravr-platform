@@ -17,7 +17,7 @@ use pierre_core::models::{Activity, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator};
-use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -55,11 +55,11 @@ async fn fetch_and_calculate_recovery_adjustment(
     sleep_provider_name: &str,
     analysis: &mut FitnessScoreResult,
 ) -> Result<RecoveryAdjustmentInfo, String> {
-    use crate::protocol::sleep_helpers::fetch_provider_sleep_data;
+    use crate::protocol::sleep_helpers::latest_sleep_data;
 
-    // Fetch sleep data from provider
-    let sleep_data =
-        fetch_provider_sleep_data(executor, user_uuid, tenant_id, sleep_provider_name, 1)
+    // The most recent night that source synced
+    let (sleep_data, _sources) =
+        latest_sleep_data(executor, user_uuid, tenant_id, Some(sleep_provider_name), 1)
             .await
             .map_err(|e| e.error.unwrap_or_else(|| "Unknown error".to_owned()))?;
 
@@ -536,7 +536,7 @@ pub fn handle_calculate_fitness_score(
                         // consistency component aren't inflated by re-uploads
                         // or auto-split GPS recordings of the same workout.
                         let (activities, _fragment_report) =
-                            dedupe_and_report(&raw_activities, &DedupConfig::default());
+                            merge_duplicates(raw_activities, &DedupConfig::default());
                         // Report progress before calculation
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(

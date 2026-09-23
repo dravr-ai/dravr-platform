@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::protocol::sleep_helpers::{convert_sleep_session_to_data, fetch_provider_sleep_data};
+use crate::protocol::sleep_helpers::{latest_daily_strain, latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use pierre_core::models::{Activity, FormBand};
@@ -26,6 +26,12 @@ use crate::implementations::sleep::output::{
     SleepHighlights, SleepNight, SleepQualityResult, SleepTrendSummary, SleepTrendsResult,
 };
 use crate::protocol::format::{apply_format_typed, extract_output_format};
+
+/// Nights `track_sleep_trends` reads when the caller names no window.
+const DEFAULT_TREND_DAYS: u32 = 14;
+
+/// Longest window `track_sleep_trends` reads: a year of nights.
+const MAX_TREND_DAYS: u32 = 366;
 
 /// Provider-agnostic activity fetcher
 ///
@@ -74,75 +80,6 @@ async fn fetch_provider_activities(
     Ok(activities)
 }
 
-/// Fetch sleep history from a provider for trend analysis
-///
-/// Uses `AuthService` for tenant-aware credential lookup and provider instantiation.
-/// Returns multiple sleep sessions converted to `SleepData` for trend tracking.
-async fn fetch_provider_sleep_history(
-    executor: &UniversalToolExecutor,
-    user_uuid: Uuid,
-    tenant_id: Option<&str>,
-    provider_name: &str,
-    days: u32,
-) -> Result<Vec<SleepData>, UniversalResponse> {
-    // Check if provider supports sleep tracking
-    let capabilities = executor
-        .resources
-        .provider_registry()
-        .get_capabilities(provider_name)
-        .ok_or_else(|| UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Provider '{provider_name}' not found in registry")),
-            metadata: None,
-        })?;
-
-    if !capabilities.supports_sleep() {
-        return Err(UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!(
-                "Provider '{provider_name}' does not support sleep tracking."
-            )),
-            metadata: None,
-        });
-    }
-
-    // Use AuthService for tenant-aware authenticated provider creation
-    let provider = executor
-        .auth_service
-        .create_authenticated_provider(provider_name, user_uuid, tenant_id)
-        .await?;
-
-    // Widen query window by 2 days to account for providers that index sleep
-    // by cycle boundary rather than start time
-    let query_days = i64::from(days) + 2;
-    let end_date = Utc::now();
-    let start_date = end_date - Duration::days(query_days);
-
-    let sessions = provider
-        .get_sleep_sessions(start_date, end_date)
-        .await
-        .map_err(|e| {
-            warn!(
-                provider = provider_name,
-                error = %e,
-                "Failed to fetch sleep history from provider"
-            );
-            UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "Sleep data is not available from {provider_name} right now. \
-                     The device may not have synced recent data yet."
-                )),
-                metadata: None,
-            }
-        })?;
-
-    Ok(sessions.iter().map(convert_sleep_session_to_data).collect())
-}
-
 /// Select the best available activity provider for a user
 ///
 /// Checks connected providers and returns the first one that supports activities.
@@ -178,51 +115,17 @@ async fn select_activity_provider(
     None
 }
 
-/// Select the best available sleep provider for a user
-///
-/// Checks connected providers and returns the first one that supports sleep tracking.
-/// Priority order: whoop > garmin > fitbit > terra (Strava excluded - no sleep support)
-pub async fn select_sleep_provider(
-    executor: &UniversalToolExecutor,
-    user_uuid: Uuid,
-    tenant_id: Option<&str>,
-) -> Option<String> {
-    // Sleep provider priority (WHOOP is best for recovery/sleep metrics)
-    let priority = ["whoop", "garmin", "fitbit", "terra"];
-
-    for provider in priority {
-        if let Some(caps) = executor
-            .resources
-            .provider_registry()
-            .get_capabilities(provider)
-        {
-            if caps.supports_sleep() {
-                // Check if user has a valid token
-                if matches!(
-                    executor
-                        .auth_service
-                        .get_valid_token(user_uuid, provider, tenant_id)
-                        .await,
-                    Ok(Some(_))
-                ) {
-                    return Some(provider.to_owned());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Handle `analyze_sleep_quality` tool - analyze sleep data from fitness providers
+/// Handle `analyze_sleep_quality` tool - analyze the most recent synced night
 ///
 /// Analyzes sleep duration, stages (deep/REM/light), efficiency, and generates quality score.
 ///
 /// Supports two modes:
-/// 1. **Provider mode**: Specify `sleep_provider` to auto-fetch data from connected provider
-/// 2. **Manual mode**: Provide `sleep_data` JSON directly (fallback when no provider)
+/// 1. **Synced mode**: the most recent night every connected source synced,
+///    merged, or only `sleep_provider`'s when named
+/// 2. **Manual mode**: Provide `sleep_data` JSON directly
 ///
 /// # Parameters
-/// - `sleep_provider` (optional): Provider to fetch sleep data from (e.g., "whoop", "fitbit", "garmin")
+/// - `sleep_provider` (optional): Read only this source's synced sleep (e.g., "whoop", "garmin")
 /// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
 /// - `recent_hrv_values` (optional): Array of recent HRV values for trend analysis
 /// - `baseline_hrv` (optional): User's baseline HRV for comparison
@@ -250,57 +153,33 @@ pub fn handle_analyze_sleep_quality(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Get sleep data from provider or manual input
-        let sleep_data: SleepData = if let Some(provider_name) = request
+        // Manual `sleep_data` wins; otherwise the most recent synced night,
+        // merged across sources or narrowed to `sleep_provider` when named.
+        let source = request
             .parameters
             .get("sleep_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            // Provider mode: fetch from connected provider
-            let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
-            match fetch_provider_sleep_data(
-                executor,
-                user_uuid,
-                request.tenant_id.as_deref(),
-                provider_name,
-                1, // Most recent night
-            )
-            .await
-            {
-                Ok(data) => data,
-                Err(response) => return Ok(response),
-            }
-        } else if let Some(sleep_data_json) = request.parameters.get("sleep_data") {
-            // Manual mode: parse provided JSON
+            .and_then(serde_json::Value::as_str);
+        let manual = request
+            .parameters
+            .get("sleep_data")
+            .filter(|_| source.is_none());
+        let sleep_data: SleepData = if let Some(sleep_data_json) = manual {
             serde_json::from_value(sleep_data_json.clone()).map_err(|e| {
                 ProtocolError::InvalidRequest(format!("Invalid sleep_data format: {e}"))
             })?
         } else {
-            // Auto-select a connected sleep provider (mirrors
-            // calculate_recovery_score / suggest_rest_day / track_sleep_trends)
             let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
-            if let Some(provider_name) =
-                select_sleep_provider(executor, user_uuid, request.tenant_id.as_deref()).await
+            match latest_sleep_data(
+                executor,
+                user_uuid,
+                request.tenant_id.as_deref(),
+                source,
+                1, // Most recent night
+            )
+            .await
             {
-                match fetch_provider_sleep_data(
-                    executor,
-                    user_uuid,
-                    request.tenant_id.as_deref(),
-                    &provider_name,
-                    1, // Most recent night
-                )
-                .await
-                {
-                    Ok(data) => data,
-                    Err(response) => return Ok(response),
-                }
-            } else {
-                return Err(ProtocolError::InvalidRequest(
-                    "No connected sleep provider found. \
-                     Use sleep_provider to fetch from a connected provider (whoop, fitbit, garmin, terra), \
-                     or provide sleep_data JSON directly."
-                        .to_owned(),
-                ));
+                Ok((data, _sources)) => data,
+                Err(response) => return Ok(response),
             }
         };
 
@@ -392,14 +271,14 @@ pub fn handle_analyze_sleep_quality(
 ///
 /// Supports cross-provider integration:
 /// - Use `activity_provider` to specify where to fetch training data (e.g., "strava", "garmin")
-/// - Use `sleep_provider` to specify where to fetch sleep/HRV data (e.g., "whoop", "fitbit")
-/// - Falls back to manual `sleep_data` JSON if no `sleep_provider` specified
-/// - Auto-selects best available provider if not specified
+/// - Sleep is the most recent synced night, merged across sources or only
+///   `sleep_provider`'s when named; manual `sleep_data` JSON replaces it
+/// - Auto-selects the activity provider if not specified
 ///
 /// # Parameters
 /// - `activity_provider` (optional): Provider for activities (default: auto-select or strava)
-/// - `sleep_provider` (optional): Provider for sleep data (e.g., "whoop", "fitbit", "garmin")
-/// - `sleep_data` (optional): Manual sleep data JSON (fallback if no `sleep_provider`)
+/// - `sleep_provider` (optional): Read only this source's synced sleep (e.g., "whoop", "garmin")
+/// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
 /// - `user_config` (optional): User physiological parameters (FTP, LTHR, max HR, etc.)
 /// - `recent_hrv_values` (optional): Array of recent HRV values
 /// - `baseline_hrv` (optional): User's baseline HRV
@@ -489,51 +368,40 @@ pub fn handle_calculate_recovery_score(
                 ))
             })?;
 
-        // Get sleep data: from provider or manual input (optional - TSB-only fallback available)
-        let sleep_result: Option<(SleepData, Option<String>)> = if let Some(provider_name) = request
+        // Sleep is optional here (a TSB-only score stands without it): manual
+        // `sleep_data` wins, a named `sleep_provider` must have synced a night,
+        // and otherwise the latest night merged across sources is used if any.
+        let source = request
             .parameters
             .get("sleep_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            // Fetch from specified sleep provider
-            match fetch_provider_sleep_data(
-                executor,
-                user_uuid,
-                request.tenant_id.as_deref(),
-                provider_name,
-                1,
-            )
-            .await
-            {
-                Ok(data) => Some((data, Some(provider_name.to_owned()))),
-                Err(response) => return Ok(response),
-            }
-        } else if let Some(sleep_data_json) = request.parameters.get("sleep_data") {
-            // Manual sleep data provided
-            let data = serde_json::from_value(sleep_data_json.clone()).map_err(|e| {
-                ProtocolError::InvalidRequest(format!("Invalid sleep_data format: {e}"))
-            })?;
-            Some((data, None))
-        } else {
-            // Try auto-selecting a sleep provider
-            if let Some(provider_name) =
-                select_sleep_provider(executor, user_uuid, request.tenant_id.as_deref()).await
-            {
-                fetch_provider_sleep_data(
+            .and_then(serde_json::Value::as_str);
+        let sleep_result: Option<(SleepData, Option<String>)> =
+            match (source, request.parameters.get("sleep_data")) {
+                (None, Some(sleep_data_json)) => {
+                    let data = serde_json::from_value(sleep_data_json.clone()).map_err(|e| {
+                        ProtocolError::InvalidRequest(format!("Invalid sleep_data format: {e}"))
+                    })?;
+                    Some((data, None))
+                }
+                (Some(_), _) => match latest_sleep_data(
                     executor,
                     user_uuid,
                     request.tenant_id.as_deref(),
-                    &provider_name,
+                    source,
                     1,
                 )
                 .await
-                .ok()
-                .map(|data| (data, Some(provider_name)))
-            } else {
-                // No sleep provider available - will use TSB-only mode
-                None
-            }
-        };
+                {
+                    Ok((data, sources)) => Some((data, Some(sources.join(" + ")))),
+                    Err(response) => return Ok(response),
+                },
+                (None, None) => {
+                    latest_sleep_data(executor, user_uuid, request.tenant_id.as_deref(), None, 1)
+                        .await
+                        .ok()
+                        .map(|(data, sources)| (data, Some(sources.join(" + "))))
+                }
+            };
 
         // Get sleep/recovery config
         let cageux_config = executor.cageux_config();
@@ -664,27 +532,12 @@ pub fn handle_calculate_recovery_score(
             }
         }
 
-        // Fetch WHOOP cycle strain via recovery metrics (best-effort, non-fatal)
-        let daily_strain = if sleep_provider_used.as_deref().is_some_and(|p| p == "whoop") {
-            let provider = executor
-                .auth_service
-                .create_authenticated_provider("whoop", user_uuid, request.tenant_id.as_deref())
-                .await
-                .ok();
-            if let Some(provider) = provider {
-                let end = Utc::now();
-                let start = end - chrono::Duration::days(3);
-                provider
-                    .get_recovery_metrics(start, end)
-                    .await
-                    .ok()
-                    .and_then(|metrics| metrics.first().and_then(|m| m.training_load))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // The latest day strain a source scored (WHOOP), best-effort.
+        #[allow(clippy::cast_possible_truncation)]
+        // WHOOP day strain runs 0-21; f32 holds it exactly enough to report.
+        let daily_strain = latest_daily_strain(executor, user_uuid, request.tenant_id.as_deref())
+            .await
+            .map(|strain| strain as f32);
 
         let payload = recovery_score_payload(
             recovery_score.clone(),
@@ -744,13 +597,14 @@ pub fn handle_calculate_recovery_score(
 ///
 /// Supports cross-provider integration:
 /// - Use `activity_provider` to specify where to fetch training data
-/// - Use `sleep_provider` to specify where to fetch sleep/HRV data
-/// - Auto-selects best available providers if not specified
+/// - Sleep is the most recent synced night, merged across sources or only
+///   `sleep_provider`'s when named
+/// - Auto-selects the activity provider if not specified
 ///
 /// # Parameters
 /// - `activity_provider` (optional): Provider for activities (default: auto-select)
-/// - `sleep_provider` (optional): Provider for sleep data
-/// - `sleep_data` (optional): Manual sleep data JSON (fallback)
+/// - `sleep_provider` (optional): Read only this source's synced sleep
+/// - `sleep_data` (optional): Manual sleep data JSON (used if `sleep_provider` not specified)
 /// - `user_config` (optional): User physiological parameters
 ///
 /// # Errors
@@ -833,45 +687,37 @@ pub fn handle_suggest_rest_day(
                 ))
             })?;
 
-        // Get sleep data from provider or manual input (optional - TSB-only fallback available)
-        let sleep_result: Option<SleepData> = if let Some(provider_name) = request
+        // Sleep is optional here (TSB-only advice stands without it): manual
+        // `sleep_data` wins, a named `sleep_provider` must have synced a night,
+        // and otherwise the latest night merged across sources is used if any.
+        let source = request
             .parameters
             .get("sleep_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            match fetch_provider_sleep_data(
+            .and_then(serde_json::Value::as_str);
+        let sleep_result: Option<SleepData> = match (source, request.parameters.get("sleep_data")) {
+            (None, Some(sleep_data_json)) => Some(
+                serde_json::from_value(sleep_data_json.clone()).map_err(|e| {
+                    ProtocolError::InvalidRequest(format!("Invalid sleep_data format: {e}"))
+                })?,
+            ),
+            (Some(_), _) => match latest_sleep_data(
                 executor,
                 user_uuid,
                 request.tenant_id.as_deref(),
-                provider_name,
+                source,
                 1,
             )
             .await
             {
-                Ok(data) => Some(data),
+                Ok((data, _sources)) => Some(data),
                 Err(response) => return Ok(response),
+            },
+            (None, None) => {
+                latest_sleep_data(executor, user_uuid, request.tenant_id.as_deref(), None, 1)
+                    .await
+                    .ok()
+                    .map(|(data, _sources)| data)
             }
-        } else if let Some(sleep_data_json) = request.parameters.get("sleep_data") {
-            let data = serde_json::from_value(sleep_data_json.clone()).map_err(|e| {
-                ProtocolError::InvalidRequest(format!("Invalid sleep_data format: {e}"))
-            })?;
-            Some(data)
-        } else if let Some(provider_name) =
-            select_sleep_provider(executor, user_uuid, request.tenant_id.as_deref()).await
-        {
-            // If provider fetch fails, fall back to TSB-only mode
-            fetch_provider_sleep_data(
-                executor,
-                user_uuid,
-                request.tenant_id.as_deref(),
-                &provider_name,
-                1,
-            )
-            .await
-            .ok()
-        } else {
-            // No sleep provider available - will use TSB-only mode
-            None
         };
 
         // Get sleep/recovery config
@@ -1053,11 +899,12 @@ pub fn handle_suggest_rest_day(
 /// Correlates sleep quality with performance and training load.
 ///
 /// Supports two modes:
-/// 1. **Provider mode**: Specify `sleep_provider` and `days` to auto-fetch history
+/// 1. **Synced mode**: the last `days` nights every connected source synced,
+///    merged per night, or only `sleep_provider`'s when named
 /// 2. **Manual mode**: Provide `sleep_history` JSON array directly
 ///
 /// # Parameters
-/// - `sleep_provider` (optional): Provider to fetch sleep history from
+/// - `sleep_provider` (optional): Read only this source's synced sleep history
 /// - `days` (optional): Number of days of history to fetch (default: 14)
 /// - `sleep_history` (optional): Manual sleep history JSON array
 ///
@@ -1084,72 +931,41 @@ pub fn handle_track_sleep_trends(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // Get sleep history from provider or manual input
-        let sleep_history: Vec<SleepData> = if let Some(provider_name) = request
+        // Manual `sleep_history` wins; otherwise the synced nights of the last
+        // `days` days, merged across sources or narrowed to `sleep_provider`.
+        let source = request
             .parameters
             .get("sleep_provider")
-            .and_then(serde_json::Value::as_str)
-        {
-            // Provider mode: fetch from connected provider
-            let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
-            // Safe: days parameter is user input, clamped to u32::MAX (reasonable for date ranges)
-            #[allow(clippy::cast_possible_truncation)]
-            let days = request
-                .parameters
-                .get("days")
-                .and_then(serde_json::Value::as_u64)
-                .map_or(14, |d| d.min(u64::from(u32::MAX)) as u32);
-
-            match fetch_provider_sleep_history(
-                executor,
-                user_uuid,
-                request.tenant_id.as_deref(),
-                provider_name,
-                days,
-            )
-            .await
-            {
-                Ok(history) => history,
-                Err(response) => return Ok(response),
-            }
-        } else if let Some(sleep_history_json) = request.parameters.get("sleep_history") {
-            // Manual mode: parse provided JSON
+            .and_then(serde_json::Value::as_str);
+        let manual = request
+            .parameters
+            .get("sleep_history")
+            .filter(|_| source.is_none());
+        let sleep_history: Vec<SleepData> = if let Some(sleep_history_json) = manual {
             serde_json::from_value(sleep_history_json.clone()).map_err(|e| {
                 ProtocolError::InvalidRequest(format!("Invalid sleep_history format: {e}"))
             })?
         } else {
-            // Try auto-selecting a sleep provider
             let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
-            if let Some(provider_name) =
-                select_sleep_provider(executor, user_uuid, request.tenant_id.as_deref()).await
+            let days = request
+                .parameters
+                .get("days")
+                .and_then(serde_json::Value::as_u64)
+                .map_or(DEFAULT_TREND_DAYS, |d| {
+                    u32::try_from(d.clamp(1, u64::from(MAX_TREND_DAYS))).unwrap_or(MAX_TREND_DAYS)
+                });
+            match sleep_history_data(
+                executor,
+                user_uuid,
+                request.tenant_id.as_deref(),
+                source,
+                days,
+            )
+            .await
             {
-                // Safe: days parameter is user input, clamped to u32::MAX (reasonable for date ranges)
-                #[allow(clippy::cast_possible_truncation)]
-                let days = request
-                    .parameters
-                    .get("days")
-                    .and_then(serde_json::Value::as_u64)
-                    .map_or(14, |d| d.min(u64::from(u32::MAX)) as u32);
-
-                match fetch_provider_sleep_history(
-                    executor,
-                    user_uuid,
-                    request.tenant_id.as_deref(),
-                    &provider_name,
-                    days,
-                )
-                .await
-                {
-                    Ok(history) => history,
-                    Err(response) => return Ok(response),
-                }
-            } else {
-                return Err(ProtocolError::InvalidRequest(
-                    "Either 'sleep_provider' or 'sleep_history' parameter is required. \
-                     Use sleep_provider to auto-fetch from a connected provider, \
-                     or provide sleep_history JSON directly."
-                        .to_owned(),
-                ));
+                // Oldest first, so the trend reads forward in time.
+                Ok(nights) => nights.into_iter().rev().map(|(data, _)| data).collect(),
+                Err(response) => return Ok(response),
             }
         };
 

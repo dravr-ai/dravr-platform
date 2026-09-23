@@ -1491,8 +1491,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=799fbae94e7
 
 [[package]]
 name = "dravr-enforme"
-version = "0.1.58"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.58#6d12e891a4fa835a40e0e6cde7745298344aba66"
+version = "0.3.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.3.0#ffbba8b74f94da159032af322025a8f0670a4597"
 dependencies = [
  "async-trait",
  "axum",
@@ -1513,8 +1513,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.2.8"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.2.8#a6f30d2bf3b9c3cde031e5c285d812a82f571760"
+version = "0.4.0"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.4.0#69747496d234d182f588885bde14f56387ac3294"
 dependencies = [
  "chrono",
  "schemars 1.2.1",

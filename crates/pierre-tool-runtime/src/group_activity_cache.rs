@@ -27,11 +27,11 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_dedup::{ActivityDeduplicator, TimeWindowDeduplicator};
 use crate::activity_fetch::activity_cache_retention_days;
 use crate::group_fitness::{ActivityMergeStrategy, AllProvidersMerge};
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 /// Age beyond which cached activities trigger a revalidation
 /// (stale-while-revalidate). Cached data is still what gets served; this only
@@ -138,7 +138,7 @@ pub(crate) async fn fetch_member_activities(
     // returning (see `AllProvidersMerge::fetch_and_merge`); the warm-cache path
     // must do the same or cross-provider duplicates double-count in the snapshot.
     let before_dedup = cached.len();
-    let cached = TimeWindowDeduplicator::from_env().deduplicate(cached);
+    let (cached, _) = merge_duplicates(cached, &DedupConfig::from_env());
     info!(
         user_id = %user_id,
         before_dedup,

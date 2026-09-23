@@ -27,6 +27,8 @@ use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
 
+#[cfg(feature = "health-sync")]
+use crate::oauth::spawn_health_backfill;
 use crate::AuthRoutesContext;
 
 /// Request body for linking an Intervals.icu account.
@@ -150,6 +152,11 @@ pub async fn handle_intervals_icu_link(
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
     info!(user_id = %user_id, "Intervals.icu account linked");
+
+    // The wellness feed syncs like any health source; read its last month now
+    // rather than at the next scheduled pass.
+    #[cfg(feature = "health-sync")]
+    spawn_health_backfill(&resources, &user_id.to_string(), INTERVALS_ICU);
 
     Ok(Json(serde_json::json!({
         "status": "connected",

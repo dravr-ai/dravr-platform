@@ -44,7 +44,7 @@ use pierre_core::civil_time::{
     resolve_zone,
 };
 use pierre_core::models::Activity;
-use pierre_providers::deduplication::FragmentReport;
+use pierre_providers::deduplication::{FilledField, FragmentReport};
 
 use super::sport_labels::{localized_feel, localized_sport_name};
 
@@ -59,10 +59,10 @@ use super::sport_labels::{localized_feel, localized_sport_name};
 /// used when the provider didn't surface ambient temp on the row itself
 /// (sciotte / Whoop / Fitbit / Terra all leave it empty).
 ///
-/// `fragment_report` carries fragment-deduplication metadata when overlapping
-/// recordings of the same workout were detected; when `Some` and at least one
-/// group is present, a header note is prepended so the LLM sees the
-/// session-vs-row distinction inline with the list (smaller models that skip
+/// `fragment_report` is the session merge that produced `activities`; when
+/// `Some` and at least one group was merged, a header note is prepended naming
+/// what each session combines, so the LLM sees the session-vs-recording
+/// distinction inline with the list (smaller models that skip
 /// the structured `retrieval_context` JSON still get the cue from the prose).
 ///
 /// `now` is the wall clock the list is rendered against. It is a parameter, not
@@ -128,19 +128,21 @@ pub fn format_activities_as_list<S: BuildHasher>(
     if let Some(report) = fragment_report {
         if report.has_fragments() {
             lines.push(format!(
-                "[Note] {raw} GPS recordings detected, representing ~{sessions} distinct training sessions.",
+                "[Note] {raw} recordings, representing {sessions} distinct training sessions: auto-splits, re-uploads, a second device or another provider's copy of the same workout are merged.",
                 raw = report.raw_count,
                 sessions = report.session_count,
             ));
             lines.push(
-                "[Note] The following appear to be fragments of the same workout (count sessions, not rows):"
+                "[Note] Each session listed already combines its recordings (count the sessions listed, never the recordings):"
                     .to_owned(),
             );
-            for group in &report.groups {
+            for group in report.groups.iter().take(MERGE_NOTE_GROUP_LINES) {
                 let ids = group.fragment_ids.join(", ");
                 lines.push(format!(
-                    "       - canonical {canon}; group: [{ids}] ({sport}, {start} → {end})",
+                    "       - session {canon}; recordings: [{ids}] from {providers} ({sport}, {start} → {end}){filled}",
                     canon = group.canonical_id,
+                    providers = group.providers.join(" + "),
+                    filled = filled_note(&group.filled_fields),
                     sport = localized_sport_name(&group.sport_type, locale),
                     start = group
                         .window_start
@@ -150,6 +152,12 @@ pub fn format_activities_as_list<S: BuildHasher>(
                         .window_end
                         .with_timezone(&zone)
                         .format("%Y-%m-%d %H:%M"),
+                ));
+            }
+            let unlisted = report.groups.len().saturating_sub(MERGE_NOTE_GROUP_LINES);
+            if unlisted > 0 {
+                lines.push(format!(
+                    "       - and {unlisted} more merged sessions (see retrieval_context.fragment_dedup)"
                 ));
             }
             lines.push(String::new());
@@ -262,4 +270,25 @@ fn relative_day_tag(day: NaiveDate, today: NaiveDate, locale: &str) -> String {
     relative_day(day, today).map_or_else(String::new, |rel| {
         format!(" ({})", relative_day_label(rel, locale))
     })
+}
+
+/// Merged sessions the list note describes one per line; past this many the
+/// note counts the rest, so an athlete whose every workout arrives from two
+/// providers does not get a second copy of the list in the note.
+const MERGE_NOTE_GROUP_LINES: usize = 10;
+
+/// `"; took calories, feel from whoop, intervals_icu"`-style suffix naming the
+/// fields a merged session gained from its other recordings, or empty.
+fn filled_note(filled: &[FilledField]) -> String {
+    if filled.is_empty() {
+        return String::new();
+    }
+    let fields: Vec<&str> = filled.iter().map(|f| f.field).collect();
+    let mut providers: Vec<&str> = Vec::new();
+    for field in filled {
+        if !providers.contains(&field.provider.as_str()) {
+            providers.push(&field.provider);
+        }
+    }
+    format!("; took {} from {}", fields.join(", "), providers.join(", "))
 }

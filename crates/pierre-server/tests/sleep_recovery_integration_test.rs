@@ -732,7 +732,7 @@ async fn test_missing_required_parameters() -> Result<()> {
     let executor = create_test_executor().await?;
     let user_id = Uuid::new_v4();
 
-    // Test analyze_sleep_quality without required sleep_data or sleep_provider parameter
+    // analyze_sleep_quality with neither sleep_data nor sleep_provider
     let request = UniversalRequest {
         tool_name: "analyze_sleep_quality".to_owned(),
         parameters: json!({}), // Missing both sleep_data and sleep_provider
@@ -744,16 +744,12 @@ async fn test_missing_required_parameters() -> Result<()> {
         progress_reporter: None,
     };
 
-    let result = executor.execute_tool(request).await;
-
-    // Should return an error (ProtocolError::InvalidRequest) about missing params
-    assert!(result.is_err(), "Should fail with missing parameters");
-    let error = result.unwrap_err();
-    // New cross-provider API requires either sleep_provider or sleep_data
-    assert!(
-        format!("{error:?}").contains("sleep_provider")
-            || format!("{error:?}").contains("sleep_data")
-    );
+    // With neither argument the tool reads the synced sleep; a request that
+    // carries no tenant has none to read, and the answer names the manual path.
+    let response = executor.execute_tool(request).await?;
+    assert!(!response.success, "no synced sleep and no sleep_data");
+    let error = response.error.unwrap_or_default();
+    assert!(error.contains("sleep_data"), "{error}");
 
     Ok(())
 }

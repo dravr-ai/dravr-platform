@@ -15,7 +15,7 @@ use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_intelligence::{AlgorithmConfig, PerformancePredictor, TrainingLoadCalculator};
-use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -297,7 +297,7 @@ pub fn handle_predict_performance(
                         // keeps the predictor from picking a doubled-recording
                         // PR as the canonical performance sample.
                         let (activities, _fragment_report) =
-                            dedupe_and_report(&raw_activities, &DedupConfig::default());
+                            merge_duplicates(raw_activities, &DedupConfig::default());
                         // Report progress before prediction
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(

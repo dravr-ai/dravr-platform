@@ -208,16 +208,15 @@ fn test_coros_provider_capabilities() {
     ensure_http_clients_initialized();
     let registry = global_registry();
 
-    // COROS should support sleep tracking
+    // Sleep and recovery come from synced rows; COROS has no sync adapter
+    // (registre#513), so it advertises neither.
     assert!(
-        registry.supports_sleep(oauth_providers::COROS),
-        "COROS should support sleep tracking"
+        !registry.supports_sleep(oauth_providers::COROS),
+        "COROS has no sleep sync yet"
     );
-
-    // COROS should support recovery metrics
     assert!(
-        registry.supports_recovery(oauth_providers::COROS),
-        "COROS should support recovery metrics"
+        !registry.supports_recovery(oauth_providers::COROS),
+        "COROS has no recovery sync yet"
     );
 
     // COROS should require OAuth

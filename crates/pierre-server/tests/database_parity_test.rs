@@ -939,6 +939,8 @@ async fn test_parity_recovery_metrics_roundtrip() {
             spo2: None,
             respiratory_rate: Some(14.5),
             skin_temp_deviation: Some(0.3),
+            daily_strain: None,
+            athlete_note: None,
             source_name: "whoop".to_owned(),
             recorded_at: Utc::now(),
         };

@@ -18,7 +18,7 @@ use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use pierre_providers::core::FitnessProvider;
-use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
@@ -77,7 +77,7 @@ async fn execute_activity_comparison(
             // against its own fragments is degenerate and surfaces "0% delta"
             // noise.
             let (all_activities, _fragment_report) =
-                dedupe_and_report(&raw_activities, &DedupConfig::default());
+                merge_duplicates(raw_activities, &DedupConfig::default());
 
             let comparison = compare_activity_logic(
                 &target_activity,

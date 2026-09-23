@@ -22,7 +22,7 @@ use pierre_intelligence::{AlgorithmConfig, SleepAnalyzer, TrainingLoadCalculator
 use pierre_notifications::triggers as notification_triggers;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::TenantId;
-use pierre_providers::deduplication::{dedupe_and_report, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -118,12 +118,12 @@ async fn fetch_recovery_context_for_training_load(
     tenant_id: Option<&str>,
     sleep_provider_name: &str,
 ) -> Result<RecoveryContextInfo, String> {
-    use crate::protocol::sleep_helpers::fetch_provider_sleep_data;
+    use crate::protocol::sleep_helpers::latest_sleep_data;
     use SleepAnalyzer;
 
-    // Fetch sleep data from provider
-    let sleep_data =
-        fetch_provider_sleep_data(executor, user_uuid, tenant_id, sleep_provider_name, 1)
+    // The most recent night that source synced
+    let (sleep_data, _sources) =
+        latest_sleep_data(executor, user_uuid, tenant_id, Some(sleep_provider_name), 1)
             .await
             .map_err(|e| e.error.unwrap_or_else(|| "Unknown error".to_owned()))?;
 
@@ -482,7 +482,7 @@ pub fn handle_analyze_training_load(
                         // workout and trips overtraining notifications on
                         // synthetic volume.
                         let (activities, fragment_report) =
-                            dedupe_and_report(&raw_activities, &DedupConfig::default());
+                            merge_duplicates(raw_activities, &DedupConfig::default());
                         if fragment_report.has_fragments() {
                             debug!(
                                 raw = fragment_report.raw_count,

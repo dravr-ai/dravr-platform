@@ -1,160 +1,250 @@
-// ABOUTME: Provider-agnostic sleep fetch helpers reused by analytics + sleep tools
-// ABOUTME: Lifted from pierre-server's sleep tool when analytics moved into pierre-tool-runtime
-//
+// ABOUTME: Sleep and recovery reads shared by the sleep, recovery and analytics tools
+// ABOUTME: Stored rows every connected source synced, merged per night or per day
+
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sleep data fetch helpers.
+//! Sleep and recovery reads.
 //!
-//! Analytics (training_load, fitness_score) needs the most recent night of
-//! sleep data when scoring recovery. The original implementation lived in
-//! `pierre-server::tools::implementations::sleep::inner`, but analytics moved
-//! into pierre-tool-runtime — and pierre-tool-runtime cannot depend on
-//! pierre-server. The two functions analytics actually needs
-//! (`fetch_provider_sleep_data`, `convert_sleep_session_to_data`) are
-//! provider-agnostic and depend only on `ToolRuntime` + `UniversalToolExecutor`,
-//! so they live here. The remaining sleep-tool helpers stay in pierre-server
-//! and import the converter from this module.
+//! Every sleep-scoring tool reads the same place: the sleep and recovery rows
+//! dravr-enforme syncs from each connected source (WHOOP, Garmin,
+//! intervals.icu), merged so one night — or one day — reported by two sources
+//! is one record carrying both sources' metrics. The chat pipeline refreshes a
+//! stale source before the turn runs, so the rows here are as current as the
+//! sources allow.
+//!
+//! A caller naming a source (the tools' `sleep_provider` argument) narrows the
+//! rows to that source before merging; otherwise every source contributes.
 
-use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
-use chrono::{Duration, Utc};
-use pierre_core::models::{SleepSession, SleepStageType};
+use std::collections::HashMap;
+
+use chrono::{Duration, NaiveDate, Utc};
+use pierre_core::models::{
+    merge_recovery_metrics, merge_sleep_sessions, Merged, StoredRecoveryMetrics,
+    StoredSleepSession, StoredSleepStageType, TenantId,
+};
 use pierre_intelligence::SleepData;
 use tracing::warn;
 use uuid::Uuid;
 
-/// Provider-agnostic sleep data fetcher
-///
-/// Fetches sleep data from any provider that supports sleep tracking (Fitbit, Garmin, WHOOP, Terra).
-/// Uses `AuthService` for tenant-aware credential lookup and provider instantiation.
-/// Automatically converts provider-specific `SleepSession` to the unified `SleepData` format.
-///
-/// # Arguments
-/// * `executor` - The tool executor with access to auth service and provider registry
-/// * `user_uuid` - The user's UUID for token lookup
-/// * `tenant_id` - Optional tenant ID for multi-tenant deployments
-/// * `provider_name` - Name of the sleep-capable provider
-/// * `days_back` - Number of days of sleep data to fetch (default: 1 for most recent night)
+use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
+
+/// Extra days read before the requested window, so a night that began the
+/// evening before the window's first day still falls inside it.
+const WINDOW_MARGIN_DAYS: i64 = 2;
+
+/// Days of recovery rows searched for the most recent day strain.
+const STRAIN_LOOKBACK_DAYS: i64 = 3;
+
+fn failure(message: String) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: None,
+        error: Some(message),
+        metadata: None,
+    }
+}
+
+fn tenant_of(tenant_id: Option<&str>) -> Option<TenantId> {
+    tenant_id.and_then(|t| TenantId::parse_str(t).ok())
+}
+
+fn missing_tenant() -> UniversalResponse {
+    failure(
+        "Synced sleep is read per tenant and this request carries none; \
+         pass sleep_data to analyze a night directly."
+            .to_owned(),
+    )
+}
+
+/// Nights of synced sleep over the last `days` days, one entry per night
+/// merged across sources, newest first. `source` narrows the rows to one
+/// source before merging.
 ///
 /// # Errors
-/// Returns `UniversalResponse` with error if provider doesn't support sleep or fetch fails
-pub async fn fetch_provider_sleep_data(
+/// Returns `UniversalResponse` when the request has no tenant or the stored
+/// rows cannot be read.
+pub async fn stored_sleep_nights(
     executor: &UniversalToolExecutor,
     user_uuid: Uuid,
     tenant_id: Option<&str>,
-    provider_name: &str,
-    days_back: u32,
-) -> Result<SleepData, UniversalResponse> {
-    // Check if provider supports sleep tracking
-    let capabilities = executor
+    source: Option<&str>,
+    days: u32,
+) -> Result<Vec<Merged<StoredSleepSession>>, UniversalResponse> {
+    let tenant = tenant_of(tenant_id).ok_or_else(missing_tenant)?;
+    let end = Utc::now();
+    let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
+    let mut sessions = executor
         .resources
-        .provider_registry()
-        .get_capabilities(provider_name)
-        .ok_or_else(|| UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Provider '{provider_name}' not found in registry")),
-            metadata: None,
-        })?;
-
-    if !capabilities.supports_sleep() {
-        return Err(UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!(
-                "Provider '{provider_name}' does not support sleep tracking. \
-                 Use a sleep-capable provider: fitbit, garmin, whoop, or terra."
-            )),
-            metadata: None,
-        });
-    }
-
-    // Use AuthService for tenant-aware authenticated provider creation
-    let provider = executor
-        .auth_service
-        .create_authenticated_provider(provider_name, user_uuid, tenant_id)
-        .await?;
-
-    // Fetch sleep sessions with a wider query window to account for providers
-    // (like WHOOP) that may index sleep by cycle boundary rather than start time.
-    // A 1-day request uses a 3-day API window; multi-day requests add 2 extra days.
-    let query_days = i64::from(days_back) + 2;
-    let end_date = Utc::now();
-    let start_date = end_date - Duration::days(query_days);
-
-    let sessions = provider
-        .get_sleep_sessions(start_date, end_date)
+        .repos()
+        .sleep
+        .get_sleep_sessions(user_uuid, &tenant, start, end)
         .await
         .map_err(|e| {
-            warn!(
-                provider = provider_name,
-                error = %e,
-                "Failed to fetch sleep data from provider"
-            );
-            UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "Sleep data is not available from {provider_name} right now. \
-                     The device may not have synced recent data yet."
-                )),
-                metadata: None,
-            }
+            warn!(error = %e, "stored sleep sessions unreadable");
+            failure("Sleep data could not be read right now.".to_owned())
         })?;
-
-    // Get most recent session and convert to SleepData
-    let session = sessions
+    if let Some(source) = source {
+        sessions.retain(|s| s.source_name.eq_ignore_ascii_case(source));
+    }
+    let mut nights: Vec<_> = merge_sleep_sessions(sessions)
         .into_iter()
-        .next()
-        .ok_or_else(|| UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!(
-                "No sleep data available from '{provider_name}' for the last {days_back} day(s)"
-            )),
-            metadata: None,
-        })?;
-
-    Ok(convert_sleep_session_to_data(&session))
+        .filter(|night| !night.record.is_nap)
+        .collect();
+    nights.reverse();
+    Ok(nights)
 }
 
-/// Convert a provider `SleepSession` to the intelligence layer `SleepData` format
-#[must_use]
-pub fn convert_sleep_session_to_data(session: &SleepSession) -> SleepData {
-    // Calculate stage durations from sleep stages
-    let mut deep_minutes: u32 = 0;
-    let mut rem_minutes: u32 = 0;
-    let mut light_minutes: u32 = 0;
-    let mut awake_minutes: u32 = 0;
+/// Synced nights over the last `days` days as `SleepData`, newest first.
+///
+/// Each carries the sources it merges. A night without its own HRV or resting
+/// heart rate takes them from the recovery reading of the morning it ended
+/// on — WHOOP, for one, reports HRV on recovery rather than on sleep.
+///
+/// # Errors
+/// Returns `UniversalResponse` when the request has no tenant or the stored
+/// rows cannot be read.
+pub async fn sleep_history_data(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+    source: Option<&str>,
+    days: u32,
+) -> Result<Vec<(SleepData, Vec<String>)>, UniversalResponse> {
+    let nights = stored_sleep_nights(executor, user_uuid, tenant_id, source, days).await?;
+    let recovery = recovery_by_date(executor, user_uuid, tenant_id, days).await;
+    Ok(nights
+        .into_iter()
+        .map(|night| {
+            let mut data = stored_sleep_to_data(&night.record);
+            if let Some(day) = recovery.get(&night.record.end_datetime.date_naive()) {
+                if data.hrv_rmssd_ms.is_none() {
+                    data.hrv_rmssd_ms = day.hrv_rmssd.or(day.hrv_ms);
+                }
+                if data.resting_hr_bpm.is_none() {
+                    data.resting_hr_bpm = day.resting_heart_rate;
+                }
+            }
+            (data, night.sources)
+        })
+        .collect())
+}
 
-    for stage in &session.stages {
-        match stage.stage_type {
-            SleepStageType::Deep => deep_minutes += stage.duration_minutes,
-            SleepStageType::Rem => rem_minutes += stage.duration_minutes,
-            SleepStageType::Light => light_minutes += stage.duration_minutes,
-            SleepStageType::Awake => awake_minutes += stage.duration_minutes,
+/// The most recent synced night as `SleepData`, with the sources it merges.
+///
+/// # Errors
+/// Returns `UniversalResponse` when no night was synced in the last `days`
+/// days (from `source`, when one is named) or the rows cannot be read.
+pub async fn latest_sleep_data(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+    source: Option<&str>,
+    days: u32,
+) -> Result<(SleepData, Vec<String>), UniversalResponse> {
+    sleep_history_data(executor, user_uuid, tenant_id, source, days)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            failure(source.map_or_else(
+                || {
+                    format!(
+                        "No synced sleep for the last {days} day(s). Connect a sleep-tracking \
+                         source (WHOOP, Garmin, intervals.icu) or pass sleep_data manually."
+                    )
+                },
+                |source| format!("No sleep synced from {source} for the last {days} day(s)."),
+            ))
+        })
+}
+
+/// Merged recovery readings over the window, keyed by date. Empty when the
+/// rows cannot be read: recovery only enriches sleep, it never blocks it.
+async fn recovery_by_date(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+    days: u32,
+) -> HashMap<NaiveDate, StoredRecoveryMetrics> {
+    let Some(tenant) = tenant_of(tenant_id) else {
+        return HashMap::new();
+    };
+    let end = Utc::now();
+    let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
+    match executor
+        .resources
+        .repos()
+        .recovery
+        .get_recovery_metrics(user_uuid, &tenant, start, end)
+        .await
+    {
+        Ok(rows) => merge_recovery_metrics(rows)
+            .into_iter()
+            .map(|day| (day.record.date, day.record))
+            .collect(),
+        Err(e) => {
+            warn!(error = %e, "stored recovery unreadable; sleep served without it");
+            HashMap::new()
         }
     }
+}
 
-    // Convert minutes to hours
-    let minutes_to_hours = |m: u32| -> Option<f64> {
-        if m > 0 {
-            Some(f64::from(m) / 60.0)
-        } else {
-            None
-        }
+/// The most recent day strain any source scored in the last few days.
+pub async fn latest_daily_strain(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+) -> Option<f64> {
+    let tenant = tenant_of(tenant_id)?;
+    let end = Utc::now();
+    let start = end - Duration::days(STRAIN_LOOKBACK_DAYS);
+    let rows = executor
+        .resources
+        .repos()
+        .recovery
+        .get_recovery_metrics(user_uuid, &tenant, start, end)
+        .await
+        .map_err(|e| warn!(error = %e, "stored recovery unreadable; strain omitted"))
+        .ok()?;
+    merge_recovery_metrics(rows)
+        .into_iter()
+        .rev()
+        .find_map(|day| day.record.daily_strain)
+}
+
+/// Convert a stored (merged) sleep session to the intelligence layer's `SleepData`.
+///
+/// Stage durations come from the per-stage totals, falling back
+/// to summing the stage list when a source only sent the list.
+#[must_use]
+pub fn stored_sleep_to_data(session: &StoredSleepSession) -> SleepData {
+    let hours = |explicit: Option<u32>, kind: StoredSleepStageType| -> Option<f64> {
+        let seconds = explicit.unwrap_or_else(|| {
+            session
+                .stages
+                .iter()
+                .filter(|stage| stage.stage_type == kind)
+                .map(|stage| stage.duration_seconds)
+                .sum()
+        });
+        (seconds > 0).then(|| f64::from(seconds) / 3600.0)
     };
+    let asleep_seconds = session.total_sleep_seconds.unwrap_or_else(|| {
+        let span = (session.end_datetime - session.start_datetime).num_seconds();
+        u32::try_from(span.max(0)).unwrap_or(u32::MAX)
+    });
 
     SleepData {
-        date: session.start_time,
-        duration_hours: f64::from(session.total_sleep_time) / 60.0,
-        deep_sleep_hours: minutes_to_hours(deep_minutes),
-        rem_sleep_hours: minutes_to_hours(rem_minutes),
-        light_sleep_hours: minutes_to_hours(light_minutes),
-        awake_hours: minutes_to_hours(awake_minutes),
-        efficiency_percent: Some(f64::from(session.sleep_efficiency)),
-        hrv_rmssd_ms: session.hrv_during_sleep,
-        resting_hr_bpm: None, // SleepSession doesn't include this directly
+        date: session.start_datetime,
+        duration_hours: f64::from(asleep_seconds) / 3600.0,
+        deep_sleep_hours: hours(session.deep_sleep_seconds, StoredSleepStageType::Deep),
+        rem_sleep_hours: hours(session.rem_sleep_seconds, StoredSleepStageType::Rem),
+        light_sleep_hours: hours(session.light_sleep_seconds, StoredSleepStageType::Light),
+        awake_hours: hours(session.awake_seconds, StoredSleepStageType::Awake),
+        efficiency_percent: session.sleep_efficiency,
+        hrv_rmssd_ms: session.avg_hrv,
+        resting_hr_bpm: session.min_heart_rate,
         provider_score: session.sleep_score.map(f64::from),
     }
 }

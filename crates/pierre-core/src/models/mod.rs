@@ -118,6 +118,13 @@ pub use dravr_equilibre::{
     SyncResult, SyncStatus, WorkoutDetails as StoredWorkoutDetails,
 };
 
+// One record per night or date across providers, primary source first and
+// each metric it lacks taken from the next source that has it.
+pub use dravr_equilibre::{
+    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, FilledMetric, Merged,
+    SleepStageType as StoredSleepStageType,
+};
+
 // Nutrition domain
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 

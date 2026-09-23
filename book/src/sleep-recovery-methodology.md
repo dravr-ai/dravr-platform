@@ -44,6 +44,31 @@ This section provides a comprehensive mapping between MCP tools and their underl
 | `track_sleep_trends` | Rolling average comparison + trend detection | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:588-686` | `tests/sleep_recovery_integration_test.rs` |
 | `optimize_sleep_schedule` | Form-band sleep duration adjustment | `crates/pierre-tool-runtime/src/implementations/sleep/inner.rs:696-815` | `tests/sleep_recovery_integration_test.rs` |
 
+### Where Sleep and Recovery Data Come From
+
+Every tool above reads the sleep, recovery and body rows `dravr-enforme` syncs
+from each connected source (WHOOP, Garmin, intervals.icu), never a live call to
+one provider. The chat pipeline syncs a stale source before the turn runs.
+
+Sources overlap: a WHOOP strap and a Garmin watch both record the same night.
+Readers merge the rows with `dravr-equilibre`'s `merge_sleep_sessions` (sleeps
+whose windows overlap, naps kept apart), `merge_recovery_metrics` and
+`merge_health_metrics` (one record per date):
+
+- the **primary** record is the best-ranked source's; every metric it carries
+  stands as reported;
+- each metric the primary lacks is taken from the next-ranked source that has
+  it, and the merged record names every source and every filled metric;
+- sleep and recovery rank by `ProviderPriority::recovery_priority` — WHOOP,
+  Oura, Garmin, Polar, Apple, Fitbit, Coros, Suunto, intervals.icu, Strava —
+  because a Garmin `recovery_score` is Body Battery and a Strava one is a form
+  model, while WHOOP and Oura measure overnight recovery directly; body
+  metrics rank by the general `ProviderPriority`.
+
+A night without its own HRV or resting heart rate takes them from the merged
+recovery reading of the morning it ended on. The `sleep_provider` argument
+narrows the rows to one source before merging.
+
 ### Intelligence Module Dependencies
 
 | Module | Algorithm | Source File |

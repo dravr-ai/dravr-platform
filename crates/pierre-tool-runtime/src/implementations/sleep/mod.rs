@@ -61,8 +61,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). \
-                     Omit to auto-select the best connected provider"
+                    "Read only this source's synced sleep (whoop, garmin, intervals_icu). \
+                     Omit to merge every connected source's sleep per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -153,8 +153,8 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch sleep from (whoop, fitbit, garmin, terra). \
-                     Omit to auto-select the best connected provider"
+                    "Read only this source's synced sleep (whoop, garmin, intervals_icu). \
+                     Omit to merge every connected source's sleep per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -265,8 +265,8 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch last night's sleep from (whoop, fitbit, garmin, terra). \
-                     Omit to auto-select the best connected provider"
+                    "Read only this source's synced sleep (whoop, garmin, intervals_icu). \
+                     Omit to merge every connected source's sleep per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -404,8 +404,8 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch sleep history from (whoop, fitbit, garmin, terra). \
-                     Omit to auto-select the best connected provider"
+                    "Read only this source's synced sleep history (whoop, garmin, intervals_icu). \
+                     Omit to merge every connected source's sleep per night"
                         .to_owned(),
                 ),
                 ..Default::default()

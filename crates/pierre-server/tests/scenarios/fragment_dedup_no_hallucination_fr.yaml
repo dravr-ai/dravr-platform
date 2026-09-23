@@ -17,7 +17,7 @@
 #     uncertainty on TURN 1, not after pushback.
 #   - Anti-Hallucination Rule 9: >18h moving time in one day = flag, not
 #     report.
-#   - Provider-side detect_fragments collapses overlapping rows so the
+#   - Provider-side merge_duplicates collapses overlapping rows so the
 #     LLM sees session_count in retrieval_context.fragment_dedup.
 #
 # The seeded shape mirrors the real 2026-05-22 incident: 20 trail_run
