@@ -33,6 +33,7 @@ use crate::conversions::{
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
+use pierre_core::json_value::to_value_as_written;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -213,7 +214,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
                 count: entries.len(),
                 playbooks: entries,
             };
-            Ok(ToolResult::ok(serde_json::to_value(payload).map_err(
+            Ok(ToolResult::ok(to_value_as_written(&payload).map_err(
                 |e| {
                     AppError::internal(format!(
                         "list_coaching_playbooks result did not serialize: {e}"
@@ -291,7 +292,7 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
                 deleted: removed,
                 playbook_id,
             };
-            Ok(ToolResult::ok(serde_json::to_value(payload).map_err(
+            Ok(ToolResult::ok(to_value_as_written(&payload).map_err(
                 |e| AppError::internal(format!("forget_playbook result did not serialize: {e}")),
             )?))
         }

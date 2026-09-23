@@ -21,7 +21,7 @@
 
 use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_list_render::format_activities_as_list;
-use crate::implementations::activity_summary::{detail_json, ActivitySummary};
+use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
 use crate::implementations::athlete_stats::{GetAthleteResult, GetStatsResult};
 use crate::implementations::data_helpers::activity_coverage_note;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
@@ -29,6 +29,7 @@ use crate::protocol::format::formatted_response;
 use crate::protocol::types::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::protocol::ProtocolError;
+use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{
     resolve_sport_type, sport_matches_family, Activity, Athlete, SportType, Stats, TenantId,
 };
@@ -713,7 +714,7 @@ fn prepare_activity_data(
                 summary
             })
             .collect();
-        to_value(&summaries)
+        summary_json(&summaries)
             .map(|v| (v, "summary"))
             .map_err(|e| format!("Failed to serialize activity summaries: {e}"))
     } else {
@@ -897,7 +898,7 @@ pub(crate) fn build_activities_success_response(
     );
     UniversalResponse {
         success: true,
-        result: serde_json::to_value(payload).ok(),
+        result: to_value_as_written(&payload).ok(),
         error: None,
         metadata: Some(metadata),
     }

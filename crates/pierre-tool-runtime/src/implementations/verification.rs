@@ -37,6 +37,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::json_value::to_value_as_written;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 
@@ -215,7 +216,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 explanation: outcome.explanation,
                 evidence_refs: outcome.evidence_refs,
             };
-            Ok(ToolResult::ok(serde_json::to_value(payload).map_err(
+            Ok(ToolResult::ok(to_value_as_written(&payload).map_err(
                 |e| AppError::internal(format!("verify_claim result did not serialize: {e}")),
             )?))
         }

@@ -10,6 +10,7 @@
 // reasons over, so a sensor the provider reports but this struct omits is
 // invisible to the agent no matter how faithfully it was fetched.
 
+use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{Activity, Feel, SportType, ZoneDistribution};
 use pierre_core::untrusted::{cap, defang_for_display, fence_athlete_text, flatten_line};
 use serde::Serialize;
@@ -160,6 +161,20 @@ impl From<&Activity> for ActivitySummary {
     }
 }
 
+/// The activity list in summary mode, as the tool returns it.
+///
+/// Through [`to_value_as_written`] like every reader-facing payload: a
+/// summary's `temperature` (the backfilled weather) and `perceived_exertion`
+/// are `f32`, and a plain `serde_json::to_value` rendered 12.8 °C as
+/// 12.800000190734863.
+///
+/// # Errors
+///
+/// Returns the serialization error when a summary cannot be encoded.
+pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> {
+    to_value_as_written(summaries)
+}
+
 /// Serialize activities for `mode=detailed`, fencing the athlete-authored text.
 ///
 /// Detail mode hands the model the raw [`Activity`], and two of its fields are
@@ -175,7 +190,7 @@ impl From<&Activity> for ActivitySummary {
 ///
 /// Returns the serialization error when an activity cannot be encoded.
 pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
-    let mut value = serde_json::to_value(activities)?;
+    let mut value = to_value_as_written(activities)?;
     if let Some(rows) = value.as_array_mut() {
         for row in rows.iter_mut().filter_map(Value::as_object_mut) {
             fence_self_report(row);

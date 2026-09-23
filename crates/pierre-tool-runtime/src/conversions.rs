@@ -28,6 +28,7 @@ use std::hash::BuildHasher;
 use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
 use dravr_tronc::mcp::tool::ToolCapabilities as TroncCapabilities;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::json_value::to_value_as_written;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
@@ -156,23 +157,6 @@ pub fn output_schema_for<T: schemars::JsonSchema>() -> Value {
         .into_generator()
         .into_root_schema_for::<T>();
     serde_json::to_value(schema).unwrap_or(Value::Null)
-}
-
-/// Convert a payload to a [`Value`] holding the numbers its JSON text holds.
-///
-/// `serde_json::to_value` widens every `f32` to `f64` on the way into a
-/// `Value`, so an `f32` field of 12.8 became 12.800000190734863 — in the reply
-/// an athlete reads, for every typed tool result with an `f32` in it (weather
-/// temperature, humidity and wind among them). Writing the payload to JSON
-/// text formats each `f32` at its own shortest precision, and parsing that
-/// text back keeps exactly those digits. The parse is exact for `f64` too
-/// because this crate enables `serde_json`'s `float_roundtrip`.
-///
-/// # Errors
-///
-/// Returns the serde error when `payload` does not serialize.
-fn to_value_as_written<T: Serialize>(payload: &T) -> serde_json::Result<Value> {
-    serde_json::from_str(&serde_json::to_string(payload)?)
 }
 
 /// Serialize a typed tool result into the payload the tool answers with.

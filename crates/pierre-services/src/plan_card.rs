@@ -34,6 +34,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::training_plan_render::{select_active_weeks, ACTIVE_WEEKS};
+use pierre_core::json_value::to_value_as_written;
 
 /// The tool whose call produced the plan the card projects, named as the
 /// block's `source_tool`.
@@ -250,7 +251,7 @@ impl PlanCard {
         Ok(serde_json::json!({
             "type": "workout_plan",
             "source_tool": source_tool,
-            "plan": serde_json::to_value(self)?,
+            "plan": to_value_as_written(self)?,
         }))
     }
 }

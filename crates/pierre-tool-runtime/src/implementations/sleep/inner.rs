@@ -26,6 +26,7 @@ use crate::implementations::sleep::output::{
     SleepHighlights, SleepNight, SleepQualityResult, SleepTrendSummary, SleepTrendsResult,
 };
 use crate::protocol::format::{apply_format_typed, extract_output_format};
+use pierre_core::json_value::to_value_as_written;
 
 /// Nights `track_sleep_trends` reads when the caller names no window.
 const DEFAULT_TREND_DAYS: u32 = 14;
@@ -859,7 +860,7 @@ pub fn handle_suggest_rest_day(
         Ok(UniversalResponse {
             success: true,
             result: Some(
-                serde_json::to_value(&payload)
+                to_value_as_written(&payload)
                     .map_err(|e| ProtocolError::InternalError(format!("suggest_rest_day: {e}")))?,
             ),
             error: None,
@@ -1298,7 +1299,7 @@ pub fn handle_optimize_sleep_schedule(
         );
         Ok(UniversalResponse {
             success: true,
-            result: Some(serde_json::to_value(&payload).map_err(|e| {
+            result: Some(to_value_as_written(&payload).map_err(|e| {
                 ProtocolError::InternalError(format!("optimize_sleep_schedule: {e}"))
             })?),
             error: None,

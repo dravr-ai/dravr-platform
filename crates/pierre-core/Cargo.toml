@@ -80,7 +80,12 @@ thiserror = "2.0"
 # chrono04 + uuid1: these types carry DateTime<Utc> and Uuid.
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# float_roundtrip: json_value::to_value_as_written reaches a Value by writing
+# JSON text and parsing it back. Without this feature that parse is best-effort
+# and can move an f64 by one ULP (0.1 would read 0.10000000000000002); with it
+# every JSON float the platform parses is correctly rounded. Declared here, the
+# crate every other one depends on, so feature unification covers the build.
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 uuid = { version = "1.22", features = ["v4", "serde"] }

@@ -71,6 +71,7 @@ pub mod chunking;
 
 /// HTML escaping utilities for XSS prevention in server-rendered templates
 pub mod html;
+pub mod json_value;
 
 /// Neutralizing untrusted text before it is interpolated into a structured destination
 pub mod untrusted;
