@@ -737,6 +737,9 @@ fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
     }
 }
 
+/// LIMITATION(registre#521): `map_activity` drops the activity's `device_name`, so a
+/// Garmin-recorded activity relayed through intervals.icu cannot carry the Garmin
+/// attribution intervals.icu's API terms require wherever it is displayed.
 fn map_activity(
     raw: IntervalsIcuActivity,
     streams: Option<TimeSeriesData>,
