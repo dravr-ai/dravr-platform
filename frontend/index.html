@@ -19,6 +19,22 @@
     <meta name="theme-color" content="#11130f" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="dark light" />
     <meta name="description" content="Dravr — fitness intelligence for athletes and coaches." />
+    <!-- Link previews (LinkedIn, Slack, iMessage, X). Crawlers do not run the
+         SPA, so these must be static in the shell, and og:image must be an
+         absolute URL: LinkedIn drops a relative one and shows a bare link.
+         og.png is the same 1200×630 card dravr.ai serves. -->
+    <meta property="og:title" content="Dravr" />
+    <meta property="og:description" content="Dravr — fitness intelligence for athletes and coaches." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://app.dravr.ai/" />
+    <meta property="og:image" content="https://app.dravr.ai/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="Dravr" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Dravr" />
+    <meta name="twitter:description" content="Dravr — fitness intelligence for athletes and coaches." />
+    <meta name="twitter:image" content="https://app.dravr.ai/og.png" />
     <!-- Add-to-Home-Screen: the web app manifest <link> is injected at build by
          vite-plugin-pwa. iOS Safari ignores the manifest's display/icons, so the
          apple-* tags below are required for a standalone home-screen launch with
