@@ -26,6 +26,7 @@ use pierre_auth::oauth2_client::{
     OAuth2Client, OAuth2Config, OAuth2Token, OAuthClientState, PkceParams,
 };
 use pierre_auth::strava_pool;
+use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
 use pierre_config::environment::ServerConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
@@ -374,55 +375,96 @@ impl OAuthService {
         Ok(token)
     }
 
-    /// Create `OAuth2` config for provider using descriptor and configuration
+    /// Create `OAuth2` config with user-specific credential priority
+    ///
+    /// The client is the one [`issuing_client`] resolves: the Strava pool app
+    /// `oauth_app_client_id` names (pinned at authorize for the exchange,
+    /// recorded on the token for a revocation), else the user's own app, the
+    /// tenant's credentials, then the environment. The endpoints, token URL
+    /// and PKCE flag come from the provider's descriptor.
+    ///
+    /// This ensures the token exchange uses the same credentials as the authorization
+    /// URL generation, preventing `client_id` mismatches that cause "invalid code" errors.
     ///
     /// # Errors
-    /// Returns error if provider is unsupported or required credentials are not configured
-    fn create_oauth_config(&self, provider: &str) -> AppResult<OAuth2Config> {
-        // Get provider descriptor from registry
+    /// Returns error if provider is unsupported, a credential lookup fails, or
+    /// no credentials are configured
+    pub(crate) async fn create_oauth_config_with_user(
+        &self,
+        provider: &str,
+        user_id: uuid::Uuid,
+        tenant_id: Option<uuid::Uuid>,
+        oauth_app_client_id: Option<&str>,
+    ) -> AppResult<OAuth2Config> {
         let descriptor = self
             .data
             .provider_registry()
             .get_descriptor(provider)
             .ok_or_else(|| AppError::invalid_input(format!("Unsupported provider: {provider}")))?;
-
-        // Get OAuth endpoints from descriptor
         let endpoints = descriptor.oauth_endpoints().ok_or_else(|| {
             AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
         })?;
-
-        // Get OAuth params from descriptor
         let params = descriptor.oauth_params().ok_or_else(|| {
             AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
         })?;
 
-        // Get credentials from environment/config
-        let env_config = get_oauth_config(provider);
-        let client_id = env_config.client_id.ok_or_else(|| {
-            AppError::invalid_input(format!(
-                "{provider} client_id not configured for token exchange"
-            ))
-        })?;
-        let client_secret = env_config.client_secret.ok_or_else(|| {
-            AppError::invalid_input(format!(
-                "{provider} client_secret not configured for token exchange"
-            ))
-        })?;
+        let server_level = get_oauth_config(provider);
+        let repos = self.data.repos();
+        let client = issuing_client(
+            IssuingLookup {
+                user_id: Some(user_id),
+                tenant_id: tenant_id.map(TenantId::from_uuid),
+                provider,
+                issuing_app: oauth_app_client_id,
+                server_level: &server_level,
+                cached_tenant: None,
+            },
+            repos.tenants.as_ref(),
+            repos.oauth_tokens.as_ref(),
+        )
+        .await?;
 
-        // Build redirect URI - use BASE_URL if set for tunnel/external access
-        let redirect_uri = env_config.redirect_uri.unwrap_or_else(|| {
-            let base_url = env::var("BASE_URL")
-                .unwrap_or_else(|_| format!("http://localhost:{}", self.config.http_port));
-            format!("{base_url}/api/oauth/callback/{provider}")
-        });
-
-        // Get default scopes and join with provider's separator
-        let scopes = descriptor
-            .default_scopes()
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect::<Vec<_>>()
-            .join(params.scope_separator);
+        let default_scopes = || {
+            descriptor
+                .default_scopes()
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
+                .join(params.scope_separator)
+        };
+        let (client_id, client_secret, redirect_uri, scopes) = match client {
+            IssuingClient::UserApp(app) => (
+                app.client_id,
+                app.client_secret,
+                app.redirect_uri,
+                default_scopes(),
+            ),
+            IssuingClient::Tenant(credentials) => {
+                let scopes = credentials.scopes.join(params.scope_separator);
+                (
+                    credentials.client_id,
+                    credentials.client_secret,
+                    credentials.redirect_uri,
+                    scopes,
+                )
+            }
+            IssuingClient::StravaPool {
+                client_id,
+                client_secret,
+            }
+            | IssuingClient::ServerLevel {
+                client_id,
+                client_secret,
+            } => {
+                // Use BASE_URL when set, for tunnel/external access
+                let redirect_uri = server_level.redirect_uri.clone().unwrap_or_else(|| {
+                    let base_url = env::var("BASE_URL")
+                        .unwrap_or_else(|_| format!("http://localhost:{}", self.config.http_port));
+                    format!("{base_url}/api/oauth/callback/{provider}")
+                });
+                (client_id, client_secret, redirect_uri, default_scopes())
+            }
+        };
 
         Ok(OAuth2Config {
             client_id,
@@ -433,208 +475,6 @@ impl OAuthService {
             scopes: vec![scopes],
             use_pkce: params.use_pkce,
         })
-    }
-
-    /// Create `OAuth2` config with user-specific credential priority
-    ///
-    /// A Strava pool app `oauth_app_client_id` names comes first: it is the
-    /// client that issued the grant (pinned at authorize for the exchange,
-    /// recorded on the token for a revocation). Otherwise, resolution order
-    /// (matching `TenantOAuthManager::get_credentials_for_user`):
-    /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
-    /// 2. Tenant-specific credentials (from `tenant_oauth_credentials` table)
-    /// 3. Server-level OAuth configuration (environment variables)
-    ///
-    /// This ensures the token exchange uses the same credentials as the authorization
-    /// URL generation, preventing `client_id` mismatches that cause "invalid code" errors.
-    ///
-    /// # Errors
-    /// Returns error if provider is unsupported or no credentials are configured
-    pub(crate) async fn create_oauth_config_with_user(
-        &self,
-        provider: &str,
-        user_id: uuid::Uuid,
-        tenant_id: Option<uuid::Uuid>,
-        oauth_app_client_id: Option<&str>,
-    ) -> AppResult<OAuth2Config> {
-        // A Strava pool app named on the state or the token issued the grant:
-        // its client, whatever user or tenant credentials exist since.
-        if let Some(app) = oauth_app_client_id.filter(|_| provider.eq_ignore_ascii_case("strava")) {
-            let tokens = self.data.repos().oauth_tokens.as_ref();
-            if tokens.get_strava_pool_app_secret(app).await?.is_some() {
-                return self
-                    .create_oauth_config_with_tenant(provider, None, Some(app))
-                    .await;
-            }
-        }
-        // Priority 1: Try user-specific credentials (per-user OAuth app)
-        if let Ok(Some(user_app)) = self
-            .data
-            .repos()
-            .oauth_tokens
-            .get_user_oauth_app(user_id, provider)
-            .await
-        {
-            info!(
-                "Token exchange using user-specific {} credentials for user {} (client_id={})",
-                provider, user_id, user_app.client_id
-            );
-
-            let descriptor = self
-                .data
-                .provider_registry()
-                .get_descriptor(provider)
-                .ok_or_else(|| {
-                    AppError::invalid_input(format!("Unsupported provider: {provider}"))
-                })?;
-
-            let endpoints = descriptor.oauth_endpoints().ok_or_else(|| {
-                AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
-            })?;
-
-            let params = descriptor.oauth_params().ok_or_else(|| {
-                AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
-            })?;
-
-            let scopes = descriptor
-                .default_scopes()
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect::<Vec<_>>()
-                .join(params.scope_separator);
-
-            return Ok(OAuth2Config {
-                client_id: user_app.client_id,
-                client_secret: user_app.client_secret,
-                auth_url: endpoints.auth_url.to_owned(),
-                token_url: self.token_url_for(provider, &endpoints),
-                redirect_uri: user_app.redirect_uri,
-                scopes: vec![scopes],
-                use_pkce: params.use_pkce,
-            });
-        }
-
-        // Priority 2+3: Tenant-specific, then server-level (Strava pool aware)
-        self.create_oauth_config_with_tenant(provider, tenant_id, oauth_app_client_id)
-            .await
-    }
-
-    /// Create `OAuth2` config using tenant-specific credentials when available
-    ///
-    /// Looks up tenant credentials from the database when `tenant_id` is provided.
-    /// Falls back to environment-based configuration if no tenant credentials are found
-    /// or if `tenant_id` is None.
-    ///
-    /// # Errors
-    /// Returns error if provider is unsupported or no credentials are configured
-    async fn create_oauth_config_with_tenant(
-        &self,
-        provider: &str,
-        tenant_id: Option<uuid::Uuid>,
-        oauth_app_client_id: Option<&str>,
-    ) -> AppResult<OAuth2Config> {
-        // Try tenant-specific credentials first
-        if let Some(tid) = tenant_id {
-            let tid = TenantId::from_uuid(tid);
-            let tenant_creds = self
-                .data
-                .repos().tenants
-                .get_oauth_credentials(tid, provider)
-                .await
-                .map_err(|e| {
-                    warn!(
-                        "Failed to fetch tenant OAuth credentials for tenant {tid}, provider {provider}: {e}"
-                    );
-                    AppError::database(format!(
-                        "Failed to fetch tenant OAuth credentials: {e}"
-                    ))
-                })?;
-
-            if let Some(creds) = tenant_creds {
-                debug!(
-                    "Using tenant-specific OAuth credentials for tenant {tid}, provider {provider}"
-                );
-
-                // Get provider descriptor for endpoints and params
-                let descriptor = self
-                    .data
-                    .provider_registry()
-                    .get_descriptor(provider)
-                    .ok_or_else(|| {
-                        AppError::invalid_input(format!("Unsupported provider: {provider}"))
-                    })?;
-
-                let endpoints = descriptor.oauth_endpoints().ok_or_else(|| {
-                    AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
-                })?;
-
-                let params = descriptor.oauth_params().ok_or_else(|| {
-                    AppError::invalid_input(format!(
-                        "Provider {provider} OAuth params not configured"
-                    ))
-                })?;
-
-                let scopes = creds.scopes.join(params.scope_separator);
-
-                return Ok(OAuth2Config {
-                    client_id: creds.client_id,
-                    client_secret: creds.client_secret,
-                    auth_url: endpoints.auth_url.to_owned(),
-                    token_url: self.token_url_for(provider, &endpoints),
-                    redirect_uri: creds.redirect_uri,
-                    scopes: vec![scopes],
-                    use_pkce: params.use_pkce,
-                });
-            }
-        }
-
-        // Strava server-level: resolve the shared-app pool member pinned on the
-        // state (or the env-default app) so the code exchange uses the same
-        // client_id/secret that built the authorize URL. This replaces the plain
-        // env path for Strava; other providers still use it below.
-        if provider.eq_ignore_ascii_case("strava") {
-            let (client_id, client_secret) = strava_pool::resolve_strava_credentials(
-                self.data.repos().oauth_tokens.as_ref(),
-                oauth_app_client_id,
-            )
-            .await?;
-            let descriptor = self
-                .data
-                .provider_registry()
-                .get_descriptor(provider)
-                .ok_or_else(|| {
-                    AppError::invalid_input(format!("Unsupported provider: {provider}"))
-                })?;
-            let endpoints = descriptor.oauth_endpoints().ok_or_else(|| {
-                AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
-            })?;
-            let params = descriptor.oauth_params().ok_or_else(|| {
-                AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
-            })?;
-            let scopes = descriptor
-                .default_scopes()
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect::<Vec<_>>()
-                .join(params.scope_separator);
-            let redirect_uri = get_oauth_config(provider).redirect_uri.unwrap_or_else(|| {
-                let base_url = env::var("BASE_URL")
-                    .unwrap_or_else(|_| format!("http://localhost:{}", self.config.http_port));
-                format!("{base_url}/api/oauth/callback/{provider}")
-            });
-            return Ok(OAuth2Config {
-                client_id,
-                client_secret,
-                auth_url: endpoints.auth_url.to_owned(),
-                token_url: self.token_url_for(provider, &endpoints),
-                redirect_uri,
-                scopes: vec![scopes],
-                use_pkce: params.use_pkce,
-            });
-        }
-
-        // Fall back to environment-based configuration
-        self.create_oauth_config(provider)
     }
 
     /// Store OAuth token in database, over the row `precondition` names

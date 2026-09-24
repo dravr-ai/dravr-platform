@@ -39,6 +39,20 @@ impl OAuthConfig {
             terra: get_oauth_config(oauth_providers::TERRA),
         }
     }
+
+    /// The configuration of `provider`, or `None` for a provider this
+    /// configuration does not carry.
+    #[must_use]
+    pub fn provider(&self, provider: &str) -> Option<&OAuthProviderConfig> {
+        match provider.to_lowercase().as_str() {
+            p if p == oauth_providers::STRAVA => Some(&self.strava),
+            p if p == oauth_providers::FITBIT => Some(&self.fitbit),
+            p if p == oauth_providers::GARMIN => Some(&self.garmin),
+            p if p == oauth_providers::WHOOP => Some(&self.whoop),
+            p if p == oauth_providers::TERRA => Some(&self.terra),
+            _ => None,
+        }
+    }
 }
 
 /// OAuth provider-specific configuration

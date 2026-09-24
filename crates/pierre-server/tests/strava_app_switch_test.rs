@@ -59,6 +59,7 @@ use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refr
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -2062,5 +2063,85 @@ async fn a_sync_credential_read_reports_a_rate_limited_refresh_as_the_providers(
     assert_eq!(
         connection_and_seat(&resources.common.repos, user_id, tenant).await,
         (ConnectionStatus::Active, true)
+    );
+}
+
+/// A Strava token whose pool app is no longer registered, for an athlete who
+/// registered their own Strava app since, resolves one client on every path
+/// that presents it: the tenant OAuth manager, the refresh and the
+/// revocation all take the athlete's own app, through the one resolver. The
+/// refresh used to go straight to the env app while the manager and the
+/// revocation took the athlete's.
+#[tokio::test]
+#[serial]
+async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
+    const OWN_CLIENT: &str = "athlete-own-app";
+    const OWN_SECRET: &str = "athlete-own-secret";
+    let (base, mock) = mock_strava().await;
+    let (resources, service, _env) = service_pointed_at(&base).await;
+    let repos = &resources.common.repos;
+    let (user_id, tenant) = athlete(&resources, "removed-pool-app").await;
+    connect_expired(repos, user_id, tenant, Some("910099")).await;
+    repos
+        .oauth_tokens
+        .store_user_oauth_app(
+            user_id,
+            "strava",
+            OWN_CLIENT,
+            OWN_SECRET,
+            "https://example.test/api/oauth/callback/strava",
+        )
+        .await
+        .unwrap();
+
+    let managed = resources
+        .auth
+        .tenant_oauth_client
+        .oauth_manager
+        .lock()
+        .await
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant,
+            "strava",
+            repos.tenants.as_ref(),
+            repos.oauth_tokens.as_ref(),
+        )
+        .await
+        .expect("the manager resolves a client");
+    assert_eq!(managed.client_id, OWN_CLIENT);
+    assert_eq!(managed.client_secret, OWN_SECRET);
+
+    AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+        .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
+        .await
+        .expect("the lookup does not error")
+        .expect("the expired token is refreshed");
+    let refreshes = mock.token_requests.lock().unwrap().clone();
+    assert_eq!(refreshes.len(), 1, "{refreshes:?}");
+    assert!(
+        refreshes[0].1.contains(&format!("client_id={OWN_CLIENT}"))
+            && refreshes[0]
+                .1
+                .contains(&format!("client_secret={OWN_SECRET}")),
+        "the refresh presents the client the manager resolves: {}",
+        refreshes[0].1
+    );
+
+    service
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("the disconnect succeeds");
+    let revocations = mock.revocations.lock().unwrap().clone();
+    assert_eq!(revocations.len(), 1, "{revocations:?}");
+    assert_eq!(
+        revocations[0].0,
+        basic(OWN_CLIENT, OWN_SECRET),
+        "the revocation presents the client the refresh did"
     );
 }

@@ -9,7 +9,7 @@ use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
-use pierre_auth::strava_pool;
+use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingLookup};
 use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::get_oauth_config;
 use pierre_core::constants::oauth_providers;
@@ -957,45 +957,6 @@ impl AuthService {
         }
     }
 
-    /// Get default OAuth credentials from `ServerConfig` or environment for a provider
-    ///
-    /// # Errors
-    /// Returns boxed `UniversalResponse` error if credentials are not configured
-    fn get_default_oauth_credentials(
-        provider_name: &str,
-    ) -> Result<(String, String), Box<UniversalResponse>> {
-        // Get OAuth config from environment (PIERRE_<PROVIDER>_* env vars)
-        let oauth_config = get_oauth_config(provider_name);
-
-        let client_id = oauth_config.client_id.as_ref().ok_or_else(|| {
-            Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "{}_CLIENT_ID not configured for provider {}",
-                    provider_name.to_uppercase(),
-                    provider_name
-                )),
-                metadata: None,
-            })
-        })?;
-
-        let client_secret = oauth_config.client_secret.as_ref().ok_or_else(|| {
-            Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "{}_CLIENT_SECRET not configured for provider {}",
-                    provider_name.to_uppercase(),
-                    provider_name
-                )),
-                metadata: None,
-            })
-        })?;
-
-        Ok((client_id.clone(), client_secret.clone()))
-    }
-
     /// Refresh an expired OAuth token for a provider
     ///
     /// Calls the provider's token refresh endpoint and stores the new token
@@ -1085,12 +1046,9 @@ impl AuthService {
     }
 
     /// The client credentials a stored token refreshes under: the client
-    /// that issued it.
-    ///
-    /// A Strava token a shared-pool app issued names that app, and resolves
-    /// to its credentials whatever the user or tenant has configured since.
-    /// Any other token resolves user-specific → tenant-level → env var
-    /// defaults, the chain that issued it; with no tenant, the env defaults.
+    /// that issued it, as [`issuing_client`] resolves it from the Strava pool
+    /// app the token names, the user's own app, the tenant's credentials and
+    /// the environment.
     async fn issuing_client_credentials(
         &self,
         user_id: Uuid,
@@ -1098,38 +1056,30 @@ impl AuthService {
         provider: &str,
         issuing_app: Option<&str>,
     ) -> Result<(String, String), String> {
+        let tenant_id = tenant_id
+            .filter(|t| !t.is_empty())
+            .map(|t| TenantId::parse_str(t).map_err(|_| format!("Invalid tenant_id: {t}")))
+            .transpose()?;
         let repos = self.resources.repos();
-        if let Some(app) =
-            issuing_app.filter(|_| provider.eq_ignore_ascii_case(oauth_providers::STRAVA))
-        {
-            return strava_pool::resolve_strava_credentials(repos.oauth_tokens.as_ref(), Some(app))
-                .await
-                .map_err(|e| e.to_string());
-        }
-        let Some(tenant_id) = tenant_id.filter(|t| !t.is_empty()) else {
-            return Self::get_default_oauth_credentials(provider)
-                .map_err(|e| e.error.unwrap_or_default());
-        };
-        if let Ok(Some(user_app)) = repos
-            .oauth_tokens
-            .get_user_oauth_app(user_id, provider)
-            .await
-        {
-            info!("Using user-specific {provider} credentials for user {user_id}");
-            return Ok((user_app.client_id, user_app.client_secret));
-        }
-        let tid = TenantId::parse_str(tenant_id)
-            .map_err(|_| format!("Invalid tenant_id: {tenant_id}"))?;
-        match repos
-            .tenants
-            .get_oauth_credentials(tid, provider)
-            .await
-            .map_err(|e| format!("Failed to get OAuth credentials: {e}"))?
-        {
-            Some(c) => Ok((c.client_id, c.client_secret)),
-            None => Self::get_default_oauth_credentials(provider)
-                .map_err(|e| e.error.unwrap_or_default()),
-        }
+        let server_level = get_oauth_config(provider);
+        let client = issuing_client(
+            IssuingLookup {
+                user_id: Some(user_id),
+                tenant_id,
+                provider,
+                issuing_app,
+                server_level: &server_level,
+                cached_tenant: None,
+            },
+            repos.tenants.as_ref(),
+            repos.oauth_tokens.as_ref(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok((
+            client.client_id().to_owned(),
+            client.client_secret().to_owned(),
+        ))
     }
 
     /// Refresh the stored token for `provider` regardless of its recorded expiry.

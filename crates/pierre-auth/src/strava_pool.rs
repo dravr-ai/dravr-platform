@@ -1,5 +1,5 @@
-// ABOUTME: Strava shared-app OAuth pool — app selection at authorize + credential resolution at exchange/refresh
-// ABOUTME: The athlete's own issuing app, else env STRAVA_CLIENT_ID then DB pool apps; resolves an issuing app's secret
+// ABOUTME: Strava shared-app OAuth pool — app selection at authorize, seat accounting across the env app and pool
+// ABOUTME: The athlete's own issuing app, else env STRAVA_CLIENT_ID then DB pool apps with a free seat
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,10 +11,11 @@
 //! `STRAVA_CLIENT_ID` app, operators register additional apps in the
 //! `strava_oauth_app_pool` table. This module decides which app an
 //! authorization uses (the pool app that issued the athlete's token while it
-//! has room, otherwise the env app first, then pool apps in order) and
-//! resolves the matching `client_secret` for a token whose issuing app is
-//! already known (at code exchange from the pinned state, at refresh from the
-//! stored token). The env app is the implicit member with attribution `None`.
+//! has room, otherwise the env app first, then pool apps in order). A token
+//! whose issuing app is already known (at code exchange from the pinned
+//! state, at refresh from the stored token) resolves that app's secret
+//! through `tenant::oauth_manager::issuing_client`. The env app is the
+//! implicit member with attribution `None`.
 //!
 //! A seat is an athlete's grant at Strava, so a token holds one until that
 //! grant is no longer usable: a `revoked` connection, or a `needs_reauth` one
@@ -224,29 +225,6 @@ pub fn strava_client_id(attribution: Option<&str>) -> Option<String> {
 #[must_use]
 pub fn same_strava_app(a: Option<&str>, b: Option<&str>) -> bool {
     a == b || strava_client_id(a) == strava_client_id(b)
-}
-
-/// Resolve `(client_id, client_secret)` for a KNOWN attribution.
-///
-/// Used at code exchange (the state's pinned app) and at refresh (a stored
-/// token's issuing app). `None` (env) resolves to the env app; a pool id
-/// resolves to that app's decrypted secret. An unknown/removed pool id falls
-/// back to the env app so an orphaned token degrades rather than hard-failing
-/// (only a deleted-with-live-athletes app hits this, which the delete path
-/// warns against).
-///
-/// # Errors
-/// Returns an error when the env app is unconfigured or the repository fails.
-pub async fn resolve_strava_credentials(
-    oauth_tokens: &dyn OAuthTokenRepository,
-    attribution: Option<&str>,
-) -> AppResult<(String, String)> {
-    if let Some(cid) = attribution {
-        if let Some(secret) = oauth_tokens.get_strava_pool_app_secret(cid).await? {
-            return Ok((cid.to_owned(), secret));
-        }
-    }
-    env_app()
 }
 
 /// One Strava application whose seats [`strava_seat_summary`] counts.
