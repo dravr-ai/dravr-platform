@@ -181,6 +181,19 @@ impl OAuth2Error {
         }
     }
 
+    /// Create an `invalid_client_metadata` error (RFC 7591 Section 3.2.2)
+    /// Used when a registration request carries a metadata value the server refuses
+    #[must_use]
+    pub fn invalid_client_metadata(description: &str) -> Self {
+        Self {
+            error: "invalid_client_metadata".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some(
+                "https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.2".to_owned(),
+            ),
+        }
+    }
+
     /// Create an `invalid_scope` error (RFC 6749 Section 4.1.2.1)
     /// Used when a client requests scopes beyond what it was registered for
     #[must_use]
