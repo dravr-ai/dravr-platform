@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Group info's membership gating — who sees the admin rows, who leaves, who archives
+// ABOUTME: Tests Group info's membership gating — who sees the admin rows and the digest mode, who leaves, who archives
 // ABOUTME: The sheet is the only group surface left, so an owner and a plain member must each get their own
 
 import React from 'react';
@@ -14,30 +14,33 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn() }),
 }));
 
+const GROUP: CoachingGroup = {
+  id: 'group-1',
+  tenant_id: 'tenant-1',
+  name: 'Harricana 2027',
+  description: 'Bloc ultra',
+  agent_id: 'coach-1',
+  owner_id: 'user-owner',
+  coach_user_id: null,
+  peer_data_sharing: true,
+  respond_mode: 'all',
+  digest_mode: 'off',
+  max_members: 12,
+  is_active: true,
+  created_at: '2026-05-01T08:00:00Z',
+  updated_at: '2026-08-01T08:00:00Z',
+};
+
 const mockLeaveGroup = jest.fn();
 const mockDeleteGroup = jest.fn();
 jest.mock('../src/services/api', () => ({
   coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   groupsApi: {
-    getGroup: jest.fn().mockResolvedValue({
-      id: 'group-1',
-      tenant_id: 'tenant-1',
-      name: 'Harricana 2027',
-      description: 'Bloc ultra',
-      agent_id: 'coach-1',
-      owner_id: 'user-owner',
-      coach_user_id: null,
-      peer_data_sharing: true,
-      respond_mode: 'all',
-      max_members: 12,
-      is_active: true,
-      created_at: '2026-05-01T08:00:00Z',
-      updated_at: '2026-08-01T08:00:00Z',
-    } as CoachingGroup),
+    getGroup: jest.fn(),
     listMembers: jest.fn(),
     getStats: jest.fn().mockResolvedValue({ stats: null }),
     listInvites: jest.fn().mockResolvedValue({ invites: [] }),
-    getPermissions: jest.fn().mockResolvedValue({ can_create: true, policy: 'everyone', weekly_digest: false }),
+    getPermissions: jest.fn(),
     getTranscript: jest.fn().mockResolvedValue({ group_id: 'group-1', entries: [] }),
     getWeeklyReport: jest.fn(),
     getHealthFlags: jest.fn(),
@@ -91,6 +94,12 @@ describe('GroupInfoSheet', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCallerId = 'user-owner';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(GROUP);
+    (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
+      can_create: true,
+      policy: 'everyone',
+      weekly_digest: false,
+    });
     (groupsApi.listMembers as jest.Mock).mockResolvedValue({ members: MEMBERS });
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
   });
@@ -145,6 +154,83 @@ describe('GroupInfoSheet', () => {
     expect(await findByTestId('leave-group-button')).toBeTruthy();
     await waitFor(() => expect(queryByTestId('archive-group-button')).toBeNull());
     expect(queryByTestId('group-info-invites')).toBeNull();
+  });
+
+  describe('the weekly digest mode', () => {
+    beforeEach(() => {
+      (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
+        can_create: true,
+        policy: 'everyone',
+        weekly_digest: true,
+      });
+      (groupsApi.updateGroup as jest.Mock).mockResolvedValue({ ...GROUP, digest_mode: 'managers' });
+    });
+
+    async function openSettings(view: ReturnType<typeof renderSheet>) {
+      await act(async () => {
+        fireEvent.press(await view.findByTestId('group-info-settings-toggle'));
+      });
+    }
+
+    it('offers the owner the three modes, checks the one in force and writes the one tapped', async () => {
+      const view = renderSheet();
+      await openSettings(view);
+
+      const off = await view.findByTestId('group-digest-mode-off');
+      expect(off.props.accessibilityState).toEqual({ selected: true });
+      expect(view.getByTestId('group-digest-mode-chat').props.accessibilityState).toEqual({ selected: false });
+      expect(view.getByTestId('group-digest-mode')).toHaveTextContent(/Weekly recap/);
+      expect(view.getByTestId('group-digest-mode-managers')).toHaveTextContent(
+        /Owner and admins only.*nothing is posted in the group's chat/,
+      );
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('group-digest-mode-managers'));
+      });
+      await waitFor(() =>
+        expect(groupsApi.updateGroup).toHaveBeenCalledWith('group-1', { digest_mode: 'managers' }),
+      );
+    });
+
+    it('gives the attached coach the digest rows without the admin settings', async () => {
+      mockCallerId = 'user-coach';
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-coach' });
+      const view = renderSheet();
+      await openSettings(view);
+
+      expect(await view.findByTestId('group-digest-mode-chat')).toBeTruthy();
+      expect(view.queryByTestId('group-name-input')).toBeNull();
+      expect(view.queryByTestId('group-respond-mode-switch')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('group-digest-mode-chat'));
+      });
+      await waitFor(() =>
+        expect(groupsApi.updateGroup).toHaveBeenCalledWith('group-1', { digest_mode: 'chat' }),
+      );
+    });
+
+    it('shows no digest rows to a plain member', async () => {
+      mockCallerId = 'user-phil';
+      const view = renderSheet();
+      await openSettings(view);
+
+      await view.findByTestId('peer-consent-row');
+      expect(view.queryByTestId('group-digest-mode')).toBeNull();
+    });
+
+    it('shows no digest rows when the tier sends no digest', async () => {
+      (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
+        can_create: true,
+        policy: 'everyone',
+        weekly_digest: false,
+      });
+      const view = renderSheet();
+      await openSettings(view);
+
+      await view.findByTestId('group-respond-mode-row');
+      expect(view.queryByTestId('group-digest-mode')).toBeNull();
+    });
   });
 
   it('leaves the group and sends the athlete back to the list', async () => {

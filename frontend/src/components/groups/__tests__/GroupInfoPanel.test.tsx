@@ -1,4 +1,4 @@
-// ABOUTME: Tests for Group info inside chat — consent, roster, settings, the digest gate and the exits
+// ABOUTME: Tests for Group info inside chat — consent, roster, settings, the digest mode and gate, and the exits
 // ABOUTME: Carries over the GroupDetail cases: the caller's OWN consent row, and the tier-gated report
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -57,6 +57,7 @@ function sampleGroup(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
     max_members: 10,
     peer_data_sharing: true,
     respond_mode: 'all',
+    digest_mode: 'off',
     is_active: true,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -218,6 +219,86 @@ describe('GroupInfoPanel', () => {
         description: 'Sunday long runs',
         peer_data_sharing: true,
         respond_mode: 'all',
+        digest_mode: 'off',
+      }),
+    );
+  });
+
+  it('lets an admin choose where the weekly digest goes, with the chosen mode explained', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const select = await screen.findByTestId('group-digest-mode');
+    expect(select).toHaveValue('off');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Off',
+      'In the group chat',
+      'Owner and admins only',
+    ]);
+    expect(screen.getByText('Nothing is sent.')).toBeInTheDocument();
+
+    await user.selectOptions(select, 'managers');
+    expect(
+      screen.getByText(
+        "The owner and admins get the full recap on their own channels; nothing is posted in the group's chat.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByTestId('group-info-save-settings'));
+
+    await waitFor(() =>
+      expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, {
+        name: 'Marathon Squad',
+        description: 'Sunday long runs',
+        peer_data_sharing: true,
+        respond_mode: 'all',
+        digest_mode: 'managers',
+      }),
+    );
+  });
+
+  it('gives the attached coach the digest select alone and sends only the digest mode', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ owner_id: OTHER_ID, coach_user_id: CALLER_ID, digest_mode: 'chat' }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    const select = await screen.findByTestId('group-digest-mode');
+    expect(select).toHaveValue('chat');
+    // The coach changes the digest and nothing else: no name, no respond mode.
+    expect(screen.queryByLabelText('Group Name')).toBeNull();
+    expect(screen.queryByLabelText('Agent replies in the group chat')).toBeNull();
+
+    await user.selectOptions(select, 'off');
+    await user.click(screen.getByTestId('group-info-save-settings'));
+
+    await waitFor(() =>
+      expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, { digest_mode: 'off' }),
+    );
+  });
+
+  it('hides the digest select when the tenant tier sends no digest', async () => {
+    vi.mocked(groupsApi.getPermissions).mockResolvedValue({
+      can_create: true,
+      policy: 'everyone',
+      weekly_digest: false,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await screen.findByTestId('group-insights-tier-locked');
+    expect(screen.queryByTestId('group-digest-mode')).toBeNull();
+    await user.click(screen.getByTestId('group-info-save-settings'));
+
+    await waitFor(() =>
+      expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, {
+        name: 'Marathon Squad',
+        description: 'Sunday long runs',
+        peer_data_sharing: true,
+        respond_mode: 'all',
       }),
     );
   });
@@ -324,8 +405,9 @@ describe('GroupInfoPanel', () => {
 
     expect(await screen.findByTestId('group-info-leave')).toBeInTheDocument();
     expect(screen.queryByTestId('group-info-delete')).toBeNull();
-    // A plain member sees no settings form either.
+    // A plain member sees no settings form either, the digest select included.
     expect(screen.queryByTestId('group-info-save-settings')).toBeNull();
+    expect(screen.queryByTestId('group-digest-mode')).toBeNull();
 
     await user.click(screen.getByTestId('group-info-leave'));
     const confirm = await screen.findByRole('dialog');

@@ -795,6 +795,23 @@ pub const KEY_GROUP_RESPOND_MENTIONS: &str = "commands.group.respond_mentions";
 pub const KEY_GROUP_RESPOND_ALL: &str = "commands.group.respond_all";
 /// Key: `/group status` line shown when the group is in mentions-only mode.
 pub const KEY_GROUP_RESPOND_STATUS_MENTIONS: &str = "commands.group.respond_status_mentions";
+/// Key: `/group digest` usage hint when the argument is not a digest mode.
+pub const KEY_GROUP_DIGEST_USAGE: &str = "commands.group.digest_usage";
+/// Key: the weekly digest is off — the `/group digest` reply and `/group
+/// status` line for that mode, with how to turn it on.
+pub const KEY_GROUP_DIGEST_STATUS_OFF: &str = "commands.group.digest_status.off";
+/// Key: the weekly digest is posted into the group's chat — the `/group
+/// digest` reply and `/group status` line for that mode, with how to change it.
+pub const KEY_GROUP_DIGEST_STATUS_CHAT: &str = "commands.group.digest_status.chat";
+/// Key: the weekly digest reaches the owner and admins only — the `/group
+/// digest` reply and `/group status` line for that mode, with how to change it.
+pub const KEY_GROUP_DIGEST_STATUS_MANAGERS: &str = "commands.group.digest_status.managers";
+/// Key: `/group digest <mode>` refusal for a caller who is neither an owner
+/// nor an admin of the group, nor its attached human coach.
+pub const KEY_GROUP_DIGEST_FORBIDDEN: &str = "commands.group.digest_forbidden";
+/// Key: line after a digest status when the group's plan does not include the
+/// weekly digest — the mode is kept, and nothing is sent until the plan does.
+pub const KEY_GROUP_DIGEST_TIER_OFF: &str = "commands.group.digest_tier_off";
 /// Key: `/group agent detach` confirmation — the group's human coach was
 /// cleared. `{0}` = group name.
 pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";

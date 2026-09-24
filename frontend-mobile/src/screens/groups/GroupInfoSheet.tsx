@@ -31,7 +31,7 @@ import {
 import { GroupInsightsSection } from './GroupInsightsSection';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
-import type { GroupMember, GroupRole } from '../../types';
+import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 
 /** How long an invite created from this sheet stays redeemable. */
@@ -39,6 +39,13 @@ const INVITE_LIFETIME_DAYS = 7;
 
 /** Where a shared invite code sends someone; the web app re-homes it into chat. */
 const INVITE_LINK_BASE = 'https://app.dravr.ai/groups/join';
+
+/** Each weekly-digest mode, in the order the sheet offers them, with its label and one-line hint. */
+const DIGEST_MODES: ReadonlyArray<{ mode: GroupDigestMode; labelKey: string; hintKey: string }> = [
+  { mode: 'off', labelKey: 'groups.digestOff', hintKey: 'groups.digestOffHint' },
+  { mode: 'chat', labelKey: 'groups.digestChat', hintKey: 'groups.digestChatHint' },
+  { mode: 'managers', labelKey: 'groups.digestManagers', hintKey: 'groups.digestManagersHint' },
+];
 
 /**
  * `Row` pays its own 16px side inset for a full-bleed pane. This sheet is
@@ -110,6 +117,10 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   );
   const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
   const isOwner = myMembership?.role === 'owner';
+  // The group's attached human coach may change where the weekly digest goes,
+  // and nothing else; the digest rows show only where the tier sends one.
+  const isCoach = user?.id !== undefined && group?.coach_user_id === user.id;
+  const canSetDigest = weeklyDigest && (isAdmin || isCoach);
   const activeInvites = useMemo(() => invites.filter((invite) => invite.is_active), [invites]);
 
   const handleRemoveMember = useCallback(
@@ -228,7 +239,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   }, [nameDraft, descriptionDraft, group?.name, group?.description, updateGroup, t]);
 
   const setGroupFlag = useCallback(
-    async (patch: { peer_data_sharing?: boolean; respond_mode?: 'all' | 'mentions' }) => {
+    async (patch: Pick<UpdateGroupRequest, 'peer_data_sharing' | 'respond_mode' | 'digest_mode'>) => {
       try {
         await updateGroup(patch);
       } catch (err) {
@@ -455,11 +466,41 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       testID="group-respond-mode-switch"
                     />
                   }
-                  last={!myMembership}
+                  last={!myMembership && !canSetDigest}
                   testID="group-respond-mode-row"
                 />
               </View>
             </>
+          )}
+
+          {/* Where the weekly digest goes: a radio list, the check on the mode
+              in force. The coach reaches this block without the admin rows. */}
+          {canSetDigest && group && (
+            <View style={CANCEL_PANEL_INSET} testID="group-digest-mode">
+              <Text className="px-4 pt-3 pb-1 text-xs font-semibold text-text-tertiary">
+                {t('groups.digestMode')}
+              </Text>
+              {DIGEST_MODES.map(({ mode, labelKey, hintKey }, index) => {
+                const isSelected = group.digest_mode === mode;
+                return (
+                  <Row
+                    key={mode}
+                    title={t(labelKey)}
+                    subtitle={t(hintKey)}
+                    onPress={() => {
+                      if (!isSelected && !isUpdatingGroup) void setGroupFlag({ digest_mode: mode });
+                    }}
+                    showChevron={false}
+                    last={!myMembership && index === DIGEST_MODES.length - 1}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={t(labelKey)}
+                    trailing={isSelected ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined}
+                    testID={`group-digest-mode-${mode}`}
+                  />
+                );
+              })}
+            </View>
           )}
 
           {/* The caller's own consent. The group can allow peer sharing, but

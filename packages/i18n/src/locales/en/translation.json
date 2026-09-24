@@ -1163,6 +1163,14 @@
       "create_usage": "Usage: /group create group-name — for example /group create Sunday Runners",
       "created": "Group \"{0}\" created with agent {1}. Invite members with /group invite.",
       "description": "List my groups",
+      "digest_forbidden": "Only the group's owner, its admins and its human coach can change the weekly recap.",
+      "digest_status": {
+        "chat": "Weekly recap: posted every Monday morning in the group's Telegram, Slack or Discord chat, with the full recap for the owner and admins in the app. To change it: /group digest managers or /group digest off.",
+        "managers": "Weekly recap: sent to the owner and admins only, on their own channels; nothing is posted in the group's chat. To change it: /group digest chat or /group digest off.",
+        "off": "Weekly recap: off — nothing is sent. To turn it on: /group digest chat (posted in the group's chat) or /group digest managers (owner and admins only)."
+      },
+      "digest_tier_off": "Your plan does not include the weekly recap, so nothing is sent until it does.",
+      "digest_usage": "Usage: /group digest off, /group digest chat or /group digest managers",
       "invite_body": "Invite link for {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\nValid for 7 days.",
       "invite_forbidden": "Only admins and owners can generate invite links.",
       "invite_label": "Invite members",
@@ -1202,6 +1210,9 @@
     },
     "group-create": {
       "description": "Create a coaching group around this chat's agent"
+    },
+    "group-digest": {
+      "description": "Set where this group's weekly recap goes — nowhere, the group chat, or its owner and admins only"
     },
     "group-invite": {
       "description": "Generate invite link"
@@ -1552,6 +1563,13 @@
     "demoteToMember": "Demote to Member",
     "description": "Description",
     "descriptionPlaceholder": "What is this group about?",
+    "digestChat": "In the group chat",
+    "digestChatHint": "Posted every Monday morning in the group's Telegram, Slack or Discord chat, covering the members who share their training. The owner and admins get the full recap in the app, or on their own channels when the group has no such chat.",
+    "digestManagers": "Owner and admins only",
+    "digestManagersHint": "The owner and admins get the full recap on their own channels; nothing is posted in the group's chat.",
+    "digestMode": "Weekly recap",
+    "digestOff": "Off",
+    "digestOffHint": "Nothing is sent.",
     "disabled": "Disabled",
     "emptyTitle": "No groups yet",
     "enabled": "Enabled",

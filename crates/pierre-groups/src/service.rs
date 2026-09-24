@@ -10,9 +10,10 @@ use std::sync::Arc;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, FlagEvidence, FreshMember, GroupAggregateStats,
-    GroupContext, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode,
-    GroupRole, GroupSummary, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
-    MemberFlag, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
+    GroupContext, GroupDigestMode, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember,
+    GroupRespondMode, GroupRole, GroupSummary, GroupWeeklyReport, HealthFlagSeverity,
+    MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, OvertrainingRiskLevel,
+    UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::TenantId;
@@ -292,6 +293,9 @@ impl GroupService {
             // Agent answers every message until the owner narrows it via
             // `/group respond mentions` or the group-settings UI.
             respond_mode: GroupRespondMode::default(),
+            // No weekly digest until the owner, an admin or the attached
+            // coach asks for one via `/group digest` or the group settings.
+            digest_mode: GroupDigestMode::default(),
             // Clamped to the tenant tier's per-group cap by
             // `create_group_with_owner`.
             max_members: request.max_members.unwrap_or(DEFAULT_REQUESTED_MEMBERS),
@@ -361,6 +365,9 @@ impl GroupService {
             // behaves exactly as before binding; the owner narrows it via
             // `/group respond mentions`.
             respond_mode: GroupRespondMode::All,
+            // Binding the bot to a chat posts nothing on its own: the digest
+            // stays off until someone who may change it turns it on.
+            digest_mode: GroupDigestMode::Off,
             // Clamped to the tenant tier's per-group cap by
             // `create_group_with_owner`.
             max_members: DEFAULT_REQUESTED_MEMBERS,

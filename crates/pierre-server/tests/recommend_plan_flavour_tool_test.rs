@@ -15,7 +15,9 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
@@ -560,6 +562,7 @@ async fn attach_as_coach(
                 coach_user_id: Some(agent),
                 peer_data_sharing: true,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 20,
                 is_active: true,
                 channel_type: None,

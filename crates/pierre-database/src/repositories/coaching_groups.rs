@@ -59,6 +59,8 @@ macro_rules! group_columns {
             $p,
             "respond_mode, ",
             $p,
+            "digest_mode, ",
+            $p,
             "created_at, ",
             $p,
             "updated_at"
@@ -88,11 +90,11 @@ macro_rules! invite_columns {
 // coaching_groups
 // ============================================================================
 
-/// One group, active from the start; `$12` serves both timestamps.
+/// One group, active from the start; `$13` serves both timestamps.
 pub(crate) const INSERT_GROUP_SQL: &str = r"INSERT INTO coaching_groups (id, tenant_id, name, description, agent_id, owner_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
-              respond_mode, created_at, updated_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10, $11, $12, $12)";
+              respond_mode, digest_mode, created_at, updated_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10, $11, $12, $13, $13)";
 
 /// One group by id. Coaching groups are intentionally cross-tenant: members
 /// join the same group from different tenants, so the group's globally
@@ -165,9 +167,10 @@ pub(crate) const UPDATE_GROUP_SQL: &str = r"UPDATE coaching_groups SET
               max_members = COALESCE($4, max_members),
               peer_data_sharing = COALESCE($5, peer_data_sharing),
               respond_mode = COALESCE($6, respond_mode),
-              is_active = COALESCE($7, is_active),
-              updated_at = $8
-              WHERE id = $9 AND tenant_id = $10";
+              digest_mode = COALESCE($7, digest_mode),
+              is_active = COALESCE($8, is_active),
+              updated_at = $9
+              WHERE id = $10 AND tenant_id = $11";
 
 /// Archive a group under its tenant: the authoritative, tenant-scoped step
 /// of a delete.
@@ -392,10 +395,11 @@ macro_rules! impl_coaching_group_repository {
             GroupRole::from_str_opt(s).unwrap_or(GroupRole::Member)
         }
 
-        /// Decode a `coaching_groups` row. An unknown `respond_mode` value
-        /// reads as the default mode.
+        /// Decode a `coaching_groups` row. An unknown `respond_mode` or
+        /// `digest_mode` value reads as that mode's default.
         fn row_to_group(r: &$row) -> AppResult<CoachingGroup> {
             let respond_mode: String = column(r, "respond_mode")?;
+            let digest_mode: String = column(r, "digest_mode")?;
             Ok(CoachingGroup {
                 id: $ids::read(r, "id")?,
                 tenant_id: column(r, "tenant_id")?,
@@ -406,6 +410,7 @@ macro_rules! impl_coaching_group_repository {
                 coach_user_id: $ids::read_opt(r, "coach_user_id")?,
                 peer_data_sharing: column(r, "peer_data_sharing")?,
                 respond_mode: GroupRespondMode::from_str_opt(&respond_mode).unwrap_or_default(),
+                digest_mode: GroupDigestMode::from_str_opt(&digest_mode).unwrap_or_default(),
                 max_members: column(r, "max_members")?,
                 is_active: column(r, "is_active")?,
                 channel_type: column(r, "channel_type")?,
@@ -508,6 +513,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(&group.channel_type)
                     .bind(&group.channel_chat_id)
                     .bind(group.respond_mode.as_str())
+                    .bind(group.digest_mode.as_str())
                     .bind(Utc::now())
                     .execute(self.pool())
                     .await
@@ -621,6 +627,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(request.max_members)
                     .bind(request.peer_data_sharing)
                     .bind(request.respond_mode.map(|m| m.as_str()))
+                    .bind(request.digest_mode.map(|m| m.as_str()))
                     .bind(request.is_active)
                     .bind(Utc::now())
                     .bind($ids::bind_text(group_id)?)

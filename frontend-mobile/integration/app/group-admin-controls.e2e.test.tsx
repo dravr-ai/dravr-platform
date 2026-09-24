@@ -56,6 +56,7 @@ const GROUP: CoachingGroup = {
   coach_user_id: null,
   peer_data_sharing: true,
   respond_mode: 'all',
+  digest_mode: 'off',
   max_members: 12,
   is_active: true,
   created_at: '2026-05-01T08:00:00Z',

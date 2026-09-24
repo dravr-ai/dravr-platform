@@ -21,7 +21,7 @@ use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandConte
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
@@ -362,6 +362,7 @@ async fn bound_room_group(
                 coach_user_id: None,
                 peer_data_sharing: true,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 20,
                 is_active: true,
                 channel_type: Some("telegram".to_owned()),

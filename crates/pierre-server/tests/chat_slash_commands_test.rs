@@ -30,7 +30,9 @@ use pierre_core::llm::{
 use pierre_core::models::agents::{
     AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter,
 };
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{AddMessageParams, COMMAND_FINISH_REASON};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
@@ -278,6 +280,7 @@ async fn seed_group_membership(
         coach_user_id: None,
         peer_data_sharing: false,
         respond_mode: GroupRespondMode::default(),
+        digest_mode: GroupDigestMode::Off,
         max_members: 20,
         is_active: true,
         channel_type: None,
@@ -1456,6 +1459,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "/group invite",
         "/group coach",
         "/group respond",
+        "/group digest",
         "/group consent",
     ] {
         assert!(
@@ -1540,6 +1544,7 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
         "/group invite",
         "/group members",
         "/group respond",
+        "/group digest",
         "/group status",
         "/group leave",
         "/group coach",
@@ -1579,8 +1584,9 @@ async fn help_hides_group_commands_from_an_athlete_with_no_group() {
 }
 
 /// A plain member sees the member-level group commands and none of the
-/// admin-only ones — the four whose handlers check `can_modify_settings` /
-/// `can_manage_members` before acting.
+/// admin-only ones — those whose handlers check `can_modify_settings` /
+/// `can_manage_members` before acting (`/group digest` also admits the
+/// group's attached human coach, which a plain member is not).
 #[tokio::test]
 async fn help_hides_admin_only_commands_from_a_plain_group_member() {
     let resources = create_test_server_resources().await.unwrap();
@@ -1614,6 +1620,7 @@ async fn help_hides_admin_only_commands_from_a_plain_group_member() {
         "/group invite",
         "/group coach",
         "/group respond",
+        "/group digest",
         "/agent assign",
     ] {
         assert!(
@@ -1646,6 +1653,7 @@ async fn help_shows_admin_only_commands_to_a_group_owner() {
         "/group invite",
         "/group coach agent-name",
         "/group respond mentions|all",
+        "/group digest off|chat|managers",
         "/agent assign agent-id group-id",
         "/group consent yes|no",
     ] {
@@ -1753,7 +1761,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
 /// `/agent assign` names its own group in the arguments, so an owner of *any*
 /// group can run it — even from a room where they are only a plain member.
 ///
-/// `/group invite`, `/group agent` and `/group respond` resolve the
+/// `/group invite`, `/group agent`, `/group respond` and `/group digest` resolve the
 /// conversation's group and check the caller's role there, so the ambient role
 /// decides them. `AgentAssignHandler` does not: it reads `get_member` on the
 /// group id the caller typed. Deciding it on the ambient role hid a command
@@ -1797,7 +1805,12 @@ async fn help_shows_agent_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
     // The ambient-group commands are still filtered on the ambient role — this
     // is what proves the conversation resolved to the member group, and that
     // the fix did not simply widen the filter for everything.
-    for hidden in ["/group invite", "/group coach", "/group respond"] {
+    for hidden in [
+        "/group invite",
+        "/group coach",
+        "/group respond",
+        "/group digest",
+    ] {
         assert!(
             !text.contains(hidden),
             "`{hidden}` acts on the ambient group, where this caller is only a member:\n{text}"
@@ -1862,6 +1875,7 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
         "/group invite",
         "/group coach",
         "/group respond",
+        "/group digest",
         "/group consent",
     ] {
         assert!(

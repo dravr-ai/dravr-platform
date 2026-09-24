@@ -272,8 +272,14 @@ describe('client locale corpus', () => {
     // week still says which way the group went (+1). The same panel's member
     // count, "(you)" and invite-use lines (`groups.memberCount`, `youSuffix`,
     // `inviteUses`, `inviteUsed`) replace English literals (+4). +18 (carnet#520).
+    // 2380 once each group chose where its weekly digest goes, off by default:
+    // `/group digest` renders its usage, the status of each of the three modes
+    // (which `/group status` reuses), its refusal and the note for a plan
+    // without the digest on the server (+6), plus its catalogue description
+    // (+1); the web select and the phone's radio rows read the label, the
+    // three mode names and a hint for each (+7). +14 (carnet#541).
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2366);
+    expect(reference).toHaveLength(2380);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

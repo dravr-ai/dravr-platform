@@ -185,6 +185,7 @@ export type {
 export type {
   GroupRole,
   GroupRespondMode,
+  GroupDigestMode,
   GroupInviteKind,
   OvertrainingRiskLevel,
   GroupTrend,

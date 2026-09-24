@@ -253,6 +253,7 @@ async fn adopt_chat_title(
         max_members: None,
         peer_data_sharing: None,
         respond_mode: None,
+        digest_mode: None,
         is_active: None,
     };
     if let Err(e) = groups

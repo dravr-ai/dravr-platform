@@ -9,11 +9,10 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use chrono_tz::Tz;
-use pierre_core::models::groups::{CoachingGroup, GroupRespondMode};
+use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
 use pierre_core::models::messaging::ChannelType;
-use pierre_routes_groups::group_digest_scheduler::{
-    digest_room, plurality_locale, tier_enables_digest, DigestRoom,
-};
+use pierre_groups::strategies::tier::tier_enables_digest;
+use pierre_routes_groups::group_digest_scheduler::{digest_room, plurality_locale, DigestRoom};
 use pierre_routes_groups::group_digest_slot::{due_week, group_zone};
 use uuid::Uuid;
 
@@ -235,7 +234,16 @@ fn the_room_reads_the_language_most_members_read() {
     assert_eq!(plurality_locale([], "fr"), "fr");
 }
 
+/// A group whose digest goes to its chat, bound as given.
 fn group(channel_type: Option<&str>, chat_id: Option<&str>) -> CoachingGroup {
+    group_in_mode(GroupDigestMode::Chat, channel_type, chat_id)
+}
+
+fn group_in_mode(
+    digest_mode: GroupDigestMode,
+    channel_type: Option<&str>,
+    chat_id: Option<&str>,
+) -> CoachingGroup {
     CoachingGroup {
         id: Uuid::new_v4(),
         tenant_id: Uuid::new_v4().to_string(),
@@ -246,6 +254,7 @@ fn group(channel_type: Option<&str>, chat_id: Option<&str>) -> CoachingGroup {
         coach_user_id: None,
         peer_data_sharing: true,
         respond_mode: GroupRespondMode::default(),
+        digest_mode,
         max_members: 20,
         is_active: true,
         channel_type: channel_type.map(str::to_owned),
@@ -283,6 +292,54 @@ fn only_a_chat_that_takes_a_proactive_message_is_posted_into() {
     assert_eq!(digest_room(&group(None, None)), None);
     assert_eq!(digest_room(&group(Some("telegram"), Some("  "))), None);
     assert_eq!(digest_room(&group(Some("carrier-pigeon"), Some("1"))), None);
+}
+
+/// Only a group whose digest goes to its chat is posted into: a Telegram
+/// group that turned its digest off, or kept it for its managers, has no
+/// room to post to however good its binding.
+#[test]
+fn only_the_chat_mode_posts_into_the_chat() {
+    let bound = |mode| group_in_mode(mode, Some("telegram"), Some("-5284201188"));
+    assert_eq!(
+        digest_room(&bound(GroupDigestMode::Chat)).map(|r| r.chat_id),
+        Some("-5284201188")
+    );
+    assert_eq!(digest_room(&bound(GroupDigestMode::Off)), None);
+    assert_eq!(digest_room(&bound(GroupDigestMode::Managers)), None);
+}
+
+/// A group that never chose a mode, and a stored value the enum does not
+/// know, both read as off: the digest is opt-in.
+#[test]
+fn the_digest_mode_defaults_to_off_and_parses_its_three_values() {
+    assert_eq!(GroupDigestMode::default(), GroupDigestMode::Off);
+    for mode in [
+        GroupDigestMode::Off,
+        GroupDigestMode::Chat,
+        GroupDigestMode::Managers,
+    ] {
+        assert_eq!(GroupDigestMode::from_str_opt(mode.as_str()), Some(mode));
+    }
+    assert_eq!(GroupDigestMode::from_str_opt("weekly"), None);
+    let legacy: CoachingGroup = serde_json::from_value(serde_json::json!({
+        "id": Uuid::new_v4(),
+        "tenant_id": "t",
+        "name": "Before the mode",
+        "description": null,
+        "agent_id": "a",
+        "owner_id": Uuid::new_v4(),
+        "coach_user_id": null,
+        "peer_data_sharing": true,
+        "max_members": 20,
+        "is_active": true,
+        "channel_type": "telegram",
+        "channel_chat_id": "-1",
+        "created_at": Utc::now(),
+        "updated_at": Utc::now(),
+    }))
+    .unwrap();
+    assert_eq!(legacy.digest_mode, GroupDigestMode::Off);
+    assert_eq!(digest_room(&legacy), None);
 }
 
 /// A group bound on Thursday owes nothing for the week it joined: its first

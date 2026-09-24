@@ -56,7 +56,7 @@ mod agent_alias {
     };
     use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
+        CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
     };
     use pierre_core::models::{
         AddMessageParams, ConnectionType, Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON,
@@ -552,6 +552,7 @@ mod agent_alias {
             coach_user_id: None,
             peer_data_sharing: false,
             respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Off,
             max_members: 20,
             is_active: true,
             channel_type: None,

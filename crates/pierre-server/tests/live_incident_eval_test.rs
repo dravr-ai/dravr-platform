@@ -99,7 +99,9 @@ mod live_incident_eval {
     use chrono::{Duration as ChronoDuration, Utc};
     use hmac::{Hmac, Mac};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
-    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+    use pierre_core::models::groups::{
+        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    };
     use pierre_core::models::{
         ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus, UserTier,
         WITHHELD_REPLY_FINISH_REASON,
@@ -1034,6 +1036,7 @@ mod live_incident_eval {
                     // an unaddressed message in `Mentions` mode is silent BY
                     // DESIGN and would read here as a lost turn.
                     respond_mode: GroupRespondMode::All,
+                    digest_mode: GroupDigestMode::Off,
                     max_members: 20,
                     is_active: true,
                     channel_type: Some("slack".to_owned()),

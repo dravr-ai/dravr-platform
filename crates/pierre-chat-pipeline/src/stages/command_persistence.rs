@@ -35,8 +35,9 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 ///
 /// A slash reply usually carries the caller's own account state, so a shared
 /// room delivers it privately. These change a setting every member then
-/// experiences — the respond mode, the group's agent, the agent bound to the
-/// thread — so announcing the change in the room is the point: a member who
+/// experiences — the respond mode, where the weekly digest goes, the group's
+/// agent, the agent bound to the thread — so announcing the change in the
+/// room is the point: a member who
 /// watches the agent fall silent after someone ran `/group respond mentions`
 /// privately has no way to know why. The same set decides what a shared room
 /// persists, because what the room saw is what its transcript holds.
@@ -63,8 +64,9 @@ use crate::turn_service::{CommandTurn, SlashRequest};
 /// must land in the room for the walk to be watchable at all. The walk that
 /// follows binds to the caller alone (`OnboardingState::subject_user_id`),
 /// and a room walk covers only its room-safe topics.
-pub const ROOM_VISIBLE_COMMANDS: [&str; 7] = [
+pub const ROOM_VISIBLE_COMMANDS: [&str; 8] = [
     "group-respond",
+    "group-digest",
     "group-coach",
     "agent-add",
     "plan-share",

@@ -32,20 +32,20 @@ use uuid::Uuid;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
-    GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary, GroupWeeklyReport,
-    JoinGroupRequest, UpdateGroupRequest,
+    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupDigestMode, GroupHealthFlag,
+    GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary,
+    GroupWeeklyReport, JoinGroupRequest, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::creation_policy::{
     check_create_group_permission, is_tenant_group_admin, policy_permits_group_creation,
     DEFAULT_GROUP_CREATION_POLICY, GROUP_CREATION_POLICY_KEY,
 };
-use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 
-use crate::group_digest_scheduler::tier_enables_digest;
+use crate::group_update_access::authorize_group_update;
 
 // ============================================================================
 // Response Types
@@ -72,6 +72,8 @@ pub struct GroupResponse {
     pub peer_data_sharing: bool,
     /// When the AI agent replies in the bound channel chat
     pub respond_mode: GroupRespondMode,
+    /// Where the weekly digest goes: nowhere, the group's chat, or its managers
+    pub digest_mode: GroupDigestMode,
     /// Maximum members allowed
     pub max_members: i32,
     /// Whether the group is active
@@ -94,6 +96,7 @@ impl From<CoachingGroup> for GroupResponse {
             coach_user_id: g.coach_user_id.map(|u| u.to_string()),
             peer_data_sharing: g.peer_data_sharing,
             respond_mode: g.respond_mode,
+            digest_mode: g.digest_mode,
             max_members: g.max_members,
             is_active: g.is_active,
             created_at: g.created_at.to_rfc3339(),
@@ -435,8 +438,14 @@ impl GroupRoutes {
             .repos()
             .groups
             .get_member(group_id, user_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Membership not found"))?;
+            .await?;
+        Self::admin_membership(member)
+    }
+
+    /// The caller's membership when it holds an admin or owner role, and the
+    /// refusal [`Self::require_admin`] answers with when it does not.
+    pub(crate) fn admin_membership(member: Option<GroupMember>) -> Result<GroupMember, AppError> {
+        let member = member.ok_or_else(|| AppError::not_found("Membership not found"))?;
 
         if !member.role.can_manage_members() {
             return Err(AppError::new(
@@ -638,7 +647,8 @@ impl GroupRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// PUT `/api/groups/:group_id` — Update group settings (admin/owner only)
+    /// PUT `/api/groups/:group_id` — Update group settings (admin/owner; the
+    /// attached human coach may change the weekly digest mode only)
     async fn handle_update_group<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -648,8 +658,7 @@ impl GroupRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        // Verify admin/owner role
-        Self::require_admin(&resources, &group_id, auth.user_id).await?;
+        authorize_group_update(&resources, &group_id, auth.user_id, tenant_id, &body).await?;
 
         let updated = resources
             .group_service()

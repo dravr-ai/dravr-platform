@@ -1,5 +1,5 @@
-// ABOUTME: Background scheduler that sends each coaching group its weekly digest at a fixed local morning slot
-// ABOUTME: Posts it into the group's bound chat over the members who share, and gives managers the full digest in-app
+// ABOUTME: Background scheduler that sends each coaching group its weekly digest, as its digest mode asks, at a fixed local slot
+// ABOUTME: Chat mode posts it into the bound chat over the members who share; managers get the full digest whenever one goes out
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,19 @@
 //! Sends every coaching group of a tenant whose tier enables the
 //! `weekly_digest` flag
 //! ([`pierre_groups::strategies::tier::GroupFeatureFlags::weekly_digest`],
-//! `true` for Professional/Enterprise) one digest per week.
+//! `true` for Professional/Enterprise) one digest per week, as the group's
+//! own [`GroupDigestMode`] asks:
+//!
+//! - [`GroupDigestMode::Off`] — the default, and what every group held before
+//!   the mode existed — sends nothing and claims no week in the ledger, so a
+//!   group switched on later in the week still gets that week's digest.
+//! - [`GroupDigestMode::Chat`] posts into the group's chat and keeps the
+//!   managers' copy in the app, as described below.
+//! - [`GroupDigestMode::Managers`] posts nothing into the chat: the managers
+//!   get the full digest on their own channels, as a group with no chat does.
+//!
+//! The tier stays the ceiling: a group's mode is stored whatever its tenant's
+//! plan, and nothing goes out for a tenant whose tier lacks the digest.
 //!
 //! ## When
 //!
@@ -33,8 +45,9 @@
 //! [`fetch_member_snapshots`] builder (the same all-providers + deduplicated
 //! path the chat agent and the REST analytics endpoints use).
 //!
-//! - **The group's chat.** A group bound to a Telegram group, a Slack channel
-//!   or a Discord channel ([`digest_room`]) has its digest posted there
+//! - **The group's chat.** A group in [`GroupDigestMode::Chat`] bound to a
+//!   Telegram group, a Slack channel or a Discord channel ([`digest_room`])
+//!   has its digest posted there
 //!   through the [`GroupChatPoster`] seam. The chat copy is computed over the
 //!   members who share their training
 //!   ([`GroupService::peer_sharing_user_ids`], the rule the agent's group
@@ -50,8 +63,9 @@
 //!   keeps as parameters, so the feed renders it again after a language
 //!   change. When the digest reached the group's chat they get it in the app
 //!   only — the stored row and the device push — so no manager reads it twice
-//!   in chat. A group with no chat, or bound to a channel that cannot take a
-//!   proactive message, keeps the fan-out to each manager's linked channels.
+//!   in chat. A group with no chat, bound to a channel that cannot take a
+//!   proactive message, or in [`GroupDigestMode::Managers`], keeps the
+//!   fan-out to each manager's linked channels.
 //!
 //! Everything is best-effort: a failed read, snapshot fetch, post or
 //! notification is logged and counted, and never aborts the rest of the sweep.
@@ -65,14 +79,14 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use chrono_tz::Tz;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
-    CoachingGroup, FlagEvidence, GroupAggregateStats, GroupHealthFlag, GroupMember, GroupTrend,
-    MemberFitnessSnapshot, MemberFlag,
+    CoachingGroup, FlagEvidence, GroupAggregateStats, GroupDigestMode, GroupHealthFlag,
+    GroupMember, GroupTrend, MemberFitnessSnapshot, MemberFlag,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{TenantId, User};
 use pierre_database::repositories::MessagingRepository;
 use pierre_database::RepositoryRegistry;
-use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_groups::GroupService;
 use pierre_notifications::events::NotificationEvent;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
@@ -262,22 +276,19 @@ where
     Ok(outcome)
 }
 
-/// Whether a tenant plan's tier enables the `weekly_digest` feature. This is
-/// the read that makes the previously-dormant tier flag load-bearing.
-#[must_use]
-pub fn tier_enables_digest(plan: &str) -> bool {
-    tier_strategy_for(plan).allowed_features().weekly_digest
-}
-
-/// The chat a group's digest is posted into, or `None` when it has none that
-/// takes one.
+/// The chat a group's digest is posted into, or `None` when its mode posts
+/// into no chat or it has none that takes one.
 ///
-/// A REST-created group has no chat. `WhatsApp` and Messenger refuse a text
-/// the platform starts outside the 24-hour window after a member's last
-/// message, so a group bound there keeps its managers' full notification
-/// instead of a post that would bounce.
+/// Only [`GroupDigestMode::Chat`] posts into the group's chat. A REST-created
+/// group has no chat. `WhatsApp` and Messenger refuse a text the platform
+/// starts outside the 24-hour window after a member's last message, so a
+/// group bound there keeps its managers' full notification instead of a post
+/// that would bounce.
 #[must_use]
 pub fn digest_room(group: &CoachingGroup) -> Option<DigestRoom<'_>> {
+    if group.digest_mode != GroupDigestMode::Chat {
+        return None;
+    }
     let channel = ChannelType::from_str(group.channel_type.as_deref()?).ok()?;
     let chat_id = group
         .channel_chat_id
@@ -316,7 +327,11 @@ async fn process_tenant<C>(
     }
 }
 
-/// Send one group its digest when its week is due and this tick claims it.
+/// Send one group its digest when its mode sends one, its week is due and
+/// this tick claims it.
+///
+/// A group whose digest is off is left before anything is read or claimed,
+/// so turning it on later in a week still finds that week unclaimed.
 ///
 /// `tenant_id` is the group's own tenant — the listing is scoped by it — which
 /// is also the tenant that owns the channel config of the group's chat.
@@ -328,6 +343,9 @@ async fn process_group<C>(
 ) where
     C: ToolRuntime + GroupsCtx + MiddlewareCtx,
 {
+    if group.digest_mode == GroupDigestMode::Off {
+        return;
+    }
     let repos = MiddlewareCtx::repos(sweep.ctx.as_ref());
     let Some(audience) = load_audience(repos, group, outcome).await else {
         return;
@@ -457,8 +475,9 @@ async fn claim_week(
     }
 }
 
-/// Post the digest into the group's chat when it has one that takes a
-/// proactive message. Whether any of it arrived.
+/// Post the digest into the group's chat when its mode posts there and it has
+/// a chat that takes a proactive message ([`digest_room`]). Whether any of it
+/// arrived.
 async fn post_digest_to_room<C>(
     sweep: &Sweep<'_, C>,
     tenant_id: TenantId,

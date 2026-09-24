@@ -33,6 +33,12 @@ export type HealthFlagSeverity = 'info' | 'warning' | 'critical';
 /** When the group's agent replies in the bound channel chat */
 export type GroupRespondMode = 'all' | 'mentions';
 
+/**
+ * Where the group's weekly digest goes: nowhere (the default), posted into the
+ * group's bound chat, or to the owner and admins only
+ */
+export type GroupDigestMode = 'off' | 'chat' | 'managers';
+
 // ========== CORE TYPES ==========
 
 /** A coaching group binding an agent persona to multiple athletes */
@@ -48,6 +54,8 @@ export interface CoachingGroup {
   peer_data_sharing: boolean;
   /** 'all' answers every member message; 'mentions' only explicitly-addressed ones */
   respond_mode: GroupRespondMode;
+  /** 'off' sends nothing; 'chat' posts into the bound chat; 'managers' reaches only the owner and admins */
+  digest_mode: GroupDigestMode;
   max_members: number;
   is_active: boolean;
   created_at: string;
@@ -96,6 +104,8 @@ export interface UpdateGroupRequest {
   max_members?: number;
   peer_data_sharing?: boolean;
   respond_mode?: GroupRespondMode;
+  /** The group's attached human coach may send this field and no other */
+  digest_mode?: GroupDigestMode;
   is_active?: boolean;
 }
 

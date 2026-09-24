@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_messaging::commands::CommandResponse;
-use tracing::info;
+use tracing::{info, warn};
 
 #[cfg(not(feature = "tools-groups"))]
 use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
@@ -15,6 +15,8 @@ use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
 use pierre_contremaitre::messaging_strings::{KEY_COACH_INVITE_BODY, KEY_GROUP_INVITE_BODY};
 use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_COACH_DETACHED, KEY_GROUP_CONSENT_UPDATED, KEY_GROUP_CONSENT_USAGE,
+    KEY_GROUP_DIGEST_FORBIDDEN, KEY_GROUP_DIGEST_STATUS_CHAT, KEY_GROUP_DIGEST_STATUS_MANAGERS,
+    KEY_GROUP_DIGEST_STATUS_OFF, KEY_GROUP_DIGEST_TIER_OFF, KEY_GROUP_DIGEST_USAGE,
     KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY,
     KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM, KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM,
     KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF,
@@ -24,9 +26,11 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::agents::ListAgentsFilter;
 use pierre_core::models::groups::{
-    GroupInviteKind, GroupRespondMode, GroupRole, UpdateGroupRequest,
+    CoachingGroup, GroupDigestMode, GroupInviteKind, GroupRespondMode, GroupRole,
+    UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_groups::strategies::tier::tier_enables_digest;
 use uuid::Uuid;
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -163,9 +167,10 @@ async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<Target
 /// Two facts, because the handlers genuinely ask two different questions
 /// about the caller's groups:
 ///
-/// - `/group invite`, `/group agent`, `/group respond`, `/group consent`
-///   resolve the conversation's group and check the caller's standing
-///   *there*. `ambient` answers them.
+/// - `/group invite`, `/group agent`, `/group respond`, `/group digest`,
+///   `/group consent` resolve the conversation's group and check the
+///   caller's standing *there*. `ambient` answers them, and `ambient_coach`
+///   too for `/group digest`, which the group's human coach may also run.
 /// - `/group status`, `/group members`, `/group leave` read
 ///   `list_groups_for_user().first()` instead — any group the caller belongs
 ///   to will do, and the conversation's group is irrelevant. `/agent assign
@@ -176,6 +181,10 @@ pub struct CallerGroupStanding {
     /// The caller's role in the group [`resolve_target_group`] names — `None`
     /// when no group resolves, or when the caller is not one of its members.
     pub ambient: Option<GroupRole>,
+    /// Whether the caller is the human coach attached to that same group
+    /// (`coaching_groups.coach_user_id`) — an attachment, not a membership,
+    /// so `ambient` cannot say it. `false` when no group resolves.
+    pub ambient_coach: bool,
     /// The strongest role the caller holds in any group — `None` when they
     /// belong to none, which also answers "does this caller have a group".
     pub highest: Option<GroupRole>,
@@ -202,9 +211,10 @@ const fn role_rank(role: GroupRole) -> u8 {
 /// whether that handler would refuse.
 ///
 /// Walks the same ladder the handlers do and reads the same membership row
-/// they check (`get_member`), then adds the group list the other half of them
-/// read instead. Two queries beyond what a single group command costs, paid
-/// once for the whole listing.
+/// they check (`get_member`) and the group row `/group digest` reads its
+/// coach from, then adds the group list the other half of them read instead.
+/// Three queries beyond what a single group command costs, paid once for the
+/// whole listing.
 ///
 /// `pub` because the command-catalogue route filters its listing through the
 /// same standing: a palette that offers `/group invite` to an athlete in no
@@ -218,15 +228,21 @@ const fn role_rank(role: GroupRole) -> u8 {
 pub async fn caller_group_standing(
     ctx: &PlatformCommandContext,
 ) -> Result<CallerGroupStanding, AppError> {
-    let ambient = match find_target_group(ctx).await? {
-        Some(group) => ctx
-            .ctx
-            .repos()
-            .groups
-            .get_member(&group.id.to_string(), ctx.user_id)
-            .await?
-            .map(|m| m.role),
-        None => None,
+    let (ambient, ambient_coach) = match find_target_group(ctx).await? {
+        Some(group) => {
+            let group_id = group.id.to_string();
+            let groups = &ctx.ctx.repos().groups;
+            let role = groups
+                .get_member(&group_id, ctx.user_id)
+                .await?
+                .map(|m| m.role);
+            let coach = groups
+                .get_group(&group_id, group.tenant_id)
+                .await?
+                .is_some_and(|g| g.coach_user_id == Some(ctx.user_id));
+            (role, coach)
+        }
+        None => (None, false),
     };
 
     // `GroupSummary` already carries the caller's role, so the strongest role
@@ -243,6 +259,7 @@ pub async fn caller_group_standing(
 
     Ok(CallerGroupStanding {
         ambient,
+        ambient_coach,
         highest,
         is_direct_message: ctx.is_direct_message,
     })
@@ -344,9 +361,9 @@ impl CommandHandler for GroupStatusHandler {
             &[&group.name, &mc, &active, &peer_sharing],
         );
 
-        // Respond mode lives on the full group row (the summary omits it).
-        // Plain-text suffix, mirroring the /group agent and /group respond
-        // replies that stay outside the tools-groups-gated string registry.
+        // Respond mode and digest mode live on the full group row (the
+        // summary omits them). The digest line always shows, with how to
+        // change it; the respond line only when it narrows the default.
         if let Ok(Some(full)) = ctx
             .ctx
             .repos()
@@ -358,6 +375,8 @@ impl CommandHandler for GroupStatusHandler {
                 text.push('\n');
                 text.push_str(&reg.render(KEY_GROUP_RESPOND_STATUS_MENTIONS, locale, &[]));
             }
+            text.push('\n');
+            text.push_str(&digest_status_text(ctx, &full).await);
         }
 
         Ok(CommandResponse::text(text))
@@ -680,6 +699,7 @@ impl CommandHandler for GroupCoachHandler {
             max_members: None,
             peer_data_sharing: None,
             respond_mode: None,
+            digest_mode: None,
             is_active: None,
         };
         // Scoped to the tenant that owns the group row, which is the channel
@@ -777,6 +797,7 @@ impl CommandHandler for GroupRespondHandler {
             max_members: None,
             peer_data_sharing: None,
             respond_mode: Some(mode),
+            digest_mode: None,
             is_active: None,
         };
         // Scoped to the tenant that owns the group row, which is the channel
@@ -808,6 +829,146 @@ impl CommandHandler for GroupRespondHandler {
     /// Acts on the conversation's group, so the caller's role *there* decides.
     fn is_available(&self, standing: &CallerGroupStanding) -> bool {
         standing.ambient.is_some_and(Self::permits)
+    }
+}
+
+/// Handler for `/group digest [off|chat|managers]` — where the group's weekly
+/// digest goes.
+///
+/// With no argument it reports the current mode and how to change it, to
+/// anyone the conversation's group resolves for. With a mode it changes it,
+/// for the group's owner, its admins and its attached human coach
+/// ([`GroupDigestMode::may_change`]): the coach is attached to the group
+/// rather than enrolled in it, so the membership row alone cannot decide.
+/// Every reply is the status line of the mode the group is now in, so the
+/// confirmation and the no-argument answer say the same thing about it.
+///
+/// The tenant tier stays the ceiling: the mode is stored whatever the group's
+/// plan, and the reply says so when that plan sends nothing.
+pub struct GroupDigestHandler;
+
+#[async_trait]
+impl CommandHandler for GroupDigestHandler {
+    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = ctx.ctx.messaging_strings_registry();
+        let locale = ctx.locale.as_str();
+
+        let arg = ctx
+            .args
+            .first()
+            .map(|a| a.trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let requested = if arg.is_empty() {
+            None
+        } else if let Some(mode) = GroupDigestMode::from_str_opt(&arg) {
+            Some(mode)
+        } else {
+            return Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_DIGEST_USAGE,
+                locale,
+                &[],
+            )));
+        };
+
+        // Resolve the chat-bound group (mirrors /group respond).
+        let target = resolve_target_group(ctx).await?;
+        let group_id = target.id.to_string();
+        let group = ctx
+            .ctx
+            .repos()
+            .groups
+            .get_group(&group_id, target.tenant_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+
+        let Some(mode) = requested else {
+            return Ok(CommandResponse::text(digest_status_text(ctx, &group).await));
+        };
+
+        let role = ctx
+            .ctx
+            .repos()
+            .groups
+            .get_member(&group_id, ctx.user_id)
+            .await?
+            .map(|m| m.role);
+        if !GroupDigestMode::may_change(role, group.coach_user_id == Some(ctx.user_id)) {
+            return Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_DIGEST_FORBIDDEN,
+                locale,
+                &[],
+            )));
+        }
+
+        let request = UpdateGroupRequest {
+            name: None,
+            description: None,
+            agent_id: None,
+            max_members: None,
+            peer_data_sharing: None,
+            respond_mode: None,
+            digest_mode: Some(mode),
+            is_active: None,
+        };
+        // Scoped to the tenant that owns the group row, which is the channel
+        // tenant when the command came from a shared room.
+        let updated = ctx
+            .ctx
+            .group_service()
+            .update_group(&group_id, target.tenant_id, &request)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group not found"))?;
+
+        info!(
+            group_id = %updated.id,
+            digest_mode = %mode,
+            "Group digest mode updated via /group digest"
+        );
+
+        Ok(CommandResponse::text(
+            digest_status_text(ctx, &updated).await,
+        ))
+    }
+
+    /// Acts on the conversation's group, where the caller's role — or their
+    /// attachment as its human coach — decides.
+    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
+        GroupDigestMode::may_change(standing.ambient, standing.ambient_coach)
+    }
+}
+
+/// Where `group`'s weekly digest goes and how to change that, in the caller's
+/// locale — the `/group digest` reply and the `/group status` line — followed
+/// by a note when the group's plan does not include the digest.
+async fn digest_status_text(ctx: &PlatformCommandContext, group: &CoachingGroup) -> String {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+    let key = match group.digest_mode {
+        GroupDigestMode::Off => KEY_GROUP_DIGEST_STATUS_OFF,
+        GroupDigestMode::Chat => KEY_GROUP_DIGEST_STATUS_CHAT,
+        GroupDigestMode::Managers => KEY_GROUP_DIGEST_STATUS_MANAGERS,
+    };
+    let mut text = reg.render(key, locale, &[]);
+    if plan_excludes_digest(ctx, group).await {
+        text.push('\n');
+        text.push_str(&reg.render(KEY_GROUP_DIGEST_TIER_OFF, locale, &[]));
+    }
+    text
+}
+
+/// Whether the plan of the tenant that owns `group` leaves out the weekly
+/// digest ([`tier_enables_digest`], the ceiling the scheduler sweeps by).
+/// A plan that cannot be read adds no note, and the failed read is logged.
+async fn plan_excludes_digest(ctx: &PlatformCommandContext, group: &CoachingGroup) -> bool {
+    let Ok(tenant_id) = TenantId::parse_str(&group.tenant_id) else {
+        return false;
+    };
+    match ctx.ctx.repos().tenants.get_by_id(tenant_id).await {
+        Ok(tenant) => !tier_enables_digest(&tenant.plan),
+        Err(e) => {
+            warn!(group_id = %group.id, error = %e, "digest status: tenant plan unreadable; no plan note");
+            false
+        }
     }
 }
 

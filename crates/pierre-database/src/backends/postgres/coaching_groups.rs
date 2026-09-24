@@ -7,8 +7,8 @@
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
-    GroupSummary, GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
+    CoachingGroup, GroupDigestMode, GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode,
+    GroupRole, GroupSummary, GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
     UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;

@@ -104,6 +104,60 @@ impl fmt::Display for GroupRespondMode {
     }
 }
 
+/// Where the group's weekly digest goes, when the tenant's tier includes one
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupDigestMode {
+    /// Nothing is sent, and no week is recorded as delivered
+    #[default]
+    Off,
+    /// Posted into the group's bound Telegram, Slack or Discord chat, with
+    /// the managers' full copy kept in the app. A group with no chat that
+    /// takes a proactive message, or whose chat refuses the post, sends the
+    /// managers' copy to their own channels instead.
+    Chat,
+    /// The owner and admins get the full digest on their own channels;
+    /// nothing is posted into the group's chat.
+    Managers,
+}
+
+impl GroupDigestMode {
+    /// String representation for database storage
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Chat => "chat",
+            Self::Managers => "managers",
+        }
+    }
+
+    /// Parse from database string
+    #[must_use]
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "off" => Some(Self::Off),
+            "chat" => Some(Self::Chat),
+            "managers" => Some(Self::Managers),
+            _ => None,
+        }
+    }
+
+    /// Whether someone may change a group's digest mode: an owner or admin
+    /// of the group (`role`), or the human coach attached to it. A plain
+    /// member may not, and neither may anyone outside the group.
+    #[must_use]
+    pub fn may_change(role: Option<GroupRole>, is_attached_coach: bool) -> bool {
+        is_attached_coach || role.is_some_and(|r| r.can_modify_settings())
+    }
+}
+
+impl fmt::Display for GroupDigestMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl fmt::Display for GroupRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -182,6 +236,11 @@ pub struct CoachingGroup {
     /// written before the field existed deserializable.
     #[serde(default)]
     pub respond_mode: GroupRespondMode,
+    /// Where the weekly digest goes: nowhere, the group's chat, or its
+    /// managers only. Serde defaults keep payloads written before the field
+    /// existed deserializable, and read them as off.
+    #[serde(default)]
+    pub digest_mode: GroupDigestMode,
     /// Maximum allowed members
     pub max_members: i32,
     /// Whether the group is active
@@ -369,8 +428,39 @@ pub struct UpdateGroupRequest {
     pub peer_data_sharing: Option<bool>,
     /// Change when the AI agent replies in the bound channel chat
     pub respond_mode: Option<GroupRespondMode>,
+    /// Change where the weekly digest goes
+    pub digest_mode: Option<GroupDigestMode>,
     /// Toggle active status
     pub is_active: Option<bool>,
+}
+
+impl UpdateGroupRequest {
+    /// Whether the request changes the weekly digest mode and nothing else —
+    /// the one change a group's attached human coach may make.
+    ///
+    /// Destructures every field so a field added to the request has to be
+    /// placed on one side of that line or the other before this compiles.
+    #[must_use]
+    pub const fn changes_only_digest_mode(&self) -> bool {
+        let Self {
+            name,
+            description,
+            agent_id,
+            max_members,
+            peer_data_sharing,
+            respond_mode,
+            digest_mode,
+            is_active,
+        } = self;
+        digest_mode.is_some()
+            && name.is_none()
+            && description.is_none()
+            && agent_id.is_none()
+            && max_members.is_none()
+            && peer_data_sharing.is_none()
+            && respond_mode.is_none()
+            && is_active.is_none()
+    }
 }
 
 /// Request to join a group via invite code

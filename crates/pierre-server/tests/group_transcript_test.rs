@@ -26,8 +26,8 @@ mod group_transcript_tests {
     };
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupMember, GroupRespondMode, GroupRole, GroupTranscriptEntry,
-        TranscriptSpeaker,
+        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        GroupTranscriptEntry, TranscriptSpeaker,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
@@ -319,6 +319,7 @@ mod group_transcript_tests {
             coach_user_id: None,
             peer_data_sharing: true,
             respond_mode: GroupRespondMode::Mentions,
+            digest_mode: GroupDigestMode::Off,
             max_members: 10,
             is_active: true,
             channel_type: Some("telegram".to_owned()),

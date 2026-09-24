@@ -696,7 +696,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use uuid::Uuid;
 
@@ -746,6 +746,7 @@ mod command_tests {
             coach_user_id: None,
             peer_data_sharing: true,
             respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Off,
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -1000,7 +1001,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
 
         let (user_id, member_tenant_id) =
@@ -1057,6 +1058,7 @@ mod command_tests {
             coach_user_id: None,
             peer_data_sharing: true,
             respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Off,
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -1169,7 +1171,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use uuid::Uuid;
 
@@ -1212,6 +1214,7 @@ mod command_tests {
             coach_user_id: None,
             peer_data_sharing: true,
             respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Off,
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -1322,7 +1325,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use uuid::Uuid;
 
@@ -1370,6 +1373,7 @@ mod command_tests {
                     coach_user_id: Some(human_coach),
                     peer_data_sharing: true,
                     respond_mode: GroupRespondMode::default(),
+                    digest_mode: GroupDigestMode::Off,
                     max_members: 10,
                     is_active: true,
                     channel_type: None,
@@ -1577,7 +1581,9 @@ mod command_tests {
         GroupStatusHandler,
     };
     use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
-    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+    use pierre_core::models::groups::{
+        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    };
     use pierre_messaging::commands::CommandRegistry;
 
     /// Create a bare active user (no tenant/provider) for use as an additional
@@ -1624,6 +1630,7 @@ mod command_tests {
             coach_user_id: None,
             peer_data_sharing,
             respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Off,
             max_members: 10,
             is_active: true,
             channel_type: None,
@@ -2227,8 +2234,8 @@ mod command_tests {
         // Regression (reported live 2026-08-11): `/group respond mentions` in a
         // Telegram group answered the caller privately, so the other members
         // watched the agent go silent with no idea why. A group-wide setting
-        // change belongs in the room — for both the respond mode and the
-        // group's AI agent persona.
+        // change belongs in the room — the respond mode, where the weekly
+        // digest goes, and the group's AI agent persona.
         //
         // The names are read from the real `commands/` catalog rather than
         // written as literals: the value that reaches the visibility rule is
@@ -2252,6 +2259,7 @@ mod command_tests {
         // whose opener must land in the room for the walk to be watchable.
         for trigger in [
             "/group respond",
+            "/group digest",
             "/group coach",
             "/plan share",
             "/calibrate",

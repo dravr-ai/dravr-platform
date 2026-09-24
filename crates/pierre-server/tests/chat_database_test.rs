@@ -10,7 +10,7 @@
 use chrono::Utc;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
-use pierre_core::models::groups::{CoachingGroup, GroupRespondMode};
+use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
     AddMessageParams, CoachingPersona, ParticipantRole, Tenant, TenantId,
     UpsertMessageFeedbackParams, User, UserStatus, UserTier,
@@ -208,6 +208,7 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
                 coach_user_id: None,
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 20,
                 is_active: true,
                 channel_type: None,

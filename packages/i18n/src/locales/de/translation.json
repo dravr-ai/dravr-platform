@@ -1163,6 +1163,14 @@
       "create_usage": "Verwendung: /group create Gruppenname — zum Beispiel /group create Sonntagsläufer",
       "created": "Gruppe „{0}\" mit Agent {1} erstellt. Lade Mitglieder mit /group invite ein.",
       "description": "Meine Gruppen auflisten",
+      "digest_forbidden": "Nur der Eigentümer der Gruppe, ihre Admins und ihr menschlicher Coach können den Wochenrückblick ändern.",
+      "digest_status": {
+        "chat": "Wochenrückblick: jeden Montagmorgen im Telegram-, Slack- oder Discord-Chat der Gruppe gepostet, mit dem vollständigen Rückblick für Eigentümer und Admins in der App. Zum Ändern: /group digest managers oder /group digest off.",
+        "managers": "Wochenrückblick: nur an Eigentümer und Admins, auf ihren eigenen Kanälen; im Gruppenchat wird nichts gepostet. Zum Ändern: /group digest chat oder /group digest off.",
+        "off": "Wochenrückblick: aus — es wird nichts gesendet. Zum Einschalten: /group digest chat (im Gruppenchat gepostet) oder /group digest managers (nur Eigentümer und Admins)."
+      },
+      "digest_tier_off": "Dein Tarif enthält keinen Wochenrückblick, daher wird nichts gesendet, solange er ihn nicht enthält.",
+      "digest_usage": "Verwendung: /group digest off, /group digest chat oder /group digest managers",
       "invite_body": "Einladungslink für {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\n7 Tage gültig.",
       "invite_forbidden": "Nur Admins und Eigentümer können Einladungslinks erstellen.",
       "invite_label": "Mitglieder einladen",
@@ -1202,6 +1210,9 @@
     },
     "group-create": {
       "description": "Eine Coaching-Gruppe rund um den Agenten dieses Chats anlegen"
+    },
+    "group-digest": {
+      "description": "Festlegen, wohin der Wochenrückblick dieser Gruppe geht — nirgendwohin, in den Gruppenchat oder nur an Eigentümer und Admins"
     },
     "group-invite": {
       "description": "Einladungslink erzeugen"
@@ -1552,6 +1563,13 @@
     "demoteToMember": "Zum Mitglied herabstufen",
     "description": "Beschreibung",
     "descriptionPlaceholder": "Worum geht es in dieser Gruppe?",
+    "digestChat": "Im Gruppenchat",
+    "digestChatHint": "Jeden Montagmorgen im Telegram-, Slack- oder Discord-Chat der Gruppe gepostet, über die Mitglieder, die ihr Training teilen. Eigentümer und Admins erhalten den vollständigen Rückblick in der App oder, wenn die Gruppe keinen solchen Chat hat, auf ihren eigenen Kanälen.",
+    "digestManagers": "Nur Eigentümer und Admins",
+    "digestManagersHint": "Eigentümer und Admins erhalten den vollständigen Rückblick auf ihren eigenen Kanälen; im Gruppenchat wird nichts gepostet.",
+    "digestMode": "Wochenrückblick",
+    "digestOff": "Aus",
+    "digestOffHint": "Es wird nichts gesendet.",
     "disabled": "Deaktiviert",
     "emptyTitle": "Noch keine Gruppen",
     "enabled": "Aktiviert",

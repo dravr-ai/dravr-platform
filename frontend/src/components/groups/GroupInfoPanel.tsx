@@ -33,7 +33,7 @@ import MemberList from './MemberList';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
-import type { GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
+import type { GroupDigestMode, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 import { oneDecimal } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
@@ -53,6 +53,14 @@ const TREND_DISPLAY: Record<GroupTrend, { labelKey: string; color: string }> = {
   improving: { labelKey: 'groups.improving', color: 'text-success' },
   stable: { labelKey: 'groups.stable', color: 'text-on-surface-variant' },
   declining: { labelKey: 'groups.declining', color: 'text-warning' },
+};
+
+// Each weekly-digest mode's option label and the one-line hint shown under the
+// select while it is chosen.
+const DIGEST_MODES: Record<GroupDigestMode, { labelKey: string; hintKey: string }> = {
+  off: { labelKey: 'groups.digestOff', hintKey: 'groups.digestOffHint' },
+  chat: { labelKey: 'groups.digestChat', hintKey: 'groups.digestChatHint' },
+  managers: { labelKey: 'groups.digestManagers', hintKey: 'groups.digestManagersHint' },
 };
 
 /** One titled block of the panel. */
@@ -108,6 +116,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   const [editDescription, setEditDescription] = useState('');
   const [editPeerSharing, setEditPeerSharing] = useState(false);
   const [editRespondMode, setEditRespondMode] = useState<GroupRespondMode>('all');
+  const [editDigestMode, setEditDigestMode] = useState<GroupDigestMode>('off');
   const [settingsInitialized, setSettingsInitialized] = useState(false);
 
   // Seed the settings form from the group the first time it resolves.
@@ -116,6 +125,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
     setEditDescription(group.description ?? '');
     setEditPeerSharing(group.peer_data_sharing);
     setEditRespondMode(group.respond_mode ?? 'all');
+    setEditDigestMode(group.digest_mode ?? 'off');
     setSettingsInitialized(true);
   }
 
@@ -124,6 +134,11 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
+  // The group's attached human coach may change where the weekly digest goes,
+  // and nothing else; the server refuses any other field from them.
+  const isCoach = currentUserId !== '' && group?.coach_user_id === currentUserId;
+  // The digest select shows only where the tenant's tier sends a digest at all.
+  const canSetDigest = weeklyDigest && (isAdmin || isCoach);
 
   /**
    * Set the caller's own peer-sharing consent. The route writes the caller's
@@ -147,13 +162,19 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
 
   const handleSaveSettings = async () => {
     if (!group) return;
+    const digest = canSetDigest ? { digest_mode: editDigestMode } : {};
     try {
-      await updateGroup({
-        name: editName.trim() || undefined,
-        description: editDescription.trim() || undefined,
-        peer_data_sharing: editPeerSharing,
-        respond_mode: editRespondMode,
-      });
+      await updateGroup(
+        isAdmin
+          ? {
+              name: editName.trim() || undefined,
+              description: editDescription.trim() || undefined,
+              peer_data_sharing: editPeerSharing,
+              respond_mode: editRespondMode,
+              ...digest,
+            }
+          : digest,
+      );
       showSuccess(t('app.settingsSaved'), t('app.groupSettingsUpdated'));
     } catch (err) {
       const message = err instanceof Error ? err.message : t('groups.saveFailed');
@@ -307,40 +328,58 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         </Section>
       )}
 
-      {isAdmin && (
+      {(isAdmin || canSetDigest) && (
         <Section icon={<Settings className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabSettings')}>
           <div className="space-y-4">
-            <Input
-              label={t('groups.name')}
-              variant="dark"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              maxLength={100}
-            />
-            <Textarea
-              label={t('chat.descriptionLabel')}
-              rows={3}
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              maxLength={500}
-            />
-            <Checkbox
-              label={t('groups.peerSharingEnable')}
-              description={t('groups.peerSharingDescription')}
-              checked={editPeerSharing}
-              onChange={(e) => setEditPeerSharing(e.target.checked)}
-            />
-            <Select
-              id="group-respond-mode"
-              label={t('groups.respondMode')}
-              value={editRespondMode}
-              onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
-              options={[
-                { value: 'all', label: t('groups.respondEvery') },
-                { value: 'mentions', label: t('groups.respondMentioned') },
-              ]}
-              helpText={t('groups.respondMentionedHint')}
-            />
+            {isAdmin && (
+              <>
+                <Input
+                  label={t('groups.name')}
+                  variant="dark"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  maxLength={100}
+                />
+                <Textarea
+                  label={t('chat.descriptionLabel')}
+                  rows={3}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  maxLength={500}
+                />
+                <Checkbox
+                  label={t('groups.peerSharingEnable')}
+                  description={t('groups.peerSharingDescription')}
+                  checked={editPeerSharing}
+                  onChange={(e) => setEditPeerSharing(e.target.checked)}
+                />
+                <Select
+                  id="group-respond-mode"
+                  label={t('groups.respondMode')}
+                  value={editRespondMode}
+                  onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
+                  options={[
+                    { value: 'all', label: t('groups.respondEvery') },
+                    { value: 'mentions', label: t('groups.respondMentioned') },
+                  ]}
+                  helpText={t('groups.respondMentionedHint')}
+                />
+              </>
+            )}
+            {canSetDigest && (
+              <Select
+                id="group-digest-mode"
+                label={t('groups.digestMode')}
+                value={editDigestMode}
+                onChange={(e) => setEditDigestMode(e.target.value as GroupDigestMode)}
+                options={(Object.keys(DIGEST_MODES) as GroupDigestMode[]).map((mode) => ({
+                  value: mode,
+                  label: t(DIGEST_MODES[mode].labelKey),
+                }))}
+                helpText={t(DIGEST_MODES[editDigestMode].hintKey)}
+                data-testid="group-digest-mode"
+              />
+            )}
             <div className="flex justify-end">
               <Button
                 variant="primary"

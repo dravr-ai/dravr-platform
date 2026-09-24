@@ -544,6 +544,7 @@ async fn update_group_agent(
         max_members: None,
         peer_data_sharing: None,
         respond_mode: None,
+        digest_mode: None,
         is_active: None,
     };
 

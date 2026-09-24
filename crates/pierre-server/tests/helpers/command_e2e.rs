@@ -35,7 +35,9 @@ use pierre_core::llm::{
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentVisibility, CreateSystemAgentRequest,
 };
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{ConnectionType, OnboardingState, Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::{
@@ -743,6 +745,7 @@ impl RoomE2e {
             coach_user_id: None,
             peer_data_sharing: true,
             respond_mode: mode,
+            digest_mode: GroupDigestMode::Off,
             max_members: 10,
             is_active: true,
             channel_type: Some("telegram".to_owned()),

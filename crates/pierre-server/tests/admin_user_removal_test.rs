@@ -45,7 +45,9 @@ use pierre_contremaitre::{
 use pierre_core::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{
     ConnectionType, Subscription, SubscriptionStatus, Tenant, TenantId, TenantOAuthCredentials,
     User, UserOAuthToken, UserReferenceKind, UserStatus, UserTier,
@@ -393,6 +395,7 @@ async fn seed_group(
                 coach_user_id: None,
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 10,
                 is_active: true,
                 channel_type: None,

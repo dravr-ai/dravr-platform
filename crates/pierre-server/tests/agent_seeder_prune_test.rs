@@ -13,7 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use chrono::Utc;
-use pierre_core::models::groups::GroupRespondMode;
+use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::workout_template::{CalendarEventSource, PrescribedWorkout};
 use pierre_core::models::{
     AgentCategory, AgentVisibility, CoachingGroup, CreateAgentRequest, CreateSystemAgentRequest,
@@ -159,6 +159,7 @@ async fn group_bound_to(
                 coach_user_id: None,
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 10,
                 is_active: true,
                 channel_type: None,

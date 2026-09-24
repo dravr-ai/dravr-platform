@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_core::models::groups::GroupRespondMode;
+use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
     CoachingGroup, GroupContext, MemberFlag, MemberSummaryCard, SummaryDetailLevel,
 };
@@ -27,6 +27,7 @@ fn group(peer_data_sharing: bool) -> CoachingGroup {
         coach_user_id: None,
         peer_data_sharing,
         respond_mode: GroupRespondMode::default(),
+        digest_mode: GroupDigestMode::Off,
         max_members: 20,
         is_active: true,
         channel_type: Some("telegram".to_owned()),

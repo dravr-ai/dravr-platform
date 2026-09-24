@@ -1,5 +1,5 @@
-// ABOUTME: The group weekly digest lands in the group's own chat, names only members who share, and goes out once a week
-// ABOUTME: Drives the scheduler tick with a recording chat poster and channel sink; covers the ledger, locale and poster
+// ABOUTME: The group weekly digest goes where the group's mode says — its chat, its managers or nowhere — once a week
+// ABOUTME: Drives the scheduler tick with a recording chat poster and channel sink; covers the modes, ledger, locale and poster
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -26,8 +26,8 @@ mod group_digest_room_tests {
     use chrono_tz::America::Toronto;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupMember, GroupRespondMode, GroupRole, MemberFitnessSnapshot,
-        OvertrainingRiskLevel,
+        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent};
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -46,6 +46,7 @@ mod group_digest_room_tests {
     use pierre_routes_groups::group_digest_scheduler::{
         room_digest_params, tick, DigestTickOutcome,
     };
+    use pierre_routes_groups::group_digest_slot::week_key;
     use pierre_routes_groups::GroupChatPoster;
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use pierre_services::notification_text::NotificationTextRenderer;
@@ -250,10 +251,19 @@ mod group_digest_room_tests {
             &self,
             tenant: TenantId,
             name: &str,
+            digest_mode: GroupDigestMode,
             chat: Option<(&str, &str)>,
             members: &[(Uuid, GroupRole, bool)],
         ) -> Uuid {
-            seed_group(&self.resources.common.repos, tenant, name, chat, members).await
+            seed_group(
+                &self.resources.common.repos,
+                tenant,
+                name,
+                digest_mode,
+                chat,
+                members,
+            )
+            .await
         }
 
         /// The digest rows stored for `user` under `tenant`, newest first.
@@ -270,12 +280,15 @@ mod group_digest_room_tests {
         }
     }
 
-    /// A group owned by the first of `members` under `tenant`, bound to `chat`
-    /// when given, with each member's role and consent.
+    /// A group owned by the first of `members` under `tenant`, sending its
+    /// digest as `digest_mode` says, bound to `chat` when given, with each
+    /// member's role and consent. Every group here names its mode: the
+    /// default is off, which sends nothing.
     async fn seed_group(
         repos: &RepositoryRegistry,
         tenant: TenantId,
         name: &str,
+        digest_mode: GroupDigestMode,
         chat: Option<(&str, &str)>,
         members: &[(Uuid, GroupRole, bool)],
     ) -> Uuid {
@@ -315,6 +328,7 @@ mod group_digest_room_tests {
                     // Mentions-only rooms still get the digest: the mode
                     // governs replies.
                     respond_mode: GroupRespondMode::Mentions,
+                    digest_mode,
                     max_members: 20,
                     is_active: true,
                     channel_type: chat.map(|(channel, _)| channel.to_owned()),
@@ -363,6 +377,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "Les Rouleurs",
+            GroupDigestMode::Chat,
             Some(("telegram", "-1005284201188")),
             &[
                 (alice, GroupRole::Owner, true),
@@ -420,6 +435,137 @@ mod group_digest_room_tests {
         assert_eq!(h.digest_rows(alice, tenant).await.len(), 1);
     }
 
+    /// A group whose digest is off gets nothing — no post, no manager copy —
+    /// and leaves its week unclaimed, so switching it on later that week
+    /// still sends that week's digest. The chat group beside it proves the
+    /// tick ran through the same tenant.
+    #[tokio::test]
+    async fn a_group_whose_digest_is_off_gets_nothing_and_claims_no_week() {
+        let h = Harness::new().await;
+        let quiet_owner = h.person("Olga Off", "fr", Some("America/Toronto")).await;
+        let quiet_member = h.person("Paul Off", "fr", None).await;
+        let chat_owner = h.person("Rita Chat", "fr", Some("America/Toronto")).await;
+        let tenant = h.tenant(quiet_owner).await;
+        let quiet = h
+            .group(
+                tenant,
+                "Club Muet",
+                GroupDigestMode::Off,
+                Some(("telegram", "-100111")),
+                &[
+                    (quiet_owner, GroupRole::Owner, true),
+                    (quiet_member, GroupRole::Member, true),
+                ],
+            )
+            .await;
+        let chatty = h
+            .group(
+                tenant,
+                "Club Bavard",
+                GroupDigestMode::Chat,
+                Some(("telegram", "-100222")),
+                &[(chat_owner, GroupRole::Owner, true)],
+            )
+            .await;
+
+        let outcome = h.tick(monday_morning_montreal()).await;
+        assert_eq!(outcome.tenants_eligible, 1, "{outcome:?}");
+        assert_eq!(
+            outcome.groups_reported, 1,
+            "only the chat group: {outcome:?}"
+        );
+        assert_eq!(outcome.room_posts, 1, "{outcome:?}");
+        assert_eq!(
+            outcome.dispatched, 1,
+            "only the chat group's owner: {outcome:?}"
+        );
+        let posts = h.poster.posts();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(
+            posts[0].2, "-100222",
+            "the off group's chat is never posted to"
+        );
+        assert!(h.sink.recipients().is_empty());
+        for person in [quiet_owner, quiet_member] {
+            assert!(
+                h.digest_rows(person, tenant).await.is_empty(),
+                "nobody in the off group gets a digest"
+            );
+        }
+
+        let week = week_key(next_monday());
+        let groups = &h.resources.common.repos.groups;
+        let now_ms = monday_morning_montreal().timestamp_millis();
+        assert!(
+            groups
+                .claim_group_digest(tenant, quiet, &week, now_ms, 60_000)
+                .await
+                .unwrap(),
+            "the off group's week was never claimed, so it is still free"
+        );
+        assert!(
+            !groups
+                .claim_group_digest(tenant, chatty, &week, now_ms, 60_000)
+                .await
+                .unwrap(),
+            "the chat group's week was sent and closed"
+        );
+    }
+
+    /// A managers-only group posts nothing into its chat, however good the
+    /// binding: the owner and the admin get the full digest over every member
+    /// on their own channels and in the app, and a plain member gets nothing.
+    #[tokio::test]
+    async fn a_managers_group_posts_nothing_and_its_managers_hear_on_their_channels() {
+        let h = Harness::new().await;
+        let owner = h.person("Sam Owner", "fr", Some("America/Toronto")).await;
+        let admin = h.person("Tess Admin", "fr", None).await;
+        let member = h.person("Ugo Member", "fr", None).await;
+        let tenant = h.tenant(owner).await;
+        h.group(
+            tenant,
+            "Club Discret",
+            GroupDigestMode::Managers,
+            Some(("telegram", "-100333")),
+            &[
+                (owner, GroupRole::Owner, true),
+                (admin, GroupRole::Admin, true),
+                (member, GroupRole::Member, false),
+            ],
+        )
+        .await;
+
+        let outcome = h.tick(monday_morning_montreal()).await;
+        assert_eq!(outcome.groups_reported, 1, "{outcome:?}");
+        assert_eq!(outcome.room_posts, 0, "{outcome:?}");
+        assert_eq!(outcome.dispatched, 2, "{outcome:?}");
+        assert_eq!(outcome.errors, 0, "{outcome:?}");
+        assert!(
+            h.poster.posts().is_empty(),
+            "nothing is posted into a managers-only group's chat"
+        );
+
+        let mut reached = h.sink.recipients();
+        reached.sort_unstable();
+        let mut managers = vec![owner, admin];
+        managers.sort_unstable();
+        assert_eq!(
+            reached, managers,
+            "each manager hears on their own channels"
+        );
+        for manager in [owner, admin] {
+            let rows = h.digest_rows(manager, tenant).await;
+            assert_eq!(rows.len(), 1, "one in-app digest per manager");
+            assert!(rows[0].starts_with("3/3 membres actifs"), "{}", rows[0]);
+            assert!(
+                rows[0].contains("• Ugo Member : 0,0 km"),
+                "the managers' copy covers every member, sharing or not: {}",
+                rows[0]
+            );
+        }
+        assert!(h.digest_rows(member, tenant).await.is_empty());
+    }
+
     /// A group with no chat, or bound where a proactive message bounces, keeps
     /// the managers' notification on their own linked channels.
     #[tokio::test]
@@ -432,6 +578,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "Web Club",
+            GroupDigestMode::Chat,
             None,
             &[
                 (web_owner, GroupRole::Owner, true),
@@ -442,6 +589,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "WhatsApp Club",
+            GroupDigestMode::Chat,
             Some(("whatsapp", "120363")),
             &[(wa_owner, GroupRole::Owner, true)],
         )
@@ -469,6 +617,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "Solo Club",
+            GroupDigestMode::Chat,
             Some(("discord", "998877")),
             &[
                 (owner, GroupRole::Owner, false),
@@ -501,6 +650,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "Mixed Club",
+            GroupDigestMode::Chat,
             Some(("telegram", "-100555")),
             &[
                 (owner, GroupRole::Owner, true),
@@ -546,6 +696,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "No Zone Club",
+            GroupDigestMode::Chat,
             Some(("slack", "C0NOZONE")),
             &[(owner, GroupRole::Owner, true)],
         )
@@ -574,6 +725,7 @@ mod group_digest_room_tests {
             &repos,
             tenant,
             "Ledger Club",
+            GroupDigestMode::Chat,
             None,
             &[(owner, GroupRole::Owner, true)],
         )
@@ -685,6 +837,7 @@ mod group_digest_room_tests {
             coach_user_id: None,
             peer_data_sharing,
             respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Chat,
             max_members: 20,
             is_active: true,
             channel_type: Some("telegram".to_owned()),
@@ -892,6 +1045,7 @@ mod group_digest_room_tests {
         h.group(
             tenant,
             "Refused Club",
+            GroupDigestMode::Chat,
             Some(("telegram", "-100999")),
             &[
                 (owner, GroupRole::Owner, true),

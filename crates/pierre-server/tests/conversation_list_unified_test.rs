@@ -34,7 +34,9 @@ use pierre_core::errors::AppError;
 use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{AddMessageParams, ConversationTurnId, TenantId, COMMAND_FINISH_REASON};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
@@ -308,6 +310,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
                 coach_user_id: None,
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 20,
                 is_active: true,
                 channel_type: None,

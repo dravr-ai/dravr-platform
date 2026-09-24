@@ -12,6 +12,7 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::User;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
@@ -213,6 +214,12 @@ async fn test_create_group() {
     assert_eq!(
         body["respond_mode"], "all",
         "GroupResponse must carry respond_mode (default 'all')"
+    );
+    // The weekly digest is opt-in: a group created without naming a mode
+    // sends nothing until someone who may change it says where it goes.
+    assert_eq!(
+        body["digest_mode"], "off",
+        "GroupResponse must carry digest_mode (default 'off')"
     );
 }
 
@@ -1271,4 +1278,243 @@ async fn test_delete_group_releases_its_members() {
             "{who} still lists the deleted group: {body}"
         );
     }
+}
+
+// ============================================================================
+// Weekly digest mode
+// ============================================================================
+
+/// An owner, a plain member and a human coach attached to the owner's group,
+/// all acting in the owner's tenant. The coach is attached, not enrolled: they
+/// hold no membership row. Returns the router, the three tokens and the group.
+async fn setup_group_with_member_and_coach() -> (axum::Router, String, String, String, String) {
+    let res = create_test_server_resources().await.unwrap();
+    let db = &res.agent.database;
+    let (owner_id, owner, _) =
+        create_test_user_with_plan(db, "digest-owner@test.com", "professional")
+            .await
+            .unwrap();
+    let (_, member, _) = create_test_user_with_plan(db, "digest-member@test.com", "professional")
+        .await
+        .unwrap();
+    let (coach_id, coach, _) =
+        create_test_user_with_plan(db, "digest-coach@test.com", "professional")
+            .await
+            .unwrap();
+    let repos = db.repositories();
+    let shared = repos.tenants.list_for_user(owner_id).await.unwrap()[0].id;
+    let in_shared_tenant = |user: &User| {
+        format!(
+            "Bearer {}",
+            res.auth
+                .auth_manager
+                .generate_token_with_tenant(user, &res.auth.jwks_manager, Some(shared.to_string()))
+                .unwrap()
+        )
+    };
+    let owner_auth = format!("Bearer {}", generate_test_token(&res, &owner).await);
+    let member_auth = in_shared_tenant(&member);
+    let coach_auth = in_shared_tenant(&coach);
+
+    let router = build_agents_router::<ServerContext>()
+        .with_state(Arc::clone(&res))
+        .merge(GroupRoutes::routes(Arc::clone(&res)));
+    let agent_id = create_test_agent(&router, &owner_auth).await;
+    let (group_id, invite_code) = create_group_with_invite(&router, &owner_auth, &agent_id).await;
+    let joined = AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &member_auth)
+        .json(&json!({ "invite_code": invite_code }))
+        .send(router.clone())
+        .await;
+    assert_eq!(joined.status_code(), StatusCode::CREATED);
+    assert!(repos
+        .groups
+        .set_group_coach_user(&group_id, Some(coach_id), shared)
+        .await
+        .unwrap());
+
+    (router, owner_auth, member_auth, coach_auth, group_id)
+}
+
+async fn put_group(
+    router: &axum::Router,
+    auth: &str,
+    group_id: &str,
+    body: Value,
+) -> (StatusCode, Value) {
+    let resp = AxumTestRequest::put(&format!("/api/groups/{group_id}"))
+        .header("authorization", auth)
+        .json(&body)
+        .send(router.clone())
+        .await;
+    let status = resp.status_code();
+    let body = if status.is_success() {
+        resp.json()
+    } else {
+        Value::Null
+    };
+    (status, body)
+}
+
+async fn get_group_as(router: &axum::Router, auth: &str, group_id: &str) -> Value {
+    let resp = AxumTestRequest::get(&format!("/api/groups/{group_id}"))
+        .header("authorization", auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::OK);
+    resp.json()
+}
+
+/// The owner sets each mode through the PUT the settings forms use; a fresh
+/// GET reads it back, an unrelated update keeps it, and a value that is not
+/// a mode is refused without touching the stored one.
+#[tokio::test]
+async fn test_owner_sets_the_digest_mode_and_it_round_trips() {
+    let (router, owner, _member, _coach, group_id) =
+        Box::pin(setup_group_with_member_and_coach()).await;
+
+    for mode in ["chat", "managers", "off", "chat"] {
+        let (status, body) =
+            put_group(&router, &owner, &group_id, json!({ "digest_mode": mode })).await;
+        assert_eq!(status, StatusCode::OK, "{mode}");
+        assert_eq!(body["digest_mode"], mode);
+        assert_eq!(
+            get_group_as(&router, &owner, &group_id).await["digest_mode"],
+            mode
+        );
+    }
+
+    let (status, body) = put_group(
+        &router,
+        &owner,
+        &group_id,
+        json!({ "description": "unrelated" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["digest_mode"], "chat",
+        "an unrelated update keeps the mode"
+    );
+
+    let (status, _) = put_group(
+        &router,
+        &owner,
+        &group_id,
+        json!({ "digest_mode": "weekly" }),
+    )
+    .await;
+    assert!(
+        status.is_client_error(),
+        "an unknown mode is refused, got {status}"
+    );
+    assert_eq!(
+        get_group_as(&router, &owner, &group_id).await["digest_mode"],
+        "chat"
+    );
+}
+
+/// The attached human coach may change where the digest goes — and nothing
+/// else: a request naming any other field is refused whole, the digest part
+/// included, and the group is left as it was.
+#[tokio::test]
+async fn test_attached_coach_may_change_only_the_digest_mode() {
+    let (router, owner, _member, coach, group_id) =
+        Box::pin(setup_group_with_member_and_coach()).await;
+
+    let (status, body) = put_group(
+        &router,
+        &coach,
+        &group_id,
+        json!({ "digest_mode": "managers" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["digest_mode"], "managers");
+
+    let (status, _) = put_group(
+        &router,
+        &coach,
+        &group_id,
+        json!({ "name": "Coach's Club" }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "the coach may not rename the group"
+    );
+
+    let (status, _) = put_group(
+        &router,
+        &coach,
+        &group_id,
+        json!({ "digest_mode": "chat", "respond_mode": "mentions" }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a request carrying another field is refused whole"
+    );
+
+    let after = get_group_as(&router, &owner, &group_id).await;
+    assert_eq!(after["name"], "Test Marathon Group");
+    assert_eq!(after["respond_mode"], "all");
+    assert_eq!(
+        after["digest_mode"], "managers",
+        "the refused request changed nothing"
+    );
+}
+
+/// A plain member may not change the digest mode; promoted to admin, they may.
+#[tokio::test]
+async fn test_plain_member_is_refused_the_digest_mode_until_made_admin() {
+    let (router, owner, member, _coach, group_id) =
+        Box::pin(setup_group_with_member_and_coach()).await;
+
+    let (status, _) = put_group(
+        &router,
+        &member,
+        &group_id,
+        json!({ "digest_mode": "chat" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        get_group_as(&router, &owner, &group_id).await["digest_mode"],
+        "off"
+    );
+
+    let members: Value = AxumTestRequest::get(&format!("/api/groups/{group_id}/members"))
+        .header("authorization", &owner)
+        .send(router.clone())
+        .await
+        .json();
+    let member_id = members["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "member")
+        .expect("the member is listed")["user_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let promoted =
+        AxumTestRequest::put(&format!("/api/groups/{group_id}/members/{member_id}/role"))
+            .header("authorization", &owner)
+            .json(&json!({ "role": "admin" }))
+            .send(router.clone())
+            .await;
+    assert_success(&promoted, "promote to admin");
+
+    let (status, body) = put_group(
+        &router,
+        &member,
+        &group_id,
+        json!({ "digest_mode": "chat" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["digest_mode"], "chat");
 }

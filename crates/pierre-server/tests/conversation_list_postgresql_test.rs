@@ -15,7 +15,9 @@
 
 use chrono::Utc;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{
     AddMessageParams, CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier,
 };
@@ -197,6 +199,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
                 coach_user_id: None,
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
                 max_members: 20,
                 is_active: true,
                 channel_type: None,

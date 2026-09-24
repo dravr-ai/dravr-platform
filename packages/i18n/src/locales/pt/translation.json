@@ -1163,6 +1163,14 @@
       "create_usage": "Uso: /group create nome-do-grupo — por exemplo /group create Corredores de domingo",
       "created": "Grupo «{0}» criado com o agente {1}. Convida membros com /group invite.",
       "description": "Listar os meus grupos",
+      "digest_forbidden": "Só o proprietário do grupo, os seus administradores e o seu coach humano podem mudar o resumo semanal.",
+      "digest_status": {
+        "chat": "Resumo semanal: publicado todas as segundas-feiras de manhã na conversa de Telegram, Slack ou Discord do grupo, com o resumo completo para o proprietário e os administradores na app. Para mudar: /group digest managers ou /group digest off.",
+        "managers": "Resumo semanal: enviado só ao proprietário e aos administradores, nos seus próprios canais; nada é publicado na conversa do grupo. Para mudar: /group digest chat ou /group digest off.",
+        "off": "Resumo semanal: desativado — nada é enviado. Para o ativar: /group digest chat (publicado na conversa do grupo) ou /group digest managers (só proprietário e administradores)."
+      },
+      "digest_tier_off": "O teu plano não inclui o resumo semanal, por isso nada é enviado até o incluir.",
+      "digest_usage": "Uso: /group digest off, /group digest chat ou /group digest managers",
       "invite_body": "Link de convite para {0}:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 dias.",
       "invite_forbidden": "Apenas administradores e proprietários podem gerar links de convite.",
       "invite_label": "Convidar membros",
@@ -1202,6 +1210,9 @@
     },
     "group-create": {
       "description": "Criar um grupo de coaching à volta do agente desta conversa"
+    },
+    "group-digest": {
+      "description": "Escolher para onde vai o resumo semanal deste grupo — para lado nenhum, para a conversa do grupo, ou só para o proprietário e os administradores"
     },
     "group-invite": {
       "description": "Gerar um link de convite"
@@ -1552,6 +1563,13 @@
     "demoteToMember": "Despromover a membro",
     "description": "Descrição",
     "descriptionPlaceholder": "Sobre o que é este grupo?",
+    "digestChat": "Na conversa do grupo",
+    "digestChatHint": "Publicado todas as segundas-feiras de manhã na conversa de Telegram, Slack ou Discord do grupo, com os membros que partilham o treino. O proprietário e os administradores recebem o resumo completo na app, ou nos seus próprios canais se o grupo não tiver essa conversa.",
+    "digestManagers": "Só proprietário e administradores",
+    "digestManagersHint": "O proprietário e os administradores recebem o resumo completo nos seus próprios canais; nada é publicado na conversa do grupo.",
+    "digestMode": "Resumo semanal",
+    "digestOff": "Desativado",
+    "digestOffHint": "Nada é enviado.",
     "disabled": "Desativado",
     "emptyTitle": "Ainda não há grupos",
     "enabled": "Ativado",

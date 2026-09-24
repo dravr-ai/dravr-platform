@@ -28,7 +28,7 @@ use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
 };
 use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
@@ -132,6 +132,7 @@ async fn create_group(
         coach_user_id,
         peer_data_sharing,
         respond_mode: GroupRespondMode::default(),
+        digest_mode: GroupDigestMode::Off,
         max_members: 20,
         is_active: true,
         channel_type: None,
@@ -599,6 +600,7 @@ async fn the_groups_kill_switch_refuses_despite_consent() {
                 max_members: None,
                 peer_data_sharing: Some(false),
                 respond_mode: None,
+                digest_mode: None,
                 is_active: None,
             },
         )

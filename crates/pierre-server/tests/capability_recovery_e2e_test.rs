@@ -1013,7 +1013,7 @@ mod capability_recovery {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupMember, GroupRespondMode, GroupRole,
+            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use pierre_core::models::{ActivityBuilder, SportType};
         use pierre_messaging::channels::telegram::transport::TelegramTransport;
@@ -1361,6 +1361,7 @@ mod capability_recovery {
                         coach_user_id: None,
                         peer_data_sharing: true,
                         respond_mode: GroupRespondMode::default(),
+                        digest_mode: GroupDigestMode::Off,
                         max_members: 10,
                         is_active: true,
                         channel_type: Some("telegram".to_owned()),

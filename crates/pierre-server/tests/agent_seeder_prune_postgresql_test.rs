@@ -16,7 +16,7 @@ use std::fs;
 use std::path::Path;
 
 use chrono::Utc;
-use pierre_core::models::groups::GroupRespondMode;
+use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
     AgentCategory, AgentVisibility, CoachingGroup, CreateSystemAgentRequest, TenantId,
 };
@@ -236,6 +236,7 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
         coach_user_id: None,
         peer_data_sharing: false,
         respond_mode: GroupRespondMode::default(),
+        digest_mode: GroupDigestMode::Off,
         max_members: 10,
         is_active: true,
         channel_type: None,

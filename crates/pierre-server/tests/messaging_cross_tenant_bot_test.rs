@@ -27,7 +27,9 @@ mod cross_tenant_bot_tests {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, RouterLlm};
     use chrono::Utc;
-    use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+    use pierre_core::models::groups::{
+        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    };
     use serial_test::serial;
     use std::env;
     use std::sync::Arc;
@@ -185,6 +187,7 @@ mod cross_tenant_bot_tests {
                     coach_user_id: None,
                     peer_data_sharing: true,
                     respond_mode: GroupRespondMode::default(),
+                    digest_mode: GroupDigestMode::Off,
                     max_members: 10,
                     is_active: true,
                     channel_type: None,

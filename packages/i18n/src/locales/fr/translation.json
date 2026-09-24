@@ -1163,6 +1163,14 @@
       "create_usage": "Usage : /group create nom-du-groupe — par exemple /group create Coureurs du dimanche",
       "created": "Groupe « {0} » créé avec l'agent {1}. Invite des membres avec /group invite.",
       "description": "Lister mes groupes",
+      "digest_forbidden": "Seuls le propriétaire du groupe, ses admins et son coach humain peuvent changer le récap hebdo.",
+      "digest_status": {
+        "chat": "Récap hebdo : publié chaque lundi matin dans la discussion Telegram, Slack ou Discord du groupe, avec le récap complet pour le propriétaire et les admins dans l'app. Pour changer : /group digest managers ou /group digest off.",
+        "managers": "Récap hebdo : envoyé au propriétaire et aux admins seulement, sur leurs propres canaux ; rien n'est publié dans la discussion du groupe. Pour changer : /group digest chat ou /group digest off.",
+        "off": "Récap hebdo : désactivé — rien n'est envoyé. Pour l'activer : /group digest chat (publié dans la discussion du groupe) ou /group digest managers (propriétaire et admins seulement)."
+      },
+      "digest_tier_off": "Ton forfait n'inclut pas le récap hebdo : rien n'est envoyé tant qu'il ne l'inclut pas.",
+      "digest_usage": "Usage : /group digest off, /group digest chat ou /group digest managers",
       "invite_body": "Lien d'invitation pour {0} :\nhttps://app.dravr.ai/groups/join/{1}\n\nCode : {2}\nValide 7 jours.",
       "invite_forbidden": "Seuls les admins et les propriétaires peuvent générer des liens d'invitation.",
       "invite_label": "Inviter des membres",
@@ -1202,6 +1210,9 @@
     },
     "group-create": {
       "description": "Créer un groupe de coaching autour de l'agent de cette conversation"
+    },
+    "group-digest": {
+      "description": "Choisir où va le récap hebdo de ce groupe — nulle part, dans la discussion du groupe, ou au propriétaire et aux admins seulement"
     },
     "group-invite": {
       "description": "Générer un lien d'invitation"
@@ -1552,6 +1563,13 @@
     "demoteToMember": "Rétrograder en membre",
     "description": "Description",
     "descriptionPlaceholder": "De quoi parle ce groupe ?",
+    "digestChat": "Dans la discussion du groupe",
+    "digestChatHint": "Publié chaque lundi matin dans la discussion Telegram, Slack ou Discord du groupe, sur les membres qui partagent leur entraînement. Le propriétaire et les admins reçoivent le récap complet dans l'app, ou sur leurs propres canaux si le groupe n'a pas de telle discussion.",
+    "digestManagers": "Propriétaire et admins seulement",
+    "digestManagersHint": "Le propriétaire et les admins reçoivent le récap complet sur leurs propres canaux ; rien n'est publié dans la discussion du groupe.",
+    "digestMode": "Récap hebdo",
+    "digestOff": "Désactivé",
+    "digestOffHint": "Rien n'est envoyé.",
     "disabled": "Désactivé",
     "emptyTitle": "Aucun groupe pour l’instant",
     "enabled": "Activé",

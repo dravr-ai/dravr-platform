@@ -58,6 +58,8 @@ pub const KEY_COMMAND_DESC_STATUS: &str = "commands.status.description";
 pub const KEY_COMMAND_DESC_GROUP_COACH: &str = "commands.group-coach.description";
 /// Key: one-line description of the `group-consent` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_GROUP_CONSENT: &str = "commands.group-consent.description";
+/// Key: one-line description of the `group-digest` catalogue command — `/help`, the command palette and the Telegram menu.
+pub const KEY_COMMAND_DESC_GROUP_DIGEST: &str = "commands.group-digest.description";
 /// Key: one-line description of the `group-create` catalogue command — `/help`, the command palette and the Telegram menu.
 pub const KEY_COMMAND_DESC_GROUP_CREATE: &str = "commands.group-create.description";
 /// Key: one-line description of the `group-invite` catalogue command — `/help`, the command palette and the Telegram menu.

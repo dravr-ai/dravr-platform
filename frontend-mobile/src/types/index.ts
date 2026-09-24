@@ -49,6 +49,7 @@ export type {
 // Group coaching types
 export type {
   GroupRole,
+  GroupDigestMode,
   CoachingGroup,
   GroupMember,
   GroupInvite,

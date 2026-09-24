@@ -217,3 +217,14 @@ pub fn tier_strategy_for(plan: &str) -> Arc<dyn GroupTierStrategy> {
         _ => Arc::new(StarterTierStrategy),
     }
 }
+
+/// Whether a tenant plan's tier enables the `weekly_digest` feature.
+///
+/// It is the ceiling over every group's digest mode: the digest scheduler
+/// sweeps only the tenants it answers `true` for, the permissions endpoint
+/// reports it to the clients, and `/group digest` says when a group's plan
+/// sends nothing.
+#[must_use]
+pub fn tier_enables_digest(plan: &str) -> bool {
+    tier_strategy_for(plan).allowed_features().weekly_digest
+}

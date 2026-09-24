@@ -53,6 +53,10 @@ pub mod group_digest_slot;
 /// Group coaching endpoints (CRUD, membership, invites, analytics).
 pub mod groups;
 
+/// Who may update a group's settings: owners and admins every field, the
+/// attached human coach the weekly digest mode only.
+mod group_update_access;
+
 /// Push-notification endpoints (device tokens, preferences, feed, scheduling).
 pub mod notifications;
 

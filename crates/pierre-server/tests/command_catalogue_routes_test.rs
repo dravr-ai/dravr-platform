@@ -14,7 +14,9 @@ use axum::http::StatusCode;
 use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationResponse};
@@ -139,6 +141,7 @@ async fn seed_group_membership(
         coach_user_id: None,
         peer_data_sharing: false,
         respond_mode: GroupRespondMode::default(),
+        digest_mode: GroupDigestMode::Off,
         max_members: 20,
         is_active: true,
         channel_type: None,
@@ -300,6 +303,7 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "/group invite",
         "/group coach",
         "/group respond",
+        "/group digest",
         "/group consent",
         "/coach invite",
     ] {

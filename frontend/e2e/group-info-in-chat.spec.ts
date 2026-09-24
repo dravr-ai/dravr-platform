@@ -74,6 +74,7 @@ const mockGroupDetail = {
   owner_id: 'user-123',
   peer_data_sharing: false,
   respond_mode: 'all',
+  digest_mode: 'off',
   max_members: 20,
   is_active: true,
   created_at: '2026-03-01T10:00:00Z',

@@ -44,7 +44,9 @@ use pierre_core::llm::{
     TokenUsage,
 };
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
-use pierre_core::models::groups::{CoachingGroup, GroupMember, GroupRespondMode, GroupRole};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+};
 use pierre_core::models::{
     AddMessageParams, ConversationTurnId, GuidedFlow, OnboardingState, TenantId,
     COMMAND_FINISH_REASON,
@@ -690,6 +692,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
                 coach_user_id: None,
                 peer_data_sharing: false,
                 respond_mode: GroupRespondMode::All,
+                digest_mode: GroupDigestMode::Off,
                 max_members: 10,
                 is_active: true,
                 channel_type: None,
