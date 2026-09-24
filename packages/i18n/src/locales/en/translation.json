@@ -749,7 +749,12 @@
     "trainingpeaksAccount": "TrainingPeaks Account",
     "trainingpeaksUsername": "TrainingPeaks username",
     "provTrainingPeaksBlurb": "Completed workouts and their training load from TrainingPeaks",
-    "provTrainingPeaksShort": "Completed workouts & training load"
+    "provTrainingPeaksShort": "Completed workouts & training load",
+    "brandCoros": "COROS",
+    "corosAccount": "COROS Account",
+    "corosEmail": "COROS email",
+    "provCorosBlurb": "Activities from COROS watches",
+    "provCorosShort": "Activities & laps"
   },
   "auth": {
     "activatesOnConfirm": "Your account activates as soon as the address is confirmed",
@@ -790,7 +795,7 @@
     "invalidCredentials": "Invalid email or password",
     "invalidEmail": "That doesn't look like an email address.",
     "joinDravr": "Join Dravr",
-    "landingBlurb": "Connect Strava, Garmin, TrainingPeaks or WHOOP, then ask about your training, recovery, nutrition and mobility. Every number about you comes from your own data, and every claim in the answer is checked against it.",
+    "landingBlurb": "Connect Strava, Garmin, TrainingPeaks, COROS or WHOOP, then ask about your training, recovery, nutrition and mobility. Every number about you comes from your own data, and every claim in the answer is checked against it.",
     "linkExpired": "That link has expired",
     "linkExpiredBody": "Confirmation links work once and then stop. Enter your email below and we’ll send a fresh one.",
     "loginFailed": "Sign-in failed",
@@ -1764,8 +1769,8 @@
   },
   "messaging": {
     "account": {
-      "no_provider": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}",
-      "no_provider_with_email": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}",
+      "no_provider": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, COROS, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nConnect here:\n{0}",
+      "no_provider_with_email": "Before we chat, connect a fitness service (Strava, Garmin, TrainingPeaks, COROS, Whoop) from the Dravr app — without one I have no activity data to coach you on.\n\nSign in with your {1} account here:\n{0}",
       "pending": "Your account is linked to this channel, but it's still waiting for admin approval. You'll be able to chat with Dravr as soon as it's activated — you'll get a heads-up here.",
       "registration_approved": "🎉 Your Dravr account has been approved! You can now chat with your agent right here. Ask me your first question whenever you're ready.",
       "suspended": "Your Dravr account is suspended. Contact support to restore access."
@@ -1794,7 +1799,7 @@
     },
     "connect": {
       "button": "Connect your account",
-      "prompt": "Let's connect your fitness service (Strava, Garmin, TrainingPeaks or Whoop) so I can coach you on your real data. Tap the button below to connect securely.",
+      "prompt": "Let's connect your fitness service (Strava, Garmin, TrainingPeaks, COROS or Whoop) so I can coach you on your real data. Tap the button below to connect securely.",
       "title": "Connect a fitness service"
     },
     "empty_reply": "Hmm, I couldn't put a reply together. Can you rephrase your question?",
@@ -2279,7 +2284,8 @@
     "synthSleep": "Synthetic sleep data for development",
     "synthTest": "Synthetic test data for development",
     "whoop": "Recovery, strain, and sleep metrics",
-    "trainingpeaks": "Completed workouts and their training load from TrainingPeaks"
+    "trainingpeaks": "Completed workouts and their training load from TrainingPeaks",
+    "coros": "Activities from COROS watches"
   },
   "providers": {
     "add": "Add Provider",
@@ -2338,6 +2344,11 @@
       "title": "Before you connect TrainingPeaks",
       "body": "TrainingPeaks offers no way for Dravr to read your calendar directly, so Dravr signs in with your TrainingPeaks account, as the TrainingPeaks app does. If yours is a human coach's account, Dravr also uses it to read the calendars of the athletes who confirm a link in a group you oversee. TrainingPeaks' Terms of Use (section 13) do not allow automated access by other services, so TrainingPeaks could suspend or close the account you connect, even a paid one.",
       "consent": "I understand that TrainingPeaks could suspend my account, and I accept that risk."
+    },
+    "corosNotice": {
+      "title": "Before you connect COROS",
+      "body": "COROS offers no way for Dravr to read your activities directly yet, so Dravr signs in with your COROS account, as COROS Training Hub does. COROS' Terms of Service (sections 4 and 7) do not allow automated access or letting another service sign in with your account, so COROS could suspend or close the account you connect.",
+      "consent": "I understand that COROS could suspend my account, and I accept that risk."
     }
   },
   "settings": {
@@ -2400,7 +2411,7 @@
     "coaching": "Coaching style",
     "coachingHint": "How your agent talks to you",
     "connections": "Data providers",
-    "connectionsHint": "Strava, Garmin, TrainingPeaks and the data your agent reads",
+    "connectionsHint": "Strava, Garmin, TrainingPeaks, COROS and the data your agent reads",
     "memory": "Memory",
     "messaging": "Messaging",
     "messagingHint": "Telegram, WhatsApp and other chat apps",
@@ -2655,7 +2666,10 @@
     "sciotteProviderTrainingPeaks": "TrainingPeaks",
     "sciotteTrainingPeaksAccount": "TrainingPeaks Account",
     "trainingpeaksUsername": "TrainingPeaks username",
-    "sciotteConnectedDataReady": "Your {{provider}} data is now available"
+    "sciotteConnectedDataReady": "Your {{provider}} data is now available",
+    "sciotteProviderCoros": "COROS",
+    "sciotteCorosAccount": "COROS Account",
+    "corosEmail": "COROS email"
   },
   "tokens": {
     "activeCount": "{{count}} active tokens for AI client connections",

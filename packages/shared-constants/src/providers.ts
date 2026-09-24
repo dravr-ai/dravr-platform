@@ -55,6 +55,7 @@ const SCIOTTE_TARGET_BY_BACKEND: Record<string, SciotteTarget> = {
   sciotte: 'strava',
   sciotte_garmin: 'garmin',
   sciotte_trainingpeaks: 'trainingpeaks',
+  sciotte_coros: 'coros',
 };
 
 /**

@@ -49,8 +49,8 @@ use crate::intervals_icu_provider::{
 };
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{
-    SciotteGarminProviderFactory, SciotteProvider, SciotteProviderFactory,
-    SciotteTrainingPeaksProviderFactory,
+    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProvider,
+    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_remote::AthleteId;
@@ -67,7 +67,10 @@ use crate::spi::StravaDescriptor;
 #[cfg(feature = "provider-whoop")]
 use crate::spi::WhoopDescriptor;
 #[cfg(feature = "provider-sciotte")]
-use crate::spi::{SciotteDescriptor, SciotteGarminDescriptor, SciotteTrainingPeaksDescriptor};
+use crate::spi::{
+    SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
+    SciotteTrainingPeaksDescriptor,
+};
 #[cfg(feature = "provider-strava")]
 use crate::strava_provider::StravaProviderFactory;
 #[cfg(feature = "provider-terra")]
@@ -124,6 +127,7 @@ impl ProviderRegistry {
         Self::register_sciotte(&mut registry);
         Self::register_sciotte_garmin(&mut registry);
         Self::register_sciotte_trainingpeaks(&mut registry);
+        Self::register_sciotte_coros(&mut registry);
         Self::register_intervals_icu(&mut registry);
 
         // Log registered providers at startup
@@ -416,6 +420,34 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_trainingpeaks(_registry: &mut Self) {}
+
+    /// Register the COROS Training Hub mirror (sciotte scraping), the
+    /// `coros` backend until the partner API (carnet#509) is approved.
+    #[cfg(feature = "provider-sciotte")]
+    fn register_sciotte_coros(registry: &mut Self) {
+        registry.register_factory(
+            oauth_providers::SCIOTTE_COROS,
+            Box::new(SciotteCorosProviderFactory),
+        );
+        registry.register_descriptor(
+            oauth_providers::SCIOTTE_COROS,
+            Box::new(SciotteCorosDescriptor),
+        );
+        registry.set_default_config(
+            oauth_providers::SCIOTTE_COROS,
+            ProviderConfig {
+                name: oauth_providers::SCIOTTE_COROS.to_owned(),
+                auth_url: String::new(),
+                token_url: String::new(),
+                api_base_url: String::new(),
+                revoke_url: None,
+                default_scopes: vec![],
+            },
+        );
+    }
+
+    #[cfg(not(feature = "provider-sciotte"))]
+    fn register_sciotte_coros(_registry: &mut Self) {}
 
     /// Register the Intervals.icu provider (API-key / HTTP Basic auth, not OAuth).
     ///

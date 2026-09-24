@@ -22,6 +22,7 @@ use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
+use serde::Serialize;
 use serde_json::Value;
 use tracing::error;
 
@@ -30,60 +31,77 @@ const SUCCESS_TEMPLATE: &str = include_str!("../templates/sciotte_link_success.h
 const ERROR_TEMPLATE: &str = include_str!("../templates/sciotte_link_error.html");
 
 /// The English catalogue the web and mobile clients read. The hosted pages
-/// have no locale mechanism, so they show its English entry of the
-/// TrainingPeaks exposure notice: the one text, never a copy of it.
+/// have no locale mechanism, so they show its English entry of each exposure
+/// notice: the one text, never a copy of it.
 const EN_CATALOGUE: &str = include_str!("../../../packages/i18n/src/locales/en/translation.json");
 
-/// The TrainingPeaks exposure notice as the web and mobile modals show it: a
+/// The catalogue entry (under `providers`) holding each hosted-login target's
+/// exposure notice. A target with no row asks for no notice.
+const NOTICE_KEYS: [(&str, &str); 2] = [
+    ("trainingpeaks", "trainingpeaksNotice"),
+    ("coros", "corosNotice"),
+];
+
+/// A provider's exposure notice as the web and mobile modals show it: a
 /// title, the body, and the acceptance its required checkbox states.
-#[derive(Default)]
-struct ExposureNotice {
-    title: String,
-    body: String,
-    consent: String,
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ExposureNotice {
+    /// The notice's heading
+    pub title: String,
+    /// The risk it states
+    pub body: String,
+    /// The acceptance its required checkbox states
+    pub consent: String,
 }
 
-/// The TrainingPeaks exposure notice, read once from [`EN_CATALOGUE`].
+/// Every target's exposure notice, read once from [`EN_CATALOGUE`].
 ///
 /// The catalogue is compiled in and the hosted-page route tests pin its
 /// entries, so a miss cannot reach a build that passed them; if one does, the
 /// operator is paged and the page still serves — the login handler refuses a
-/// TrainingPeaks login without the acceptance either way.
-static TRAININGPEAKS_NOTICE: LazyLock<ExposureNotice> = LazyLock::new(|| {
-    let notice = serde_json::from_str::<Value>(EN_CATALOGUE)
-        .ok()
-        .and_then(|catalogue| {
-            let notice = &catalogue["providers"]["trainingpeaksNotice"];
-            Some(ExposureNotice {
-                title: notice["title"].as_str()?.to_owned(),
-                body: notice["body"].as_str()?.to_owned(),
-                consent: notice["consent"].as_str()?.to_owned(),
-            })
-        });
-    notice.unwrap_or_else(|| {
-        error!("the en catalogue carries no TrainingPeaks notice; the hosted pages show none");
-        ExposureNotice::default()
-    })
+/// login without the acceptance either way.
+static NOTICES: LazyLock<Vec<(&'static str, ExposureNotice)>> = LazyLock::new(|| {
+    let catalogue = serde_json::from_str::<Value>(EN_CATALOGUE).unwrap_or(Value::Null);
+    NOTICE_KEYS
+        .iter()
+        .map(|(target, key)| {
+            let entry = &catalogue["providers"][key];
+            let read = || {
+                Some(ExposureNotice {
+                    title: entry["title"].as_str()?.to_owned(),
+                    body: entry["body"].as_str()?.to_owned(),
+                    consent: entry["consent"].as_str()?.to_owned(),
+                })
+            };
+            let notice = read().unwrap_or_else(|| {
+                error!(target = target, "the en catalogue carries no notice for this target; the hosted pages show none");
+                ExposureNotice::default()
+            });
+            (*target, notice)
+        })
+        .collect()
 });
 
-/// Fill a template's consent placeholders. The block is always in the page
-/// (the picker toggles it per provider); `hidden` decides whether it starts
-/// visible.
-pub fn fill_consent(template: &str, hidden: bool) -> String {
+/// The exposure notice a hosted-login target shows, or `None` when it asks
+/// for none.
+#[must_use]
+pub fn exposure_notice(target: &str) -> Option<&'static ExposureNotice> {
+    NOTICES
+        .iter()
+        .find(|(t, _)| *t == target)
+        .map(|(_, notice)| notice)
+}
+
+/// Fill a template's consent placeholders with `target`'s notice. `hidden`
+/// decides whether the block starts visible. A target with no notice leaves
+/// the block empty; it is shown only when a notice is required.
+pub fn fill_consent(template: &str, hidden: bool, target: &str) -> String {
+    let notice = exposure_notice(target).cloned().unwrap_or_default();
     template
         .replace("{{CONSENT_HIDDEN}}", if hidden { " hidden" } else { "" })
-        .replace(
-            "{{CONSENT_TITLE}}",
-            &escape_html_attribute(&TRAININGPEAKS_NOTICE.title),
-        )
-        .replace(
-            "{{CONSENT_NOTICE}}",
-            &escape_html_attribute(&TRAININGPEAKS_NOTICE.body),
-        )
-        .replace(
-            "{{CONSENT_LABEL}}",
-            &escape_html_attribute(&TRAININGPEAKS_NOTICE.consent),
-        )
+        .replace("{{CONSENT_TITLE}}", &escape_html_attribute(&notice.title))
+        .replace("{{CONSENT_NOTICE}}", &escape_html_attribute(&notice.body))
+        .replace("{{CONSENT_LABEL}}", &escape_html_attribute(&notice.consent))
 }
 
 /// Render the Sciotte hosted-login page, embedding the signed link-token and
@@ -113,19 +131,23 @@ pub fn render_login_page(
             ("Email", "email", "email")
         };
 
-    fill_consent(&with_hosted_page_css(LOGIN_TEMPLATE), !consent_required)
-        .replace(
-            "{{CONSENT_REQUIRED}}",
-            if consent_required { "true" } else { "false" },
-        )
-        .replace("{{ID_LABEL}}", id_label)
-        .replace("{{ID_TYPE}}", id_type)
-        .replace("{{ID_AUTOCOMPLETE}}", id_autocomplete)
-        .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
-        .replace("{{TARGET}}", &escape_html_attribute(target))
-        .replace("{{TARGET_LABEL}}", &escape_html_attribute(target_label))
-        .replace("{{CHANNEL}}", &escape_html_attribute(channel))
-        .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))
+    fill_consent(
+        &with_hosted_page_css(LOGIN_TEMPLATE),
+        !consent_required,
+        target,
+    )
+    .replace(
+        "{{CONSENT_REQUIRED}}",
+        if consent_required { "true" } else { "false" },
+    )
+    .replace("{{ID_LABEL}}", id_label)
+    .replace("{{ID_TYPE}}", id_type)
+    .replace("{{ID_AUTOCOMPLETE}}", id_autocomplete)
+    .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
+    .replace("{{TARGET}}", &escape_html_attribute(target))
+    .replace("{{TARGET_LABEL}}", &escape_html_attribute(target_label))
+    .replace("{{CHANNEL}}", &escape_html_attribute(channel))
+    .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))
 }
 
 /// Render the success page shown after a successful connection. Reused by the

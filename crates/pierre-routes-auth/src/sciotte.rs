@@ -17,7 +17,6 @@ use chrono::Utc;
 use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_core::constants::oauth::providers::TRAININGPEAKS_TERMS_VERSION;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::models::{Activity, ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
@@ -25,6 +24,7 @@ use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
+use pierre_services::provider_notice::notice_in_force;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -802,36 +802,46 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
     response
 }
 
-/// Refuse a TrainingPeaks login until the account has accepted the current
-/// exposure notice, recording the acceptance this attempt carries.
+/// Refuse a login to a backend whose exposure notice is in force for this
+/// account until it has accepted the current version, recording the
+/// acceptance this attempt carries. A backend with no notice, or an account
+/// the `provider_exposure_notice` flag leaves off, passes.
 ///
-/// TrainingPeaks offers no API Pierre can use, so the scraper reads the
-/// calendar through the user's own signed-in session — access TrainingPeaks'
-/// Terms of Use prohibit for third parties, putting the account at risk. Every
-/// connect surface (web, mobile, the hosted page, the channel picker) states
-/// this before the credentials field; this is where that statement becomes a
-/// precondition rather than copy, so no surface can skip it. An account that
-/// already accepted this notice version is not asked again, including on a
-/// reconnect after a disconnect.
-async fn require_trainingpeaks_terms(
+/// TrainingPeaks and COROS offer no API Pierre can use, so the scraper reads
+/// through the user's own signed-in session — access their terms prohibit for
+/// third parties, putting the account at risk. Every connect surface (web,
+/// mobile, the hosted page, the channel picker) states this before the
+/// credentials field; this is where that statement becomes a precondition
+/// rather than copy, so no surface can skip it. An account that already
+/// accepted this notice version is not asked again, including on a reconnect
+/// after a disconnect.
+async fn require_provider_terms(
     resources: &AuthRoutesContext,
     user_id: Uuid,
+    tenant_id: Uuid,
+    target: SciotteTarget,
     accepted_now: bool,
 ) -> Result<(), AppError> {
+    let backend = target.provider_name();
+    let Some(current) = notice_in_force(&resources.repos, tenant_id, user_id, backend).await else {
+        return Ok(());
+    };
     let users = &resources.repos.users;
-    if users.trainingpeaks_terms_version(user_id).await?.as_deref()
-        == Some(TRAININGPEAKS_TERMS_VERSION)
+    if users
+        .provider_terms_version(user_id, backend)
+        .await?
+        .as_deref()
+        == Some(current)
     {
         return Ok(());
     }
     if !accepted_now {
-        return Err(AppError::invalid_input(
-            "Connecting TrainingPeaks requires accepting the account notice first",
-        ));
+        return Err(AppError::invalid_input(format!(
+            "Connecting {} requires accepting the account notice first",
+            target.brand()
+        )));
     }
-    users
-        .record_trainingpeaks_terms(user_id, TRAININGPEAKS_TERMS_VERSION)
-        .await
+    users.record_provider_terms(user_id, backend, current).await
 }
 
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
@@ -847,14 +857,16 @@ pub async fn handle_sciotte_login(
     }
 
     let target = &request.target;
-    // Before anything else can happen with these credentials: a TrainingPeaks
-    // login is refused until the account has accepted the exposure notice.
-    if matches!(
+    // Before anything else can happen with these credentials: a login to a
+    // provider with an exposure notice is refused until the account accepted it.
+    require_provider_terms(
+        &resources,
+        user_id,
+        tenant_id,
         SciotteTarget::from_target_param(target),
-        SciotteTarget::TrainingPeaks
-    ) {
-        require_trainingpeaks_terms(&resources, user_id, request.tos_consent).await?;
-    }
+        request.tos_consent,
+    )
+    .await?;
 
     // This login supersedes whatever the user left parked: the service mints a
     // fresh flow_id for it, and an id inherited from an abandoned 2FA would

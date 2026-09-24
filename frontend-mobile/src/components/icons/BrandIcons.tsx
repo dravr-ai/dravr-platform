@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: SVG brand logos for third-party fitness providers and auth methods
-// ABOUTME: Strava, Garmin, TrainingPeaks, Whoop, intervals.icu, Google and Apple marks, plus the provider-id → glyph map
+// ABOUTME: Strava, Garmin, TrainingPeaks, COROS, Whoop, intervals.icu, Google and Apple marks, plus the provider-id → glyph map
 
 import React from 'react';
 import type { ComponentType } from 'react';
@@ -54,6 +54,15 @@ export function TrainingPeaksLogo({ size = 24, color }: ProviderMarkProps) {
   );
 }
 
+/** COROS logo — the official mark (coros.com/public/images/COROS.svg) at its own scale */
+export function CorosLogo({ size = 24, color }: ProviderMarkProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 1024 1024" fill={color}>
+      <Path d="M611.28637781 226.3848448l313.2594324 182.00737337L925.07539342 786.3244288 612.34554539 967.44210091l-52.8312832-28.51279417 245.1761334-182.36749028L804.22436181 437.85826304 562.20454798 254.81290525l49.08182983-28.42806045zM171.15984213 335.14018133l34.86779961 304.15059058 275.38359524 158.95988452 279.04831715-118.71151332v56.85612089l-313.7678336 181.11767325L120.10795918 728.9599067V366.78811193l51.03069867-31.62674745zM569.19505465 56.55789909l312.72984804 181.11767211 1.80058566 60.13954162-280.04393414-121.80428345-274.9175626 159.76485205-37.02850219 301.75687111-49.06064668-28.42806044 0.50840121-363.12504548L569.19505465 56.55789909z" />
+    </Svg>
+  );
+}
+
 /** Whoop logo — the strap drawn as a rounded band with its sensor at the centre */
 export function WhoopLogo({ size = 24, color }: ProviderMarkProps) {
   return (
@@ -98,7 +107,7 @@ export function AppleLogo({ size = 24, color = '#FFFFFF' }: IconProps) {
 
 /**
  * The glyph for each provider id the server reports. The sciotte ids are the
- * captured Strava, Garmin and TrainingPeaks accounts, so they share the
+ * captured Strava, Garmin, TrainingPeaks and COROS accounts, so they share the
  * brand's mark.
  */
 const PROVIDER_GLYPHS: Readonly<Record<string, ComponentType<ProviderMarkProps>>> = {
@@ -107,6 +116,8 @@ const PROVIDER_GLYPHS: Readonly<Record<string, ComponentType<ProviderMarkProps>>
   sciotte_garmin: GarminLogo,
   garmin: GarminLogo,
   sciotte_trainingpeaks: TrainingPeaksLogo,
+  sciotte_coros: CorosLogo,
+  coros: CorosLogo,
   whoop: WhoopLogo,
   intervals_icu: IntervalsIcuLogo,
 };

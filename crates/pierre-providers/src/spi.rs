@@ -716,6 +716,41 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
     }
 }
 
+/// Sciotte COROS Training Hub web scraping provider descriptor
+#[cfg(feature = "provider-sciotte")]
+pub struct SciotteCorosDescriptor;
+
+#[cfg(feature = "provider-sciotte")]
+impl ProviderDescriptor for SciotteCorosDescriptor {
+    fn name(&self) -> &'static str {
+        "sciotte_coros"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "COROS"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::ACTIVITIES
+    }
+
+    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+        None
+    }
+
+    fn oauth_params(&self) -> Option<OAuthParams> {
+        None
+    }
+
+    fn api_base_url(&self) -> &'static str {
+        ""
+    }
+
+    fn default_scopes(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
+
 /// Intervals.icu endurance-analytics provider descriptor.
 ///
 /// Intervals.icu authenticates with an athlete-generated API key over HTTP

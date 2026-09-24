@@ -24,6 +24,7 @@
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::feature_flags::FeatureKey;
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant, SEED_LOCALE,
@@ -53,6 +54,12 @@ pub struct SeedArgs {
     #[arg(long, default_value = "30")]
     pub days: u32,
 }
+
+/// The e2e accounts the exposure-notice flows sign in as. The
+/// `provider_exposure_notice` flag is off by default, so a demo account
+/// connects `TrainingPeaks` or COROS without the notice; these two are armed
+/// so the web and mobile notice specs exercise it.
+const NOTICE_ARMED_ACCOUNTS: [&str; 2] = ["webtest@pierre.dev", "mobiletest@pierre.dev"];
 
 /// Demo user configuration
 struct DemoUser {
@@ -654,11 +661,29 @@ async fn seed_demo_users(repos: &RepositoryRegistry) -> AppResult<Vec<Uuid>> {
             info!("  Created user: {} ({})", user.email, user.status);
             id
         };
+        arm_exposure_notice(repos, user, user_id).await?;
 
         user_ids.push(user_id);
     }
 
     Ok(user_ids)
+}
+
+/// Arm the `provider_exposure_notice` flag for an e2e account named in
+/// [`NOTICE_ARMED_ACCOUNTS`]; every other demo account keeps the default.
+async fn arm_exposure_notice(
+    repos: &RepositoryRegistry,
+    user: &DemoUser,
+    user_id: Uuid,
+) -> AppResult<()> {
+    if NOTICE_ARMED_ACCOUNTS.contains(&user.email) {
+        repos
+            .feature_flags
+            .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+            .await?;
+        info!("  Armed the provider exposure notice for {}", user.email);
+    }
+    Ok(())
 }
 
 /// Create a single demo user with tenant via [`SeederRepository`] operations

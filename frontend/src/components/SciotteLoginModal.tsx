@@ -37,7 +37,7 @@ interface SciotteLoginModalProps {
    * callback URL — this is purely UI bookkeeping for the in-flight window.
    */
   onOAuthLaunched?: (provider: string) => void;
-  /** Target platform: "strava", "garmin" or "trainingpeaks" */
+  /** Target platform: "strava", "garmin", "trainingpeaks" or "coros" */
   target?: SciotteTarget;
   /**
    * The account has not yet accepted this provider's exposure notice
@@ -92,6 +92,19 @@ const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
       titleKey: 'providers.trainingpeaksNotice.title',
       bodyKey: 'providers.trainingpeaksNotice.body',
       consentKey: 'providers.trainingpeaksNotice.consent',
+    },
+  },
+  coros: {
+    providerId: 'sciotte_coros',
+    labelKey: 'shell.sciotteProviderCoros',
+    titleKey: 'shell.sciotteCorosAccount',
+    placeholderKey: 'shell.corosEmail',
+    identifier: 'email',
+    directCredentials: true,
+    notice: {
+      titleKey: 'providers.corosNotice.title',
+      bodyKey: 'providers.corosNotice.body',
+      consentKey: 'providers.corosNotice.consent',
     },
   },
 };

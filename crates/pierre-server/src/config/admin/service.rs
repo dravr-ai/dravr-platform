@@ -24,6 +24,7 @@ use pierre_config::admin_types::{
     ResetConfigRequest, ResetConfigResponse, UpdateConfigRequest, UpdateConfigResponse,
     ValidateConfigRequest, ValidateConfigResponse,
 };
+use pierre_config::tid_cuts::register_tid_cuts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use pierre_runtime_context::ConfigLookupScope;
@@ -276,6 +277,9 @@ impl AdminConfigService {
         // Strava seat reclaim policy — see config::admin::definitions::register_strava_seat_reclaim
         register_strava_seat_reclaim(&mut defs);
 
+        // Three-zone cuts the compliance rail places bands with — see pierre_config::tid_cuts
+        register_tid_cuts(&mut defs);
+
         defs
     }
 
@@ -510,10 +514,101 @@ impl AdminConfigService {
                         provided_value: written_value.clone(),
                         valid_range: None,
                     });
+                    continue;
+                }
+            }
+            if !matches!(scope, ConfigScope::Global) {
+                continue;
+            }
+            // A tenant that overrides one side of the pair reads the
+            // system-wide value for the other, so the write must order there
+            // too.
+            for tenant in self.tenants_overriding_pair(lower, upper).await? {
+                let low = self
+                    .tenant_reads(lower, &tenant, parameters.get(lower))
+                    .await?;
+                let high = self
+                    .tenant_reads(upper, &tenant, parameters.get(upper))
+                    .await?;
+                if let (Some(low), Some(high)) = (low, high) {
+                    if low >= high {
+                        errors.push(ConfigValidationError {
+                            parameter: written_key.clone(),
+                            message: format!(
+                                "{lower} ({low}) must stay below {upper} ({high}) for tenant \
+                                 {tenant}, which overrides one of them"
+                            ),
+                            provided_value: written_value.clone(),
+                            valid_range: None,
+                        });
+                        break;
+                    }
                 }
             }
         }
         Ok(errors)
+    }
+
+    /// Every tenant holding its own row for `lower` or `upper`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if listing the tenant rows fails.
+    async fn tenants_overriding_pair(&self, lower: &str, upper: &str) -> AppResult<Vec<String>> {
+        let categories: Vec<(String, &str)> = {
+            let definitions = self.definitions.read().await;
+            [lower, upper]
+                .into_iter()
+                .filter_map(|key| definitions.get(key).map(|def| (def.category.clone(), key)))
+                .collect()
+        };
+        let mut tenants = Vec::new();
+        for (category, key) in categories {
+            for tenant in self.manager.tenants_overriding(&category, key).await? {
+                if !tenants.contains(&tenant) {
+                    tenants.push(tenant);
+                }
+            }
+        }
+        Ok(tenants)
+    }
+
+    /// `key` as an integer, as `tenant` reads it once the system-wide value
+    /// becomes `system_wide` (`None`: the system-wide value stays as it is).
+    ///
+    /// The replacement reaches the tenant only when neither its own row nor
+    /// an environment pin outranks the system-wide row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading the tenant's row or value fails.
+    async fn tenant_reads(
+        &self,
+        key: &str,
+        tenant: &str,
+        system_wide: Option<&serde_json::Value>,
+    ) -> AppResult<Option<i64>> {
+        if let Some(value) = system_wide {
+            let category = self
+                .definitions
+                .read()
+                .await
+                .get(key)
+                .map(|def| def.category.clone());
+            if let Some(category) = category {
+                let own_row = self
+                    .manager
+                    .get_override(&category, key, ConfigScope::Tenant(tenant))
+                    .await?;
+                if own_row.is_none() && self.env_pins.get(key).is_none() {
+                    return Ok(value.as_i64());
+                }
+            }
+        }
+        let resolved = self
+            .get_value(key, ConfigLookupScope::tenant(tenant))
+            .await?;
+        Ok(resolved.as_ref().and_then(serde_json::Value::as_i64))
     }
 
     /// `key` as an integer: the value `parameters` writes, else the one
@@ -783,6 +878,34 @@ impl AdminConfigService {
                         "{lower} ({low}) must stay below {upper} ({high}) after this reset; \
                          reset both keys together, or set the one you keep first"
                     )));
+                }
+            }
+            if !matches!(scope, ConfigScope::Global) {
+                continue;
+            }
+            // A system-wide reset moves what every tenant without its own row
+            // reads, so each tenant overriding one side must still order.
+            let mut fallbacks = [None, None];
+            for (fallback, key) in fallbacks.iter_mut().zip([lower, upper]) {
+                if is_reset(key) {
+                    *fallback = self.fallback_value(definitions, key, scope).await?;
+                }
+            }
+            for tenant in self.tenants_overriding_pair(lower, upper).await? {
+                let low = self
+                    .tenant_reads(lower, &tenant, fallbacks[0].as_ref())
+                    .await?;
+                let high = self
+                    .tenant_reads(upper, &tenant, fallbacks[1].as_ref())
+                    .await?;
+                if let (Some(low), Some(high)) = (low, high) {
+                    if low >= high {
+                        return Ok(Some(format!(
+                            "{lower} ({low}) must stay below {upper} ({high}) for tenant \
+                             {tenant} after this reset; that tenant overrides one of them, \
+                             so set or reset its row first"
+                        )));
+                    }
                 }
             }
         }

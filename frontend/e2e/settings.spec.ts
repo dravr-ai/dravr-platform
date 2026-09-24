@@ -653,6 +653,65 @@ test.describe('Settings Page - User Mode', () => {
     });
   });
 
+  test('COROS connects with an email only after its notice is accepted', async ({ page }) => {
+    const testProviders = [
+      { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: false },
+      { provider: 'sciotte_coros', display_name: 'COROS', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
+    ];
+    await loginAndNavigateToSettings(page, false, { providers: testProviders });
+
+    const logins: Array<Record<string, unknown>> = [];
+    await page.route('**/api/providers/sciotte/config', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ login_timeout_secs: 240 }) })
+    );
+    await page.route('**/api/providers/sciotte/login', async (route) => {
+      logins.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'connected', provider: 'sciotte_coros' }),
+      });
+    });
+
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page
+      .getByTestId('provider-row-sciotte_coros')
+      .getByRole('button', { name: 'Connect', exact: true })
+      .click();
+
+    // COROS states its own notice, never the TrainingPeaks one.
+    const dialog = page.getByRole('dialog');
+    const notice = dialog.getByRole('note');
+    await expect(notice).toContainText('Before you connect COROS');
+    await expect(notice).toContainText('Terms of Service (sections 4 and 7)');
+    await expect(notice).not.toContainText('TrainingPeaks');
+
+    // COROS signs in with an email, and nothing is sent until the notice is
+    // accepted.
+    const email = dialog.getByLabel('Email');
+    await expect(email).toHaveAttribute('type', 'email');
+    await email.fill('athlete@example.com');
+    await dialog.getByLabel('Password', { exact: true }).fill('not-a-real-password');
+    const logIn = dialog.getByRole('button', { name: 'Log In' });
+    await expect(logIn).toBeDisabled();
+
+    await dialog
+      .getByLabel('I understand that COROS could suspend my account, and I accept that risk.')
+      .check();
+    await expect(logIn).toBeEnabled();
+    await logIn.click();
+
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => logins.length).toBe(1);
+    expect(logins[0]).toEqual({
+      email: 'athlete@example.com',
+      password: 'not-a-real-password',
+      method: 'email',
+      target: 'coros',
+      tos_consent: true,
+    });
+  });
+
   test('a TrainingPeaks row read through a coach names the coach and unlinks', async ({ page }) => {
     const testProviders = [
       {

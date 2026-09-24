@@ -29,6 +29,7 @@ use crate::core::{
     planned_workouts_unsupported, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
     ProviderConfig, ProviderFactory,
 };
+use crate::coros_self_report::feel_from_coros;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::models::{
     activity::{Lap, Split},
@@ -41,7 +42,8 @@ use crate::sciotte_remote::{
     RemoteSciotteClient, ATHLETE_REQUIRED,
 };
 use crate::spi::{
-    ProviderDescriptor, SciotteDescriptor, SciotteGarminDescriptor, SciotteTrainingPeaksDescriptor,
+    ProviderDescriptor, SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
+    SciotteTrainingPeaksDescriptor,
 };
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 use crate::trainingpeaks_self_report::{feel_from_trainingpeaks, rpe_from_trainingpeaks};
@@ -55,6 +57,8 @@ pub enum SciotteTarget {
     Garmin,
     /// Scrape workouts from the TrainingPeaks calendar (app.trainingpeaks.com)
     TrainingPeaks,
+    /// Read activities from COROS Training Hub (t.coros.com)
+    Coros,
 }
 
 impl SciotteTarget {
@@ -67,6 +71,7 @@ impl SciotteTarget {
         match target {
             "garmin" => Self::Garmin,
             "trainingpeaks" => Self::TrainingPeaks,
+            "coros" => Self::Coros,
             _ => Self::Strava,
         }
     }
@@ -78,6 +83,7 @@ impl SciotteTarget {
             Self::Strava => "sciotte",
             Self::Garmin => "sciotte_garmin",
             Self::TrainingPeaks => "sciotte_trainingpeaks",
+            Self::Coros => "sciotte_coros",
         }
     }
 
@@ -90,6 +96,7 @@ impl SciotteTarget {
         match backend {
             "sciotte_garmin" => Self::Garmin,
             "sciotte_trainingpeaks" => Self::TrainingPeaks,
+            "sciotte_coros" => Self::Coros,
             _ => Self::Strava,
         }
     }
@@ -103,6 +110,7 @@ impl SciotteTarget {
             Self::Strava => "strava",
             Self::Garmin => "garmin",
             Self::TrainingPeaks => "trainingpeaks",
+            Self::Coros => "coros",
         }
     }
 
@@ -117,11 +125,13 @@ impl SciotteTarget {
     /// The brand the athlete knows this target by ("Strava", "Garmin",
     /// "TrainingPeaks"), read from the target's descriptor so a refusal and
     /// the connect card cannot name it differently.
-    fn brand(self) -> &'static str {
+    #[must_use]
+    pub fn brand(self) -> &'static str {
         match self {
             Self::Strava => SciotteDescriptor.display_name(),
             Self::Garmin => SciotteGarminDescriptor.display_name(),
             Self::TrainingPeaks => SciotteTrainingPeaksDescriptor.display_name(),
+            Self::Coros => SciotteCorosDescriptor.display_name(),
         }
     }
 
@@ -349,14 +359,15 @@ impl SciotteProvider {
 /// `TrainingPeaks` names are fenced as data (decision 4 of the coach roster
 /// work: every `TrainingPeaks` free text reaching a model is): the name a coach
 /// sees for an athlete, or the account holder's own, is whatever was typed
-/// into that account. Strava and Garmin names cross as before. `None` when
+/// into that account. Strava, Garmin and COROS names — the account holder's
+/// own profile name, with no roster behind it — cross as before. `None` when
 /// there is no name, or nothing left of it once whitespace is folded.
 fn profile_name(raw: Option<String>, target: SciotteTarget) -> Option<String> {
     match target {
         SciotteTarget::TrainingPeaks => raw
             .as_deref()
             .and_then(|name| fence_athlete_text(name, NAME_FENCE_MAX_CHARS)),
-        SciotteTarget::Strava | SciotteTarget::Garmin => raw,
+        SciotteTarget::Strava | SciotteTarget::Garmin | SciotteTarget::Coros => raw,
     }
 }
 
@@ -515,8 +526,9 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
 /// The athlete's self-report on a scraped row as `(perceived exertion, feel)`
 /// in the platform's scales: a 1–10 CR-10 rating and a named [`Feel`].
 ///
-/// Only `TrainingPeaks` states either as a rating, and its encodings are read
-/// in [`crate::trainingpeaks_self_report`]. Strava's scraped exertion is the
+/// `TrainingPeaks` states both, and its encodings are read in
+/// [`crate::trainingpeaks_self_report`]; COROS states only the feeling, read in
+/// [`crate::coros_self_report`]. Strava's scraped exertion is the
 /// label its slider shows ("Moderate", "Hard") — a band of the scale, not a
 /// rating on it — which the numeric field cannot hold without inventing a
 /// number, and neither the Strava nor the Garmin extract carries a feel rank.
@@ -529,6 +541,7 @@ fn self_report(sciotte: &SciotteActivity, target: SciotteTarget) -> (Option<f32>
                 .and_then(rpe_from_trainingpeaks),
             sciotte.feel.and_then(feel_from_trainingpeaks),
         ),
+        SciotteTarget::Coros => (None, sciotte.feel.and_then(feel_from_coros)),
         SciotteTarget::Strava | SciotteTarget::Garmin => (None, None),
     }
 }
@@ -917,5 +930,18 @@ impl ProviderFactory for SciotteTrainingPeaksProviderFactory {
 
     fn supported_providers(&self) -> &'static [&'static str] {
         &["sciotte_trainingpeaks"]
+    }
+}
+
+/// Factory for COROS Training Hub — Sciotte provider
+pub struct SciotteCorosProviderFactory;
+
+impl ProviderFactory for SciotteCorosProviderFactory {
+    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
+        Ok(Box::new(SciotteProvider::new(config, SciotteTarget::Coros)))
+    }
+
+    fn supported_providers(&self) -> &'static [&'static str] {
+        &["sciotte_coros"]
     }
 }

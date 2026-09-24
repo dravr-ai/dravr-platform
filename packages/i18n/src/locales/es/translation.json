@@ -749,7 +749,12 @@
     "trainingpeaksAccount": "Cuenta de TrainingPeaks",
     "trainingpeaksUsername": "Usuario de TrainingPeaks",
     "provTrainingPeaksBlurb": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks",
-    "provTrainingPeaksShort": "Entrenamientos completados y carga"
+    "provTrainingPeaksShort": "Entrenamientos completados y carga",
+    "brandCoros": "COROS",
+    "corosAccount": "Cuenta de COROS",
+    "corosEmail": "Correo de COROS",
+    "provCorosBlurb": "Actividades de los relojes COROS",
+    "provCorosShort": "Actividades y vueltas"
   },
   "auth": {
     "activatesOnConfirm": "Tu cuenta se activa en cuanto se confirme la dirección",
@@ -790,7 +795,7 @@
     "invalidCredentials": "Correo o contraseña incorrectos",
     "invalidEmail": "Eso no parece una dirección de correo.",
     "joinDravr": "Únete a Dravr",
-    "landingBlurb": "Conecta Strava, Garmin, TrainingPeaks o WHOOP y pregunta por tu entrenamiento, tu recuperación, tu nutrición y tu movilidad. Cada cifra sobre ti procede de tus propios datos, y cada afirmación de la respuesta se verifica.",
+    "landingBlurb": "Conecta Strava, Garmin, TrainingPeaks, COROS o WHOOP y pregunta por tu entrenamiento, tu recuperación, tu nutrición y tu movilidad. Cada cifra sobre ti procede de tus propios datos, y cada afirmación de la respuesta se verifica.",
     "linkExpired": "Ese enlace ha caducado",
     "linkExpiredBody": "Los enlaces de confirmación funcionan una sola vez y después dejan de servir. Escribe tu correo abajo y te enviamos uno nuevo.",
     "loginFailed": "No se pudo iniciar sesión",
@@ -1764,8 +1769,8 @@
   },
   "messaging": {
     "account": {
-      "no_provider": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}",
-      "no_provider_with_email": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}",
+      "no_provider": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, COROS, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nConéctate aquí:\n{0}",
+      "no_provider_with_email": "Antes de chatear, conecta un servicio de fitness (Strava, Garmin, TrainingPeaks, COROS, Whoop) desde la app Dravr — sin él no tengo datos de actividad para orientarte.\n\nInicia sesión con tu cuenta {1} aquí:\n{0}",
       "pending": "Tu cuenta está vinculada a este canal, pero aún espera la aprobación de un administrador. Podrás hablar con Dravr en cuanto se active — te avisaremos por aquí.",
       "registration_approved": "🎉 ¡Tu cuenta de Dravr ha sido aprobada! Ya puedes hablar con tu agente aquí. Hazme tu primera pregunta cuando quieras.",
       "suspended": "Tu cuenta de Dravr está suspendida. Contacta con soporte para recuperar el acceso."
@@ -1794,7 +1799,7 @@
     },
     "connect": {
       "button": "Conectar mi cuenta",
-      "prompt": "Conectemos tu servicio de fitness (Strava, Garmin, TrainingPeaks o Whoop) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.",
+      "prompt": "Conectemos tu servicio de fitness (Strava, Garmin, TrainingPeaks, COROS o Whoop) para que pueda orientarte con tus datos reales. Toca el botón de abajo para conectarte de forma segura.",
       "title": "Conectar un servicio de fitness"
     },
     "empty_reply": "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?",
@@ -2279,7 +2284,8 @@
     "synthSleep": "Datos de sueño sintéticos para desarrollo",
     "synthTest": "Datos de prueba sintéticos para desarrollo",
     "whoop": "Métricas de recuperación, esfuerzo y sueño",
-    "trainingpeaks": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks"
+    "trainingpeaks": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks",
+    "coros": "Actividades de relojes COROS"
   },
   "providers": {
     "add": "Añadir proveedor",
@@ -2338,6 +2344,11 @@
       "title": "Antes de conectar TrainingPeaks",
       "body": "TrainingPeaks no ofrece ninguna forma para que Dravr lea tu calendario directamente, así que Dravr inicia sesión con tu cuenta de TrainingPeaks, como lo hace la app de TrainingPeaks. Si entrenas a otros en TrainingPeaks, Dravr también usa tu cuenta para leer los calendarios de los atletas que confirman un vínculo en un grupo que entrenas. Las condiciones de uso de TrainingPeaks (sección 13) no permiten el acceso automatizado de otros servicios, así que TrainingPeaks podría suspender o cerrar la cuenta que conectes, incluso una de pago.",
       "consent": "Entiendo que TrainingPeaks podría suspender mi cuenta y acepto ese riesgo."
+    },
+    "corosNotice": {
+      "title": "Antes de conectar COROS",
+      "body": "COROS aún no ofrece ninguna forma para que Dravr lea tus actividades directamente, así que Dravr inicia sesión con tu cuenta de COROS, como lo hace COROS Training Hub. Las condiciones de servicio de COROS (secciones 4 y 7) no permiten el acceso automatizado ni que otro servicio inicie sesión con tu cuenta, así que COROS podría suspender o cerrar la cuenta que conectes.",
+      "consent": "Entiendo que COROS podría suspender mi cuenta y acepto ese riesgo."
     }
   },
   "settings": {
@@ -2400,7 +2411,7 @@
     "coaching": "Estilo de coaching",
     "coachingHint": "Cómo te habla tu agente",
     "connections": "Fuentes de datos",
-    "connectionsHint": "Strava, Garmin, TrainingPeaks y los datos que lee tu agente",
+    "connectionsHint": "Strava, Garmin, TrainingPeaks, COROS y los datos que lee tu agente",
     "memory": "Memoria",
     "messaging": "Mensajería",
     "messagingHint": "Telegram, WhatsApp y otras apps de mensajería",
@@ -2655,7 +2666,10 @@
     "sciotteProviderTrainingPeaks": "TrainingPeaks",
     "sciotteTrainingPeaksAccount": "Cuenta de TrainingPeaks",
     "trainingpeaksUsername": "Usuario de TrainingPeaks",
-    "sciotteConnectedDataReady": "Tus datos de {{provider}} ya están disponibles"
+    "sciotteConnectedDataReady": "Tus datos de {{provider}} ya están disponibles",
+    "sciotteProviderCoros": "COROS",
+    "sciotteCorosAccount": "Cuenta de COROS",
+    "corosEmail": "Correo de COROS"
   },
   "tokens": {
     "activeCount": "{{count}} tokens activos para conexiones de clientes de IA",

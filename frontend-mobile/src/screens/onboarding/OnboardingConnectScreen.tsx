@@ -41,6 +41,7 @@ const SCIOTTE_BRAND_KEY: Record<SciotteTarget, string> = {
   strava: 'app.brandStrava',
   garmin: 'app.brandGarmin',
   trainingpeaks: 'app.brandTrainingPeaks',
+  coros: 'app.brandCoros',
 };
 
 /**
@@ -239,8 +240,8 @@ export function OnboardingConnectScreen() {
   };
 
   // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
-  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded), `whoop`
-  // and `intervals_icu`. Filter
+  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded),
+  // `sciotte_coros` (COROS-branded), `whoop` and `intervals_icu`. Filter
   // out the bare `strava` row — official OAuth is reached exclusively through
   // the Sciotte modal's t('app.useOwnStravaApp') button, so a separate
   // strava card would just duplicate the entry. Mirror its `connected` state
@@ -266,6 +267,7 @@ export function OnboardingConnectScreen() {
       sciotte: t('app.provRunCycleSwim'),
       sciotte_garmin: t('app.provActivitiesHealth'),
       sciotte_trainingpeaks: t('app.provTrainingPeaksShort'),
+      sciotte_coros: t('app.provCorosShort'),
       whoop: t('app.provRecoveryStrainSleep'),
       intervals_icu: t('app.provEnduranceWellness'),
     };
