@@ -251,22 +251,7 @@ jobs:
               `_[Monitor: Build Cost Drivers](${runUrl})_`,
             ].join('\n');
 
-            // Every page, not the first: listForRepo returns newest-first and the
-            // standing issue's created_at never advances, so a single page of 100
-            // would stop seeing it once enough newer issues carry the label.
-            const existing = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
+            const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
+            await upsertStandingIssue(github, core, {
+              owner, repo, label: 'dravr-platform', title, body, onExisting: 'comment',
             });
-            const open = existing.find((i) => i.title === title);
-
-            if (open) {
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: open.number, body,
-              });
-              core.info(`Commented on existing issue #${open.number}`);
-            } else {
-              const created = await github.rest.issues.create({
-                owner, repo, title, body, labels: ['dravr-platform'],
-              });
-              core.info(`Opened issue #${created.data.number}`);
-            }

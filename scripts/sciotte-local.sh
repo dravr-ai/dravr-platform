@@ -49,6 +49,74 @@ ok()   { echo -e "${GREEN}✓${NC} $*"; }
 warn() { echo -e "${YELLOW}!${NC} $*"; }
 err()  { echo -e "${RED}✗${NC} $*" >&2; }
 
+# One instance serves every athlete, so the server resumes a login only by the
+# flow_id its first step minted, and reads for an athlete only for the session
+# named in X-Session-Id. Each command is its own process, so what a login step
+# hands back is kept beside this checkout's pid files (gitignored logs/) for the
+# next command to name.
+state_file() { echo "${DEV_RUN_DIR}/sciotte-local.$1"; }
+
+remember() { # flow|session value
+  ( umask 077; mkdir -p "${DEV_RUN_DIR}"; printf '%s\n' "$2" >"$(state_file "$1")" )
+}
+
+forget() { rm -f "$(state_file "$1")"; }
+
+# The id a command names: its argument, else the one the last login step
+# handed back. Neither known is refused here, before any request, since the
+# server would only refuse it too.
+remembered() { # flow|session given hint
+  local id="$2"
+  [ -n "${id}" ] || [ ! -r "$(state_file "$1")" ] || id="$(cat "$(state_file "$1")")"
+  if [ -z "${id}" ]; then
+    err "no ${1}_id known — $3"
+    return 1
+  fi
+  printf '%s' "${id}"
+}
+
+# The value of one top-level field of a JSON response, empty when absent or
+# when the response is not a JSON object.
+json_field() { jq -r --arg k "$1" '.[$k] // empty' <<<"$2" 2>/dev/null || true; }
+
+print_json() { jq . <<<"$1" 2>/dev/null || printf '%s\n' "$1"; }
+
+# POST one login step (the JSON body on stdin), print the response and keep
+# what it hands back: a continuation's flow_id for otp/2fa, or the session a
+# successful login established. A concluded flow — authenticated or failed —
+# is forgotten so no later step names it.
+login_step() { # path
+  local resp session flow
+  if ! resp="$(curl -s "${hdr[@]}" -X POST "${BASE}$1" --data @-)"; then
+    err "no answer from ${BASE}$1 — is the server up? (scripts/sciotte-local.sh serve)"
+    return 1
+  fi
+  print_json "${resp}"
+  session="$(json_field session_id "${resp}")"
+  flow="$(json_field flow_id "${resp}")"
+  if [ -n "${session}" ]; then
+    remember session "${session}"
+    forget flow
+    ok "session ${session} remembered for status / athlete / activities"
+  elif [ -n "${flow}" ]; then
+    remember flow "${flow}"
+    ok "flow ${flow} remembered for otp / 2fa"
+  elif [ "$(json_field status "${resp}")" = "failed" ]; then
+    forget flow
+  fi
+}
+
+# GET a per-athlete route for one session. The id goes to curl on stdin
+# (`-H @-`), keeping it out of the process table as the password is.
+get_for_session() { # path session_id
+  local resp
+  if ! resp="$(printf 'X-Session-Id: %s\n' "$2" | curl -s "${hdr[@]}" -H @- "${BASE}$1")"; then
+    err "no answer from ${BASE}$1 — is the server up? (scripts/sciotte-local.sh serve)"
+    return 1
+  fi
+  print_json "${resp}"
+}
+
 usage() {
   cat <<EOF
 $(echo -e "${BLUE}sciotte-local${NC}") — local harness for the dedicated sciotte scraper service
@@ -67,12 +135,17 @@ Usage: scripts/sciotte-local.sh <command> [args]
   login <email> [provider]  POST /auth/login-with-credentials
                        password from \$SCIOTTE_TEST_PASSWORD, else prompted (hidden)
                        provider: garmin (default) | strava; method from \$SCIOTTE_TEST_METHOD
-  otp <code>         POST /auth/submit-otp
-  2fa <option_id>    POST /auth/select-2fa
-  status             GET /auth/status
-  sessions           GET /auth/sessions
-  athlete            GET /api/athlete
-  activities         GET /api/activities
+  otp <code> [flow_id]       POST /auth/submit-otp
+  2fa <option_id> [flow_id]  POST /auth/select-2fa   ('2fa poll' after number_match)
+                       flow_id: the one the last login step returned, unless given
+  status [session_id]        GET /auth/status
+  athlete [session_id]       GET /api/athlete
+  activities [session_id]    GET /api/activities
+                       sent as X-Session-Id: the session the last login step
+                       returned, unless given — the server has no default session
+
+  login/otp/2fa remember the flow_id and session_id each response hands back,
+  in $(state_file flow) and $(state_file session).
 
 Local-first flow:
   1) In terminal A:  scripts/sciotte-local.sh serve
@@ -150,10 +223,18 @@ cmd_serve_bg() {
 }
 
 cmd_health()     { require_bin; curl -s "${hdr[@]}" "${BASE}/health" | jq . 2>/dev/null || curl -s "${hdr[@]}" "${BASE}/health"; echo; }
-cmd_status()     { curl -s "${hdr[@]}" "${BASE}/auth/status" | jq . 2>/dev/null || curl -s "${hdr[@]}" "${BASE}/auth/status"; echo; }
-cmd_sessions()   { curl -s "${hdr[@]}" "${BASE}/auth/sessions" | jq . 2>/dev/null || curl -s "${hdr[@]}" "${BASE}/auth/sessions"; echo; }
-cmd_athlete()    { curl -s "${hdr[@]}" "${BASE}/api/athlete" | jq . 2>/dev/null || curl -s "${hdr[@]}" "${BASE}/api/athlete"; echo; }
-cmd_activities() { curl -s "${hdr[@]}" "${BASE}/api/activities" | jq . 2>/dev/null || curl -s "${hdr[@]}" "${BASE}/api/activities"; echo; }
+
+# The per-athlete reads, each for the session its argument names, else the one
+# the last login step established.
+cmd_for_session() { # path [session_id]
+  local sid
+  sid="$(remembered session "${2:-}" "log in first (scripts/sciotte-local.sh login <email>) or pass the session id as the argument")" || exit 1
+  get_for_session "$1" "${sid}"
+}
+
+cmd_status()     { cmd_for_session /auth/status "${1:-}"; }
+cmd_athlete()    { cmd_for_session /api/athlete "${1:-}"; }
+cmd_activities() { cmd_for_session /api/activities "${1:-}"; }
 
 cmd_login() {
   local email="${1:-}"
@@ -168,43 +249,44 @@ cmd_login() {
     read -rs -p "Password for ${email}: " password; echo
   fi
   info "POST /auth/login-with-credentials (email=${email}, provider=${provider}, method=${method}) — driving a REAL scrape login"
+  # A new login abandons any flow an earlier one left parked.
+  forget flow
   # Password goes only into the JSON body via --data @-, never argv/history.
   jq -n --arg e "${email}" --arg p "${password}" --arg m "${method}" --arg pr "${provider}" \
      '{email:$e, password:$p, method:$m, provider:$pr}' \
-    | curl -s "${hdr[@]}" -X POST "${BASE}/auth/login-with-credentials" --data @- \
-    | jq . 2>/dev/null || warn "(non-JSON response above)"
-  echo
+    | login_step /auth/login-with-credentials
   warn "If status=otp_required → run: scripts/sciotte-local.sh otp <code>"
   warn "If status=two_factor_choice → run: scripts/sciotte-local.sh 2fa <option_id>"
-  warn "If status=number_match → approve the number on your phone, then: status"
+  warn "If status=number_match → approve the number on your phone, then: scripts/sciotte-local.sh 2fa poll"
 }
 
 cmd_otp() {
-  local code="${1:-}"; [ -n "${code}" ] || { err "usage: otp <code>"; exit 1; }
-  jq -n --arg c "${code}" '{code:$c}' \
-    | curl -s "${hdr[@]}" -X POST "${BASE}/auth/submit-otp" --data @- \
-    | jq . 2>/dev/null || true; echo
+  local code="${1:-}" flow
+  [ -n "${code}" ] || { err "usage: otp <code> [flow_id]"; exit 1; }
+  flow="$(remembered flow "${2:-}" "start one with 'scripts/sciotte-local.sh login <email>' or pass it: otp <code> <flow_id>")" || exit 1
+  jq -n --arg c "${code}" --arg f "${flow}" '{code:$c, flow_id:$f}' \
+    | login_step /auth/submit-otp
 }
 
 cmd_2fa() {
-  local opt="${1:-}"; [ -n "${opt}" ] || { err "usage: 2fa <option_id>"; exit 1; }
-  jq -n --arg o "${opt}" '{option_id:$o}' \
-    | curl -s "${hdr[@]}" -X POST "${BASE}/auth/select-2fa" --data @- \
-    | jq . 2>/dev/null || true; echo
+  local opt="${1:-}" flow
+  [ -n "${opt}" ] || { err "usage: 2fa <option_id> [flow_id]"; exit 1; }
+  flow="$(remembered flow "${2:-}" "start one with 'scripts/sciotte-local.sh login <email>' or pass it: 2fa <option_id> <flow_id>")" || exit 1
+  jq -n --arg o "${opt}" --arg f "${flow}" '{option_id:$o, flow_id:$f}' \
+    | login_step /auth/select-2fa
 }
 
 case "${1:-help}" in
   build)      cmd_build ;;
-  serve)      cmd_serve ;;
+  serve)      shift; cmd_serve "$@" ;;
   serve-bg)   shift; cmd_serve_bg "$@" ;;
   health)     cmd_health ;;
   login)      shift; cmd_login "$@" ;;
   otp)        shift; cmd_otp "$@" ;;
   2fa)        shift; cmd_2fa "$@" ;;
-  status)     cmd_status ;;
-  sessions)   cmd_sessions ;;
-  athlete)    cmd_athlete ;;
-  activities) cmd_activities ;;
+  status)     shift; cmd_status "$@" ;;
+  athlete)    shift; cmd_athlete "$@" ;;
+  activities) shift; cmd_activities "$@" ;;
   help|-h|--help) usage ;;
   *) err "unknown command: ${1}"; usage; exit 1 ;;
 esac

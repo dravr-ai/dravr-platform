@@ -20,6 +20,8 @@ on:
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
+      # sciotte-local.test.sh and the shellcheck job below read the harness itself.
+      - 'scripts/sciotte-local.sh'
       # The gate self-tests cover the worktree skill library too.
       - '.claude/skills/lib/**'
       # The fast gate now also reads the clients and the shared packages: the
@@ -31,8 +33,20 @@ on:
       - '.github/workflows/ci-backend.yml'
       # satellite-bump-gate.test.sh runs the gate step lifted out of this file.
       - '.github/workflows/satellite-bump.yml'
+      # deploy-satellite-cloud-run.test.sh runs its steps and checks every
+      # bump lane that calls it against its declared inputs.
+      - '.github/workflows/deploy-satellite-cloud-run.yml'
+      - '.github/workflows/bump-*.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
+      # standing-issue.test.sh checks every monitor that files a standing issue
+      # looks it up through scripts/ci/standing-issue.cjs and checks it out.
+      - '.github/workflows/billing-drivers-monitor.yml'
+      - '.github/workflows/claude-health-probe.yml'
+      - '.github/workflows/copilot-cli-version-check.yml'
+      - '.github/workflows/copilot-health-probe.yml'
+      - '.github/workflows/dependency-check.yml'
+      - '.github/workflows/monitor-capture-staleness.yml'
       - '.github/actions/rust-setup/**'
   pull_request:
     branches: [ main ]
@@ -50,6 +64,8 @@ on:
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
+      # sciotte-local.test.sh and the shellcheck job below read the harness itself.
+      - 'scripts/sciotte-local.sh'
       # The gate self-tests cover the worktree skill library too.
       - '.claude/skills/lib/**'
       - 'frontend/src/**'
@@ -58,8 +74,20 @@ on:
       - '.github/workflows/ci-backend.yml'
       # satellite-bump-gate.test.sh runs the gate step lifted out of this file.
       - '.github/workflows/satellite-bump.yml'
+      # deploy-satellite-cloud-run.test.sh runs its steps and checks every
+      # bump lane that calls it against its declared inputs.
+      - '.github/workflows/deploy-satellite-cloud-run.yml'
+      - '.github/workflows/bump-*.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
+      # standing-issue.test.sh checks every monitor that files a standing issue
+      # looks it up through scripts/ci/standing-issue.cjs and checks it out.
+      - '.github/workflows/billing-drivers-monitor.yml'
+      - '.github/workflows/claude-health-probe.yml'
+      - '.github/workflows/copilot-cli-version-check.yml'
+      - '.github/workflows/copilot-health-probe.yml'
+      - '.github/workflows/dependency-check.yml'
+      - '.github/workflows/monitor-capture-staleness.yml'
       - '.github/actions/rust-setup/**'
   schedule:
     # Daily at 08:00 UTC (04:00 EDT / 03:00 EST) — runs the SQLite shard job.
@@ -251,7 +279,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -273,8 +301,11 @@ jobs:
           ./scripts/ci/check-twin-surfaces.test.sh
           ./scripts/ci/satellite-pin.test.sh
           ./scripts/ci/satellite-bump-gate.test.sh
+          ./scripts/ci/deploy-satellite-cloud-run.test.sh
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
+          ./scripts/ci/standing-issue.test.sh
+          ./scripts/ci/sciotte-local.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # The dev scripts decide which processes a stop may kill and which files a
@@ -284,7 +315,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)

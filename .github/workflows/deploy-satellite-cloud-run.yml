@@ -1,0 +1,331 @@
+# ABOUTME: The shared ship tail of a satellite lane with a Cloud Run service — deploy, assert, roll back, tag, ship the platform
+# ABOUTME: Called locally by bump-<satellite>.yml after its image job; each service's difference is an input, never a copy
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# Every satellite lane that runs a service of its own (sciotte through the enforme
+# lane, photograveur through its own) ships the same way after its image is built:
+#
+#   deploy     move the dev service onto the moving :latest tag, assert that the
+#              revision now serving is the digest the image job built and scanned,
+#              optionally probe it over HTTP, and roll back to the digest that was
+#              serving before if any of that fails
+#   tag        mark the deployed digest `deployed-dev` so registry retention keeps
+#              the image dev is running, and with it the next rollback target
+#   platform   dispatch publish-images.yml, because the satellite's crate is also
+#              compiled into the platform binary and a merged pin ships nothing
+#              until that binary is rebuilt
+#
+# The service name, the image name, the digests, the HTTP probe and the summary text
+# are inputs. Everything else, including the reasons each step is shaped the way it
+# is, lives here once: those reasons were each paid for on one lane and hold on all
+# of them.
+#
+# The caller gates the whole call on its image job having succeeded, and reads the
+# bump spine's `state` for `ship_platform`: a stand-down or a dry run merged nothing,
+# so there is no new crate for the platform binary to pick up.
+
+name: "Satellite: Deploy Cloud Run Service (reusable)"
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Satellite service name: deploys `<GCP_DEV_SERVICE_NAME>-<service>` from `<GCP_ARTIFACTS_REGISTRY_URL>/<service>:latest`"
+        required: true
+        type: string
+      image:
+        description: "Digest-pinned image reference the caller's image job published (its `image` output)"
+        required: true
+        type: string
+      digest:
+        description: "Digest the caller's image job published (its `digest` output)"
+        required: true
+        type: string
+      probe_audience:
+        description: "Identity-token audience for an HTTP GET /health probe of a service that enforces Cloud Run IAM; empty skips the probe"
+        required: false
+        default: ""
+        type: string
+      probe_providers:
+        description: "Space-separated providers the probed /health must advertise"
+        required: false
+        default: ""
+        type: string
+      ship_platform:
+        description: "Dispatch the platform image build once the service is deployed (true when the spine pushed a bump)"
+        required: true
+        type: boolean
+      release:
+        description: "What the rebuilt platform binary picks up, as the dispatch log line names it"
+        required: true
+        type: string
+      platform_summary:
+        description: "Markdown the platform job writes under its step-summary heading"
+        required: true
+        type: string
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Deploy, verify the bytes, roll back if it goes wrong
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy ${{ inputs.service }} to dev
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Authenticate to GCP (dev deployer)
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+          # A service that enforces Cloud Run IAM refuses an anonymous request with
+          # 403 before any identity is considered, so the HTTP probe below needs a
+          # Google-signed identity token for the audience the service declares in
+          # custom_audiences — a stable literal, because the generated URL is not
+          # known this early in the job. include_email is required, not cosmetic:
+          # Cloud Run matches the token's email claim against the invoker policy, and
+          # a token minted without it is rejected exactly like an anonymous one.
+          # With no probe audience, no token is minted and these three are the
+          # action's own defaults.
+          token_format: ${{ inputs.probe_audience != '' && 'id_token' || '' }}
+          id_token_audience: ${{ inputs.probe_audience }}
+          id_token_include_email: ${{ inputs.probe_audience != '' }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          skip_install: true
+
+      - name: Capture the digest currently serving
+        id: prev
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: |
+          set -euo pipefail
+          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                  --format='value(status.latestReadyRevisionName)')
+          PREV=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                   --format='value(status.imageDigest)')
+          # Refuse to deploy with no rollback target. A rollback step that silently has
+          # nothing to roll back to is worse than none, because the workflow would still
+          # report that it recovered.
+          if [ -z "${PREV}" ]; then
+            echo "::error::could not read the serving digest of ${REV} — refusing to deploy without a rollback target"
+            exit 1
+          fi
+          echo "image=${PREV}" >> "$GITHUB_OUTPUT"
+          echo "serving ${REV} at ${PREV}"
+
+      - name: Deploy
+        # Deploys the moving :latest tag rather than the digest, because that is the
+        # literal value terraform holds in the service's image variable
+        # (sciotte_image, photograveur_image). Deploying a digest would leave the
+        # service permanently disagreeing with its own terraform, so every later
+        # apply would bounce it. The digest is asserted immediately below, which
+        # closes the gap this opens.
+        #
+        # Cloud Run refuses to shift traffic to a revision that fails its startup probe
+        # (GET /health, 10 attempts at 5s), so a container that cannot boot leaves the
+        # previous revision serving and fails this step. That probe is the health check;
+        # the rollback below covers the rest.
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/${{ inputs.service }}:latest
+
+      - name: Assert the serving bytes are the bytes we built and scanned
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          REGISTRY: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}
+          IMAGE_NAME: ${{ inputs.service }}
+          EXPECTED: ${{ inputs.digest }}
+        run: |
+          set -euo pipefail
+          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                  --format='value(status.latestReadyRevisionName)')
+          GOT=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                  --format='value(status.imageDigest)')
+
+          # buildx publishes an OCI *index*, because it attaches a provenance
+          # attestation alongside the image. build-push-action reports that index's
+          # digest, while Cloud Run resolves the tag down to the linux/amd64 child and
+          # records the child. The two are never equal, so comparing them directly
+          # fails every time on a deploy that in fact shipped the right bytes — which
+          # is exactly what it did on sciotte v0.8.6, rolling dev back to the previous
+          # digest over a correct rollout. Accept the index digest or any of its
+          # children.
+          HOST="${REGISTRY%%/*}"
+          PATH_PART="${REGISTRY#*/}/${IMAGE_NAME}"
+          TOKEN=$(gcloud auth print-access-token)
+          CHILDREN=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json" \
+            "https://${HOST}/v2/${PATH_PART}/manifests/${EXPECTED}" \
+            | jq -r '(.manifests // [])[].digest' || true)
+
+          for candidate in ${EXPECTED} ${CHILDREN}; do
+            if [ "${GOT}" = "${candidate}" ] || [ "${GOT##*@}" = "${candidate}" ]; then
+              echo "serving ${REV} at ${GOT} (matches ${candidate})"
+              exit 0
+            fi
+          done
+          echo "::error::${REV} serves ${GOT}, which is neither ${EXPECTED} nor any manifest it indexes"
+          echo "index children were: ${CHILDREN:-<none>}"
+          exit 1
+
+      - name: Probe the service over HTTP
+        # Cloud Run's startup probe already proved the container answers /health, but
+        # only that it answered — a build that lost a provider still boots. This asserts
+        # what the service says about itself: ok, and every provider the caller names.
+        #
+        # A probed service is reachable from a runner (sciotte is INGRESS_TRAFFIC_ALL:
+        # the API pod egresses PRIVATE_RANGES_ONLY, so internal-only ingress would
+        # drop its calls) but NOT unauthenticated: Cloud Run verifies a
+        # Google-signed identity token for the caller's audience and checks
+        # roles/run.invoker. The deployer SA carries that permission through its
+        # project-level roles/run.admin, which includes run.routes.invoke — no extra
+        # grant is needed, only the token.
+        #
+        # This step read as "the new image is unhealthy" for a week (carnet#164) while
+        # the real answer was a 403 the probe never named. The status code is now
+        # reported on failure so an auth refusal can never again be mistaken for a
+        # sick container: curl exits 22 on any >=400, and -f prints no body to say why.
+        if: ${{ inputs.probe_audience != '' }}
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          ID_TOKEN: ${{ steps.auth.outputs.id_token }}
+          PROVIDERS: ${{ inputs.probe_providers }}
+        run: |
+          set -euo pipefail
+          URL=$(gcloud run services describe "${SVC}" --region "${REGION}" --format='value(status.url)')
+
+          CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' -m 30 --retry 3 --retry-delay 5 \
+              -H "Authorization: Bearer ${ID_TOKEN}" "${URL}/health")
+          if [ "${CODE}" != "200" ]; then
+              echo "::error::GET ${URL}/health returned HTTP ${CODE} — 401 means the identity token was rejected (usually a custom_audiences mismatch), 403 means no run.invoker; neither is a sick container"
+              head -c 500 /tmp/health.json || true
+              exit 1
+          fi
+          BODY=$(cat /tmp/health.json)
+          echo "${BODY}" | jq .
+
+          STATUS=$(jq -r '.status' <<<"${BODY}")
+          [ "${STATUS}" = "ok" ] || { echo "::error::/health reports status=${STATUS}"; exit 1; }
+          for p in ${PROVIDERS}; do
+            jq -e --arg p "$p" '.providers | index($p)' <<<"${BODY}" >/dev/null \
+              || { echo "::error::/health does not advertise the ${p} provider"; exit 1; }
+          done
+          echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
+
+      - name: Roll back to the previously serving digest
+        if: failure()
+        env:
+          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREV: ${{ steps.prev.outputs.image }}
+        run: |
+          set -euo pipefail
+          # Redeploy the previous digest rather than repointing traffic. Traffic pins
+          # applied with `update-traffic --to-revisions` stick to the service and make
+          # every subsequent deploy land without receiving traffic — the failure mode is
+          # a deploy that reports success while nothing it shipped is serving.
+          echo "rolling back ${SVC} to ${PREV}"
+          gcloud run services update "${SVC}" --region "${REGION}" --image "${PREV}" --quiet
+          echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
+
+  # ---------------------------------------------------------------------------
+  # Mark the digest dev is serving so registry retention keeps it
+  # ---------------------------------------------------------------------------
+  tag-deployed:
+    name: Tag Deployed Digest (${{ inputs.service }}, dev)
+    runs-on: ubuntu-latest
+    needs: deploy
+    # Explicit, not defaulted: tag only a deploy that succeeded, so a rolled-back
+    # image is never anchored. The caller's lane skips its bump/gate/merge jobs on
+    # every run that needs no version bump, and a defaulted `success()` there went
+    # false on a skipped transitive ancestor and silently skipped this job while
+    # the run still reported success (2026-08-31, the sciotte lane). Inside this
+    # workflow `deploy` is the only ancestor, and the guard says so.
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
+
+    steps:
+      # image-publisher (artifactregistry.writer), not the dev deployer: the tag
+      # is written in the dravr-artifacts project, where the dev deployer has no
+      # write access. Same split as publish-images.yml's tag-deployed-dev.
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Tag the deployed ${{ inputs.service }} digest
+        # The deploy above captures the serving digest as its rollback target, but
+        # nothing on a digest-deployed image tells the cleanup policy to spare it:
+        # once two newer builds push it out of the recent-versions floor, the age
+        # rule deletes the image dev is running, and a rollback to a deleted digest
+        # fails outright. That is how the 2026-08-31 sciotte rollback failed with
+        # "Image not found" against a digest that had been serving since 08-24
+        # (carnet#166). `deployed-` is matched by the registry's keep-tags rule
+        # (infra/artifacts release_tag_prefixes), which wins over every delete
+        # rule, and the tfvars comment names this tag as what "carries the
+        # guarantee" that keep_count cannot. server and frontend have had it since
+        # publish-images.yml's tag-deployed-dev.
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          PACKAGE="${IMAGE%@*}"
+          echo "Tagging ${IMAGE} as ${PACKAGE}:deployed-dev"
+          gcloud artifacts docker tags add "${IMAGE}" "${PACKAGE}:deployed-dev" --quiet
+
+  # ---------------------------------------------------------------------------
+  # Ship the platform binary, which compiles the satellite's crate in
+  # ---------------------------------------------------------------------------
+  #
+  # The jobs above deploy the satellite SERVICE. The satellite's crate is also
+  # compiled INTO dravr-mcp-server-api (enforme's sync paths, photograveur's layout
+  # geometry), so a merged pin changes nothing an athlete can reach until that
+  # binary is rebuilt.
+  #
+  # Nothing rebuilds it on its own. `publish-images.yml` deploys the platform on
+  # `workflow_run` of "CI: Backend (Rust)" against main, and the spine's squash
+  # merge is pushed with GITHUB_TOKEN, which by design triggers nothing downstream.
+  # A bump that landed on a quiet main therefore reported six green jobs and
+  # shipped nothing (carnet#94). So dispatch it explicitly, and only after the
+  # service deploy: the binary talks to the service, so the service has to be on
+  # the version the binary expects before the binary starts up.
+  platform:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: ${{ !cancelled() && inputs.ship_platform && needs.deploy.result == 'success' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE: ${{ inputs.release }}
+          SUMMARY: ${{ inputs.platform_summary }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up ${RELEASE}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "${SUMMARY}"
+          } >> "$GITHUB_STEP_SUMMARY"

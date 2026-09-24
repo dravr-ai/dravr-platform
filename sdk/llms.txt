@@ -128,7 +128,11 @@ by its owner-only (0600) file mode.
 
 ### Dravr Authentication (OAuth 2.0 Authorization Code + PKCE)
 
-1. Client registration: POST /oauth2/register
+1. Client registration: POST /oauth2/register, once; the registration is kept in secure
+   storage and reused. A stored registration made for another scope set is replaced, with
+   the session issued to it, before any authorization names it. When Dravr refuses a
+   stored registration (`invalid_client`, `invalid_scope`, `invalid_client_metadata`),
+   the client registers again and retries the authorization once.
 2. Generate PKCE challenge/verifier
 3. Open browser to /oauth2/authorize
 4. User authenticates

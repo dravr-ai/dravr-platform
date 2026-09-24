@@ -6,7 +6,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -451,77 +451,13 @@ export class PierreMcpClient {
 
       // Manually trigger OAuth flow by building authorization URL and redirecting
       try {
-        // Step 1: Ensure client is registered (dynamic client registration)
-        let clientInfo = await this.oauthProvider.clientInformation();
-
-        // Get client metadata for redirect URI (needed for both new and existing clients)
-        const clientMetadata = this.oauthProvider["clientMetadata"];
-
-        if (!clientInfo) {
-          this.log(
-            "No client info found - performing dynamic client registration",
-          );
-
-          // Generate new client credentials
-          const crypto = require("crypto");
-          const clientId = `pierre-bridge-${crypto.randomBytes(8).toString("hex")}`;
-          const clientSecret = crypto.randomBytes(32).toString("hex");
-
-          const fullClientInfo: OAuthClientInformationFull = {
-            client_id: clientId,
-            client_secret: clientSecret,
-            redirect_uris: clientMetadata.redirect_uris,
-            grant_types: clientMetadata.grant_types,
-            response_types: clientMetadata.response_types,
-            scope: clientMetadata.scope,
-            client_name: clientMetadata.client_name,
-            client_uri: clientMetadata.client_uri,
-            client_id_issued_at: Math.floor(Date.now() / 1000),
-            client_secret_expires_at: 0, // Never expires
-          };
-
-          // Save and register the client (this updates clientInfo with Dravr's assigned client_id)
-          await this.oauthProvider.saveClientInformation(fullClientInfo);
-
-          // Re-fetch client information to get the server-assigned client_id
-          clientInfo = await this.oauthProvider.clientInformation();
-          if (!clientInfo) {
-            throw new PierreError(
-              PierreErrorCode.AUTH_ERROR,
-              "Client registration failed - no client info after registration",
-            );
-          }
-
-          this.log(
-            `Dynamic client registration complete: ${clientInfo.client_id}`,
-          );
-        }
-
-        // Step 2: Get redirect URI
-        const redirectUri = clientMetadata.redirect_uris[0];
-
-        // Step 3: Generate PKCE values
-        const state = await this.oauthProvider.state();
-        const codeVerifier = this.oauthProvider.generateRandomString(64);
-        await this.oauthProvider.saveCodeVerifier(codeVerifier);
-
-        const codeChallenge =
-          await this.oauthProvider.generateCodeChallenge(codeVerifier);
-
-        // Step 4: Build authorization URL
-        const authUrl = new URL(
-          `${this.config.pierreServerUrl}/oauth2/authorize`,
+        // Steps 1-5: authorize in the browser as a client registration Dravr accepts.
+        // The provider registers when none is stored or the stored one asked for another
+        // scope set, and re-registers and retries once when Dravr refuses a stored one.
+        const provider = this.oauthProvider;
+        await provider.authorizeWithRegistration((client) =>
+          this.authorizeInBrowser(provider, client),
         );
-        authUrl.searchParams.set("client_id", clientInfo.client_id);
-        authUrl.searchParams.set("redirect_uri", redirectUri);
-        authUrl.searchParams.set("response_type", "code");
-        authUrl.searchParams.set("state", state);
-        authUrl.searchParams.set("code_challenge", codeChallenge);
-        authUrl.searchParams.set("code_challenge_method", "S256");
-        authUrl.searchParams.set("scope", PIERRE_OAUTH_SCOPE);
-
-        // Step 5: Redirect to authorization (opens browser)
-        await this.oauthProvider.redirectToAuthorization(authUrl);
 
         // Step 6: Connect after OAuth completes
         await this.attemptConnection();
@@ -572,6 +508,34 @@ export class PierreMcpClient {
     this.log(
       `After attemptConnection, pierreClient is: ${!!this.pierreClient}`,
     );
+  }
+
+  /**
+   * One authorization as `client`: a fresh PKCE pair, the authorization URL, and the
+   * browser step, which returns once the code has been exchanged for tokens.
+   */
+  private async authorizeInBrowser(
+    provider: PierreOAuthClientProvider,
+    client: OAuthClientInformation,
+  ): Promise<void> {
+    const redirectUri = provider.redirectUrl;
+
+    const state = await provider.state();
+    const codeVerifier = provider.generateRandomString(64);
+    await provider.saveCodeVerifier(codeVerifier);
+    const codeChallenge = await provider.generateCodeChallenge(codeVerifier);
+
+    const authUrl = new URL(`${this.config.pierreServerUrl}/oauth2/authorize`);
+    authUrl.searchParams.set("client_id", client.client_id);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("code_challenge", codeChallenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("scope", PIERRE_OAUTH_SCOPE);
+
+    // Opens the browser and waits for the callback and the code exchange
+    await provider.redirectToAuthorization(authUrl);
   }
 
   /**

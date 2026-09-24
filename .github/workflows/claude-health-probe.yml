@@ -195,85 +195,21 @@ jobs:
               `_This issue auto-updates each day. It closes when the next probe succeeds._`,
             ].join('\n');
 
-            // Ensure label exists
-            try {
-              await github.rest.issues.getLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-              });
-            } catch {
-              await github.rest.issues.createLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-                color: 'b60205',
-                description: 'Production incident or outage',
-              });
-            }
-
-            const { data: openIssues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: label,
-              per_page: 100,
+            const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
+            await upsertStandingIssue(github, core, {
+              ...context.repo, label, title, body, onExisting: 'update',
+              newLabel: { color: 'b60205', description: 'Production incident or outage' },
             });
-
-            const existing = openIssues.find(i => i.title === title);
-
-            if (existing) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                body,
-              });
-              core.info(`Updated existing issue #${existing.number}`);
-            } else {
-              const { data: issue } = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-                labels: [label],
-              });
-              core.info(`Created issue #${issue.number}`);
-            }
 
       - name: Close tracking issue on probe success
         if: steps.probe.outputs.failed != 'true'
         uses: actions/github-script@v9
         with:
           script: |
-            const title = 'Claude Code auth probe failing — rotate dev OAuth token';
-            const label = 'incident';
-
-            const { data: openIssues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: label,
-              per_page: 100,
+            const { closeStandingIssues } = require('./scripts/ci/standing-issue.cjs');
+            await closeStandingIssues(github, core, {
+              ...context.repo,
+              label: 'incident',
+              title: 'Claude Code auth probe failing — rotate dev OAuth token',
+              comment: 'Claude Code auth probe succeeded. Auto-closing.',
             });
-
-            const existing = openIssues.find(i => i.title === title);
-            if (!existing) {
-              core.info('No open probe-failure issue to close');
-              return;
-            }
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: existing.number,
-              body: 'Claude Code auth probe succeeded. Auto-closing.',
-            });
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: existing.number,
-              state: 'closed',
-              state_reason: 'completed',
-            });
-            core.info(`Closed issue #${existing.number}`);
