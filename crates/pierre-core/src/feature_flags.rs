@@ -45,6 +45,12 @@ pub enum FeatureKey {
     /// instead of delivered. Disabled by default — the gate runs in shadow
     /// mode (verdict logs only) until an operator arms it per tenant or user.
     PersonaNotificationPolicy,
+    /// State the exposure notice of a provider read through the account's own
+    /// signed-in session (`TrainingPeaks`, COROS) before its credentials, and
+    /// refuse the login until it is accepted. Disabled by default so a demo
+    /// account connects without it; admins arm it per tenant or per user for
+    /// the athletes they onboard.
+    ProviderExposureNotice,
 }
 
 impl FeatureKey {
@@ -53,6 +59,7 @@ impl FeatureKey {
         Self::ApiTokens,
         Self::BillingHeader,
         Self::PersonaNotificationPolicy,
+        Self::ProviderExposureNotice,
     ];
 
     /// Storage key (matches the `feature_key` column and the JSON field
@@ -63,6 +70,7 @@ impl FeatureKey {
             Self::ApiTokens => "api_tokens",
             Self::BillingHeader => "billing_header",
             Self::PersonaNotificationPolicy => "persona_notification_policy",
+            Self::ProviderExposureNotice => "provider_exposure_notice",
         }
     }
 
@@ -71,7 +79,10 @@ impl FeatureKey {
     #[must_use]
     pub const fn default_enabled(self) -> bool {
         match self {
-            Self::ApiTokens | Self::BillingHeader | Self::PersonaNotificationPolicy => false,
+            Self::ApiTokens
+            | Self::BillingHeader
+            | Self::PersonaNotificationPolicy
+            | Self::ProviderExposureNotice => false,
         }
     }
 
@@ -87,6 +98,9 @@ impl FeatureKey {
             }
             Self::PersonaNotificationPolicy => {
                 "Enforce the persona push-tier floor (gated pushes are persisted and rolled into the weekly digest instead of delivered)."
+            }
+            Self::ProviderExposureNotice => {
+                "Ask for the account-risk notice before a TrainingPeaks or COROS login, and refuse the login until it is accepted."
             }
         }
     }
@@ -119,6 +133,7 @@ impl FromStr for FeatureKey {
             "api_tokens" => Ok(Self::ApiTokens),
             "billing_header" => Ok(Self::BillingHeader),
             "persona_notification_policy" => Ok(Self::PersonaNotificationPolicy),
+            "provider_exposure_notice" => Ok(Self::ProviderExposureNotice),
             other => Err(UnknownFeatureKey(other.to_owned())),
         }
     }
@@ -146,6 +161,7 @@ mod tests {
             "api_tokens",
             "billing_header",
             "persona_notification_policy",
+            "provider_exposure_notice",
         ];
         expected.sort_unstable();
         assert_eq!(from_all, expected);

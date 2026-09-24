@@ -10,7 +10,7 @@
 mod common;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
-use pierre_core::constants::oauth::providers::TRAININGPEAKS_TERMS_VERSION;
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRole;
@@ -18,6 +18,14 @@ use pierre_core::models::{DelegationStatus, ProviderAccountRole};
 use pierre_seeders::trainingpeaks_delegation::{
     run, SeedArgs, ATHLETE_ID, ATHLETE_NAME, GROUP_NAME,
 };
+
+/// The backend TrainingPeaks' exposure notice guards.
+const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
+
+/// TrainingPeaks' current exposure-notice version.
+fn tp_terms_version() -> &'static str {
+    provider_terms_version(TP_NOTICE_BACKEND).expect("TrainingPeaks carries a notice")
+}
 
 fn args() -> SeedArgs {
     SeedArgs {
@@ -53,11 +61,11 @@ async fn the_seeder_leaves_one_link_waiting_for_its_member() {
     assert_eq!(
         repos
             .users
-            .trainingpeaks_terms_version(coach)
+            .provider_terms_version(coach, TP_NOTICE_BACKEND)
             .await
             .unwrap()
             .as_deref(),
-        Some(TRAININGPEAKS_TERMS_VERSION)
+        Some(tp_terms_version())
     );
     let coach_rows = repos
         .provider_connections

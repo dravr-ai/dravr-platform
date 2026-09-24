@@ -25,7 +25,7 @@ import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key
 import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
-import { StravaLogo, GarminLogo, TrainingPeaksLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
+import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 import { Checkbox } from './ui';
@@ -72,7 +72,7 @@ const PLATE_INK = '#FFFFFF';
  *
  * `primary` is the brand hex. It fills the solid tile behind a white glyph,
  * which answers to the 3:1 icon floor: Strava 3.40:1, Garmin 4.496:1,
- * TrainingPeaks 7.59:1.
+ * TrainingPeaks 7.59:1, COROS 3.93:1.
  *
  * `gradient` is the plate a white label sits on (Sign In, Verify, Try Again:
  * 16pt, so the 4.5:1 text floor), and both of its stops clear 4.5:1 against
@@ -86,9 +86,10 @@ const PLATE_INK = '#FFFFFF';
  * | Strava        | `#D74102` 4.52:1, the hex at 85.5 %      | `#BD3902` 5.60:1  |
  * | Garmin        | `#007CC2` 4.50:1, one step off the hex   | `#005D92` 7.05:1  |
  * | TrainingPeaks | `#005695` 7.59:1, the hex itself         | `#004070` 10.67:1 |
+ * | COROS         | `#E52437` 4.53:1, the hex at 92.5 %      | `#BA1D2C` 6.36:1  |
  *
- * White on the Strava hex alone is 3.40:1 and on the Garmin hex 4.496:1, so
- * neither plate could start from its brand hex.
+ * White on the Strava hex alone is 3.40:1, on the Garmin hex 4.496:1 and on
+ * the COROS hex 3.93:1, so none of those plates could start from its brand hex.
  *
  * Google and Apple are the sign-in methods of the Strava choice, drawn only
  * as the sweep around their rows. Google's far stop (`#3367D6`) is the value
@@ -107,6 +108,10 @@ const BRAND_COLORS = {
   trainingpeaks: {
     primary: PROVIDER_COLORS.trainingpeaks,
     gradient: [PROVIDER_COLORS.trainingpeaks, '#004070'] as [string, string],
+  },
+  coros: {
+    primary: PROVIDER_COLORS.coros,
+    gradient: ['#E52437', '#BA1D2C'] as [string, string],
   },
   google: {
     primary: PROVIDER_COLORS.google,
@@ -203,6 +208,20 @@ const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
       titleKey: 'providers.trainingpeaksNotice.title',
       bodyKey: 'providers.trainingpeaksNotice.body',
       consentKey: 'providers.trainingpeaksNotice.consent',
+    },
+  },
+  coros: {
+    brandKey: 'app.brandCoros',
+    brandColor: BRAND_COLORS.coros,
+    renderLogo: (size) => <CorosLogo size={size} color={PLATE_INK} />,
+    titleKey: 'app.corosAccount',
+    placeholderKey: 'app.corosEmail',
+    identifier: 'email',
+    directCredentials: true,
+    notice: {
+      titleKey: 'providers.corosNotice.title',
+      bodyKey: 'providers.corosNotice.body',
+      consentKey: 'providers.corosNotice.consent',
     },
   },
 };

@@ -360,7 +360,7 @@ export const SEMANTIC_COLORS_DARK = {
 
 /**
  * OAuth provider brand colors — third-party colours, not Boreal tokens. The
- * `sciotte*` keys are the captured Strava, Garmin and TrainingPeaks accounts,
+ * `sciotte*` keys are the captured Strava, Garmin, TrainingPeaks and COROS accounts,
  * so they carry the brand they capture. Legacy keys (fitbit/terra/google) are
  * retained for tests and any still-referencing call sites; they are not
  * surfaced by the API.
@@ -395,6 +395,9 @@ export const PROVIDER_COLORS = {
   // `msapplication-TileColor`).
   trainingpeaks: '#005695',
   sciotte_trainingpeaks: '#005695',
+  // COROS' red, the fill of its official mark (coros.com/public/images/COROS.svg).
+  coros: '#F8273B',
+  sciotte_coros: '#F8273B',
 } as const;
 
 /**
@@ -421,6 +424,7 @@ export interface ProviderGlyphInk {
  * | Garmin `#007CC3`        | 4.16:1             | 4.16:1             |
  * | intervals.icu `#1273DE` | 4.28:1             | 4.03:1             |
  * | TrainingPeaks `#005695` | 7.02:1             | 2.46:1 → body ink  |
+ * | COROS `#F8273B`         | 3.63:1             | 4.76:1             |
  * | WHOOP `#00D46A`         | 1.83:1 → body ink  | 9.45:1             |
  *
  * `surface-container-lowest` sits further from every one of these inks than
@@ -438,6 +442,8 @@ export const PROVIDER_GLYPH_INK: Readonly<Record<string, ProviderGlyphInk>> = {
   intervals_icu: { light: PROVIDER_COLORS.intervals_icu, dark: PROVIDER_COLORS.intervals_icu },
   trainingpeaks: { light: PROVIDER_COLORS.trainingpeaks, dark: null },
   sciotte_trainingpeaks: { light: PROVIDER_COLORS.sciotte_trainingpeaks, dark: null },
+  coros: { light: PROVIDER_COLORS.coros, dark: PROVIDER_COLORS.coros },
+  sciotte_coros: { light: PROVIDER_COLORS.sciotte_coros, dark: PROVIDER_COLORS.sciotte_coros },
   whoop: { light: null, dark: PROVIDER_COLORS.whoop },
 };
 

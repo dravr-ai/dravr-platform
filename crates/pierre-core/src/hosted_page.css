@@ -31,6 +31,8 @@
  *   light  intervals_icu glyph on the card..............................   4.63:1  (graphic 3:1)
  *   light  trainingpeaks glyph on the card..............................   7.59:1  (graphic 3:1)
  *   light  sciotte_trainingpeaks glyph on the card......................   7.59:1  (graphic 3:1)
+ *   light  coros glyph on the card......................................   3.93:1  (graphic 3:1)
+ *   light  sciotte_coros glyph on the card..............................   3.93:1  (graphic 3:1)
  *   light  whoop glyph on the card......................................  17.13:1  (graphic 3:1)
  *   dark   body text on the page........................................  14.45:1  (text 4.5:1)
  *   dark   body text on the card........................................  11.12:1  (text 4.5:1)
@@ -57,6 +59,8 @@
  *   dark   intervals_icu glyph on the card..............................   3.10:1  (graphic 3:1)
  *   dark   trainingpeaks glyph on the card..............................  11.12:1  (graphic 3:1)
  *   dark   sciotte_trainingpeaks glyph on the card......................  11.12:1  (graphic 3:1)
+ *   dark   coros glyph on the card......................................   3.66:1  (graphic 3:1)
+ *   dark   sciotte_coros glyph on the card..............................   3.66:1  (graphic 3:1)
  *   dark   whoop glyph on the card......................................   7.27:1  (graphic 3:1)
  */
 @import url('https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap');
@@ -91,6 +95,8 @@
   --glyph-intervals-icu: 18 115 222;
   --glyph-trainingpeaks: 0 86 149;
   --glyph-sciotte-trainingpeaks: 0 86 149;
+  --glyph-coros: 248 39 59;
+  --glyph-sciotte-coros: 248 39 59;
   --glyph-whoop: var(--color-on-surface);
 }
 
@@ -123,6 +129,8 @@
     --glyph-intervals-icu: 18 115 222;
     --glyph-trainingpeaks: var(--color-on-surface);
     --glyph-sciotte-trainingpeaks: var(--color-on-surface);
+    --glyph-coros: 248 39 59;
+    --glyph-sciotte-coros: 248 39 59;
     --glyph-whoop: 0 212 106;
   }
 }
@@ -610,6 +618,8 @@ code {
 .pc-glyph[data-provider="intervals_icu"] { background: rgb(var(--glyph-intervals-icu)); }
 .pc-glyph[data-provider="trainingpeaks"] { background: rgb(var(--glyph-trainingpeaks)); }
 .pc-glyph[data-provider="sciotte_trainingpeaks"] { background: rgb(var(--glyph-sciotte-trainingpeaks)); }
+.pc-glyph[data-provider="coros"] { background: rgb(var(--glyph-coros)); }
+.pc-glyph[data-provider="sciotte_coros"] { background: rgb(var(--glyph-sciotte-coros)); }
 .pc-glyph[data-provider="whoop"] { background: rgb(var(--glyph-whoop)); }
 
 .pc-label {

@@ -46,13 +46,14 @@ use pierre_core::models::{DelegatedConnection, TenantId};
 /// scrapes it. The single table the name mappings below read, so a provider
 /// added here is known to routing, status, the hosted login and the reconnect
 /// copy at once.
-const MIRROR_PAIRS: [(&str, &str); 3] = [
+const MIRROR_PAIRS: [(&str, &str); 4] = [
     (oauth_providers::STRAVA, oauth_providers::SCIOTTE),
     (oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN),
     (
         oauth_providers::TRAININGPEAKS,
         oauth_providers::SCIOTTE_TRAININGPEAKS,
     ),
+    (oauth_providers::COROS, oauth_providers::SCIOTTE_COROS),
 ];
 
 /// Return the mirror-backend provider name for a user-facing provider, if any.
@@ -68,7 +69,7 @@ pub fn mirror_backend_for(user_facing: &str) -> Option<&'static str> {
 }
 
 /// The hosted login page's `target` for a mirror backend (`strava`, `garmin`,
-/// `trainingpeaks`), or `None` for a slug with no hosted login.
+/// `trainingpeaks`, `coros`), or `None` for a slug with no hosted login.
 ///
 /// The scraper keys a login on the name the athlete knows the provider by, so
 /// the target is the mirror's user-facing name — the same string
@@ -103,9 +104,9 @@ pub fn brand_name(registry: &ProviderRegistry, slug: &str) -> Option<&'static st
 
 /// Map a backend provider name to the user-facing provider it serves.
 ///
-/// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are mirror
-/// backends — they appear to users and LLMs as `strava`, `garmin` and
-/// `trainingpeaks`. Any other name is returned unchanged.
+/// `sciotte`, `sciotte_garmin`, `sciotte_trainingpeaks` and `sciotte_coros`
+/// are mirror backends — they appear to users and LLMs as `strava`, `garmin`,
+/// `trainingpeaks` and `coros`. Any other name is returned unchanged.
 #[must_use]
 pub fn user_facing_name(backend: &str) -> &str {
     hosted_login_target(backend).unwrap_or(backend)
@@ -121,7 +122,8 @@ pub fn user_facing_name(backend: &str) -> &str {
 /// reported `connected: true, needs_reauth: false` while every coach data call
 /// failed with "Provider `sciotte_garmin` requires authentication" (carnet#352).
 /// TrainingPeaks is the same shape with no OAuth backend at all: only the
-/// `sciotte_trainingpeaks` row serves it.
+/// `sciotte_trainingpeaks` row serves it. COROS is Garmin's shape: its partner
+/// API is not approved (carnet#509), so only `sciotte_coros` serves it.
 ///
 /// Strava is the opposite case and genuinely accepts either: its OAuth backend
 /// is real and takes precedence when a token exists, falling back to the
@@ -142,6 +144,7 @@ pub fn serving_backends(provider: &str) -> Vec<String> {
         // Mirror only — see above.
         oauth_providers::GARMIN => vec![oauth_providers::SCIOTTE_GARMIN.to_owned()],
         oauth_providers::TRAININGPEAKS => vec![oauth_providers::SCIOTTE_TRAININGPEAKS.to_owned()],
+        oauth_providers::COROS => vec![oauth_providers::SCIOTTE_COROS.to_owned()],
         // No mirror: the provider is its own only backend.
         other => vec![other.to_owned()],
     }
@@ -199,6 +202,7 @@ async fn has_token_row(
 /// - `strava` → `sciotte` when a sciotte token row exists for the user
 /// - `garmin` → `sciotte_garmin` always (the mirror is Garmin's only backend)
 /// - `trainingpeaks` → `sciotte_trainingpeaks` always (same reason)
+/// - `coros` → `sciotte_coros` always (its partner API is not approved)
 /// - any other name (including a mirror backend name passed through
 ///   directly) is returned unchanged
 ///

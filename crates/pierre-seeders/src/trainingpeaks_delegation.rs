@@ -31,7 +31,7 @@
 //! ```
 
 use chrono::Utc;
-use pierre_core::constants::oauth::providers::TRAININGPEAKS_TERMS_VERSION;
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
@@ -246,9 +246,11 @@ async fn seed_coach_account(repos: &RepositoryRegistry, coach: &Account) -> AppR
         )
         .await?;
     repos.users.set_manages_roster(coach.id, true).await?;
+    let current = provider_terms_version(SCIOTTE_TRAININGPEAKS)
+        .ok_or_else(|| AppError::internal("TrainingPeaks carries no exposure notice version"))?;
     repos
         .users
-        .record_trainingpeaks_terms(coach.id, TRAININGPEAKS_TERMS_VERSION)
+        .record_provider_terms(coach.id, SCIOTTE_TRAININGPEAKS, current)
         .await
 }
 

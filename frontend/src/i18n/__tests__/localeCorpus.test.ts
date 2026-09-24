@@ -301,8 +301,13 @@ describe('client locale corpus', () => {
     // +47.
     // 2453 once main's digest keys (2380) met the TrainingPeaks branch's
     // +73 above, whose running totals were counted from an older base.
+    // 2462 once COROS became a provider: its name, account title and e-mail
+    // placeholder on the web login and the phone's, the settings blurb, and
+    // the phone's connections and onboarding lines. +9.
+    // 2465 once COROS carried its own exposure notice, as TrainingPeaks does:
+    // `providers.corosNotice` title, body and acceptance. +3.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2453);
+    expect(reference).toHaveLength(2465);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

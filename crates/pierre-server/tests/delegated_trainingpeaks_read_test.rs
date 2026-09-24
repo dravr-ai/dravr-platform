@@ -48,7 +48,7 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::constants::oauth::providers::TRAININGPEAKS_TERMS_VERSION;
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
@@ -79,6 +79,14 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 use uuid::Uuid;
+
+/// The backend TrainingPeaks' exposure notice guards.
+const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
+
+/// TrainingPeaks' current exposure-notice version.
+fn tp_terms_version() -> &'static str {
+    provider_terms_version(TP_NOTICE_BACKEND).expect("TrainingPeaks carries a notice")
+}
 
 const PROVIDER: &str = SCIOTTE_TRAININGPEAKS;
 /// The coach's live TrainingPeaks session.
@@ -449,7 +457,7 @@ async fn world(scraper: Scraper) -> World {
         .unwrap();
     repos
         .users
-        .record_trainingpeaks_terms(coach.id, TRAININGPEAKS_TERMS_VERSION)
+        .record_provider_terms(coach.id, TP_NOTICE_BACKEND, tp_terms_version())
         .await
         .unwrap();
 

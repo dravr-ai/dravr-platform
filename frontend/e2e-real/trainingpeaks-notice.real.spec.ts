@@ -10,8 +10,9 @@ import { test, expect, request as apiRequest, type APIRequestContext } from '@pl
 // server on 8081 and the SPA on 5173, seeded by
 // ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh. The account is the
 // seeded web test user — seeded with a provider, so it lands on the dashboard
-// rather than the forced onboarding screen — which a fresh seed has never had
-// accept the TrainingPeaks notice; nothing here accepts it, because acceptance
+// rather than the forced onboarding screen — which the seeder arms with the
+// `provider_exposure_notice` flag (off by default) and a fresh seed has never
+// had accept the TrainingPeaks notice; nothing here accepts it, because acceptance
 // is only recorded by a login attempt.
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';

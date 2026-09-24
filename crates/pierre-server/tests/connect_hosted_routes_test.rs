@@ -13,9 +13,9 @@ mod helpers;
 use std::sync::Arc;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::constants::oauth::providers::{
-    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
-};
+use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
@@ -23,6 +23,14 @@ use pierre_middleware::provider_link_token::{
 };
 use pierre_routes_auth::AuthRoutes;
 use uuid::Uuid;
+
+/// The backend TrainingPeaks' exposure notice guards.
+const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
+
+/// TrainingPeaks' current exposure-notice version.
+fn tp_terms_version() -> &'static str {
+    provider_terms_version(TP_NOTICE_BACKEND).expect("TrainingPeaks carries a notice")
+}
 
 async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId) {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -40,6 +48,18 @@ async fn test_setup() -> (Arc<ServerContext>, Uuid, TenantId) {
         .expect("user has a tenant")
         .id;
     (resources, user_id, tenant_id)
+}
+
+/// Arm the `provider_exposure_notice` flag for `user_id`, as an operator
+/// onboarding the athlete does; it is off by default.
+async fn arm_notice(resources: &Arc<ServerContext>, user_id: Uuid) {
+    resources
+        .common
+        .repos
+        .feature_flags
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+        .await
+        .expect("arm the exposure notice flag");
 }
 
 fn connect_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
@@ -467,6 +487,7 @@ async fn hosted_login_page(
 #[tokio::test]
 async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_it() {
     let (resources, user_id, tenant_id) = test_setup().await;
+    arm_notice(&resources, user_id).await;
 
     let page = hosted_login_page(&resources, user_id, tenant_id, "trainingpeaks").await;
     assert!(
@@ -524,7 +545,7 @@ async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_i
         .common
         .repos
         .users
-        .record_trainingpeaks_terms(user_id, TRAININGPEAKS_TERMS_VERSION)
+        .record_provider_terms(user_id, TP_NOTICE_BACKEND, tp_terms_version())
         .await
         .unwrap();
     let accepted = hosted_login_page(&resources, user_id, tenant_id, "trainingpeaks").await;
@@ -541,11 +562,68 @@ async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_i
     assert!(garmin.contains("id=\"consent-block\" hidden>"));
 }
 
-/// The picker carries the notice hidden, and tells the page per card whether
-/// to show it — only the TrainingPeaks card asks, and only until accepted.
+/// The COROS hosted login states COROS' own notice before an email field, and
+/// asks until this account accepts that notice.
 #[tokio::test]
-async fn picker_asks_for_the_trainingpeaks_notice_on_that_card_alone() {
+async fn hosted_coros_login_asks_for_the_coros_notice_until_accepted() {
     let (resources, user_id, tenant_id) = test_setup().await;
+    arm_notice(&resources, user_id).await;
+    let page = hosted_login_page(&resources, user_id, tenant_id, "coros").await;
+    assert!(page.contains("consentRequired: true"));
+    assert!(
+        page.contains(r#"<p class="callout-title">Before you connect COROS</p>"#),
+        "the page shows COROS' notice, not another provider's: {page}"
+    );
+    assert!(page.contains("Terms of Service (sections 4 and 7)"));
+    assert!(
+        !page.contains("Before you connect TrainingPeaks")
+            && !page.contains("TrainingPeaks could suspend my account"),
+        "the COROS page carries no TrainingPeaks notice"
+    );
+    assert!(
+        page.contains("<label for=\"email\">Email</label>")
+            && page.contains("type=\"email\" id=\"email\""),
+        "COROS signs in with an email"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .record_provider_terms(
+            user_id,
+            "sciotte_coros",
+            provider_terms_version("sciotte_coros").unwrap(),
+        )
+        .await
+        .unwrap();
+    let accepted = hosted_login_page(&resources, user_id, tenant_id, "coros").await;
+    assert!(accepted.contains("consentRequired: false"));
+    assert!(accepted.contains("id=\"consent-block\" hidden>"));
+}
+
+/// The cards the picker page embeds, as the page's script reads them.
+fn picker_cards(body: &str) -> Vec<serde_json::Value> {
+    let start = body.find("providers: ").expect("the page embeds its cards") + "providers: ".len();
+    let json = &body[start..];
+    let end = json.find(",\n").expect("the card list ends its line");
+    serde_json::from_str(&json[..end]).expect("the embedded cards are JSON")
+}
+
+fn picker_card<'a>(cards: &'a [serde_json::Value], target: &str) -> &'a serde_json::Value {
+    cards
+        .iter()
+        .find(|c| c["target"] == target)
+        .unwrap_or_else(|| panic!("the picker offers a {target} card"))
+}
+
+/// The picker carries the notice block hidden and empty, and each card
+/// carries its own notice and whether to show it: TrainingPeaks and COROS ask,
+/// each with its own text and each until accepted; Garmin asks nothing.
+#[tokio::test]
+async fn picker_asks_each_provider_for_its_own_notice() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    arm_notice(&resources, user_id).await;
     let url = format!(
         "/providers/connect?token={}",
         urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
@@ -556,47 +634,73 @@ async fn picker_asks_for_the_trainingpeaks_notice_on_that_card_alone() {
         .await
         .text();
     assert!(body.contains("id=\"consent-block\" hidden>"));
-    assert!(body.contains("TrainingPeaks could suspend my account"));
     assert!(
-        body.contains(r#"<p class="callout-title">Before you connect TrainingPeaks</p>"#),
-        "the picker's notice carries its title too"
+        body.contains(r#"<p class="callout-title"></p>"#),
+        "the block starts empty; a picked card fills it"
     );
     // A card's glyph takes its provider's ink per scheme, from PROVIDER_GLYPH_INK.
     assert!(body.contains(r#".pc-glyph[data-provider="sciotte_trainingpeaks"]"#));
-    assert!(
-        body.contains("\"target\":\"trainingpeaks\",\"consent_required\":true"),
-        "the TrainingPeaks card asks for the notice: {body}"
+    assert!(body.contains(r#".pc-glyph[data-provider="sciotte_coros"]"#));
+
+    let cards = picker_cards(&body);
+    let trainingpeaks = picker_card(&cards, "trainingpeaks");
+    assert_eq!(trainingpeaks["consent_required"], true);
+    assert_eq!(
+        trainingpeaks["notice"]["title"],
+        "Before you connect TrainingPeaks"
     );
+    assert!(trainingpeaks["notice"]["consent"]
+        .as_str()
+        .unwrap()
+        .contains("TrainingPeaks could suspend my account"));
+    assert_eq!(trainingpeaks["login_identifier"], "username");
+
+    let coros = picker_card(&cards, "coros");
+    assert_eq!(coros["provider"], "sciotte_coros");
+    assert_eq!(coros["display_name"], "COROS");
+    assert_eq!(coros["consent_required"], true);
+    assert_eq!(coros["notice"]["title"], "Before you connect COROS");
+    assert!(coros["notice"]["body"]
+        .as_str()
+        .unwrap()
+        .contains("sections 4 and 7"));
+    assert_eq!(coros["login_identifier"], "email");
+
+    let garmin = picker_card(&cards, "garmin");
+    assert_eq!(garmin["consent_required"], false);
+    assert!(garmin.get("notice").is_none(), "Garmin has no notice");
+    assert_eq!(garmin["login_identifier"], "email");
     assert!(
-        body.contains("\"target\":\"garmin\",\"consent_required\":false"),
-        "the Garmin card does not: {body}"
-    );
-    assert!(
-        body.contains("\"consent_required\":true,\"login_identifier\":\"username\"")
-            && body.contains(
-                "\"target\":\"garmin\",\"consent_required\":false,\"login_identifier\":\"email\""
-            ),
-        "each card tells the page what its provider signs in with: {body}"
+        cards.iter().all(|c| c["provider"] != "coros"),
+        "COROS' raw OAuth card, which Pierre cannot complete, is never offered"
     );
     assert!(
         body.contains("'Username / password'"),
         "the picker names the username a TrainingPeaks card asks for"
     );
 
+    // Accepting one provider's notice answers that provider alone.
     resources
         .common
         .repos
         .users
-        .record_trainingpeaks_terms(user_id, TRAININGPEAKS_TERMS_VERSION)
+        .record_provider_terms(user_id, TP_NOTICE_BACKEND, tp_terms_version())
         .await
         .unwrap();
     let accepted = AxumTestRequest::get(&url)
         .send(AuthRoutes::routes(resources.auth_routes_context()))
         .await
         .text();
-    assert!(
-        accepted.contains("\"target\":\"trainingpeaks\",\"consent_required\":false"),
-        "an account that accepted is not asked again: {accepted}"
+    let cards = picker_cards(&accepted);
+    assert_eq!(
+        picker_card(&cards, "trainingpeaks")["consent_required"],
+        false,
+        "an account that accepted is not asked again"
+    );
+    assert_eq!(
+        picker_card(&cards, "coros")["consent_required"],
+        true,
+        "the TrainingPeaks answer says nothing about COROS"
     );
 }
 
@@ -631,4 +735,38 @@ async fn expired_short_link_page_draws_with_the_boreal_sheet() {
         !body.contains("style=\""),
         "no inline style is left on the page"
     );
+}
+
+/// Left at its default, the `provider_exposure_notice` flag asks for no
+/// notice: neither the picker's TrainingPeaks and COROS cards nor their hosted
+/// login pages show it, which is how a demo account connects.
+#[tokio::test]
+async fn an_unarmed_account_is_asked_for_no_notice() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+    let body = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    let cards = picker_cards(&body);
+    for target in ["trainingpeaks", "coros"] {
+        assert_eq!(
+            picker_card(&cards, target)["consent_required"],
+            false,
+            "the {target} card asks nothing of an unarmed account"
+        );
+        let page = hosted_login_page(&resources, user_id, tenant_id, target).await;
+        assert!(
+            page.contains("consentRequired: false"),
+            "the {target} hosted login asks nothing of an unarmed account"
+        );
+        assert!(
+            page.contains("id=\"consent-block\" hidden>"),
+            "the {target} notice block stays hidden"
+        );
+    }
 }

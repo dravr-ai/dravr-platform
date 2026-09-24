@@ -59,6 +59,9 @@ mod intervals_icu_self_report;
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;
 
+/// COROS athlete self-report: the feeling the athlete picked, read off a scraped activity.
+#[cfg(feature = "provider-sciotte")]
+pub mod coros_self_report;
 /// HTTP client for the dedicated dravr-sciotte scraper service (ADR-021 remote path)
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_remote;
@@ -95,6 +98,8 @@ pub use spi::CorosDescriptor;
 pub use spi::FitbitDescriptor;
 #[cfg(feature = "provider-garmin")]
 pub use spi::GarminDescriptor;
+#[cfg(feature = "provider-sciotte")]
+pub use spi::SciotteCorosDescriptor;
 #[cfg(feature = "provider-sciotte")]
 pub use spi::SciotteDescriptor;
 #[cfg(feature = "provider-sciotte")]

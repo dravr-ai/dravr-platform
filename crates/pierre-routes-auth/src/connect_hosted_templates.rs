@@ -30,9 +30,10 @@ const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
 pub fn render_connect_page(link_token: &str, channel: &str, providers_json: &str) -> String {
     let channel_label = humanize_channel(channel);
 
-    // The notice starts hidden: the page shows it for a card whose
-    // `consent_required` is set, when that card is picked.
-    sciotte_hosted_templates::fill_consent(&with_hosted_page_css(CONNECT_TEMPLATE), true)
+    // The notice starts hidden and empty: when a card whose
+    // `consent_required` is set is picked, the page fills the block with that
+    // card's own `notice` and shows it.
+    sciotte_hosted_templates::fill_consent(&with_hosted_page_css(CONNECT_TEMPLATE), true, "")
         .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
         .replace("{{CHANNEL}}", &escape_html_attribute(channel))
         .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))

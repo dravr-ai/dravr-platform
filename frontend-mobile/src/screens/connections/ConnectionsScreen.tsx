@@ -235,14 +235,15 @@ export function ConnectionsScreen() {
 
   // The one line under a provider's name. After the 2026-Q2 provider cleanup
   // the API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
-  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded), `whoop`
-  // and `intervals_icu`; an unknown id gets the
+  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded),
+  // `sciotte_coros` (COROS-branded), `whoop` and `intervals_icu`; an unknown id gets the
   // generic line so the screen never crashes on an unexpected payload.
   const providerBlurb = (providerId: string): string => {
     const blurbs: Record<string, string> = {
       sciotte: t('app.provStravaBlurb'),
       sciotte_garmin: t('app.provGarminBlurb'),
       sciotte_trainingpeaks: t('app.provTrainingPeaksBlurb'),
+      sciotte_coros: t('app.provCorosBlurb'),
       whoop: t('app.provWhoopBlurb'),
       intervals_icu: t('app.provIntervalsBlurb'),
     };

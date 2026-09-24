@@ -1,4 +1,4 @@
-# ABOUTME: Connecting TrainingPeaks states the exposure notice before the credentials and holds Log In until it is ticked
+# ABOUTME: Connecting COROS states the exposure notice before the credentials and holds Log In until it is ticked
 # ABOUTME: Stops before submitting, so no credential ever reaches the scraper; ids only, so it runs in every locale
 
 appId: ai.dravr.app
@@ -22,10 +22,10 @@ appId: ai.dravr.app
 # account, which has never accepted the notice, so the row asks for it.
 - scrollUntilVisible:
     element:
-      id: "provider-row-sciotte_trainingpeaks"
+      id: "provider-row-sciotte_coros"
     timeout: 10000
 - tapOn:
-    id: "provider-action-sciotte_trainingpeaks"
+    id: "provider-action-sciotte_coros"
 
 # The notice comes first, with the credentials form below it.
 - extendedWaitUntil:
@@ -37,7 +37,7 @@ appId: ai.dravr.app
 
 - tapOn:
     id: "sciotte-email"
-- inputText: "maestro-coach"
+- inputText: "maestro@example.com"
 # The keyboard covers the password field. Enter blurs a single-line field on
 # iOS, where hideKeyboard does not close the secure-entry keyboard.
 - pressKey: Enter

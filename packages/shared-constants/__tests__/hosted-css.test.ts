@@ -73,9 +73,9 @@ describe('hosted page stylesheet', () => {
   it('measures every pairing it draws above its WCAG floor, in both schemes', () => {
     const light = measurePairings('light');
     const dark = measurePairings('dark');
-    // 18 fixed pairings plus one glyph per PROVIDER_GLYPH_INK row (8).
-    expect(light).toHaveLength(26);
-    expect(dark).toHaveLength(26);
+    // 18 fixed pairings plus one glyph per PROVIDER_GLYPH_INK row (10).
+    expect(light).toHaveLength(28);
+    expect(dark).toHaveLength(28);
     for (const row of [...light, ...dark]) {
       expect(row.ratio, `${row.scheme} ${row.what}`).toBeGreaterThanOrEqual(row.floor);
     }
