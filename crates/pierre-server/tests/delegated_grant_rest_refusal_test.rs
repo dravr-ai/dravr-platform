@@ -9,7 +9,7 @@
 
 //! # A delegation is only as wide as the path that reads it
 //!
-//! The OAuth2 authorization server mints access tokens for third-party
+//! The `OAuth2` authorization server mints access tokens for third-party
 //! applications, narrowed to the scopes the athlete consented to. Only the
 //! MCP (and A2A) tool dispatch reads those scopes. Every REST handler acts
 //! with the athlete's whole authority, so a `fitness:read` token accepted
