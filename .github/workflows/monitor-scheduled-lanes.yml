@@ -40,6 +40,12 @@
 # from the checked-out workflow files (`schedule` in `on:`), so a future cron
 # lane is covered the day it lands — including this one, which matches its own
 # selector.
+#
+# The register it writes is kept current in both directions: an issue is
+# opened or commented when a lane goes unhealthy, and closed when the lane
+# reads healthy again or no scheduled lane of that name exists any more. A run
+# a closed issue already records is never re-filed, so closing one by hand
+# acknowledges that run; only a newer unhealthy run opens a fresh issue.
 
 name: "Monitor: Scheduled Lane Health"
 
@@ -97,6 +103,19 @@ jobs:
               )
               return json.loads(out.stdout)
 
+          def when(stamp):
+              return dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+          jobs_by_run = {}
+
+          def jobs(run):
+              if run["id"] not in jobs_by_run:
+                  jobs_by_run[run["id"]] = api(
+                      f"repos/{REPO}/actions/runs/{run['id']}/jobs"
+                      "?filter=latest&per_page=100"
+                  )["jobs"]
+              return jobs_by_run[run["id"]]
+
           # Workflow state (active / disabled_manually / disabled_inactivity)
           # lives in the API, not the file.
           states = {}
@@ -114,6 +133,11 @@ jobs:
           )
           rows = []
           reds = []
+          # Every scheduled lane by name, and the ones whose verdict is clean:
+          # the issue step closes an open issue whose lane is back to healthy,
+          # or whose lane no longer exists as a cron lane at all.
+          scheduled = []
+          healthy = []
           for f in files:
               with open(f) as fh:
                   doc = yaml.safe_load(fh)
@@ -122,6 +146,7 @@ jobs:
               if not isinstance(on, dict) or "schedule" not in on:
                   continue
               name = doc.get("name", f)
+              scheduled.append(name)
               state = states.get(f, "unknown")
               if state != "active":
                   rows.append((name, f, f"({state})", "not alarmed"))
@@ -138,15 +163,50 @@ jobs:
               #
               # `repository_dispatch` is read because the bump lanes run on it
               # and nothing else reads those verdicts.
+              #
+              # Three differently-shaped reads, and the newest run any of them
+              # returns wins. GitHub answers a filtered run listing from an
+              # index that can lag: on 2026-09-24 at 15:54 UTC the read
+              # `?status=completed&event=schedule&branch=main&per_page=1` for
+              # chat-conversation-eval.yml returned the 2026-09-13 run while
+              # eleven newer completed cron runs existed, and the same query
+              # answered correctly minutes later. Trusting that one answer
+              # filed carnet#544 — "stale (11d since the last cron run)" —
+              # against a cron that had fired every morning. A lagging read
+              # can only hide newer runs, never invent them, so the newest run
+              # any read returns is the one the others missed. The unfiltered
+              # page covers a quiet lane; the per-event pages cover a lane
+              # whose push runs would crowd its cron out of the last 100.
+              base = f"repos/{REPO}/actions/workflows/{wf}/runs"
+              branch_page = api(
+                  f"{base}?branch={DEFAULT_BRANCH}&per_page=100"
+              )["workflow_runs"]
               latest = {}
+              lagged = []
               for event in ("schedule", "workflow_dispatch", "repository_dispatch"):
-                  got = api(
-                      f"repos/{REPO}/actions/workflows/{wf}/runs"
-                      f"?status=completed&event={event}"
+                  indexed = api(
+                      f"{base}?status=completed&event={event}"
                       f"&branch={DEFAULT_BRANCH}&per_page=1"
                   )["workflow_runs"]
-                  if got:
-                      latest[event] = got[0]
+                  listed = api(
+                      f"{base}?event={event}&branch={DEFAULT_BRANCH}&per_page=20"
+                  )["workflow_runs"]
+                  candidates = {
+                      run["id"]: run
+                      for run in indexed + listed + branch_page
+                      if run["event"] == event
+                      and run["status"] == "completed"
+                      and run["head_branch"] == DEFAULT_BRANCH
+                  }
+                  if not candidates:
+                      continue
+                  newest = max(candidates.values(), key=lambda r: when(r["created_at"]))
+                  latest[event] = newest
+                  if indexed and indexed[0]["id"] != newest["id"]:
+                      lagged.append(
+                          f"{event}: filtered read returned run {indexed[0]['id']}, "
+                          f"newest completed is {newest['id']}"
+                      )
               if not latest:
                   rows.append((name, f, "never completed a cron run", "not alarmed"))
                   continue
@@ -178,15 +238,44 @@ jobs:
               # narrow, manual, older one. A non-cron red NEWER than the last
               # cron still alarms, and a superseded run stays printed in the
               # step summary rather than vanishing.
+              #
+              # A later NON-cron run answers a non-cron red too, but only on
+              # evidence: it must have re-run every job the red run failed and
+              # passed each one. The bump lanes are the case — a release's
+              # repository_dispatch fails at "Bump the pins" or "Wait for CI",
+              # someone re-fires the lane by hand, and that workflow_dispatch
+              # passes those same jobs and squash-merges the pin (bump-stripe
+              # 09-22 -> 09-23, bump-commere 09-23). Without this the red stood
+              # until the next weekly cron and was re-filed as carnet#542 and
+              # #543 after the pins had already landed. The rule compares
+              # jobs, not events, so the coverage objection above still holds:
+              # a dispatch that skipped the failing job answers nothing, and a
+              # red with no failed job to compare (a startup failure, a run
+              # cancelled before any job) is never answered this way. It never
+              # applies to a cron red.
               cron = latest.get("schedule")
               cron_ok = cron is not None and cron["conclusion"] in HEALTHY
-              cron_started = (
-                  dt.datetime.fromisoformat(
-                      cron["run_started_at"].replace("Z", "+00:00")
-                  )
-                  if cron
-                  else None
-              )
+              cron_started = when(cron["run_started_at"]) if cron else None
+
+              def answered_by(red_run):
+                  red_started = when(red_run["run_started_at"])
+                  failed = {
+                      j["name"] for j in jobs(red_run) if j["conclusion"] not in HEALTHY
+                  }
+                  if not failed:
+                      return None
+                  for later in latest.values():
+                      if (
+                          later["conclusion"] not in HEALTHY
+                          or when(later["run_started_at"]) <= red_started
+                      ):
+                          continue
+                      passed = {
+                          j["name"] for j in jobs(later) if j["conclusion"] == "success"
+                      }
+                      if failed <= passed:
+                          return later
+                  return None
 
               verdicts = []
               superseded = []
@@ -194,14 +283,20 @@ jobs:
               for event, run in latest.items():
                   if run["conclusion"] in HEALTHY:
                       continue
-                  started = dt.datetime.fromisoformat(
-                      run["run_started_at"].replace("Z", "+00:00")
-                  )
+                  started = when(run["run_started_at"])
                   if event != "schedule" and cron_ok and cron_started > started:
                       superseded.append(
                           f"{event} ({run['conclusion']}) superseded by a later green cron"
                       )
                       continue
+                  if event != "schedule":
+                      later = answered_by(run)
+                      if later is not None:
+                          superseded.append(
+                              f"{event} ({run['conclusion']}) superseded by a later "
+                              f"{later['event']} run that passed every job it failed"
+                          )
+                          continue
                   verdicts.append(f"red on {event} ({run['conclusion']})")
                   offenders.append(run)
 
@@ -219,7 +314,11 @@ jobs:
               note = ", ".join(verdicts) or "ok"
               if superseded:
                   note += " [" + "; ".join(superseded) + "]"
+              if lagged:
+                  note += " [index lag — " + "; ".join(lagged) + "]"
               rows.append((name, f, shown, note))
+              if not verdicts:
+                  healthy.append(name)
               if verdicts:
                   worst = next(
                       iter(offenders),
@@ -251,32 +350,57 @@ jobs:
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write("reds<<EOF\n" + json.dumps(reds) + "\nEOF\n")
+              fh.write("scheduled<<EOF\n" + json.dumps(scheduled) + "\nEOF\n")
+              fh.write("healthy<<EOF\n" + json.dumps(healthy) + "\nEOF\n")
               fh.write(f"breach={'true' if reds else 'false'}\n")
           PY
 
-      - name: Open or update carnet issues for unhealthy lanes
-        if: steps.scan.outputs.breach == 'true'
+      # Runs on every scan, green or red: an issue whose lane has recovered is
+      # closed here, so the register holds only lanes that are unhealthy now.
+      # Before this, "close this once the lane is healthy" was a hand step
+      # nobody owned, and fourteen of these sat open against green lanes on
+      # 2026-09-24 — four of them naming workflow files that no longer exist.
+      - name: Open, update or close carnet issues for cron lanes
         uses: actions/github-script@v9
         env:
           REDS: ${{ steps.scan.outputs.reds }}
+          SCHEDULED: ${{ steps.scan.outputs.scheduled }}
+          HEALTHY: ${{ steps.scan.outputs.healthy }}
         with:
           github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
           script: |
             const owner = 'dravr-ai';
             const repo = 'dravr-carnet';
+            const prefix = '[platform] scheduled lane unhealthy: ';
             const reds = JSON.parse(process.env.REDS);
+            const scheduled = new Set(JSON.parse(process.env.SCHEDULED));
+            const healthy = new Set(JSON.parse(process.env.HEALTHY));
             const monitorUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
             // Every page, not the first: listForRepo returns newest-first and a
             // standing issue's created_at never advances, so a single page of
             // 100 would stop seeing it once enough newer issues carry the label
-            // (same reasoning as billing-drivers-monitor.yml).
-            const existing = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
-            });
+            // (same reasoning as billing-drivers-monitor.yml). Closed issues
+            // are read too: a run a closed issue already records was
+            // acknowledged by whoever closed it, and must not be re-filed.
+            const lanes = (await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'all', labels: 'dravr-platform', per_page: 100,
+            })).filter((i) => !i.pull_request && i.title.startsWith(prefix));
+
+            // The run URL must end where the recorded one ends: a bare
+            // substring test reads .../runs/3578 as recorded wherever
+            // .../runs/35788148198 is.
+            const records = async (issue, url) => {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: issue.number, per_page: 100,
+              });
+              const exact = new RegExp(`${url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
+              return [issue.body ?? '', ...comments.map((c) => c.body ?? '')]
+                .some((t) => exact.test(t));
+            };
 
             for (const red of reds) {
-              const title = `[platform] scheduled lane unhealthy: ${red.name}`;
+              const title = `${prefix}${red.name}`;
               const body = [
                 `**${red.name}** (\`${red.file}\`) — verdict: **${red.verdict}**.`,
                 ``,
@@ -296,34 +420,74 @@ jobs:
                 `A \`cancelled\` conclusion may be a job timeout rather than a preemption; a`,
                 `stale verdict means the cron has stopped firing at all.`,
                 ``,
-                `Close this once the lane is healthy — the monitor opens a fresh issue if it`,
-                `regresses, and comments here only when a new unhealthy run appears.`,
+                `The monitor closes this itself once the lane is healthy, opens a fresh`,
+                `issue if it regresses, and comments here only when a new unhealthy run`,
+                `appears. Closing it by hand acknowledges this run: the monitor will not`,
+                `re-file it, only a newer unhealthy run.`,
                 ``,
                 `_[Monitor: Scheduled Lane Health](${monitorUrl})_`,
               ].join('\n');
 
-              const open = existing.find((i) => i.title === title);
+              const same = lanes.filter((i) => i.title === title);
+              const open = same.find((i) => i.state === 'open');
+
+              // The same unhealthy run re-read on a later day adds nothing; a
+              // NEW failing run is a fresh data point worth a comment.
+              if (open && (await records(open, red.html_url))) {
+                core.info(`Issue #${open.number} already records ${red.html_url}`);
+                continue;
+              }
               if (!open) {
+                let acknowledged = null;
+                for (const closed of same) {
+                  if (await records(closed, red.html_url)) {
+                    acknowledged = closed;
+                    break;
+                  }
+                }
+                if (acknowledged) {
+                  core.info(`Closed issue #${acknowledged.number} already records ${red.html_url}; not re-filing it`);
+                  continue;
+                }
                 const created = await github.rest.issues.create({
                   owner, repo, title, body, labels: ['dravr-platform', 'bug'],
                 });
                 core.info(`Opened issue #${created.data.number} for ${red.file}`);
                 continue;
               }
-
-              // The same unhealthy run re-read on a later day adds nothing; a
-              // NEW failing run is a fresh data point worth a comment.
-              const comments = await github.paginate(github.rest.issues.listComments, {
-                owner, repo, issue_number: open.number, per_page: 100,
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: open.number, body,
               });
-              const seen = [open.body ?? '', ...comments.map((c) => c.body ?? '')]
-                .some((t) => t.includes(red.html_url));
-              if (seen) {
-                core.info(`Issue #${open.number} already records ${red.html_url}`);
-              } else {
-                await github.rest.issues.createComment({
-                  owner, repo, issue_number: open.number, body,
-                });
-                core.info(`Commented on issue #${open.number} with the new run`);
+              core.info(`Commented on issue #${open.number} with the new run`);
+            }
+
+            // A scan that found no cron lane read nothing (a broken checkout, a
+            // selector regression). Closing on it would empty the register of
+            // every live alarm, so it closes nothing and fails the step.
+            if (scheduled.size === 0) {
+              core.setFailed('The scan found no scheduled lane; refusing to close any issue on an empty read.');
+              return;
+            }
+            const stillRed = new Set(reds.map((r) => r.name));
+            for (const issue of lanes) {
+              if (issue.state !== 'open') continue;
+              const name = issue.title.slice(prefix.length);
+              if (stillRed.has(name)) continue;
+              let reason = null;
+              let stateReason = 'completed';
+              if (healthy.has(name)) {
+                reason = `**${name}** reads healthy on main: every scheduled and dispatched verdict is green, superseded, or answered by a later run that passed the jobs it failed. Closing; a new unhealthy run opens a fresh issue.`;
+              } else if (!scheduled.has(name)) {
+                reason = `No workflow on main named **${name}** has a \`schedule\` trigger any more (renamed, deleted, or made dispatch-only), so this monitor can no longer read it. Closing; a renamed lane is read under its new name.`;
+                stateReason = 'not_planned';
               }
+              if (!reason) continue;
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `${reason}\n\n_[Monitor: Scheduled Lane Health](${monitorUrl})_`,
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: issue.number, state: 'closed', state_reason: stateReason,
+              });
+              core.info(`Closed issue #${issue.number} (${name}): ${stateReason}`);
             }
