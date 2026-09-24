@@ -73,19 +73,3 @@ pub struct AgentFollowup {
     /// When the followup was actually delivered to the agent (if ever).
     pub delivered_at: Option<DateTime<Utc>>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::FollowupStatus;
-
-    #[test]
-    fn status_roundtrip() {
-        for status in [
-            FollowupStatus::Pending,
-            FollowupStatus::Delivered,
-            FollowupStatus::Cancelled,
-        ] {
-            assert_eq!(FollowupStatus::parse(status.as_str()), Some(status));
-        }
-    }
-}

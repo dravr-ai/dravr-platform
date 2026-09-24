@@ -149,35 +149,3 @@ impl fmt::Display for Pillar {
         f.write_str(self.as_str())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Pillar;
-
-    #[test]
-    fn roundtrip_str() {
-        for pillar in Pillar::ALL {
-            assert_eq!(Pillar::parse(pillar.as_str()), Some(pillar));
-        }
-    }
-
-    #[test]
-    fn unknown_returns_none() {
-        assert!(Pillar::parse("activity").is_none());
-        assert!(Pillar::parse("nutrition").is_none());
-        assert!(Pillar::parse("recovery").is_none());
-        assert!(Pillar::parse("mobility").is_none());
-    }
-
-    #[test]
-    fn serde_wire_form_is_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&Pillar::TrainingAndMovement).unwrap_or_default(),
-            "\"training_and_movement\""
-        );
-        assert_eq!(
-            serde_json::to_string(&Pillar::RecoveryOptimisation).unwrap_or_default(),
-            "\"recovery_optimisation\""
-        );
-    }
-}

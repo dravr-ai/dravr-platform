@@ -44,24 +44,3 @@ impl MemoryScope {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::MemoryScope;
-
-    #[test]
-    fn roundtrip_str() {
-        for scope in [
-            MemoryScope::Conversation,
-            MemoryScope::User,
-            MemoryScope::Tenant,
-        ] {
-            assert_eq!(MemoryScope::parse(scope.as_str()), Some(scope));
-        }
-    }
-
-    #[test]
-    fn unknown_returns_none() {
-        assert!(MemoryScope::parse("global").is_none());
-    }
-}

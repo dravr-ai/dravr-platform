@@ -199,6 +199,12 @@ jobs:
           GATE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: ./scripts/ci/architectural-validation.sh --apply-skills
 
+      # The fleet-wide text scans and this repo's validation-patterns.local.toml
+      # (no #[cfg(test)] in src/). Until this step nothing ran them here, and
+      # 33 inline test modules piled up under a rule nobody enforced.
+      - name: Shared dravr Validation
+        run: ./.build/validation/validate.sh
+
       - name: Secret Pattern Validation
         run: ./scripts/ci/validate-no-secrets.sh
 
