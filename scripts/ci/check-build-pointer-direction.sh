@@ -32,15 +32,20 @@ case "$OLD_REF" in
 esac
 
 gitlink_at() { # <ref> -> the .build commit recorded at that superproject ref
-    gh api "repos/$REPO/contents/$SUB_PATH?ref=$1" --jq 'select(.type=="submodule") | .sha' 2>/dev/null
+    # gh writes an API error body to stdout; only a successful call is a sha.
+    local out
+    out=$(gh api "repos/$REPO/contents/$SUB_PATH?ref=$1" --jq 'select(.type=="submodule") | .sha' 2>/dev/null) || return 0
+    printf '%s' "$out"
 }
 
 OLD_SHA=$(gitlink_at "$OLD_REF")
 NEW_SHA=$(gitlink_at "$NEW_REF")
 
+# Every path below that cannot compare fails: a guard that exits 0 when it
+# verified nothing reads as green while it guards nothing.
 if [ -z "$OLD_SHA" ] || [ -z "$NEW_SHA" ]; then
-    echo "⚠️  Could not read the $SUB_PATH pointer at both refs — nothing to compare."
-    exit 0
+    echo "❌ Could not read the $SUB_PATH pointer at both refs — direction unverified."
+    exit 1
 fi
 if [ "$OLD_SHA" = "$NEW_SHA" ]; then
     echo "✅ $SUB_PATH unchanged (${NEW_SHA:0:8})."
@@ -48,7 +53,8 @@ if [ "$OLD_SHA" = "$NEW_SHA" ]; then
 fi
 
 # Ancestry needs the submodule's object graph. Reuse a local checkout when it
-# already holds both commits; otherwise clone (the repo is public and small).
+# already holds both commits; otherwise clone. The repo is private: CI passes
+# SUB_REPO_TOKEN, and a local run relies on the developer's git credentials.
 WORK=""
 if [ -e "$SUB_PATH/.git" ] &&
    git -C "$SUB_PATH" cat-file -e "$OLD_SHA^{commit}" 2>/dev/null &&
@@ -57,17 +63,22 @@ if [ -e "$SUB_PATH/.git" ] &&
 else
     WORK=$(mktemp -d)
     trap 'rm -rf "$WORK"' EXIT
-    if ! git clone -q --filter=blob:none "https://github.com/$SUB_REPO" "$WORK/sub" 2>/dev/null; then
-        echo "⚠️  Could not clone $SUB_REPO — direction unverified."
-        exit 0
+    if [ -n "${SUB_REPO_TOKEN:-}" ]; then
+        SUB_URL="https://x-access-token:${SUB_REPO_TOKEN}@github.com/$SUB_REPO"
+    else
+        SUB_URL="https://github.com/$SUB_REPO"
+    fi
+    if ! git clone -q --filter=blob:none "$SUB_URL" "$WORK/sub" 2>/dev/null; then
+        echo "❌ Could not clone $SUB_REPO — direction unverified (is SUB_REPO_TOKEN set?)."
+        exit 1
     fi
     SUB_DIR=$WORK/sub
 fi
 
 for sha in "$OLD_SHA" "$NEW_SHA"; do
     if ! git -C "$SUB_DIR" cat-file -e "$sha^{commit}" 2>/dev/null; then
-        echo "⚠️  ${sha:0:8} is not in $SUB_REPO — direction unverified."
-        exit 0
+        echo "❌ ${sha:0:8} is not in $SUB_REPO — the pointer names a commit that does not exist."
+        exit 1
     fi
 done
 

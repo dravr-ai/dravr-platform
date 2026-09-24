@@ -166,7 +166,9 @@ jobs:
         with:
           # .build vendors llm-registre (nested submodule), whose gates
           # architectural-validation.sh hard-requires — so: recursive.
+          # .build is private, so the checkout needs the token.
           submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
           # The phantom-surface and turn-envelope gates diff against the base
           # of the push; a depth-1 checkout has nothing to diff against.
           fetch-depth: 50

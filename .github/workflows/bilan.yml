@@ -41,8 +41,9 @@ jobs:
         with:
           # The suite runs the real llm-registre gate (.build/vendor/llm-registre): bilan asks it
           # which files the register scans, and a stubbed scope would test against a register
-          # that does not exist. dravr-build-config and llm-registre are public, so no token.
+          # that does not exist. dravr-build-config is private, so the checkout needs the token.
           submodules: recursive
+          token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       # test.sh is linted too, unlike carnet.yml's equivalent: its own empty-path bug is what

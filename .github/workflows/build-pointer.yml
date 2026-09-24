@@ -37,6 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          SUB_REPO_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             OLD='${{ github.event.pull_request.base.sha }}'

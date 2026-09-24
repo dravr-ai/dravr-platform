@@ -74,6 +74,11 @@ correctly refusing an issue a live peer held. Nothing below applies to that case
 
 When something is missing, say so rather than working around it, and know which fixes are real:
 
+- **`.build` needs `dravr-build-config` attached too.** It is a private submodule, and the proxy
+  authorises only attached repositories, so `git submodule update --init --recursive` fails in a
+  session launched with dravr-platform alone — no hooks, no `.build/skills`. Repository selection
+  is per session in the launcher; no settings file or setup script can add it. (`llm-registre`,
+  nested inside it, is public and needs nothing.)
 - **The vault is attached, never cloned.** `git clone` of `dravr-vault` from inside fails with
   `could not read Username for 'https://github.com'` — the proxy's git credential covers only
   attached repositories. Absent, it costs prior decisions, the shared facts, `Methodology/`,
