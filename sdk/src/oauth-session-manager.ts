@@ -16,7 +16,7 @@ import {
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { createSecureStorage, SecureTokenStorage } from "./secure-storage.js";
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
-import { PierreError, PierreErrorCode } from "./errors.js";
+import { OAuthServerError, PierreError, PierreErrorCode } from "./errors.js";
 
 // Load OAuth HTML templates from dist/templates/ (copied during build)
 // Templates are self-contained in the SDK bundle for portability
@@ -43,6 +43,44 @@ const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 300000;
  * refuse any name outside that vocabulary, and `admin` is never delegated.
  */
 export const PIERRE_OAUTH_SCOPE = "fitness:read fitness:write profile:read profile:write";
+
+/**
+ * The OAuth error codes that name the client registration itself as the problem: the
+ * server no longer knows or accepts the client (`invalid_client`), refuses the scope the
+ * client is registered for (`invalid_scope`), or refuses its registered metadata
+ * (`invalid_client_metadata`). A fresh registration with the current scope set cures
+ * each; no other refusal is answered by registering again.
+ */
+const REGISTRATION_REFUSALS = new Set([
+  "invalid_client",
+  "invalid_scope",
+  "invalid_client_metadata",
+]);
+
+/**
+ * A scope string as the set it denotes. RFC 6749 section 3.3 gives order and
+ * repetition no meaning, so two spellings of one grant compare equal.
+ */
+function scopeSet(scope: string | undefined): string {
+  return [...new Set((scope ?? "").split(/\s+/).filter(Boolean))].sort().join(" ");
+}
+
+/**
+ * The error a failed call to one of Dravr's OAuth endpoints stands for: an
+ * OAuthServerError when the body is an OAuth error document naming its `error` code,
+ * otherwise an authentication error carrying the message alone.
+ */
+function oauthEndpointError(message: string, body: string): PierreError {
+  let code: unknown;
+  try {
+    code = JSON.parse(body)?.error;
+  } catch {
+    code = undefined;
+  }
+  return typeof code === "string" && code.length > 0
+    ? new OAuthServerError(code, message)
+    : new PierreError(PierreErrorCode.AUTH_ERROR, message);
+}
 
 /** Accepted shape of the {provider} segment of the provider token callback path */
 const PROVIDER_CALLBACK_PATH = /^\/oauth\/provider-callback\/([A-Za-z0-9_-]{1,32})$/;
@@ -508,12 +546,34 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     return this.stateValue;
   }
 
-  async clientInformation(): Promise<OAuthClientInformation | undefined> {
-    if (this.config.mode === 'oauth') {
+  /**
+   * The client credentials the configuration supplies, when it supplies both halves.
+   * Without them - the command line's default - the SDK registers its own client with
+   * Dravr and keeps that registration in secure storage.
+   */
+  private configuredClient(): OAuthClientInformation | undefined {
+    if (
+      this.config.mode === "oauth" &&
+      this.config.oauthClientId &&
+      this.config.oauthClientSecret
+    ) {
       return {
         client_id: this.config.oauthClientId,
         client_secret: this.config.oauthClientSecret,
       };
+    }
+    return undefined;
+  }
+
+  /** Whether this session authorizes as a client it registered and stored itself. */
+  private usesDynamicRegistration(): boolean {
+    return this.config.mode !== "jwt" && !this.configuredClient();
+  }
+
+  async clientInformation(): Promise<OAuthClientInformation | undefined> {
+    const configured = this.configuredClient();
+    if (configured) {
+      return configured;
     }
     return this.clientInfo
       ? {
@@ -521,6 +581,125 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
           client_secret: this.clientInfo.client_secret,
         }
       : undefined;
+  }
+
+  /**
+   * Runs one browser authorization as the client it should present, recovering once
+   * from a stored registration Dravr refuses.
+   *
+   * A registration stored by an earlier run can go stale on the server's side: the scope
+   * it was registered for is not one the server grants any more, or the server no longer
+   * accepts the client. When `authorize` fails with a refusal naming the registration
+   * (REGISTRATION_REFUSALS) and the client it presented was such a stored registration,
+   * the registration is discarded, a new one is registered with the current scope set,
+   * and `authorize` runs exactly once more. That second outcome is final: a refusal of a
+   * registration made moments ago is not cured by another one, so it reaches the caller.
+   */
+  async authorizeWithRegistration(
+    authorize: (client: OAuthClientInformation) => Promise<void>,
+  ): Promise<void> {
+    const registration = await this.ensureClientRegistration();
+    try {
+      await authorize(registration.client);
+    } catch (error) {
+      if (
+        !registration.stored ||
+        !(error instanceof OAuthServerError) ||
+        !REGISTRATION_REFUSALS.has(error.oauthError)
+      ) {
+        throw error;
+      }
+      this.log(
+        `Dravr refused stored client registration ${registration.client.client_id} (${error.oauthError}) - registering again and retrying the authorization once`,
+      );
+      await this.invalidateCredentials("client");
+      const fresh = await this.ensureClientRegistration();
+      await authorize(fresh.client);
+    }
+  }
+
+  /**
+   * The client the next authorization presents, and whether it is a registration stored
+   * by an earlier run - one that may therefore be discarded and replaced.
+   *
+   * A configured client is used as given. Otherwise the stored registration is reused
+   * unless it was made for another scope set, and a new one is registered when none is
+   * left, before any authorization request names it.
+   */
+  private async ensureClientRegistration(): Promise<{
+    client: OAuthClientInformation;
+    stored: boolean;
+  }> {
+    const configured = this.configuredClient();
+    if (configured) {
+      return { client: configured, stored: false };
+    }
+
+    await this.discardStaleRegistration();
+    if (this.clientInfo) {
+      return {
+        client: {
+          client_id: this.clientInfo.client_id,
+          client_secret: this.clientInfo.client_secret,
+        },
+        stored: true,
+      };
+    }
+
+    this.log("No client registration stored - performing dynamic client registration");
+    const metadata = this.clientMetadata;
+    // Suggested credentials; registration replaces both with the ones Dravr assigns.
+    const registration: OAuthClientInformationFull = {
+      client_id: `pierre-bridge-${randomBytes(8).toString("hex")}`,
+      client_secret: randomBytes(32).toString("hex"),
+      redirect_uris: metadata.redirect_uris,
+      grant_types: metadata.grant_types,
+      response_types: metadata.response_types,
+      scope: metadata.scope,
+      client_name: metadata.client_name,
+      client_uri: metadata.client_uri,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_secret_expires_at: 0, // Never expires
+    };
+    await this.saveClientInformation(registration);
+    this.log(`Dynamic client registration complete: ${registration.client_id}`);
+
+    return {
+      client: {
+        client_id: registration.client_id,
+        client_secret: registration.client_secret,
+      },
+      stored: false,
+    };
+  }
+
+  /**
+   * Drops a stored registration made for another scope set than the one the SDK requests
+   * now, together with the Dravr session issued to it.
+   *
+   * Dravr authorizes nothing outside a client's registered scope, so such a registration
+   * can never be authorized for the current request - the server answers `invalid_scope`
+   * - and every token issued to it carries a narrower grant than the SDK asks for.
+   * Registrations stored by earlier SDK releases asked for scope names the server does
+   * not define. The comparison is against the scope the registration asked for, so a
+   * server granting less than was asked never makes every start register again.
+   */
+  private async discardStaleRegistration(): Promise<void> {
+    if (!this.usesDynamicRegistration() || !this.clientInfo) {
+      return;
+    }
+    if (scopeSet(this.clientInfo.scope) === scopeSet(PIERRE_OAUTH_SCOPE)) {
+      return;
+    }
+
+    this.log(
+      `Stored client registration ${this.clientInfo.client_id} was made for scope "${this.clientInfo.scope ?? ""}" rather than "${PIERRE_OAUTH_SCOPE}" - discarding it and the session issued to it`,
+    );
+    this.clientInfo = undefined;
+    this.savedTokens = undefined;
+    delete this.allStoredTokens.client_info;
+    delete this.allStoredTokens.pierre;
+    await this.saveStoredTokens();
   }
 
   async saveClientInformation(
@@ -575,9 +754,9 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new PierreError(
-          PierreErrorCode.AUTH_ERROR,
+        throw oauthEndpointError(
           `Client registration failed: ${response.status} ${response.statusText}: ${errorText}`,
+          errorText,
         );
       }
 
@@ -954,11 +1133,14 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       );
     }
 
-    if (!this.clientInfo) {
+    // The client the authorization request named: the configured one, or the stored
+    // registration.
+    const client = await this.clientInformation();
+    if (!client) {
       throw new PierreError(PierreErrorCode.AUTH_ERROR, "Client information not available for token exchange");
     }
 
-    if (!this.clientInfo.client_secret) {
+    if (!client.client_secret) {
       throw new PierreError(PierreErrorCode.AUTH_ERROR, "Client secret not available for token exchange");
     }
 
@@ -971,8 +1153,8 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       grant_type: "authorization_code",
       code: authorizationCode,
       redirect_uri: this.redirectUrl,
-      client_id: this.clientInfo.client_id,
-      client_secret: this.clientInfo.client_secret,
+      client_id: client.client_id,
+      client_secret: client.client_secret,
       code_verifier: this.codeVerifierValue,
     });
 
@@ -991,9 +1173,9 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new PierreError(
-          PierreErrorCode.AUTH_ERROR,
+        throw oauthEndpointError(
           `Token exchange failed: ${response.status} ${response.statusText}: ${errorText}`,
+          errorText,
         );
       }
 
@@ -1238,6 +1420,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
                 `${query.error_description || "Please try connecting again."}`,
               ),
             );
+            this.rejectAuthorizationFromCallback(query);
           } else if (query.code && query.state) {
             this.log(`Authorization successful, received code`);
             res.writeHead(200, { "Content-Type": "text/html" });
@@ -1446,6 +1629,36 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     return undefined;
   }
 
+  /**
+   * Ends the authorization wait with the error an authorization response carried
+   * (RFC 6749 section 4.1.2.1), so the flow reacts to the refusal instead of waiting out
+   * its deadline. Only a response carrying this flow's state is its answer: the callback
+   * URL is reachable by every local process and by any page the browser loads, and an
+   * error that is not bound to the flow must not end a sign-in the user is completing.
+   */
+  private rejectAuthorizationFromCallback(query: any): void {
+    const authReject = (this.callbackServer as any)?._authReject;
+    if (!authReject || typeof query.error !== "string") {
+      return;
+    }
+    if (
+      typeof query.state !== "string" ||
+      !this.stateValue ||
+      !constantTimeEquals(query.state, this.stateValue)
+    ) {
+      this.log("Ignoring an authorization error that does not carry this flow's state");
+      return;
+    }
+    const description =
+      typeof query.error_description === "string" ? ` - ${query.error_description}` : "";
+    authReject(
+      new OAuthServerError(
+        query.error,
+        `Dravr refused the authorization: ${query.error}${description}`,
+      ),
+    );
+  }
+
   private async startCallbackServer(): Promise<void> {
     // Bind before arming the wait: the redirect URI carried in the authorization request
     // names the callback port, so the port is owned by this process before that request
@@ -1490,6 +1703,10 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   async validateAndCleanupCachedCredentials(): Promise<void> {
+    // A registration made for another scope set is dead whatever the server says about
+    // it, and so is the session issued to it; neither is presented to the server again.
+    await this.discardStaleRegistration();
+
     const existingTokens = await this.tokens();
     const clientInfo = await this.clientInformation();
 
