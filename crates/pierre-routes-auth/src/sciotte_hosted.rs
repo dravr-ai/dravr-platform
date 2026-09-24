@@ -32,9 +32,6 @@ use uuid::Uuid;
 
 use crate::sciotte_hosted_templates;
 use crate::AuthRoutesContext;
-use pierre_core::constants::oauth::providers::{
-    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
-};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid_with_message;
@@ -44,6 +41,8 @@ use pierre_middleware::provider_link_token::{
     PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
 use pierre_providers::backend_resolver;
+use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_services::provider_notice::notice_in_force;
 
 /// Default target platform when the caller does not specify one
 const DEFAULT_TARGET: &str = "strava";
@@ -255,23 +254,30 @@ pub async fn handle_sciotte_hosted_login_page(
         "Rendered Sciotte hosted-login page"
     );
 
-    // The notice is asked for until the account has accepted its current
-    // version. An unreadable answer asks again: the login refuses without it.
-    let consent_required = target == oauth_providers::TRAININGPEAKS
-        && match Uuid::parse_str(&claims.sub) {
-            Ok(user_id) => {
-                resources
-                    .repos
-                    .users
-                    .trainingpeaks_terms_version(user_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .as_deref()
-                    != Some(TRAININGPEAKS_TERMS_VERSION)
+    // A provider whose exposure notice is in force for this account asks for
+    // it until the account has accepted its current version. An unreadable
+    // acceptance asks again: the login refuses without it. Ids the token
+    // cannot name leave the page to the login, which re-checks with its own.
+    let backend = SciotteTarget::from_target_param(target).provider_name();
+    let consent_required = match (Uuid::parse_str(&claims.sub), Uuid::parse_str(&claims.tid)) {
+        (Ok(user_id), Ok(tenant_id)) => {
+            match notice_in_force(&resources.repos, tenant_id, user_id, backend).await {
+                None => false,
+                Some(current) => {
+                    resources
+                        .repos
+                        .users
+                        .provider_terms_version(user_id, backend)
+                        .await
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        != Some(current)
+                }
             }
-            Err(_) => true,
-        };
+        }
+        _ => false,
+    };
 
     Html(sciotte_hosted_templates::render_login_page(
         token,

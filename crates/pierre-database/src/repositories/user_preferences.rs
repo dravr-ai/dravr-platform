@@ -28,18 +28,21 @@ pub(crate) const SET_ANALYTICS_CONSENT_SQL: &str = r"
         WHERE id = $2
         ";
 
-/// Record which TrainingPeaks exposure notice the user accepted, and when.
-pub(crate) const SET_TRAININGPEAKS_TERMS_SQL: &str = r"
-        UPDATE users SET
-            trainingpeaks_terms_version = $1,
-            trainingpeaks_terms_consented_at = CURRENT_TIMESTAMP
-        WHERE id = $2
+/// Record which exposure notice of a provider the user accepted, and when. A
+/// later acceptance of a newer version replaces the row. `excluded` and
+/// `CURRENT_TIMESTAMP` are spellings both engines accept.
+pub(crate) const SET_PROVIDER_TERMS_SQL: &str = r"
+        INSERT INTO provider_terms_consents (user_id, provider, version, consented_at)
+        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id, provider) DO UPDATE SET
+            version = excluded.version,
+            consented_at = excluded.consented_at
         ";
 
-/// Read the TrainingPeaks exposure-notice version the user accepted; the
-/// column is NULL until they accept one.
-pub(crate) const GET_TRAININGPEAKS_TERMS_SQL: &str =
-    "SELECT trainingpeaks_terms_version FROM users WHERE id = $1";
+/// Read the exposure-notice version the user accepted for a provider; there is
+/// no row until they accept one.
+pub(crate) const GET_PROVIDER_TERMS_SQL: &str =
+    "SELECT version FROM provider_terms_consents WHERE user_id = $1 AND provider = $2";
 
 /// Set the user's preferred locale.
 pub(crate) const SET_LOCALE_SQL: &str = "UPDATE users SET locale = $1 WHERE id = $2";
@@ -100,56 +103,56 @@ macro_rules! impl_user_preferences {
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Record that the user accepted TrainingPeaks exposure notice
+        /// Record that the user accepted `provider`'s exposure notice
         /// `version`, stamping the time.
         ///
-        /// The record belongs to the account, not to a TrainingPeaks session:
-        /// it is the account's answer to the notice, so a disconnect leaves it
-        /// and a reconnect reads it.
+        /// The record belongs to the account, not to a provider session: it is
+        /// the account's answer to the notice, so a disconnect leaves it and a
+        /// reconnect reads it.
         ///
         /// # Errors
         ///
-        /// Returns an error if the user is not found or the database update
-        /// fails.
-        pub async fn record_trainingpeaks_terms(
+        /// Returns an error if the database write fails, including an unknown
+        /// user (the row references `users`).
+        pub async fn record_provider_terms(
             pool: &Pool<$db>,
             user_id: Uuid,
+            provider: &str,
             version: &str,
         ) -> AppResult<()> {
-            let result = sqlx::query(SET_TRAININGPEAKS_TERMS_SQL)
-                .bind(version)
+            sqlx::query(SET_PROVIDER_TERMS_SQL)
                 .bind($bind_id(user_id))
+                .bind(provider)
+                .bind(version)
                 .execute(pool)
                 .await
                 .map_err(|e| {
                     AppError::database(format!(
-                        "Failed to record TrainingPeaks notice consent: {e}"
+                        "Failed to record the {provider} notice consent: {e}"
                     ))
                 })?;
-
-            ensure_updated(result.rows_affected(), user_id)
+            Ok(())
         }
 
-        /// The TrainingPeaks exposure-notice version the user accepted, or
+        /// The exposure-notice version the user accepted for `provider`, or
         /// `None` when they have accepted none.
         ///
         /// # Errors
         ///
-        /// Returns an error if the user is not found or the database query
-        /// fails.
-        pub async fn trainingpeaks_terms_version(
+        /// Returns an error if the database query fails.
+        pub async fn provider_terms_version(
             pool: &Pool<$db>,
             user_id: Uuid,
+            provider: &str,
         ) -> AppResult<Option<String>> {
-            let version: Option<Option<String>> = sqlx::query_scalar(GET_TRAININGPEAKS_TERMS_SQL)
+            sqlx::query_scalar(GET_PROVIDER_TERMS_SQL)
                 .bind($bind_id(user_id))
+                .bind(provider)
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| {
-                    AppError::database(format!("Failed to read TrainingPeaks notice consent: {e}"))
-                })?;
-
-            version.ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))
+                    AppError::database(format!("Failed to read the {provider} notice consent: {e}"))
+                })
         }
 
         /// Update the user's preferred locale.

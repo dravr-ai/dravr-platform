@@ -1,5 +1,5 @@
-// ABOUTME: A TrainingPeaks login is refused until the account accepts the exposure notice
-// ABOUTME: Pins that credentials never reach the scraper without consent, that consent persists, and that a changed notice asks again
+// ABOUTME: With the provider_exposure_notice flag armed, a TrainingPeaks or COROS login is refused until the notice is accepted
+// ABOUTME: Pins consent per provider and per notice version, and that an account the flag leaves off is never asked
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,13 +7,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! TrainingPeaks is read through the user's own signed-in session, which its
-//! Terms of Use prohibit for third parties. Every connect surface states that
+//! TrainingPeaks and COROS are read through the user's own signed-in session,
+//! which their terms prohibit for third parties. Every connect surface states that
 //! before the credentials field, and the login handler makes it a
 //! precondition: without the account's acceptance of the current notice, the
 //! credentials must never leave the server. The acceptance belongs to the
 //! account — it survives a disconnect, so a reconnect is not asked again —
 //! and to the notice's version: a changed notice is asked again.
+//!
+//! The notice is asked only of an account the `provider_exposure_notice`
+//! feature flag arms (off by default, so a demo account connects without it).
+//! This account is armed by a per-user override; a second account, left at the
+//! default, is asked for nothing.
 //!
 //! One test, because `DRAVR_SCIOTTE_REMOTE_URL` is process-wide: separate
 //! tests in this binary would race on the scraper they point at.
@@ -27,11 +32,14 @@ use std::sync::{Arc, Mutex};
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use common::{create_test_server_resources, create_test_user, generate_test_token};
-use helpers::axum_test::AxumTestRequest;
-use pierre_core::constants::oauth::providers::{
-    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
+use common::{
+    create_test_server_resources, create_test_user, create_test_user_with_email,
+    generate_test_token,
 };
+use helpers::axum_test::AxumTestRequest;
+use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::sciotte_remote::{ENV_AUDIENCE, ENV_REMOTE_URL};
@@ -41,6 +49,14 @@ use pierre_services::provider_revocation::DisconnectReason;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use uuid::Uuid;
+
+/// The backend TrainingPeaks' exposure notice guards.
+const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
+
+/// TrainingPeaks' current exposure-notice version.
+fn tp_terms_version() -> &'static str {
+    provider_terms_version(TP_NOTICE_BACKEND).expect("TrainingPeaks carries a notice")
+}
 
 /// The notice version before it said a coach's account also reads the
 /// athletes who confirm a link.
@@ -150,7 +166,20 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     let token = generate_test_token(&resources, &user).await;
     let users = &resources.common.repos.users;
 
-    // Before anything is accepted, the TrainingPeaks card asks for the notice
+    // Left at the default, the flag asks this account for no notice.
+    assert!(
+        !card_consent_required(&resources, &token, oauth_providers::SCIOTTE_TRAININGPEAKS).await
+    );
+    assert!(!card_consent_required(&resources, &token, "sciotte_coros").await);
+    resources
+        .common
+        .repos
+        .feature_flags
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+        .await
+        .unwrap();
+
+    // Armed, and before anything is accepted, the TrainingPeaks card asks for the notice
     // and no other card does.
     assert!(
         card_consent_required(&resources, &token, oauth_providers::SCIOTTE_TRAININGPEAKS).await
@@ -175,7 +204,10 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
         "no credential may leave the server before the notice is accepted"
     );
     assert_eq!(
-        users.trainingpeaks_terms_version(user_id).await.unwrap(),
+        users
+            .provider_terms_version(user_id, TP_NOTICE_BACKEND)
+            .await
+            .unwrap(),
         None
     );
 
@@ -189,11 +221,11 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     assert_eq!(providers_seen(&logins), vec!["trainingpeaks"]);
     assert_eq!(
         users
-            .trainingpeaks_terms_version(user_id)
+            .provider_terms_version(user_id, TP_NOTICE_BACKEND)
             .await
             .unwrap()
             .as_deref(),
-        Some(TRAININGPEAKS_TERMS_VERSION),
+        Some(tp_terms_version()),
         "the acceptance is recorded against the notice version shown"
     );
     let tenant_id = resources
@@ -225,11 +257,11 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     disconnect_trainingpeaks(&resources, user_id, tenant_id).await;
     assert_eq!(
         users
-            .trainingpeaks_terms_version(user_id)
+            .provider_terms_version(user_id, TP_NOTICE_BACKEND)
             .await
             .unwrap()
             .as_deref(),
-        Some(TRAININGPEAKS_TERMS_VERSION),
+        Some(tp_terms_version()),
         "a disconnect must not erase the account's answer to the notice"
     );
 
@@ -244,12 +276,9 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
         vec!["trainingpeaks", "trainingpeaks"]
     );
 
-    // 5. The gate is TrainingPeaks-only: Garmin never asks.
+    // 5. Garmin has no notice and never asks.
     let (status, body) = login(&resources, &token, "garmin", false).await;
-    assert_eq!(
-        status, 200,
-        "a Garmin login needs no TrainingPeaks notice: {body}"
-    );
+    assert_eq!(status, 200, "a Garmin login needs no notice: {body}");
     assert_eq!(
         providers_seen(&logins),
         vec!["trainingpeaks", "trainingpeaks", "garmin"]
@@ -258,9 +287,9 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     // 6. An answer to an earlier notice is no answer to this one: the notice
     //    that did not yet say a coach's account reads linked athletes was
     //    "2026-09-22", and an account that accepted only it is asked again.
-    assert_ne!(TRAININGPEAKS_TERMS_VERSION, PREVIOUS_NOTICE_VERSION);
+    assert_ne!(tp_terms_version(), PREVIOUS_NOTICE_VERSION);
     users
-        .record_trainingpeaks_terms(user_id, PREVIOUS_NOTICE_VERSION)
+        .record_provider_terms(user_id, TP_NOTICE_BACKEND, PREVIOUS_NOTICE_VERSION)
         .await
         .unwrap();
     assert!(
@@ -284,12 +313,103 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     );
     assert_eq!(
         users
-            .trainingpeaks_terms_version(user_id)
+            .provider_terms_version(user_id, TP_NOTICE_BACKEND)
             .await
             .unwrap()
             .as_deref(),
-        Some(TRAININGPEAKS_TERMS_VERSION)
+        Some(tp_terms_version())
     );
+
+    // 7. COROS asks for its own notice: the TrainingPeaks answer is no answer
+    //    to it, a login without it never reaches the scraper, and accepting it
+    //    records it under COROS' backend and lets the login through to the
+    //    COROS scraper.
+    assert!(card_consent_required(&resources, &token, "sciotte_coros").await);
+    let seen_before_coros = providers_seen(&logins);
+    let (status, body) = login(&resources, &token, "coros", false).await;
+    assert_eq!(
+        status, 400,
+        "a COROS login without its notice is refused: {body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("COROS"),
+        "the refusal names the provider: {body}"
+    );
+    assert_eq!(
+        providers_seen(&logins),
+        seen_before_coros,
+        "no credential leaves the server before COROS' notice is accepted"
+    );
+    let (status, body) = login(&resources, &token, "coros", true).await;
+    assert_eq!(
+        status, 200,
+        "COROS' accepted notice lets the login through: {body}"
+    );
+    assert_eq!(
+        providers_seen(&logins).last().map(String::as_str),
+        Some("coros")
+    );
+    assert_eq!(
+        users
+            .provider_terms_version(user_id, "sciotte_coros")
+            .await
+            .unwrap()
+            .as_deref(),
+        provider_terms_version("sciotte_coros")
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .oauth_tokens
+            .get_token(user_id, tenant_id, "sciotte_coros")
+            .await
+            .unwrap()
+            .is_some(),
+        "the session is stored under the COROS mirror"
+    );
+    assert!(!card_consent_required(&resources, &token, "sciotte_coros").await);
+
+    // 8. An account the flag leaves off is never asked: its cards carry no
+    //    notice, and a login without one reaches the scraper and records no
+    //    acceptance, since none was asked for.
+    let (other_id, other) =
+        create_test_user_with_email(&resources.agent.database, "no-notice@example.test")
+            .await
+            .unwrap();
+    let other_token = generate_test_token(&resources, &other).await;
+    for card in [oauth_providers::SCIOTTE_TRAININGPEAKS, "sciotte_coros"] {
+        assert!(
+            !card_consent_required(&resources, &other_token, card).await,
+            "{card} asks an unarmed account for nothing"
+        );
+    }
+    for target in ["trainingpeaks", "coros"] {
+        let seen = providers_seen(&logins).len();
+        let (status, body) = login(&resources, &other_token, target, false).await;
+        assert_eq!(
+            status, 200,
+            "an unarmed {target} login needs no notice: {body}"
+        );
+        assert_eq!(
+            providers_seen(&logins)[seen..],
+            [target.to_owned()],
+            "the unarmed {target} login reaches its scraper"
+        );
+    }
+    for backend in [TP_NOTICE_BACKEND, "sciotte_coros"] {
+        assert_eq!(
+            users
+                .provider_terms_version(other_id, backend)
+                .await
+                .unwrap(),
+            None,
+            "no acceptance is recorded where none was asked"
+        );
+    }
 
     env::remove_var(ENV_REMOTE_URL);
 }

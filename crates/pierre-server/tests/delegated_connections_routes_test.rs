@@ -35,10 +35,10 @@ use axum::{Json, Router};
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::constants::oauth::providers::{
-    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
-};
+use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
+use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
 };
@@ -56,6 +56,14 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 use uuid::Uuid;
+
+/// The backend TrainingPeaks' exposure notice guards.
+const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
+
+/// TrainingPeaks' current exposure-notice version.
+fn tp_terms_version() -> &'static str {
+    provider_terms_version(TP_NOTICE_BACKEND).expect("TrainingPeaks carries a notice")
+}
 
 const PROVIDER: &str = oauth_providers::SCIOTTE_TRAININGPEAKS;
 const COACH_SESSION: &str = "coach-session";
@@ -315,7 +323,7 @@ async fn world(roster_reads: Calls, dropped: Dropped) -> World {
         .unwrap();
     repos
         .users
-        .record_trainingpeaks_terms(coach.id, TRAININGPEAKS_TERMS_VERSION)
+        .record_provider_terms(coach.id, TP_NOTICE_BACKEND, tp_terms_version())
         .await
         .unwrap();
 
@@ -552,14 +560,22 @@ fn roster_path(w: &World) -> String {
     format!("{}/roster", w.links_path())
 }
 
-/// Only the coach reads the roster, and only with the current notice
-/// accepted; the refusal comes before any scrape.
+/// Only the coach reads the roster, and, once the `provider_exposure_notice`
+/// flag arms the notice for them, only with its current version accepted;
+/// the refusal comes before any scrape.
 async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
     assert_denied(w.get(&roster_path(w), &w.m1).await, COACH_ONLY);
 
+    w.res
+        .common
+        .repos
+        .feature_flags
+        .set_user_override(w.coach.id, FeatureKey::ProviderExposureNotice, true, None)
+        .await
+        .unwrap();
     let users = &w.res.common.repos.users;
     users
-        .record_trainingpeaks_terms(w.coach.id, "2026-01-01")
+        .record_provider_terms(w.coach.id, TP_NOTICE_BACKEND, "2026-01-01")
         .await
         .unwrap();
     assert_refused(
@@ -569,7 +585,7 @@ async fn only_the_coach_reads_the_roster_with_the_notice_accepted(w: &World) {
     );
     assert_eq!(w.roster_reads(), 0, "refused before any scrape");
     users
-        .record_trainingpeaks_terms(w.coach.id, TRAININGPEAKS_TERMS_VERSION)
+        .record_provider_terms(w.coach.id, TP_NOTICE_BACKEND, tp_terms_version())
         .await
         .unwrap();
 }

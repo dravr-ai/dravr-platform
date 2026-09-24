@@ -43,9 +43,11 @@ describe('PROVIDER_GLYPH_INK', () => {
 
   it('covers every branded id the clients draw a glyph for', () => {
     expect([...ids].sort()).toEqual([
+      'coros',
       'garmin',
       'intervals_icu',
       'sciotte',
+      'sciotte_coros',
       'sciotte_garmin',
       'sciotte_trainingpeaks',
       'strava',
@@ -86,8 +88,9 @@ describe('PROVIDER_GLYPH_INK', () => {
     expect(contrast('#00D46A', BOREAL.light.surface)).toBeLessThan(ICON_FLOOR);
   });
 
-  it('keeps Strava, Garmin and intervals.icu in their own colour in both schemes', () => {
+  it('keeps Strava, Garmin, intervals.icu and COROS in their own colour in both schemes', () => {
     for (const scheme of SCHEMES) {
+      expect(providerGlyphInk('sciotte_coros', scheme)).toBe('#F8273B');
       expect(providerGlyphInk('sciotte', scheme)).toBe('#FC4C02');
       expect(providerGlyphInk('sciotte_garmin', scheme)).toBe('#007CC3');
       expect(providerGlyphInk('intervals_icu', scheme)).toBe('#1273DE');

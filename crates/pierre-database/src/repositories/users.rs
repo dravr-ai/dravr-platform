@@ -124,14 +124,24 @@ pub trait UserRepository: Send + Sync {
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
     /// Update user's analytics consent preference
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()>;
-    /// The TrainingPeaks exposure-notice version this user accepted, or `None`
-    /// when they have accepted none. A TrainingPeaks login is refused until it
-    /// matches the current notice.
-    async fn trainingpeaks_terms_version(&self, user_id: Uuid) -> AppResult<Option<String>>;
-    /// Record that this user accepted TrainingPeaks exposure notice `version`,
+    /// The exposure-notice version this user accepted for `provider` (the
+    /// backend the notice guards, e.g. `sciotte_coros`), or `None` when they
+    /// have accepted none. A login to that backend is refused until it matches
+    /// the current notice.
+    async fn provider_terms_version(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> AppResult<Option<String>>;
+    /// Record that this user accepted `provider`'s exposure notice `version`,
     /// stamping the time. Kept across disconnects: it is the account's answer
     /// to the notice, not part of any session.
-    async fn record_trainingpeaks_terms(&self, user_id: Uuid, version: &str) -> AppResult<()>;
+    async fn record_provider_terms(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        version: &str,
+    ) -> AppResult<()>;
     /// Update the user's preferred locale (BCP-47 short code, e.g. `"fr"`, `"en"`).
     ///
     /// Called by the user-profile PATCH endpoint. The column has `NOT NULL
@@ -1115,19 +1125,21 @@ macro_rules! impl_user_repository {
                 preferences::update_analytics_consent(self.pool(), user_id, enabled).await
             }
 
-            async fn trainingpeaks_terms_version(
+            async fn provider_terms_version(
                 &self,
                 user_id: Uuid,
+                provider: &str,
             ) -> AppResult<Option<String>> {
-                preferences::trainingpeaks_terms_version(self.pool(), user_id).await
+                preferences::provider_terms_version(self.pool(), user_id, provider).await
             }
 
-            async fn record_trainingpeaks_terms(
+            async fn record_provider_terms(
                 &self,
                 user_id: Uuid,
+                provider: &str,
                 version: &str,
             ) -> AppResult<()> {
-                preferences::record_trainingpeaks_terms(self.pool(), user_id, version).await
+                preferences::record_provider_terms(self.pool(), user_id, provider, version).await
             }
 
             async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {

@@ -1282,13 +1282,17 @@ fn hosted_login_targets_are_the_mirrors_user_facing_names() {
         backend_resolver::hosted_login_target(oauth_providers::SCIOTTE_TRAININGPEAKS),
         Some("trainingpeaks")
     );
+    assert_eq!(
+        backend_resolver::hosted_login_target(oauth_providers::SCIOTTE_COROS),
+        Some("coros")
+    );
     // An OAuth provider reconnects through its authorization URL, never the
     // hosted login — including the user-facing half of a mirror pair.
     assert_eq!(backend_resolver::hosted_login_target("strava"), None);
     assert_eq!(backend_resolver::hosted_login_target("whoop"), None);
     assert_eq!(
         backend_resolver::hosted_login_targets(),
-        vec!["strava", "garmin", "trainingpeaks"]
+        vec!["strava", "garmin", "trainingpeaks", "coros"]
     );
 }
 
@@ -1362,6 +1366,123 @@ async fn resolve_backend_keeps_trainingpeaks_on_its_mirror_with_or_without_a_row
     assert_eq!(
         from_llm_arg, from_connection,
         "LLM arg 'trainingpeaks' and connection 'sciotte_trainingpeaks' must collapse to one cache key"
+    );
+}
+
+// ============================================================================
+// COROS — Garmin's shape: an OAuth API Pierre cannot call (carnet#509)
+// ============================================================================
+
+#[test]
+fn coros_mirror_pair_resolves_both_ways_and_serves_only_the_mirror() {
+    assert_eq!(
+        backend_resolver::user_facing_name(oauth_providers::SCIOTTE_COROS),
+        oauth_providers::COROS
+    );
+    assert_eq!(
+        backend_resolver::mirror_backend_for(oauth_providers::COROS),
+        Some(oauth_providers::SCIOTTE_COROS)
+    );
+    assert!(backend_resolver::is_mirror_backend(
+        oauth_providers::SCIOTTE_COROS
+    ));
+    assert!(!backend_resolver::is_mirror_backend(oauth_providers::COROS));
+    // The partner API is not approved, so the raw `coros` backend serves
+    // nothing: only the mirror, from either half of the card.
+    let serving = backend_resolver::serving_backends(oauth_providers::COROS);
+    assert_eq!(serving, vec![oauth_providers::SCIOTTE_COROS]);
+    assert_eq!(
+        backend_resolver::serving_backends(oauth_providers::SCIOTTE_COROS),
+        serving
+    );
+    assert_eq!(
+        backend_resolver::backend_pair_for(oauth_providers::SCIOTTE_COROS),
+        vec![oauth_providers::COROS, oauth_providers::SCIOTTE_COROS]
+    );
+    let registry = ProviderRegistry::new();
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "coros"),
+        Some("COROS")
+    );
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "sciotte_coros"),
+        Some("COROS")
+    );
+}
+
+#[tokio::test]
+async fn resolve_backend_keeps_coros_on_its_mirror_with_or_without_a_row() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let repos = resources.common.repos.auth_repos();
+
+    // No row: the mirror-only rule routes to a reconnect prompt, never to the
+    // raw `coros` OAuth backend, which has no credentials.
+    let no_row =
+        backend_resolver::resolve_backend(&repos, user_id, Some(tenant_id), oauth_providers::COROS)
+            .await;
+    assert_eq!(no_row, oauth_providers::SCIOTTE_COROS);
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_COROS,
+    )
+    .await;
+    let from_llm_arg =
+        backend_resolver::resolve_backend(&repos, user_id, Some(tenant_id), oauth_providers::COROS)
+            .await;
+    let from_connection = backend_resolver::resolve_backend(
+        &repos,
+        user_id,
+        Some(tenant_id),
+        oauth_providers::SCIOTTE_COROS,
+    )
+    .await;
+    assert_eq!(from_llm_arg, oauth_providers::SCIOTTE_COROS);
+    assert_eq!(
+        from_llm_arg, from_connection,
+        "LLM arg 'coros' and connection 'sciotte_coros' must collapse to one cache key"
+    );
+}
+
+#[tokio::test]
+async fn a_bare_coros_row_never_reads_as_connected_and_the_mirror_does() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let repos = resources.common.repos.auth_repos();
+
+    seed_token(&resources, user_id, tenant_id, oauth_providers::COROS).await;
+    let status =
+        backend_resolver::coalesced_status(&repos, user_id, tenant_id, oauth_providers::COROS)
+            .await;
+    assert_eq!(
+        status,
+        CoalescedStatus {
+            user_facing: oauth_providers::COROS,
+            connected: false,
+            backend_kind: BackendKind::None,
+            delegation: None,
+        },
+        "no fetch is ever routed to a raw `coros` backend, so its row must not read as connected"
+    );
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_COROS,
+    )
+    .await;
+    let status =
+        backend_resolver::coalesced_status(&repos, user_id, tenant_id, oauth_providers::COROS)
+            .await;
+    assert!(
+        status.connected,
+        "the mirror session is what connects COROS"
     );
 }
 

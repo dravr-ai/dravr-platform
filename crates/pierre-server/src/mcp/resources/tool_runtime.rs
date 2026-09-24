@@ -22,7 +22,7 @@ use pierre_mcp_transport::sampling_peer::SamplingPeer;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
-use pierre_runtime_context::DataContext;
+use pierre_runtime_context::{AdminConfigLookup, DataContext};
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_tool_runtime::guardian::Guardian;
@@ -60,6 +60,13 @@ impl ToolRuntime for ServerContext {
 
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry> {
         &self.fitness.cageux_config_registry
+    }
+
+    fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>> {
+        self.agent
+            .admin_config
+            .as_ref()
+            .map(|svc| Arc::clone(svc) as Arc<dyn AdminConfigLookup>)
     }
 
     fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {

@@ -302,7 +302,8 @@ impl TenantOAuthManager {
             | "coros"
             | "sciotte"
             | "sciotte_garmin"
-            | "sciotte_trainingpeaks" => None,
+            | "sciotte_trainingpeaks"
+            | "sciotte_coros" => None,
             _ => {
                 warn!("Unsupported OAuth provider: {}", provider);
                 None

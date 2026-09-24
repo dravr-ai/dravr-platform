@@ -148,7 +148,7 @@ rand = { version = "0.9", optional = true }
 bcrypt = { version = "0.16", optional = true }
 
 [dev-dependencies]
-# Used by the in-tree DummyProvider unit tests under `billing::dummy::tests`.
+# Used by the DummyProvider tests in tests/billing_dummy_test.rs.
 tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
 # tests/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
 # (SdkTracerProvider + InMemorySpanExporter) to pin traceparent injection.

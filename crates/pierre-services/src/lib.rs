@@ -265,6 +265,9 @@ pub mod notification_channel_sink;
 /// recipient's tier floor, digest cadence, and arming flag.
 pub mod persona_notification_policy_gate;
 
+/// The exposure-notice version an account must accept before a provider login.
+pub mod provider_notice;
+
 /// The one renderer turning a stored notification event plus its parameters
 /// into a sentence, in the locale of whoever is reading it.
 pub mod notification_text;

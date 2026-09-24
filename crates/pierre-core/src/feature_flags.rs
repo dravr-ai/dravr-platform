@@ -45,6 +45,12 @@ pub enum FeatureKey {
     /// instead of delivered. Disabled by default — the gate runs in shadow
     /// mode (verdict logs only) until an operator arms it per tenant or user.
     PersonaNotificationPolicy,
+    /// State the exposure notice of a provider read through the account's own
+    /// signed-in session (`TrainingPeaks`, COROS) before its credentials, and
+    /// refuse the login until it is accepted. Disabled by default so a demo
+    /// account connects without it; admins arm it per tenant or per user for
+    /// the athletes they onboard.
+    ProviderExposureNotice,
 }
 
 impl FeatureKey {
@@ -53,6 +59,7 @@ impl FeatureKey {
         Self::ApiTokens,
         Self::BillingHeader,
         Self::PersonaNotificationPolicy,
+        Self::ProviderExposureNotice,
     ];
 
     /// Storage key (matches the `feature_key` column and the JSON field
@@ -63,6 +70,7 @@ impl FeatureKey {
             Self::ApiTokens => "api_tokens",
             Self::BillingHeader => "billing_header",
             Self::PersonaNotificationPolicy => "persona_notification_policy",
+            Self::ProviderExposureNotice => "provider_exposure_notice",
         }
     }
 
@@ -71,7 +79,10 @@ impl FeatureKey {
     #[must_use]
     pub const fn default_enabled(self) -> bool {
         match self {
-            Self::ApiTokens | Self::BillingHeader | Self::PersonaNotificationPolicy => false,
+            Self::ApiTokens
+            | Self::BillingHeader
+            | Self::PersonaNotificationPolicy
+            | Self::ProviderExposureNotice => false,
         }
     }
 
@@ -87,6 +98,9 @@ impl FeatureKey {
             }
             Self::PersonaNotificationPolicy => {
                 "Enforce the persona push-tier floor (gated pushes are persisted and rolled into the weekly digest instead of delivered)."
+            }
+            Self::ProviderExposureNotice => {
+                "Ask for the account-risk notice before a TrainingPeaks or COROS login, and refuse the login until it is accepted."
             }
         }
     }
@@ -119,69 +133,8 @@ impl FromStr for FeatureKey {
             "api_tokens" => Ok(Self::ApiTokens),
             "billing_header" => Ok(Self::BillingHeader),
             "persona_notification_policy" => Ok(Self::PersonaNotificationPolicy),
+            "provider_exposure_notice" => Ok(Self::ProviderExposureNotice),
             other => Err(UnknownFeatureKey(other.to_owned())),
         }
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn all_variants_round_trip_through_str() {
-        for &key in FeatureKey::ALL {
-            let s = key.as_str();
-            assert_eq!(FeatureKey::from_str(s).unwrap(), key);
-        }
-    }
-
-    #[test]
-    fn all_constant_matches_variants() {
-        // If a new variant is added without updating ALL, this test catches it.
-        let mut from_all: Vec<&str> = FeatureKey::ALL.iter().map(|k| k.as_str()).collect();
-        from_all.sort_unstable();
-        let mut expected = vec![
-            "api_tokens",
-            "billing_header",
-            "persona_notification_policy",
-        ];
-        expected.sort_unstable();
-        assert_eq!(from_all, expected);
-    }
-
-    #[test]
-    fn defaults_are_all_disabled() {
-        for &key in FeatureKey::ALL {
-            assert!(
-                !key.default_enabled(),
-                "{key} should default to disabled; new flags must opt in by admin"
-            );
-        }
-    }
-
-    #[test]
-    fn unknown_key_errors() {
-        let err = FeatureKey::from_str("does_not_exist").unwrap_err();
-        assert_eq!(err.0, "does_not_exist");
-    }
-
-    #[test]
-    fn display_matches_as_str() {
-        assert_eq!(FeatureKey::ApiTokens.to_string(), "api_tokens");
-        assert_eq!(FeatureKey::BillingHeader.to_string(), "billing_header");
-        assert_eq!(
-            FeatureKey::PersonaNotificationPolicy.to_string(),
-            "persona_notification_policy"
-        );
-    }
-
-    #[test]
-    fn serde_uses_snake_case() {
-        let json = serde_json::to_string(&FeatureKey::ApiTokens).unwrap();
-        assert_eq!(json, "\"api_tokens\"");
-        let back: FeatureKey = serde_json::from_str("\"billing_header\"").unwrap();
-        assert_eq!(back, FeatureKey::BillingHeader);
     }
 }

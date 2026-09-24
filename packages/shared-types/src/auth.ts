@@ -223,7 +223,7 @@ export interface ProviderDelegation {
  * takes as `target`: one per scrape-mirror backend, named as the athlete
  * knows the provider.
  */
-export type SciotteTarget = 'strava' | 'garmin' | 'trainingpeaks';
+export type SciotteTarget = 'strava' | 'garmin' | 'trainingpeaks' | 'coros';
 
 /** Response from /api/providers endpoint */
 export interface ProvidersStatusResponse {

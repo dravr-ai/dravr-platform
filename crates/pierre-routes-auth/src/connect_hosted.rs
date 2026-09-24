@@ -26,6 +26,7 @@
 //! transcript. Identity (`user_id` + `tenant_id`) comes from the signed token,
 //! so the resulting connection is stored under the user's own tenant.
 
+use crate::sciotte_hosted_templates::{exposure_notice, ExposureNotice};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
@@ -94,11 +95,16 @@ struct ConnectProviderCard {
     connected: bool,
     /// "oauth" (full-page redirect to consent) or "sciotte" (credential form).
     kind: &'static str,
-    /// Sciotte target ("strava" / "garmin" / "trainingpeaks"); empty for OAuth cards.
+    /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"); empty for OAuth cards.
     target: String,
     /// The page must show the provider's exposure notice, with a required
-    /// checkbox, before the credentials form (TrainingPeaks, until accepted).
+    /// checkbox, before the credentials form (TrainingPeaks and COROS, until
+    /// accepted).
     consent_required: bool,
+    /// The provider's exposure notice, which the page fills its notice block
+    /// with when the card is picked. Absent for a provider with none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notice: Option<ExposureNotice>,
     /// What the provider's own login asks for: `"username"` (TrainingPeaks)
     /// or `"email"`. Read by the page for Sciotte cards only.
     login_identifier: &'static str,
@@ -119,8 +125,9 @@ fn validate_connect_token(
 async fn build_connect_providers(
     resources: &AuthRoutesContext,
     user_id: Uuid,
+    tenant_id: Option<Uuid>,
 ) -> Vec<ConnectProviderCard> {
-    let status = compute_providers_status(resources, user_id).await;
+    let status = compute_providers_status(resources, user_id, tenant_id).await;
 
     // Mirror ProviderConnectionCards: the raw `strava` OAuth row is hidden (the
     // sciotte card IS the Strava data path), but its connected state must merge
@@ -154,12 +161,13 @@ async fn build_connect_providers(
                     kind: if oauth_first { "oauth" } else { "sciotte" },
                     target: "strava".to_owned(),
                     consent_required: p.consent_required,
+                    notice: exposure_notice("strava").cloned(),
                     login_identifier: "email",
                 });
             }
-            // Garmin and TrainingPeaks: always the credential/scraper flow —
-            // neither has an OAuth backend Pierre can call.
-            "sciotte_garmin" | "sciotte_trainingpeaks" => {
+            // Garmin, TrainingPeaks and COROS: always the credential/scraper
+            // flow — none has an OAuth backend Pierre can call.
+            "sciotte_garmin" | "sciotte_trainingpeaks" | "sciotte_coros" => {
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
                     cards.push(ConnectProviderCard {
                         provider: provider_name.clone(),
@@ -168,6 +176,7 @@ async fn build_connect_providers(
                         kind: "sciotte",
                         target: target.to_owned(),
                         consent_required: p.consent_required,
+                        notice: exposure_notice(target).cloned(),
                         login_identifier: if SciotteTarget::from_target_param(target)
                             .signs_in_with_username()
                         {
@@ -186,6 +195,7 @@ async fn build_connect_providers(
                 kind: "oauth",
                 target: String::new(),
                 consent_required: p.consent_required,
+                notice: None,
                 login_identifier: "email",
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
@@ -225,7 +235,10 @@ pub async fn handle_connect_hosted_page(
         .into_response();
     };
 
-    let cards = build_connect_providers(&resources, user_id).await;
+    // The link-token names the session's tenant; one it cannot parse asks
+    // for no notice, as a session without a tenant does.
+    let tenant_id = Uuid::parse_str(&claims.tid).ok();
+    let cards = build_connect_providers(&resources, user_id, tenant_id).await;
     let providers_json = serde_json::to_string(&cards).unwrap_or_else(|_| "[]".to_owned());
 
     info!(

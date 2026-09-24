@@ -51,6 +51,8 @@ pub mod runtime;
 pub mod security;
 /// Sleep tool operational parameters (activity limits, trend thresholds)
 pub mod sleep_tool_params;
+/// The three-zone cuts as admin parameters (`tid_cuts.*`) and their `TidCuts` builder
+pub mod tid_cuts;
 /// Tool selection configuration for global tool disabling via environment variables
 pub mod tool_selection;
 /// Core configuration type definitions (`LogLevel`, `Environment`, `LlmProviderType`)

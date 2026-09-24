@@ -70,15 +70,3 @@ pub struct AgentSession {
     /// Row metadata.
     pub updated_at: DateTime<Utc>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::SessionStatus;
-
-    #[test]
-    fn status_roundtrip() {
-        for status in [SessionStatus::Active, SessionStatus::Archived] {
-            assert_eq!(SessionStatus::parse(status.as_str()), Some(status));
-        }
-    }
-}

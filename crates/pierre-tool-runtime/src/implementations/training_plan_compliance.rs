@@ -20,14 +20,17 @@
 //! `get_training_plan` with `include_state`. Nothing warns unasked, and
 //! nothing refuses a save.
 
+use pierre_config::tid_cuts::{build_tid_cuts, SLOTS};
 use pierre_core::models::periodization::{
     assess_week_compliance, PhaseTargets, PlannedSession, RecoverySpeed, SessionParams,
-    SpacingCheck, WeekInput, WeekVerdict, WorkoutTemplate,
+    SpacingCheck, TidCuts, WeekInput, WeekVerdict, WorkoutTemplate,
 };
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanPhase, PlanWeek, TrainingPlan};
+use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -71,6 +74,9 @@ pub(super) async fn assess_saved_weeks(
     };
     weeks.retain(|w| parse_plan_date(&w.week_start).is_some());
     weeks.sort_by(|a, b| a.week_start.cmp(&b.week_start));
+    let Some(tid_cuts) = resolve_tid_cuts(state, tenant).await else {
+        return Vec::new();
+    };
 
     // The plan's agent package first, then the catalogue — the same view
     // the save resolved through, so a house flavour or a package template
@@ -169,6 +175,7 @@ pub(super) async fn assess_saved_weeks(
             flavour: flavour.as_ref(),
             recovery_limited,
             week_index_in_phase,
+            tid_cuts: &tid_cuts,
         });
         previous_hard = verdict.hard_days.last().copied().or(previous_hard);
         if reported.contains(&week.id.as_str()) {
@@ -176,6 +183,52 @@ pub(super) async fn assess_saved_weeks(
         }
     }
     assessed
+}
+
+/// The three-zone cuts `tenant` places bands with: its own `tid_cuts.*`
+/// values, else the system-wide ones, else the catalogue defaults, which are
+/// `TidCuts::default()`.
+///
+/// The config service refuses any write or reset that would leave a pair out
+/// of order for a tenant, and each value's range is the scale its slot cuts,
+/// so every set the store can hold builds. `None` means the store could not
+/// be read, or held a value no write path accepts (a row edited in the
+/// database); either is logged naming the key or slot, and the weeks go
+/// unmeasured rather than measured on cuts the tenant did not choose. With no
+/// admin config wired there are no overrides to read, and the defaults apply.
+async fn resolve_tid_cuts(state: &Arc<dyn ToolRuntime>, tenant: TenantId) -> Option<TidCuts> {
+    let Some(config) = state.admin_config() else {
+        return Some(TidCuts::default());
+    };
+    let tenant_id = tenant.to_string();
+    let scope = ConfigLookupScope::tenant(&tenant_id);
+    let mut values = HashMap::new();
+    for slot in &SLOTS {
+        for key in [slot.below_lt1_max_key, slot.between_max_key] {
+            match config.get_value(key, scope).await {
+                Ok(value) => {
+                    if let Some(cut) = value.as_ref().and_then(Value::as_i64) {
+                        values.insert(key, cut);
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, key, "week compliance: three-zone cut unreadable");
+                    return None;
+                }
+            }
+        }
+    }
+    match build_tid_cuts(|key| values.get(key).copied()) {
+        Ok(cuts) => Some(cuts),
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "week compliance: stored three-zone cuts do not build; weeks left unmeasured"
+            );
+            None
+        }
+    }
 }
 
 /// Measure the saved weeks, report each verdict, and return the weeks whose

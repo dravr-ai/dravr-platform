@@ -32,6 +32,7 @@ use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
 };
 use pierre_services::oauth_redirects;
+use pierre_services::provider_notice::notice_in_force;
 use pierre_services::provider_refresh::RefreshService;
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -41,9 +42,7 @@ use pierre_auth::dto::auth::{
     OAuthStatus, ProviderDelegation, ProviderStatus, ProvidersStatusResponse,
 };
 use pierre_auth::strava_pool;
-use pierre_core::constants::oauth::providers::{
-    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
-};
+use pierre_core::constants::oauth::providers as oauth_providers;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -289,7 +288,12 @@ pub async fn handle_providers_status(
         .authenticate_request_with_headers(&headers)
         .await?;
 
-    let response = compute_providers_status(&resources, auth_result.user_id).await;
+    let response = compute_providers_status(
+        &resources,
+        auth_result.user_id,
+        auth_result.active_tenant_id,
+    )
+    .await;
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
@@ -332,15 +336,48 @@ fn provider_delegation(delegation: MemberDelegation) -> ProviderDelegation {
     }
 }
 
+/// Whether `provider` asks for an exposure notice this account has not
+/// accepted in its current version. A provider with no notice, or an account
+/// the `provider_exposure_notice` flag leaves off, asks for none; so does a
+/// session with no active tenant, which the login refuses outright. A failed
+/// acceptance read asks again: showing the notice twice costs a tick,
+/// skipping it costs the precondition.
+async fn notice_outstanding(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Option<Uuid>,
+    provider: &str,
+) -> bool {
+    let Some(tenant_id) = tenant_id else {
+        return false;
+    };
+    let Some(current) = notice_in_force(&resources.repos, tenant_id, user_id, provider).await
+    else {
+        return false;
+    };
+    resources
+        .repos
+        .users
+        .provider_terms_version(user_id, provider)
+        .await
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some(current)
+}
+
 /// Compute the provider catalogue + connection status for a user.
 ///
 /// Shared by the JWT-gated `/api/providers` handler and the channel-initiated
 /// hosted connect page, which authenticates via a provider link-token rather
 /// than a session cookie. Infallible: a repo failure degrades to an empty
 /// connection set / "no seats left" rather than erroring the page.
+/// `tenant_id` is the session's active tenant, whose feature flags decide
+/// whether an exposure notice is asked for.
 pub async fn compute_providers_status(
     resources: &AuthRoutesContext,
     user_id: Uuid,
+    tenant_id: Option<Uuid>,
 ) -> ProvidersStatusResponse {
     use pierre_providers::registry::global_registry;
 
@@ -417,27 +454,17 @@ pub async fn compute_providers_status(
         .await
         .map_or(0, |s| s.left());
 
-    // TrainingPeaks asks for its exposure notice until this account has
-    // accepted the current version. A failed read asks again: showing the
-    // notice twice costs a tick, skipping it costs the precondition.
-    let trainingpeaks_terms_accepted = resources
-        .repos
-        .users
-        .trainingpeaks_terms_version(user_id)
-        .await
-        .ok()
-        .flatten()
-        .as_deref()
-        == Some(TRAININGPEAKS_TERMS_VERSION);
-
     // Build provider status list
     let mut provider_statuses = Vec::new();
 
     for provider_name in supported_providers {
-        // Garmin's OAuth API is uncredentialed/unsupported — never advertise it so
-        // the UI can't offer a "Garmin Connect" card that 500s on connect (the
-        // `sciotte_garmin` scrape card is the supported Garmin path).
-        if provider_name == oauth_providers::GARMIN {
+        // A provider whose mirror is its only serving backend (Garmin, COROS)
+        // has an OAuth API Pierre cannot call — Garmin's is uncredentialed,
+        // COROS' not yet approved (carnet#509) — so its raw card is never
+        // advertised: it would 500 on connect. The scrape card is the path.
+        if backend_resolver::mirror_backend_for(provider_name)
+            .is_some_and(|mirror| backend_resolver::serving_backends(provider_name) == [mirror])
+        {
             continue;
         }
         // Get provider descriptor from registry
@@ -498,8 +525,8 @@ pub async fn compute_providers_status(
                 capabilities,
                 recommended_backend,
                 seats_left,
-                consent_required: provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS
-                    && !trainingpeaks_terms_accepted,
+                consent_required: notice_outstanding(resources, user_id, tenant_id, provider_name)
+                    .await,
                 account_role: (provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS)
                     .then_some(trainingpeaks_account_role)
                     .flatten(),
@@ -517,6 +544,7 @@ pub async fn compute_providers_status(
         "sciotte",
         "sciotte_garmin",
         "sciotte_trainingpeaks",
+        "sciotte_coros",
         "strava",
         "garmin",
         "fitbit",

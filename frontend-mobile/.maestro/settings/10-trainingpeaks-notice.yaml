@@ -18,7 +18,8 @@ appId: ai.dravr.app
       id: "connections-screen"
     timeout: 5000
 
-# The seeded account has never accepted the notice, so the row asks for it.
+# The seeder arms the provider_exposure_notice flag (off by default) for this
+# account, which has never accepted the notice, so the row asks for it.
 - scrollUntilVisible:
     element:
       id: "provider-row-sciotte_trainingpeaks"

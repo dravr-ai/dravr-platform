@@ -157,6 +157,28 @@ impl AdminConfigManager {
         Ok(row.map(|r| Self::row_to_override(&r)))
     }
 
+    /// Tenants holding their own tenant-wide row for `key` of `category`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn tenants_overriding(&self, category: &str, key: &str) -> AppResult<Vec<String>> {
+        sqlx::query_scalar(
+            r"
+            SELECT DISTINCT tenant_id
+            FROM admin_config_overrides
+            WHERE category = ?1 AND config_key = ?2
+              AND tenant_id IS NOT NULL AND user_id IS NULL
+            ORDER BY tenant_id
+            ",
+        )
+        .bind(category)
+        .bind(key)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list tenant config overrides: {e}")))
+    }
+
     /// Set a configuration override
     ///
     /// # Errors
@@ -616,6 +638,10 @@ impl AdminConfigRepository for AdminConfigManager {
         scope: ConfigScope<'_>,
     ) -> AppResult<Option<ConfigOverride>> {
         self.get_override(category, key, scope).await
+    }
+
+    async fn tenants_overriding(&self, category: &str, key: &str) -> AppResult<Vec<String>> {
+        self.tenants_overriding(category, key).await
     }
 
     async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride> {

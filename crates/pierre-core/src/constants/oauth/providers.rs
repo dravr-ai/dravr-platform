@@ -64,19 +64,43 @@ pub const SCIOTTE_GARMIN: &str = "sciotte_garmin";
 /// hides `sciotte_garmin`.
 pub const TRAININGPEAKS: &str = "trainingpeaks";
 
-/// The dated version of the TrainingPeaks exposure notice.
-///
-/// A TrainingPeaks login is refused until the account accepts it; the notice
-/// is shown in the web and mobile connect modals and on the hosted login page.
-/// An account that accepted this version logs in again without being asked.
-/// Bump it whenever the notice text changes on any surface or in any locale,
-/// so every account is asked again.
-pub const TRAININGPEAKS_TERMS_VERSION: &str = "2026-09-24";
-
 /// Sciotte TrainingPeaks web scraping provider identifier.
 ///
 /// Browser-based TrainingPeaks calendar extraction, gated behind `provider-sciotte` feature.
 pub const SCIOTTE_TRAININGPEAKS: &str = "sciotte_trainingpeaks";
+
+/// Sciotte COROS web scraping provider identifier.
+///
+/// Browser-based COROS Training Hub data extraction, gated behind
+/// `provider-sciotte` feature. The mirror of `coros` until the partner API
+/// (carnet#509) is approved.
+pub const SCIOTTE_COROS: &str = "sciotte_coros";
+
+/// The dated version of each provider's exposure notice, by the backend it
+/// guards.
+///
+/// A provider read by signing in with the athlete's own account, against its
+/// terms of use, states the risk before the credentials: TrainingPeaks
+/// (Terms of Use section 13) and COROS (Terms of Service sections 4 and 7). A
+/// login to one of these backends is refused until the account accepts its
+/// current notice; the web and mobile connect modals and the hosted pages show
+/// it. An account that accepted a version logs in again without being asked.
+/// Bump a provider's version whenever its notice text changes on any surface
+/// or in any locale, so every account is asked again.
+pub const PROVIDER_TERMS_VERSIONS: [(&str, &str); 2] = [
+    (SCIOTTE_TRAININGPEAKS, "2026-09-24"),
+    (SCIOTTE_COROS, "2026-09-24"),
+];
+
+/// The current exposure-notice version for `backend`, or `None` when the
+/// provider asks for no notice.
+#[must_use]
+pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
+    PROVIDER_TERMS_VERSIONS
+        .iter()
+        .find(|(guarded, _)| *guarded == backend)
+        .map(|(_, version)| *version)
+}
 
 /// Synthetic fitness provider identifier (for testing)
 /// Note: Provider name constants are always available for configuration;

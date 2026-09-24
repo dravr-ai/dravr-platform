@@ -531,6 +531,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     sciotte: t('providerBlurb.strava'),
     sciotte_garmin: t('providerBlurb.garmin'),
     sciotte_trainingpeaks: t('providerBlurb.trainingpeaks'),
+    sciotte_coros: t('providerBlurb.coros'),
     intervals_icu: t('providerBlurb.intervals'),
   };
 

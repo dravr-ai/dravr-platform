@@ -9,6 +9,7 @@ import { render } from '@testing-library/react-native';
 import Svg, { Circle, Rect } from 'react-native-svg';
 
 import {
+  CorosLogo,
   GarminLogo,
   IntervalsIcuLogo,
   StravaLogo,
@@ -27,6 +28,8 @@ describe('providerGlyph', () => {
     ['sciotte_garmin', GarminLogo],
     ['garmin', GarminLogo],
     ['sciotte_trainingpeaks', TrainingPeaksLogo],
+    ['sciotte_coros', CorosLogo],
+    ['coros', CorosLogo],
     ['whoop', WhoopLogo],
     ['intervals_icu', IntervalsIcuLogo],
   ])('%s resolves to a component that renders an Svg', (providerId, expected) => {
@@ -71,6 +74,12 @@ describe('brand marks draw in the ink they are handed', () => {
   it('TrainingPeaks fills its peaks with the ink', () => {
     const { UNSAFE_getByType } = render(<TrainingPeaksLogo color={INK} />);
     expect(UNSAFE_getByType(Svg).props.fill).toBe(INK);
+  });
+
+  it('COROS fills its official mark with the ink', () => {
+    const { UNSAFE_getByType } = render(<CorosLogo color={INK} />);
+    expect(UNSAFE_getByType(Svg).props.fill).toBe(INK);
+    expect(UNSAFE_getByType(Svg).props.viewBox).toBe('0 0 1024 1024');
   });
 
   it('Whoop strokes its band and fills its sensor with the ink', () => {

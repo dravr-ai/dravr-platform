@@ -41,8 +41,9 @@ const providerDescriptionKey = (provider: ProviderStatus): string => {
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
 // Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
-// dial; `sciotte_trainingpeaks` is a pair of peaks. Default falls back to a
-// neutral disc.
+// dial; `sciotte_trainingpeaks` is a pair of peaks; `sciotte_coros` is COROS'
+// official mark (coros.com/public/images/COROS.svg) at its own 1024 scale.
+// Default falls back to a neutral disc.
 export const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
   const baseClass = className || 'w-5 h-5';
 
@@ -63,6 +64,12 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
           <path d="M2 20L9 7l4 7 3-5 6 11H2z" />
+        </svg>
+      );
+    case 'sciotte_coros':
+      return (
+        <svg className={baseClass} viewBox="0 0 1024 1024" fill="currentColor">
+          <path d="M611.28637781 226.3848448l313.2594324 182.00737337L925.07539342 786.3244288 612.34554539 967.44210091l-52.8312832-28.51279417 245.1761334-182.36749028L804.22436181 437.85826304 562.20454798 254.81290525l49.08182983-28.42806045zM171.15984213 335.14018133l34.86779961 304.15059058 275.38359524 158.95988452 279.04831715-118.71151332v56.85612089l-313.7678336 181.11767325L120.10795918 728.9599067V366.78811193l51.03069867-31.62674745zM569.19505465 56.55789909l312.72984804 181.11767211 1.80058566 60.13954162-280.04393414-121.80428345-274.9175626 159.76485205-37.02850219 301.75687111-49.06064668-28.42806044 0.50840121-363.12504548L569.19505465 56.55789909z" />
         </svg>
       );
     case 'whoop':

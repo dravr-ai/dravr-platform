@@ -36,9 +36,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_core::constants::oauth_providers::{
-    SCIOTTE_TRAININGPEAKS, TRAININGPEAKS, TRAININGPEAKS_TERMS_VERSION,
-};
+use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TRAININGPEAKS};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{
@@ -56,6 +54,7 @@ use unicode_normalization::char::is_combining_mark;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
+use crate::provider_notice::notice_in_force;
 use crate::trainingpeaks_accounts::{
     account_role, record_trainingpeaks_role, trainingpeaks_profile,
 };
@@ -309,14 +308,25 @@ async fn coach_session(
     if account_role == Some(ProviderAccountRole::Athlete) {
         return Err(Refusal::NotCoachAccount.error());
     }
-    if repos
-        .users
-        .trainingpeaks_terms_version(coach_user_id)
-        .await?
-        .as_deref()
-        != Some(TRAININGPEAKS_TERMS_VERSION)
+    // A coach the notice is in force for reads their roster only under its
+    // current version; one the flag leaves off was never asked for it.
+    if let Some(current) = notice_in_force(
+        repos,
+        coach_tenant.as_uuid(),
+        coach_user_id,
+        SCIOTTE_TRAININGPEAKS,
+    )
+    .await
     {
-        return Err(Refusal::TermsOutdated.error());
+        if repos
+            .users
+            .provider_terms_version(coach_user_id, SCIOTTE_TRAININGPEAKS)
+            .await?
+            .as_deref()
+            != Some(current)
+        {
+            return Err(Refusal::TermsOutdated.error());
+        }
     }
     let session = serde_json::from_str::<AuthSession>(&token.access_token)
         .map_err(|_| Refusal::ReconnectNeeded.error())?;

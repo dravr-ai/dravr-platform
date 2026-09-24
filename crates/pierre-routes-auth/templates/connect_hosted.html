@@ -139,24 +139,32 @@
                 channel: "{{CHANNEL}}",
                 channelLabel: "{{CHANNEL_LABEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, connected, kind: 'oauth'|'sciotte', target, consent_required, login_identifier }]
+                // [{ provider, display_name, connected, kind: 'oauth'|'sciotte', target, consent_required, notice?, login_identifier }]
                 providers: {{PROVIDERS_JSON}},
                 timeoutMs: 1200000,
             };
 
             // The Sciotte sub-flow target chosen from the picker
-            // ('strava'|'garmin'|'trainingpeaks').
+            // ('strava'|'garmin'|'trainingpeaks'|'coros').
             let sciotteTarget = 'strava';
             let sciotteLabel = 'Strava';
             // Whether the chosen provider's exposure notice must be accepted
-            // before its credentials are sent (TrainingPeaks, until accepted).
+            // before its credentials are sent (TrainingPeaks and COROS, until
+            // accepted).
             let consentRequired = false;
 
-            // Show or hide the notice for the chosen provider, starting unticked,
-            // and keep Log In disabled until it is accepted.
-            function setConsent(required) {
-                consentRequired = required;
-                document.getElementById('consent-block').hidden = !required;
+            // Show or hide the chosen provider's own notice, starting unticked,
+            // and keep Log In disabled until it is accepted. The text is set as
+            // text, never as markup.
+            function setConsent(required, notice) {
+                consentRequired = required && Boolean(notice);
+                const block = document.getElementById('consent-block');
+                if (consentRequired) {
+                    block.querySelector('.callout-title').textContent = notice.title;
+                    block.querySelector('.callout-title').nextElementSibling.textContent = notice.body;
+                    block.querySelector('label.check span').textContent = notice.consent;
+                }
+                block.hidden = !consentRequired;
                 document.getElementById('tos-consent').checked = false;
                 syncConsent();
             }
@@ -248,7 +256,7 @@
                 document.getElementById('cred-title').textContent = sciotteLabel + ' Account';
                 document.getElementById('cred-notice').textContent =
                     'Credentials go directly to ' + sciotteLabel + ' — Dravr never stores your password.';
-                setConsent(Boolean(p.consent_required));
+                setConsent(Boolean(p.consent_required), p.notice);
                 setIdentifier(p.login_identifier);
                 showPhase('credentials');
                 document.getElementById('email').focus();
