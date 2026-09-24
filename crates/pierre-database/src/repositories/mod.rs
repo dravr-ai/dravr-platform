@@ -91,6 +91,8 @@ pub mod pre_approved_emails;
 pub mod prescribed_workouts;
 /// Shared statements, row decoder and body for provider connections and their reauth lifecycle.
 pub mod provider_connections;
+/// Deleting every row one provider contributed, per user on disconnect or platform-wide on termination.
+pub mod provider_data;
 /// Repository traits for recipe persistence.
 pub mod recipes;
 /// Repository trait for messaging turns the shutdown drain handed off to another instance.
@@ -193,6 +195,7 @@ pub use notifications::*;
 pub use oauth::*;
 pub use playbooks::*;
 pub use prescribed_workouts::*;
+pub use provider_data::*;
 pub use recipes::*;
 pub use resumable_turns::*;
 pub use route_summaries::*;

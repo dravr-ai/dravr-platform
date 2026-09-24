@@ -14,8 +14,10 @@
 //! The chokepoint stays a thin orchestrator; this module revokes the grant
 //! upstream (Strava API Policy §2.1 makes consent withdrawal an obligation,
 //! and every other OAuth provider's athlete expects the same "this app no
-//! longer has my data") and deletes the provider-derived cached rows (§7.4's
-//! deletion clock — immediate is stronger than the 30-day ceiling and
+//! longer has my data") and deletes every row the provider contributed —
+//! sleep, recovery, body metrics, time-series points, cached activities and
+//! the sync state describing them (Strava §7.4's deletion clock, WHOOP API
+//! Terms §4 on revocation — immediate is stronger than either ceiling and
 //! simpler than a sweeper).
 
 use chrono::{Duration, Utc};
@@ -363,36 +365,39 @@ pub async fn revoke_upstream_grant(
     revocation_outcome(result, user_id, tenant_id, backend)
 }
 
-/// Delete the provider-derived cached activity rows on disconnect.
+/// Delete every row `backend` contributed for the user under `tenant_id`.
 ///
-/// Best-effort: by the time this runs the disconnect itself has already
-/// succeeded, and an undeleted row still ages out via retention pruning.
-pub async fn purge_provider_cache(
+/// That is their sleep, recovery and body metrics, time-series points, cached
+/// activities and the sync state describing them, in one transaction.
+///
+/// Health rows have no retention pruning to fall back on, so a purge that
+/// fails is an error the disconnect reports rather than a warning it
+/// swallows. The token and connection rows are gone by then, and a retried
+/// disconnect runs the purge again: clearing a backend the user no longer
+/// holds still purges it.
+///
+/// # Errors
+/// Returns a database error when the purge fails; nothing was deleted then.
+pub async fn purge_provider_data(
     data: &DataContext,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-) {
-    match data
+) -> AppResult<()> {
+    let purge = data
         .repos()
-        .activity_cache
-        .delete_provider_activities(user_id, &tenant_id, backend)
-        .await
-    {
-        Ok(removed) => info!(
-            user_id = %user_id,
-            tenant_id = %tenant_id,
-            backend = %backend,
-            removed,
-            "Deleted provider-derived cached activities on disconnect"
-        ),
-        Err(e) => warn!(
-            user_id = %user_id,
-            backend = %backend,
-            error = %e,
-            "Failed to delete cached activities on disconnect; rows age out via retention pruning"
-        ),
-    }
+        .provider_data
+        .purge_user_provider_data(user_id, &tenant_id, backend)
+        .await?;
+    info!(
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        backend = %backend,
+        removed = purge.total(),
+        rows_removed = ?purge.rows_removed,
+        "Deleted the provider's data on disconnect"
+    );
+    Ok(())
 }
 
 /// The stored token row a revocation spends: `Ok(None)` — logged — when
@@ -613,7 +618,7 @@ pub async fn surviving_rows(
 }
 
 /// Withdraw one backend completely: revoke upstream, then delete the token and
-/// connection rows in lockstep and purge the provider-derived cache.
+/// connection rows in lockstep and purge every row the provider contributed.
 ///
 /// The two row types are separate sources of truth (`oauth_tokens` drives
 /// `resolve_backend` + the scrape session; `provider_connections` drives the
@@ -629,7 +634,8 @@ pub async fn surviving_rows(
 /// still stand.
 ///
 /// # Errors
-/// Returns a database error if either delete fails.
+/// Returns a database error if either delete or the provider data purge
+/// fails.
 pub async fn clear_backend(
     service: &OAuthService,
     data: &DataContext,
@@ -658,7 +664,7 @@ pub async fn clear_backend(
         forget_coach_roster(data.cache(), user_id, tenant_id).await;
     }
 
-    purge_provider_cache(data, user_id, tenant_id, backend).await;
+    purge_provider_data(data, user_id, tenant_id, backend).await?;
     Ok(outcome)
 }
 

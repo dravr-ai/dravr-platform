@@ -182,6 +182,12 @@ enum Command {
         #[command(subcommand)]
         action: ToolCommand,
     },
+
+    /// Provider-wide operations on a remote server (the termination purge)
+    Provider {
+        #[command(subcommand)]
+        action: commands::provider_data::ProviderCommand,
+    },
 }
 
 #[non_exhaustive]
@@ -886,6 +892,11 @@ async fn main() -> Result<()> {
     if let Command::Config { action } = cli.command {
         return commands::config::dispatch(action).await;
     }
+    // `provider purge` deletes a provider's rows on a deployed server over the
+    // admin API, so it is remote for the same reason.
+    if let Command::Provider { action } = cli.command {
+        return commands::provider_data::dispatch(action).await;
+    }
 
     // `user get` / `set` / `disconnect` / `delete` and the three pre-approval
     // verbs are remote, and have to dispatch here for the reason they exist: every other user command
@@ -961,6 +972,9 @@ async fn main() -> Result<()> {
         }
         Command::Config { .. } => {
             unreachable!("Config is handled in the early return above")
+        }
+        Command::Provider { .. } => {
+            unreachable!("Provider is handled in the early return above")
         }
         Command::User { action } => match action {
             UserCommand::Create {

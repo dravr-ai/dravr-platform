@@ -374,6 +374,8 @@ pub enum AdminAction {
     ViewAuditLogs,
     /// Manage user accounts
     ManageUser,
+    /// Delete every row one provider contributed, across every tenant
+    PurgeProviderData,
 }
 
 impl Display for AdminAction {
@@ -387,6 +389,7 @@ impl Display for AdminAction {
             Self::RevokeAdminToken => write!(f, "revoke_admin_token"),
             Self::ViewAuditLogs => write!(f, "view_audit_logs"),
             Self::ManageUser => write!(f, "manage_user"),
+            Self::PurgeProviderData => write!(f, "purge_provider_data"),
         }
     }
 }
@@ -404,6 +407,7 @@ impl FromStr for AdminAction {
             "revoke_admin_token" => Ok(Self::RevokeAdminToken),
             "view_audit_logs" => Ok(Self::ViewAuditLogs),
             "manage_user" => Ok(Self::ManageUser),
+            "purge_provider_data" => Ok(Self::PurgeProviderData),
             _ => Err(format!("Unknown admin action: {s}")),
         }
     }

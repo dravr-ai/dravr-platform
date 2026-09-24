@@ -18,9 +18,10 @@
 //! disconnect. The admin routes reach the chokepoint through
 //! [`ProviderDisconnector`], which [`OAuthService`] implements, so an operator's
 //! disconnect revokes upstream, deletes the token and connection rows, purges
-//! the provider-derived cache and raises `provider.disconnected` exactly as the
-//! athlete's own does. What the provider answered is reported per grant: the
-//! local rows go either way, so "disconnected" never stands in for "revoked".
+//! every row the provider contributed and raises `provider.disconnected`
+//! exactly as the athlete's own does. What the provider answered is reported
+//! per grant: the local rows go either way, so "disconnected" never stands in
+//! for "revoked".
 //!
 //! The account delete then runs in one transaction that also clears every row
 //! the user owns in a table no foreign key cascades to, and refuses to commit
@@ -55,8 +56,8 @@ pub trait ProviderDisconnector: Send + Sync {
     /// Disconnect `provider` for `user_id` within `tenant_id`, exactly as the
     /// user's own disconnect does: the grant is revoked at the provider, the
     /// token and connection rows (for both halves of a coalesced pair) are
-    /// deleted, the provider-derived cache is purged, and success is refused
-    /// while any row survives. `reason` names who asked on the
+    /// deleted, every row the provider contributed is purged, and success is
+    /// refused while any row survives. `reason` names who asked on the
     /// `provider.disconnected` event. Returns what the provider said about
     /// the grant, since the local deletion never waits on it.
     async fn disconnect(

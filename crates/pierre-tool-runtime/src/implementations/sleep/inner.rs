@@ -13,7 +13,7 @@ use chrono::Utc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::protocol::sleep_helpers::{latest_daily_strain, latest_sleep_data, sleep_history_data};
+use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use pierre_core::models::{Activity, FormBand};
@@ -533,13 +533,6 @@ pub fn handle_calculate_recovery_score(
             }
         }
 
-        // The latest day strain a source scored (WHOOP), best-effort.
-        #[allow(clippy::cast_possible_truncation)]
-        // WHOOP day strain runs 0-21; f32 holds it exactly enough to report.
-        let daily_strain = latest_daily_strain(executor, user_uuid, request.tenant_id.as_deref())
-            .await
-            .map(|strain| strain as f32);
-
         let payload = recovery_score_payload(
             recovery_score.clone(),
             RecoveryTrainingLoad {
@@ -547,7 +540,6 @@ pub fn handle_calculate_recovery_score(
                 atl: training_load.atl,
                 tsb: training_load.tsb,
             },
-            daily_strain,
             sleep_quality_score,
             hrv_status,
             activity_provider.clone(),

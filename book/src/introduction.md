@@ -30,7 +30,7 @@ Sports science-based fitness analysis including:
 |----------|--------------|
 | Strava | Activities, Stats, Routes |
 | Garmin | Activities, Sleep, Health |
-| WHOOP | Sleep, Recovery, Strain |
+| WHOOP | Sleep, Recovery, Workouts |
 | Fitbit | Activities, Sleep, Health |
 | COROS | Activities, Sleep, Recovery |
 | Terra | 150+ wearables, Activities, Sleep, Health |

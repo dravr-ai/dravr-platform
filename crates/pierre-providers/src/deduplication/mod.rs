@@ -17,7 +17,7 @@
 //! [`merge_duplicates`] groups those recordings and keeps one canonical row per
 //! workout, filling that row's missing fields from the other recordings of the
 //! whole session — so a Strava ride keeps its GPS and power while gaining the
-//! WHOOP strain and the Intervals.icu RPE recorded for the same session. A
+//! WHOOP heart rate and the Intervals.icu RPE recorded for the same session. A
 //! [`FragmentReport`] names every group and every field that crossed over.
 //!
 //! ```

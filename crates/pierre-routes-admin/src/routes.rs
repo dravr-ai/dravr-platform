@@ -29,7 +29,8 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, device_auth, device_web, feature_flags, guardian_config, harness_config,
-    memory_worker, myth_busting, settings, setup, strava_pool, tokens, user_removal, users,
+    memory_worker, myth_busting, provider_data, settings, setup, strava_pool, tokens, user_removal,
+    users,
 };
 
 /// Admin routes implementation (Axum).
@@ -68,6 +69,10 @@ impl AdminRoutes {
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
         );
 
+        let provider_data_routes = Self::provider_data_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
         // Device-grant authorization + token endpoints are public: the CLI is
         // not yet authenticated when it calls them (the raw device_code is the
         // bearer secret). Only /admin/device/approve is behind the admin token.
@@ -88,6 +93,7 @@ impl AdminRoutes {
             .merge(admin_token_routes)
             .merge(user_routes)
             .merge(strava_pool_routes)
+            .merge(provider_data_routes)
             .merge(device_public_routes)
             .merge(device_approve_routes)
             .merge(settings_routes)
@@ -490,6 +496,17 @@ impl AdminRoutes {
             .route(
                 "/admin/strava-pool/seats",
                 get(strava_pool::handle_list_strava_seats),
+            )
+            .with_state(context)
+    }
+
+    /// The super-admin termination purge `pierre-cli provider purge` drives:
+    /// every row one provider contributed, deleted in every tenant.
+    fn provider_data_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/providers/{provider}/data",
+                delete(provider_data::handle_purge_provider_data),
             )
             .with_state(context)
     }

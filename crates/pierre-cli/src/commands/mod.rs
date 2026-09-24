@@ -10,6 +10,7 @@ pub mod drift;
 #[cfg(feature = "tools-verification")]
 pub mod harness;
 pub mod key;
+pub mod provider_data;
 pub mod seed;
 pub mod settings;
 pub mod strava_pool;

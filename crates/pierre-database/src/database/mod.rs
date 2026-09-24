@@ -79,6 +79,8 @@ pub mod pre_approved_emails;
 pub mod prescribed_workouts;
 /// Provider connections: unified connection tracking for all provider types
 pub mod provider_connections;
+/// Provider data purge: disconnect and termination deletes (`SQLite`)
+pub mod provider_data;
 /// Recipe storage and management for nutrition planning
 pub mod recipes;
 /// Repository trait definitions for focused database access

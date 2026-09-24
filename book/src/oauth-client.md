@@ -381,7 +381,29 @@ Response:
 
 Use the `disconnect_provider` MCP tool to revoke a provider connection; there is no standalone REST `DELETE /api/oauth/disconnect/{provider}` endpoint.
 
-Implementation: `src/routes/auth.rs`
+Every disconnect surface (the app, the chat tool loop, `/mcp`, an operator
+removing a user) goes through one chokepoint, `OAuthService::disconnect_provider`.
+It revokes the grant at the provider, deletes the token and connection rows,
+and deletes every row the provider contributed for that user in that tenant,
+in one transaction: sleep sessions, recovery metrics, body snapshots,
+time-series points and their daily rollups, data sources, cached activities,
+and the sync state describing them (cursors, fetch marks, backfill coverage
+and owed backfill jobs). A purge that fails is reported as a failed
+disconnect, and retrying the disconnect runs it again.
+
+**termination purge (operators):** `pierre-cli provider purge <provider> --yes`
+calls the super-admin-only `DELETE /admin/providers/{provider}/data`, which
+deletes the same rows for every user in every tenant, as a provider's
+termination clause can require (WHOOP API Terms §7). It writes an
+`admin_token_usage` audit row before deleting anything, and reports how many
+users are still connected to the provider: they keep syncing until they are
+disconnected.
+
+Rows derived from a provider's data without naming it (`training_history`,
+`user_facts`) carry no provider column, so neither purge can attribute them.
+
+Implementation: `crates/pierre-services/src/provider_revocation.rs`,
+`crates/pierre-database/src/repositories/provider_data.rs`
 
 ## Security Features
 
@@ -527,7 +549,7 @@ Implementation: `src/providers/garmin_provider.rs`
 
 **auth url:** `https://api.prod.whoop.com/oauth/oauth2/auth`
 **token url:** `https://api.prod.whoop.com/oauth/oauth2/token`
-**api base:** `https://api.prod.whoop.com/developer/v1`
+**api base:** `https://api.prod.whoop.com/developer/v2`
 
 **default scopes:** `offline read:profile read:body_measurement read:workout read:sleep read:recovery read:cycles`
 
@@ -535,10 +557,18 @@ Implementation: `src/providers/garmin_provider.rs`
 - `offline` - offline access for token refresh
 - `read:profile` - user profile information
 - `read:body_measurement` - body measurements (weight, height)
-- `read:workout` - workout/activity data with strain scores
+- `read:workout` - workout/activity data
 - `read:sleep` - sleep sessions and metrics
-- `read:recovery` - daily recovery scores
+- `read:recovery` - daily recovery readings
 - `read:cycles` - physiological cycle data
+
+**what is kept:** measurements only — heart rate, energy, distance, sleep and
+awake durations, HRV, resting heart rate, SpO2, skin temperature, weight.
+WHOOP's own scores (recovery %, day and workout strain, sleep performance and
+WHOOP's sleep efficiency) are WHOOP's calculations, which its API Terms (§4)
+leave only WHOOP able to authorize storing, so they are dropped at ingestion
+and never stored. Sleep efficiency is computed by Dravr instead:
+`(time in bed − awake) / time in bed × 100`.
 
 **rate limits:**
 - varies by endpoint

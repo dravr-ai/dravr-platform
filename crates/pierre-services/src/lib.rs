@@ -120,6 +120,10 @@ pub mod eval_harness;
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
 
+/// What health sync may keep of a WHOOP record: measurements, never WHOOP's own scores
+#[cfg(feature = "health-sync")]
+pub mod whoop_terms;
+
 /// Memory extraction: Tier 2 background distillation of user facts from finished turns
 pub mod memory_extraction;
 /// Re-running the extractions an instance died owing, from the job ledger

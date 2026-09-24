@@ -21,9 +21,9 @@ use crate::repositories::{
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
     OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
     PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, ResumableTurnRepository,
-    RouteSummaryRepository, SecurityRepository, SeederRepository, SessionRefreshTokenRepository,
-    ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
+    SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
@@ -191,6 +191,9 @@ pub struct RepositoryRegistry {
     /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
     pub activity_cache: Arc<dyn ActivityCacheRepository>,
+    /// Deletes every row one provider contributed: one user's on disconnect,
+    /// every tenant's on the operator's termination purge.
+    pub provider_data: Arc<dyn ProviderDataRepository>,
 }
 
 impl RepositoryRegistry {
@@ -267,6 +270,7 @@ impl RepositoryRegistry {
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
+            provider_data: db.clone(),
             feature_flags: db.clone(),
             guardian_actions: db,
         }
@@ -343,6 +347,7 @@ impl RepositoryRegistry {
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
+            provider_data: db.clone(),
             feature_flags: db.clone(),
             guardian_actions: db,
         }

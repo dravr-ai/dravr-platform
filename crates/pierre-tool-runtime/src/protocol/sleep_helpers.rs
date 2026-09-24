@@ -33,9 +33,6 @@ use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
 /// evening before the window's first day still falls inside it.
 const WINDOW_MARGIN_DAYS: i64 = 2;
 
-/// Days of recovery rows searched for the most recent day strain.
-const STRAIN_LOOKBACK_DAYS: i64 = 3;
-
 fn failure(message: String) -> UniversalResponse {
     UniversalResponse {
         success: false,
@@ -190,29 +187,6 @@ async fn recovery_by_date(
             HashMap::new()
         }
     }
-}
-
-/// The most recent day strain any source scored in the last few days.
-pub async fn latest_daily_strain(
-    executor: &UniversalToolExecutor,
-    user_uuid: Uuid,
-    tenant_id: Option<&str>,
-) -> Option<f64> {
-    let tenant = tenant_of(tenant_id)?;
-    let end = Utc::now();
-    let start = end - Duration::days(STRAIN_LOOKBACK_DAYS);
-    let rows = executor
-        .resources
-        .repos()
-        .recovery
-        .get_recovery_metrics(user_uuid, &tenant, start, end)
-        .await
-        .map_err(|e| warn!(error = %e, "stored recovery unreadable; strain omitted"))
-        .ok()?;
-    merge_recovery_metrics(rows)
-        .into_iter()
-        .rev()
-        .find_map(|day| day.record.daily_strain)
 }
 
 /// Convert a stored (merged) sleep session to the intelligence layer's `SleepData`.

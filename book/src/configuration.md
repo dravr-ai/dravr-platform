@@ -360,10 +360,15 @@ WHOOP_REDIRECT_URI=https://api.example.com/api/oauth/callback/whoop  # productio
 Get credentials: https://developer.whoop.com/
 
 **whoop capabilities**:
-- Sleep tracking (sleep sessions, sleep stages, sleep need)
-- Recovery metrics (HRV, recovery score, strain)
-- Workout activities (with heart rate zones, strain scores)
-- Health metrics (SpO2, skin temperature, body measurements)
+- Sleep tracking (sleep sessions, sleep stages, awake time)
+- Recovery measurements (HRV, resting heart rate, SpO2, skin temperature)
+- Workout activities (heart rate, energy, distance, elevation)
+- Body measurements (weight)
+
+WHOOP's own scores (recovery %, day and workout strain, sleep performance and
+WHOOP's sleep efficiency) are dropped at ingestion and never stored (WHOOP API
+Terms §4). Sleep efficiency is computed by Dravr as
+`(time in bed − awake) / time in bed × 100`.
 
 **whoop scopes**:
 - `offline`: Required for refresh tokens

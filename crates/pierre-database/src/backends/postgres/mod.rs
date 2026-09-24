@@ -86,6 +86,8 @@ pub mod pre_approved_emails;
 pub mod prescribed_workouts;
 /// Provider connections — the single source of truth for provider connectivity
 pub mod provider_connections;
+/// Provider data purge: disconnect and termination deletes (Postgres)
+pub mod provider_data;
 /// Recipe repository implementation (CRUD with nutrition caching)
 pub mod recipes;
 /// Messaging turns the shutdown drain handed off, leased to one re-runner at a time

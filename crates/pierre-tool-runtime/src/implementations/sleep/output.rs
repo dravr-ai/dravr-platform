@@ -75,8 +75,6 @@ pub struct RecoveryScoreResult {
     pub recovery_score: RecoveryScore,
     /// The load numbers behind the TSB component.
     pub training_load: RecoveryTrainingLoad,
-    /// WHOOP's own daily strain, when WHOOP is the sleep provider.
-    pub whoop_daily_strain: Option<f32>,
     /// The sleep component, 0 to 100. Absent in TSB-only mode.
     pub sleep_quality_score: Option<f64>,
     /// The HRV component's verdict. Absent in TSB-only mode.
@@ -275,7 +273,6 @@ pub fn sleep_schedule_payload(
 pub fn recovery_score_payload(
     recovery_score: RecoveryScore,
     load: RecoveryTrainingLoad,
-    whoop_daily_strain: Option<f32>,
     sleep_quality_score: Option<f64>,
     hrv_status: Option<HrvRecoveryStatus>,
     activity_provider: String,
@@ -284,7 +281,6 @@ pub fn recovery_score_payload(
     RecoveryScoreResult {
         recovery_score,
         training_load: load,
-        whoop_daily_strain,
         sleep_quality_score,
         hrv_status,
         providers_used: RecoveryProvidersUsed {

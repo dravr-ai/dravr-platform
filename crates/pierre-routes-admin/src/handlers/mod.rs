@@ -36,6 +36,8 @@ pub mod impersonation;
 pub mod llm_consumption;
 pub mod memory_worker;
 pub mod myth_busting;
+/// Super-admin termination purge: every row one provider contributed, in every tenant.
+pub mod provider_data;
 /// Admin endpoints for reading and writing tenant runtime settings.
 pub mod settings;
 /// Admin endpoints driving first-run / bootstrap setup of a tenant.

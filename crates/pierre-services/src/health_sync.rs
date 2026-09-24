@@ -30,6 +30,8 @@ use pierre_enforme::traits::sleep_store::SleepStore;
 use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use uuid::Uuid;
 
+use crate::whoop_terms;
+
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
 ///
 /// Wraps narrow `FitnessRepos` + `AuthRepos` views and implements each
@@ -44,8 +46,17 @@ use uuid::Uuid;
 /// enforme to the same git tag pierre-core consumes), so the model types
 /// flow through this adapter without any cross-version translation.
 ///
-/// LIMITATION(registre#539): `PierreSyncStorage` persists every WHOOP field it is handed,
-/// provider scores included, with no per-field retention tier and no owner-authorization check.
+/// Every WHOOP sleep and recovery record passes through
+/// [`whoop_terms`] before it is written, so WHOOP's own scores
+/// (recovery %, strain, sleep performance, WHOOP's sleep efficiency) are
+/// never stored; a disconnect deletes the rest through the chokepoint's
+/// provider data purge.
+///
+/// LIMITATION(registre#539): `PierreSyncStorage` still persists the WHOOP measurements it keeps with no
+/// owner-authorization record taken at connect, persists WHOOP-classified physiology (HRV rMSSD, sleep
+/// stage durations) instead of holding it in memory within the cache header, and applies no AI-clause
+/// hygiene (WHOOP-derived turns kept out of evals, tuning sets and cross-athlete analytics); derived rows
+/// with no provider column (`training_history`, `user_facts`) cannot be attributed to WHOOP by a purge.
 pub struct PierreSyncStorage {
     /// Fitness-domain stores backing enforme's sleep / recovery / health /
     /// data-source / sync-cursor / time-series trait impls.
@@ -150,7 +161,11 @@ impl PierreSyncStorage {
 
     /// Resolve `tenant_id` for a user by querying OAuth tokens for the given provider.
     ///
-    /// Falls back to querying all tokens if provider-specific lookup yields nothing.
+    /// Falls back to querying all tokens if provider-specific lookup yields
+    /// nothing — except for WHOOP. A WHOOP record is written only under the
+    /// tenant of the athlete's own WHOOP grant: once a disconnect has deleted
+    /// that grant and purged the athlete's WHOOP rows, a sync still in flight
+    /// must fail rather than write them again under another provider's tenant.
     async fn resolve_tenant_id(&self, user_id: &str, provider: &str) -> EnformeResult<TenantId> {
         let user_uuid = user_id
             .parse::<Uuid>()
@@ -165,10 +180,13 @@ impl PierreSyncStorage {
             .map_err(|e| EnformeError::store(format!("Failed to look up user tokens: {e}")))?;
 
         // Find token matching this provider
-        let matching = tokens
-            .iter()
-            .find(|t| t.provider == provider)
-            .or_else(|| tokens.first());
+        let matching = tokens.iter().find(|t| t.provider == provider).or_else(|| {
+            if whoop_terms::is_whoop(provider) {
+                None
+            } else {
+                tokens.first()
+            }
+        });
 
         matching.map_or_else(
             || {
@@ -209,9 +227,10 @@ impl SleepStore for PierreSyncStorage {
             let tenant_id = self
                 .resolve_tenant_id(&session.user_id, &session.source_name)
                 .await?;
+            let session = whoop_terms::sleep_session_to_store(session);
             self.fitness
                 .sleep
-                .upsert_sleep_session(&tenant_id, session)
+                .upsert_sleep_session(&tenant_id, &session)
                 .await
                 .map_err(|e| EnformeError::store(format!("Failed to upsert sleep session: {e}")))?;
             count += 1;
@@ -261,9 +280,10 @@ impl RecoveryStore for PierreSyncStorage {
             let tenant_id = self
                 .resolve_tenant_id(&metric.user_id, &metric.source_name)
                 .await?;
+            let metric = whoop_terms::recovery_metrics_to_store(metric);
             self.fitness
                 .recovery
-                .upsert_recovery_metrics(&tenant_id, metric)
+                .upsert_recovery_metrics(&tenant_id, &metric)
                 .await
                 .map_err(|e| {
                     EnformeError::store(format!("Failed to upsert recovery metrics: {e}"))

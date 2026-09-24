@@ -487,7 +487,8 @@ where
         spo2: column(row, "spo2")?,
         respiratory_rate: column(row, "resting_respiratory_rate")?,
         skin_temp_deviation: column(row, "body_temperature")?,
-        // `training_load` is the provider's day load score: WHOOP day strain.
+        // `training_load` is the provider's day load score. WHOOP's day strain,
+        // the one such score a sync adapter maps, is withheld before storage.
         daily_strain: column(row, "training_load")?,
         athlete_note: column(row, "athlete_note")?,
         source_name: column(row, "provider")?,

@@ -35,8 +35,9 @@ use super::api_keys::json_response;
 use super::types::AdminResponse;
 use crate::context::AdminApiContext;
 
-/// Managing platform OAuth-app secrets is a super-admin-only operation. Returns
-/// the FORBIDDEN response when the caller isn't super-admin, else `None`.
+/// The FORBIDDEN response for a caller that isn't super-admin, else `None`.
+/// Managing platform OAuth-app secrets is super-admin only, and so is the
+/// whole-provider data purge in [`super::provider_data`].
 pub(crate) fn deny_if_not_super_admin(admin_token: &ValidatedAdminToken) -> Option<Response> {
     if admin_token.is_super_admin {
         return None;

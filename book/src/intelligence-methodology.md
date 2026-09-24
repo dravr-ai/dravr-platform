@@ -392,12 +392,12 @@ pub struct Activity {
 - **strava**: full power metrics, segments, kudos
 - **garmin**: advanced running dynamics, training effect, recovery time
 - **fitbit**: all-day heart rate, sleep tracking, steps
-- **whoop**: strain scores, recovery metrics, sleep stages, HRV data
+- **whoop**: recovery measurements (HRV, resting heart rate), sleep stages and awake time; WHOOP's own recovery %, strain and sleep performance are never stored, and sleep efficiency is computed as `(time in bed − awake) / time in bed × 100`
 
 ### Data Retention And Privacy
 - activities cached for 7 days (configurable)
 - analysis results cached for 24 hours
-- token revocation purges all cached data within 1 hour
+- disconnecting a provider deletes every row it contributed (sleep, recovery, body metrics, time-series points, cached activities) at once
 - no third-party data sharing
 - encryption: AES-256-GCM for tokens, tenant-specific keys
 - provider tokens stored separately, isolated per tenant

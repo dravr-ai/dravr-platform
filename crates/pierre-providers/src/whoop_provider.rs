@@ -9,14 +9,9 @@
 // - String ownership for API responses and error handling
 //
 // Clippy allowances for this module:
-// - cast_possible_truncation: WHOOP API returns f64 for scores that are always within f32 range
-// - cast_sign_loss: Heart rate and score values from WHOOP are always positive
-// - cast_precision_loss: Score precision loss is acceptable (0-100 range)
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss
-)]
+// - cast_possible_truncation: WHOOP's energy arrives as f64 kJ, far inside u32 once converted to kcal
+// - cast_sign_loss: Heart rate and energy values from WHOOP are always positive
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
@@ -80,11 +75,14 @@ struct WhoopWorkout {
     score: Option<WhoopWorkoutScore>,
 }
 
-/// WHOOP workout score details
+/// The measurements a WHOOP workout score carries.
+///
+/// WHOOP's workout strain is deliberately not read: it is WHOOP's own
+/// calculation, which WHOOP's API Terms (§4) leave only WHOOP able to
+/// authorize storing, and a cached activity is stored. Training load comes
+/// from the heart-rate and energy measurements below instead.
 #[derive(Debug, Deserialize)]
 struct WhoopWorkoutScore {
-    /// Strain score (0-21 scale)
-    strain: Option<f64>,
     /// Average heart rate during workout
     average_heart_rate: Option<i32>,
     /// Maximum heart rate during workout
@@ -288,7 +286,6 @@ impl WhoopProvider {
                 .and_then(|s| s.kilojoule)
                 .map(|kj| (kj * 0.239) as u32),
         )
-        .training_stress_score_opt(score.and_then(|s| s.strain).map(|s| s as f32))
         .sport_type_detail_opt(Some(format!("whoop_sport_{sport_id}")))
         .build())
     }
