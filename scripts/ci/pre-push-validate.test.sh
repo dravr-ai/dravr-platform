@@ -70,6 +70,11 @@ make_repo() {
   # The base resolver is not a stub: the validator sources it to pick the base
   # every tier diffs against, so the fixture runs the real rule.
   cp "$SCRIPT_DIR/gate-base-ref.sh" "$dir/scripts/ci/gate-base-ref.sh"
+  # Tier 1-shared runs the .build submodule's validate.sh on every push and
+  # fails closed when it is missing, so the fixture carries a no-op in its place.
+  mkdir -p "$dir/.build/validation"
+  printf '#!/bin/sh\nexit 0\n' >"$dir/.build/validation/validate.sh"
+  chmod +x "$dir/.build/validation/validate.sh"
   # Tier 4 counts the shared-package suites first and fails when it finds none,
   # so a packages/ diff needs one to reach the tier body at all. The two scripts
   # it then runs are real commands rather than scripts/ci helpers, so `bun` is
