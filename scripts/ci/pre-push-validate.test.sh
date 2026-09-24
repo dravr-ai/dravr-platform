@@ -67,6 +67,9 @@ make_repo() {
     printf '#!/bin/sh\nexit 0\n' >"$dir/scripts/ci/$stub"
     chmod +x "$dir/scripts/ci/$stub"
   done
+  # The base resolver is not a stub: the validator sources it to pick the base
+  # every tier diffs against, so the fixture runs the real rule.
+  cp "$SCRIPT_DIR/gate-base-ref.sh" "$dir/scripts/ci/gate-base-ref.sh"
   # Tier 4 counts the shared-package suites first and fails when it finds none,
   # so a packages/ diff needs one to reach the tier body at all. The two scripts
   # it then runs are real commands rather than scripts/ci helpers, so `bun` is
@@ -191,6 +194,22 @@ expect_absent "Rust diff pays no SDK tier" "Tier 6: SDK Validation"
 expect_absent "Rust diff pays no mobile tier" "Tier 7: Mobile Validation"
 expect_absent "Rust diff names no changed package" "Changed packages:"
 expect_exit "Rust diff passes" 0
+
+# 7. One base for every tier. The validator resolves its base through
+#    gate-base-ref.sh and exports it, so a gate it calls with no argument (the
+#    agent-vocabulary tier) diffs against the same commit as the gates it hands
+#    $BASE_REF to. The fixture has no origin/main, so the rule lands on HEAD~1.
+echo "  case 7: the base reaches a gate called without one"
+dir="$(make_repo)"
+# Single quotes on purpose: the stub expands the variable when it runs, not here.
+printf '#!/bin/sh\necho "vocabulary-base=${GATE_BASE_REF:-unset}"\n' >"$dir/scripts/ci/check-agent-vocabulary.sh"
+chmod +x "$dir/scripts/ci/check-agent-vocabulary.sh"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "vocabulary stub"
+base_sha="$(git -C "$dir" rev-parse HEAD)"
+run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
+expect_contains "the argument-less vocabulary gate reads the exported base" "vocabulary-base=$base_sha"
+expect_exit "the base-propagation case passes" 0
 
 echo ""
 if [ "$failures" -ne 0 ]; then

@@ -17,10 +17,16 @@
 # survey passed CI green. This script is that gate.
 #
 # MODES
-#   check-turn-envelope.sh              — the standing invariants, exit non-zero
-#                                         if any is already broken
-#   check-turn-envelope.sh <BASE_REF>   — additionally FAIL on what the diff
-#                                         against BASE_REF introduces
+#   check-turn-envelope.sh [BASE_REF]   — the standing invariants, exit non-zero
+#                                         if any is already broken, and FAIL on
+#                                         what the diff against the base
+#                                         introduces
+#
+# The base follows the rule every diff gate shares (gate-base-ref.sh): the
+# argument, else $GATE_BASE_REF, else origin/main, and HEAD~1 whenever that is
+# missing or equals HEAD. An empty argument used to skip the diff half, which
+# disarmed it on every workflow_dispatch run and on any call that forgot the
+# base. Only a root commit, with nothing before it, skips it now.
 #
 # Three of the four checks are whole-tree rather than diff-scoped, because the
 # tree satisfies them today: a block kind rendered by one client and not the
@@ -40,7 +46,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 cd "$PROJECT_ROOT" || exit 1
 
-BASE_REF="${1:-}"
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$SCRIPT_DIR/gate-base-ref.sh"
+BASE_REF="$(resolve_gate_base_ref "${1:-}" || true)"
 FAILED=false
 
 WIRE_TYPES="packages/shared-types/src/turn.ts"

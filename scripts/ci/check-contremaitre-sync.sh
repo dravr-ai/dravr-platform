@@ -46,8 +46,9 @@
 #
 # Known blind spot: an event or tool whose name is built at runtime rather than
 # written as a literal is invisible to a static scan. Check 3 defends against
-# that by asserting its own completeness (one extracted name per call site) and
-# failing loudly if the assumption ever breaks. See AGENTS.md.
+# that through tool_schema_properties.py, which asserts one literal name per
+# tool_definition( call site and fails loudly if the assumption ever breaks.
+# See AGENTS.md.
 
 set -euo pipefail
 
@@ -208,39 +209,53 @@ fi
 # Every McpTool::definition() builds its Tool through
 # tool_definition("<name>", ...) (pierre-tool-runtime/src/conversions.rs), so the
 # names ARE literals at a greppable call site and the full set is enumerable
-# without compiling. The scan proves its own completeness before comparing.
+# without compiling. The names come from scripts/ci/tool_schema_properties.py,
+# the one enumeration of the registry — Check 9 and check-declared-parameters.sh
+# attribute properties with the same scan — and so does the proof of its
+# completeness: it raises when a call site's name is not a readable literal. The
+# one premise added here is the one only a name list needs: no two call sites
+# register the same name.
 EXPECTED_FILE="crates/pierre-server/tests/contremaitre_test.rs"
 COUNT_FILE="crates/pierre-server/tests/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
 
-TOOL_FILES="$(grep -rl 'tool_definition(' crates --include='*.rs' 2>/dev/null | grep '/src/' || true)"
-
-# Whether SRC_TOOLS below holds the complete registered set. Check 7 compares
-# against it and must not run on a truncated scan.
+# Whether SRC_TOOLS below holds the complete registered set. Checks 7 and 9
+# compare against it and must not run on a truncated scan.
 TOOL_SCAN_COMPLETE=false
 
-if [[ -z "$TOOL_FILES" ]]; then
-    echo -e "${RED}❌ No tool_definition( call sites found in crates/*/src — this check is stale.${NC}"
+if ! TOOL_SCAN="$(python3 - <<'PYTOOLS'
+import sys
+
+sys.path.insert(0, "scripts/ci")
+import tool_schema_properties as tsp
+
+try:
+    tools, stats = tsp.scan()
+except tsp.ScanError as exc:
+    print(f"SCAN_UNSOUND {exc}")
+    raise SystemExit(0)
+if stats["call_sites"] != len(tools):
+    print(
+        f"SCAN_UNSOUND {stats['call_sites']} tool_definition( call site(s) register "
+        f"{len(tools)} distinct name(s), so a name is registered twice"
+    )
+    raise SystemExit(0)
+print("\n".join(tools))
+PYTOOLS
+)"; then
+    echo -e "${RED}❌ Tool scan could not run (scripts/ci/tool_schema_properties.py).${NC}"
     FAILED=true
 else
-    # Join lines: a call site may wrap between the paren and the name literal.
-    BLOB="$(printf '%s\n' "$TOOL_FILES" | xargs cat 2>/dev/null | tr '\n' ' ')"
-    CALLS="$(printf '%s' "$BLOB" | grep -oE 'tool_definition\(' | grep -c . || true)"
-    HELPER="$(printf '%s' "$BLOB" | grep -oE 'fn[[:space:]]+tool_definition\(' | grep -c . || true)"
-    CALL_SITES=$(( CALLS - HELPER ))
-    SRC_TOOLS="$(printf '%s' "$BLOB" \
-        | grep -oE 'tool_definition\([[:space:]]*"[a-z0-9_]+"' \
-        | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u || true)"
-    SRC_COUNT="$(printf '%s\n' "$SRC_TOOLS" | grep -c . || true)"
-
-    if [[ "$SRC_COUNT" -ne "$CALL_SITES" ]]; then
+    if [[ "$TOOL_SCAN" == SCAN_UNSOUND* ]]; then
         # The scan's own assumption broke. Fail loudly rather than compare a
         # silently-truncated set, which would read as "all tools in sync".
-        echo -e "${RED}❌ Tool scan incomplete: ${CALL_SITES} tool_definition( call site(s) but ${SRC_COUNT} literal name(s).${NC}"
-        echo -e "${YELLOW}   A tool is registered with a non-literal name, so this static scan can no longer see${NC}"
-        echo -e "${YELLOW}   every tool. Give the tool a literal name, or extend this check — never ignore it.${NC}"
+        echo -e "${RED}❌ Tool scan incomplete: ${TOOL_SCAN#SCAN_UNSOUND }${NC}"
+        echo -e "${YELLOW}   This static scan can no longer stand behind the tool list. Fix the site named${NC}"
+        echo -e "${YELLOW}   above, or extend tool_schema_properties.py — never ignore it.${NC}"
         FAILED=true
     else
+        SRC_TOOLS="$(printf '%s\n' "$TOOL_SCAN" | sort -u)"
+        SRC_COUNT="$(printf '%s\n' "$SRC_TOOLS" | grep -c . || true)"
         TOOL_SCAN_COMPLETE=true
         TOOL_DRIFT=false
 

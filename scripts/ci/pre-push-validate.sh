@@ -25,16 +25,25 @@ rm -f "$MARKER_FILE"
 # ============================================================================
 # Detect changed files and classify them
 # ============================================================================
-# Use the merge-base with origin/main so that rebased branches don't report
-# main commits they picked up as branch-owned changes. Falls back to
-# origin/main or HEAD~1 if merge-base lookup fails (e.g., fresh clone).
-if git rev-parse --verify "origin/main" &>/dev/null; then
-    BASE_REF=$(git merge-base "origin/main" HEAD 2>/dev/null || echo "origin/main")
+# The base comes from the one rule every diff-scoped gate uses
+# (gate-base-ref.sh): $GATE_BASE_REF, else origin/main, and HEAD~1 whenever that
+# is missing or already equals HEAD — so pushing a main that origin/main has
+# caught up with still inspects the tip commit instead of an empty diff. It is
+# then narrowed to its merge-base with HEAD, so a rebased branch does not report
+# the main commits it picked up as its own, and exported: the gates below that
+# take no argument read the same base as the ones handed $BASE_REF.
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$PROJECT_ROOT/scripts/ci/gate-base-ref.sh"
+if GATE_BASE="$(resolve_gate_base_ref)"; then
+    MERGE_BASE="$(git merge-base "$GATE_BASE" HEAD 2>/dev/null || echo "$GATE_BASE")"
+    BASE_REF="$(resolve_gate_base_ref "$MERGE_BASE")"
 else
-    BASE_REF="HEAD~1"
+    # A root commit: nothing precedes it, so there is no diff to scope a gate to.
+    BASE_REF="HEAD"
 fi
+export GATE_BASE_REF="$BASE_REF"
 
-CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD 2>/dev/null || echo "")
 
 HAS_RUST_SRC_CHANGES=false
 HAS_CARGO_CHANGES=false

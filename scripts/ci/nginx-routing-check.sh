@@ -145,7 +145,7 @@ echo "-- backend route-surface snapshot --"
 
 SNAPSHOT="$REPO_ROOT/scripts/ci/backend-route-prefixes.txt"
 if diff -u <(awk '!/^#/ && NF {print $1}' "$SNAPSHOT") \
-           <(python3 "$REPO_ROOT/scripts/ci/backend-route-prefixes.py" "$REPO_ROOT") \
+           <(python3 "$REPO_ROOT/scripts/ci/backend-routes.py" prefixes "$REPO_ROOT") \
            > /tmp/route-surface.diff 2>&1; then
     echo "  ok   route surface unchanged"
 else
@@ -155,7 +155,7 @@ else
     echo "  A '+' line is a NEW backend prefix. Decide whether nginx must proxy it"
     echo "  (docker/images/frontend/nginx.conf) — an unproxied prefix returns the"
     echo "  SPA shell with a 200, which looks healthy and is not. Then refresh:"
-    echo "    python3 scripts/ci/backend-route-prefixes.py . > scripts/ci/backend-route-prefixes.txt"
+    echo "    python3 scripts/ci/backend-routes.py prefixes . > scripts/ci/backend-route-prefixes.txt"
     failures=$((failures + 1))
 fi
 

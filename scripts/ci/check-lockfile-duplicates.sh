@@ -15,45 +15,83 @@
 #   pinned 0.2.4, and pierre-services/src/health_sync.rs implemented one copy's
 #   trait with the other copy's types.
 #
-#   ci-backend's security-audit job catches the same thing with `cargo tree -d`,
-#   minutes into a compile. This is the lockfile-only form of that gate: it reads
-#   the text cargo already wrote and runs in about a second, which is what lets
-#   every bump lane (embacle, enforme, photograveur) refuse the push instead of
-#   discovering the split twenty minutes into a gate, on a branch that cannot merge.
-#   Before this script each lane counted entries for the one or two crates it
-#   moved by hand; carnet#323 was a duplicate in a crate none of them counted.
+#   It reads the text cargo already wrote and runs in about a second, which is
+#   what lets every bump lane refuse the push instead of discovering the split
+#   twenty minutes into a gate, on a branch that cannot merge. Before this script
+#   each lane counted entries for the one or two crates it moved by hand;
+#   carnet#323 was a duplicate in a crate none of them counted.
 #
-# Membership — a package is in the ecosystem when EITHER holds:
-#   - its name starts with `dravr-` or `embacle` (embacle and embacle-tool-host
-#     ship from crates.io under bare names, as does dravr-tronc), or
-#   - its source is a git dependency under github.com/dravr-ai/ (photograveur is
-#     pinned from dravr-ai/dravr-photograveur under its bare crate name).
-#   Both, so a rename or a registry move cannot slip a crate past the gate.
+#   It is the one definition of the gate. ci-backend's security-audit job runs it
+#   on every push once `cargo tree` has resolved the graph into Cargo.lock, and
+#   satellite-bump.yml reads the split crates from `--duplicates` rather than
+#   keeping a membership rule of its own — when each kept one, the rule that ran
+#   on every push could not see photograveur (carnet#583).
+#
+# Membership — a package is in the ecosystem when ANY holds:
+#   - satellites.toml declares it: every stanza's `crates`, or the stanza name
+#     when it has none. That is where a bare-named satellite (embacle,
+#     embacle-tool-host, photograveur) is known, whatever registry it ships from;
+#   - its name starts with `dravr-` — ecosystem crates nothing pins directly,
+#     such as dravr-browser, arrive transitively under that prefix; or
+#   - its source is a git dependency under github.com/dravr-ai/.
+#   All three, so a rename, a registry move or a new transitive crate cannot slip
+#   one past the gate.
 #
 # A duplicate is a name that owns more than one `[[package]]` block: two
 #   versions, or one version from two sources — Cargo never writes the same
 #   (name, version, source) triple twice, so any second block is a split graph.
 #
 # Usage:
-#   check-lockfile-duplicates.sh [path/to/Cargo.lock]
+#   check-lockfile-duplicates.sh [--duplicates] [path/to/Cargo.lock]
 #   (default: the Cargo.lock at the root of the enclosing git repository)
+#
+#   --duplicates  print the name of each ecosystem crate that resolves more than
+#                 once, one per line, and nothing else; exit 0 whether or not
+#                 there are any. For a caller that decides what to do about a
+#                 split (satellite-bump.yml's stand-down), not for a gate.
 #
 # Exit 0  every ecosystem crate resolves exactly once
 # Exit 1  at least one resolves more than once (each is printed with every
 #         version and source it holds), or the lockfile holds no ecosystem
 #         crate at all — a scan that verified nothing must not report success
-# Exit 2  the lockfile cannot be read
+# Exit 2  the lockfile or satellites.toml cannot be read
 #
 # Portable on purpose: the runners' awk is mawk, so no gawk-only builtins.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+MODE=gate
+if [ "${1:-}" = "--duplicates" ]; then
+  MODE=duplicates
+  shift
+fi
+
 LOCK="${1:-$(git rev-parse --show-toplevel)/Cargo.lock}"
 
 if [ ! -r "$LOCK" ]; then
-  echo "usage: $0 [path/to/Cargo.lock]" >&2
+  echo "usage: $0 [--duplicates] [path/to/Cargo.lock]" >&2
   echo "cannot read lockfile '${LOCK}'" >&2
   exit 2
 fi
+
+# The declared satellites, read through satellite-pin.sh (the one reader of
+# satellites.toml) from the file beside this script unless $SATELLITES_TOML
+# names another. An unreadable file or one declaring nothing is exit 2: the
+# gate would otherwise run on a membership rule missing every bare-named crate.
+export SATELLITES_TOML="${SATELLITES_TOML:-$SCRIPT_DIR/../../satellites.toml}"
+declared=" "
+if ! stanzas="$("$SCRIPT_DIR/satellite-pin.sh" names)" || [ -z "$stanzas" ]; then
+  echo "cannot read the declared satellites from ${SATELLITES_TOML}" >&2
+  exit 2
+fi
+for stanza in $stanzas; do
+  if ! crates="$("$SCRIPT_DIR/satellite-pin.sh" crates "$stanza")"; then
+    echo "cannot read the crates of [${stanza}] in ${SATELLITES_TOML}" >&2
+    exit 2
+  fi
+  declared="${declared}${crates} "
+done
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; NC='\033[0m'
 
@@ -79,7 +117,9 @@ all_entries="$(awk '
   END { flush() }
 ' "$LOCK" | sort)"
 entries="$(printf '%s\n' "$all_entries" \
-  | awk -F '\t' '$1 ~ /^(dravr-|embacle)/ || $3 ~ /^git\+https:\/\/github\.com\/dravr-ai\// { print }')"
+  | awk -F '\t' -v declared="$declared" '
+      index(declared, " " $1 " ") || $1 ~ /^dravr-/ \
+        || $3 ~ /^git\+https:\/\/github\.com\/dravr-ai\// { print }')"
 
 if [ -z "$entries" ]; then
   echo -e "${RED}❌ lockfile-duplicates: ${LOCK} holds no dravr-ecosystem crate — the scan found nothing to verify.${NC}"
@@ -88,6 +128,11 @@ fi
 
 scanned="$(printf '%s\n' "$entries" | wc -l | tr -d ' ')"
 dups="$(printf '%s\n' "$entries" | cut -f1 | uniq -d)"
+
+if [ "$MODE" = duplicates ]; then
+  [ -z "$dups" ] || printf '%s\n' "$dups"
+  exit 0
+fi
 
 if [ -n "$dups" ]; then
   echo "::error::dravr-ecosystem duplicate(s) detected — every dravr crate must converge on one version:"

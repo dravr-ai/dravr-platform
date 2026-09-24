@@ -245,13 +245,15 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
           ./scripts/ci/check-migration-versions.test.sh
           ./scripts/ci/check-migration-immutability.test.sh
           ./scripts/ci/check-moved-symbols.test.sh
+          ./scripts/ci/check-phantom-surfaces.test.sh
+          ./scripts/ci/check-contremaitre-sync.test.sh
           ./scripts/ci/check-backend-pairs.test.sh
           ./scripts/ci/worktree-lib.test.sh
           ./scripts/ci/dev-process-scope.test.sh
@@ -461,42 +463,27 @@ jobs:
 
       - name: dravr-* duplicate check (hard fail)
         run: |
-          # Hard-fails if cargo tree -d reports any dravr-ecosystem crate at
-          # multiple versions. The workspace [patch.crates-io] block + per-dep
-          # tag pins MUST converge every consumer onto a single version per
-          # crate.
+          # Hard-fails if any dravr-ecosystem crate resolves more than once. The
+          # workspace [patch.crates-io] block + per-dep tag pins MUST converge
+          # every consumer onto a single version per crate.
           #
-          # Most crates are named `dravr-<x>` (cageux/canot/commere/enforme/
-          # equilibre/meteo/riviere/sciotte/tronc), but `embacle` is loaded from
-          # the dravr-ai/dravr-embacle repo under its bare crate name — match
-          # that explicitly so the gate can't be silently bypassed by renames.
+          # Which crates count is defined once, in check-lockfile-duplicates.sh
+          # (satellites.toml's declared crates, any `dravr-` name, any dravr-ai
+          # git source) and read by every duplicate gate, so a bare-named
+          # satellite such as photograveur is covered on the one that runs on
+          # every push, not only in the bump lanes.
           #
-          # Read cargo's exit status separately from the grep. `cargo tree -d`
-          # prints ONLY duplicates, so an empty result is the pass case — which
-          # is why piping it into grep was unsafe: the pipeline reports grep's
-          # status, not cargo's, and GitHub's default shell is `bash -e` without
-          # pipefail. A cargo that failed to resolve the graph therefore emitted
-          # no `dravr-` lines and the gate passed having checked nothing.
-          if ! tree_out="$(cargo tree -d 2>&1)"; then
-            echo "::error::cargo tree -d failed — the duplicate gate could not run:"
-            echo "$tree_out"
+          # `cargo tree` first, so Cargo.lock is the graph cargo resolves for this
+          # checkout rather than whatever text was committed. Its exit status is
+          # read on its own: GitHub's default shell is `bash -e` without pipefail,
+          # and a cargo that failed to resolve must fail the step, not leave an
+          # older lockfile for the script to pass.
+          if ! tree_err="$(cargo tree --prefix none 2>&1 >/dev/null)"; then
+            echo "::error::cargo tree failed — the graph did not resolve, so the duplicate gate could not run:"
+            echo "$tree_err"
             exit 1
           fi
-
-          # Fail closed on a scan that verified nothing. This workspace always
-          # depends on dravr-ecosystem crates, so a resolved graph holding none
-          # of them means cargo resolved something other than this workspace.
-          if ! cargo tree --prefix none 2>/dev/null | grep -qE '^(dravr-|embacle )'; then
-            echo "::error::cargo tree resolved no dravr-ecosystem crate — the duplicate gate cannot have checked anything."
-            exit 1
-          fi
-
-          dups="$(printf '%s\n' "$tree_out" | grep -E '^(dravr-|embacle )' || true)"
-          if [ -n "$dups" ]; then
-            echo "::error::dravr-ecosystem duplicate(s) detected — every dravr crate must converge on one version:"
-            echo "$dups"
-            exit 1
-          fi
+          ./scripts/ci/check-lockfile-duplicates.sh
 
   doc-tests:
     name: Doc Tests
