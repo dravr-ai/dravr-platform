@@ -31,6 +31,10 @@ on:
       - '.github/workflows/ci-backend.yml'
       # satellite-bump-gate.test.sh runs the gate step lifted out of this file.
       - '.github/workflows/satellite-bump.yml'
+      # deploy-satellite-cloud-run.test.sh runs its steps and checks every
+      # bump lane that calls it against its declared inputs.
+      - '.github/workflows/deploy-satellite-cloud-run.yml'
+      - '.github/workflows/bump-*.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
       - '.github/actions/rust-setup/**'
@@ -58,6 +62,10 @@ on:
       - '.github/workflows/ci-backend.yml'
       # satellite-bump-gate.test.sh runs the gate step lifted out of this file.
       - '.github/workflows/satellite-bump.yml'
+      # deploy-satellite-cloud-run.test.sh runs its steps and checks every
+      # bump lane that calls it against its declared inputs.
+      - '.github/workflows/deploy-satellite-cloud-run.yml'
+      - '.github/workflows/bump-*.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
       - '.github/actions/rust-setup/**'
@@ -251,7 +259,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -272,6 +280,7 @@ jobs:
           ./scripts/ci/check-twin-surfaces.test.sh
           ./scripts/ci/satellite-pin.test.sh
           ./scripts/ci/satellite-bump-gate.test.sh
+          ./scripts/ci/deploy-satellite-cloud-run.test.sh
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline

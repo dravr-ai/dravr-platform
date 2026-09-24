@@ -40,11 +40,13 @@
 #     lane counted its own crates and the duplicate was in dravr-equilibre, surfacing
 #     as E0053 twenty minutes into a gate on a branch that could never merge.
 #
-# What this workflow does NOT do: ship. It stops at the squash merge. Images, Cloud
-# Run deploys, digest assertions, rollbacks and `tag-deployed-*` stay in the caller
-# as ordinary jobs keyed on `state == 'pushed'`, moved verbatim rather than merged
-# into a shared tail. That is deliberate — it is the scar tissue that must not be
-# lost in a refactor, and every satellite's is different.
+# What this workflow does NOT do: ship. It stops at the squash merge, and shipping
+# stays with the caller, keyed on `state`. A lane whose satellite is only a crate
+# dispatches the platform image itself. A lane with a Cloud Run service builds its
+# image, then calls deploy-satellite-cloud-run.yml, which carries the deploy, the
+# digest assertion, the rollback, the `deployed-dev` tag and the platform dispatch
+# once for every such lane — the service name, the HTTP probe and the summary text
+# are its inputs, and the scar tissue behind each step is written there beside it.
 
 name: "Satellite: Bump (reusable)"
 
