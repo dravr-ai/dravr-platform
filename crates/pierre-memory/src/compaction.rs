@@ -54,33 +54,3 @@ impl CompactionBlock {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::CompactionBlock;
-    use chrono::Utc;
-
-    fn block(original: i32, summary: i32) -> CompactionBlock {
-        CompactionBlock {
-            id: "b1".into(),
-            tenant_id: "t1".into(),
-            conversation_id: "c1".into(),
-            summary: "earlier turns summarized".into(),
-            summary_tokens: summary,
-            original_tokens: original,
-            first_message_id: "m1".into(),
-            last_message_id: "m5".into(),
-            created_at: Utc::now(),
-        }
-    }
-
-    #[test]
-    fn tokens_saved_positive() {
-        assert_eq!(block(500, 120).tokens_saved(), 380);
-    }
-
-    #[test]
-    fn tokens_saved_clamped_at_zero() {
-        assert_eq!(block(100, 200).tokens_saved(), 0);
-    }
-}

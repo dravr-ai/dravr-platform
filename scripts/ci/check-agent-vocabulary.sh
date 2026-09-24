@@ -145,9 +145,26 @@ fi
 # costs trust in the gate.
 PHRASES='AI coach|AI-coach|[Cc]oach [Ss]tore|the coach.s reply|coach persona|system coach|[Ii]nstall Coach|your coach\b'
 
-ADDED="$(git diff "$MERGE_BASE"...HEAD --unified=0 -- \
+DIFF="$(git diff "$MERGE_BASE"...HEAD --unified=0 -- \
     ':!packages/i18n/src/locales' ':!scripts/ci/check-agent-vocabulary.sh' \
-    2>/dev/null | rg '^\+' | rg -v '^\+\+\+' || true)"
+    2>/dev/null || true)"
+
+# A line the same diff also removes was moved, not written: moving a test
+# module out of src/ re-adds its fixtures verbatim, and a fixture that feeds
+# the identity-leak detector "your coach" on purpose is not new prose.
+# Compared with leading and trailing whitespace stripped, so re-indentation
+# still counts as a move.
+ADDED="$(printf '%s\n' "$DIFF" | awk '
+    /^---/ || /^\+\+\+/ { next }
+    /^-/ { line = substr($0, 2); gsub(/^[ \t]+|[ \t]+$/, "", line); removed[line]++; next }
+    /^\+/ { added[++n] = $0 }
+    END {
+        for (i = 1; i <= n; i++) {
+            line = substr(added[i], 2); gsub(/^[ \t]+|[ \t]+$/, "", line)
+            if (removed[line] > 0) { removed[line]--; continue }
+            print added[i]
+        }
+    }')"
 
 # A line that also names an identifier keeping the old spelling is describing
 # that identifier, which is correct and stays: a database column, a source

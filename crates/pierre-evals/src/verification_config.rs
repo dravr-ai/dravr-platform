@@ -34,10 +34,10 @@ pub enum VerificationFallback {
     /// Append a warning banner to the reply but let it through.
     #[default]
     Warn,
-    /// Currently a transparent pass-through: the reply is returned unchanged
-    /// (no banner, no claim removed), so a non-`Supported` verdict is recorded
+    /// A transparent pass-through: the reply is returned unchanged (no
+    /// banner, no claim removed), so a non-`Supported` verdict is recorded
     /// for the admin UI but never surfaced to the user. Distinct from `Warn`,
-    /// which appends a banner. Claim-span removal is a future implementation.
+    /// which appends a banner.
     Silent,
     /// Reject the reply and ask the LLM to retry.
     Block,

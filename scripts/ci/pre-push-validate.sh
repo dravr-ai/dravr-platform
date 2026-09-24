@@ -213,7 +213,7 @@ if [[ -n "$SHELL_LINT_FILES" ]]; then
         echo "  Install it (brew install shellcheck) — the fast-gate would red main on the first warning."
         exit 1
     fi
-    # shellcheck disable=SC2086 -- the list is newline-separated paths without spaces
+    # shellcheck disable=SC2086 # the list is newline-separated paths without spaces
     if ! (cd "$PROJECT_ROOT" && shellcheck -S warning $SHELL_LINT_FILES); then
         echo ""
         echo "FAIL: shellcheck warnings in changed shell scripts (the fast-gate runs the same call)."
@@ -236,6 +236,28 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/archit
     fi
     echo ""
 fi
+
+# ============================================================================
+# TIER 1-shared: dravr-wide validation (.build/validation/validate.sh)
+# ============================================================================
+# The fleet's shared text scans, plus this repo's validation-patterns.local.toml
+# (which forbids #[cfg(test)] in src/). The pre-push hook skips validate.sh for
+# any repo that owns this script, so this tier is the only place it runs
+# locally. Every push, not only Rust ones: it also reads .github/workflows/ and
+# JS/TS tests. Fails closed when the submodule is missing.
+SHARED_VALIDATE="$PROJECT_ROOT/.build/validation/validate.sh"
+echo "Tier 1-shared: dravr validate.sh"
+echo "------------------------------------"
+if [[ ! -x "$SHARED_VALIDATE" ]]; then
+    echo "FAIL: $SHARED_VALIDATE missing — run: git submodule update --init --recursive"
+    exit 1
+fi
+if ! (cd "$PROJECT_ROOT" && "$SHARED_VALIDATE"); then
+    echo ""
+    echo "FAIL: shared validation failed (.build/validation/validate.sh)"
+    exit 1
+fi
+echo ""
 
 # ============================================================================
 # TIER 1b: Contremaitre Coupling Sync (compile-free static drift check)
