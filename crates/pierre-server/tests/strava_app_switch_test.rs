@@ -34,7 +34,6 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::prefetch::{
     agentless_activity_window, inject_activity_refresh, prefetch_activity_context,
@@ -57,6 +56,7 @@ use pierre_llm::ChatMessage;
 use pierre_mcp_server::mcp::resources::ServerContext;
 #[cfg(feature = "health-sync")]
 use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
+use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
@@ -1769,7 +1769,9 @@ async fn a_transient_refresh_failure_carries_nothing_strava_answered() {
     let (resources, _service, _env) = service_pointed_at(&base).await;
     let (user_id, tenant) = athlete(&resources, "transient-text").await;
     connect_expired(&resources.common.repos, user_id, tenant, None).await;
-    let unparsed_success = r#"{"access_token":"access-of-an-unparsed-success","refresh_token":"refresh-of-an-unparsed-success"}"#;
+    // A success whose expiry is no timestamp: the pair is in the body, and
+    // the body does not parse.
+    let unparsed_success = r#"{"access_token":"access-of-an-unparsed-success","refresh_token":"refresh-of-an-unparsed-success","expires_at":"never"}"#;
 
     for (status, body, answered) in [
         (
@@ -1802,9 +1804,13 @@ async fn a_transient_refresh_failure_carries_nothing_strava_answered() {
         assert_eq!(auth_required_provider(&refused), None);
     }
 
-    let parse_error = refresh_strava_token(api_client(), ENV_CLIENT_ID, ENV_CLIENT_SECRET, "rt")
-        .await
-        .expect_err("an unparsable success is an error");
+    let token_url = format!("{base}/oauth/token");
+    let parse_error = refresh_oauth_token(
+        api_client(),
+        &RefreshRequest::form_fields("strava", &token_url, ENV_CLIENT_ID, ENV_CLIENT_SECRET, "rt"),
+    )
+    .await
+    .expect_err("an unparsable success is an error");
     assert!(
         !parse_error.to_string().contains("unparsed-success"),
         "a successful body is the token pair and stays out of the error: {parse_error}"
