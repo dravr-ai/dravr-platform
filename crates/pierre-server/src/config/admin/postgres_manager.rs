@@ -221,6 +221,23 @@ impl AdminConfigRepository for PostgresAdminConfigManager {
         Ok(row.map(|r| Self::row_to_override(&r)))
     }
 
+    async fn tenants_overriding(&self, category: &str, key: &str) -> AppResult<Vec<String>> {
+        sqlx::query_scalar(
+            r"
+            SELECT DISTINCT tenant_id::text
+            FROM admin_config_overrides
+            WHERE category = $1 AND config_key = $2
+              AND tenant_id IS NOT NULL AND user_id IS NULL
+            ORDER BY 1
+            ",
+        )
+        .bind(category)
+        .bind(key)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list tenant config overrides: {e}")))
+    }
+
     async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride> {
         let SetOverrideParams {
             category,

@@ -20,6 +20,7 @@ use pierre_core::constants::tool_execution::{
 use crate::admin_types::{boot_env, config_env, ConfigDataType, EnvBinding, ParameterRange};
 use crate::constants::strava_seat_reclaim as seat_reclaim;
 use crate::constants::usage_quotas::{DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS};
+use crate::tid_cuts;
 
 /// Default configuration definitions with metadata.
 ///
@@ -2243,11 +2244,38 @@ pub fn register_tool_execution<S: BuildHasher>(defs: &mut HashMap<String, Parame
 /// either key against the other's effective value at the written scope, and
 /// every reset of either key against the value it falls back to, so neither
 /// `pierre-cli config set` nor `pierre-cli config reset` can leave a pair that
-/// no longer orders.
-pub const ORDERED_PARAMETERS: &[(&str, &str)] = &[(
-    seat_reclaim::WARN_LEAD_DAYS_KEY,
-    seat_reclaim::IDLE_DAYS_KEY,
-)];
+/// no longer orders. A system-wide write or reset is also checked against
+/// every tenant that holds its own row for either key, since a tenant reads
+/// the system-wide value for the key it does not override.
+///
+/// The five three-zone cut pairs are here so that every value set the store
+/// can hold builds a `TidCuts` (see [`crate::tid_cuts`]).
+pub const ORDERED_PARAMETERS: &[(&str, &str)] = &[
+    (
+        seat_reclaim::WARN_LEAD_DAYS_KEY,
+        seat_reclaim::IDLE_DAYS_KEY,
+    ),
+    (
+        tid_cuts::FTP_BELOW_LT1_MAX_KEY,
+        tid_cuts::FTP_BETWEEN_MAX_KEY,
+    ),
+    (
+        tid_cuts::HEART_RATE_BELOW_LT1_MAX_KEY,
+        tid_cuts::HEART_RATE_BETWEEN_MAX_KEY,
+    ),
+    (
+        tid_cuts::PACE_BELOW_LT1_MAX_KEY,
+        tid_cuts::PACE_BETWEEN_MAX_KEY,
+    ),
+    (
+        tid_cuts::UNSTATED_BELOW_LT1_MAX_KEY,
+        tid_cuts::UNSTATED_BETWEEN_MAX_KEY,
+    ),
+    (
+        tid_cuts::RPE_BELOW_LT1_MAX_KEY,
+        tid_cuts::RPE_BETWEEN_MAX_KEY,
+    ),
+];
 
 /// One integer entry of the seat-reclaim policy, bounded by `min..=max`.
 fn seat_reclaim_integer(

@@ -45,7 +45,7 @@ use pierre_intelligence::{ActivityIntelligence, IntelligenceConfig};
 use pierre_llm::LlmProvider;
 use pierre_mcp_transport::sampling_peer::SamplingPeer;
 use pierre_providers::ProviderRegistry;
-use pierre_runtime_context::DataContext;
+use pierre_runtime_context::{AdminConfigLookup, DataContext};
 
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -151,6 +151,15 @@ pub trait ToolRuntime: Send + Sync + 'static {
     fn cageux_config(&self) -> Arc<IntelligenceConfig<true>> {
         self.cageux_config_registry().current()
     }
+
+    /// Admin config lookup — the compliance rail resolves the tenant's
+    /// three-zone cuts (`tid_cuts.*`) through it.
+    ///
+    /// `None` when admin config is not wired into the running server; the
+    /// rail then places bands on the catalogue defaults, which are
+    /// `TidCuts::default()`. Returns an owned `Arc` because the concrete
+    /// service in `pierre-server` is not stored as a trait object.
+    fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>>;
 
     /// Activity intelligence engine.
     fn activity_intelligence(&self) -> &Arc<ActivityIntelligence>;

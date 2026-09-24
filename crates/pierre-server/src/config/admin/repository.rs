@@ -85,6 +85,13 @@ pub trait AdminConfigRepository: Send + Sync {
         scope: ConfigScope<'_>,
     ) -> AppResult<Option<ConfigOverride>>;
 
+    /// Tenants holding their own tenant-wide row for `key` of `category`.
+    ///
+    /// A system-wide write reaches every tenant except these, so the
+    /// service checks a cross-parameter rule against each of them before
+    /// the write lands.
+    async fn tenants_overriding(&self, category: &str, key: &str) -> AppResult<Vec<String>>;
+
     /// Set a configuration override at the scope named in `params`
     async fn set_override(&self, params: SetOverrideParams<'_>) -> AppResult<ConfigOverride>;
 
