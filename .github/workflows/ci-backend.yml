@@ -20,6 +20,8 @@ on:
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
+      # sciotte-local.test.sh and the shellcheck job below read the harness itself.
+      - 'scripts/sciotte-local.sh'
       # The gate self-tests cover the worktree skill library too.
       - '.claude/skills/lib/**'
       # The fast gate now also reads the clients and the shared packages: the
@@ -62,6 +64,8 @@ on:
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
+      # sciotte-local.test.sh and the shellcheck job below read the harness itself.
+      - 'scripts/sciotte-local.sh'
       # The gate self-tests cover the worktree skill library too.
       - '.claude/skills/lib/**'
       - 'frontend/src/**'
@@ -275,7 +279,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -301,6 +305,7 @@ jobs:
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
           ./scripts/ci/standing-issue.test.sh
+          ./scripts/ci/sciotte-local.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # The dev scripts decide which processes a stop may kill and which files a
@@ -310,7 +315,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
