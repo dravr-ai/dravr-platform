@@ -142,6 +142,21 @@ printf '' >"$dir/crates/demo/src/coaches/mod.rs"
 commit_all "$dir" "move resolve_locale, stranding a crate:: importer"
 expect "an intra-crate crate:: importer is still caught" "$(run_gate "$dir")" 1
 
+# 9. Called with no base, the gate uses the shared rule (gate-base-ref.sh): no
+#    origin/main in this fixture, so it diffs against HEAD~1. A default of
+#    origin/main that did not exist made `git diff` fail into "no library
+#    sources changed" — a gate that inspected nothing and reported green.
+dir="$(make_repo)"
+printf 'pub fn foo() {}\n' >"$dir/crates/demo/src/util.rs"
+printf 'use demo::util::foo;\n#[test]\nfn t() { foo(); }\n' >"$dir/crates/demo/tests/foo_test.rs"
+commit_all "$dir" base
+printf '' >"$dir/crates/demo/src/util.rs"
+printf 'pub fn bar() {}\npub fn foo() {}\n' >"$dir/crates/demo/src/helpers.rs"
+commit_all "$dir" "move foo"
+code=0
+( cd "$dir" && env -u GATE_BASE_REF "$UNDER_TEST" >/tmp/moved-symbols-test.out 2>&1 ) || code=$?
+expect "with no base argument the stranded importer is still caught" "$code" 1
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   echo "❌ $failures moved-symbols fixture case(s) failed"

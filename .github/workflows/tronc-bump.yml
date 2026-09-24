@@ -67,9 +67,11 @@ on:
         type: boolean
         default: false
 
+# The callee's jobs set no permissions of their own, so these are the ceiling
+# for every one of them, and both are spent there. Nothing else is granted.
 permissions:
-  contents: write # push the bump branch and the squash merge
-  actions: write # dispatch the CI gates onto that branch
+  contents: write # push the bump branch, the squash onto main, the branch delete
+  actions: write # dispatch the gates, poll their runs, re-dispatch this file on a conflicted squash
 
 concurrency:
   # Two releases integrating at once would race on main, and the second would
@@ -86,4 +88,12 @@ jobs:
       gate_timeout_minutes: 45
       lockstep_crates: "embacle embacle-tool-host"
       dry_run: ${{ inputs.dry_run || false }}
-    secrets: inherit
+    # Named, never `inherit`. The callee floats on tronc's main (satellites.toml
+    # records why), so `inherit` would hand every repo and org secret here, from
+    # EXPO_TOKEN to NPM_TOKEN, to whatever lands there next. The chain reads these
+    # two, plus the GITHUB_TOKEN every called workflow receives without being
+    # passed. GitHub refuses a named secret the callee does not declare under
+    # `on.workflow_call.secrets`, so a rename there has to land here too.
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}

@@ -28,7 +28,14 @@
 
 set -euo pipefail
 
-BASE_REF="${1:-origin/main}"
+# The shared base rule: the argument, else $GATE_BASE_REF, else origin/main, and
+# HEAD~1 whenever that is missing or equals HEAD.
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$(dirname "${BASH_SOURCE[0]}")/gate-base-ref.sh"
+if ! BASE_REF="$(resolve_gate_base_ref "${1:-}")"; then
+    echo "✅ moved-symbols: HEAD is a root commit — nothing to diff against"
+    exit 0
+fi
 
 fail=0
 checked=0
