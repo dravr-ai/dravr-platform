@@ -509,6 +509,34 @@ impl AuthManager {
         Ok(token)
     }
 
+    /// Validate a token as the athlete's own session: a first-party credential,
+    /// minted with the whole self grant.
+    ///
+    /// A delegated OAuth access token is refused however valid its signature.
+    /// It is a third party's credential, as narrow as the athlete consented
+    /// to, and a surface that takes a session — the OAuth consent screen above
+    /// all, where a session approves new grants — would otherwise act on it
+    /// with the athlete's whole authority.
+    ///
+    /// # Errors
+    ///
+    /// Everything [`Self::validate_token`] refuses, and a token whose grant is
+    /// narrower than [`OAuthScope::self_grant`].
+    pub fn validate_session_token(
+        &self,
+        token: &str,
+        jwks_manager: &JwksManager,
+    ) -> AppResult<Claims> {
+        let claims = self.validate_token(token, jwks_manager)?;
+        if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)) {
+            Ok(claims)
+        } else {
+            Err(AppError::auth_invalid(
+                "A delegated access token is not a session",
+            ))
+        }
+    }
+
     /// Validate a RS256 JWT token using JWKS public keys
     ///
     /// # Errors
