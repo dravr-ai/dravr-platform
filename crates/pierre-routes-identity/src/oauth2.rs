@@ -17,7 +17,7 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::admin::jwks::{JsonWebKeySet, JwksManager};
-use pierre_auth::auth::AuthManager;
+use pierre_auth::auth::{AuthManager, Claims};
 use pierre_auth::config::oauth::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
@@ -31,6 +31,7 @@ use pierre_auth::oauth2_server::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::html::with_hosted_page_css;
 use pierre_core::models::OAuthClientGrant;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use sha2::{Digest, Sha256};
@@ -330,27 +331,37 @@ impl OAuth2Routes {
         token: &str,
         context: &OAuth2Context,
     ) -> Option<(uuid::Uuid, Option<String>)> {
-        match context
+        let claims = Self::session_claims(token, context)?;
+        info!(
+            "OAuth authorization for authenticated user_id: {}",
+            claims.sub
+        );
+        if let Ok(user_uuid) = uuid::Uuid::parse_str(&claims.sub) {
+            // Get active tenant from claims
+            Some((user_uuid, claims.active_tenant_id))
+        } else {
+            warn!("Invalid user ID format in JWT: {}", claims.sub);
+            None
+        }
+    }
+
+    /// The claims of the athlete's own session, or `None`.
+    ///
+    /// Only the athlete's own session can approve a grant. A delegated access
+    /// token in the cookie is a third party's credential: taken as a session
+    /// here, a `fitness:read` token could consent to a broader grant for
+    /// another client on the athlete's behalf.
+    fn session_claims(token: &str, context: &OAuth2Context) -> Option<Claims> {
+        let claims = context
             .auth_manager
             .validate_token(token, &context.jwks_manager)
-        {
-            Ok(claims) => {
-                info!(
-                    "OAuth authorization for authenticated user_id: {}",
-                    claims.sub
-                );
-                if let Ok(user_uuid) = uuid::Uuid::parse_str(&claims.sub) {
-                    // Get active tenant from claims
-                    Some((user_uuid, claims.active_tenant_id.clone()))
-                } else {
-                    warn!("Invalid user ID format in JWT: {}", claims.sub);
-                    None
-                }
-            }
-            Err(e) => {
-                warn!("Invalid session token in OAuth authorization: {}", e);
-                None
-            }
+            .inspect_err(|e| warn!("Invalid session token in OAuth authorization: {}", e))
+            .ok()?;
+        if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)) {
+            Some(claims)
+        } else {
+            warn!("Delegated OAuth grant presented as the session for an OAuth authorization; ignored");
+            None
         }
     }
 

@@ -261,11 +261,14 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             format!("Bearer {token}")
         };
 
+        // The scoped entry point: a delegated OAuth grant authenticates here,
+        // because this hook refuses any `tools/call` its scopes do not cover
+        // (below) and the dispatch chokepoint refuses it again.
         let auth_result = match self
             .resources
             .auth
             .auth_middleware
-            .authenticate_request(Some(&auth_header))
+            .authenticate_scoped_request(Some(&auth_header))
             .await
         {
             Ok(result) => result,

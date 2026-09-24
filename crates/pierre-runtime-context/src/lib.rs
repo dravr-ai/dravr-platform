@@ -116,7 +116,8 @@ pub trait MiddlewareCtx: Send + Sync + 'static {
     /// Run an inbound `Authorization` header value (or cookie-derived bearer
     /// token) through the full auth-middleware pipeline. Returns the resolved
     /// `AuthResult` (user id, auth method, rate limit, active tenant) or an
-    /// `AppError` if the token is missing/invalid or the user fails policy
+    /// `AppError` if the token is missing/invalid, is a delegated OAuth grant
+    /// (403 — the routes behind this read no scope), or the user fails policy
     /// checks.
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult>;
 
@@ -537,8 +538,8 @@ pub trait SseCtx: Send + Sync + 'static {
 
     /// Run an inbound `Authorization` header value through the full
     /// auth-middleware pipeline (token type detection, rate limiting, user
-    /// status enforcement). The notification SSE route uses this to gate the
-    /// stream.
+    /// status enforcement, refusal of a delegated OAuth grant). The
+    /// notification SSE route uses this to gate the stream.
     ///
     /// # Errors
     ///

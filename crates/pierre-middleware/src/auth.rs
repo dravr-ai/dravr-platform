@@ -14,7 +14,7 @@ use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
 use pierre_core::constants::key_prefixes;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
@@ -32,6 +32,37 @@ use tracing::{debug, info, warn};
 /// whose client calls every second costs one write per window rather than one
 /// per request.
 const LAST_ACTIVE_REFRESH_MINUTES: i64 = 5;
+
+/// What a request path does with the scopes of the credential it accepts.
+///
+/// A delegated OAuth grant — an access token the authorization server minted
+/// for a third-party application, as narrow as the athlete consented to — is
+/// only a limit where something reads it. The MCP and A2A tool dispatch read
+/// it; a REST handler does not, and acts with the athlete's whole authority.
+/// Accepted there, a `fitness:read` consent would become everything the
+/// athlete can do: minting a full-grant API key that outlives the grant,
+/// driving a chat turn that runs under the self grant, reaching the admin
+/// console when the athlete is an operator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GrantPolicy {
+    /// The athlete's own credential only: a session, an API key. A delegated
+    /// grant is refused with 403.
+    DirectOnly,
+    /// A delegated grant too, because the caller enforces its scopes.
+    ScopesEnforced,
+}
+
+/// The refusal a delegated grant meets on a path that reads no scope.
+///
+/// `PermissionDenied`, so it answers 403 and its sentence reaches the client:
+/// the credential is genuine and the application holding it is told where it
+/// is accepted, rather than being sent back to re-authenticate by a 401.
+fn delegated_grant_refused() -> AppError {
+    AppError::new(
+        ErrorCode::PermissionDenied,
+        "This access token was delegated to an application and is accepted only by the MCP and A2A endpoints",
+    )
+}
 
 /// Middleware for `MCP` protocol authentication
 ///
@@ -69,10 +100,14 @@ impl McpAuthMiddleware {
 
     /// Authenticate request using headers (supports cookies and Authorization header)
     ///
+    /// Only the athlete's own credential authenticates here; a delegated OAuth
+    /// grant is refused, as on [`Self::authenticate_request`].
+    ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - Authentication credentials missing (no cookie or header)
+    /// - The credential is a delegated OAuth grant (403 `PermissionDenied`)
     /// - JWT token validation fails
     /// - API key validation fails
     /// - Database queries fail
@@ -97,7 +132,10 @@ impl McpAuthMiddleware {
         if let Some(jwt_token) = get_cookie_value(headers, "auth_token") {
             debug!("Found JWT in httpOnly cookie, attempting authentication");
             tracing::Span::current().record("auth_method", "JWT_COOKIE");
-            match self.authenticate_jwt_token(&jwt_token).await {
+            match self
+                .authenticate_jwt_token(&jwt_token, GrantPolicy::DirectOnly)
+                .await
+            {
                 Ok(result) => {
                     let span = tracing::Span::current();
                     span.record("user_id", result.user_id.to_string())
@@ -129,17 +167,50 @@ impl McpAuthMiddleware {
         self.authenticate_request(auth_header).await
     }
 
-    /// Authenticate `MCP` request and extract user context with rate limiting
+    /// Authenticate a request on a path that reads no scope — every REST route
+    /// — and extract user context with rate limiting.
+    ///
+    /// Only the athlete's own credential authenticates: a session JWT, an API
+    /// key. A delegated OAuth grant is refused, because the handler behind this
+    /// acts with the athlete's whole authority and would ignore how narrow the
+    /// grant is. The MCP transport, which enforces the grant at tool dispatch,
+    /// uses [`Self::authenticate_scoped_request`] instead.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - Authentication header is missing or malformed
     /// - JWT token validation fails
+    /// - The token is a delegated OAuth grant (403 `PermissionDenied`)
     /// - API key validation fails
     /// - Database queries fail
     /// - Rate limit calculations fail
     /// - User lookup fails
+    pub async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
+        self.authenticate_header(auth_header, GrantPolicy::DirectOnly)
+            .await
+    }
+
+    /// Authenticate a request on a path that enforces the credential's scopes
+    /// itself — the MCP transport, whose tool dispatch refuses any tool the
+    /// grant does not cover.
+    ///
+    /// Accepts everything [`Self::authenticate_request`] does, plus a delegated
+    /// OAuth grant, whose narrowed scopes ride out on [`AuthResult::scopes`].
+    /// A caller that does not read those scopes must not use this.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::authenticate_request`], less the delegated-grant refusal.
+    pub async fn authenticate_scoped_request(
+        &self,
+        auth_header: Option<&str>,
+    ) -> AppResult<AuthResult> {
+        self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced)
+            .await
+    }
+
+    /// Authenticate an `Authorization` header value under `policy`.
     #[tracing::instrument(
         skip(self, auth_header),
         fields(
@@ -149,7 +220,11 @@ impl McpAuthMiddleware {
             success = Empty,
         )
     )]
-    pub async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
+    async fn authenticate_header(
+        &self,
+        auth_header: Option<&str>,
+        policy: GrantPolicy,
+    ) -> AppResult<AuthResult> {
         debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
         debug!("Auth header provided: {}", auth_header.is_some());
 
@@ -201,7 +276,7 @@ impl McpAuthMiddleware {
         else if let Some(token) = auth_str.strip_prefix("Bearer ") {
             tracing::Span::current().record("auth_method", "JWT_TOKEN");
             debug!("Attempting JWT token authentication");
-            match self.authenticate_jwt_token(token).await {
+            match self.authenticate_jwt_token(token, policy).await {
                 Ok(result) => {
                     let span = tracing::Span::current();
                     span.record("user_id", result.user_id.to_string())
@@ -463,7 +538,15 @@ impl McpAuthMiddleware {
     }
 
     /// Authenticate using RS256 JWT token
-    async fn authenticate_jwt_token(&self, token: &str) -> AppResult<AuthResult> {
+    ///
+    /// Under [`GrantPolicy::DirectOnly`] a token whose grant is narrower than
+    /// the self grant is refused before anything is read or written for it —
+    /// no usage row, no activity — since the request it carries is not served.
+    async fn authenticate_jwt_token(
+        &self,
+        token: &str,
+        policy: GrantPolicy,
+    ) -> AppResult<AuthResult> {
         let claims = self
             .auth_manager
             .validate_token_detailed(token, &self.jwks_manager)
@@ -471,6 +554,22 @@ impl McpAuthMiddleware {
 
         let user_id = parse_uuid(&claims.sub)
             .map_err(|_| AppError::auth_invalid("Invalid user ID in token"))?;
+
+        // Whatever the token was minted with. A first-party session was minted
+        // with the full self grant; a delegated OAuth token stays as narrow as
+        // the athlete consented to. A token minted before the `scope` claim
+        // existed parses to the empty grant and is refused every tool that
+        // reads or writes — deliberate, and the reason this shipped with a
+        // re-authentication rather than a compatibility path.
+        let scopes = OAuthScope::parse_granted(&claims.scope);
+        if policy == GrantPolicy::DirectOnly && !OAuthScope::is_self_grant(&scopes) {
+            warn!(
+                user_id = %user_id,
+                granted = %OAuthScope::render_granted(&scopes),
+                "Delegated OAuth grant refused on a path that does not enforce scopes"
+            );
+            return Err(delegated_grant_refused());
+        }
 
         // Extract active_tenant_id from JWT claims (multi-tenant user tenant selection)
         let active_tenant_id = claims.active_tenant_id.as_deref().and_then(|tid| {
@@ -541,13 +640,7 @@ impl McpAuthMiddleware {
             },
             rate_limit,
             active_tenant_id,
-            // Whatever the token was minted with. A first-party session was
-            // minted with the full self grant; a delegated OAuth token stays as
-            // narrow as the athlete consented to. A token minted before the
-            // `scope` claim existed parses to the empty grant and is refused
-            // every tool that reads or writes — deliberate, and the reason this
-            // ships with a re-authentication rather than a compatibility path.
-            scopes: OAuthScope::parse_granted(&claims.scope),
+            scopes,
             // The Guardian turn token: the `jti` only for a per-turn (ACP) token;
             // `None` for a reused session token so a stateless MCP client is keyed
             // per-call, not across its whole session (#2).
