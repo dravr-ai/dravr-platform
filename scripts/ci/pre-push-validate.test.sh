@@ -67,6 +67,11 @@ make_repo() {
     printf '#!/bin/sh\nexit 0\n' >"$dir/scripts/ci/$stub"
     chmod +x "$dir/scripts/ci/$stub"
   done
+  # Tier 1-shared runs the .build submodule's validate.sh on every push and
+  # fails closed when it is missing, so the fixture carries a no-op in its place.
+  mkdir -p "$dir/.build/validation"
+  printf '#!/bin/sh\nexit 0\n' >"$dir/.build/validation/validate.sh"
+  chmod +x "$dir/.build/validation/validate.sh"
   # Tier 4 counts the shared-package suites first and fails when it finds none,
   # so a packages/ diff needs one to reach the tier body at all. The two scripts
   # it then runs are real commands rather than scripts/ci helpers, so `bun` is
@@ -191,6 +196,15 @@ expect_absent "Rust diff pays no SDK tier" "Tier 6: SDK Validation"
 expect_absent "Rust diff pays no mobile tier" "Tier 7: Mobile Validation"
 expect_absent "Rust diff names no changed package" "Changed packages:"
 expect_exit "Rust diff passes" 0
+
+# 7. Fail closed. A checkout whose .build submodule was never initialised has no
+#    validate.sh, and a push from it must stop rather than skip the shared scans.
+echo "  case 7: .build submodule missing"
+dir="$(make_repo)"
+rm -rf "$dir/.build"
+run_change "$dir" src/lib.rs "$(printf 'pub fn probe() {}\n\npub fn probe_three() {}')"
+expect_contains "a missing validate.sh names the fix" "validate.sh missing — run: git submodule update --init --recursive"
+expect_exit "a missing validate.sh fails the push" 1
 
 echo ""
 if [ "$failures" -ne 0 ]; then
