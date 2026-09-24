@@ -19,6 +19,7 @@
 //! (registre#204).
 
 use pierre_evals::personalized::check as personalized_check;
+use pierre_evals::ClaimSource;
 use pierre_evals::{
     AthleteMetrics, ConservativeStrategy, ExtractedClaim, PersonalizedContext, ToleranceStrategy,
 };
@@ -42,6 +43,7 @@ fn claim(text: &str) -> ExtractedClaim {
     ExtractedClaim {
         text: text.to_owned(),
         category: ClaimCategory::Physiological,
+        source: ClaimSource::Reply,
     }
 }
 

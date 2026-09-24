@@ -61,7 +61,7 @@ pub mod verdict_engine;
 /// Claim verifier: per-agent verification config loaded from YAML frontmatter.
 pub mod verification_config;
 
-pub use claim_extractor::{extract_heuristic, ExtractedClaim};
+pub use claim_extractor::{extract_heuristic, ClaimSource, ExtractedClaim};
 pub use consistency::{find_contradiction, ConsistencyConflict};
 pub use deterministic::{DeterministicCheck, DeterministicReport};
 pub use evidence_retriever::{EvidenceCorpus, EvidenceMatch, EvidenceRecord};
