@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
-use pierre_evals::claim_extractor::ExtractedClaim;
+use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
 use pierre_evals::explanation_gen::render;
 use pierre_evals::verdict_engine::VerdictOutcome;
 use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
@@ -16,6 +16,7 @@ fn renders_supported_verdict_with_refs() {
     let claim = ExtractedClaim {
         text: "Aim for 1.6 g/kg protein daily".into(),
         category: ClaimCategory::Nutrition,
+        source: ClaimSource::Reply,
     };
     let outcome = VerdictOutcome {
         status: ClaimStatus::Supported,
@@ -37,6 +38,7 @@ fn renders_rhetorical_without_refs() {
     let claim = ExtractedClaim {
         text: "You're crushing it!".into(),
         category: ClaimCategory::TrainingPrescription,
+        source: ClaimSource::Reply,
     };
     let outcome = VerdictOutcome {
         status: ClaimStatus::Rhetorical,

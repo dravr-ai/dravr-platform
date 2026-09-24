@@ -26,7 +26,7 @@ use pierre_core::error_helpers::panic_payload_str;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
 use pierre_evals::{
-    AthleteMetrics, ClaimJudge, ExtractedClaim, PersonalizedContext, ResolvedAction,
+    AthleteMetrics, ClaimJudge, ClaimSource, ExtractedClaim, PersonalizedContext, ResolvedAction,
     ToleranceStrategy, VerdictOutcome, VerificationConfig, VerificationFallback,
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
@@ -119,8 +119,10 @@ pub(crate) fn resolve_banner_locale(reply: &str, locale: &str) -> String {
 ///
 /// Returns the first ~600 bytes of `reply`, snapped to a UTF-8 char
 /// boundary. The Warn-banner builder uses this to decide whether a flagged
-/// claim is essentially the message's opening sentence — listing such a
-/// claim verbatim under the banner reads as duplication. 600 is wide
+/// claim that did not come from the reply itself already appears in the
+/// message's opening — listing such text under the banner reads as
+/// duplication. Claims extracted from the reply are never matched against it
+/// (see [`warning_bullets`]). 600 is wide
 /// enough to cover a short safety preamble (e.g. medical disclaimer)
 /// followed by the actual lead sentence, but narrow enough that a
 /// mid-body claim still escapes the filter and gets listed.
@@ -174,6 +176,27 @@ pub fn lead_window(reply: &str) -> &str {
 /// drawer. The cap stops the banner from dwarfing the reply itself.
 const MAX_FLAGGED_BULLETS: usize = 5;
 
+/// One flagged claim headed for the user-facing warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlaggedClaim<'a> {
+    /// The claim text as extracted.
+    pub text: &'a str,
+    /// `true` for a bound violation, `false` for a merely unsupported claim.
+    pub contradicted: bool,
+    /// Where the claim text came from.
+    pub source: ClaimSource,
+}
+
+impl<'a> FlaggedClaim<'a> {
+    fn new(claim: &'a ExtractedClaim, contradicted: bool) -> Self {
+        Self {
+            text: claim.text.as_str(),
+            contradicted,
+            source: claim.source,
+        }
+    }
+}
+
 /// Select the actionable problems worth surfacing, each tagged
 /// `contradicted` (`true`) vs merely `unsupported` (`false`).
 ///
@@ -183,11 +206,12 @@ const MAX_FLAGGED_BULLETS: usize = 5;
 /// prescription DID violate a deterministic bound (e.g. an impossible training
 /// load), so it stays surfaced. Every other category keeps both statuses.
 #[must_use]
-pub fn actionable_problems(verdicts: &[(ExtractedClaim, VerdictOutcome)]) -> Vec<(&str, bool)> {
+pub fn actionable_problems(verdicts: &[(ExtractedClaim, VerdictOutcome)]) -> Vec<FlaggedClaim<'_>> {
     verdicts
         .iter()
         .filter_map(|(claim, outcome)| {
-            actionable_flag(claim, outcome).map(|contradicted| (claim.text.as_str(), contradicted))
+            actionable_flag(claim, outcome)
+                .map(|contradicted| FlaggedClaim::new(claim, contradicted))
         })
         .collect()
 }
@@ -274,7 +298,7 @@ pub enum WarnAffordance {
 /// `renders_chips` is the surface capability, not a channel name.
 #[must_use]
 pub fn warn_affordance(
-    shown: &[(&str, bool)],
+    shown: &[FlaggedClaim<'_>],
     reply: &str,
     renders_chips: bool,
     banner_header: &str,
@@ -286,9 +310,9 @@ pub fn warn_affordance(
         return WarnAffordance::Chips(
             shown
                 .iter()
-                .map(|&(claim, contradicted)| VerdictChip {
-                    claim: claim.trim().to_owned(),
-                    contradicted,
+                .map(|flagged| VerdictChip {
+                    claim: flagged.text.trim().to_owned(),
+                    contradicted: flagged.contradicted,
                 })
                 .collect(),
         );
@@ -306,21 +330,24 @@ pub fn warn_affordance(
 /// Lists each flagged claim verbatim so the reader can challenge or wave
 /// through the specific sentence (an opaque "I'm unsure about N things"
 /// trailer just undermined credibility without being actionable — Telegram
-/// nutrition-recommendation incident, 2026-05-08). Claims whose text already
-/// lands in the reply's lead window are dropped: the reader just saw that
-/// sentence as the opening, so echoing it reads as duplication. Bound
+/// nutrition-recommendation incident, 2026-05-08).
+///
+/// A [`ClaimSource::Reply`] claim is always kept: it is by construction a
+/// sentence of `reply`, so finding it in the lead window only says where the
+/// flagged sentence sits, not that the warning is redundant. Dropping those
+/// silenced the caveat on every short reply. Only text from another source
+/// that already appears in the lead window is dropped as an echo. Bound
 /// violations (`contradicted`) sort ahead of merely-unsupported claims and
-/// survive the [`MAX_FLAGGED_BULLETS`] cap; if every flagged claim is a
-/// lead-window echo the result is empty and the caller suppresses the banner.
+/// survive the [`MAX_FLAGGED_BULLETS`] cap.
 #[must_use]
-pub fn warning_bullets(problems: &[(&str, bool)], reply: &str) -> Vec<String> {
+pub fn warning_bullets(problems: &[FlaggedClaim<'_>], reply: &str) -> Vec<String> {
     let lead = lead_window(reply);
-    let mut flagged: Vec<(&str, bool)> = problems
+    let mut flagged: Vec<FlaggedClaim<'_>> = problems
         .iter()
         .copied()
-        .filter(|(claim, _)| !lead.contains(claim.trim()))
+        .filter(|claim| claim.source == ClaimSource::Reply || !lead.contains(claim.text.trim()))
         .collect();
-    flagged.sort_by_key(|&(_, contradicted)| u8::from(!contradicted));
+    flagged.sort_by_key(|claim| u8::from(!claim.contradicted));
     let total_flagged = flagged.len();
     flagged.truncate(MAX_FLAGGED_BULLETS);
     if total_flagged > flagged.len() {
@@ -332,7 +359,7 @@ pub fn warning_bullets(problems: &[(&str, bool)], reply: &str) -> Vec<String> {
     }
     flagged
         .iter()
-        .map(|(claim, _)| format!("- {}", claim.trim()))
+        .map(|claim| format!("- {}", claim.text.trim()))
         .collect()
 }
 
@@ -592,12 +619,12 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
                 // Only list claims whose own resolved action is a user-facing
                 // warning — an audit-only personalized contradiction is recorded
                 // but must never surface in the banner.
-                let shown: Vec<(&str, bool)> = verdicts
+                let shown: Vec<FlaggedClaim<'_>> = verdicts
                     .iter()
                     .filter_map(|(claim, outcome)| {
                         actionable_flag(claim, outcome).and_then(|contradicted| {
                             (resolved_action(outcome, config) == ResolvedAction::WarnBanner)
-                                .then_some((claim.text.as_str(), contradicted))
+                                .then(|| FlaggedClaim::new(claim, contradicted))
                         })
                     })
                     .collect();

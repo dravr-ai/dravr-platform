@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
-use pierre_evals::claim_extractor::ExtractedClaim;
+use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
 use pierre_evals::deterministic_bounds::check;
 use pierre_memory::ClaimCategory;
 
@@ -14,6 +14,7 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
     ExtractedClaim {
         text: text.to_owned(),
         category,
+        source: ClaimSource::Reply,
     }
 }
 

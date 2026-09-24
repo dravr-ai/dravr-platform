@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_evals::personalized::check as personalized_check;
+use pierre_evals::ClaimSource;
 use pierre_evals::{
     check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus, ActionMode,
     AgentConfiguredStrategy, AthleteMetrics, AuditOnlyPolicy, ConservativeStrategy,
@@ -29,6 +30,7 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
     ExtractedClaim {
         text: text.to_owned(),
         category,
+        source: ClaimSource::Reply,
     }
 }
 
