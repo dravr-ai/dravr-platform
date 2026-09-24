@@ -23,7 +23,11 @@ import {
   configureValidator,
   type ResponseValidatorConfig,
 } from "./response-validator.js";
-import { PierreOAuthClientProvider, OAuthSessionConfig } from "./oauth-session-manager.js";
+import {
+  PierreOAuthClientProvider,
+  OAuthSessionConfig,
+  PIERRE_OAUTH_SCOPE,
+} from "./oauth-session-manager.js";
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
@@ -514,7 +518,7 @@ export class PierreMcpClient {
         authUrl.searchParams.set("state", state);
         authUrl.searchParams.set("code_challenge", codeChallenge);
         authUrl.searchParams.set("code_challenge_method", "S256");
-        authUrl.searchParams.set("scope", "read:fitness write:fitness");
+        authUrl.searchParams.set("scope", PIERRE_OAUTH_SCOPE);
 
         // Step 5: Redirect to authorization (opens browser)
         await this.oauthProvider.redirectToAuthorization(authUrl);

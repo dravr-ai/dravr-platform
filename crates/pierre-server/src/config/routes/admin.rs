@@ -23,7 +23,7 @@ use pierre_config::admin_types::{
     ConfigAuditFilter, ConfigAuditResponse, ConfigScope, ResetConfigRequest, UpdateConfigRequest,
     ValidateConfigRequest,
 };
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::require_admin;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_runtime_context::ConfigLookupScope;
@@ -95,6 +95,11 @@ impl AdminConfigState {
             .await
         {
             Ok(auth) => auth.user_id,
+            // A delegated OAuth grant is a genuine user credential refused
+            // here, not an admin token to try next: keep its 403.
+            Err(delegated) if delegated.code == ErrorCode::PermissionDenied => {
+                return Err(delegated)
+            }
             Err(user_jwt_error) => {
                 self.device_login_operator(&auth_value)
                     .await?

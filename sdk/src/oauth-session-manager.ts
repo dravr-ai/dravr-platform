@@ -35,6 +35,15 @@ const DEFAULT_CALLBACK_PORT = 35535;
 /** How long the flow waits for the user to finish authorizing in the browser */
 const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 300000;
 
+/**
+ * The grant the bridge asks Dravr for, in the server's own scope vocabulary.
+ *
+ * The bridge serves the athlete's whole tool surface to their MCP host, so it asks
+ * for every scope an application can be granted. Registration and authorization
+ * refuse any name outside that vocabulary, and `admin` is never delegated.
+ */
+export const PIERRE_OAUTH_SCOPE = "fitness:read fitness:write profile:read profile:write";
+
 /** Accepted shape of the {provider} segment of the provider token callback path */
 const PROVIDER_CALLBACK_PATH = /^\/oauth\/provider-callback\/([A-Za-z0-9_-]{1,32})$/;
 
@@ -270,7 +279,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
           access_token: this.config.jwtToken,
           token_type: "Bearer",
           expires_in: 3600, // Default 1 hour, actual expiry is in the JWT itself
-          scope: "read:fitness write:fitness",
+          scope: PIERRE_OAUTH_SCOPE,
           // Note: No refresh_token when using direct JWT
         };
         this.log("JWT token loaded from configuration");
@@ -487,7 +496,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       redirect_uris: [this.redirectUrl],
       grant_types: ["authorization_code"],
       response_types: ["code"],
-      scope: "read:fitness write:fitness",
+      scope: PIERRE_OAUTH_SCOPE,
       token_endpoint_auth_method: "client_secret_basic",
     };
   }

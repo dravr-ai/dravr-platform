@@ -79,7 +79,7 @@ https://pierre.example.com/oauth2/authorize?
   state=<random_state>&
   code_challenge=<pkce_challenge>&
   code_challenge_method=S256&
-  scope=read:activities write:goals
+  scope=fitness:read fitness:write
 ```
 
 User will authenticate and authorize. Pierre redirects to callback with authorization code:
@@ -123,7 +123,7 @@ Response:
   "token_type": "Bearer",
   "expires_in": 3600,
   "refresh_token": "refresh_token_abc",
-  "scope": "read:activities write:goals"
+  "scope": "fitness:read fitness:write"
 }
 ```
 
@@ -176,7 +176,7 @@ curl -X POST http://localhost:8081/oauth2/register \
     "redirect_uris": ["https://app.example.com/auth/callback"],
     "client_name": "Example Web App",
     "client_uri": "https://app.example.com",
-    "scope": "read:activities read:athlete"
+    "scope": "fitness:read profile:read"
   }'
 ```
 
@@ -187,7 +187,7 @@ curl -X POST http://localhost:8081/oauth2/register \
   -d '{
     "redirect_uris": ["http://localhost:8080/callback"],
     "client_name": "Example Desktop App",
-    "scope": "read:activities write:goals"
+    "scope": "fitness:read fitness:write"
   }'
 ```
 
@@ -207,7 +207,7 @@ params = {
     'state': state,                    # required for csrf protection
     'code_challenge': code_challenge,  # required for pkce
     'code_challenge_method': 'S256',   # only s256 supported
-    'scope': 'read:activities write:goals'  # optional
+    'scope': 'fitness:read fitness:write'  # optional
 }
 
 auth_url = f"https://pierre.example.com/oauth2/authorize?{urlencode(params)}"
@@ -282,7 +282,7 @@ Response:
   "token_type": "Bearer",
   "expires_in": 3600,
   "refresh_token": "new_refresh_token",
-  "scope": "read:activities write:goals"
+  "scope": "fitness:read fitness:write"
 }
 ```
 
@@ -409,20 +409,16 @@ Pierre supports fine-grained permission control via oauth scopes.
 
 ### Available Scopes
 
-**fitness data:**
-- `read:activities` - read activity data
-- `write:activities` - create/update activities
-- `read:athlete` - read athlete profile
-- `write:athlete` - update athlete profile
+Four scopes can be granted to an application; `scopes_supported` in both metadata documents lists exactly these:
 
-**goals and analytics:**
-- `read:goals` - read fitness goals
-- `write:goals` - create/update goals
-- `read:analytics` - access analytics data
+- `fitness:read` - read the athlete's fitness data: activities, stats, sleep, analytics, training plans
+- `fitness:write` - create or modify fitness data: goals, plans, logged work
+- `profile:read` - read who the athlete is: profile, configuration, linked providers
+- `profile:write` - change profile fields, configuration, provider links
 
-**administrative:**
-- `admin:users` - manage users
-- `admin:system` - system administration
+A fifth scope, `admin`, is enforced on operator tools but never delegated: an application cannot register for it or be authorized for it. An operator reaches admin tools with their own session or API key.
+
+A client that registers without a `scope` is registered for `fitness:read profile:read`, and an authorization request without a `scope` is granted that same default.
 
 ### Requesting Scopes
 
@@ -431,12 +427,16 @@ Include in authorization request:
 ```
 /oauth2/authorize?
   ...
-  scope=read:activities read:athlete write:goals
+  scope=fitness:read profile:read fitness:write
 ```
 
 ### Scope Validation
 
-Pierre validates requested scopes against client's registered scopes. Access tokens include granted scopes in jwt claims.
+Registration refuses a name outside the vocabulary, or `admin`, with `invalid_client_metadata`. Authorization refuses the same with `invalid_scope`, and refuses any scope outside the client's registered scope. Access tokens carry the granted scopes in the `scope` claim.
+
+### Where a Delegated Token Is Accepted
+
+An access token minted for an application is accepted only where its scopes are enforced: the MCP endpoint (`/mcp`) and the A2A protocol endpoints, which refuse any tool the grant does not cover with `403` and an `insufficient_scope` challenge. Every REST route under `/api/` acts with the athlete's full authority and reads no scope, so it refuses a delegated token with `403` rather than serving it.
 
 ## Error Handling
 

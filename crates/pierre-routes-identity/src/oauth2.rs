@@ -332,7 +332,7 @@ impl OAuth2Routes {
     ) -> Option<(uuid::Uuid, Option<String>)> {
         match context
             .auth_manager
-            .validate_token(token, &context.jwks_manager)
+            .validate_session_token(token, &context.jwks_manager)
         {
             Ok(claims) => {
                 info!(

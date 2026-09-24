@@ -38,7 +38,7 @@ async fn create_test_client(
         client_uri: None,
         grant_types: Some(vec!["authorization_code".to_owned()]),
         response_types: Some(vec!["code".to_owned()]),
-        scope: Some("read write".to_owned()),
+        scope: Some("fitness:read fitness:write".to_owned()),
     };
 
     let response = registration_manager

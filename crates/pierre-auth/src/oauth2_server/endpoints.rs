@@ -10,7 +10,8 @@
 
 use super::client_registration::ClientRegistrationManager;
 use super::models::{
-    AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Error, TokenRequest, TokenResponse,
+    AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client, OAuth2Error, TokenRequest,
+    TokenResponse,
 };
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
@@ -22,7 +23,6 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tracing::{debug, error, info, warn};
@@ -180,20 +180,9 @@ impl OAuth2AuthorizationServer {
             ));
         }
 
-        // Validate requested scope is within client's registered scope (RFC 6749 Section 3.3)
-        // If client has no registered scope (None), any requested scope is allowed (no restriction)
-        if let Some(ref requested_scope) = request.scope {
-            if let Some(ref allowed_scope) = client.scope {
-                let allowed_scopes: HashSet<&str> = allowed_scope.split(' ').collect();
-                for scope in requested_scope.split(' ') {
-                    if !allowed_scopes.contains(scope) {
-                        return Err(OAuth2Error::invalid_scope(&format!(
-                            "Client is not authorized for scope '{scope}'"
-                        )));
-                    }
-                }
-            }
-        }
+        // The grant this authorization issues (RFC 6749 Section 3.3), inside
+        // the client's registered scope.
+        let scope = Self::authorized_scope(&client, request.scope.as_deref())?;
 
         // Validate redirect URI
         if !client.redirect_uris.contains(&request.redirect_uri) {
@@ -251,7 +240,7 @@ impl OAuth2AuthorizationServer {
                 user_id,
                 tenant_id: &tenant_id,
                 redirect_uri: &request.redirect_uri,
-                scope: request.scope.as_deref(),
+                scope: Some(&scope),
                 state: request.state.as_deref(),
                 code_challenge: request.code_challenge.as_deref(),
                 code_challenge_method: request.code_challenge_method.as_deref(),
@@ -345,12 +334,9 @@ impl OAuth2AuthorizationServer {
             .await?;
 
         // Generate JWT access token
+        let granted = Self::delegated_grant(auth_code.scope.as_deref());
         let access_token = self
-            .generate_access_token(
-                &request.client_id,
-                Some(auth_code.user_id),
-                auth_code.scope.as_deref(),
-            )
+            .generate_access_token(&request.client_id, Some(auth_code.user_id), &granted)
             .await
             .map_err(|e| {
                 error!(
@@ -372,7 +358,7 @@ impl OAuth2AuthorizationServer {
             client_id: request.client_id.clone(), // Safe: Clone for ownership
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: auth_code.scope.clone(),         // Safe: Clone for storage
+            scope: Self::rendered_scope(&granted),
             expires_at: refresh_token_expires_at,
             created_at: Utc::now(),
             revoked: false,
@@ -393,7 +379,7 @@ impl OAuth2AuthorizationServer {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
-            scope: auth_code.scope,
+            scope: Self::rendered_scope(&granted),
             refresh_token: Some(refresh_token_value),
         })
     }
@@ -404,11 +390,12 @@ impl OAuth2AuthorizationServer {
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
         // Generate JWT access token for client
+        let granted = Self::delegated_grant(request.scope.as_deref());
         let access_token = self
             .generate_access_token(
                 &request.client_id,
                 None, // No user for client credentials
-                request.scope.as_deref(),
+                &granted,
             )
             .await
             .map_err(|e| {
@@ -423,7 +410,7 @@ impl OAuth2AuthorizationServer {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
-            scope: request.scope,
+            scope: Self::rendered_scope(&granted),
             refresh_token: None,
         })
     }
@@ -443,11 +430,12 @@ impl OAuth2AuthorizationServer {
             .await?;
 
         // Generate new access token
+        let granted = Self::delegated_grant(old_refresh_token.scope.as_deref());
         let access_token = self
             .generate_access_token(
                 &request.client_id,
                 Some(old_refresh_token.user_id),
-                old_refresh_token.scope.as_deref(),
+                &granted,
             )
             .await
             .map_err(|e| {
@@ -473,7 +461,7 @@ impl OAuth2AuthorizationServer {
             client_id: request.client_id.clone(),   // Safe: Clone for ownership
             user_id: old_refresh_token.user_id,
             tenant_id: old_refresh_token.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: old_refresh_token.scope.clone(),         // Safe: Clone for storage
+            scope: Self::rendered_scope(&granted),
             expires_at: refresh_token_expires_at,
             created_at: Utc::now(),
             revoked: false,
@@ -499,7 +487,7 @@ impl OAuth2AuthorizationServer {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
-            scope: old_refresh_token.scope,
+            scope: Self::rendered_scope(&granted),
             refresh_token: Some(new_refresh_token_value),
         })
     }
@@ -689,10 +677,67 @@ impl OAuth2AuthorizationServer {
     /// Served from the vocabulary rather than a literal list, so a scope cannot
     /// be published without being enforceable or enforced without being
     /// published — which is how the three names this replaces came to mean
-    /// nothing.
+    /// nothing. Only the delegable part: a client is never granted `admin`, and
+    /// a spec-following MCP client requests whatever is listed here.
     #[must_use]
     pub fn supported_scopes() -> Vec<&'static str> {
-        OAuthScope::all_as_str()
+        OAuthScope::delegable_as_str()
+    }
+
+    /// Resolve the scope an authorization request is granted, or refuse it.
+    ///
+    /// The requested scope, or the default grant when the client named none —
+    /// the same default the consent screen shows, so what the athlete approves
+    /// is what the code carries. Every name must be in the vocabulary and
+    /// delegable, and the whole grant must sit inside what the client
+    /// registered.
+    fn authorized_scope(
+        client: &OAuth2Client,
+        requested: Option<&str>,
+    ) -> Result<String, OAuth2Error> {
+        let granted = OAuthScope::requested_grant(requested)
+            .map_err(|e| OAuth2Error::invalid_scope(&e.message))?;
+        let registered = Self::registered_scope(client);
+        if let Some(outside) = granted.iter().find(|scope| !registered.contains(scope)) {
+            return Err(OAuth2Error::invalid_scope(&format!(
+                "Client is not authorized for scope '{outside}'"
+            )));
+        }
+        Ok(OAuthScope::render_granted(&granted))
+    }
+
+    /// The scope a client registered.
+    ///
+    /// Registration persists the default grant when a client asks for none. A
+    /// row that holds NULL reads as that same default — the grant the
+    /// registration response told the client it had — and never as "no
+    /// restriction": an anonymously registered client is not authorized
+    /// beyond what it was told.
+    fn registered_scope(client: &OAuth2Client) -> Vec<OAuthScope> {
+        client
+            .scope
+            .as_deref()
+            .map_or_else(OAuthScope::default_grant, OAuthScope::parse_granted)
+    }
+
+    /// The grant a token minted for a stored or requested `scope` carries: the
+    /// names this server defines, less any that cannot be delegated.
+    ///
+    /// Registration and authorization already refuse `admin`, so this bites
+    /// only on a refresh token or a client-credentials request that predates
+    /// or bypasses those checks. It is also the one place that keeps every
+    /// delegated token strictly narrower than the self grant, which is how a
+    /// route that reads no scope tells a third party from the athlete.
+    fn delegated_grant(scope: Option<&str>) -> Vec<OAuthScope> {
+        OAuthScope::parse_granted(scope.unwrap_or_default())
+            .into_iter()
+            .filter(|scope| scope.is_delegable())
+            .collect()
+    }
+
+    /// A grant in the token response's `scope` form: absent when empty.
+    fn rendered_scope(granted: &[OAuthScope]) -> Option<String> {
+        (!granted.is_empty()).then(|| OAuthScope::render_granted(granted))
     }
 
     /// The grant shown on the consent screen when the client requested none.
@@ -717,19 +762,19 @@ impl OAuth2AuthorizationServer {
         &self,
         client_id: &str,
         user_id: Option<Uuid>,
-        scope: Option<&str>,
+        granted: &[OAuthScope],
     ) -> AppResult<String> {
-        let scopes = scope.map_or_else(
-            || {
-                debug!(
-                    client_id = %client_id,
-                    user_id = ?user_id,
-                    "No scopes provided for token generation, using empty scope list"
-                );
-                Vec::new()
-            },
-            |s| s.split(' ').map(str::to_owned).collect::<Vec<_>>(),
-        );
+        if granted.is_empty() {
+            debug!(
+                client_id = %client_id,
+                user_id = ?user_id,
+                "Minting an access token with an empty grant"
+            );
+        }
+        let scopes: Vec<String> = granted
+            .iter()
+            .map(|scope| scope.as_str().to_owned())
+            .collect();
 
         let Some(uid) = user_id else {
             return self
@@ -980,7 +1025,7 @@ impl OAuth2AuthorizationServer {
             .generate_access_token(
                 &refresh_token_data.client_id,
                 Some(refresh_token_data.user_id),
-                refresh_token_data.scope.as_deref(),
+                &Self::delegated_grant(refresh_token_data.scope.as_deref()),
             )
             .await?;
 

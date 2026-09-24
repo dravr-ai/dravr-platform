@@ -28,7 +28,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::errors::AppError;
+use crate::errors::{AppError, AppResult};
 
 /// One name in this server's OAuth scope vocabulary.
 ///
@@ -57,13 +57,15 @@ pub enum OAuthScope {
 }
 
 impl OAuthScope {
-    /// Every scope this server defines, in the order both metadata documents
-    /// publish them.
+    /// Every scope this server defines, in declaration order.
     ///
-    /// `scopes_supported` is served from this constant rather than a literal
-    /// list, so a scope cannot be enforced without being published or published
-    /// without being enforceable — which is exactly how the three names this
-    /// replaces came to mean nothing.
+    /// `scopes_supported` is served from this constant (its delegable part,
+    /// [`Self::delegable_as_str`]) rather than a literal list, so a scope
+    /// cannot be enforced without being published or published without being
+    /// enforceable — which is exactly how the three names this replaces came
+    /// to mean nothing. `admin` is the one name enforced but not published: a
+    /// client can never be granted it, so advertising it would only invite a
+    /// request the authorization server has to refuse.
     pub const ALL: [Self; 5] = [
         Self::FitnessRead,
         Self::FitnessWrite,
@@ -104,6 +106,61 @@ impl OAuthScope {
         vec![Self::FitnessRead, Self::ProfileRead]
     }
 
+    /// Whether a third party may be granted this scope.
+    ///
+    /// Everything but `admin`. Operating the server stays on the operator's
+    /// own credential and is never delegated to an integration, so the
+    /// authorization server refuses it in a registration or an authorization
+    /// request, leaves it out of every token it mints, and does not publish it.
+    #[must_use]
+    pub const fn is_delegable(self) -> bool {
+        !matches!(self, Self::Admin)
+    }
+
+    /// Whether `granted` is the whole [`Self::self_grant`]: the athlete acting
+    /// directly rather than a third party acting for them.
+    ///
+    /// This is how a route that reads no scope tells the two apart. It is sound
+    /// because a delegation is always strictly narrower: every first-party
+    /// credential is minted with every scope, and no grant the authorization
+    /// server mints holds `admin` ([`Self::is_delegable`]).
+    #[must_use]
+    pub fn is_self_grant(granted: &[Self]) -> bool {
+        Self::ALL.iter().all(|scope| granted.contains(scope))
+    }
+
+    /// The grant a client *asks for* — at registration (RFC 7591 §2) or at
+    /// authorization (RFC 6749 §3.3) — or [`Self::default_grant`] when it
+    /// names none.
+    ///
+    /// Stricter than [`Self::parse_granted`], which reads a grant that was
+    /// already minted. A request is where an unknown name is the client's error
+    /// to hear about, and where `admin` is refused outright rather than
+    /// dropped: it is never delegated.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::invalid_input`] naming the first scope that is unknown or
+    /// not delegable. The message is written for the client that sent it.
+    pub fn requested_grant(scope: Option<&str>) -> AppResult<Vec<Self>> {
+        let mut requested = Vec::new();
+        for name in scope.unwrap_or_default().split_whitespace() {
+            let parsed = Self::from_str(name)?;
+            if !parsed.is_delegable() {
+                return Err(AppError::invalid_input(format!(
+                    "the '{parsed}' scope is never delegated to an application"
+                )));
+            }
+            requested.push(parsed);
+        }
+        if requested.is_empty() {
+            return Ok(Self::default_grant());
+        }
+        requested.sort_unstable();
+        requested.dedup();
+        Ok(requested)
+    }
+
     /// The wire spelling.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -116,11 +173,20 @@ impl OAuthScope {
         }
     }
 
-    /// The vocabulary as wire strings, for `scopes_supported` and for the
-    /// space-delimited `scope` of a grant.
+    /// The scopes a client can be granted, as wire strings — what
+    /// `scopes_supported` publishes on both metadata documents.
+    ///
+    /// A spec-following MCP client requests exactly this list at registration
+    /// and at authorization (the MCP scope-selection strategy falls back to the
+    /// protected resource's `scopes_supported`), so a name listed here that the
+    /// authorization server refuses would fail every such client's connection.
     #[must_use]
-    pub fn all_as_str() -> Vec<&'static str> {
-        Self::ALL.iter().map(|scope| scope.as_str()).collect()
+    pub fn delegable_as_str() -> Vec<&'static str> {
+        Self::ALL
+            .iter()
+            .filter(|scope| scope.is_delegable())
+            .map(|scope| scope.as_str())
+            .collect()
     }
 
     /// Parse a space-delimited `scope` string, the RFC 6749 §3.3 wire form.

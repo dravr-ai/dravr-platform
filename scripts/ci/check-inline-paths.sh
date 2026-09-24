@@ -92,7 +92,11 @@ HITS=$(
                 # and no `use` can replace it. Blank it before matching so the
                 # bare `crate::` inside is not read as an inline path.
                 gsub(/\$crate::/, "MACRO_CRATE_", line)
-                while (match(line, /(std|core|alloc|crate)(::[A-Za-z_][A-Za-z0-9_]*){2,}/)) {
+                # Three or more segments, the repetition spelled out: mawk,
+                # the default awk on Debian and Ubuntu, does not honour a
+                # `{2,}` interval and matched every 2-segment `crate::name!`
+                # macro call as if it were a 3-segment path.
+                while (match(line, /(std|core|alloc|crate)::[A-Za-z_][A-Za-z0-9_]*::[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*/)) {
                     print FILENAME ":" FNR ": " substr(line, RSTART, RLENGTH)
                     line = substr(line, RSTART + RLENGTH)
                 }
