@@ -1091,7 +1091,7 @@ impl OAuth2Routes {
         // Calculate ETag from JWKS content for efficient caching
         let (_jwks_json, etag) = match Self::compute_jwks_etag(jwks.clone()).await {
             Ok(result) => result,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
 
         // Check if client's cached version matches current version
@@ -1117,7 +1117,7 @@ impl OAuth2Routes {
     // ============================================================================
 
     /// Compute JWKS `ETag` from JSON content
-    async fn compute_jwks_etag(jwks: JsonWebKeySet) -> Result<(String, String), Response> {
+    async fn compute_jwks_etag(jwks: JsonWebKeySet) -> Result<(String, String), Box<Response>> {
         let etag_result = spawn_blocking(move || {
             let jwks_json = serde_json::to_string(&jwks)?;
             let mut hasher = Sha256::new();
@@ -1132,11 +1132,11 @@ impl OAuth2Routes {
             Ok(Ok((json, tag))) => Ok((json, tag)),
             Ok(Err(_)) => {
                 error!("Failed to serialize JWKS for ETag calculation");
-                Err(Self::jwks_error_response())
+                Err(Box::new(Self::jwks_error_response()))
             }
             Err(_) => {
                 error!("Spawn blocking task panicked during JWKS serialization");
-                Err(Self::jwks_error_response())
+                Err(Box::new(Self::jwks_error_response()))
             }
         }
     }

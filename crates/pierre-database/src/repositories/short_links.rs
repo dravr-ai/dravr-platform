@@ -112,7 +112,7 @@ pub(crate) fn target_url_from_row<R>(row: &R) -> AppResult<String>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     row.try_get::<String, _>("target_url")
         .map_err(|e| AppError::database(format!("short_link target_url: {e}")))

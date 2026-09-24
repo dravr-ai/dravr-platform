@@ -196,13 +196,13 @@ pub(crate) fn subscription_from_row<R>(row: &R) -> AppResult<Subscription>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Value: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    UuidColumn: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    TenantId: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    UserId: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    UserId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let status_str: String = row.try_get("status").map_err(|e| map_row_err(&e))?;
     let plan_tier_str: String = row.try_get("plan_tier").map_err(|e| map_row_err(&e))?;

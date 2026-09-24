@@ -89,8 +89,8 @@ pub(crate) fn route_summary_from_row<R>(row: &R) -> AppResult<(String, String, S
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Value: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let gpx_hash: String = row
         .try_get("gpx_hash")

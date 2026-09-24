@@ -360,35 +360,35 @@ impl A2AServer {
         principal: &AuthPrincipal,
         resources: &A2AResources,
         request_id: Option<&Value>,
-    ) -> Result<(), A2AResponse> {
+    ) -> Result<(), Box<A2AResponse>> {
         if let Some(acting_client) = &principal.client_id {
             if acting_client == client_id {
                 return Ok(());
             }
             // Do not reveal whether the task exists for another principal.
-            return Err(Self::spec_error(
+            return Err(Box::new(Self::spec_error(
                 A2ASpecError::TaskNotFound,
                 request_id.cloned(),
-            ));
+            )));
         }
 
         let owned_ids = Self::get_owned_client_ids(&principal.user_id, resources)
             .await
             .map_err(|e| {
                 error!("Failed to resolve client ownership: {e}");
-                Self::a2a_error(
+                Box::new(Self::a2a_error(
                     -32000,
                     "Failed to resolve client ownership",
                     request_id.cloned(),
-                )
+                ))
             })?;
 
         if !owned_ids.iter().any(|id| id == client_id) {
             // Do not reveal whether the task exists for another principal.
-            return Err(Self::spec_error(
+            return Err(Box::new(Self::spec_error(
                 A2ASpecError::TaskNotFound,
                 request_id.cloned(),
-            ));
+            )));
         }
         Ok(())
     }
@@ -418,9 +418,7 @@ impl A2AServer {
             }
         };
 
-        Self::verify_client_access(&task.client_id, principal, resources, request_id)
-            .await
-            .map_err(Box::new)?;
+        Self::verify_client_access(&task.client_id, principal, resources, request_id).await?;
 
         Ok(task)
     }

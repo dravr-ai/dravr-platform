@@ -234,7 +234,7 @@ pub fn handle_predict_performance(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
         let target_sport = request
             .parameters
@@ -348,7 +348,7 @@ pub fn handle_predict_performance(
                     }),
                 }
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

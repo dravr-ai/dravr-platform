@@ -259,7 +259,7 @@ async fn fetch_and_calculate_metrics(
         .await
     {
         Ok(provider) => provider,
-        Err(response) => return Ok(response),
+        Err(response) => return Ok(*response),
     };
 
     // Fetch activity from provider

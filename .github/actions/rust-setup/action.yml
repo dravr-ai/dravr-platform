@@ -115,7 +115,7 @@ runs:
         cat .cargo/config.toml
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.96.0
+      uses: dtolnay/rust-toolchain@1.98.1
       with:
         components: ${{ inputs.components }}
 

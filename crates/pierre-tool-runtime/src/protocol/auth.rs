@@ -682,13 +682,13 @@ impl AuthService {
     /// backend — callers never need to know about that distinction.
     ///
     /// # Errors
-    /// Returns `UniversalResponse` error if provider is unsupported or authentication fails
+    /// Returns a boxed `UniversalResponse` error if provider is unsupported or authentication fails
     pub async fn create_authenticated_provider(
         &self,
         requested_provider: &str,
         user_id: Uuid,
         tenant_id: Option<&str>,
-    ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
         // Resolve the user-facing provider to the backend that actually
         // serves the request (OAuth or sciotte mirror). A sciotte row in
         // the DB wins over OAuth, even when its session is stale — the
@@ -709,12 +709,12 @@ impl AuthService {
             .provider_registry()
             .is_supported(provider_name)
         {
-            return Err(UniversalResponse {
+            return Err(Box::new(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(format!("Unsupported provider: {requested_provider}")),
                 metadata: None,
-            });
+            }));
         }
 
         // A TrainingPeaks read whose subject is decided before the user's own
@@ -765,24 +765,24 @@ impl AuthService {
                     META_AUTH_REQUIRED_PROVIDER.to_owned(),
                     JsonValue::String(provider_name.to_owned()),
                 );
-                Err(UniversalResponse {
+                Err(Box::new(UniversalResponse {
                     success: false,
                     result: None,
                     error: Some(format!(
                         "No valid {user_facing} token found. Please reconnect your {user_facing} account."
                     )),
                     metadata: Some(map),
-                })
+                }))
             }
             // A transient failure is no authentication error: nothing says the
             // grant is dead, and the text says so rather than prompting a
             // reconnect.
-            Err(e) => Err(UniversalResponse {
+            Err(e) => Err(Box::new(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(e.tool_error_text("Authentication error")),
                 metadata: None,
-            }),
+            })),
         }
     }
 
@@ -793,7 +793,7 @@ impl AuthService {
         token_data: TokenData,
         user_id: Uuid,
         tenant_id: Option<&str>,
-    ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
         // Get tenant-aware OAuth credentials or fall back to environment.
         // Non-OAuth providers (sciotte, synthetic) skip credential lookup entirely.
         let requires_oauth = self
@@ -811,11 +811,13 @@ impl AuthService {
                 token_data.oauth_app_client_id.as_deref(),
             )
             .await
-            .map_err(|error| UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(error),
-                metadata: None,
+            .map_err(|error| {
+                Box::new(UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(error),
+                    metadata: None,
+                })
             })?
         } else {
             // API-key providers (e.g. Intervals.icu) carry their provider-side
@@ -884,20 +886,20 @@ impl AuthService {
                         ));
                         Ok(provider)
                     }
-                    Err(e) => Err(UniversalResponse {
+                    Err(e) => Err(Box::new(UniversalResponse {
                         success: false,
                         result: None,
                         error: Some(format!("Failed to set provider credentials: {e}")),
                         metadata: None,
-                    }),
+                    })),
                 }
             }
-            Err(e) => Err(UniversalResponse {
+            Err(e) => Err(Box::new(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(format!("Failed to create provider: {e}")),
                 metadata: None,
-            }),
+            })),
         }
     }
 

@@ -144,7 +144,7 @@ pub(crate) fn fitness_config_from_row<R>(row: Option<R>) -> AppResult<Option<Fit
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     row.map(|row| {
         let config_json: String = row
@@ -164,7 +164,7 @@ pub(crate) fn configuration_names_from_rows<R>(rows: &[R]) -> AppResult<Vec<Stri
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     rows.iter()
         .map(|row| {

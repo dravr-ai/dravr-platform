@@ -124,7 +124,7 @@ impl AuthService {
         provider_name: &str,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
-    ) -> Option<Result<Box<dyn CoreFitnessProvider>, UniversalResponse>> {
+    ) -> Option<Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>> {
         if provider_name != SCIOTTE_TRAININGPEAKS {
             return None;
         }
@@ -135,7 +135,7 @@ impl AuthService {
                 && connection.account_role == Some(ProviderAccountRole::Coach)
         });
         if own_coach_account {
-            return Some(Err(coach_account_refusal()));
+            return Some(Err(Box::new(coach_account_refusal())));
         }
         if !matches!(
             self.runtime()
@@ -192,7 +192,7 @@ impl AuthService {
         member_user_id: Uuid,
         tenant: TenantId,
         delegated_row: bool,
-    ) -> Option<Result<Box<dyn CoreFitnessProvider>, UniversalResponse>> {
+    ) -> Option<Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>> {
         match self
             .runtime()
             .repos()
@@ -203,7 +203,7 @@ impl AuthService {
             Ok(Some(link)) => Some(self.serve_through_coach(&link).await),
             Ok(None) if delegated_row => {
                 self.release_unreachable_link(member_user_id, tenant).await;
-                Some(Err(refusal(LINK_ENDED.to_owned())))
+                Some(Err(Box::new(refusal(LINK_ENDED.to_owned()))))
             }
             Ok(None) => None,
             Err(e) => {
@@ -212,7 +212,7 @@ impl AuthService {
                     error = %e,
                     "Could not read the member's TrainingPeaks link"
                 );
-                Some(Err(refusal(LINK_UNREADABLE.to_owned())))
+                Some(Err(Box::new(refusal(LINK_UNREADABLE.to_owned()))))
             }
         }
     }
@@ -227,7 +227,7 @@ impl AuthService {
     async fn serve_through_coach(
         &self,
         link: &DelegatedConnection,
-    ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
+    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
         let repos = self.runtime().repos();
         let token = match coach_session_state(
             repos,
@@ -239,7 +239,9 @@ impl AuthService {
         {
             Ok(CoachSession::Live { token, .. }) => token,
             Ok(CoachSession::NeedsReconnect) => {
-                return Err(coach_reconnect_refusal(&self.coach_name(link).await));
+                return Err(Box::new(coach_reconnect_refusal(
+                    &self.coach_name(link).await,
+                )));
             }
             Ok(CoachSession::Missing) => {
                 if let Err(e) = DelegationStore::new(repos)
@@ -257,7 +259,7 @@ impl AuthService {
                         "Could not end a TrainingPeaks link whose coach holds no session"
                     );
                 }
-                return Err(refusal(LINK_ENDED.to_owned()));
+                return Err(Box::new(refusal(LINK_ENDED.to_owned())));
             }
             Err(e) => {
                 warn!(
@@ -265,7 +267,7 @@ impl AuthService {
                     error = %e,
                     "Could not read the coach's TrainingPeaks session"
                 );
-                return Err(refusal(LINK_UNREADABLE.to_owned()));
+                return Err(Box::new(refusal(LINK_UNREADABLE.to_owned())));
             }
         };
 
@@ -276,7 +278,7 @@ impl AuthService {
                     .provider_registry()
                     .create_delegated_provider(&link.provider, athlete)
             })
-            .map_err(|e| refusal(format!("Failed to create provider: {e}")))?;
+            .map_err(|e| Box::new(refusal(format!("Failed to create provider: {e}"))))?;
         provider
             .set_credentials(OAuth2Credentials {
                 client_id: String::new(),
@@ -287,7 +289,7 @@ impl AuthService {
                 scopes: vec![],
             })
             .await
-            .map_err(|e| refusal(format!("Failed to set provider credentials: {e}")))?;
+            .map_err(|e| Box::new(refusal(format!("Failed to set provider credentials: {e}"))))?;
         info!(
             link_id = %link.id,
             user_id = %link.member_user_id,

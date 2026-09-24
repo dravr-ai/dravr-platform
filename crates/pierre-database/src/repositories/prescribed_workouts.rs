@@ -175,13 +175,13 @@ pub(crate) fn prescribed_from_row<R>(row: &R) -> AppResult<PrescribedWorkout>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Value: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    UuidColumn: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    TenantId: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    UserId: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    UserId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let id: UuidColumn = row
         .try_get("id")

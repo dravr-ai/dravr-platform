@@ -106,7 +106,7 @@ pub(crate) fn uuid_text_column<R>(row: &R, name: &str, what: &str) -> AppResult<
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let raw: String = column(row, name)?;
     raw.parse::<Uuid>()
@@ -118,8 +118,8 @@ pub(crate) fn text_and_hash<R>(row: &R, first: &str) -> AppResult<(String, Optio
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok((column(row, first)?, column(row, "content_hash")?))
 }
@@ -129,7 +129,7 @@ pub(crate) fn id_and_slug<R>(row: &R) -> AppResult<(String, String)>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok((column(row, "id")?, column(row, "slug")?))
 }

@@ -26,8 +26,8 @@ Per CLAUDE.md, that ~25-minute run is CI's job (`preflight-clippy` + `clippy`
 jobs fire on every push). The local gate is `./scripts/ci/pre-push-validate.sh`.
 
 ## Prerequisites
-- Rust toolchain installed, including the **pinned 1.94.0** toolchain CI uses
-  (`rustup toolchain install 1.94.0`)
+- Rust toolchain installed, including the **pinned 1.98.1** toolchain CI uses
+  (`rust-toolchain.toml`; `rustup toolchain install 1.98.1`)
 - Clippy component (`rustup component add clippy`)
 
 ## Commands
@@ -36,17 +36,18 @@ jobs fire on every push). The local gate is `./scripts/ci/pre-push-validate.sh`.
 ```bash
 # Validate ONLY the crate you changed, on the pinned toolchain CI uses.
 # Fast (seconds–1 min) and closes the feedback loop without the full-workspace ban.
-rustup run 1.94.0 cargo clippy -p <crate> --all-targets --all-features -- -D warnings
+rustup run 1.98.1 cargo clippy -p <crate> --all-targets --all-features -- -D warnings
 ```
 
-CRITICAL: validate with `rustup run 1.94.0`, NOT ambient `stable` (currently 1.96).
-Stable flags lints absent in CI's 1.94 (e.g. `manual_duration`, `map_unwrap_or`
-under `-D warnings`), firing in untouched crates as false alarms. The reverse is
-safe: 1.96-clean implies 1.94-clean.
+CRITICAL: validate with the toolchain `rust-toolchain.toml` pins (1.98.1), NOT
+an ambient `stable` or a homebrew `cargo-clippy` earlier on PATH. A newer clippy
+flags lints absent from the pinned one, firing in untouched crates as false
+alarms; an older one misses lints CI will fail on. Confirm with
+`cargo clippy --version` inside the repo before trusting a clean run.
 
 NOTE on `nursery`: this workspace runs `clippy::nursery` at `deny` (hotter than
 the usual `warn`). Nursery lints are version-specific and may have false
-positives by design — the pinned 1.94 run above is the only reliable predictor
+positives by design — the pinned 1.98.1 run above is the only reliable predictor
 of what CI will flag.
 
 ### Pre-Push Gate (what actually gates the push)
@@ -235,10 +236,10 @@ cargo clippy --all-targets -- \
 
 **Issue:** Lint not recognized
 ```bash
-# Ensure the pinned toolchain + clippy are installed. Do NOT `rustup update`
-# to a newer stable — that reintroduces 1.96-only false alarms (see Commands).
-rustup toolchain install 1.94.0
-rustup component add clippy --toolchain 1.94.0
+# Ensure the pinned toolchain + clippy are installed. Do NOT validate on a
+# newer stable — its extra lints are false alarms here (see Commands).
+rustup toolchain install 1.98.1
+rustup component add clippy --toolchain 1.98.1
 ```
 
 ## Related Files

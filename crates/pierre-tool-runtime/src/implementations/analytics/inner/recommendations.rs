@@ -922,7 +922,7 @@ pub fn handle_generate_recommendations(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
         let recommendation_type = request
             .parameters
@@ -1073,7 +1073,7 @@ pub fn handle_generate_recommendations(
                     }),
                 }
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

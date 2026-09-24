@@ -243,7 +243,7 @@ async fn disconnect_each(
     disconnector: &dyn ProviderDisconnector,
     user_id: Uuid,
     targets: Vec<HeldProvider>,
-) -> Result<Vec<DisconnectedProvider>, Interruption> {
+) -> Result<Vec<DisconnectedProvider>, Box<Interruption>> {
     let mut disconnected = Vec::with_capacity(targets.len());
     for target in targets {
         match disconnector
@@ -270,11 +270,11 @@ async fn disconnect_each(
                 });
             }
             Err(error) => {
-                return Err(Interruption {
+                return Err(Box::new(Interruption {
                     disconnected,
                     failed: Some(target),
                     error,
-                })
+                }))
             }
         }
     }
@@ -353,7 +353,7 @@ pub async fn disconnect_user_provider(
     }
     match disconnect_each(disconnector, user_id, targets).await {
         Ok(disconnected) => ProviderDisconnection::Disconnected(disconnected),
-        Err(interruption) => ProviderDisconnection::Interrupted(interruption),
+        Err(interruption) => ProviderDisconnection::Interrupted(*interruption),
     }
 }
 
@@ -414,7 +414,7 @@ pub async fn remove_user(
         report.not_revocable = not_revocable;
         report.disconnected = match disconnect_each(disconnector, user_id, revocable).await {
             Ok(disconnected) => disconnected,
-            Err(interruption) => return Ok(UserRemoval::Interrupted(interruption)),
+            Err(interruption) => return Ok(UserRemoval::Interrupted(*interruption)),
         };
     }
 

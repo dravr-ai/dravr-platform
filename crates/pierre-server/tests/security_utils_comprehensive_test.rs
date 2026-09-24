@@ -211,7 +211,7 @@ async fn test_user_model_comprehensive() -> Result<()> {
         // Verify user properties
         assert_eq!(user.email, email);
         assert_eq!(user.tier, tier);
-        assert!(user.id != Uuid::nil());
+        assert_ne!(user.id, Uuid::nil());
         assert!(user.created_at <= Utc::now());
         assert!(user.is_active);
 

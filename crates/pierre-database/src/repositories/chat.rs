@@ -797,7 +797,7 @@ pub(crate) fn stamp_column<R>(row: &R, column: &str) -> AppResult<String>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let at: DateTime<Utc> = row
         .try_get(column)

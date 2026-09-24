@@ -354,7 +354,7 @@ async fn generate_and_send_otp(
     sender_id: &str,
     state_id: &str,
     email: &str,
-) -> Result<String, OutgoingMessage> {
+) -> Result<String, Box<OutgoingMessage>> {
     let db_msg: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     let otp_code = generate_otp();
@@ -365,28 +365,28 @@ async fn generate_and_send_otp(
         .await
     {
         error!(error = %e, "Failed to set OTP on link state");
-        return Err(otp_reply(
+        return Err(Box::new(otp_reply(
             channel_type,
             sender_id,
             resources
                 .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
-        ));
+        )));
     }
 
     // Send the OTP code via email
     let channel_display_name = channel_type.to_string();
     let Some(email_svc) = &resources.common.email_service else {
         warn!("Email service not configured, cannot send OTP for channel linking");
-        return Err(otp_reply(
+        return Err(Box::new(otp_reply(
             channel_type,
             sender_id,
             resources
                 .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_EMAIL_NOT_CONFIGURED, DEFAULT_LOCALE),
-        ));
+        )));
     };
 
     if let Err(e) = email_svc
@@ -394,14 +394,14 @@ async fn generate_and_send_otp(
         .await
     {
         error!(error = %e, "Failed to send OTP email for channel linking");
-        return Err(otp_reply(
+        return Err(Box::new(otp_reply(
             channel_type,
             sender_id,
             resources
                 .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_EMAIL_SEND_FAILED, DEFAULT_LOCALE),
-        ));
+        )));
     }
 
     Ok(mask_email(email))
@@ -443,7 +443,7 @@ async fn handle_email_step(
     let masked =
         match generate_and_send_otp(resources, channel_type, sender_id, state_id, &email).await {
             Ok(m) => m,
-            Err(reply) => return reply,
+            Err(reply) => return *reply,
         };
 
     info!(
@@ -514,12 +514,12 @@ async fn handle_otp_mismatch(
 /// Looks up the user, resolves their tenant, and creates the DB link record.
 async fn create_verified_channel_link(
     params: &OtpVerificationParams<'_>,
-) -> Result<User, OutgoingMessage> {
+) -> Result<User, Box<OutgoingMessage>> {
     let db_user: &dyn UserRepository = params.resources.common.repos.users.as_ref();
     let db_msg: &dyn MessagingRepository = params.resources.common.repos.messaging.as_ref();
 
     let Ok(Some(user)) = db_user.get_by_email(params.email).await else {
-        return Err(otp_reply(
+        return Err(Box::new(otp_reply(
             params.channel_type,
             params.sender_id,
             params
@@ -527,7 +527,7 @@ async fn create_verified_channel_link(
                 .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_VERIFICATION_ERROR, DEFAULT_LOCALE),
-        ));
+        )));
     };
 
     // Use the bot's tenant for the channel link — the webhook handler resolves
@@ -546,7 +546,7 @@ async fn create_verified_channel_link(
 
     if let Err(e) = db_msg.create_channel_link(&link_params).await {
         error!(error = %e, "Failed to create channel link during OTP verification");
-        return Err(otp_reply(
+        return Err(Box::new(otp_reply(
             params.channel_type,
             params.sender_id,
             params
@@ -554,7 +554,7 @@ async fn create_verified_channel_link(
                 .mcp
                 .messaging_strings_registry
                 .get(KEY_LINK_IDENTITY_COLLISION, DEFAULT_LOCALE),
-        ));
+        )));
     }
 
     // Mark the OTP link state as used
@@ -663,7 +663,7 @@ async fn handle_otp_verification_step(
     // OTP matches — look up user and create permanent link
     let user = match create_verified_channel_link(&params).await {
         Ok(u) => u,
-        Err(reply) => return reply,
+        Err(reply) => return *reply,
     };
 
     info!(
@@ -871,7 +871,7 @@ async fn handle_signup_confirm_step(
             }
             reply
         }
-        Err(reply) => reply,
+        Err(reply) => *reply,
     }
 }
 

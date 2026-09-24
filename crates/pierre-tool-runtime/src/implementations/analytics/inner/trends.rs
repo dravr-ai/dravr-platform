@@ -385,7 +385,7 @@ pub fn handle_analyze_performance_trends(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
         let metric = request
             .parameters
@@ -462,7 +462,7 @@ pub fn handle_analyze_performance_trends(
 
                 Ok(result)
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

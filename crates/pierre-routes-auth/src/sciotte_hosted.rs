@@ -193,15 +193,17 @@ pub async fn handle_mint_sciotte_link_token(
 }
 
 /// Validate the link-token and burn its nonce, returning the verified claims.
+///
+/// The rejection is the rendered error page, boxed so the `Err` side stays small.
 async fn validate_and_burn_link_token(
     resources: &AuthRoutesContext,
     token: &str,
-) -> Result<ProviderLinkTokenClaims, Response> {
+) -> Result<ProviderLinkTokenClaims, Box<Response>> {
     let claims = verify_link_token(token, &resources.admin_jwt_secret, "sciotte").map_err(|e| {
         warn!(error = %e, "Rejected hosted-login page: invalid link-token");
-        render_error_response(
+        Box::new(render_error_response(
             "This login link is invalid or has expired. Please request a fresh link from your chat channel.",
-        )
+        ))
     })?;
 
     // SECURITY: Burn the jti on the first page load so the URL can't be replayed.
@@ -213,9 +215,9 @@ async fn validate_and_burn_link_token(
         .await
         .map_err(|e| {
             warn!(jti = %claims.jti, error = %e, "Hosted-login page: link already consumed");
-            render_error_response(
+            Box::new(render_error_response(
                 "This login link has already been opened. For your security, each link can only be opened once. Please request a fresh link from your chat channel.",
-            )
+            ))
         })?;
 
     Ok(claims)
@@ -238,7 +240,7 @@ pub async fn handle_sciotte_hosted_login_page(
 
     let claims = match validate_and_burn_link_token(&resources, token).await {
         Ok(c) => c,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     // Target is clamped server-side at mint time; re-validate on render in case of tampering.

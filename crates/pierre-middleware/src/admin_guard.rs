@@ -32,7 +32,7 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, Request};
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use pierre_core::admin::models::{AdminPermissions, ValidatedAdminToken};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
@@ -110,13 +110,9 @@ pub async fn cookie_admin_middleware<C: MiddlewareCtx>(
     headers: HeaderMap,
     mut request: Request<Body>,
     next: Next,
-) -> Result<Response, Response> {
-    let auth = extract_auth_from_headers(&headers, &resources)
-        .await
-        .map_err(IntoResponse::into_response)?;
-    let user = require_admin(auth.user_id, &resources.repos().users)
-        .await
-        .map_err(IntoResponse::into_response)?;
+) -> Result<Response, AppError> {
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let user = require_admin(auth.user_id, &resources.repos().users).await?;
     // Synthesize a `ValidatedAdminToken` so handlers downstream that
     // expect `Extension<ValidatedAdminToken>` (set by the programmatic
     // `admin_auth_middleware`) work identically when the request comes

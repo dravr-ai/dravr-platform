@@ -156,7 +156,7 @@ fn read_json<R, T>(row: &R, col: &str) -> AppResult<T>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    Value: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     T: DeserializeOwned,
 {
     let value: Value = row
@@ -171,7 +171,7 @@ fn read_vocab<R, T>(row: &R, col: &str) -> AppResult<T>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     T: DeserializeOwned,
 {
     let text: String = row
@@ -190,14 +190,14 @@ pub(crate) fn template_from_row<R>(row: &R) -> AppResult<WorkoutTemplate>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i32: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    bool: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Value: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    UuidColumn: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    TenantId: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    UserId: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    UserId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let id: UuidColumn = row
         .try_get("id")

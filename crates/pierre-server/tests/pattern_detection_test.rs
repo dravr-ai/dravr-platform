@@ -89,7 +89,7 @@ fn test_hr_drift_detection() {
     let signals = PatternDetector::detect_overtraining_signals(&activities);
 
     assert!(signals.hr_drift_detected);
-    assert!(signals.risk_level != RiskLevel::Low);
+    assert_ne!(signals.risk_level, RiskLevel::Low);
 }
 
 #[test]

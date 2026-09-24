@@ -164,7 +164,7 @@ async fn test_login_active_user_succeeds() {
 
     let body: serde_json::Value = response.json();
     assert!(body["access_token"].is_string());
-    assert!(body["user"]["email"].as_str() == Some(email));
+    assert_eq!(body["user"]["email"].as_str(), Some(email));
 }
 
 #[tokio::test]

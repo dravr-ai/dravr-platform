@@ -162,7 +162,7 @@ POSTGRES_ACQUIRE_TIMEOUT=20
 - `.github/workflows/sdk-tests.yml`
 
 **What it validates**:
-1. Node.js 20 + Rust 1.91.0 setup
+1. Node.js 20 + Rust 1.98.1 setup
 2. SDK dependency installation (`npm ci --prefer-offline`)
 3. SDK bridge build (`npm run build`)
 4. SDK unit tests (`npm run test:unit`)
@@ -192,7 +192,7 @@ POSTGRES_ACQUIRE_TIMEOUT=20
 **When it runs**: All pushes and PRs
 
 **What it validates**:
-1. Python 3.11 + Node.js 20 + Rust 1.91.0 setup
+1. Python 3.11 + Node.js 20 + Rust 1.98.1 setup
 2. MCP Validator installation (cloned from `Janix-ai/mcp-validator`)
 3. SDK dependency installation
 4. SDK bridge build

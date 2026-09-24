@@ -362,7 +362,7 @@ pub fn handle_detect_patterns(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
         // Defaults rather than refusing. This parameter went undeclared while the
         // handler hard-required it, so every schema-following caller — which is
@@ -454,7 +454,7 @@ pub fn handle_detect_patterns(
 
                 Ok(result)
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

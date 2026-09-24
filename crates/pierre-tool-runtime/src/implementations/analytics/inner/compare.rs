@@ -655,7 +655,7 @@ pub fn handle_compare_activities(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
         let activity_id = request
             .parameters
@@ -705,7 +705,7 @@ pub fn handle_compare_activities(
 
                 Ok(result)
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

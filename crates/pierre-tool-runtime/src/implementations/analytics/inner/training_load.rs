@@ -418,7 +418,7 @@ pub fn handle_analyze_training_load(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
 
         // Extract optional sleep_provider for cross-provider recovery analysis
@@ -614,7 +614,7 @@ pub fn handle_analyze_training_load(
                     }),
                 }
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

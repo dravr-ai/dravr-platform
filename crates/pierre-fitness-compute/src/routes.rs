@@ -341,7 +341,7 @@ fn parse_trackpoints(bytes: &[u8]) -> Vec<TrackPoint> {
         let lon = parse_attr(header, "lon");
         let close = xml[absolute..]
             .find("</trkpt>")
-            .map_or(xml.len() - absolute, |c| c);
+            .unwrap_or(xml.len() - absolute);
         let body = &xml[absolute..absolute + close];
         let elevation = parse_inner_tag(body, "ele");
         cursor = absolute + close + "</trkpt>".len();

@@ -61,7 +61,7 @@ pub mod conversions {
         if t.is_sign_negative() {
             return 0;
         }
-        t.to_u64().map_or(u64::MAX, |v| v)
+        t.to_u64().unwrap_or(u64::MAX)
     }
 
     /// Safely convert f32 to u32, clamping to valid range
@@ -75,7 +75,7 @@ pub mod conversions {
         if t.is_sign_negative() {
             return 0;
         }
-        t.to_u32().map_or(u32::MAX, |v| v)
+        t.to_u32().unwrap_or(u32::MAX)
     }
 
     /// Safely convert f64 to u32, clamping to valid range
@@ -89,7 +89,7 @@ pub mod conversions {
         if t.is_sign_negative() {
             return 0;
         }
-        t.to_u32().map_or(u32::MAX, |v| v)
+        t.to_u32().unwrap_or(u32::MAX)
     }
 
     /// Convert f64 to f32 for fields whose dynamic range fits f32.

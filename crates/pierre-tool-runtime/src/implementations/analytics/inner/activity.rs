@@ -466,7 +466,7 @@ pub fn handle_get_activity_intelligence(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
 
         // Extract output format parameter: "json" (default) or "toon"
@@ -548,7 +548,7 @@ pub fn handle_get_activity_intelligence(
                 // ToolResponse boundary, so the typed re-raise here is the
                 // only way the signal survives the bridge.
                 auth_required_provider(&response).map_or_else(
-                    || Ok(response),
+                    || Ok(*response),
                     |provider| Err(ProtocolError::ProviderAuthRequired { provider }),
                 )
             }

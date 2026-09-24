@@ -68,7 +68,6 @@
     clippy::filter_map_next,
     clippy::flat_map_option,
     clippy::fn_to_numeric_cast_any,
-    clippy::from_iter_instead_of_collect,
     clippy::if_let_mutex,
     clippy::implicit_hasher,
     clippy::inconsistent_struct_constructor,

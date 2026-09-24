@@ -849,7 +849,7 @@ WantedBy=multi-user.target
 ### Docker
 
 ```dockerfile
-FROM rust:1.70 as builder
+FROM rust:1.98-slim as builder
 WORKDIR /build
 COPY . .
 RUN cargo build --release

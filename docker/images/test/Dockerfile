@@ -1,5 +1,5 @@
 # Dockerfile for testing database plugins with PostgreSQL
-FROM rust:1.96-bullseye
+FROM rust:1.98-bullseye
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

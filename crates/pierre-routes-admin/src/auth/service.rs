@@ -296,61 +296,67 @@ pub mod middleware {
     /// Extracts Bearer token from Authorization header, validates it,
     /// and adds `ValidatedAdminToken` as a request extension.
     ///
-    /// # Errors
-    /// Returns error if authorization header is missing, malformed, or token is invalid
+    /// Responds 400 when the authorization header is missing or malformed,
+    /// and 401 when the token is invalid, without reaching the handler.
     pub async fn admin_auth_middleware(
         State(auth_service): State<AdminAuthService>,
         mut request: Request<Body>,
         next: Next,
-    ) -> Result<Response, Response> {
+    ) -> Response {
         // Extract authorization header
-        let auth_header = request
+        let Some(auth_header) = request
             .headers()
             .get("authorization")
             .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| {
-                warn!("Missing Authorization header in admin request");
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "Missing Authorization header"
-                    })),
-                )
-                    .into_response()
-            })?;
-
-        // Extract Bearer token
-        let token = extract_bearer_token_owned(auth_header).map_err(|e| {
-            warn!(error = %e, "Failed to extract bearer token from admin auth header");
-            (
+        else {
+            warn!("Missing Authorization header in admin request");
+            return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({
                     "success": false,
-                    "message": "Invalid Authorization header format"
+                    "message": "Missing Authorization header"
                 })),
             )
-                .into_response()
-        })?;
+                .into_response();
+        };
+
+        // Extract Bearer token
+        let token = match extract_bearer_token_owned(auth_header) {
+            Ok(token) => token,
+            Err(e) => {
+                warn!(error = %e, "Failed to extract bearer token from admin auth header");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "success": false,
+                        "message": "Invalid Authorization header format"
+                    })),
+                )
+                    .into_response();
+            }
+        };
 
         // Authenticate token without checking permissions
         // Each handler will check its own required permissions
-        let validated_token = auth_service.authenticate(&token, None).await.map_err(|e| {
-            warn!(error = %e, "Admin authentication failed");
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "success": false,
-                    "message": format!("Authentication failed: {}", e)
-                })),
-            )
-                .into_response()
-        })?;
+        let validated_token = match auth_service.authenticate(&token, None).await {
+            Ok(validated_token) => validated_token,
+            Err(e) => {
+                warn!(error = %e, "Admin authentication failed");
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "success": false,
+                        "message": format!("Authentication failed: {}", e)
+                    })),
+                )
+                    .into_response();
+            }
+        };
 
         // Insert validated token as extension
         request.extensions_mut().insert(validated_token);
 
         // Continue to next middleware/handler
-        Ok(next.run(request).await)
+        next.run(request).await
     }
 }

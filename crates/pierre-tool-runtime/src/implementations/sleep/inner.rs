@@ -47,13 +47,13 @@ const MAX_TREND_DAYS: u32 = 366;
 /// * `provider_name` - Name of the provider to fetch from (e.g., "strava", "garmin", "fitbit")
 ///
 /// # Errors
-/// Returns `UniversalResponse` with error if authentication fails or activities cannot be fetched
+/// Returns a boxed `UniversalResponse` if authentication fails or activities cannot be fetched
 async fn fetch_provider_activities(
     executor: &UniversalToolExecutor,
     user_uuid: Uuid,
     tenant_id: Option<&str>,
     provider_name: &str,
-) -> Result<Vec<Activity>, UniversalResponse> {
+) -> Result<Vec<Activity>, Box<UniversalResponse>> {
     // Use AuthService for tenant-aware authenticated provider creation
     let provider = executor
         .auth_service
@@ -180,7 +180,7 @@ pub fn handle_analyze_sleep_quality(
             .await
             {
                 Ok((data, _sources)) => data,
-                Err(response) => return Ok(response),
+                Err(response) => return Ok(*response),
             }
         };
 
@@ -334,7 +334,7 @@ pub fn handle_calculate_recovery_score(
         .await
         {
             Ok(activities) => activities,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
 
         // Get user configuration for physiological parameters
@@ -394,7 +394,7 @@ pub fn handle_calculate_recovery_score(
                 .await
                 {
                     Ok((data, sources)) => Some((data, Some(sources.join(" + ")))),
-                    Err(response) => return Ok(response),
+                    Err(response) => return Ok(*response),
                 },
                 (None, None) => {
                     latest_sleep_data(executor, user_uuid, request.tenant_id.as_deref(), None, 1)
@@ -653,7 +653,7 @@ pub fn handle_suggest_rest_day(
         .await
         {
             Ok(activities) => activities,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
 
         // Get user configuration
@@ -711,7 +711,7 @@ pub fn handle_suggest_rest_day(
             .await
             {
                 Ok((data, _sources)) => Some(data),
-                Err(response) => return Ok(response),
+                Err(response) => return Ok(*response),
             },
             (None, None) => {
                 latest_sleep_data(executor, user_uuid, request.tenant_id.as_deref(), None, 1)
@@ -963,7 +963,7 @@ pub fn handle_track_sleep_trends(
             {
                 // Oldest first, so the trend reads forward in time.
                 Ok(nights) => nights.into_iter().rev().map(|(data, _)| data).collect(),
-                Err(response) => return Ok(response),
+                Err(response) => return Ok(*response),
             }
         };
 
@@ -1161,7 +1161,7 @@ pub fn handle_optimize_sleep_schedule(
         .await
         {
             Ok(activities) => activities,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
 
         // Get user configuration

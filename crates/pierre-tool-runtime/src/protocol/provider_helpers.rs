@@ -82,7 +82,7 @@ pub fn no_provider_refusal() -> UniversalResponse {
 ///
 /// # Errors
 ///
-/// Returns `Err(UniversalResponse)` when the user has no provider connections at
+/// Returns a boxed `UniversalResponse` when the user has no provider connections at
 /// all. The returned response carries the canonical reconnect-required metadata
 /// the tool loop scans for.
 pub async fn resolve_provider_for_request(
@@ -90,7 +90,7 @@ pub async fn resolve_provider_for_request(
     executor: &UniversalToolExecutor,
     user_uuid: Uuid,
     tenant_id: Option<&str>,
-) -> Result<String, UniversalResponse> {
+) -> Result<String, Box<UniversalResponse>> {
     // 1. Explicit arg
     if let Some(p) = parameters
         .get("provider")
@@ -132,7 +132,7 @@ pub async fn resolve_provider_for_request(
             // providerless users for REQUIRES_PROVIDER tools, so reaching this
             // branch means either a tool that calls a resolver without declaring
             // the capability, or a disconnect between the check and this read.
-            Err(no_provider_refusal())
+            Err(Box::new(no_provider_refusal()))
         }
         Err(e) => {
             warn!(
@@ -140,14 +140,14 @@ pub async fn resolve_provider_for_request(
                 error = %e,
                 "provider_connections lookup failed during resolution"
             );
-            Err(UniversalResponse {
+            Err(Box::new(UniversalResponse {
                 success: false,
                 result: None,
                 error: Some(format!(
                     "Failed to resolve fitness provider for this request: {e}"
                 )),
                 metadata: None,
-            })
+            }))
         }
     }
 }

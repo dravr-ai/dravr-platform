@@ -468,7 +468,7 @@ pub fn handle_calculate_fitness_score(
         .await
         {
             Ok(p) => p,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(*response),
         };
         let timeframe = request
             .parameters
@@ -655,7 +655,7 @@ pub fn handle_calculate_fitness_score(
                     }),
                 }
             }
-            Err(response) => Ok(response),
+            Err(response) => Ok(*response),
         }
     })
 }

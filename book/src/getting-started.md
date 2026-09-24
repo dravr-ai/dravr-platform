@@ -5,7 +5,7 @@
 
 ## Prerequisites
 
-- rust 1.94+ (matches `rust-toolchain`)
+- rust 1.98.1 (pinned by `rust-toolchain.toml`)
 - sqlite3 (or postgresql for production)
 - node 24+ (for sdk)
 

@@ -80,7 +80,7 @@ pub(crate) fn worker_run_from_row<R>(row: &R) -> AppResult<WorkerRun>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    i64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(WorkerRun {
         last_run_at_ms: row

@@ -2,7 +2,7 @@
 # ABOUTME: Uses cargo-chef for dependency caching; runtime stage uses debian-slim with non-root user
 
 # Stage 0: base image with build dependencies and cargo-chef installed
-FROM --platform=linux/amd64 rust:1.96-slim AS chef
+FROM --platform=linux/amd64 rust:1.98-slim AS chef
 # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
 # downloads and embeds the Copilot CLI (~163 MB) unless told not to. Every
 # workflow that runs cargo sets this in its env, .envrc.example sets it for

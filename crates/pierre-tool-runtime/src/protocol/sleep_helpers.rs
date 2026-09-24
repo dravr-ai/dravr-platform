@@ -62,7 +62,7 @@ fn missing_tenant() -> UniversalResponse {
 /// source before merging.
 ///
 /// # Errors
-/// Returns `UniversalResponse` when the request has no tenant or the stored
+/// Returns a boxed `UniversalResponse` when the request has no tenant or the stored
 /// rows cannot be read.
 pub async fn stored_sleep_nights(
     executor: &UniversalToolExecutor,
@@ -70,8 +70,8 @@ pub async fn stored_sleep_nights(
     tenant_id: Option<&str>,
     source: Option<&str>,
     days: u32,
-) -> Result<Vec<Merged<StoredSleepSession>>, UniversalResponse> {
-    let tenant = tenant_of(tenant_id).ok_or_else(missing_tenant)?;
+) -> Result<Vec<Merged<StoredSleepSession>>, Box<UniversalResponse>> {
+    let tenant = tenant_of(tenant_id).ok_or_else(|| Box::new(missing_tenant()))?;
     let end = Utc::now();
     let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
     let mut sessions = executor
@@ -82,7 +82,9 @@ pub async fn stored_sleep_nights(
         .await
         .map_err(|e| {
             warn!(error = %e, "stored sleep sessions unreadable");
-            failure("Sleep data could not be read right now.".to_owned())
+            Box::new(failure(
+                "Sleep data could not be read right now.".to_owned(),
+            ))
         })?;
     if let Some(source) = source {
         sessions.retain(|s| s.source_name.eq_ignore_ascii_case(source));
@@ -102,7 +104,7 @@ pub async fn stored_sleep_nights(
 /// on — WHOOP, for one, reports HRV on recovery rather than on sleep.
 ///
 /// # Errors
-/// Returns `UniversalResponse` when the request has no tenant or the stored
+/// Returns a boxed `UniversalResponse` when the request has no tenant or the stored
 /// rows cannot be read.
 pub async fn sleep_history_data(
     executor: &UniversalToolExecutor,
@@ -110,7 +112,7 @@ pub async fn sleep_history_data(
     tenant_id: Option<&str>,
     source: Option<&str>,
     days: u32,
-) -> Result<Vec<(SleepData, Vec<String>)>, UniversalResponse> {
+) -> Result<Vec<(SleepData, Vec<String>)>, Box<UniversalResponse>> {
     let nights = stored_sleep_nights(executor, user_uuid, tenant_id, source, days).await?;
     let recovery = recovery_by_date(executor, user_uuid, tenant_id, days).await;
     Ok(nights
@@ -133,7 +135,7 @@ pub async fn sleep_history_data(
 /// The most recent synced night as `SleepData`, with the sources it merges.
 ///
 /// # Errors
-/// Returns `UniversalResponse` when no night was synced in the last `days`
+/// Returns a boxed `UniversalResponse` when no night was synced in the last `days`
 /// days (from `source`, when one is named) or the rows cannot be read.
 pub async fn latest_sleep_data(
     executor: &UniversalToolExecutor,
@@ -141,13 +143,13 @@ pub async fn latest_sleep_data(
     tenant_id: Option<&str>,
     source: Option<&str>,
     days: u32,
-) -> Result<(SleepData, Vec<String>), UniversalResponse> {
+) -> Result<(SleepData, Vec<String>), Box<UniversalResponse>> {
     sleep_history_data(executor, user_uuid, tenant_id, source, days)
         .await?
         .into_iter()
         .next()
         .ok_or_else(|| {
-            failure(source.map_or_else(
+            Box::new(failure(source.map_or_else(
                 || {
                     format!(
                         "No synced sleep for the last {days} day(s). Connect a sleep-tracking \
@@ -155,7 +157,7 @@ pub async fn latest_sleep_data(
                     )
                 },
                 |source| format!("No sleep synced from {source} for the last {days} day(s)."),
-            ))
+            )))
         })
 }
 

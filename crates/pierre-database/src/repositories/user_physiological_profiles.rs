@@ -184,10 +184,10 @@ pub(crate) fn profile_from_row<R>(row: &R, user_id: Uuid) -> AppResult<UserPhysi
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i32: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    f64: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Value: for<'a> sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let fitness_level_str: String = row
         .try_get("fitness_level")
