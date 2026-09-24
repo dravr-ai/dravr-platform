@@ -377,15 +377,12 @@ jobs:
             const healthy = new Set(JSON.parse(process.env.HEALTHY));
             const monitorUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
-            // Every page, not the first: listForRepo returns newest-first and a
-            // standing issue's created_at never advances, so a single page of
-            // 100 would stop seeing it once enough newer issues carry the label
-            // (same reasoning as billing-drivers-monitor.yml). Closed issues
-            // are read too: a run a closed issue already records was
-            // acknowledged by whoever closed it, and must not be re-filed.
-            const lanes = (await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'all', labels: 'dravr-platform', per_page: 100,
-            })).filter((i) => !i.pull_request && i.title.startsWith(prefix));
+            // Closed issues are read too: a run a closed issue already records
+            // was acknowledged by whoever closed it, and must not be re-filed.
+            const { findStandingIssues } = require('./scripts/ci/standing-issue.cjs');
+            const lanes = await findStandingIssues(github, {
+              owner, repo, label: 'dravr-platform', state: 'all', titlePrefixes: [prefix],
+            });
 
             // The run URL must end where the recorded one ends: a bare
             // substring test reads .../runs/3578 as recorded wherever

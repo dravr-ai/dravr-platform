@@ -37,6 +37,14 @@ on:
       - '.github/workflows/bump-*.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
+      # standing-issue.test.sh checks every monitor that files a standing issue
+      # looks it up through scripts/ci/standing-issue.cjs and checks it out.
+      - '.github/workflows/billing-drivers-monitor.yml'
+      - '.github/workflows/claude-health-probe.yml'
+      - '.github/workflows/copilot-cli-version-check.yml'
+      - '.github/workflows/copilot-health-probe.yml'
+      - '.github/workflows/dependency-check.yml'
+      - '.github/workflows/monitor-capture-staleness.yml'
       - '.github/actions/rust-setup/**'
   pull_request:
     branches: [ main ]
@@ -68,6 +76,14 @@ on:
       - '.github/workflows/bump-*.yml'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
+      # standing-issue.test.sh checks every monitor that files a standing issue
+      # looks it up through scripts/ci/standing-issue.cjs and checks it out.
+      - '.github/workflows/billing-drivers-monitor.yml'
+      - '.github/workflows/claude-health-probe.yml'
+      - '.github/workflows/copilot-cli-version-check.yml'
+      - '.github/workflows/copilot-health-probe.yml'
+      - '.github/workflows/dependency-check.yml'
+      - '.github/workflows/monitor-capture-staleness.yml'
       - '.github/actions/rust-setup/**'
   schedule:
     # Daily at 08:00 UTC (04:00 EDT / 03:00 EST) — runs the SQLite shard job.
@@ -259,7 +275,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -283,6 +299,7 @@ jobs:
           ./scripts/ci/deploy-satellite-cloud-run.test.sh
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
+          ./scripts/ci/standing-issue.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # The dev scripts decide which processes a stop may kill and which files a
