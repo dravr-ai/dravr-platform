@@ -643,7 +643,15 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
     }
 
     fn capabilities(&self) -> TroncCapabilities {
-        capabilities_to_tronc(ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT)
+        // READS_DATA: the reply is the athlete's plan, and with `include_state`
+        // their readiness, recovery and sleep-derived state — fitness data, so
+        // a delegated grant needs `fitness:read` to reach it, the read twin of
+        // `save_training_plan`'s WRITES_DATA.
+        capabilities_to_tronc(
+            ToolCapabilities::REQUIRES_AUTH
+                | ToolCapabilities::REQUIRES_TENANT
+                | ToolCapabilities::READS_DATA,
+        )
     }
 
     async fn execute(
