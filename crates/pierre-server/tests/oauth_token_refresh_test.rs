@@ -858,6 +858,10 @@ async fn strava_pool_issued_token_refreshes_under_its_own_app() {
     );
 }
 
+/// `(authorization header, form body)` of every refresh POST a mock token
+/// endpoint received.
+type RefreshRequests = Arc<Mutex<Vec<(String, HashMap<String, String>)>>>;
+
 /// One provider's expected refresh behaviour, exercised by
 /// [`assert_refresh_once_and_persists`].
 struct RefreshSeamCase {
@@ -896,9 +900,7 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
 
     let hits = Arc::new(AtomicUsize::new(0));
     let hits_route = Arc::clone(&hits);
-    // `(authorization header, form body)` of every refresh POST.
-    let requests: Arc<Mutex<Vec<(String, HashMap<String, String>)>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    let requests: RefreshRequests = Arc::new(Mutex::new(Vec::new()));
     let requests_route = Arc::clone(&requests);
     let body = case.mock_response.clone();
     let app = Router::new().route(
