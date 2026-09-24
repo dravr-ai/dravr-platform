@@ -16,6 +16,20 @@
 use pierre_memory::ClaimCategory;
 use serde::{Deserialize, Serialize};
 
+/// Where a claim's text came from.
+///
+/// Downstream presentation keys off this: a [`ClaimSource::Reply`] claim is a
+/// verbatim sentence of the reply the user is reading, so its position in that
+/// reply says nothing about whether the warning is worth showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimSource {
+    /// A sentence [`extract_heuristic`] split out of the agent reply.
+    Reply,
+    /// Text supplied directly by a caller (e.g. the `verify_claim` tool).
+    Caller,
+}
+
 /// A single claim extracted from an agent reply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedClaim {
@@ -23,6 +37,8 @@ pub struct ExtractedClaim {
     pub text: String,
     /// Category assigned by the extractor.
     pub category: ClaimCategory,
+    /// Where the claim text came from.
+    pub source: ClaimSource,
 }
 
 /// Minimum word count for a sentence to be treated as a verifiable claim.
@@ -54,6 +70,7 @@ pub fn extract_heuristic(agent_reply: &str) -> Vec<ExtractedClaim> {
             out.push(ExtractedClaim {
                 text: trimmed.to_owned(),
                 category,
+                source: ClaimSource::Reply,
             });
         }
     }

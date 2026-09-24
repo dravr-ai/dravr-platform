@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_evals::ClaimSource;
 use pierre_evals::{
     check_claim,
     claim_extractor::{extract_heuristic, ExtractedClaim},
@@ -53,6 +54,7 @@ fn evidence_retrieval_finds_supporting_citation() {
     let claim = ExtractedClaim {
         text: "Aim for 1.6 grams of protein per kg of body weight daily.".into(),
         category: ClaimCategory::Nutrition,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Supported);
@@ -66,6 +68,7 @@ fn evidence_layer_falls_through_to_unsupported() {
     let claim = ExtractedClaim {
         text: "Drinking kale smoothies cures tendinitis overnight.".into(),
         category: ClaimCategory::Nutrition,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Unsupported);
@@ -76,6 +79,7 @@ fn deterministic_contradicts_implausible_heart_rate() {
     let claim = ExtractedClaim {
         text: "Your max heart rate is 400 bpm.".into(),
         category: ClaimCategory::Physiological,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
@@ -87,6 +91,7 @@ fn deterministic_contradicts_absurd_protein_intake() {
     let claim = ExtractedClaim {
         text: "Eat 50 grams per kg of protein daily.".into(),
         category: ClaimCategory::Nutrition,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
@@ -97,6 +102,7 @@ fn rhetoric_short_circuits_pipeline() {
     let claim = ExtractedClaim {
         text: "You're crushing it, champ!".into(),
         category: ClaimCategory::TrainingPrescription,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Rhetorical);
@@ -206,6 +212,7 @@ fn higher_minimum_strength_can_flip_supported_to_unsupported() {
     let claim = ExtractedClaim {
         text: "Your max heart rate is 208 minus 0.7 times your age.".into(),
         category: ClaimCategory::Physiological,
+        source: ClaimSource::Reply,
     };
     let cfg_strong = check_claim(&claim, &[], &corpus(), EvidenceStrength::Strong, None, None);
     assert_eq!(cfg_strong.status, ClaimStatus::Unsupported);
@@ -219,6 +226,7 @@ fn extracted_claim_is_serde_round_trip_safe() {
     let claim = ExtractedClaim {
         text: "Creatine at 5g/day boosts high-intensity performance".into(),
         category: ClaimCategory::Supplement,
+        source: ClaimSource::Reply,
     };
     let json = serde_json::to_string(&claim).unwrap();
     let back: ExtractedClaim = serde_json::from_str(&json).unwrap();
@@ -231,6 +239,7 @@ fn recovery_sleep_out_of_range_is_contradicted() {
     let claim = ExtractedClaim {
         text: "You should aim for 20 hours of sleep per night.".into(),
         category: ClaimCategory::Recovery,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert_eq!(outcome.status, ClaimStatus::Contradicted);
@@ -241,6 +250,7 @@ fn explanation_text_mentions_layer_source() {
     let claim = ExtractedClaim {
         text: "Your max heart rate is 900 bpm".into(),
         category: ClaimCategory::Physiological,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(&claim, &[], &corpus(), EvidenceStrength::Mixed, None, None);
     assert!(outcome.explanation.to_lowercase().contains("bound"));

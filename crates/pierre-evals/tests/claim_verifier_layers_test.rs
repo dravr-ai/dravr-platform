@@ -13,6 +13,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
+use pierre_evals::ClaimSource;
 use pierre_evals::{
     check_claim, check_claim_judged, check_reply, claim_extractor::ExtractedClaim,
     evidence_retriever::EvidenceCorpus, find_contradiction, ClaimJudge,
@@ -36,6 +37,7 @@ fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
     ExtractedClaim {
         text: text.to_owned(),
         category,
+        source: ClaimSource::Reply,
     }
 }
 

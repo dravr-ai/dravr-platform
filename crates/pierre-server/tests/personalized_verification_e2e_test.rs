@@ -15,6 +15,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{Activity, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_database::repositories::InsertClaimVerdictParams;
+use pierre_evals::ClaimSource;
 use pierre_evals::{
     check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
     ConservativeStrategy, PersonalizedContext,
@@ -119,6 +120,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     let claim = ExtractedClaim {
         text: "Run your threshold pace at 2:30/km.".to_owned(),
         category: ClaimCategory::TrainingPrescription,
+        source: ClaimSource::Reply,
     };
     let outcome = check_claim(
         &claim,

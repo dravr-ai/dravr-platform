@@ -27,13 +27,14 @@
 use chrono::NaiveDate;
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{check, AthleteRecord, RecordedActivity};
-use pierre_evals::claim_extractor::ExtractedClaim;
+use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
 use pierre_memory::{ClaimCategory, ClaimStatus, VerdictLayer};
 
 fn claim(text: &str) -> ExtractedClaim {
     ExtractedClaim {
         text: text.to_owned(),
         category: ClaimCategory::AthleteData,
+        source: ClaimSource::Reply,
     }
 }
 
@@ -256,6 +257,7 @@ fn claims_from_other_categories_are_not_adjudicated_here() {
         let other = ExtractedClaim {
             text: "Zone 2 work sits around 70 percent of max heart rate.".to_owned(),
             category,
+            source: ClaimSource::Reply,
         };
         assert!(
             check(&other, &record).is_none(),

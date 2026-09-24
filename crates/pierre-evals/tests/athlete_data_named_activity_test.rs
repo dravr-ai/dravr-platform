@@ -20,13 +20,14 @@
 use chrono::NaiveDate;
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{check, AthleteRecord, RecordedActivity};
-use pierre_evals::claim_extractor::ExtractedClaim;
+use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
 use pierre_memory::{ClaimCategory, ClaimStatus, VerdictLayer};
 
 fn claim(text: &str) -> ExtractedClaim {
     ExtractedClaim {
         text: text.to_owned(),
         category: ClaimCategory::AthleteData,
+        source: ClaimSource::Reply,
     }
 }
 
