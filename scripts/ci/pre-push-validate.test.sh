@@ -216,6 +216,15 @@ run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
 expect_contains "the argument-less vocabulary gate reads the exported base" "vocabulary-base=$base_sha"
 expect_exit "the base-propagation case passes" 0
 
+# 8. Fail closed. A checkout whose .build submodule was never initialised has no
+#    validate.sh, and a push from it must stop rather than skip the shared scans.
+echo "  case 8: .build submodule missing"
+dir="$(make_repo)"
+rm -rf "$dir/.build"
+run_change "$dir" src/lib.rs "$(printf 'pub fn probe() {}\n\npub fn probe_three() {}')"
+expect_contains "a missing validate.sh names the fix" "validate.sh missing — run: git submodule update --init --recursive"
+expect_exit "a missing validate.sh fails the push" 1
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   echo "❌ $failures tier-selection fixture case(s) failed"
