@@ -340,8 +340,7 @@ The full feature matrix (protocols × transports × clients × tools × provider
 ├── book/                  # mdBook documentation source
 ├── scripts/               # CI helpers, validation gates, generators
 ├── bin/                   # Dev scripts (start/stop/setup/tunnel)
-├── templates/             # OAuth login/success/error HTML, brand assets
-└── website/               # Marketing site (Astro) deployed to GitHub Pages
+└── templates/             # OAuth login/success/error HTML, brand assets
 ```
 
 ## Development discipline
