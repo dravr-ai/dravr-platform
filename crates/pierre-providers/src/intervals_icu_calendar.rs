@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::errors::{AppError, AppResult};
+use crate::models::periodization::ThresholdBasis;
 use crate::models::{
     PlannedSession, PlannedSessionKind, RelativeIntensity, SportType, WorkoutStep,
 };
@@ -93,34 +94,70 @@ fn zone_target(n: u8, family: TargetFamily) -> String {
     }
 }
 
-/// A percentage band in the DSL's own spelling (`75%`, `88-93%`), suffixed
-/// with the family so pace and heart-rate targets are not read as power.
-fn percent_target(low: u16, high: u16, family: TargetFamily) -> String {
+/// The threshold a percent band with no named basis is of: the sport's own
+/// target family, the way a bare zone is.
+const fn family_basis(family: TargetFamily) -> ThresholdBasis {
+    match family {
+        TargetFamily::Power => ThresholdBasis::Ftp,
+        TargetFamily::Pace => ThresholdBasis::Pace,
+        TargetFamily::HeartRate => ThresholdBasis::HeartRate,
+    }
+}
+
+/// A percentage band in the DSL's own spelling, suffixed with the threshold
+/// it is of. The workout-builder text reads a bare `88-93%` as a percent of
+/// FTP, `95-100% LTHR` as a percent of threshold heart rate (`% HR` alone is
+/// a percent of maximum heart rate, which no band in the grammar names) and
+/// `90-95% Pace` as a percent of threshold pace, read as speed so a higher
+/// percent is faster — the reading [`ThresholdBasis::Pace`] states. Source:
+/// the Intervals.icu "Workout Builder Syntax Quick Guide"
+/// (forum.intervals.icu/t/123701) and "Workout builder"
+/// (forum.intervals.icu/t/1163).
+fn percent_target(low: u16, high: u16, basis: ThresholdBasis) -> String {
     let band = if low == high {
         format!("{low}%")
     } else {
         format!("{low}-{high}%")
     };
-    match family {
-        TargetFamily::Power => band,
-        TargetFamily::Pace => format!("{band} Pace"),
-        TargetFamily::HeartRate => format!("{band} HR"),
+    match basis {
+        ThresholdBasis::Ftp => band,
+        ThresholdBasis::Pace => format!("{band} Pace"),
+        ThresholdBasis::HeartRate => format!("{band} LTHR"),
     }
 }
 
 /// Render a step's `target_zone` as an Intervals.icu target, or `None` when
-/// the label is outside [`RelativeIntensity`]'s grammar — the step then goes
-/// out as a timed step with no target rather than a wrong one.
+/// the step has no target the workout-builder text can state. A label
+/// outside [`RelativeIntensity`]'s grammar is prose; the step then goes out
+/// as a timed step with no target rather than a wrong one.
+///
+/// A percent band keeps the threshold it names whatever the sport: `88-93%
+/// FTP` on a run is a power target, not a pace one. Only a band that names
+/// no threshold takes the sport's family.
 fn dsl_target(target_zone: &str, family: TargetFamily) -> Option<String> {
-    RelativeIntensity::parse(target_zone).map(|intensity| match intensity {
-        RelativeIntensity::Zone(n) => zone_target(n, family),
-        RelativeIntensity::HeartRateZone(n) => zone_target(n, TargetFamily::HeartRate),
-        RelativeIntensity::SweetSpot => match family {
-            TargetFamily::Power => percent_target(88, 94, family),
+    match RelativeIntensity::parse(target_zone)? {
+        RelativeIntensity::Zone(n) => Some(zone_target(n, family)),
+        RelativeIntensity::HeartRateZone(n) => Some(zone_target(n, TargetFamily::HeartRate)),
+        RelativeIntensity::SweetSpot => Some(match family {
+            TargetFamily::Power => percent_target(88, 94, ThresholdBasis::Ftp),
             other => zone_target(3, other),
-        },
-        RelativeIntensity::Percent { low, high } => percent_target(low, high, family),
-    })
+        }),
+        RelativeIntensity::Percent {
+            low,
+            high,
+            threshold,
+        } => Some(percent_target(
+            low,
+            high,
+            threshold.unwrap_or_else(|| family_basis(family)),
+        )),
+        // The workout-builder text has no perceived-exertion target: its
+        // targets are power, heart rate and pace (percent, absolute or zone),
+        // and neither syntax guide names an RPE form. An RPE step therefore
+        // goes out timed and untargeted, the way a prose label does, and the
+        // athlete still reads the step's label and note.
+        RelativeIntensity::Rpe(_) => None,
+    }
 }
 
 /// A step's extent in DSL units: a distance when the step has one (`mtr`, not
@@ -154,23 +191,27 @@ fn dsl_step_line(step: &WorkoutStep, family: TargetFamily) -> String {
 }
 
 /// Render the steps as DSL text. Consecutive steps sharing a `repeat` above
-/// one form one `{n}x` block (the DSL's repeat header groups the lines that
-/// follow it until a blank line), so a 4×(8 min on / 4 min off) set renders as
-/// a single four-repeat block rather than eight lines.
+/// one and the same `repeat_group` form one `{n}x` block (the DSL's repeat
+/// header groups the lines that follow it until a blank line), so a 4×(8 min
+/// on / 4 min off) set renders as a single four-repeat block rather than
+/// eight lines, while 3×(1 min on / 1 min off) straight into 3×(30 s on /
+/// 30 s off) — two sets with the same count, told apart by their group —
+/// renders as two blocks rather than one four-step set.
 fn render_steps(steps: &[WorkoutStep], family: TargetFamily) -> String {
     let mut out: Vec<String> = Vec::new();
-    let mut open_repeat: Option<u32> = None;
+    let mut open_set: Option<(u32, Option<u32>)> = None;
     for step in steps {
         let line = dsl_step_line(step, family);
         if step.repeat > 1 {
-            if open_repeat != Some(step.repeat) {
+            let set = (step.repeat, step.repeat_group);
+            if open_set != Some(set) {
                 if !out.is_empty() {
                     out.push(String::new());
                 }
                 out.push(format!("{}x", step.repeat));
-                open_repeat = Some(step.repeat);
+                open_set = Some(set);
             }
-        } else if open_repeat.take().is_some() {
+        } else if open_set.take().is_some() {
             out.push(String::new());
         }
         out.push(line);

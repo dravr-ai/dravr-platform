@@ -34,6 +34,7 @@ use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
+use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::connection::{
     ConnectProviderTool, DisconnectProviderTool, GetConnectionStatusTool,
@@ -139,7 +140,7 @@ fn user_facing_name_strips_mirror_backends() {
 }
 
 #[test]
-fn mirror_backend_for_only_maps_strava_and_garmin() {
+fn mirror_backend_for_only_maps_the_scraped_providers() {
     assert_eq!(
         backend_resolver::mirror_backend_for("strava"),
         Some(oauth_providers::SCIOTTE)
@@ -147,6 +148,10 @@ fn mirror_backend_for_only_maps_strava_and_garmin() {
     assert_eq!(
         backend_resolver::mirror_backend_for("garmin"),
         Some(oauth_providers::SCIOTTE_GARMIN)
+    );
+    assert_eq!(
+        backend_resolver::mirror_backend_for("trainingpeaks"),
+        Some(oauth_providers::SCIOTTE_TRAININGPEAKS)
     );
     assert_eq!(backend_resolver::mirror_backend_for("fitbit"), None);
     assert_eq!(backend_resolver::mirror_backend_for("whoop"), None);
@@ -200,6 +205,7 @@ fn serving_backends_answers_the_same_for_either_half_of_a_card() {
 fn is_mirror_backend_identifies_internal_names() {
     assert!(backend_resolver::is_mirror_backend("sciotte"));
     assert!(backend_resolver::is_mirror_backend("sciotte_garmin"));
+    assert!(backend_resolver::is_mirror_backend("sciotte_trainingpeaks"));
     assert!(!backend_resolver::is_mirror_backend("strava"));
     assert!(!backend_resolver::is_mirror_backend("garmin"));
 }
@@ -359,6 +365,7 @@ async fn coalesced_status_ignores_a_garmin_oauth_row_without_a_mirror() {
             user_facing: oauth_providers::GARMIN,
             connected: false,
             backend_kind: BackendKind::None,
+            delegation: None,
         },
         "a garmin OAuth row serves no fetch, so it must not read as connected"
     );
@@ -530,6 +537,7 @@ async fn coalesced_status_reports_mirror_backend_when_sciotte_present() {
             user_facing: oauth_providers::STRAVA,
             connected: true,
             backend_kind: BackendKind::Mirror,
+            delegation: None,
         }
     );
 }
@@ -857,11 +865,48 @@ async fn multi_provider_status_reports_needs_reauth() {
 // ConnectProviderTool — mirror re-auth block
 // ============================================================================
 
+/// Assert a `connect_provider` answer is the hosted-login hand-off for
+/// `mirror`: the auth-required sentinel the executor re-raises, so the chat
+/// pipeline mints a login link and an MCP client gets the structured
+/// reconnect code. An OAuth authorization URL here is the failure: neither
+/// Garmin nor TrainingPeaks has an OAuth backend Pierre can complete.
+fn assert_hosted_login_handoff(result: &ToolResponse, provider: &str, mirror: &str) {
+    assert!(
+        result.is_error,
+        "connect_provider({provider}) must not answer an OAuth URL: {:?}",
+        result.structured_content
+    );
+    let data = structured(result);
+    assert_eq!(
+        data.get("error_code").and_then(Value::as_str),
+        Some("provider_auth_required"),
+        "connect_provider({provider}) must raise the auth-required signal: {data:?}"
+    );
+    assert_eq!(
+        data.get("provider").and_then(Value::as_str),
+        Some(mirror),
+        "the signal carries the backend slug the hosted-login mint keys on: {data:?}"
+    );
+}
+
+/// Garmin's mirror is its only backend, so asking to connect it hands off to
+/// the hosted login whether or not a session row exists. With no row, this
+/// used to mint an OAuth URL for the uncredentialed Garmin API, which failed
+/// as an `oauth_configuration_error` the agent relayed as "Garmin is broken".
 #[tokio::test]
-async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
+async fn connect_provider_hands_garmin_to_the_hosted_login() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    let tool = ConnectProviderTool;
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+
+    let no_row = tool
+        .execute(&state, &ctx, json!({ "provider": "garmin" }))
+        .await;
+    assert_hosted_login_handoff(&no_row, "garmin", oauth_providers::SCIOTTE_GARMIN);
 
     seed_token(
         &resources,
@@ -870,33 +915,10 @@ async fn connect_provider_blocks_oauth_for_garmin_when_mirror_active() {
         oauth_providers::SCIOTTE_GARMIN,
     )
     .await;
-
-    let tool = ConnectProviderTool;
-    let state = tool_state(&resources);
-    let ctx = tool_context(user_id, tenant_id);
-    let result = tool
+    let with_row = tool
         .execute(&state, &ctx, json!({ "provider": "garmin" }))
         .await;
-
-    // Garmin keeps the mirror block: its official API is partner-gated, so the
-    // connector must refuse to mint an OAuth URL while the mirror is active.
-    assert!(
-        result.is_error,
-        "connect_provider(garmin) must fail rather than return an OAuth URL when the mirror is active"
-    );
-    let err_text = structured(&result)
-        .get("error")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    assert!(
-        err_text.to_lowercase().contains("direct login")
-            || err_text.to_lowercase().contains("mirror"),
-        "error message should explain the mirror backend is active: {err_text}"
-    );
-    assert!(
-        !err_text.contains("sciotte"),
-        "error message must not leak the internal backend name: {err_text}"
-    );
+    assert_hosted_login_handoff(&with_row, "garmin", oauth_providers::SCIOTTE_GARMIN);
 }
 
 #[tokio::test]
@@ -1205,5 +1227,552 @@ async fn reconciliation_deletes_orphans_and_spares_synthetic_and_valid() {
     assert!(
         names.contains(&oauth_providers::STRAVA),
         "token-backed oauth connection must be spared: {names:?}"
+    );
+}
+
+// ============================================================================
+// TrainingPeaks — a mirror-only provider with no OAuth backend at all
+// ============================================================================
+
+#[test]
+fn trainingpeaks_mirror_pair_resolves_both_ways() {
+    assert_eq!(
+        backend_resolver::user_facing_name(oauth_providers::SCIOTTE_TRAININGPEAKS),
+        oauth_providers::TRAININGPEAKS
+    );
+    assert_eq!(
+        backend_resolver::mirror_backend_for(oauth_providers::TRAININGPEAKS),
+        Some(oauth_providers::SCIOTTE_TRAININGPEAKS)
+    );
+    assert!(backend_resolver::is_mirror_backend(
+        oauth_providers::SCIOTTE_TRAININGPEAKS
+    ));
+    assert!(!backend_resolver::is_mirror_backend(
+        oauth_providers::TRAININGPEAKS
+    ));
+
+    // Mirror only, from either half of the card: there is no TrainingPeaks
+    // OAuth backend, so a bare `trainingpeaks` row can serve nothing.
+    let serving = backend_resolver::serving_backends(oauth_providers::TRAININGPEAKS);
+    assert_eq!(serving, vec![oauth_providers::SCIOTTE_TRAININGPEAKS]);
+    assert_eq!(
+        backend_resolver::serving_backends(oauth_providers::SCIOTTE_TRAININGPEAKS),
+        serving
+    );
+    assert_eq!(
+        backend_resolver::backend_pair_for(oauth_providers::SCIOTTE_TRAININGPEAKS),
+        vec![
+            oauth_providers::TRAININGPEAKS,
+            oauth_providers::SCIOTTE_TRAININGPEAKS
+        ]
+    );
+}
+
+#[test]
+fn hosted_login_targets_are_the_mirrors_user_facing_names() {
+    assert_eq!(
+        backend_resolver::hosted_login_target(oauth_providers::SCIOTTE),
+        Some("strava")
+    );
+    assert_eq!(
+        backend_resolver::hosted_login_target(oauth_providers::SCIOTTE_GARMIN),
+        Some("garmin")
+    );
+    assert_eq!(
+        backend_resolver::hosted_login_target(oauth_providers::SCIOTTE_TRAININGPEAKS),
+        Some("trainingpeaks")
+    );
+    // An OAuth provider reconnects through its authorization URL, never the
+    // hosted login — including the user-facing half of a mirror pair.
+    assert_eq!(backend_resolver::hosted_login_target("strava"), None);
+    assert_eq!(backend_resolver::hosted_login_target("whoop"), None);
+    assert_eq!(
+        backend_resolver::hosted_login_targets(),
+        vec!["strava", "garmin", "trainingpeaks"]
+    );
+}
+
+#[test]
+fn brand_name_reads_either_half_of_a_mirror_pair_from_the_registry() {
+    let registry = ProviderRegistry::new();
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "trainingpeaks"),
+        Some("TrainingPeaks")
+    );
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "sciotte_trainingpeaks"),
+        Some("TrainingPeaks")
+    );
+    // The athlete connected Garmin through the scrape: the OAuth descriptor's
+    // "Garmin Connect" names an API they never touched.
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "garmin"),
+        Some("Garmin")
+    );
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "sciotte"),
+        Some("Strava")
+    );
+    assert_eq!(
+        backend_resolver::brand_name(&registry, "no_such_provider"),
+        None
+    );
+}
+
+#[tokio::test]
+async fn resolve_backend_keeps_trainingpeaks_on_its_mirror_with_or_without_a_row() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let repos = resources.common.repos.auth_repos();
+
+    // No row at all: the general mirror-only rule, not a Garmin special case,
+    // is what keeps the request routable to a reconnect prompt.
+    let no_row = backend_resolver::resolve_backend(
+        &repos,
+        user_id,
+        Some(tenant_id),
+        oauth_providers::TRAININGPEAKS,
+    )
+    .await;
+    assert_eq!(no_row, oauth_providers::SCIOTTE_TRAININGPEAKS);
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let from_llm_arg = backend_resolver::resolve_backend(
+        &repos,
+        user_id,
+        Some(tenant_id),
+        oauth_providers::TRAININGPEAKS,
+    )
+    .await;
+    let from_connection = backend_resolver::resolve_backend(
+        &repos,
+        user_id,
+        Some(tenant_id),
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    assert_eq!(from_llm_arg, oauth_providers::SCIOTTE_TRAININGPEAKS);
+    assert_eq!(
+        from_llm_arg, from_connection,
+        "LLM arg 'trainingpeaks' and connection 'sciotte_trainingpeaks' must collapse to one cache key"
+    );
+}
+
+#[tokio::test]
+async fn a_bare_trainingpeaks_row_never_reads_as_connected() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::TRAININGPEAKS,
+    )
+    .await;
+
+    let status = backend_resolver::coalesced_status(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        tenant_id,
+        oauth_providers::TRAININGPEAKS,
+    )
+    .await;
+    assert_eq!(
+        status,
+        CoalescedStatus {
+            user_facing: oauth_providers::TRAININGPEAKS,
+            connected: false,
+            backend_kind: BackendKind::None,
+            delegation: None,
+        },
+        "no fetch is ever routed to a `trainingpeaks` backend, so its row must not read as connected"
+    );
+}
+
+#[tokio::test]
+async fn get_athlete_serves_canonical_cache_key_for_trainingpeaks_alias() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let athlete = Athlete {
+        id: "6642427".to_owned(),
+        username: "cached_triathlete".to_owned(),
+        firstname: None,
+        lastname: None,
+        profile_picture: None,
+        provider: oauth_providers::SCIOTTE_TRAININGPEAKS.to_owned(),
+    };
+    let canonical_key = CacheKey::new(
+        tenant_id,
+        user_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS.to_owned(),
+        CacheResource::AthleteProfile,
+    );
+    let state = tool_state(&resources);
+    state
+        .cache()
+        .set(
+            &canonical_key,
+            &athlete,
+            CacheResource::AthleteProfile.recommended_ttl(),
+        )
+        .await
+        .expect("seed athlete cache");
+
+    let result = GetAthleteTool
+        .execute(
+            &state,
+            &tool_context(user_id, tenant_id),
+            json!({ "provider": "trainingpeaks" }),
+        )
+        .await;
+
+    assert!(
+        !result.is_error,
+        "alias 'trainingpeaks' must hit the canonical cache entry: {:?}",
+        result.structured_content
+    );
+    assert_eq!(
+        structured(&result)
+            .get("athlete")
+            .and_then(|a| a.get("username"))
+            .and_then(Value::as_str),
+        Some("cached_triathlete")
+    );
+}
+
+#[tokio::test]
+async fn multi_provider_status_lists_trainingpeaks_and_hides_its_mirror() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+
+    let providers = |result: &ToolResponse| {
+        structured(result)
+            .get("providers")
+            .and_then(Value::as_object)
+            .expect("providers map in response")
+            .clone()
+    };
+
+    // TrainingPeaks has no backend of its own, so it is only ever listed
+    // through its mirror — and listed even before anything is connected, or
+    // the agent could never offer it.
+    let before = providers(
+        &GetConnectionStatusTool
+            .execute(&state, &ctx, json!({}))
+            .await,
+    );
+    assert!(
+        !before.contains_key(oauth_providers::SCIOTTE_TRAININGPEAKS),
+        "the mirror backend must never reach the LLM: {before:?}"
+    );
+    let tp = before
+        .get(oauth_providers::TRAININGPEAKS)
+        .unwrap_or_else(|| panic!("trainingpeaks must be listed: {before:?}"));
+    assert_eq!(tp.get("connected").and_then(Value::as_bool), Some(false));
+    assert_eq!(tp.get("backend").and_then(Value::as_str), Some("none"));
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let after = providers(
+        &GetConnectionStatusTool
+            .execute(&state, &ctx, json!({}))
+            .await,
+    );
+    let tp = after
+        .get(oauth_providers::TRAININGPEAKS)
+        .expect("trainingpeaks entry present");
+    assert_eq!(tp.get("connected").and_then(Value::as_bool), Some(true));
+    assert_eq!(tp.get("backend").and_then(Value::as_str), Some("mirror"));
+    assert!(!after.contains_key(oauth_providers::SCIOTTE_TRAININGPEAKS));
+}
+
+/// A mirror's dead session is stored under the BACKEND name while the status
+/// tool reports the user-facing one, so a lookup keyed by the user-facing
+/// name never saw it: a Garmin or TrainingPeaks athlete whose scrape session
+/// died read "connected" to the agent.
+#[tokio::test]
+async fn status_reports_needs_reauth_for_a_dead_mirror_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let pc = &resources.common.repos.provider_connections;
+
+    for mirror in [
+        oauth_providers::SCIOTTE_GARMIN,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    ] {
+        seed_token(&resources, user_id, tenant_id, mirror).await;
+        pc.register_connection(user_id, tenant_id, mirror, &ConnectionType::Manual, None)
+            .await
+            .unwrap();
+        pc.mark_needs_reauth(
+            user_id,
+            tenant_id,
+            mirror,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    }
+
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+    for provider in [oauth_providers::GARMIN, oauth_providers::TRAININGPEAKS] {
+        let single = GetConnectionStatusTool
+            .execute(&state, &ctx, json!({ "provider": provider }))
+            .await;
+        assert_eq!(
+            structured(&single).get("status").and_then(Value::as_str),
+            Some("needs_reauth"),
+            "{provider}: a dead mirror session must read needs_reauth, not connected"
+        );
+    }
+
+    let all = GetConnectionStatusTool
+        .execute(&state, &ctx, json!({}))
+        .await;
+    let providers = structured(&all)
+        .get("providers")
+        .and_then(Value::as_object)
+        .unwrap()
+        .clone();
+    for provider in [oauth_providers::GARMIN, oauth_providers::TRAININGPEAKS] {
+        assert_eq!(
+            providers[provider]
+                .get("needs_reauth")
+                .and_then(Value::as_bool),
+            Some(true),
+            "{provider}: {providers:?}"
+        );
+    }
+}
+
+/// The other direction: a Strava athlete who moved to OAuth keeps a dormant
+/// mirror row. Its flag is not a reconnect — the OAuth grant serves.
+#[tokio::test]
+async fn a_dormant_mirror_row_behind_a_working_strava_grant_is_not_a_reconnect() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let pc = &resources.common.repos.provider_connections;
+
+    seed_token(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
+    seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE,
+        &ConnectionType::Manual,
+        None,
+    )
+    .await
+    .unwrap();
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE,
+        Some("session_expired"),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+
+    let result = GetConnectionStatusTool
+        .execute(
+            &tool_state(&resources),
+            &tool_context(user_id, tenant_id),
+            json!({ "provider": "strava" }),
+        )
+        .await;
+    let data = structured(&result);
+    assert_eq!(
+        data.get("status").and_then(Value::as_str),
+        Some("connected")
+    );
+    assert_eq!(data.get("backend").and_then(Value::as_str), Some("oauth"));
+}
+
+#[tokio::test]
+async fn connect_provider_hands_trainingpeaks_to_the_hosted_login() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let state = tool_state(&resources);
+    let ctx = tool_context(user_id, tenant_id);
+
+    let no_row = ConnectProviderTool
+        .execute(&state, &ctx, json!({ "provider": "trainingpeaks" }))
+        .await;
+    assert_hosted_login_handoff(
+        &no_row,
+        "trainingpeaks",
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    );
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let with_row = ConnectProviderTool
+        .execute(&state, &ctx, json!({ "provider": "trainingpeaks" }))
+        .await;
+    assert_hosted_login_handoff(
+        &with_row,
+        "trainingpeaks",
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    );
+}
+
+#[tokio::test]
+async fn connect_provider_steers_the_trainingpeaks_mirror_name_to_its_brand() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    let result = ConnectProviderTool
+        .execute(
+            &tool_state(&resources),
+            &tool_context(user_id, tenant_id),
+            json!({ "provider": "sciotte_trainingpeaks" }),
+        )
+        .await;
+
+    assert!(result.is_error);
+    let err_text = structured(&result)
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(
+        err_text.contains("Use 'trainingpeaks' instead"),
+        "the refusal must name the provider the athlete knows: {err_text}"
+    );
+}
+
+#[tokio::test]
+async fn disconnect_provider_tool_removes_both_token_and_connection_for_trainingpeaks() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let result = DisconnectProviderTool
+        .execute(
+            &tool_state(&resources),
+            &tool_context(user_id, tenant_id),
+            json!({ "provider": "trainingpeaks" }),
+        )
+        .await;
+    assert!(
+        !result.is_error,
+        "disconnecting by the user-facing name must pass provider validation: {:?}",
+        result.structured_content
+    );
+
+    let token = resources
+        .common
+        .repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, oauth_providers::SCIOTTE_TRAININGPEAKS)
+        .await
+        .unwrap();
+    assert!(token.is_none(), "the mirror token row must be deleted");
+    let conns = resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    assert!(
+        !conns
+            .iter()
+            .any(|c| c.provider == oauth_providers::SCIOTTE_TRAININGPEAKS),
+        "the mirror connection row must be removed, not left orphaned"
+    );
+}
+
+#[tokio::test]
+async fn reconciliation_deletes_an_orphaned_trainingpeaks_mirror_connection() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    let pc = &resources.common.repos.provider_connections;
+
+    pc.register_connection(
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+        &ConnectionType::Manual,
+        None,
+    )
+    .await
+    .unwrap();
+
+    match resources.agent.database.as_ref() {
+        Database::SQLite(db) => {
+            sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(db) => {
+            sqlx::query(RECONCILE).execute(db.pool()).await.unwrap();
+        }
+    }
+
+    let conns = pc.get_for_user(user_id, Some(tenant_id)).await.unwrap();
+    assert!(
+        !conns
+            .iter()
+            .any(|c| c.provider == oauth_providers::SCIOTTE_TRAININGPEAKS),
+        "an orphaned TrainingPeaks mirror connection (no token) must be deleted"
     );
 }

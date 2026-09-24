@@ -634,12 +634,29 @@ pub async fn fetch_provider_head(
     params: &ActivityQueryParams,
 ) -> AppResult<Vec<Activity>> {
     let auth_service = AuthService::new(Arc::clone(runtime));
+    // Taken before the credential is read, so a reconnect that lands while
+    // the fetch is in flight is newer than any failure it reports.
+    let attempt_started_at = Utc::now();
     let provider = auth_service
         .create_authenticated_provider(provider_slug, user_id, Some(tenant_id))
         .await
         .map_err(|response| provider_auth_failure(provider_slug, &response))?;
 
-    let activities = provider.get_activities_with_params(params).await?;
+    let activities = match provider.get_activities_with_params(params).await {
+        Ok(activities) => activities,
+        Err(e) => {
+            auth_service
+                .react_to_trainingpeaks_refusal(
+                    user_id,
+                    tenant_id,
+                    provider.as_ref(),
+                    &e,
+                    attempt_started_at,
+                )
+                .await;
+            return Err(e);
+        }
+    };
 
     // A capture whose head the provider never saw is served, not persisted.
     // The write-through moves every row's `synced_at` and the fetch mark to
@@ -679,7 +696,7 @@ pub async fn fetch_provider_head(
 /// tenant missing OAuth credentials, a transport blip) is not a dead session
 /// and must never flag a connection, so it degrades to a plain external-service
 /// error the sweep treats as transient.
-fn provider_auth_failure(provider_slug: &str, response: &UniversalResponse) -> AppError {
+pub(crate) fn provider_auth_failure(provider_slug: &str, response: &UniversalResponse) -> AppError {
     if auth_required_provider(response).is_some() {
         return AppError::provider_auth_required(provider_slug);
     }

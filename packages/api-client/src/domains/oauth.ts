@@ -11,6 +11,7 @@ import type {
   ProvidersStatusResponse,
   ApiMetadata,
   OAuthGrant,
+  SciotteTarget,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -214,7 +215,9 @@ export function createOAuthApi(axios: AxiosInstance) {
       email: string;
       password: string;
       method: 'email' | 'google' | 'apple';
-      target: 'strava' | 'garmin';
+      target: SciotteTarget;
+      /** The user ticked the provider's exposure notice on this attempt (TrainingPeaks). */
+      tos_consent?: boolean;
     }): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
         SciotteLoginResponse,

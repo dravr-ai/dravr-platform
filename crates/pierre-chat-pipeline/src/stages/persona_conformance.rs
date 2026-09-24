@@ -56,9 +56,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use pierre_core::errors::AppResult;
 use pierre_core::models::CoachingPersona;
+use pierre_database::repositories::CoachingGroupRepository;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PERSONA_ISOLATION_REDACTED,
@@ -125,8 +128,8 @@ pub fn check_reply_conformance(
 
 /// The set of athlete identifiers an agent reply may legitimately cite.
 ///
-/// Built from the agent's active roster assignments and consumed by
-/// [`check_tenant_isolation`]. Identity is carried as the lowercased last four
+/// Built by [`coach_roster_scope`] from the athletes the chatting coach
+/// coaches, and consumed by [`check_tenant_isolation`]. Identity is carried as the lowercased last four
 /// characters of each athlete's UUID, matching the `<display_name> · <last4uuid>`
 /// citation shape [`PersonaContract::require_athlete_id_prefix`] mandates —
 /// an unambiguous token, unlike a display name, which repeats across tenants.
@@ -136,7 +139,7 @@ pub struct RosterScope {
 }
 
 impl RosterScope {
-    /// Build a scope from the athlete UUIDs assigned to one agent.
+    /// Build a scope from the athlete UUIDs one coach coaches.
     #[must_use]
     pub fn from_athlete_ids<I, S>(ids: I) -> Self
     where
@@ -151,17 +154,35 @@ impl RosterScope {
         }
     }
 
-    /// `true` when `suffix` belongs to an athlete this agent manages.
+    /// `true` when `suffix` belongs to an athlete this coach coaches.
     #[must_use]
     pub fn allows(&self, suffix: &str) -> bool {
         self.suffixes.contains(&suffix.to_lowercase())
     }
 
-    /// `true` when the agent has no assigned athletes.
+    /// `true` when the coach coaches no athlete.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.suffixes.is_empty()
     }
+}
+
+/// The roster a human coach's reply may cite: every live member of every
+/// active group whose `coach_user_id` is `coach_user_id`.
+///
+/// Groups span tenants and the coach attachment is the key, so no tenant
+/// narrows the lookup. A user who coaches no group gets an empty scope.
+///
+/// # Errors
+/// Returns the repository's error when the member lookup fails.
+pub async fn coach_roster_scope(
+    groups: &dyn CoachingGroupRepository,
+    coach_user_id: Uuid,
+) -> AppResult<RosterScope> {
+    let athletes = groups.list_athletes_coached_by(coach_user_id).await?;
+    Ok(RosterScope::from_athlete_ids(
+        athletes.iter().map(Uuid::to_string),
+    ))
 }
 
 /// Last four characters of a UUID, lowercased. `None` for values too short to
@@ -731,13 +752,13 @@ fn check_athlete_id_prefix(
 ///
 /// This is a **detective** control, not the primary one: tenant isolation is
 /// enforced at the query layer, where every statement carries `tenant_id`. This
-/// catches the residue — a reply that names an athlete the agent no longer
-/// manages, or that a tool surfaced in error.
+/// catches the residue — a reply that names an athlete the coach no longer
+/// coaches, or that a tool surfaced in error.
 ///
-/// Fails OPEN when the roster could not be resolved (`None`) or is empty:
-/// flagging every citation because a lookup failed would bury a real leak in
-/// false positives. The skip is logged so a persistently unresolvable roster is
-/// visible rather than silent.
+/// Fails CLOSED when the roster could not be resolved (`None`) or is empty:
+/// every citation is then treated as unverifiable and reported, so an
+/// unlucky lookup redacts rather than ships an unexamined citation. The
+/// verdict is logged so a persistently unresolvable roster is visible.
 fn check_tenant_isolation(
     reply: &str,
     contract: &PersonaContract,

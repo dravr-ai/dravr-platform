@@ -23,13 +23,16 @@ use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{ConnectionStatus, ConnectionType, ProviderConnection, ReauthMark};
+use pierre_core::models::{
+    ConnectionStatus, ConnectionType, ProviderAccountRole, ProviderConnection, ReauthMark,
+};
 
 use crate::column_decode::uuid_column;
 
 /// Register or refresh a connection. A reconnect re-arms the row: `status`
 /// back to `active`, the transition stamped, the last error and the
-/// one-time notification marker cleared.
+/// one-time notification marker cleared. The account role is cleared too: a
+/// new login may be a different account, so its role is read again.
 pub(crate) const REGISTER_CONNECTION_SQL: &str = r"
             INSERT INTO provider_connections (id, user_id, tenant_id, provider, connection_type, connected_at, metadata)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -40,19 +43,35 @@ pub(crate) const REGISTER_CONNECTION_SQL: &str = r"
                 status = 'active',
                 status_changed_at = EXCLUDED.connected_at,
                 last_error = NULL,
-                notified_at = NULL
+                notified_at = NULL,
+                account_role = NULL
             ";
 
 /// Drop a connection.
 pub(crate) const REMOVE_CONNECTION_SQL: &str =
     "DELETE FROM provider_connections WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
 
+/// Drop a connection only when it is a delegated one, so ending a delegated
+/// link can never delete a member's own connection to the same provider.
+pub(crate) const REMOVE_DELEGATED_CONNECTION_SQL: &str = r"
+            DELETE FROM provider_connections
+             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+               AND connection_type = 'delegated'
+            ";
+
+/// Record the kind of account a connection signed in with.
+pub(crate) const SET_ACCOUNT_ROLE_SQL: &str = r"
+            UPDATE provider_connections SET account_role = $1
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+            ";
+
 /// One read of the connection columns. `$filter` is the `WHERE` clause after
 /// the `user_id = $1` every read carries; `$order` closes the statement.
 macro_rules! connection_select_sql {
     ($filter:literal, $order:literal) => {
         concat!(
-            "SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata
+            "SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata,
+                    account_role
              FROM provider_connections
              WHERE user_id = $1",
             $filter,
@@ -81,18 +100,23 @@ pub(crate) const TOUCH_LAST_USED_SQL: &str = r"
 
 /// The most recently used usable connection within one tenant. The election:
 /// health first, so a dead connection never shadows a healthy sibling; then
+/// a coach account last, since it has no calendar of its own to serve; then
 /// the freshest `last_used_at` with untouched rows last; then the freshest
 /// `connected_at`.
 pub(crate) const RESOLVE_MOST_RECENT_IN_TENANT_SQL: &str = connection_select_sql!(
     " AND tenant_id = $2",
-    " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
+    " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+               CASE WHEN account_role = 'coach' THEN 1 ELSE 0 END,
+               last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
 );
 
 /// The most recently used usable connection across every tenant, elected as
 /// [`RESOLVE_MOST_RECENT_IN_TENANT_SQL`] does.
 pub(crate) const RESOLVE_MOST_RECENT_SQL: &str = connection_select_sql!(
     "",
-    " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
+    " ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+               CASE WHEN account_role = 'coach' THEN 1 ELSE 0 END,
+               last_used_at DESC NULLS LAST, connected_at DESC LIMIT 1"
 );
 
 /// Flag a connection after a failure an attempt that began at `$6` observed.
@@ -189,11 +213,12 @@ fn column_error(col: &str, e: impl Display) -> AppError {
 /// `Row::get`, and no defaulted timestamp: a stored value that will not
 /// decode is a database error on both drivers, never `Utc::now()`.
 /// `connection_type` outside the model's vocabulary reads as `Manual`, as
-/// both backends always did.
+/// both backends always did. `account_role` outside its vocabulary is an
+/// error: the column's CHECK admits only the two roles.
 ///
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded,
-/// or when `user_id` is not a uuid.
+/// when `user_id` is not a uuid, or when `account_role` names no role.
 pub(crate) fn connection_from_row<R>(row: &R) -> AppResult<ProviderConnection>
 where
     R: sqlx::Row,
@@ -212,6 +237,18 @@ where
     let status: String = row
         .try_get("status")
         .map_err(|e| column_error("status", e))?;
+    let account_role: Option<String> = row
+        .try_get("account_role")
+        .map_err(|e| column_error("account_role", e))?;
+    let account_role = account_role
+        .map(|role| {
+            ProviderAccountRole::from_str_opt(&role).ok_or_else(|| {
+                AppError::database(format!(
+                    "provider_connections.account_role holds unknown value `{role}`"
+                ))
+            })
+        })
+        .transpose()?;
     Ok(ProviderConnection {
         id: row.try_get("id").map_err(|e| column_error("id", e))?,
         user_id: uuid_column("provider_connections.user_id", &user_id)?,
@@ -233,6 +270,7 @@ where
         metadata: row
             .try_get("metadata")
             .map_err(|e| column_error("metadata", e))?,
+        account_role,
     })
 }
 
@@ -284,6 +322,40 @@ macro_rules! impl_provider_connection_repository {
                     .await?;
 
                 Ok(())
+            }
+
+            async fn remove_delegated_connection(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(REMOVE_DELEGATED_CONNECTION_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn set_account_role(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                role: ProviderAccountRole,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(SET_ACCOUNT_ROLE_SQL)
+                    .bind(role.as_str())
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
             }
 
             async fn get_for_user(

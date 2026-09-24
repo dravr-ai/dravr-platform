@@ -7,7 +7,7 @@
 #![allow(missing_docs)]
 
 use pierre_tool_runtime::protocol::provider_helpers::{
-    create_auth_error_response, create_no_token_response, extract_provider,
+    create_auth_error_response, extract_provider,
 };
 
 #[test]
@@ -33,45 +33,9 @@ fn test_extract_provider_empty_string_returns_none() {
     assert!(extract_provider(&params).is_none());
 }
 
-#[test]
-fn test_no_token_response() {
-    let response = create_no_token_response("strava");
-    assert!(!response.success);
-    assert!(response
-        .error
-        .as_ref()
-        .is_some_and(|e| e.contains("strava")));
-}
-
 // ============================================================================
 // NEW TESTS: Response Building Functions
 // ============================================================================
-
-#[test]
-fn test_no_token_response_metadata() {
-    let response = create_no_token_response("garmin");
-
-    assert!(!response.success);
-    assert!(response.error.is_some());
-    assert!(response.result.is_none());
-
-    // Check metadata
-    assert!(response.metadata.is_some());
-    if let Some(ref metadata) = response.metadata {
-        assert_eq!(
-            metadata.get("total_activities"),
-            Some(&serde_json::Value::Number(0.into()))
-        );
-        assert_eq!(
-            metadata.get("authentication_required"),
-            Some(&serde_json::Value::Bool(true))
-        );
-        assert_eq!(
-            metadata.get("provider"),
-            Some(&serde_json::Value::String("garmin".to_owned()))
-        );
-    }
-}
 
 #[test]
 fn test_auth_error_response() {
@@ -118,26 +82,5 @@ fn test_extract_provider_different_providers() {
         let mut params = serde_json::Map::new();
         params.insert("provider".to_owned(), serde_json::json!(provider));
         assert_eq!(extract_provider(&params), Some(provider.to_owned()));
-    }
-}
-
-#[test]
-fn test_no_token_response_different_providers() {
-    let providers = vec!["strava", "garmin", "fitbit"];
-
-    for provider in providers {
-        let response = create_no_token_response(provider);
-        assert!(!response.success);
-        if let Some(ref error) = response.error {
-            assert!(error.contains(provider));
-        }
-
-        assert!(response.metadata.is_some());
-        if let Some(ref metadata) = response.metadata {
-            assert_eq!(
-                metadata.get("provider"),
-                Some(&serde_json::Value::String(provider.to_owned()))
-            );
-        }
     }
 }

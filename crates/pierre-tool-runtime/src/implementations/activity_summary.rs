@@ -12,12 +12,13 @@
 
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{Activity, Feel, SportType, ZoneDistribution};
-use pierre_core::untrusted::{cap, defang_for_display, fence_athlete_text, flatten_line};
+use pierre_core::untrusted::{display_line, fence_athlete_text, ACTIVITY_NAME_MAX_CHARS};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-/// Longest athlete description `mode=detailed` carries, in characters.
-const MAX_DESCRIPTION_CHARS: usize = 600;
+/// Longest athlete description `mode=detailed` carries, in characters — and
+/// the cap every other provider free-text description is fenced to.
+pub(crate) const MAX_DESCRIPTION_CHARS: usize = 600;
 
 /// Longest single comment `mode=detailed` carries, in characters.
 const MAX_COMMENT_CHARS: usize = 300;
@@ -42,7 +43,9 @@ const MAX_AUTHOR_CHARS: usize = 60;
 pub struct ActivitySummary {
     /// Unique activity identifier
     pub id: String,
-    /// Activity name/title
+    /// Activity name/title, as one defanged line of at most
+    /// [`ACTIVITY_NAME_MAX_CHARS`]: whoever can write to the athlete's
+    /// provider account typed it.
     pub name: String,
     /// Activity sport type (e.g., "run", "ride", "cross\_country\_skiing")
     pub sport_type: SportType,
@@ -130,7 +133,7 @@ impl From<&Activity> for ActivitySummary {
     fn from(activity: &Activity) -> Self {
         Self {
             id: activity.id().to_owned(),
-            name: activity.name().to_owned(),
+            name: display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
             sport_type: activity.sport_type().clone(),
             start_date: activity.start_date().to_rfc3339(),
             // Populated by prepare_activity_data when the user's timezone is
@@ -182,9 +185,10 @@ pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> 
 /// typed: the description and the comment thread. Each is fenced with
 /// [`fence_athlete_text`] — one line, capped, its angle brackets unable to
 /// close the fence — so a note reading "ignore your instructions" arrives as
-/// something the athlete wrote, never as something the agent was told. A
-/// comment author is a display name, so it is flattened and defanged rather
-/// than fenced. The thread keeps its newest [`MAX_COMMENTS`] entries.
+/// something the athlete wrote, never as something the agent was told. The
+/// activity's name and a comment author are short labels, so they are
+/// flattened, defanged and capped ([`display_line`]) rather than fenced. The
+/// thread keeps its newest [`MAX_COMMENTS`] entries.
 ///
 /// # Errors
 ///
@@ -199,8 +203,13 @@ pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
     Ok(value)
 }
 
-/// Fence one serialized activity's description and comment thread in place.
+/// Fence one serialized activity's description and comment thread, and
+/// neutralize its name, in place.
 fn fence_self_report(row: &mut Map<String, Value>) {
+    if let Some(name) = row.get("name").and_then(Value::as_str) {
+        let name = display_line(name, ACTIVITY_NAME_MAX_CHARS);
+        row.insert("name".to_owned(), Value::String(name));
+    }
     let description = row
         .get("description")
         .and_then(Value::as_str)
@@ -232,7 +241,7 @@ fn fence_self_report(row: &mut Map<String, Value>) {
         };
         entry.insert("text".to_owned(), Value::String(text));
         if let Some(author) = entry.get("author").and_then(Value::as_str) {
-            let name = cap(&defang_for_display(&flatten_line(author)), MAX_AUTHOR_CHARS);
+            let name = display_line(author, MAX_AUTHOR_CHARS);
             entry.insert("author".to_owned(), Value::String(name));
         }
         true

@@ -12,12 +12,13 @@ import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
-import type { OAuthGrant, ThemePreference } from '@pierre/shared-types';
+import type { OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import {
   ADMIN_HIDDEN_PANES,
   APP_VERSION,
   HELP_URL,
   LEGAL_URL,
+  providerGlyphInk,
   settingsPaneSections,
 } from '@pierre/shared-constants';
 import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState } from './ui';
@@ -32,7 +33,7 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { providerScopeLabelKey } from '@pierre/shared-constants';
+import { providerScopeLabelKey, sciotteTargetForBackend } from '@pierre/shared-constants';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
@@ -61,10 +62,7 @@ interface McpToken {
 // BYO-OAuth-app credentials are only collected for WHOOP. Strava and Garmin
 // use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
 // and have no developer-app registration step the user controls.
-const PROVIDERS = [
-  // WHOOP's brand black — a third-party colour, not a token (DESIGN.md §2).
-  { id: 'whoop', name: 'WHOOP', color: 'text-on-surface' },
-];
+const PROVIDERS = [{ id: 'whoop', name: 'WHOOP' }];
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -185,7 +183,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [providerToDisconnect, setProviderToDisconnect] = useState<string | null>(null);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
+  // Whether the chosen card still needs its exposure notice accepted.
+  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
@@ -515,20 +515,23 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     }
   };
 
-  // Display config for fitness providers (matching mobile). After the 2026-Q2
-  // provider cleanup the API surfaces only sciotte / sciotte_garmin / whoop
-  // (plus the synthetic dev providers); fitbit/coros/terra are feature-gated
-  // off until we ship dedicated integrations. `strava` is retained so legacy
-  // rows still display correctly when surfaced through the disconnect flow.
-  const PROVIDER_DISPLAY: Record<string, { color: string; description: string }> = {
-    strava: { color: '#FC4C02', description: t('providerBlurb.strava') },
-    garmin: { color: '#007CC3', description: t('providerBlurb.garmin') },
-    whoop: { color: 'currentColor', description: t('providerBlurb.whoop') },
-    synthetic: { color: '#9C27B0', description: t('providerBlurb.synthTest') },
-    synthetic_sleep: { color: '#673AB7', description: t('providerBlurb.synthSleep') },
-    sciotte: { color: '#F97316', description: t('providerBlurb.strava') },
-    sciotte_garmin: { color: '#007CC3', description: t('providerBlurb.garmin') },
-    intervals_icu: { color: '#1273DE', description: t('providerBlurb.intervals') },
+  // The one-line blurb for each fitness provider (matching mobile). After the
+  // 2026-Q2 provider cleanup the API surfaces only sciotte / sciotte_garmin /
+  // sciotte_trainingpeaks / whoop / intervals_icu (plus the synthetic dev
+  // providers); fitbit/coros/terra are feature-gated off until we ship
+  // dedicated integrations. `strava` is retained so legacy rows still display
+  // correctly when surfaced through the disconnect flow. The letter's colour
+  // is not here: it comes from `PROVIDER_GLYPH_INK`, per scheme.
+  const PROVIDER_DESCRIPTION: Record<string, string> = {
+    strava: t('providerBlurb.strava'),
+    garmin: t('providerBlurb.garmin'),
+    whoop: t('providerBlurb.whoop'),
+    synthetic: t('providerBlurb.synthTest'),
+    synthetic_sleep: t('providerBlurb.synthSleep'),
+    sciotte: t('providerBlurb.strava'),
+    sciotte_garmin: t('providerBlurb.garmin'),
+    sciotte_trainingpeaks: t('providerBlurb.trainingpeaks'),
+    intervals_icu: t('providerBlurb.intervals'),
   };
 
   const copyToClipboard = async (text: string) => {
@@ -538,7 +541,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   const getProviderInfo = (providerId: string) => {
-    return PROVIDERS.find((p) => p.id === providerId) || { id: providerId, name: providerId, color: 'bg-surface-container-low' };
+    return PROVIDERS.find((p) => p.id === providerId) || { id: providerId, name: providerId };
   };
 
   const configuredProviders = oauthApps.map((app) => app.provider);
@@ -743,30 +746,56 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               ) : (
                 <div>
                   {fitnessProviders.map((provider) => {
-                    const display = PROVIDER_DISPLAY[provider.provider] || {
-                      color: '#607D8B',
-                      description: t('providerBlurb.generic'),
-                    };
+                    const description =
+                      PROVIDER_DESCRIPTION[provider.provider] ?? t('providerBlurb.generic');
+                    const glyphInk = providerGlyphInk(provider.provider, scheme);
                     const isConnecting = connectingProvider === provider.provider;
+                    // A connection the user's group coach serves: confirmed, it is
+                    // read through the coach's account; proposed, it waits for the
+                    // user's answer in the group.
+                    const delegation = provider.delegation;
+                    const isDelegated = provider.connected && delegation?.status === 'confirmed';
 
                     return (
                       <div
                         key={provider.provider}
+                        data-testid={`provider-row-${provider.provider}`}
                         className="border-t ghost-border-faint py-3 first:border-t-0 first:pt-0 last:pb-0"
                       >
                         <div className="flex items-center gap-3">
-                          {/* The provider's colour lives in its letter, not in a tile. */}
+                          {/* The provider's colour lives in its letter, not in a tile —
+                              in a scheme where the brand clears the 3:1 icon floor on
+                              the canvas; elsewhere the letter takes the body ink. */}
                           <span
                             aria-hidden="true"
-                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center font-display text-sm font-bold"
-                            style={{ color: display.color }}
+                            data-testid={`provider-glyph-${provider.provider}`}
+                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center font-display text-sm font-bold text-on-surface"
+                            style={glyphInk ? { color: glyphInk } : undefined}
                           >
                             {provider.display_name.charAt(0)}
                           </span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-on-surface">{provider.display_name}</p>
-                              {provider.connected && (
+                              {provider.account_role === 'coach' && (
+                                <span data-testid={`provider-coach-account-${provider.provider}`}>
+                                  <Badge variant="secondary">{t('humanCoach.trainingpeaksAccount')}</Badge>
+                                </span>
+                              )}
+                              {isDelegated ? (
+                                <span
+                                  className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
+                                  data-testid={`provider-delegated-${provider.provider}`}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    className={`h-2 w-2 rounded-full ${delegation.coach_needs_reauth ? 'bg-warning' : 'bg-success'}`}
+                                  />
+                                  {delegation.coach_needs_reauth
+                                    ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
+                                    : t('providers.connectedThrough', { coach: delegation.coach_display_name })}
+                                </span>
+                              ) : provider.connected && (
                                 provider.needs_reauth ? (
                                   <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
@@ -780,7 +809,21 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 )
                               )}
                             </div>
-                            <p className="text-xs text-on-surface-variant truncate">{display.description}</p>
+                            <p className="text-xs text-on-surface-variant truncate">{description}</p>
+                            {delegation?.status === 'proposed' && (
+                              <p
+                                className="text-xs text-on-surface-variant mt-0.5"
+                                data-testid={`provider-pending-link-${provider.provider}`}
+                              >
+                                {t('providers.pendingLink', {
+                                  coach: delegation.coach_display_name,
+                                  group: delegation.group_name,
+                                })}
+                              </p>
+                            )}
+                            {provider.account_role === 'coach' && (
+                              <p className="text-xs text-outline mt-0.5">{t('humanCoach.trainingpeaksAccountHint')}</p>
+                            )}
                             {provider.capabilities.length > 0 && (
                               <p className="text-xs text-outline mt-0.5">
                                 {provider.capabilities
@@ -806,8 +849,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   size="sm"
                                   onClick={() => setProviderToDisconnect(provider.connectionProvider)}
                                   className="text-error"
+                                  data-testid={`provider-disconnect-${provider.provider}`}
                                 >
-                                  {t('settingsUi.disconnect')}
+                                  {/* Disconnecting a delegated connection ends the coach's link. */}
+                                  {isDelegated ? t('delegation.unlink') : t('settingsUi.disconnect')}
                                 </Button>
                               )
                             ) : provider.provider === 'intervals_icu' ? (
@@ -818,7 +863,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               >
                                 {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
                               </Button>
-                            ) : provider.provider === 'sciotte' || provider.provider === 'sciotte_garmin' ? (
+                            ) : sciotteTargetForBackend(provider.provider) ? (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -828,7 +873,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   // `oauth`); once the athlete cap is reached it recommends `mirror`
                                   // and we open the Sciotte credential login. If the OAuth attempt
                                   // itself fails, handleConnectProvider falls back to Sciotte.
-                                  // Garmin (`sciotte_garmin`) is always the credential flow.
+                                  // Garmin and TrainingPeaks are always the credential flow,
+                                  // TrainingPeaks after its notice while the account has not
+                                  // accepted it.
                                   const backend =
                                     provider.provider === 'sciotte' && provider.recommended_backend === 'oauth'
                                       ? 'strava'
@@ -839,7 +886,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   if (backend === 'strava') {
                                     void handleConnectProvider('strava');
                                   } else {
-                                    setSciotteModalTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                                    setSciotteConsentRequired(provider.consent_required);
+                                    setSciotteModalTarget(sciotteTargetForBackend(provider.provider));
                                   }
                                 }}
                               >
@@ -908,10 +956,15 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <div>
                 {oauthApps.map((app) => {
                   const provider = getProviderInfo(app.provider);
+                  const glyphInk = providerGlyphInk(app.provider, scheme);
                   return (
                     <div key={app.provider} className="flex items-center justify-between border-t ghost-border-faint py-3 first:border-t-0">
                       <div className="flex items-center gap-3">
-                        <span aria-hidden="true" className={`flex h-6 w-6 items-center justify-center font-display text-sm font-bold ${provider.color}`}>
+                        <span
+                          aria-hidden="true"
+                          className="flex h-6 w-6 items-center justify-center font-display text-sm font-bold text-on-surface"
+                          style={glyphInk ? { color: glyphInk } : undefined}
+                        >
                           {provider.name.charAt(0)}
                         </span>
                         <div>
@@ -1710,6 +1763,7 @@ Authorization: Bearer <your-token-here>`}
           setSciotteModalTarget(null);
         }}
         target={sciotteModalTarget ?? 'strava'}
+        consentRequired={sciotteConsentRequired}
       />
 
       {/* Intervals.icu API-key link modal */}

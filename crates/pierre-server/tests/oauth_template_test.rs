@@ -314,44 +314,53 @@ async fn test_oauth_login_error_rendering() {
     );
 }
 
-/// Test that templates use Pierre design system colors
-#[test]
-fn test_templates_use_pierre_design_system() {
+/// The OAuth pages draw with the shared Boreal sheet in both schemes: the
+/// templates ask for it and keep no palette of their own, and the rendered
+/// page carries the sheet with nothing of the retired Pierre violet left.
+#[tokio::test]
+async fn test_templates_use_boreal_design_system() {
     const LOGIN_TEMPLATE: &str =
         include_str!("../../pierre-routes-identity/templates/oauth_login.html");
     const ERROR_TEMPLATE: &str =
         include_str!("../../pierre-routes-identity/templates/oauth_login_error.html");
+    common::init_server_config();
 
-    // Verify Pierre brand colors are used (hex colors from BRAND.md)
-    // Primary: Violet #7C3AED, Cyan #06B6D4
-    // Activity: Emerald #10B981
-    // Nutrition: Amber #F59E0B
-    // Recovery: Indigo #6366F1
-    let pierre_colors = [
-        "#7C3AED", // Pierre Violet
-        "#06B6D4", // Pierre Cyan
-    ];
-
-    for color in &pierre_colors {
+    for template in [LOGIN_TEMPLATE, ERROR_TEMPLATE] {
         assert!(
-            LOGIN_TEMPLATE.contains(color),
-            "Login template missing Pierre brand color: {color}"
+            template.contains("<style>{{HOSTED_PAGE_CSS}}</style>"),
+            "an OAuth template asks for the shared sheet"
         );
+        for retired in ["#7C3AED", "#06B6D4", "--pierre-", "linear-gradient"] {
+            assert!(
+                !template.contains(retired),
+                "an OAuth template still carries the retired {retired}"
+            );
+        }
         assert!(
-            ERROR_TEMPLATE.contains(color),
-            "Error template missing Pierre brand color: {color}"
+            template.contains(r#"<div class="lockup" role="img" aria-label="Dravr"></div>"#),
+            "an OAuth template opens with the Dravr lockup"
         );
     }
 
-    // Verify Pierre branding elements
-    assert!(
-        LOGIN_TEMPLATE.contains("Pierre") || LOGIN_TEMPLATE.contains("pierre"),
-        "Login template missing Pierre branding"
-    );
-    assert!(
-        ERROR_TEMPLATE.contains("Pierre") || ERROR_TEMPLATE.contains("pierre"),
-        "Error template missing Pierre branding"
-    );
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "boreal_client",
+        redirect_uri: "https://example.com/callback",
+        response_type: "code",
+        state: "state",
+        scope: "fitness:read",
+        code_challenge: "challenge",
+        code_challenge_method: "S256",
+        default_email: "",
+        default_password: "",
+    });
+    let dark_at = html
+        .find("@media (prefers-color-scheme: dark)")
+        .expect("the rendered login page carries the dark scheme");
+    // Sage-forest #255f4d is the light primary, mint #a3d0be the dark one.
+    assert!(html[..dark_at].contains("--color-primary: 37 95 77;"));
+    assert!(html[dark_at..].contains("--color-primary: 163 208 190;"));
+    assert!(html.contains(r#"class="btn btn-primary btn-block">Login</button>"#));
+    assert!(!html.contains("#7C3AED"));
 }
 
 /// Test template accessibility features
@@ -585,4 +594,45 @@ async fn test_oauth_login_page_integration() {
     // Verify visible form fields
     assert!(html.contains("name=\"email\""));
     assert!(html.contains("name=\"password\""));
+}
+
+// ============================================================================
+// Provider OAuth callback pages (pierre-mcp-transport)
+// ============================================================================
+
+use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
+use pierre_mcp_transport::OAuthCallbackResponse;
+
+/// The provider callback pages draw with the shared Boreal sheet, and the
+/// success page still tells its opener which provider completed.
+#[test]
+fn test_provider_callback_pages_use_boreal_design_system() {
+    let success = OAuthTemplateRenderer::render_success_template(
+        "strava",
+        &OAuthCallbackResponse {
+            user_id: "user-1".to_owned(),
+            provider: "strava".to_owned(),
+            expires_at: "2026-09-23T00:00:00Z".to_owned(),
+            scopes: "read".to_owned(),
+            mobile_redirect_url: None,
+        },
+    );
+    assert!(success.contains("<h1>Strava Connected</h1>"));
+    assert!(success.contains("provider: 'strava',"));
+    assert!(success.contains(
+        r#"<div class="status-icon status-icon-success" aria-hidden="true">&#10003;</div>"#
+    ));
+
+    let failure = OAuthTemplateRenderer::render_error_template("strava", "access_denied", None);
+    assert!(failure.contains("<h1>Connection Failed</h1>"));
+
+    for page in [&success, &failure] {
+        let dark_at = page
+            .find("@media (prefers-color-scheme: dark)")
+            .expect("the callback page carries the dark scheme");
+        assert!(page[..dark_at].contains("--color-primary: 37 95 77;"));
+        assert!(page[dark_at..].contains("--color-primary: 163 208 190;"));
+        assert!(!page.contains("{{"), "no placeholder survives the render");
+        assert!(!page.contains("#7C3AED"));
+    }
 }

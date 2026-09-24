@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info for a group thread — members, invites, coach, settings, analytics, room, leave and delete
+// ABOUTME: Group info for a group thread — members, TrainingPeaks links, invites, coach, settings, analytics, room, exits
 // ABOUTME: Everything the retired Groups tab held, re-homed where Telegram puts it: behind the chat header
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { MENTION_PREFIX, oneDecimal } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
@@ -15,6 +16,7 @@ import { useCoachInfo } from '../../hooks/useCoachInfo';
 import {
   useCreateInvite,
   useDeactivateInvite,
+  useDelegatedConnections,
   useDeleteGroup,
   useGroup,
   useGroupInvites,
@@ -31,6 +33,8 @@ import {
 import { GroupInsightsSection } from './GroupInsightsSection';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
+import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
+import { CONNECTIONS_ROUTE } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 
@@ -86,11 +90,37 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { user } = useAuth();
+  const router = useRouter();
 
   const { group, isLoading: isLoadingGroup } = useGroup(groupId);
   const { members, isLoading: isLoadingMembers } = useGroupMembers(groupId);
-  const { stats, isLoading: isLoadingStats } = useGroupStats(groupId);
-  const { invites, isLoading: isLoadingInvites } = useGroupInvites(groupId);
+
+  // The caller's own membership row, matched on their user id. Taking the
+  // first active row instead handed whoever the server listed first the
+  // caller's role badge and, worse, the caller's consent switch.
+  const myMembership = useMemo(
+    () => members.find((member) => member.user_id === user?.id),
+    [members, user?.id],
+  );
+  // The group's human coach holds no membership row: they read the group and
+  // its members, link TrainingPeaks athletes, and follow the room, while the
+  // member-only surfaces (consent, invites, settings, analytics, the exits)
+  // stay off, since their routes refuse a non-member.
+  const isGroupCoach = !!group?.coach_user_id && group.coach_user_id === user?.id;
+  const isCoachViewer = isGroupCoach && !myMembership;
+  // Held until the group resolves: before then a coach reads as a member.
+  const memberSurfaces = !!group && !isCoachViewer;
+
+  const { stats, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
+  const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
+  // Only an owner or admin may list a group's invites; the route refuses anyone else.
+  const { invites, isLoading: isLoadingInvites } = useGroupInvites(groupId, memberSurfaces && isAdmin);
+  const { connections: delegatedConnections, viewer: delegationViewer } = useDelegatedConnections(
+    groupId,
+    !!group?.coach_user_id,
+  );
+  // A member sees only their own links, at most one live per group.
+  const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
   const { weeklyDigest } = useGroupPermissions();
   const { createInvite, isPending: isCreatingInvite } = useCreateInvite(groupId);
   const { deactivateInvite } = useDeactivateInvite(groupId);
@@ -108,19 +138,10 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
 
-  // The caller's own membership row, matched on their user id. Taking the
-  // first active row instead handed whoever the server listed first the
-  // caller's role badge and, worse, the caller's consent switch.
-  const myMembership = useMemo(
-    () => members.find((member) => member.user_id === user?.id),
-    [members, user?.id],
-  );
-  const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
   const isOwner = myMembership?.role === 'owner';
   // The group's attached human coach may change where the weekly digest goes,
   // and nothing else; the digest rows show only where the tier sends one.
-  const isCoach = user?.id !== undefined && group?.coach_user_id === user.id;
-  const canSetDigest = weeklyDigest && (isAdmin || isCoach);
+  const canSetDigest = weeklyDigest && (isAdmin || isGroupCoach);
   const activeInvites = useMemo(() => invites.filter((invite) => invite.is_active), [invites]);
 
   const handleRemoveMember = useCallback(
@@ -260,8 +281,14 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     [updateConsent, t],
   );
 
+  const openConnections = useCallback(() => {
+    onClose();
+    router.push(CONNECTIONS_ROUTE as never);
+  }, [onClose, router]);
+
   const handleLeave = useCallback(() => {
-    Alert.alert(t('app.leaveGroup'), t('app.confirmLeaveGroup', { group: group?.name ?? t('app.thisGroup') }), [
+    const question = t('app.confirmLeaveGroup', { group: group?.name ?? t('app.thisGroup') });
+    Alert.alert(t('app.leaveGroup'), liveLink ? `${question} ${t('delegation.leaveEndsLink')}` : question, [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.leave'),
@@ -277,7 +304,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         },
       },
     ]);
-  }, [group?.name, groupId, leaveGroup, onClose, onLeft, t]);
+  }, [group?.name, groupId, leaveGroup, liveLink, onClose, onLeft, t]);
 
   const handleDelete = useCallback(() => {
     Alert.alert(
@@ -346,6 +373,29 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           )}
         </CollapsibleSection>
 
+        {/* Which side of the links the caller is on is the server's answer:
+            a coach who is also a member is still the group's coach. */}
+        {delegationViewer === 'coach' ? (
+          <CollapsibleSection title={t('delegation.sectionTitle')} defaultExpanded testID="group-info-delegation">
+            <DelegatedConnectionsSection
+              groupId={groupId}
+              mode="coach"
+              connections={delegatedConnections}
+              members={members}
+              onOpenConnections={openConnections}
+            />
+          </CollapsibleSection>
+        ) : liveLink ? (
+          <CollapsibleSection title={t('delegation.memberSectionTitle')} defaultExpanded testID="group-info-delegation">
+            <DelegatedConnectionsSection
+              groupId={groupId}
+              mode="member"
+              connections={[liveLink]}
+              members={members}
+            />
+          </CollapsibleSection>
+        ) : null}
+
         {isAdmin && (
           <CollapsibleSection title={`Invites (${activeInvites.length})`} testID="group-info-invites">
             <View style={CANCEL_PANEL_INSET}>
@@ -401,7 +451,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           {group?.coach_user_id ? (
             <View className="flex-row items-center py-2" testID="group-info-human-coach">
               <Feather name="user-check" size={16} color={colors.pierre.violet} />
-              <Text className="text-sm text-text-primary ml-2 flex-1">{t('humanCoach.attached')}</Text>
+              <Text className="text-sm text-text-primary ml-2 flex-1">
+                {isGroupCoach ? t('humanCoach.youCoach') : t('humanCoach.attached')}
+              </Text>
               {isAdmin && (
                 <TouchableOpacity onPress={handleRemoveCoach} testID="remove-coach-button">
                   <Text className="text-sm font-semibold text-text-secondary">{t('app.remove')}</Text>
@@ -415,6 +467,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           )}
         </CollapsibleSection>
 
+        {/* A coach viewer reaches Settings only for the digest rows; the admin
+            rows and the consent card inside stay bound to a membership row. */}
+        {(!isCoachViewer || canSetDigest) && (
         <CollapsibleSection title={t('common.settings')} testID="group-info-settings">
           {isAdmin && group && (
             <>
@@ -526,7 +581,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             </View>
           )}
         </CollapsibleSection>
+        )}
 
+        {!isCoachViewer && (
         <CollapsibleSection title={t('app.analytics')} testID="group-info-analytics">
           <View className="flex-row py-2">
             <View className="flex-1 items-center">
@@ -554,13 +611,14 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           </View>
           <GroupInsightsSection groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
         </CollapsibleSection>
+        )}
 
         <CollapsibleSection title={t('app.room')} testID="group-info-room">
           <GroupTranscriptSection groupId={groupId} />
         </CollapsibleSection>
       </View>
 
-      {!isOwner && (
+      {!isOwner && !isCoachViewer && (
         <Button
           title={t('app.leaveGroupLower')}
           onPress={handleLeave}

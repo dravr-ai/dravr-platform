@@ -44,6 +44,8 @@ export type {
   SessionResponse,
   ProviderStatus,
   ExtendedProviderStatus,
+  ProviderDelegation,
+  SciotteTarget,
   ProvidersStatusResponse,
   OAuthApp,
   OAuthAppCredentials,
@@ -213,6 +215,14 @@ export type {
   GroupWeeklyReportResponse,
   GroupHealthFlagsResponse,
   GroupPermissionsResponse,
+  DelegationStatus,
+  DelegationViewer,
+  DelegatedConnection,
+  DelegatedConnectionsResponse,
+  DelegationRosterAthlete,
+  DelegationRosterResponse,
+  ProposeDelegatedConnectionRequest,
+  DelegationRefusalReason,
 } from './groups.js';
 
 // Feature-flag types (GET /api/me/features)

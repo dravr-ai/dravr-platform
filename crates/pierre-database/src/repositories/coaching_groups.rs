@@ -149,6 +149,16 @@ pub(crate) const LIST_GROUPS_COACHED_BY_SQL: &str = concat!(
               ORDER BY updated_at DESC"
 );
 
+/// Every live member of every active group one human coach holds, each user
+/// once, across tenants like [`LIST_GROUPS_COACHED_BY_SQL`].
+pub(crate) const LIST_ATHLETES_COACHED_BY_SQL: &str = r"SELECT DISTINCT m.user_id
+              FROM coaching_group_members m
+              JOIN coaching_groups g ON g.id = m.group_id
+              WHERE g.coach_user_id = $1
+                AND g.is_active = TRUE
+                AND m.left_at IS NULL
+              ORDER BY m.user_id";
+
 /// Every active group of a tenant, newest first.
 pub(crate) const LIST_ACTIVE_GROUPS_FOR_TENANT_SQL: &str = concat!(
     "SELECT ",
@@ -597,6 +607,18 @@ macro_rules! impl_coaching_group_repository {
                     })?;
 
                 rows.iter().map(row_to_group).collect()
+            }
+
+            async fn list_athletes_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<Uuid>> {
+                let rows = sqlx::query(LIST_ATHLETES_COACHED_BY_SQL)
+                    .bind($ids::bind(coach_user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list athletes coached by user: {e}"))
+                    })?;
+
+                rows.iter().map(|r| $ids::read(r, "user_id")).collect()
             }
 
             async fn list_active_groups_for_tenant(

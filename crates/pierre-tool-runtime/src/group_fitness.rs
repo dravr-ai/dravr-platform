@@ -20,6 +20,7 @@ use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity};
 use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_intelligence::{AlgorithmConfig, TrainingLoadCalculator};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info, warn};
@@ -633,7 +634,7 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
             sport: format!("{:?}", a.sport_type()),
             distance_km: a.distance_meters().map(|m| m / 1000.0),
             duration_minutes: i64::try_from(a.duration_seconds() / 60).unwrap_or(i64::MAX),
-            name: a.name().to_owned(),
+            name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
             city: a.city().map(str::to_owned),
             start_latitude: a.start_latitude(),
             start_longitude: a.start_longitude(),

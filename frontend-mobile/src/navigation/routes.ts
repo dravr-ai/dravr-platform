@@ -82,3 +82,10 @@ function mobileRouteOf(id: string): string {
  * opens and the route the registry declares for mobile cannot differ.
  */
 export const CONNECTED_APPS_ROUTE = mobileRouteOf('connected-apps');
+
+/**
+ * The connections pane — the athlete's fitness providers. Group info sends a
+ * coach here when their own TrainingPeaks is missing, dead or behind the
+ * current notice, the three things only that pane fixes.
+ */
+export const CONNECTIONS_ROUTE = mobileRouteOf('data-providers');

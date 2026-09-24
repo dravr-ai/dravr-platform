@@ -80,16 +80,38 @@ fn system_failure_returns_friendly_message_not_raw_stderr() {
 fn friendly_message_is_provider_aware() {
     let strava = friendly_login_failure_message("sciotte");
     let garmin = friendly_login_failure_message("sciotte_garmin");
+    let trainingpeaks = friendly_login_failure_message("sciotte_trainingpeaks");
 
     assert!(strava.contains("Strava"));
     assert!(!strava.contains("Garmin"));
     assert!(garmin.contains("Garmin"));
     assert!(!garmin.contains("Strava"));
+    assert!(trainingpeaks.contains("TrainingPeaks"), "{trainingpeaks}");
+    assert!(
+        !trainingpeaks.contains("Strava"),
+        "a TrainingPeaks login failure must not blame Strava: {trainingpeaks}"
+    );
+}
+
+#[test]
+fn friendly_message_never_names_an_empty_brand() {
+    let message = friendly_login_failure_message("");
+    assert!(
+        message.contains("your fitness account"),
+        "an unnamed provider still reads as a sentence: {message}"
+    );
 }
 
 #[test]
 fn friendly_message_carries_no_technical_detail_for_any_provider() {
-    for provider in ["sciotte", "sciotte_garmin", "strava", "garmin", ""] {
+    for provider in [
+        "sciotte",
+        "sciotte_garmin",
+        "sciotte_trainingpeaks",
+        "strava",
+        "garmin",
+        "",
+    ] {
         let message = friendly_login_failure_message(provider);
         let lower = message.to_lowercase();
         for token in [

@@ -19,17 +19,11 @@ use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
-#[cfg(feature = "client-notifications")]
-use pierre_notifications::models::NotificationCategory;
-#[cfg(feature = "client-notifications")]
-use pierre_notifications::{DispatchRequest, PushTier, TenantId as CommTenantId};
 use pierre_providers::backend_resolver;
 use pierre_providers::whoop_provider::owner_id_for_access_token;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-#[cfg(not(feature = "client-notifications"))]
-use std::future::ready;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -660,79 +654,6 @@ impl AuthService {
         }
     }
 
-    /// Send a one-time out-of-band push telling the user a provider disconnected and to
-    /// reconnect.
-    ///
-    /// Deduped via the `notified_at` claim so a user is nudged exactly once per
-    /// `active`→`needs_reauth` transition (re-armed on reconnect). Best-effort; cfg-gated on
-    /// `client-notifications` so builds without the notification backend compile to a no-op.
-    #[cfg(feature = "client-notifications")]
-    async fn notify_provider_disconnected(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) {
-        use pierre_core::models::NotificationScreen;
-
-        let claimed = self
-            .resources
-            .repos()
-            .provider_connections
-            .claim_reauth_notification(user_id, tenant_id, provider)
-            .await
-            .unwrap_or(false);
-        if !claimed {
-            return;
-        }
-        let Some(service) = self.resources.notification_service() else {
-            return;
-        };
-        let data = [
-            ("type", "provider_needs_reauth"),
-            ("provider", provider),
-            // Named through the shared vocabulary, not as a loose string: the
-            // clients resolve `data.screen` to a surface through the same
-            // enum, so a token nothing routes cannot be emitted here.
-            ("screen", NotificationScreen::Connections.as_str()),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_owned(), JsonValue::String(v.to_owned())))
-        .collect();
-        let request = DispatchRequest {
-            user_id,
-            tenant_id: CommTenantId(tenant_id.as_uuid()),
-            category: NotificationCategory::System,
-            notification_type: "provider_needs_reauth".to_owned(),
-            title: "Reconnect needed".to_owned(),
-            body: format!(
-                "Your {provider} connection expired. Reconnect it so I can keep using your data."
-            ),
-            data: Some(JsonValue::Object(data)),
-            image_url: None,
-            actions: None,
-            bypass_frequency_cap: false,
-        };
-        // P1: an expired connection blocks every downstream feature, so it
-        // outranks advisories — but it is recoverable, not break-glass P0.
-        if let Err(e) = service.dispatch_with_tier(&request, PushTier::P1).await {
-            warn!("Failed to dispatch reauth push for user {user_id} provider {provider}: {e}");
-        }
-    }
-
-    /// No-op variant when the notification backend is not compiled in.
-    #[cfg(not(feature = "client-notifications"))]
-    async fn notify_provider_disconnected(
-        &self,
-        _user_id: Uuid,
-        _tenant_id: TenantId,
-        _provider: &str,
-    ) {
-        // Nothing to dispatch without a backend; await a ready future so the
-        // signature stays `async` for the unconditional caller.
-        ready(()).await;
-    }
-
     /// Re-arm a provider connection to `active` after a successful refresh (best-effort).
     ///
     /// No-op when the connection is already active or the row does not exist. A write
@@ -794,6 +715,15 @@ impl AuthService {
                 error: Some(format!("Unsupported provider: {requested_provider}")),
                 metadata: None,
             });
+        }
+
+        // A TrainingPeaks read whose subject is decided before the user's own
+        // token is (a coach account's own calendar is refused in words).
+        if let Some(served) = self
+            .trainingpeaks_subject(provider_name, user_id, tenant_id_parsed)
+            .await
+        {
+            return served;
         }
 
         // Get valid token for the (resolved) provider with automatic refresh.

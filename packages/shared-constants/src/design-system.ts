@@ -116,7 +116,7 @@ export const BOREAL_DARK = {
   background: '#11130f',
   onBackground: '#e1e3de',
 
-  outline: '#8a9389',
+  outline: '#b0b6af',
   outlineVariant: '#414845',
 
   scrim: '#000000',
@@ -263,6 +263,36 @@ export const BORDER_COLORS = {
   strong: 'rgba(155, 165, 159, 0.55)',
 } as const;
 
+/**
+ * The card and field hairline in each scheme (DESIGN.md §2 "Outline /
+ * borders"). The ink changes between schemes, not only the opacity: a
+ * hairline has to contrast with the ground under it, and the two grounds are
+ * opposite. `frontend/src/index.css` carries the same pair as `--ghost-border`.
+ */
+export const GHOST_BORDER: Record<ColorScheme, string> = {
+  light: BORDER_COLORS.default,
+  dark: 'rgba(192, 200, 195, 0.22)',
+};
+
+/**
+ * The hover fill of a filled `primary` (DESIGN.md §2 `primary-hover`): a step
+ * darker in both schemes, so the label keeps its contrast while the fill moves.
+ */
+export const PRIMARY_HOVER: Record<ColorScheme, string> = {
+  light: '#1e5040',
+  dark: '#8cbaa8',
+};
+
+/**
+ * The Boreal Ripple mark's ink (BRAND.md "Inks and grounds"): forest on every
+ * light surface, mint on the dark canvas. The mark is never drawn in a pillar
+ * hue or the body ink.
+ */
+export const MARK_INK: Record<ColorScheme, string> = {
+  light: '#05331f',
+  dark: BOREAL_DARK.primary,
+};
+
 // ========== SEMANTIC / PROVIDER COLORS ==========
 
 /** Feedback states, tuned to read correctly on the light surface. */
@@ -329,24 +359,98 @@ export const SEMANTIC_COLORS_DARK = {
 } as const;
 
 /**
- * OAuth provider brand colors — unchanged, they belong to third parties. The
- * `sciotte` / `sciotte_garmin` keys mirror the corresponding Strava/Garmin
- * brand colors: after the 2026-Q2 provider cleanup the API surfaces those
- * internal ids, but the UI still presents them with Strava and Garmin branding.
- * Legacy keys (fitbit/terra/google) are retained for tests and any
- * still-referencing call sites; they are not surfaced by the API.
+ * OAuth provider brand colors — third-party colours, not Boreal tokens. The
+ * `sciotte*` keys are the captured Strava, Garmin and TrainingPeaks accounts,
+ * so they carry the brand they capture. Legacy keys (fitbit/terra/google) are
+ * retained for tests and any still-referencing call sites; they are not
+ * surfaced by the API.
+ *
+ * Each hex names its source. "Not traced" means the brand publishes no colour
+ * this value could be checked against (no `theme-color`, no brand sheet found,
+ * checked 2026-09-23): the value is the one the integration shipped with.
+ *
+ * A glyph does not read these directly — `PROVIDER_GLYPH_INK` below says, per
+ * scheme, whether the brand colour clears the canvas or yields to body ink.
  */
 export const PROVIDER_COLORS = {
+  // Strava orange as the integration shipped it. Strava's current value is
+  // #FC5200 (developers.strava.com/guidelines names it for orange link text;
+  // strava.com's `msapplication-TileColor`), 1.03:1 from this one.
   strava: '#FC4C02',
+  // Garmin blue as the integration shipped it; not traced — garmin.com's own
+  // `theme-color` and tile colour are #ffffff.
   garmin: '#007CC3',
   fitbit: '#00B0B9',
+  // WHOOP green as the integration shipped it; not traced — whoop.com
+  // publishes no `theme-color` and draws its own mark in black.
   whoop: '#00D46A',
   terra: '#6366F1',
+  // intervals.icu blue as the integration shipped it; not traced —
+  // intervals.icu publishes no `theme-color`.
   intervals_icu: '#1273DE',
   google: '#4285F4',
   sciotte: '#FC4C02',
   sciotte_garmin: '#007CC3',
+  // TrainingPeaks' own theme colour (trainingpeaks.com `theme-color` and
+  // `msapplication-TileColor`).
+  trainingpeaks: '#005695',
+  sciotte_trainingpeaks: '#005695',
 } as const;
+
+/**
+ * The ink a provider glyph takes in one scheme: a brand hex, or `null` for
+ * the body ink (`on-surface` — the web class `text-on-surface`, the phone's
+ * `useThemeColors().text.primary`).
+ */
+export interface ProviderGlyphInk {
+  readonly light: string | null;
+  readonly dark: string | null;
+}
+
+/**
+ * The one table every client reads for the colour of a provider's glyph.
+ *
+ * A glyph is a non-text graphic, so it answers to the 3:1 floor (WCAG 1.4.11)
+ * against the canvas it sits on — `BOREAL_LIGHT.surface` and
+ * `BOREAL_DARK.surface`. A brand keeps its own colour in each scheme where
+ * that colour clears the floor, and takes the body ink where it does not:
+ *
+ * | Provider                | on light `surface` | on dark `surface`  |
+ * |-------------------------|--------------------|--------------------|
+ * | Strava `#FC4C02`        | 3.15:1             | 5.49:1             |
+ * | Garmin `#007CC3`        | 4.16:1             | 4.16:1             |
+ * | intervals.icu `#1273DE` | 4.28:1             | 4.03:1             |
+ * | TrainingPeaks `#005695` | 7.02:1             | 2.46:1 → body ink  |
+ * | WHOOP `#00D46A`         | 1.83:1 → body ink  | 9.45:1             |
+ *
+ * `surface-container-lowest` sits further from every one of these inks than
+ * `surface` does, in both schemes (`#ffffff` in light, `#0b0e0b` in dark), so a
+ * glyph on a tile of that tier inherits the table. It holds on those two tiers
+ * only: a glyph drawn on `surface-container-low` or higher is measured there
+ * first (Strava's hex is 2.82:1 on light `surface-container-low`). The hexes,
+ * and where each comes from, are on `PROVIDER_COLORS`.
+ */
+export const PROVIDER_GLYPH_INK: Readonly<Record<string, ProviderGlyphInk>> = {
+  strava: { light: PROVIDER_COLORS.strava, dark: PROVIDER_COLORS.strava },
+  sciotte: { light: PROVIDER_COLORS.sciotte, dark: PROVIDER_COLORS.sciotte },
+  garmin: { light: PROVIDER_COLORS.garmin, dark: PROVIDER_COLORS.garmin },
+  sciotte_garmin: { light: PROVIDER_COLORS.sciotte_garmin, dark: PROVIDER_COLORS.sciotte_garmin },
+  intervals_icu: { light: PROVIDER_COLORS.intervals_icu, dark: PROVIDER_COLORS.intervals_icu },
+  trainingpeaks: { light: PROVIDER_COLORS.trainingpeaks, dark: null },
+  sciotte_trainingpeaks: { light: PROVIDER_COLORS.sciotte_trainingpeaks, dark: null },
+  whoop: { light: null, dark: PROVIDER_COLORS.whoop },
+};
+
+/**
+ * The glyph ink for a provider id in a scheme: its brand hex, or `null` for
+ * the body ink. An id with no row has no brand colour to keep, so it takes
+ * the body ink too.
+ */
+export function providerGlyphInk(providerId: string, scheme: ColorScheme): string | null {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_GLYPH_INK, providerId)
+    ? PROVIDER_GLYPH_INK[providerId][scheme]
+    : null;
+}
 
 // ========== GRADIENTS ==========
 

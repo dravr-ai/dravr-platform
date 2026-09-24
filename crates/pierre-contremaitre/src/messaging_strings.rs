@@ -1096,6 +1096,38 @@ pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_TITLE: &str =
 /// the release.
 pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_BODY: &str =
     "notifications.event.seat_release_warning.body";
+/// Key: a group's coach asks to read the member's TrainingPeaks workouts.
+/// No format placeholders.
+pub const KEY_NOTIFICATION_DELEGATION_PROPOSED_TITLE: &str =
+    "notifications.event.delegation_proposed.title";
+/// Key: who asks, where. `{0}` coach name, `{1}` group name.
+pub const KEY_NOTIFICATION_DELEGATION_PROPOSED_BODY: &str =
+    "notifications.event.delegation_proposed.body";
+/// Key: the member confirmed the coach's link. No format placeholders.
+pub const KEY_NOTIFICATION_DELEGATION_CONFIRMED_TITLE: &str =
+    "notifications.event.delegation_confirmed.title";
+/// Key: who confirmed, where. `{0}` member name, `{1}` group name.
+pub const KEY_NOTIFICATION_DELEGATION_CONFIRMED_BODY: &str =
+    "notifications.event.delegation_confirmed.body";
+/// Key: the member declined the coach's link. No format placeholders.
+pub const KEY_NOTIFICATION_DELEGATION_DECLINED_TITLE: &str =
+    "notifications.event.delegation_declined.title";
+/// Key: who declined, where. `{0}` member name, `{1}` group name.
+pub const KEY_NOTIFICATION_DELEGATION_DECLINED_BODY: &str =
+    "notifications.event.delegation_declined.body";
+/// Key: a linked member left the coach's TrainingPeaks roster; to the coach.
+/// No format placeholders.
+pub const KEY_NOTIFICATION_DELEGATION_OFF_ROSTER_TITLE: &str =
+    "notifications.event.delegation_off_roster.title";
+/// Key: which member, where. `{0}` member name, `{1}` group name.
+pub const KEY_NOTIFICATION_DELEGATION_OFF_ROSTER_BODY: &str =
+    "notifications.event.delegation_off_roster.body";
+/// Key: the same end, to the member. No format placeholders.
+pub const KEY_NOTIFICATION_DELEGATION_OFF_COACH_ROSTER_TITLE: &str =
+    "notifications.event.delegation_off_coach_roster.title";
+/// Key: whose roster, where. `{0}` coach name, `{1}` group name.
+pub const KEY_NOTIFICATION_DELEGATION_OFF_COACH_ROSTER_BODY: &str =
+    "notifications.event.delegation_off_coach_roster.body";
 
 // ── Group weekly digest ───────────────────────────────────────────────────
 //

@@ -3,6 +3,8 @@
 
 export { Button } from './Button';
 export { Input } from './Input';
+export { Checkbox } from './Checkbox';
+export type { CheckboxProps } from './Checkbox';
 export { Card } from './Card';
 export { VoiceButton } from './VoiceButton';
 export { PromptDialog } from './PromptDialog';
@@ -21,6 +23,8 @@ export { Section } from './Section';
 export type { SectionProps } from './Section';
 export { Row } from './Row';
 export type { RowProps } from './Row';
+export { StatusDot } from './StatusDot';
+export type { StatusDotTone } from './StatusDot';
 export { TextTabs } from './TextTabs';
 export type { TextTabItem, TextTabsProps } from './TextTabs';
 // The scroll container that insets itself for the native header and tab bar.

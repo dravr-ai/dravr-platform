@@ -6,13 +6,9 @@
 
 use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsInputSummary};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
-use crate::protocol::provider_helpers::{
-    create_configured_provider_with_tenant, TenantCredentialContext,
-};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use pierre_config::constants::limits::{self, METERS_PER_KILOMETER};
-use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::efficiency_defaults::{
@@ -255,55 +251,16 @@ async fn fetch_and_calculate_metrics(
     user_uuid: uuid::Uuid,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
-    // Get valid token
-    let token_data = match executor
+    // Authenticate through the chokepoint every provider read goes through;
+    // its refusal is the answer, reconnect signal included.
+    let provider = match executor
         .auth_service
-        .get_valid_token(user_uuid, provider_name, request.tenant_id.as_deref())
+        .create_authenticated_provider(provider_name, user_uuid, request.tenant_id.as_deref())
         .await
     {
-        Ok(Some(token)) => token,
-        Ok(None) => {
-            return Ok(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "No valid token for {provider_name}. Please connect using the connect_provider tool first."
-                )),
-                metadata: None,
-            });
-        }
-        Err(e) => {
-            return Ok(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(e.tool_error_text("Authentication error")),
-                metadata: None,
-            });
-        }
+        Ok(provider) => provider,
+        Err(response) => return Ok(response),
     };
-
-    // Build tenant credential context for tenant-scoped OAuth resolution
-    let tenant_ctx = request
-        .tenant_id
-        .as_ref()
-        .and_then(|tid| TenantId::parse_str(tid).ok())
-        .map(|tid| TenantCredentialContext {
-            tenant_oauth_client: executor.resources.tenant_oauth_client(),
-            tenants: executor.resources.repos().tenants.as_ref(),
-            oauth_tokens: executor.resources.repos().oauth_tokens.as_ref(),
-            tenant_id: tid,
-            user_id: user_uuid,
-        });
-
-    // Create configured provider using provider-agnostic helper with tenant credentials
-    let provider = create_configured_provider_with_tenant(
-        provider_name,
-        executor.resources.provider_registry(),
-        &token_data,
-        tenant_ctx,
-    )
-    .await
-    .map_err(|e| ProtocolError::InternalError(format!("Failed to configure provider: {e}")))?;
 
     // Fetch activity from provider
     let activity = provider.get_activity(activity_id).await.map_err(|e| {

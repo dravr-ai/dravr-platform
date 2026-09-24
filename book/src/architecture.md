@@ -109,7 +109,7 @@ Focused repository modules live under `crates/pierre-database/src/repositories/`
 
 - **identity & access**: `users`, `oauth`, `api_keys`, `tenants`, `security`, `admin`
 - **fitness data**: `health`, `workouts`, `mobility`, `data_source`, `weather`, `insights`
-- **coaching**: `coaches`, `roster`, `messaging`, `recipes`, `harness_memory`
+- **coaching**: `coaches`, `coaching_groups`, `delegated_connections`, `messaging`, `recipes`, `harness_memory`
 - **platform**: `usage`, `a2a`, `notifications`, `feature_flags`, `tool_selection`, `fitness_config`, `claim_verdicts`, `chat`, `seeder`
 
 **repository construction pattern**:

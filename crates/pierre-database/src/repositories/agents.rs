@@ -327,6 +327,12 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// agent attachment is the access key.
     async fn list_groups_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<CoachingGroup>>;
 
+    /// The athletes a human coach coaches: every live member of every active
+    /// group whose `coach_user_id` is `coach_user_id`, each user once. No
+    /// tenant filter, for the same reason as [`Self::list_groups_coached_by`].
+    /// Empty for a user who coaches no group.
+    async fn list_athletes_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<Uuid>>;
+
     /// List every active group owned by a tenant.
     ///
     /// Used by the weekly-digest scheduler to enumerate the groups eligible
@@ -369,6 +375,31 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Get member by `group_id` + `user_id` (unique constraint, no tenant filter needed)
     async fn get_member(&self, group_id: &str, user_id: Uuid) -> AppResult<Option<GroupMember>>;
+
+    /// Whether `user_id` may read `group_id`: its info, its members and its
+    /// room.
+    ///
+    /// Only an active group admits anyone, as only an active group is
+    /// listed; then a live member is admitted, and so is the group's human
+    /// coach, who holds no membership row. Every surface that admits the coach
+    /// alongside the members asks here, so none can admit a different set.
+    async fn admits_member_or_coach(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let Some(group) = self.get_group(group_id, tenant_id).await? else {
+            return Ok(false);
+        };
+        if !group.is_active {
+            return Ok(false);
+        }
+        if group.coach_user_id == Some(user_id) {
+            return Ok(true);
+        }
+        Ok(self.get_member(group_id, user_id).await?.is_some())
+    }
 
     /// List active members of a group.
     /// No tenant filter — members join cross-tenant via invite codes.

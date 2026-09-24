@@ -23,13 +23,15 @@ use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
-use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_core::models::{DelegationEndReason, TenantId, UserOAuthToken};
+use pierre_groups::delegation::DelegationStore;
 use pierre_providers::utils::{refresh_oauth_token, ClientAuth, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::delegated_connections::forget_coach_roster;
 use crate::oauth_flow::OAuthService;
 
 /// Who asked for a provider to be disconnected, as the `provider.disconnected`
@@ -145,8 +147,9 @@ pub enum RevocationShape {
 ///
 /// `intervals_icu` links by a per-athlete API key the athlete pasted — there
 /// is no OAuth grant, so deleting the local row is the whole disconnect.
-/// `sciotte` and `sciotte_garmin` are scrape sessions: the credential is a
-/// browser cookie jar, and there is nothing upstream to revoke either.
+/// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are scrape
+/// sessions: the credential is a browser cookie jar, and there is nothing
+/// upstream to revoke either.
 ///
 /// LIMITATION(registre#509): `revocation_shape` returns `None` for `coros`
 /// because the COROS provider's OAuth endpoints are placeholders and no COROS
@@ -650,6 +653,49 @@ pub async fn clear_backend(
         .await
         .map_err(|e| AppError::database(format!("Failed to remove provider connection: {e}")))?;
 
+    if backend == oauth_providers::SCIOTTE_TRAININGPEAKS {
+        end_delegated_connections(data, user_id, tenant_id, backend).await?;
+        forget_coach_roster(data.cache(), user_id, tenant_id).await;
+    }
+
     purge_provider_cache(data, user_id, tenant_id, backend).await;
     Ok(outcome)
+}
+
+/// End the delegated connections a `TrainingPeaks` disconnect takes away,
+/// whichever side of them the user is on.
+///
+/// A member who disconnects `TrainingPeaks` ends the link their reads went
+/// through, so the provider card's generic Disconnect is also how a member
+/// unlinks. A coach who disconnects ends every link their session served,
+/// since nothing is left to read those athletes through. Every disconnect
+/// surface (the app, the chat tool loop, `/mcp`, an operator removing the
+/// user) funnels through [`clear_backend`], so none of them can leave a link
+/// pointing at a session that is gone.
+async fn end_delegated_connections(
+    data: &DataContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> AppResult<()> {
+    let store = DelegationStore::new(data.repos());
+    store
+        .end_confirmed_for_member(
+            user_id,
+            tenant_id,
+            backend,
+            Some(user_id),
+            DelegationEndReason::RevokedByMember,
+        )
+        .await?;
+    store
+        .end_for_coach(
+            user_id,
+            tenant_id,
+            backend,
+            Some(user_id),
+            DelegationEndReason::CoachDisconnected,
+        )
+        .await?;
+    Ok(())
 }

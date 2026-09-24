@@ -9,7 +9,7 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the authentication
 //! routes for serialization and deserialization of API requests and responses.
 
-use pierre_core::models::UserStatus;
+use pierre_core::models::{DelegationStatus, ProviderAccountRole, UserStatus};
 use serde::{Deserialize, Serialize};
 
 /// User registration request
@@ -383,6 +383,43 @@ pub struct ProviderStatus {
     /// seat-limited (Strava). `None` for providers without a seat cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats_left: Option<u32>,
+    /// Whether connecting this provider first needs the account to accept its
+    /// exposure notice — TrainingPeaks, until the current notice version is
+    /// accepted. The client shows the notice with a required checkbox before
+    /// the credentials and posts `tos_consent: true` with the login; the login
+    /// is refused without it.
+    pub consent_required: bool,
+    /// What kind of account the user's own connection signed in with, once
+    /// the provider has reported it: `"coach"` for a TrainingPeaks coach
+    /// account, which keeps no calendar of its own, so the card can say where
+    /// its athletes' workouts are read instead. Absent until the role is read,
+    /// and for every provider that reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_role: Option<ProviderAccountRole>,
+    /// The link through which the user's group coach reads this provider for
+    /// them — TrainingPeaks, read through the coach's own account once the
+    /// user confirms. The confirmed link, else the newest one awaiting the
+    /// user's answer. Absent when there is none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<ProviderDelegation>,
+}
+
+/// A group coach's link to the user's provider, as the provider card shows it.
+#[derive(Debug, Serialize)]
+pub struct ProviderDelegation {
+    /// The link's id, which the group's link routes take
+    pub connection_id: String,
+    /// The group the link was made in
+    pub group_id: String,
+    /// The group's name
+    pub group_name: String,
+    /// The coach's name: their display name, else their email
+    pub coach_display_name: String,
+    /// `proposed` (waiting for the user) or `confirmed`
+    pub status: DelegationStatus,
+    /// Whether the coach must reconnect their own account before the user's
+    /// workouts can be read again. The user has nothing to reconnect.
+    pub coach_needs_reauth: bool,
 }
 
 /// Response for the /api/providers endpoint

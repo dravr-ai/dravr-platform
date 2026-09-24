@@ -744,7 +744,12 @@
     "whoIsInviteFor": "Para quem é este convite?",
     "youLeftGroup": "Saíste do grupo.",
     "youllReceiveApproval": "Vais receber um e-mail de aprovação",
-    "yourActivitiesCount": "As tuas atividades ({{count}})"
+    "yourActivitiesCount": "As tuas atividades ({{count}})",
+    "brandTrainingPeaks": "TrainingPeaks",
+    "trainingpeaksAccount": "Conta TrainingPeaks",
+    "trainingpeaksUsername": "Nome de utilizador TrainingPeaks",
+    "provTrainingPeaksBlurb": "Treinos realizados e a respetiva carga de treino do TrainingPeaks",
+    "provTrainingPeaksShort": "Treinos realizados e carga de treino"
   },
   "auth": {
     "activatesOnConfirm": "A tua conta fica ativa assim que o endereço for confirmado",
@@ -785,7 +790,7 @@
     "invalidCredentials": "E-mail ou palavra-passe incorretos",
     "invalidEmail": "Isso não parece um endereço de e-mail.",
     "joinDravr": "Junta-te ao Dravr",
-    "landingBlurb": "Liga o Strava, o Garmin ou o WHOOP e pergunta sobre o teu treino, a tua recuperação, a tua nutrição e a tua mobilidade. Cada número sobre ti vem dos teus próprios dados, e cada afirmação da resposta é verificada.",
+    "landingBlurb": "Liga o Strava, o Garmin, o TrainingPeaks ou o WHOOP e pergunta sobre o teu treino, a tua recuperação, a tua nutrição e a tua mobilidade. Cada número sobre ti vem dos teus próprios dados, e cada afirmação da resposta é verificada.",
     "linkExpired": "Esse link expirou",
     "linkExpiredBody": "Os links de confirmação funcionam uma única vez e depois deixam de funcionar. Escreve o teu e-mail abaixo e enviamos-te um novo.",
     "loginFailed": "Não foi possível entrar",
@@ -1365,7 +1370,8 @@
     "tryAgain": "Tentar de novo",
     "update": "Atualizar",
     "welcome": "Bem-vindo",
-    "yes": "Sim"
+    "yes": "Sim",
+    "username": "Nome de utilizador"
   },
   "convPanel": {
     "deleteOne": "Eliminar conversa",
@@ -1390,6 +1396,50 @@
     "title": "Credenciais de API personalizadas",
     "useOwnAppHint": "Usa a tua própria app OAuth para ligares fornecedores",
     "useOwnHint": "Usa as tuas próprias credenciais OAuth para evitares limites partilhados"
+  },
+  "delegation": {
+    "actionFailed": "Não resultou. Tenta novamente.",
+    "alreadyLinked": "O teu TrainingPeaks já está associado através de outro grupo.",
+    "alreadyProposed": "Este membro já tem uma ligação ao TrainingPeaks neste grupo.",
+    "athleteAlreadyLinked": "Este atleta já está associado.",
+    "coachHint": "Associa cada atleta da tua lista do TrainingPeaks ao membro que ele é neste grupo. Ele confirma antes de o Dravr ler os treinos dele através da tua conta TrainingPeaks.",
+    "coachReconnectNeeded": "{{coach}} tem de voltar a ligar o TrainingPeaks; os teus treinos ficam em pausa até lá.",
+    "confirm": "Confirmar",
+    "confirmedBody": "Os teus treinos do TrainingPeaks são lidos através da conta de {{coach}}.",
+    "confirmedToast": "TrainingPeaks associado",
+    "connectFirst": "Liga o TrainingPeaks com a conta onde estão os teus atletas para os associar.",
+    "decline": "Recusar",
+    "declinedToast": "Ligação recusada",
+    "leaveEndsLink": "A tua ligação ao TrainingPeaks através deste grupo também termina.",
+    "linkedTo": "Associado a {{member}}",
+    "memberLabel": "Membro",
+    "memberPlaceholder": "Escolhe um membro",
+    "memberSectionTitle": "TrainingPeaks através do teu treinador humano",
+    "notCoachAccount": "A conta TrainingPeaks que ligaste é de um atleta, por isso não tem lista para associar.",
+    "notOnRoster": "Esse atleta já não está na tua lista do TrainingPeaks. Atualiza a lista e tenta novamente.",
+    "openConnections": "Abrir ligações",
+    "ownConnectionConflict": "Já ligas o TrainingPeaks com a tua própria conta, e o Dravr continua a ler essa.",
+    "propose": "Associar",
+    "proposedBody": "{{member}} confirma antes de qualquer leitura.",
+    "proposedToast": "Pedido enviado",
+    "reconnectFirst": "Volta a ligar o TrainingPeaks para ler a tua lista.",
+    "refresh": "Atualizar a lista",
+    "requestBody": "{{coach}} treina-te no TrainingPeaks como {{athlete}}. Confirma, e o Dravr lê os teus treinos do TrainingPeaks através da conta de {{coach}} — não precisas de entrar tu no TrainingPeaks.",
+    "requestBodyNoName": "{{coach}} treina-te no TrainingPeaks. Confirma, e o Dravr lê os teus treinos do TrainingPeaks através da conta de {{coach}} — não precisas de entrar tu no TrainingPeaks.",
+    "requestFootnote": "Podes desassociar a qualquer momento. Sair deste grupo também desassocia.",
+    "requestTitle": "Pedido de ligação ao TrainingPeaks",
+    "rosterEmpty": "A tua lista do TrainingPeaks ainda não tem atletas.",
+    "rosterFailed": "Não foi possível ler a tua lista do TrainingPeaks. Tenta novamente daqui a pouco.",
+    "rosterLoading": "A ler a tua lista do TrainingPeaks…",
+    "sectionTitle": "Atletas do TrainingPeaks",
+    "suggested": "{{member}} (sugerido)",
+    "termsOutdated": "Volta a ligar o TrainingPeaks e aceita o aviso atualizado para ler a tua lista.",
+    "unlink": "Desassociar",
+    "unlinkBody": "O Dravr deixa de ler estes treinos do TrainingPeaks através da conta do treinador humano e remove os que já leu da conta Dravr do atleta.",
+    "unlinkTitle": "Desassociar o TrainingPeaks?",
+    "unlinked": "Ligação ao TrainingPeaks terminada",
+    "waitingFor": "A aguardar a confirmação de {{member}}",
+    "withdraw": "Retirar"
   },
   "discover": {
     "addAgent": "Adicionar agente",
@@ -1691,7 +1741,7 @@
     "attachedBadge": "Coach associado",
     "cardDescription": "Cria planos e gere os atletas que treinas. Desbloqueia as ferramentas de planeamento para coaches.",
     "coach": "Coach",
-    "detachQ": "Desassociar o treinador humano deste grupo?",
+    "detachQ": "Desligar o treinador humano deste grupo? As ligações de atletas do TrainingPeaks dele neste grupo terminam, e ele perde o acesso à lista do grupo.",
     "detached": "O treinador humano foi desassociado deste grupo.",
     "group_detached": "{0} já não tem um treinador humano associado.",
     "iCoachOthers": "Treino outras pessoas",
@@ -1707,12 +1757,15 @@
     "remove": "Remover coach",
     "removeFailed": "Não foi possível remover o coach",
     "removed": "Treinador removido",
-    "roomHint": "O agente de IA responde nesta sala; um coach humano também o pode supervisionar."
+    "roomHint": "O agente de IA responde nesta sala; um coach humano também o pode supervisionar.",
+    "trainingpeaksAccount": "Conta de treinador",
+    "trainingpeaksAccountHint": "O TrainingPeaks não mantém calendário para uma conta de treinador. Associa os teus atletas a partir de um grupo que treinas.",
+    "youCoach": "Treinas este grupo"
   },
   "messaging": {
     "account": {
-      "no_provider": "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nLiga-te aqui:\n{0}",
-      "no_provider_with_email": "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nEntra com a tua conta {1} aqui:\n{0}",
+      "no_provider": "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, TrainingPeaks, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nLiga-te aqui:\n{0}",
+      "no_provider_with_email": "Antes de conversarmos, liga um serviço de fitness (Strava, Garmin, TrainingPeaks, Whoop) na app Dravr — sem ele não tenho dados de atividade para te ajudar.\n\nEntra com a tua conta {1} aqui:\n{0}",
       "pending": "A tua conta está ligada a este canal, mas ainda aguarda aprovação de um administrador. Vais poder falar com o Dravr assim que for ativada — avisamos-te por aqui.",
       "registration_approved": "🎉 A tua conta Dravr foi aprovada! Já podes falar com o teu agente aqui. Faz-me a tua primeira pergunta quando quiseres.",
       "suspended": "A tua conta Dravr está suspensa. Contacta o suporte para restabelecer o acesso."
@@ -1741,7 +1794,7 @@
     },
     "connect": {
       "button": "Ligar a minha conta",
-      "prompt": "Vamos ligar o teu serviço de fitness (Strava, Garmin ou Whoop) para que eu possa ajudar-te com os teus dados reais. Toca no botão abaixo para te ligares em segurança.",
+      "prompt": "Vamos ligar o teu serviço de fitness (Strava, Garmin, TrainingPeaks ou Whoop) para que eu possa ajudar-te com os teus dados reais. Toca no botão abaixo para te ligares em segurança.",
       "title": "Ligar um serviço de fitness"
     },
     "empty_reply": "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?",
@@ -1975,6 +2028,26 @@
         "body": "{0} enviou-te uma mensagem",
         "title": "Mensagem do teu agente"
       },
+      "delegation_confirmed": {
+        "body": "{0} confirmou a tua ligação ao TrainingPeaks em {1}. Os treinos passam a ser lidos através da tua conta.",
+        "title": "Ligação ao TrainingPeaks confirmada"
+      },
+      "delegation_declined": {
+        "body": "{0} recusou a tua ligação ao TrainingPeaks em {1}.",
+        "title": "Ligação ao TrainingPeaks recusada"
+      },
+      "delegation_off_coach_roster": {
+        "body": "Já não constas da lista de atletas do TrainingPeaks de {0}, por isso os teus treinos deixaram de ser lidos através dessa conta em {1}. Pede a {0} para voltar a fazer a ligação ou liga o TrainingPeaks por conta própria.",
+        "title": "Ligação ao TrainingPeaks terminada"
+      },
+      "delegation_off_roster": {
+        "body": "{0} já não consta da tua lista de atletas do TrainingPeaks, por isso a ligação em {1} terminou. Volta a fazer a ligação quando {0} regressar à tua lista.",
+        "title": "Ligação ao TrainingPeaks terminada"
+      },
+      "delegation_proposed": {
+        "body": "{0} pediu para ler os teus treinos do TrainingPeaks através da própria conta TrainingPeaks, em {1}. Nada é lido até confirmares.",
+        "title": "Pedido de ligação ao TrainingPeaks"
+      },
       "fitness_improvement": {
         "body": "O teu {0} subiu para {1}",
         "title": "Melhoria de forma detetada"
@@ -2205,7 +2278,8 @@
     "strava": "Atividades de corrida, ciclismo e natação",
     "synthSleep": "Dados de sono sintéticos para desenvolvimento",
     "synthTest": "Dados de teste sintéticos para desenvolvimento",
-    "whoop": "Métricas de recuperação, esforço e sono"
+    "whoop": "Métricas de recuperação, esforço e sono",
+    "trainingpeaks": "Treinos realizados e a respetiva carga de treino do TrainingPeaks"
   },
   "providers": {
     "add": "Adicionar fornecedor",
@@ -2213,6 +2287,7 @@
     "connectLater": "Ligar serviços mais tarde",
     "connectToAria": "Ligar a {{provider}}",
     "connected": "Ligado",
+    "connectedThrough": "Ligado através de {{coach}}",
     "connectedTitle": "Fornecedores ligados",
     "connectionComplete": "Ligação concluída",
     "connectionFlowCompleted": "Fluxo de ligação de {{provider}} concluído.",
@@ -2232,6 +2307,7 @@
     "lastSync": "Última sincronização",
     "none": "Não há fornecedores disponíveis",
     "notConnected": "Não ligado",
+    "pendingLink": "{{coach}} pediu para associar os teus treinos — revê em {{group}}",
     "polar": "Polar",
     "privacyNote": "O Dravr só acede aos dados que autorizas. Nunca partilhamos os teus dados de fitness com terceiros. Podes desligar qualquer fornecedor quando quiseres.",
     "provider": "Fornecedor",
@@ -2240,6 +2316,7 @@
     "scope": {
       "activities": "atividades",
       "health": "saúde",
+      "planned_workouts": "treinos planeados",
       "recovery": "recuperação",
       "sleep": "sono"
     },
@@ -2255,7 +2332,13 @@
     "syncSuccess": "Sincronização concluída",
     "synthetic": "Dados sintéticos",
     "thirdPartyHint": "Aplicações de terceiros autorizadas a aceder aos teus dados desportivos através de OAuth",
-    "title": "Fornecedores"
+    "title": "Fornecedores",
+    "trainingpeaks": "TrainingPeaks",
+    "trainingpeaksNotice": {
+      "title": "Antes de ligares o TrainingPeaks",
+      "body": "O TrainingPeaks não oferece nenhuma forma de o Dravr ler o teu calendário diretamente, por isso o Dravr entra com a tua conta TrainingPeaks, tal como a app do TrainingPeaks. Se a tua conta é de um treinador humano, o Dravr também a usa para ler os calendários dos atletas que confirmam uma ligação num grupo que supervisionas. Os termos de utilização do TrainingPeaks (secção 13) não permitem o acesso automatizado por outros serviços, por isso o TrainingPeaks pode suspender ou encerrar a conta que ligares — mesmo uma conta paga.",
+      "consent": "Compreendo que o TrainingPeaks pode suspender a minha conta e aceito esse risco."
+    }
   },
   "settings": {
     "account": "Conta",
@@ -2317,7 +2400,7 @@
     "coaching": "Estilo de coaching",
     "coachingHint": "Como o teu agente fala contigo",
     "connections": "Fontes de dados",
-    "connectionsHint": "Strava, Garmin e os dados que o teu agente lê",
+    "connectionsHint": "Strava, Garmin, TrainingPeaks e os dados que o teu agente lê",
     "memory": "Memória",
     "messaging": "Mensagens",
     "messagingHint": "Telegram, WhatsApp e outras apps de mensagens",
@@ -2568,7 +2651,11 @@
     "toastDismiss": "Dispensar a notificação",
     "updateLater": "Mais tarde",
     "updateReady": "Está pronta uma nova versão do Dravr.",
-    "updateReload": "Recarregar"
+    "updateReload": "Recarregar",
+    "sciotteProviderTrainingPeaks": "TrainingPeaks",
+    "sciotteTrainingPeaksAccount": "Conta TrainingPeaks",
+    "trainingpeaksUsername": "Nome de utilizador TrainingPeaks",
+    "sciotteConnectedDataReady": "Os teus dados do {{provider}} já estão disponíveis"
   },
   "tokens": {
     "activeCount": "{{count}} tokens ativos para ligações de clientes de IA",

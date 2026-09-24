@@ -19,8 +19,9 @@
 //! - **Provider-gated tools** (`export_latest_snapshot`,
 //!   `compute_training_history`, `export_intervals`, `export_routes`,
 //!   `extract_activity_streams`) exercise the provider-auth-required path —
-//!   the tool plumbing runs all the way through `fetch_activities_from_provider`
-//!   and returns the documented `AppError::auth_invalid` when no OAuth token
+//!   the tool plumbing runs all the way through `fetch_activities_from_provider`,
+//!   which authenticates at the same chokepoint every provider read does, and
+//!   answers the reconnect signal (`ProviderAuthRequired`) when no OAuth token
 //!   is connected. This validates the tool's auth gating, tenant gating, and
 //!   argument parsing without needing a mock provider.
 //! - Every tool also gets a no-tenant rejection test and an input-validation
@@ -321,7 +322,8 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
     // Out-of-range window is clamped, not rejected; the underlying provider
     // call still fails (no token) — we just confirm the clamp didn't panic
-    // and the failure is the documented auth-required path.
+    // and the failure is the reconnect signal for the connected provider,
+    // which the chat pipeline turns into a reconnect link.
     let err = executor
         .execute_tool(make_request(
             "export_latest_snapshot",
@@ -331,7 +333,10 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
         ))
         .await
         .expect_err("provider auth still required");
-    assert_invalid_request(&err, "export_latest_snapshot");
+    match err {
+        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(provider, "strava"),
+        other => panic!("export_latest_snapshot: expected ProviderAuthRequired, got {other:?}"),
+    }
     Ok(())
 }
 

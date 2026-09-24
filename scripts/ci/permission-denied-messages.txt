@@ -38,6 +38,7 @@ crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for yo
 crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privileges. Contact your tenant administrator.
 crates/pierre-groups/src/service.rs:Group coaching requires a Professional or Enterprise plan
 crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
+crates/pierre-providers/src/sciotte_remote.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
@@ -45,9 +46,10 @@ crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate anot
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tenant-scoped tool operations require super-admin privileges
-crates/pierre-routes-agents/src/roster.rs:Athlete does not belong to the caller's active tenant
-crates/pierre-routes-agents/src/roster.rs:Roster management is not enabled for your account
 crates/pierre-routes-auth/src/oauth.rs:Cannot initiate OAuth flow for a different user
+crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link TrainingPeaks athletes
+crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
+crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can confirm it
 crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/group_update_access.rs:The group's coach may change only its weekly digest
 crates/pierre-routes-groups/src/groups.rs:A coach must belong to the group's tenant to join it

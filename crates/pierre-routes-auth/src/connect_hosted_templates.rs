@@ -8,10 +8,11 @@
 //!
 //! The picker lets a messaging user choose a provider and connect via OAuth or
 //! the Sciotte credential state machine — mirroring the web onboarding cards.
-//! It shares the Pierre brand styling and the success/error pages with the
-//! Sciotte hosted-login flow ([`crate::sciotte_hosted_templates`]).
+//! It shares the Boreal stylesheet every hosted page embeds and the
+//! success/error pages with the Sciotte hosted-login flow
+//! ([`crate::sciotte_hosted_templates`]).
 
-use pierre_core::html::escape_html_attribute;
+use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 
 use crate::sciotte_hosted_templates;
 
@@ -29,7 +30,9 @@ const CONNECT_TEMPLATE: &str = include_str!("../templates/connect_hosted.html");
 pub fn render_connect_page(link_token: &str, channel: &str, providers_json: &str) -> String {
     let channel_label = humanize_channel(channel);
 
-    CONNECT_TEMPLATE
+    // The notice starts hidden: the page shows it for a card whose
+    // `consent_required` is set, when that card is picked.
+    sciotte_hosted_templates::fill_consent(&with_hosted_page_css(CONNECT_TEMPLATE), true)
         .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
         .replace("{{CHANNEL}}", &escape_html_attribute(channel))
         .replace("{{CHANNEL_LABEL}}", &escape_html_attribute(&channel_label))

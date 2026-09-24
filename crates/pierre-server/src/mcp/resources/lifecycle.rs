@@ -80,6 +80,8 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 #[cfg(feature = "tools-groups")]
+use pierre_groups::delegation::DelegationStore;
+#[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
@@ -314,6 +316,7 @@ impl ServerContext {
         #[cfg(feature = "tools-groups")]
         let group_service = Arc::new(pierre_groups::GroupService::new(
             repos.groups.clone(),
+            Arc::new(DelegationStore::new(&repos)),
             tier_strategy_for("professional"),
         ));
 

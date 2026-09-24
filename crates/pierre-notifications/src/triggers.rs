@@ -1,4 +1,4 @@
-// ABOUTME: Notification triggers for intelligence events, agent communications, and sync failures
+// ABOUTME: Notification triggers for intelligence events, agent traffic, sync failures and coach TrainingPeaks links
 // ABOUTME: All fire-and-forget via tokio::spawn — failures logged at WARN, never block the caller
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -28,7 +28,9 @@
 
 use std::sync::Arc;
 
-use serde_json::json;
+use pierre_core::constants::oauth_providers::TRAININGPEAKS;
+use pierre_core::models::NotificationScreen;
+use serde_json::{json, Value};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -304,5 +306,142 @@ pub fn trigger_sync_failure(
         }]),
         bypass_frequency_cap: false,
     };
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+}
+
+// ============================================================================
+// Delegated Connection Triggers (bypass frequency cap)
+// ============================================================================
+//
+// A group's coach reads a member's TrainingPeaks workouts through the coach's
+// own TrainingPeaks account once the member confirms. Each step reaches the
+// other side: the member is asked, the coach hears the answer, and both hear
+// when TrainingPeaks drops the athlete from the coach's roster. They bypass
+// the daily cap like agent traffic: each is a one-off answer between two
+// people, and a coach linking a whole squad must not lose the last replies.
+// The member's notices open their connections, where the TrainingPeaks card
+// names the link; the coach's name the group and carry no destination, like
+// the group's weekly digest.
+
+/// A delegated-connection notice for `user_id`, in category `coach`.
+fn delegation_dispatch(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    event: NotificationEvent,
+    params: Value,
+    route: Value,
+) -> EventDispatch {
+    EventDispatch {
+        user_id,
+        tenant_id,
+        category: NotificationCategory::Coach,
+        event,
+        params,
+        route,
+        actions: None,
+        bypass_frequency_cap: true,
+    }
+}
+
+/// The member's connections, where their `TrainingPeaks` card names the link.
+fn trainingpeaks_connections_route() -> Value {
+    json!({
+        "screen": NotificationScreen::Connections.as_str(),
+        "provider": TRAININGPEAKS,
+    })
+}
+
+/// Trigger notification asking a member to confirm the `TrainingPeaks` link
+/// their group's coach proposed. Their confirmation is the consent to the read.
+pub fn trigger_delegation_proposed(
+    service: &Arc<NotificationService>,
+    member_id: Uuid,
+    tenant_id: TenantId,
+    coach_name: &str,
+    group_name: &str,
+) {
+    let dispatch = delegation_dispatch(
+        member_id,
+        tenant_id,
+        NotificationEvent::DelegationProposed,
+        json!({ "coach_name": coach_name, "group_name": group_name }),
+        trainingpeaks_connections_route(),
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+}
+
+/// Trigger notification telling the coach a member confirmed their link.
+pub fn trigger_delegation_confirmed(
+    service: &Arc<NotificationService>,
+    coach_id: Uuid,
+    tenant_id: TenantId,
+    member_name: &str,
+    group_name: &str,
+) {
+    let dispatch = delegation_dispatch(
+        coach_id,
+        tenant_id,
+        NotificationEvent::DelegationConfirmed,
+        json!({ "member_name": member_name, "group_name": group_name }),
+        Value::Null,
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
+}
+
+/// Trigger notification telling the coach a member declined their link.
+pub fn trigger_delegation_declined(
+    service: &Arc<NotificationService>,
+    coach_id: Uuid,
+    tenant_id: TenantId,
+    member_name: &str,
+    group_name: &str,
+) {
+    let dispatch = delegation_dispatch(
+        coach_id,
+        tenant_id,
+        NotificationEvent::DelegationDeclined,
+        json!({ "member_name": member_name, "group_name": group_name }),
+        Value::Null,
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
+}
+
+/// Trigger notification telling the coach a linked member left their
+/// `TrainingPeaks` roster, which ended the link.
+pub fn trigger_delegation_off_roster(
+    service: &Arc<NotificationService>,
+    coach_id: Uuid,
+    tenant_id: TenantId,
+    member_name: &str,
+    group_name: &str,
+) {
+    let dispatch = delegation_dispatch(
+        coach_id,
+        tenant_id,
+        NotificationEvent::DelegationOffRoster,
+        json!({ "member_name": member_name, "group_name": group_name }),
+        Value::Null,
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
+}
+
+/// Trigger notification telling the member their coach's roster dropped them.
+///
+/// Their workouts are no longer read through the coach's account. P1: their
+/// `TrainingPeaks` data stopped flowing.
+pub fn trigger_delegation_off_coach_roster(
+    service: &Arc<NotificationService>,
+    member_id: Uuid,
+    tenant_id: TenantId,
+    coach_name: &str,
+    group_name: &str,
+) {
+    let dispatch = delegation_dispatch(
+        member_id,
+        tenant_id,
+        NotificationEvent::DelegationOffCoachRoster,
+        json!({ "coach_name": coach_name, "group_name": group_name }),
+        trainingpeaks_connections_route(),
+    );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }

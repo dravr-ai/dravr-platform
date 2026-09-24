@@ -601,7 +601,7 @@ impl GroupCoachHandler {
         let cleared = ctx
             .ctx
             .group_service()
-            .set_group_coach(&group.id.to_string(), None, group.tenant_id)
+            .set_group_coach(&group.id.to_string(), None, group.tenant_id, ctx.user_id)
             .await?;
         if !cleared {
             return Err(AppError::not_found("Group not found"));
@@ -707,7 +707,12 @@ impl CommandHandler for GroupCoachHandler {
         let updated = ctx
             .ctx
             .group_service()
-            .update_group(&group.id.to_string(), group.tenant_id, &request)
+            .update_group(
+                &group.id.to_string(),
+                group.tenant_id,
+                &request,
+                Some(ctx.user_id),
+            )
             .await?
             .ok_or_else(|| AppError::not_found("Group not found"))?;
 
@@ -805,7 +810,12 @@ impl CommandHandler for GroupRespondHandler {
         let updated = ctx
             .ctx
             .group_service()
-            .update_group(&group.id.to_string(), group.tenant_id, &request)
+            .update_group(
+                &group.id.to_string(),
+                group.tenant_id,
+                &request,
+                Some(ctx.user_id),
+            )
             .await?
             .ok_or_else(|| AppError::not_found("Group not found"))?;
 
@@ -915,7 +925,7 @@ impl CommandHandler for GroupDigestHandler {
         let updated = ctx
             .ctx
             .group_service()
-            .update_group(&group_id, target.tenant_id, &request)
+            .update_group(&group_id, target.tenant_id, &request, Some(ctx.user_id))
             .await?
             .ok_or_else(|| AppError::not_found("Group not found"))?;
 

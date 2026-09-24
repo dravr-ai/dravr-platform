@@ -206,6 +206,19 @@ jobs:
       - name: Turn Envelope Convergence
         run: ./scripts/ci/check-turn-envelope.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+      # The hosted pages embed one stylesheet generated from the Boreal tokens
+      # and committed, because the crates cannot run the generator. Regenerating
+      # it needs bun and no install (the generator imports only the tokens), so
+      # it stays compile-free like the rest of this job. The pre-push Tier 1l
+      # runs the same script, but a worktree without core.hooksPath skips it.
+      - name: Setup Bun (hosted page stylesheet)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Hosted Page Stylesheet
+        run: ./scripts/ci/check-hosted-css.sh
+
       # pierre-database implements each repository trait twice, once per backend,
       # and every local gate runs SQLite — so an edit that lands on one side and
       # not the other is first seen here. Fails a newly duplicated pair; reports

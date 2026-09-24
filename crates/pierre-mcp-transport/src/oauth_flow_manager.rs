@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use html_escape::encode_text;
+use pierre_core::html::with_hosted_page_css;
 
 use crate::OAuthCallbackResponse;
 
@@ -24,7 +25,7 @@ impl OAuthTemplateRenderer {
         let capitalized_provider = Self::capitalize_provider(provider);
 
         // Escape all interpolated values to prevent XSS
-        TEMPLATE
+        with_hosted_page_css(TEMPLATE)
             .replace("{{PROVIDER}}", &encode_text(&capitalized_provider))
             .replace("{{PROVIDER_LOWER}}", &encode_text(&provider.to_lowercase()))
             .replace("{{USER_ID}}", &encode_text(&callback_response.user_id))
@@ -52,7 +53,7 @@ impl OAuthTemplateRenderer {
             .unwrap_or_default();
 
         // Escape provider and error values to prevent XSS
-        TEMPLATE
+        with_hosted_page_css(TEMPLATE)
             .replace("{{PROVIDER}}", &encode_text(provider))
             .replace("{{ERROR}}", &encode_text(error))
             .replace("{{DESCRIPTION}}", &description_html)

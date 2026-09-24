@@ -46,7 +46,7 @@ BASELINE_WEB_LEGACY_PIERRE=0
 # Boreal v2 (DESIGN.md §4, §5): backdrop blur belongs to overlays over
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
 # ratcheted from the count the refresh left, so they can only fall.
-BASELINE_WEB_BACKDROP_BLUR=16
+BASELINE_WEB_BACKDROP_BLUR=15
 BASELINE_WEB_HERO_GRADIENT=5
 # Boreal v2.1 (DESIGN.md §5, §9): a group is a Section, not a Card; the
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
@@ -332,7 +332,7 @@ WEB_EMOJI=$(find "$PROJECT_ROOT/frontend/src" -name '*.tsx' -not -path '*/__test
 check_ratchet "web emoji used as icons" "$WEB_EMOJI" 0 \
     "Draw an inline SVG or use a lucide glyph; emoji are not part of the brand."
 
-WEB_TINY_TEXT=$(grep -rEoh 'text-\[(9|10|11)px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+WEB_TINY_TEXT=$(grep -rEo 'text-\[(9|10|11)px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web text below the 12px floor" "$WEB_TINY_TEXT" 0 \
     "The smallest step is text-xs (DESIGN.md §3)."
@@ -348,7 +348,7 @@ WEB_RETIRED_FACES=$(grep -rEo "'Inter'|Space Grotesk|\bfont-label\b|\btracking-l
 check_ratchet "web retired faces and shadow classes" "$WEB_RETIRED_FACES" 0 \
     "Schibsted Grotesk for headings, Plus Jakarta Sans for everything else, and shadow-floating is the only shadow (DESIGN.md §3, §4)."
 
-WEB_BLUR=$(grep -rEoh 'backdrop-blur(-[a-z]+)?' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+WEB_BLUR=$(grep -rEo 'backdrop-blur(-[a-z]+)?' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web backdrop-blur outside the overlay pattern" "$WEB_BLUR" "$BASELINE_WEB_BACKDROP_BLUR" \
     "Blur is for .card-boreal-overlay over photography; a scrim is bg-scrim/60 with no blur (DESIGN.md §4)."
@@ -376,7 +376,7 @@ echo ""
 #   .chat-bubble-ai — the agent speaks as prose; the class is gone.
 # ----------------------------------------------------------------------------
 echo "-- Boreal v2.1 density (DESIGN.md §5, §8, §9) --"
-WEB_CARD_SITES=$(grep -rEoh '<Card\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+WEB_CARD_SITES=$(grep -rEo '<Card\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web Card sites" "$WEB_CARD_SITES" "$BASELINE_WEB_CARD_SITES" \
     "Group content with ui/Section (title, line, rows); keep Card for what floats (DESIGN.md §5)."
@@ -386,12 +386,12 @@ WEB_LEGACY_CARD_CLASSES=$(grep -rEoh 'className="(card-dark|card-admin)' "$PROJE
 check_ratchet "web legacy card-dark/card-admin wrappers" "$WEB_LEGACY_CARD_CLASSES" "$BASELINE_WEB_LEGACY_CARD_CLASSES" \
     "Move the group to ui/Section; the class is a flat shim, not a design (DESIGN.md §5)."
 
-WEB_LARGE_TEXT=$(grep -rEoh '\btext-(2xl|3xl)\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+WEB_LARGE_TEXT=$(grep -rEo '\btext-(2xl|3xl)\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web text above 18px" "$WEB_LARGE_TEXT" "$BASELINE_WEB_LARGE_TEXT" \
     "Titles are text-xl (18px), section titles text-sm 600; text-2xl/3xl are for auth headlines and hero numbers (DESIGN.md §3)."
 
-WEB_HARD_44=$(grep -rEoh 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
+WEB_HARD_44=$(grep -rEo 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web hard-coded 44px targets" "$WEB_HARD_44" 0 \
     "Use the touch-target class: 44px on a coarse pointer and under lg, the 32px scale on a fine pointer (DESIGN.md §8)."

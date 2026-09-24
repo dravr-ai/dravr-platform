@@ -403,6 +403,11 @@ pub enum ConnectionType {
     Synthetic,
     /// Connected via manual configuration
     Manual,
+    /// Served through another user's credential: a member's TrainingPeaks
+    /// read through the session of the coach a confirmed
+    /// `delegated_connections` link names. The member holds no token of
+    /// their own for it.
+    Delegated,
 }
 
 impl ConnectionType {
@@ -416,6 +421,7 @@ impl ConnectionType {
             "oauth" => Ok(Self::OAuth),
             "synthetic" => Ok(Self::Synthetic),
             "manual" => Ok(Self::Manual),
+            "delegated" => Ok(Self::Delegated),
             other => Err(AppError::invalid_input(format!(
                 "Unknown connection type: {other}"
             ))),
@@ -429,11 +435,57 @@ impl ConnectionType {
             Self::OAuth => "oauth",
             Self::Synthetic => "synthetic",
             Self::Manual => "manual",
+            Self::Delegated => "delegated",
         }
     }
 }
 
 impl fmt::Display for ConnectionType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What kind of account a provider connection signed in with, as the
+/// provider itself reports it.
+///
+/// A TrainingPeaks coach account keeps no training calendar of its own, so a
+/// read of the account's own workouts has nothing to return; knowing the role
+/// lets a read refuse in words before any scrape, and lets the recency
+/// election prefer the user's other connections. `None` on a connection means
+/// the role has not been read yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAccountRole {
+    /// The account's owner trains: it has a calendar of its own.
+    Athlete,
+    /// The account coaches others and has no calendar of its own.
+    Coach,
+}
+
+impl ProviderAccountRole {
+    /// Convert from the database string representation; `None` for a value
+    /// outside the vocabulary.
+    #[must_use]
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "athlete" => Some(Self::Athlete),
+            "coach" => Some(Self::Coach),
+            _ => None,
+        }
+    }
+
+    /// Convert to the database string representation.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Athlete => "athlete",
+            Self::Coach => "coach",
+        }
+    }
+}
+
+impl fmt::Display for ProviderAccountRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
@@ -543,6 +595,10 @@ pub struct ProviderConnection {
     pub status: ConnectionStatus,
     /// Optional JSON metadata (e.g., {"source": "seed-synthetic-activities"})
     pub metadata: Option<String>,
+    /// The kind of account the connection signed in with, once read from the
+    /// provider; `None` until then. Cleared on every (re)connect, since a new
+    /// login may be a different account.
+    pub account_role: Option<ProviderAccountRole>,
 }
 
 impl ProviderConnection {
@@ -564,6 +620,7 @@ impl ProviderConnection {
             last_used_at: None,
             status: ConnectionStatus::Active,
             metadata: None,
+            account_role: None,
         }
     }
 

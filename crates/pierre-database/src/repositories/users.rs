@@ -124,6 +124,14 @@ pub trait UserRepository: Send + Sync {
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
     /// Update user's analytics consent preference
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()>;
+    /// The TrainingPeaks exposure-notice version this user accepted, or `None`
+    /// when they have accepted none. A TrainingPeaks login is refused until it
+    /// matches the current notice.
+    async fn trainingpeaks_terms_version(&self, user_id: Uuid) -> AppResult<Option<String>>;
+    /// Record that this user accepted TrainingPeaks exposure notice `version`,
+    /// stamping the time. Kept across disconnects: it is the account's answer
+    /// to the notice, not part of any session.
+    async fn record_trainingpeaks_terms(&self, user_id: Uuid, version: &str) -> AppResult<()>;
     /// Update the user's preferred locale (BCP-47 short code, e.g. `"fr"`, `"en"`).
     ///
     /// Called by the user-profile PATCH endpoint. The column has `NOT NULL
@@ -137,10 +145,10 @@ pub trait UserRepository: Send + Sync {
     /// unmigrated user always resolves to the least-restrictive style;
     /// this method overrides that default with an explicit choice.
     async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()>;
-    /// Toggle the user's `manages_roster` permission flag.
-    ///
-    /// Called by admin tooling to grant or revoke the Agent-tier roster
-    /// UI / API surface. Independent from `coaching_persona` — see
+    /// Set the user's `manages_roster` permission flag, which gates redeeming
+    /// a coach invite (joining a coaching group as its human coach). Set to
+    /// `true` when a TrainingPeaks connection reports a coach account.
+    /// Independent from `coaching_persona` — see
     /// `Coaching Persona Architecture.md` §8 for the rationale.
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()>;
     /// Persist the user's IANA timezone (e.g. `"America/Toronto"`).
@@ -1105,6 +1113,21 @@ macro_rules! impl_user_repository {
                 enabled: bool,
             ) -> AppResult<()> {
                 preferences::update_analytics_consent(self.pool(), user_id, enabled).await
+            }
+
+            async fn trainingpeaks_terms_version(
+                &self,
+                user_id: Uuid,
+            ) -> AppResult<Option<String>> {
+                preferences::trainingpeaks_terms_version(self.pool(), user_id).await
+            }
+
+            async fn record_trainingpeaks_terms(
+                &self,
+                user_id: Uuid,
+                version: &str,
+            ) -> AppResult<()> {
+                preferences::record_trainingpeaks_terms(self.pool(), user_id, version).await
             }
 
             async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {

@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import ProviderConnectionCards from '../ProviderConnectionCards';
+import { ThemeProvider } from '../../hooks/useTheme';
 
 const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn();
@@ -24,8 +25,20 @@ vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 // Render the Sciotte modal as a testid carrying its target so a fallback that
 // opens it (target="strava") is observable.
 vi.mock('../SciotteLoginModal', () => ({
-  default: ({ isOpen, target }: { isOpen: boolean; target: string }) =>
-    isOpen ? <div data-testid="sciotte-modal">{target}</div> : null,
+  default: ({
+    isOpen,
+    target,
+    consentRequired,
+  }: {
+    isOpen: boolean;
+    target: string;
+    consentRequired?: boolean;
+  }) =>
+    isOpen ? (
+      <div data-testid="sciotte-modal" data-consent={String(Boolean(consentRequired))}>
+        {target}
+      </div>
+    ) : null,
 }));
 vi.mock('../IntervalsIcuLinkModal', () => ({
   default: () => null,
@@ -50,10 +63,120 @@ function renderCards() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ProviderConnectionCards />
+      <ThemeProvider>
+        <ProviderConnectionCards />
+      </ThemeProvider>
     </QueryClientProvider>,
   );
 }
+
+describe('ProviderConnectionCards — the glyph ink follows the scheme', () => {
+  const card = (provider: string, display_name: string) => ({
+    provider,
+    display_name,
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities'],
+    consent_required: false,
+  });
+  const providers = [
+    card('sciotte_trainingpeaks', 'TrainingPeaks'),
+    card('whoop', 'WHOOP'),
+    card('sciotte', 'Strava'),
+    card('synthetic', 'Synthetic'),
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers });
+  });
+
+  afterEach(() => {
+    localStorage.removeItem('dravr.theme');
+    document.documentElement.classList.remove('dark');
+  });
+
+  it('draws TrainingPeaks in its blue and WHOOP in body ink on the light canvas', async () => {
+    localStorage.setItem('dravr.theme', 'light');
+    renderCards();
+
+    const trainingPeaks = await screen.findByTestId('provider-glyph-sciotte_trainingpeaks');
+    expect(trainingPeaks).toHaveStyle({ color: 'rgb(0, 86, 149)' });
+
+    // WHOOP's green is 1.83:1 on light paper: the glyph keeps the body ink
+    // class and carries no colour of its own.
+    const whoop = screen.getByTestId('provider-glyph-whoop');
+    expect(whoop).toHaveClass('text-on-surface');
+    expect(whoop.style.color).toBe('');
+
+    expect(screen.getByTestId('provider-glyph-sciotte')).toHaveStyle({ color: 'rgb(252, 76, 2)' });
+  });
+
+  it('draws TrainingPeaks in body ink and WHOOP in its green on the dark canvas', async () => {
+    localStorage.setItem('dravr.theme', 'dark');
+    renderCards();
+
+    // TrainingPeaks' blue is 2.46:1 on the dark canvas.
+    const trainingPeaks = await screen.findByTestId('provider-glyph-sciotte_trainingpeaks');
+    expect(trainingPeaks).toHaveClass('text-on-surface');
+    expect(trainingPeaks.style.color).toBe('');
+
+    expect(screen.getByTestId('provider-glyph-whoop')).toHaveStyle({ color: 'rgb(0, 212, 106)' });
+    expect(screen.getByTestId('provider-glyph-sciotte')).toHaveStyle({ color: 'rgb(252, 76, 2)' });
+  });
+
+  it('draws a provider with no brand colour in body ink in either scheme', async () => {
+    for (const scheme of ['light', 'dark']) {
+      localStorage.setItem('dravr.theme', scheme);
+      const { unmount } = renderCards();
+      const glyph = await screen.findByTestId('provider-glyph-synthetic');
+      expect(glyph).toHaveClass('text-on-surface');
+      expect(glyph.style.color).toBe('');
+      unmount();
+    }
+  });
+});
+
+describe('ProviderConnectionCards — TrainingPeaks', () => {
+  const trainingPeaksCard = (consent_required: boolean) => ({
+    provider: 'sciotte_trainingpeaks',
+    display_name: 'TrainingPeaks',
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities'],
+    consent_required,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('open', vi.fn());
+  });
+
+  it('opens the TrainingPeaks login, carrying whether its notice is still owed', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [trainingPeaksCard(true)] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to TrainingPeaks'));
+
+    const modal = await screen.findByTestId('sciotte-modal');
+    expect(modal).toHaveTextContent('trainingpeaks');
+    expect(modal).toHaveAttribute('data-consent', 'true');
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('does not ask again once the account has accepted it', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [trainingPeaksCard(false)] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to TrainingPeaks'));
+
+    expect(await screen.findByTestId('sciotte-modal')).toHaveAttribute('data-consent', 'false');
+  });
+});
 
 describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => {
   beforeEach(() => {

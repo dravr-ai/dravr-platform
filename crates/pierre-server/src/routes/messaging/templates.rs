@@ -6,7 +6,7 @@
 
 use axum::response::Html;
 
-use pierre_core::html::escape_html_attribute;
+use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 
 /// Login page template embedded at compile-time
 const LINK_LOGIN_TEMPLATE: &str = include_str!("../../../templates/messaging_link_login.html");
@@ -33,12 +33,12 @@ pub fn render_link_login_page(
 
     let error_html = error.map_or_else(String::new, |msg| {
         format!(
-            r#"<div class="error-message">{}</div>"#,
+            r#"<div class="alert alert-error" role="alert">{}</div>"#,
             escape_html_attribute(msg)
         )
     });
 
-    let html = LINK_LOGIN_TEMPLATE
+    let html = with_hosted_page_css(LINK_LOGIN_TEMPLATE)
         .replace("{{CHANNEL}}", &escape_html_attribute(channel))
         .replace("{{CODE}}", &escape_html_attribute(code))
         .replace("{{GREETING}}", &greeting)
@@ -49,12 +49,14 @@ pub fn render_link_login_page(
 
 /// Render the success page after a channel has been linked
 pub fn render_link_success_page(channel: &str) -> Html<String> {
-    let html = LINK_SUCCESS_TEMPLATE.replace("{{CHANNEL}}", &escape_html_attribute(channel));
+    let html = with_hosted_page_css(LINK_SUCCESS_TEMPLATE)
+        .replace("{{CHANNEL}}", &escape_html_attribute(channel));
     Html(html)
 }
 
 /// Render the error page for expired or invalid link codes
 pub fn render_link_error_page(message: &str) -> Html<String> {
-    let html = LINK_ERROR_TEMPLATE.replace("{{MESSAGE}}", &escape_html_attribute(message));
+    let html = with_hosted_page_css(LINK_ERROR_TEMPLATE)
+        .replace("{{MESSAGE}}", &escape_html_attribute(message));
     Html(html)
 }

@@ -23,6 +23,10 @@ import type {
   GroupHealthFlagsResponse,
   GroupPermissionsResponse,
   GroupTranscriptResponse,
+  DelegatedConnection,
+  DelegatedConnectionsResponse,
+  DelegationRosterResponse,
+  ProposeDelegatedConnectionRequest,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -41,6 +45,10 @@ export type {
   GroupWeeklyReportResponse,
   GroupHealthFlagsResponse,
   GroupPermissionsResponse,
+  DelegatedConnection,
+  DelegatedConnectionsResponse,
+  DelegationRosterResponse,
+  ProposeDelegatedConnectionRequest,
 };
 
 /**
@@ -127,6 +135,69 @@ export function createGroupsApi(axios: AxiosInstance) {
     /** Deactivate an invite (admin/owner only) */
     async deactivateInvite(groupId: string, inviteId: string): Promise<void> {
       await axios.delete(ENDPOINTS.GROUPS.INVITE(groupId, inviteId));
+    },
+
+    // ==================== TRAININGPEAKS LINKS ====================
+
+    /**
+     * The group's live TrainingPeaks links: every one for the group's coach,
+     * only their own for a member (`viewer` says which).
+     */
+    async listDelegatedConnections(groupId: string): Promise<DelegatedConnectionsResponse> {
+      const response = await axios.get<DelegatedConnectionsResponse>(
+        ENDPOINTS.GROUPS.DELEGATED_CONNECTIONS(groupId),
+      );
+      return response.data;
+    },
+
+    /**
+     * The coach's TrainingPeaks roster, each athlete with its link in this
+     * group and a suggested member. Cached ten minutes on the server;
+     * `refresh` reads it live. A refusal carries `details.reason`.
+     */
+    async getDelegationRoster(
+      groupId: string,
+      options?: { refresh?: boolean },
+    ): Promise<DelegationRosterResponse> {
+      const response = await axios.get<DelegationRosterResponse>(
+        ENDPOINTS.GROUPS.DELEGATION_ROSTER(groupId),
+        options?.refresh ? { params: { refresh: true } } : undefined,
+      );
+      return response.data;
+    },
+
+    /** The coach links a roster athlete to a live member; the member confirms. */
+    async proposeDelegatedConnection(
+      groupId: string,
+      request: ProposeDelegatedConnectionRequest,
+    ): Promise<DelegatedConnection> {
+      const response = await axios.post<DelegatedConnection>(
+        ENDPOINTS.GROUPS.DELEGATED_CONNECTIONS(groupId),
+        request,
+      );
+      return response.data;
+    },
+
+    /**
+     * The member confirms a proposed link, consenting to their TrainingPeaks
+     * workouts being read through the coach's account.
+     */
+    async confirmDelegatedConnection(
+      groupId: string,
+      connectionId: string,
+    ): Promise<DelegatedConnection> {
+      const response = await axios.post<DelegatedConnection>(
+        ENDPOINTS.GROUPS.DELEGATED_CONNECTION_CONFIRM(groupId, connectionId),
+      );
+      return response.data;
+    },
+
+    /**
+     * End a link: the member declines or unlinks, the coach withdraws or
+     * unlinks. The server derives which from the caller and the link's state.
+     */
+    async endDelegatedConnection(groupId: string, connectionId: string): Promise<void> {
+      await axios.delete(ENDPOINTS.GROUPS.DELEGATED_CONNECTION(groupId, connectionId));
     },
 
     // ==================== PERMISSIONS ====================

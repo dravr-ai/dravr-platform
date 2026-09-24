@@ -46,7 +46,7 @@ jest.mock('../../../components/OAuthAppSetupModal', () => ({ OAuthAppSetupModal:
 jest.mock('../../../components/icons/BrandIcons', () => {
   const React = require('react');
   const { Text } = require('react-native');
-  const known = ['sciotte', 'strava', 'sciotte_garmin', 'garmin', 'whoop', 'intervals_icu'];
+  const known = ['sciotte', 'strava', 'sciotte_garmin', 'garmin', 'sciotte_trainingpeaks', 'whoop', 'intervals_icu'];
   return {
     providerGlyph: (providerId: string) =>
       known.includes(providerId)
@@ -77,6 +77,7 @@ function provider(
     connected: false,
     needs_reauth: false,
     capabilities: ['activities'],
+    consent_required: false,
     ...overrides,
   };
 }
@@ -119,12 +120,13 @@ describe('ConnectionsScreen rows', () => {
     await renderWith([
       disconnectedStrava,
       provider('sciotte_garmin', 'Garmin'),
+      provider('sciotte_trainingpeaks', 'TrainingPeaks', { consent_required: true }),
       provider('whoop', 'WHOOP', { requires_oauth: true }),
       provider('intervals_icu', 'Intervals.icu'),
       provider('polar', 'Polar Flow', { requires_oauth: true }),
     ]);
 
-    for (const id of ['sciotte', 'sciotte_garmin', 'whoop', 'intervals_icu']) {
+    for (const id of ['sciotte', 'sciotte_garmin', 'sciotte_trainingpeaks', 'whoop', 'intervals_icu']) {
       expect(screen.getByTestId(`glyph-${id}`)).toBeTruthy();
     }
     expect(screen.queryByTestId('glyph-polar')).toBeNull();

@@ -30,17 +30,18 @@ use std::sync::Arc;
 
 use crate::repositories::{
     A2ARepository, AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository,
-    ClaimVerdictRepository, CoachingGroupRepository, DataSourceRepository, DossierRepository,
-    FeatureFlagsRepository, FitnessConfigRepository, HarnessMemoryRepository,
-    HealthSnapshotRepository, ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository,
-    MobilityRepository, OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    ClaimVerdictRepository, CoachingGroupRepository, DataSourceRepository,
+    DelegatedConnectionRepository, DossierRepository, FeatureFlagsRepository,
+    FitnessConfigRepository, HarnessMemoryRepository, HealthSnapshotRepository,
+    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, MobilityRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
     PasswordResetRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RosterRepository,
-    RouteSummaryRepository, SecurityRepository, SeederRepository, SleepRepository,
-    StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository, TenantRepository,
-    ToolSelectionRepository, TrainingHistoryRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
-    UserRepository, UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
+    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, RouteSummaryRepository,
+    SecurityRepository, SeederRepository, SleepRepository, StoreListingsRepository,
+    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
+    TrainingHistoryRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, WeatherCacheRepository, WorkoutTemplateRepository,
 };
 use crate::RepositoryRegistry;
 use dravr_riviere::TimeSeriesStore;
@@ -81,6 +82,10 @@ pub struct AuthRepos {
     pub user_mcp_tokens: Arc<dyn UserMcpTokenRepository>,
     /// Agent-to-Agent protocol clients, sessions, tasks
     pub a2a: Arc<dyn A2ARepository>,
+    /// Delegated connections: a member's provider read through their group
+    /// coach's session — a credential the member uses without holding it,
+    /// beside the ones in `oauth_tokens`.
+    pub delegated_connections: Arc<dyn DelegatedConnectionRepository>,
 }
 
 impl AuthRepos {
@@ -104,6 +109,7 @@ impl AuthRepos {
             impersonation: Arc::clone(&registry.impersonation),
             user_mcp_tokens: Arc::clone(&registry.user_mcp_tokens),
             a2a: Arc::clone(&registry.a2a),
+            delegated_connections: Arc::clone(&registry.delegated_connections),
         }
     }
 }
@@ -126,8 +132,6 @@ pub struct AgentRepos {
     pub chat: Arc<dyn ChatRepository>,
     /// Coaching group CRUD, membership, and invites
     pub groups: Arc<dyn CoachingGroupRepository>,
-    /// Agent-athlete roster assignments
-    pub roster: Arc<dyn RosterRepository>,
     /// Endurance dossier composer (read-time aggregate from physiology /
     /// goals / zones / nutrition / equipment)
     pub dossier: Arc<dyn DossierRepository>,
@@ -150,7 +154,6 @@ impl AgentRepos {
             store_listings: Arc::clone(&registry.store_listings),
             chat: Arc::clone(&registry.chat),
             groups: Arc::clone(&registry.groups),
-            roster: Arc::clone(&registry.roster),
             dossier: Arc::clone(&registry.dossier),
             prescribed_workouts: Arc::clone(&registry.prescribed_workouts),
             workout_templates: Arc::clone(&registry.workout_templates),

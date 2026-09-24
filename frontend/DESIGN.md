@@ -165,6 +165,19 @@ Third-party brand colors are not design-system violations — Strava's orange in
 `SciotteLoginModal` stays as it is. Mark them with a comment so they read as
 deliberate rather than as drift.
 
+**A provider glyph still answers to the 3:1 icon floor, in both schemes.** The
+brand hex is exempt from the token rule, not from contrast. `PROVIDER_GLYPH_INK`
+in `@pierre/shared-constants` is the one table every client reads for a glyph's
+colour: per provider and per scheme, the brand hex where it clears 3:1 on
+`surface`, and `null` — the body ink, `on-surface` — where it does not.
+TrainingPeaks' `#005695` measures 7.02:1 on light paper and 2.46:1 on the dark
+canvas, so it is blue in light and body ink in dark; WHOOP's `#00D46A` is the
+reverse (1.83:1 light, 9.45:1 dark). Strava, Garmin and intervals.icu clear
+both. A client never keeps its own glyph-colour table: the web applies the
+table's ink as an inline colour for the current scheme over a `text-on-surface`
+class, the phone passes it to the brand glyph. `PROVIDER_COLORS` beside it
+names where each hex comes from.
+
 ### Bound ink — what a hue may be drawn as
 
 **A hue may be a fill, a tint, a dot, a rule or a border. When text sits on
@@ -509,6 +522,34 @@ providers they can connect and the four pillars they can ask about. It
 never describes the design ("rendered in ink") or the company. The AI is an
 **agent**; a human professional is a **coach** — ADR-026 in the vault.
 
+### Server-rendered hosted pages
+
+The pages the server renders itself — the OAuth login, consent and error pages
+an MCP client opens, the Sciotte login and connect picker a chat link opens,
+the messaging link pages, the expired short-link page and the CLI device
+approval — have no React and no Tailwind to read a token through. They draw
+from one stylesheet generated from `design-system.ts`:
+`crates/pierre-core/src/hosted_page.css`, written by
+`packages/shared-constants/scripts/generate-hosted-css.ts`
+(`bun run generate:hosted-css`). A template embeds it through
+`pierre_core::html::with_hosted_page_css`; none carries a palette of its own.
+
+The sheet follows the auth-page recipe above in both schemes, picked by
+`prefers-color-scheme` because a hosted page has no appearance setting to read:
+one card with a hairline on `surface` — white in light, `surface-container-high`
+in dark (§4) — the lockup at the top, underlined fields, one 44px filled
+`primary` action. The TrainingPeaks notice is the `warning` tint under its
+`on-warning-container` ink, with its title and a checkbox whose edge is
+`outline`, as on web and mobile. An error takes the same shape in its own hue:
+an `error` tint under `on-error-container`, never the dense `error-container`
+fill, which on the dark card outshouts the page's one action.
+
+The generator measures every pairing it draws from the token values and refuses
+to write a sheet below 4.5:1 for text or 3:1 for a graphic, per scheme; the
+measured table is the sheet's header. `scripts/ci/check-hosted-css.sh` (pre-push
+Tier 1l) regenerates the sheet and fails a push that left it stale, or a hosted
+template that draws outside it.
+
 ### Chat surfaces — the messenger layout
 
 The athlete app is a messenger, and reads like one: WhatsApp Web is the
@@ -791,7 +832,7 @@ compared — an unread count, a token total, a time in a row — are
 | | Value |
 |---|---|
 | Radii | 4 chips · 8 buttons and fields · 12 floating cards and a room's avatar · 20 a sheet's top and the composer field · full for a person's or an agent's avatar and for badges (`2xl` = `xl`, so nothing sits between a card and a sheet). A circle is one counterpart, a square is many — the Fluent 2 / GitLab convention; shape reaches no screen reader, so the kind glyph and the row's accessible name carry the same fact in words |
-| Hairlines | the web's three, verbatim: `border-border-faint` (.26 light / .14 dark) inside a list, `border-border` (.40 / .22) at pane edges and fields, `border-border-strong` (.55 / .34) on a control's outline; `StyleSheet.hairlineWidth` |
+| Hairlines | the web's three, verbatim: `border-border-faint` (.26 light / .14 dark) inside a list, `border-border` (.40 / .22) at pane edges and fields, `border-border-strong` (.55 / .34) on a separator that must read; `StyleSheet.hairlineWidth`. The edge of a control whose empty state is otherwise invisible (a checkbox, a radio) is the `outline` token, not a hairline: WCAG 1.4.11 asks 3:1 of it, and `border-strong` measures 1.55:1 light / 2.30:1 dark on `surface` while `outline` clears it on every tier (web `ui/Checkbox`, phone `ui/Checkbox`) |
 | Scrim | one, `bg-scrim/60` — `#1a1c1b` in light, black in dark |
 | Shadow | `shadow-floating` only, for what floats; a resting surface is lifted by its hairline |
 | Button | 44 tall, radius 8, no shadow; `primary` · `secondary` (hairline) · `ghost` · `danger`; the spinner takes the label's ink |

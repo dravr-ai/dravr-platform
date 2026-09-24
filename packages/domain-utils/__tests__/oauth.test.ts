@@ -54,12 +54,6 @@ describe('OAUTH_PROVIDERS', () => {
     expect(OAUTH_PROVIDERS.fitbit.displayName).toBe('Fitbit');
     expect(OAUTH_PROVIDERS.garmin.displayName).toBe('Garmin');
   });
-
-  it('has color codes for each provider', () => {
-    expect(OAUTH_PROVIDERS.strava.color).toMatch(/^#[0-9A-F]{6}$/i);
-    expect(OAUTH_PROVIDERS.fitbit.color).toMatch(/^#[0-9A-F]{6}$/i);
-    expect(OAUTH_PROVIDERS.garmin.color).toMatch(/^#[0-9A-F]{6}$/i);
-  });
 });
 
 describe('getFriendlyUrlName', () => {

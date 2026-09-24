@@ -134,6 +134,48 @@ twin (WHOOP).
 from cross-sport dedup since the overlap math is unreliable without a
 real start time.
 
+## TrainingPeaks
+
+### A coach account's own reads fail with "a coach account has no calendar"
+
+**Symptom:** A user connects TrainingPeaks and every read of their own
+workouts answers that the account is a coach account.
+**Cause:** TrainingPeaks addresses every calendar by athlete, and a coach
+account has none of its own: `/fitness/v7/athletes/{coachId}/workouts/…`
+answers 400 `Invalid athleteId`. Before sciotte 0.14 the scrape read
+whichever athlete's calendar the app had open and filed it under the coach.
+**Mitigation:** sciotte names the athlete on every read (`athlete_required`
+for a coach with none). The platform records the account role at login
+(`pierre-services` `trainingpeaks_accounts.rs`), purges the misfiled cache,
+and routes a coach to Group info, where each roster athlete is linked to a
+member who confirms; the member's reads then go through the coach's session
+(`pierre-tool-runtime` `protocol/delegated_auth.rs`).
+**Don't:** Read the coach's first roster athlete as a default — that is the
+misfiling this replaced.
+
+### `feeling` runs from 1 (best) to 9 (worst), on odd steps only
+
+**Symptom:** A workout reported as "very strong" reads as the worst feel.
+**Cause:** TrainingPeaks' feeling is 0–10 on the wire, but its app offers
+only 1, 3, 5, 7, 9, with 1 = very strong and 9 = very weak (Partners API
+wiki `Workouts-Object.md`; the web app's feeling picker).
+**Mitigation:** `pierre-providers` `trainingpeaks_self_report.rs` maps those
+five onto `Feel` and every other value to none.
+**Don't:** Assume higher is better, or round an even value to a face.
+
+### A dead session looks like a scrape failure, and a re-login looked like success
+
+**Symptom:** The coach's roster fails with a 500 while the card says
+connected; logging in again changes nothing.
+**Cause:** A TrainingPeaks session carries no expiry, so a dead one is only
+seen when the app page redirects to `home.trainingpeaks.com/login`.
+**Mitigation:** sciotte 0.15.1 reports that redirect as an expired session
+on the profile read too, so the platform asks for a re-login; the login
+route reuses a stored session only when it was written in the last
+2 minutes (`pierre-routes-auth` `sciotte_session_reuse.rs`), so a later
+login with credentials always signs in again.
+**Don't:** Treat a stored session without an expiry as proof it still works.
+
 ## Adding a new entry
 
 Template:

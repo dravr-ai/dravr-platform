@@ -38,6 +38,8 @@ use pierre_core::models::TenantId;
 use pierre_middleware::provider_link_token::{
     verify_link_token, ProviderLinkTokenClaims, CONNECT_PROVIDER,
 };
+use pierre_providers::backend_resolver;
+use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::oauth_flow::OAuthService;
 use uuid::Uuid;
 
@@ -46,7 +48,8 @@ use crate::oauth::compute_providers_status;
 use crate::AuthRoutesContext;
 
 /// Bare OAuth provider rows that the connect picker hides — Strava is the
-/// `sciotte` card and Garmin is the `sciotte_garmin` card; the API-key and
+/// `sciotte` card, Garmin the `sciotte_garmin` card and TrainingPeaks the
+/// `sciotte_trainingpeaks` card; the API-key and
 /// synthetic providers are out of the messaging connect scope.
 const HIDDEN_FROM_PICKER: &[&str] = &[
     "strava",
@@ -91,8 +94,14 @@ struct ConnectProviderCard {
     connected: bool,
     /// "oauth" (full-page redirect to consent) or "sciotte" (credential form).
     kind: &'static str,
-    /// Sciotte target ("strava" / "garmin"); empty for OAuth cards.
+    /// Sciotte target ("strava" / "garmin" / "trainingpeaks"); empty for OAuth cards.
     target: String,
+    /// The page must show the provider's exposure notice, with a required
+    /// checkbox, before the credentials form (TrainingPeaks, until accepted).
+    consent_required: bool,
+    /// What the provider's own login asks for: `"username"` (TrainingPeaks)
+    /// or `"email"`. Read by the page for Sciotte cards only.
+    login_identifier: &'static str,
 }
 
 /// Verify a connect-scoped link-token. A narrow per-provider token (e.g. a
@@ -144,16 +153,31 @@ async fn build_connect_providers(
                     connected: p.connected || strava_oauth_connected,
                     kind: if oauth_first { "oauth" } else { "sciotte" },
                     target: "strava".to_owned(),
+                    consent_required: p.consent_required,
+                    login_identifier: "email",
                 });
             }
-            // Garmin: always the credential/scraper flow.
-            "sciotte_garmin" => cards.push(ConnectProviderCard {
-                provider: "sciotte_garmin".to_owned(),
-                display_name: p.display_name,
-                connected: p.connected,
-                kind: "sciotte",
-                target: "garmin".to_owned(),
-            }),
+            // Garmin and TrainingPeaks: always the credential/scraper flow —
+            // neither has an OAuth backend Pierre can call.
+            "sciotte_garmin" | "sciotte_trainingpeaks" => {
+                if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
+                    cards.push(ConnectProviderCard {
+                        provider: provider_name.clone(),
+                        display_name: p.display_name,
+                        connected: p.connected,
+                        kind: "sciotte",
+                        target: target.to_owned(),
+                        consent_required: p.consent_required,
+                        login_identifier: if SciotteTarget::from_target_param(target)
+                            .signs_in_with_username()
+                        {
+                            "username"
+                        } else {
+                            "email"
+                        },
+                    });
+                }
+            }
             // Any remaining OAuth provider (Whoop, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
                 provider: p.provider,
@@ -161,6 +185,8 @@ async fn build_connect_providers(
                 connected: p.connected,
                 kind: "oauth",
                 target: String::new(),
+                consent_required: p.consent_required,
+                login_identifier: "email",
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
             _ => {}

@@ -35,6 +35,8 @@ pub mod coaching_groups;
 pub mod commitments;
 /// Repository traits for data source registration persistence.
 pub mod data_source;
+/// Repository trait, shared statements and body for delegated connections: a member's provider read through their group coach.
+pub mod delegated_connections;
 /// Shared statements and body for email-verification tokens.
 pub mod email_verification_tokens;
 /// Repository traits for feature-flag tenant defaults + per-user overrides.
@@ -93,8 +95,6 @@ pub mod provider_connections;
 pub mod recipes;
 /// Repository trait for messaging turns the shutdown drain handed off to another instance.
 pub mod resumable_turns;
-/// Repository traits for agent-athlete roster persistence.
-pub mod roster;
 /// `RouteSummaryRepository`: cached GPX terrain + climbs JSON per activity
 pub mod route_summaries;
 /// Repository traits for security/audit/key-version persistence.
@@ -178,6 +178,7 @@ pub use chat::*;
 pub use claim_verdicts::*;
 pub use commitments::*;
 pub use data_source::*;
+pub use delegated_connections::*;
 pub use feature_flags::*;
 pub use fitness_config::*;
 pub use guardian_actions::*;
@@ -194,7 +195,6 @@ pub use playbooks::*;
 pub use prescribed_workouts::*;
 pub use recipes::*;
 pub use resumable_turns::*;
-pub use roster::*;
 pub use route_summaries::*;
 pub use security::*;
 pub use seeder::*;

@@ -1,4 +1,4 @@
-// ABOUTME: Tests for Group info inside chat — consent, roster, settings, the digest mode and gate, and the exits
+// ABOUTME: Tests for Group info inside chat — consent, roster, settings, the digest mode and gate, the exits and the coach's view
 // ABOUTME: Carries over the GroupDetail cases: the caller's OWN consent row, and the tier-gated report
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,12 +10,31 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GroupInfoPanel from '../GroupInfoPanel';
 import { ToastProvider } from '../../ui';
-import type { CoachingGroup, GroupMember } from '@pierre/shared-types';
+import type { CoachingGroup, DelegatedConnection, GroupMember } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 
 const CALLER_ID = 'user-caller';
 const OTHER_ID = 'user-other';
 const GROUP_ID = 'group-1';
+const COACH_ID = 'user-coach';
+
+function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection {
+  return {
+    id: 'dc-1',
+    group_id: GROUP_ID,
+    provider: 'trainingpeaks',
+    coach_user_id: COACH_ID,
+    coach_display_name: 'Casey Coach',
+    member_user_id: CALLER_ID,
+    member_display_name: 'caller@example.com',
+    provider_athlete_id: '900001',
+    provider_athlete_name: 'Alex Athlete',
+    status: 'proposed',
+    proposed_at: '2026-09-24T08:00:00Z',
+    confirmed_at: null,
+    ...overrides,
+  };
+}
 
 vi.mock('../../../services/api', () => ({
   groupsApi: {
@@ -36,6 +55,14 @@ vi.mock('../../../services/api', () => ({
     removeMember: vi.fn(),
     updateMemberRole: vi.fn(),
     getTranscript: vi.fn(),
+    listDelegatedConnections: vi.fn(),
+    getDelegationRoster: vi.fn(),
+    proposeDelegatedConnection: vi.fn(),
+    confirmDelegatedConnection: vi.fn(),
+    endDelegatedConnection: vi.fn(),
+  },
+  providersApi: {
+    getProvidersStatus: vi.fn(),
   },
 }));
 
@@ -164,6 +191,11 @@ describe('GroupInfoPanel', () => {
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
     vi.mocked(groupsApi.listInvites).mockResolvedValue({ invites: [] });
     vi.mocked(groupsApi.getTranscript).mockResolvedValue({ entries: [], total: 0 });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({
+      connections: [],
+      total: 0,
+      viewer: 'member',
+    });
   });
 
   it('names the group, its description and its roster size', async () => {
@@ -415,5 +447,142 @@ describe('GroupInfoPanel', () => {
 
     await waitFor(() => expect(groupsApi.leaveGroup).toHaveBeenCalledWith(GROUP_ID));
     await waitFor(() => expect(onMembershipEnded).toHaveBeenCalledTimes(1));
+  });
+
+  it('never asks for the invite list on behalf of a plain member, which the route refuses', async () => {
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    renderPanel();
+
+    expect(await screen.findByTestId('group-info-leave')).toBeInTheDocument();
+    expect(screen.queryByText('Invites')).toBeNull();
+    expect(groupsApi.listInvites).not.toHaveBeenCalled();
+  });
+
+  it('shows the group coach the TrainingPeaks section and none of the member-only surfaces', async () => {
+    // The caller is the group's human coach and holds no membership row.
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: CALLER_ID, owner_id: OTHER_ID }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Other' })],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({
+      connections: [],
+      total: 0,
+      viewer: 'coach',
+    });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        {
+          provider_athlete_id: '900001',
+          display_name: 'Alex Athlete',
+          connection: null,
+          suggested_member_user_id: OTHER_ID,
+        },
+      ],
+    });
+
+    renderPanel();
+
+    const section = await screen.findByTestId('delegation-section');
+    expect(await within(section).findByTestId('delegation-roster-row-900001')).toHaveTextContent(
+      'Alex Athlete',
+    );
+    expect(screen.getByTestId('group-info-coach-badge')).toHaveTextContent('You coach this group');
+    expect(screen.queryByTestId('group-info-leave')).toBeNull();
+    expect(screen.queryByTestId('group-info-delete')).toBeNull();
+    expect(screen.queryByTestId('peer-consent-card')).toBeNull();
+    // The coach sets where the weekly digest goes, and no other group setting.
+    expect(await screen.findByTestId('group-digest-mode')).toHaveValue('off');
+    expect(screen.getByTestId('group-info-save-settings')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Group Name')).toBeNull();
+    expect(screen.queryByLabelText('Agent replies in the group chat')).toBeNull();
+    expect(screen.queryByTestId('group-info-remove-coach')).toBeNull();
+    // Stats and invites refuse a non-member, so the coach never asks for them.
+    expect(groupsApi.getStats).not.toHaveBeenCalled();
+    expect(groupsApi.listInvites).not.toHaveBeenCalled();
+  });
+
+  it('shows a coach who is also a member the TrainingPeaks section the server names them coach of', async () => {
+    // The caller owns the group, holds its membership row, and coaches it.
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: CALLER_ID }));
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({
+      connections: [],
+      total: 0,
+      viewer: 'coach',
+    });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        {
+          provider_athlete_id: '900001',
+          display_name: 'Alex Athlete',
+          connection: null,
+          suggested_member_user_id: null,
+        },
+      ],
+    });
+
+    renderPanel();
+
+    const section = await screen.findByTestId('delegation-section');
+    expect(await within(section).findByTestId('delegation-roster-row-900001')).toHaveTextContent(
+      'Alex Athlete',
+    );
+    expect(screen.getByTestId('group-info-coach-badge')).toHaveTextContent('You coach this group');
+    // A member still: their own surfaces stay.
+    expect(screen.getByTestId('peer-consent-card')).toBeInTheDocument();
+  });
+
+  it('asks a member to confirm the link their coach proposed, and confirms it', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({
+      connections: [link()],
+      total: 1,
+      viewer: 'member',
+    });
+    vi.mocked(groupsApi.confirmDelegatedConnection).mockResolvedValue(
+      link({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+
+    const request = await screen.findByTestId('delegation-request');
+    expect(request).toHaveTextContent(
+      "Casey Coach coaches you on TrainingPeaks as Alex Athlete. Confirm, and Dravr reads your TrainingPeaks workouts through Casey Coach's account",
+    );
+    expect(screen.queryByTestId('delegation-section')).toBeNull();
+
+    await user.click(within(request).getByTestId('delegation-confirm'));
+    await waitFor(() =>
+      expect(groupsApi.confirmDelegatedConnection).toHaveBeenCalledWith(GROUP_ID, 'dc-1'),
+    );
+  });
+
+  it('warns a linked member that leaving ends the link too', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({
+      connections: [link({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
+      total: 1,
+      viewer: 'member',
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(await screen.findByTestId('delegation-linked')).toHaveTextContent(
+      "Your TrainingPeaks workouts are read through Casey Coach's account.",
+    );
+    await user.click(screen.getByTestId('group-info-leave'));
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent('Your TrainingPeaks link through this group ends too.');
   });
 });

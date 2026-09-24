@@ -28,7 +28,7 @@ use serde::Deserialize;
 use tokio::task::spawn_blocking;
 use tracing::info;
 
-use pierre_core::html::escape_html_attribute;
+use pierre_core::html::{escape_html_attribute, HOSTED_PAGE_CSS};
 use pierre_core::models::User;
 
 use crate::context::AdminApiContext;
@@ -158,42 +158,40 @@ pub async fn handle_device_approve_web(
     }
 }
 
-const PAGE_STYLE: &str = "body{font-family:system-ui,-apple-system,sans-serif;background:#0f1115;color:#e6e6e6;\
-display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}\
-.card{background:#181b21;border:1px solid #262a33;border-radius:12px;padding:32px;max-width:400px;width:90%}\
-h1{font-size:20px;margin:0 0 4px}p{color:#9aa4b2;font-size:14px;line-height:1.5}\
-label{display:block;font-size:13px;margin:16px 0 6px;color:#c7cfdb}\
-input{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid #2c313b;\
-background:#0f1115;color:#e6e6e6;font-size:14px}\
-button{margin-top:20px;width:100%;padding:11px;border:0;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}\
-.primary{background:#3b82f6;color:#fff}.danger{background:transparent;color:#9aa4b2;border:1px solid #2c313b;margin-top:10px}\
-.code{font-family:ui-monospace,monospace;font-size:22px;letter-spacing:2px;color:#fff;\
-background:#0f1115;border:1px solid #2c313b;border-radius:8px;padding:12px;text-align:center;margin:8px 0 4px}\
-.err{color:#f87171;font-size:13px;margin-top:12px}";
-
+/// Wrap a page body in the hosted-page shell: the shared Boreal sheet, both
+/// schemes, and the lockup at the top of the card.
 fn page(title: &str, body: &str) -> String {
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-<title>{title}</title><style>{PAGE_STYLE}</style></head><body><div class=\"card\">{body}</div></body></html>"
+<meta name=\"color-scheme\" content=\"light dark\">\
+<title>{title}</title><style>{HOSTED_PAGE_CSS}</style></head><body><main class=\"card\">\
+<div class=\"lockup\" role=\"img\" aria-label=\"Dravr\"></div>{body}</main></body></html>"
     )
 }
 
 fn render_form(user_code: &str, error: Option<&str>) -> String {
     let code = escape_html_attribute(user_code);
     let err = error.map_or_else(String::new, |e| {
-        format!("<p class=\"err\">{}</p>", escape_html_attribute(e))
+        format!(
+            "<p class=\"error-text\" role=\"alert\">{}</p>",
+            escape_html_attribute(e)
+        )
     });
     let body = format!(
         "<h1>Approve CLI sign-in</h1>\
-<p>Confirm the code shown by <code>pierre-cli auth login</code>, then sign in as a super-admin to approve.</p>\
-<div class=\"code\">{code}</div>\
+<p class=\"lead\">Confirm the code shown by <code>pierre-cli auth login</code>, then sign in as a super-admin to approve.</p>\
+<div class=\"user-code\">{code}</div>\
 <form method=\"post\" action=\"/admin/device/approve-web\">\
 <input type=\"hidden\" name=\"user_code\" value=\"{code}\">\
-<label>Email</label><input name=\"email\" type=\"email\" autocomplete=\"username\" required>\
-<label>Password</label><input name=\"password\" type=\"password\" autocomplete=\"current-password\" required>\
-<button class=\"primary\" name=\"action\" value=\"approve\" type=\"submit\">Sign in &amp; approve</button>\
-<button class=\"danger\" name=\"action\" value=\"deny\" type=\"submit\">Deny</button></form>{err}"
+<div class=\"field\"><label for=\"email\">Email</label>\
+<input id=\"email\" name=\"email\" type=\"email\" autocomplete=\"username\" required></div>\
+<div class=\"field\"><label for=\"password\">Password</label>\
+<input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required></div>\
+<div class=\"actions\">\
+<button class=\"btn btn-primary btn-block\" name=\"action\" value=\"approve\" type=\"submit\">Sign in &amp; approve</button>\
+<button class=\"btn btn-secondary btn-block\" name=\"action\" value=\"deny\" type=\"submit\">Deny</button>\
+</div></form>{err}"
     );
     page("Approve CLI sign-in", &body)
 }

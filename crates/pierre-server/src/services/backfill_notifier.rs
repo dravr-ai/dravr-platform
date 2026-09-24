@@ -46,12 +46,15 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, ReauthMark, TenantId};
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
 use pierre_database::RepositoryRegistry;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_providers::backend_resolver;
+use pierre_providers::registry::global_registry;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -649,7 +652,10 @@ impl ServerBackfillNotifier {
 fn format_activity_line(activity: &Activity) -> String {
     let date = activity.start_date().format("%Y-%m-%d");
     let sport = activity.sport_type().display_name();
-    let mut line = format!("• {} · {date} · {sport}", activity.name());
+    // The list is persisted in the conversation the model reads back, and the
+    // name is whatever the provider account's writers typed.
+    let name = display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS);
+    let mut line = format!("• {name} · {date} · {sport}");
     if let Some(meters) = activity.distance_meters() {
         if meters > 0.0 {
             // Infallible write into a String; the trait import is `as _` so the
@@ -863,22 +869,16 @@ impl BackfillNotifier for ServerBackfillNotifier {
         } = route;
 
         // Mint the one-time hosted-login link. The historical backfill only ever
-        // runs on the scrape-backed mirror (sciotte / sciotte_garmin), so this is
-        // always the sciotte hosted-login path — mirrors
-        // `auth_recovery::mint_reconnect_url`.
-        let target = match provider {
-            "sciotte_garmin" => "garmin",
-            "sciotte" => "strava",
-            other => {
-                // Only the two mirror slugs can reach here while the backfill
-                // stays gated on is_mirror_backend; if that gate ever widens, a
-                // wrong-brand reconnect link must be loud, not silent.
-                warn!(
-                    provider = %other,
-                    "Reauth nudge: unexpected non-mirror provider, defaulting login target to strava"
-                );
-                "strava"
-            }
+        // runs on the scrape-backed mirrors, so this is always the sciotte
+        // hosted-login path — mirrors `auth_recovery::mint_reconnect_url`. A
+        // slug with no hosted login means that gate widened: a wrong-brand link
+        // is worse than none, so nothing is sent and the operator hears of it.
+        let Some(target) = backend_resolver::hosted_login_target(provider) else {
+            error!(
+                provider = %provider,
+                "Reauth nudge: provider has no hosted login; no reconnect link minted"
+            );
+            return;
         };
         let token = match mint_link_token(
             &MintProviderLinkTokenArgs {
@@ -916,7 +916,8 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         // Render the localized reconnect message ({0}=provider brand, {1}=link)
         // and send via the shared adapter rail.
-        let display = reauth_provider_display_name(provider);
+        let display =
+            backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
         let body = self
             .strings
             .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &url]);
@@ -958,22 +959,5 @@ impl BackfillNotifier for ServerBackfillNotifier {
         } else {
             info!(channel = %channel_str, provider = %provider, "Sent provider-reauth nudge on channel");
         }
-    }
-}
-
-/// Human-readable brand name for the reconnect message's `{0}` slot. Mirrors
-/// `auth_recovery::provider_display_name` (the chat-pipeline equivalent for the
-/// inline reauth path); kept in sync so chat and backfill nudges read alike.
-/// An unknown slug passes through as-is — it renders in every chat locale,
-/// unlike any hardcoded fallback word.
-fn reauth_provider_display_name(provider_slug: &str) -> &str {
-    match provider_slug {
-        "sciotte_garmin" | "garmin" => "Garmin",
-        "sciotte" | "strava" => "Strava",
-        "whoop" => "WHOOP",
-        "fitbit" => "Fitbit",
-        "coros" => "COROS",
-        "terra" => "Terra",
-        other => other,
     }
 }

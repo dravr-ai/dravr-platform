@@ -94,6 +94,27 @@ pub fn defang_for_display(s: &str) -> String {
         .replace("](", "] (")
 }
 
+/// Longest activity name a model reads, in characters.
+///
+/// An activity's name is whatever anyone with write access to the athlete's
+/// provider account typed — on `TrainingPeaks` it is usually the title the
+/// coach gave the planned workout. A real title is well under this; the cap
+/// only bounds a field someone filled with something else.
+pub const ACTIVITY_NAME_MAX_CHARS: usize = 120;
+
+/// One provider-written label (an activity name, a planned workout's title, a
+/// step name) as it reaches a model or a client: one line, defanged, at most
+/// `max_chars` characters.
+///
+/// [`flatten_line`] then [`defang_for_display`] then [`cap`]: the label can
+/// neither forge a second line, nor open markup, a code fence or an image,
+/// nor run on. Every site that hands a provider's short label to a reader
+/// goes through here, so no two sites neutralize the same field differently.
+#[must_use]
+pub fn display_line(raw: &str, max_chars: usize) -> String {
+    cap(&defang_for_display(&flatten_line(raw)), max_chars)
+}
+
 /// Tag that fences text an athlete, or someone commenting on their activity,
 /// wrote on a provider — an activity description, a comment in its thread.
 ///

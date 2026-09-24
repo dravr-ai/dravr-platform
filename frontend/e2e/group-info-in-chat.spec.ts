@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for group management after the Groups tab: the group row, its header, and Group info
-// ABOUTME: Roster, invites, settings, consent, the digest gate, the exits, and the /groups/join landing
+// ABOUTME: Roster, invites, settings, consent, the digest gate, the exits, TrainingPeaks links, the /groups/join landing
 
 import { test, expect, type Page } from '@playwright/test';
 import type {
@@ -450,10 +450,18 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
   return sent;
 }
 
-/** Sign in and open Group info from the group row's header. */
-async function openGroupInfo(page: Page, options: GroupMockOptions = {}) {
+/**
+ * Sign in and open Group info from the group row's header. `extraRoutes`
+ * registers after the group mocks, so a spec's own routes take priority.
+ */
+async function openGroupInfo(
+  page: Page,
+  options: GroupMockOptions = {},
+  extraRoutes?: (page: Page) => Promise<void>,
+) {
   await setupDashboardMocks(page, { role: 'user' });
   const sent = await setupGroupMocks(page, options);
+  if (extraRoutes) await extraRoutes(page);
   await loginToDashboard(page);
   await page.waitForSelector('aside', { timeout: 10000 });
 
@@ -626,6 +634,177 @@ test.describe('Group info — exits', () => {
     await expect(page.getByText('This will permanently archive')).toBeVisible();
     await page.getByRole('button', { name: 'Delete Group' }).last().click();
     await expect(page.getByText('Group deleted')).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ============================================================================
+// Group info — TrainingPeaks links through the group's coach
+// ============================================================================
+
+/** A link as the group's delegated-connection routes serialise it. */
+function delegatedLink(status: 'proposed' | 'confirmed', memberUserId: string, memberName: string) {
+  return {
+    id: 'dc-1',
+    group_id: GROUP_ID,
+    provider: 'trainingpeaks',
+    coach_user_id: 'user-coach',
+    coach_display_name: 'Casey Coach',
+    member_user_id: memberUserId,
+    member_display_name: memberName,
+    provider_athlete_id: '900001',
+    provider_athlete_name: 'Alex Athlete',
+    status,
+    proposed_at: '2026-09-24T08:00:00Z',
+    confirmed_at: status === 'confirmed' ? '2026-09-24T09:00:00Z' : null,
+    metadata: { timestamp: '2026-09-24T09:00:00Z', api_version: '1.0' },
+  };
+}
+
+const LIST_URL = `**/api/groups/${GROUP_ID}/delegated-connections`;
+
+test.describe('Group info — TrainingPeaks links', () => {
+  test('the coach links a roster athlete to a member and waits for them', async ({ page }) => {
+    const proposals: Array<Record<string, unknown>> = [];
+    let linked = false;
+
+    await openGroupInfo(page, {}, async (p) => {
+      // The signed-in user is the group's human coach and holds no membership.
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-123', owner_id: 'user-3' }),
+        });
+      });
+      await p.route(`**/api/groups/${GROUP_ID}/members`, async (route) => {
+        const members = buildMockMembers('member').members.filter((m) => m.user_id !== 'user-123');
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ members }) });
+      });
+      await p.route(LIST_URL, async (route) => {
+        if (route.request().method() === 'POST') {
+          proposals.push(route.request().postDataJSON() as Record<string, unknown>);
+          linked = true;
+          await route.fulfill({
+            status: 201,
+            contentType: 'application/json',
+            body: JSON.stringify(delegatedLink('proposed', 'user-2', 'Alice Runner')),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            connections: linked ? [delegatedLink('proposed', 'user-2', 'Alice Runner')] : [],
+            total: linked ? 1 : 0,
+            viewer: 'coach',
+          }),
+        });
+      });
+      await p.route(`${LIST_URL}/roster*`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            provider: 'trainingpeaks',
+            athletes: [
+              {
+                provider_athlete_id: '900001',
+                display_name: 'Alex Athlete',
+                connection: linked ? delegatedLink('proposed', 'user-2', 'Alice Runner') : null,
+                suggested_member_user_id: 'user-2',
+              },
+            ],
+          }),
+        });
+      });
+    });
+
+    const section = page.getByTestId('delegation-section');
+    await expect(section).toBeVisible();
+    await expect(page.getByTestId('group-info-coach-badge')).toHaveText('You coach this group');
+    // A coach holds no membership: nothing to leave, archive or consent to, and
+    // of the settings only where the weekly digest goes.
+    await expect(page.getByTestId('group-info-leave')).toHaveCount(0);
+    await expect(page.getByTestId('group-info-delete')).toHaveCount(0);
+    await expect(page.getByTestId('peer-consent-card')).toHaveCount(0);
+    await expect(page.getByTestId('group-info-remove-coach')).toHaveCount(0);
+    await expect(page.getByTestId('group-digest-mode')).toBeVisible();
+    await expect(page.getByLabel('Group Name')).toHaveCount(0);
+
+    const row = section.getByTestId('delegation-roster-row-900001');
+    await expect(row).toContainText('Alex Athlete');
+    await expect(row.getByTestId('delegation-member-select-900001')).toHaveValue('user-2');
+    await row.getByTestId('delegation-propose-900001').click();
+
+    await expect.poll(() => proposals.length).toBe(1);
+    expect(proposals[0]).toEqual({
+      provider: 'trainingpeaks',
+      provider_athlete_id: '900001',
+      member_user_id: 'user-2',
+    });
+    await expect(row).toContainText('Waiting for Alice Runner to confirm');
+
+    // The section holds at phone width: nothing scrolls sideways.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const report = await measurePageLayout(page);
+    expect(report.documentOverflowPx).toBe(0);
+    const overflow = await section.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+
+  test('a member confirms the link their coach proposed, then unlinks it', async ({ page }) => {
+    let state: 'proposed' | 'confirmed' | 'ended' = 'proposed';
+    const confirms: string[] = [];
+    const deletes: string[] = [];
+
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-coach' }),
+        });
+      });
+      await p.route(LIST_URL, async (route) => {
+        const connections = state === 'ended' ? [] : [delegatedLink(state, 'user-123', 'Test User')];
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ connections, total: connections.length, viewer: 'member' }),
+        });
+      });
+      await p.route(`${LIST_URL}/dc-1/confirm`, async (route) => {
+        confirms.push(route.request().method());
+        state = 'confirmed';
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(delegatedLink('confirmed', 'user-123', 'Test User')),
+        });
+      });
+      await p.route(`${LIST_URL}/dc-1`, async (route) => {
+        deletes.push(route.request().method());
+        state = 'ended';
+        await route.fulfill({ status: 204 });
+      });
+    });
+
+    const request = page.getByTestId('delegation-request');
+    await expect(request).toContainText('Casey Coach coaches you on TrainingPeaks as Alex Athlete');
+    await request.getByTestId('delegation-confirm').click();
+
+    await expect.poll(() => confirms).toEqual(['POST']);
+    const linkedRow = page.getByTestId('delegation-linked');
+    await expect(linkedRow).toContainText("Your TrainingPeaks workouts are read through Casey Coach's account.");
+    await expect(page.getByText('TrainingPeaks linked')).toBeVisible();
+
+    await linkedRow.getByTestId('delegation-unlink-dc-1').click();
+    await expect(page.getByRole('heading', { name: 'Unlink TrainingPeaks?' })).toBeVisible();
+    await page.getByRole('button', { name: 'Unlink', exact: true }).last().click();
+
+    await expect.poll(() => deletes).toEqual(['DELETE']);
+    await expect(page.getByTestId('delegation-linked')).toHaveCount(0);
   });
 });
 

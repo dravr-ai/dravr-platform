@@ -1451,7 +1451,10 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   private renderSuccessTemplate(provider: string): string {
-    return OAUTH_SUCCESS_TEMPLATE.replace(/\{\{PROVIDER\}\}/g, this.escapeHtml(provider));
+    return OAUTH_SUCCESS_TEMPLATE.replace(/\{\{PROVIDER\}\}/g, this.escapeHtml(provider)).replace(
+      /\{\{PROVIDER_LOWER\}\}/g,
+      this.escapeHtml(provider.toLowerCase()),
+    );
   }
 
   // Security: Escape HTML special characters to prevent XSS attacks

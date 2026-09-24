@@ -23,6 +23,8 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications" }
+# backend_resolver: the provider name a delegated connection shows the athlete.
+pierre-providers = { version = "0.3.0", path = "../pierre-providers", default-features = false }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", features = ["client-notifications"] }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 # tools-groups gates group_fitness::fetch_member_snapshots — the canonical

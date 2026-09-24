@@ -1,0 +1,79 @@
+# ABOUTME: Connecting TrainingPeaks states the exposure notice before the credentials and holds Log In until it is ticked
+# ABOUTME: Stops before submitting, so no credential ever reaches the scraper; ids only, so it runs in every locale
+
+appId: ai.dravr.app
+
+---
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+- runFlow:
+    file: ../helpers/navigate-to-settings.yaml
+
+- tapOn:
+    id: "settings-pane-connections"
+- extendedWaitUntil:
+    visible:
+      id: "connections-screen"
+    timeout: 5000
+
+# The seeded account has never accepted the notice, so the row asks for it.
+- scrollUntilVisible:
+    element:
+      id: "provider-row-sciotte_trainingpeaks"
+    timeout: 10000
+- tapOn:
+    id: "provider-action-sciotte_trainingpeaks"
+
+# The notice comes first, with the credentials form below it.
+- extendedWaitUntil:
+    visible:
+      id: "sciotte-tos-notice"
+    timeout: 5000
+- assertVisible:
+    id: "sciotte-email"
+
+- tapOn:
+    id: "sciotte-email"
+- inputText: "maestro-coach"
+# The keyboard covers the password field. Enter blurs a single-line field on
+# iOS, where hideKeyboard does not close the secure-entry keyboard.
+- pressKey: Enter
+# The password field sits at the bottom edge of the sheet's scroll frame,
+# clipped; bring it fully into view before focusing it.
+- swipe:
+    start: "50%,88%"
+    end: "50%,60%"
+    duration: 600
+- tapOn:
+    id: "sciotte-password"
+# The secure-entry keyboard animates in; typing before it settles drops the text.
+- waitForAnimationToEnd
+- inputText: "not-a-real-password"
+- pressKey: Enter
+
+# Filled credentials are not enough: Log In waits for the notice. The sheet
+# scrolls inside its own frame, so swipe within it to reach the button.
+- swipe:
+    start: "50%,88%"
+    end: "50%,55%"
+    duration: 600
+- assertVisible:
+    id: "sciotte-login-submit"
+    enabled: false
+- swipe:
+    start: "50%,55%"
+    end: "50%,90%"
+    duration: 600
+# iOS reports the tick only as the control's accessibility value, so the
+# contract asserted is the one that matters: Log In enables on the tick.
+- tapOn:
+    id: "sciotte-tos-consent"
+- swipe:
+    start: "50%,88%"
+    end: "50%,55%"
+    duration: 600
+- assertVisible:
+    id: "sciotte-login-submit"
+    enabled: true

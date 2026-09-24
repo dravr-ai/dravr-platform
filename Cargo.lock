@@ -1422,8 +1422,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.20.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.20.0#0470495e32dabed3139ec4652bbb97ce55af8d95"
+version = "0.21.1"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.21.1#b8476b3212f38585d706f7883c1f151386722f78"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3705,6 +3705,7 @@ dependencies = [
  "pierre-memory",
  "pierre-messaging",
  "pierre-middleware",
+ "pierre-providers",
  "pierre-runtime-context",
  "pierre-services",
  "pierre-sse",
@@ -3733,6 +3734,7 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-evals",
+ "pierre-llm",
  "pierre-seeders",
  "pierre-services",
  "pierre-tool-runtime",
@@ -3982,6 +3984,7 @@ dependencies = [
  "chrono",
  "pierre-core",
  "pierre-database",
+ "pierre-providers",
  "rand 0.9.4",
  "serde",
  "serde_json",
@@ -4265,6 +4268,7 @@ dependencies = [
  "pierre-database",
  "pierre-email",
  "pierre-enforme",
+ "pierre-groups",
  "pierre-mcp-schema",
  "pierre-mcp-transport",
  "pierre-middleware",
@@ -4329,6 +4333,7 @@ dependencies = [
  "pierre-groups",
  "pierre-middleware",
  "pierre-notifications",
+ "pierre-providers",
  "pierre-runtime-context",
  "pierre-services",
  "pierre-tool-runtime",
@@ -4465,6 +4470,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "unicode-normalization",
  "url",
  "urlencoding",
  "uuid",
@@ -4519,6 +4525,7 @@ dependencies = [
  "pierre-external",
  "pierre-fitness-compute",
  "pierre-formatters",
+ "pierre-groups",
  "pierre-intelligence",
  "pierre-llm",
  "pierre-mcp-schema",

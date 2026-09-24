@@ -59,7 +59,7 @@ pub struct ProviderLinkedEvent {
     pub user_id: Uuid,
     /// Active tenant for the session
     pub tenant_id: Uuid,
-    /// Provider name (e.g. "sciotte", `sciotte_garmin`)
+    /// Provider name (e.g. "sciotte", `sciotte_garmin`, `sciotte_trainingpeaks`)
     pub provider: String,
     /// Target platform label ("strava" or "garmin")
     pub target: String,

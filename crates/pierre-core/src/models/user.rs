@@ -296,8 +296,8 @@ impl Display for UserStatus {
 ///   on disagreement or "why?", P0/P1 push.
 /// - [`Self::PowerAthlete`] — Endurance discipline: line-by-line, framework
 ///   citations on every numeric claim, full P0/P1/P2 push ladder.
-/// - [`Self::Coach`] — Power-athlete voice + roster tools (paired with
-///   [`User::manages_roster`] for permission gating).
+/// - [`Self::Coach`] — Power-athlete voice. The permission to coach a group
+///   is separate: [`User::manages_roster`].
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CoachingPersona {
@@ -309,8 +309,8 @@ pub enum CoachingPersona {
     /// Endurance discipline — line-by-line, framework citations everywhere,
     /// full P0/P1/P2 push ladder.
     PowerAthlete,
-    /// Power-athlete voice + roster management tools. Paired with
-    /// [`User::manages_roster`] for permission gating.
+    /// Power-athlete voice. The permission to coach a group is separate:
+    /// [`User::manages_roster`].
     Coach,
 }
 
@@ -477,12 +477,13 @@ pub struct User {
     /// `"enthusiast"`, `"power_athlete"`, `"coach"`).
     #[serde(default)]
     pub coaching_persona: CoachingPersona,
-    /// Whether this user has access to the Agent-tier roster UI (manage
-    /// other athletes). Independent from [`Self::coaching_persona`]:
-    /// a user can pick the [`CoachingPersona::Coach`] voice without
-    /// `manages_roster=true` (they get the voice but not the tools), and
-    /// vice versa (admin-granted roster access without picking the
-    /// Agent persona).
+    /// Whether this user may redeem a coach invite, joining a coaching group
+    /// as its human coach (`coaching_groups.coach_user_id`). Independent from
+    /// [`Self::coaching_persona`]: a user can pick the
+    /// [`CoachingPersona::Coach`] voice without `manages_roster=true`, and
+    /// hold the permission without picking that voice. Granted automatically
+    /// when the user's TrainingPeaks connection reports a coach account, and
+    /// never revoked automatically.
     #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,

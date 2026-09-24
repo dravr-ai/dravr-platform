@@ -54,6 +54,7 @@ fn sample_template(tenant_id: TenantId, user_id: Uuid, slug: &str) -> WorkoutTem
                 distance_meters: None,
                 target_zone: "Z1".to_owned(),
                 repeat: 1,
+                repeat_group: None,
                 note: None,
             },
             WorkoutStep {
@@ -62,6 +63,7 @@ fn sample_template(tenant_id: TenantId, user_id: Uuid, slug: &str) -> WorkoutTem
                 distance_meters: None,
                 target_zone: "Z2".to_owned(),
                 repeat: 1,
+                repeat_group: None,
                 note: None,
             },
             WorkoutStep {
@@ -70,6 +72,7 @@ fn sample_template(tenant_id: TenantId, user_id: Uuid, slug: &str) -> WorkoutTem
                 distance_meters: None,
                 target_zone: "Z1".to_owned(),
                 repeat: 1,
+                repeat_group: None,
                 note: None,
             },
         ],

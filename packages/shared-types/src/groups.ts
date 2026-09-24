@@ -247,3 +247,87 @@ export interface GroupTranscriptResponse {
   members: TranscriptMember[];
   entries: GroupTranscriptEntry[];
 }
+
+// ========== DELEGATED CONNECTIONS (TrainingPeaks through the group's coach) ==========
+
+/**
+ * A live link's state: `proposed` waits for the member's answer,
+ * `confirmed` is being read through the coach's account.
+ */
+export type DelegationStatus = 'proposed' | 'confirmed';
+
+/** Which side of a group's links the caller sees. */
+export type DelegationViewer = 'coach' | 'member';
+
+/**
+ * A group coach's link between an athlete on their TrainingPeaks roster and
+ * a member of the group. Once the member confirms, the member's TrainingPeaks
+ * workouts are read through the coach's own TrainingPeaks account.
+ */
+export interface DelegatedConnection {
+  id: string;
+  group_id: string;
+  /** The provider as the athlete knows it, always `trainingpeaks`. */
+  provider: string;
+  coach_user_id: string;
+  /** The coach's display name, else their email. */
+  coach_display_name: string;
+  member_user_id: string;
+  /** The member as the group's member list names them. */
+  member_display_name: string;
+  /** The athlete's id on the coach's TrainingPeaks roster. */
+  provider_athlete_id: string;
+  /** The athlete's name on the coach's TrainingPeaks roster, when it has one. */
+  provider_athlete_name: string | null;
+  status: DelegationStatus;
+  proposed_at: string;
+  confirmed_at: string | null;
+}
+
+/** A group's live links: every one for its coach, their own for a member. */
+export interface DelegatedConnectionsResponse {
+  connections: DelegatedConnection[];
+  total: number;
+  viewer: DelegationViewer;
+}
+
+/** One athlete on the coach's TrainingPeaks roster, as the linking picker shows it. */
+export interface DelegationRosterAthlete {
+  provider_athlete_id: string;
+  display_name: string | null;
+  /** The live link that holds this athlete in the group, when there is one. */
+  connection: DelegatedConnection | null;
+  /** The unlinked member whose name reads as the athlete's; preselects the picker. */
+  suggested_member_user_id: string | null;
+}
+
+/** The coach's TrainingPeaks roster for one group. */
+export interface DelegationRosterResponse {
+  provider: 'trainingpeaks';
+  athletes: DelegationRosterAthlete[];
+}
+
+/** A coach's request to link a roster athlete to a live member. */
+export interface ProposeDelegatedConnectionRequest {
+  provider: 'trainingpeaks';
+  provider_athlete_id: string;
+  member_user_id: string;
+}
+
+/**
+ * Why a linking step was refused, as the server sends it in the error's
+ * `details.reason`. The clients branch on it; the message is not localized.
+ */
+export type DelegationRefusalReason =
+  | 'trainingpeaks_not_connected'
+  | 'trainingpeaks_not_coach_account'
+  | 'trainingpeaks_reconnect_needed'
+  | 'trainingpeaks_terms_outdated'
+  | 'unsupported_provider'
+  | 'invalid_athlete'
+  | 'athlete_not_on_roster'
+  | 'member_is_coach'
+  | 'already_proposed'
+  | 'athlete_already_linked'
+  | 'own_connection'
+  | 'already_linked';

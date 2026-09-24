@@ -16,16 +16,19 @@ import {
   Platform,
   ScrollView,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key } from 'lucide-react-native';
-import { useCardStyle, useThemeColors } from '../constants/theme';
+import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
-import { StravaLogo, GarminLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
+import { StravaLogo, GarminLogo, TrainingPeaksLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
+import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
+import { Checkbox } from './ui';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
 
@@ -46,13 +49,69 @@ interface SciotteLoginModalProps {
   visible: boolean;
   onClose: () => void;
   onConnected: () => void;
-  target: 'strava' | 'garmin';
+  target: SciotteTarget;
+  /**
+   * The account has not yet accepted this provider's exposure notice (the
+   * row's `consent_required`): the notice and its required checkbox come
+   * before the credentials, and the login carries the acceptance.
+   */
+  consentRequired?: boolean;
 }
 
+/**
+ * The ink of every label and glyph drawn ON a brand plate. The plates are the
+ * providers' colours and do not move with the scheme, so neither does the ink
+ * that sits on them.
+ */
+const PLATE_INK = '#FFFFFF';
+
+/**
+ * The colours this login draws in — third-party colours, not Boreal tokens
+ * (DESIGN.md §2). Each brand hex is read from `PROVIDER_COLORS`, which names
+ * its source.
+ *
+ * `primary` is the brand hex. It fills the solid tile behind a white glyph,
+ * which answers to the 3:1 icon floor: Strava 3.40:1, Garmin 4.496:1,
+ * TrainingPeaks 7.59:1.
+ *
+ * `gradient` is the plate a white label sits on (Sign In, Verify, Try Again:
+ * 16pt, so the 4.5:1 text floor), and both of its stops clear 4.5:1 against
+ * white. Along a straight sRGB sweep the luminance never rises above the
+ * lighter stop's, so the label clears the plate wherever it lands. The near
+ * stop is the brand hex darkened (every sRGB channel scaled toward black)
+ * only as far as white needs; the far stop is the brand hex at 75 %.
+ *
+ * | Plate         | near stop                                | far stop          |
+ * |---------------|------------------------------------------|-------------------|
+ * | Strava        | `#D74102` 4.52:1, the hex at 85.5 %      | `#BD3902` 5.60:1  |
+ * | Garmin        | `#007CC2` 4.50:1, one step off the hex   | `#005D92` 7.05:1  |
+ * | TrainingPeaks | `#005695` 7.59:1, the hex itself         | `#004070` 10.67:1 |
+ *
+ * White on the Strava hex alone is 3.40:1 and on the Garmin hex 4.496:1, so
+ * neither plate could start from its brand hex.
+ *
+ * Google and Apple are the sign-in methods of the Strava choice, drawn only
+ * as the sweep around their rows. Google's far stop (`#3367D6`) is the value
+ * the integration shipped with, not traced to a Google source; Apple's is its
+ * white "Sign in with Apple" style fading to a light grey.
+ */
 const BRAND_COLORS = {
-  strava: { primary: '#FC4C02', gradient: ['#FC4C02', '#E34402'] as [string, string] },
-  garmin: { primary: '#007CC3', gradient: ['#007CC3', '#005A8E'] as [string, string] },
-  google: { primary: '#4285F4', gradient: ['#4285F4', '#3367D6'] as [string, string] },
+  strava: {
+    primary: PROVIDER_COLORS.strava,
+    gradient: ['#D74102', '#BD3902'] as [string, string],
+  },
+  garmin: {
+    primary: PROVIDER_COLORS.garmin,
+    gradient: ['#007CC2', '#005D92'] as [string, string],
+  },
+  trainingpeaks: {
+    primary: PROVIDER_COLORS.trainingpeaks,
+    gradient: [PROVIDER_COLORS.trainingpeaks, '#004070'] as [string, string],
+  },
+  google: {
+    primary: PROVIDER_COLORS.google,
+    gradient: [PROVIDER_COLORS.google, '#3367D6'] as [string, string],
+  },
   apple: { primary: '#FFFFFF', gradient: ['#FFFFFF', '#E8E8E8'] as [string, string] },
 };
 
@@ -65,7 +124,7 @@ interface MethodConfig {
   brandName: string;
   renderIcon: (size: number) => React.ReactNode;
   brandGradient: [string, string];
-  textColor: string;
+  /** The tile behind the icon: a solid plate, so a white glyph clears it. */
   bgColor: string;
 }
 
@@ -74,10 +133,9 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
     titleKey: 'app.emailAndPassword',
     emailPlaceholderKey: 'app.emailAddress',
     brandName: '',
-    renderIcon: (size: number) => <Mail size={size} color="#FFFFFF" />,
+    renderIcon: (size: number) => <Mail size={size} color={PLATE_INK} />,
     brandGradient: BRAND_COLORS.strava.gradient,
-    textColor: '#FFFFFF',
-    bgColor: `${BRAND_COLORS.strava.primary}20`,
+    bgColor: BRAND_COLORS.strava.primary,
   },
   google: {
     titleKey: 'app.brandGoogle',
@@ -85,17 +143,67 @@ const METHOD_CONFIGS: Record<LoginMethod, MethodConfig> = {
     brandName: PROVIDER_BRAND.google,
     renderIcon: (size: number) => <GoogleLogo size={size} />,
     brandGradient: BRAND_COLORS.google.gradient,
-    textColor: '#FFFFFF',
     bgColor: '#FFFFFF',
   },
   apple: {
     titleKey: 'app.brandApple',
     emailPlaceholderKey: 'app.appleIdEmail',
     brandName: PROVIDER_BRAND.apple,
-    renderIcon: (size: number) => <AppleLogo size={size} color="#FFFFFF" />,
+    renderIcon: (size: number) => <AppleLogo size={size} color={PLATE_INK} />,
     brandGradient: BRAND_COLORS.apple.gradient,
-    textColor: '#000000',
     bgColor: '#000000',
+  },
+};
+
+/** How the credential login presents each target. */
+interface TargetPreset {
+  /** The provider's name in the header and progress copy. A proper noun. */
+  brandKey: string;
+  brandColor: { primary: string; gradient: [string, string] };
+  renderLogo: (size: number) => React.ReactNode;
+  /** Title and placeholder of the provider's own credential form. */
+  titleKey: string;
+  placeholderKey: string;
+  /** What the provider signs in with — TrainingPeaks takes a username. */
+  identifier: 'email' | 'username';
+  /** No Google/Apple choice to make: straight to the provider's form. */
+  directCredentials: boolean;
+  /** The exposure notice shown while the account has not accepted it. */
+  notice?: { titleKey: string; bodyKey: string; consentKey: string };
+}
+
+const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
+  strava: {
+    brandKey: 'app.brandStrava',
+    brandColor: BRAND_COLORS.strava,
+    renderLogo: (size) => <StravaLogo size={size} color={PLATE_INK} />,
+    titleKey: 'app.emailAndPassword',
+    placeholderKey: 'app.emailAddress',
+    identifier: 'email',
+    directCredentials: false,
+  },
+  garmin: {
+    brandKey: 'app.brandGarminConnect',
+    brandColor: BRAND_COLORS.garmin,
+    renderLogo: (size) => <GarminLogo size={size} color={PLATE_INK} />,
+    titleKey: 'app.garminAccount',
+    placeholderKey: 'app.garminEmail',
+    identifier: 'email',
+    directCredentials: true,
+  },
+  trainingpeaks: {
+    brandKey: 'app.brandTrainingPeaks',
+    brandColor: BRAND_COLORS.trainingpeaks,
+    renderLogo: (size) => <TrainingPeaksLogo size={size} color={PLATE_INK} />,
+    titleKey: 'app.trainingpeaksAccount',
+    placeholderKey: 'app.trainingpeaksUsername',
+    identifier: 'username',
+    directCredentials: true,
+    notice: {
+      titleKey: 'providers.trainingpeaksNotice.title',
+      bodyKey: 'providers.trainingpeaksNotice.body',
+      consentKey: 'providers.trainingpeaksNotice.consent',
+    },
   },
 };
 
@@ -104,10 +212,16 @@ export function SciotteLoginModal({
   onClose,
   onConnected,
   target,
+  consentRequired = false,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const cardStyle = useCardStyle();
+  // The sheet's content scrolls within most of the screen, never less than
+  // the 420 it always had: a provider notice above the form would otherwise
+  // push the password and Log In below the fold.
+  const { height: windowHeight } = useWindowDimensions();
+  const contentMaxHeight = Math.max(420, Math.round(windowHeight * 0.65));
   const [phase, setPhase] = useState<LoginPhase>('choose');
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
@@ -123,14 +237,20 @@ export function SciotteLoginModal({
   // expose a public OAuth app for end users (only sciotte's headless login).
   const [showStravaBYO, setShowStravaBYO] = useState(false);
 
-  const brandColor = target === 'garmin' ? BRAND_COLORS.garmin : BRAND_COLORS.strava;
+  const preset = TARGET_PRESETS[target];
+  const brandColor = preset.brandColor;
   // Brand names, not copy: identical in every locale.
-  const platformName = target === 'garmin' ? t('app.brandGarminConnect') : t('app.brandStrava');
+  const platformName = t(preset.brandKey);
+  // The notice is shown only while the account has not accepted it, and only
+  // for a target that has one.
+  const notice = consentRequired ? preset.notice : undefined;
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setPhase(target === 'garmin' ? 'credentials' : 'choose');
+      setPhase(TARGET_PRESETS[target].directCredentials ? 'credentials' : 'choose');
       setMethod('email');
+      setConsentAccepted(false);
       setStatus('');
       setError(null);
       setEmail('');
@@ -185,6 +305,7 @@ export function SciotteLoginModal({
 
   const handleLogin = useCallback(async () => {
     if (!email || !password) return;
+    if (notice && !consentAccepted) return;
 
     setIsLoading(true);
     setError(null);
@@ -192,7 +313,13 @@ export function SciotteLoginModal({
     setStatus(t('app.signingInTo', { provider: platformName }));
 
     try {
-      const data = await oauthApi.sciotteLogin({ email, password, method, target });
+      const data = await oauthApi.sciotteLogin({
+        email,
+        password,
+        method,
+        target,
+        ...(notice ? { tos_consent: consentAccepted } : {}),
+      });
 
       if (data.status === 'connected') {
         setPhase('success');
@@ -222,7 +349,7 @@ export function SciotteLoginModal({
     } finally {
       setIsLoading(false);
     }
-  }, [email, password, method, target, platformName, onClose, onConnected, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, onClose, onConnected, t]);
 
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
@@ -299,11 +426,20 @@ export function SciotteLoginModal({
     }
   }, [otpCode, onClose, onConnected, t]);
 
-  const methodConfig = target === 'garmin'
-    ? { ...METHOD_CONFIGS.email, title: t('app.garminAccount'), emailPlaceholder: t('app.garminEmail') }
+  // A provider that signs in with its own credentials draws the form's mark on
+  // its own colour, not the email row's Strava orange.
+  const methodConfig = preset.directCredentials
+    ? {
+        ...METHOD_CONFIGS.email,
+        titleKey: preset.titleKey,
+        emailPlaceholderKey: preset.placeholderKey,
+        bgColor: preset.brandColor.primary,
+      }
     : METHOD_CONFIGS[method];
+  const usesUsername = preset.identifier === 'username';
+  const canSubmit = Boolean(email && password) && (!notice || consentAccepted);
 
-  const canGoBack = phase === 'credentials' && target === 'strava';
+  const canGoBack = phase === 'credentials' && !preset.directCredentials;
 
   const renderContent = () => {
     // Choose login method (Strava only)
@@ -375,9 +511,9 @@ export function SciotteLoginModal({
               >
                 <View
                   className="w-10 h-10 rounded-xl items-center justify-center mr-4"
-                  style={{ backgroundColor: `${BRAND_COLORS.strava.primary}20` }}
+                  style={{ backgroundColor: BRAND_COLORS.strava.primary }}
                 >
-                  <Key size={20} color={BRAND_COLORS.strava.primary} />
+                  <Key size={20} color={PLATE_INK} />
                 </View>
                 <View className="flex-1">
                   <Text className="text-base font-semibold text-text-primary">
@@ -414,8 +550,30 @@ export function SciotteLoginModal({
             </Text>
           </View>
 
+          {/* The exposure comes before the credentials: the account is told
+              what connecting risks, and accepts it, before typing anything. */}
+          {notice && (
+            <View
+              className="mb-4 rounded-xl border border-warning/40 bg-warning/10 p-3"
+              testID="sciotte-tos-notice"
+            >
+              {/* Text on the amber tint takes the amber's bound ink. */}
+              <Text className="text-sm font-semibold text-on-warning-container mb-1">{t(notice.titleKey)}</Text>
+              <Text className="text-sm text-on-warning-container mb-2">{t(notice.bodyKey)}</Text>
+              <Checkbox
+                checked={consentAccepted}
+                onChange={setConsentAccepted}
+                label={t(notice.consentKey)}
+                labelClassName="text-on-warning-container"
+                testID="sciotte-tos-consent"
+              />
+            </View>
+          )}
+
           <View className="mb-3">
-            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">{t('common.email')}</Text>
+            <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">
+              {t(usesUsername ? 'common.username' : 'common.email')}
+            </Text>
             <TextInput
               className="bg-background-secondary rounded-xl px-4 py-3.5 text-base text-text-primary border border-border"
               placeholder={t(methodConfig.emailPlaceholderKey)}
@@ -423,8 +581,8 @@ export function SciotteLoginModal({
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
+              keyboardType={usesUsername ? 'default' : 'email-address'}
+              autoComplete={usesUsername ? 'username' : 'email'}
               testID="sciotte-email"
             />
           </View>
@@ -460,16 +618,19 @@ export function SciotteLoginModal({
 
           <TouchableOpacity
             onPress={handleLogin}
-            disabled={!email || !password}
+            disabled={!canSubmit}
+            accessibilityState={{ disabled: !canSubmit }}
             activeOpacity={0.8}
+            testID="sciotte-login-submit"
           >
+            {/* A disabled plate keeps its brand and fades, the way a disabled Button does. */}
             <LinearGradient
-              colors={(!email || !password) ? ['#333', '#333'] : brandColor.gradient}
+              colors={brandColor.gradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
-              style={{ borderRadius: 12, paddingVertical: 16, alignItems: 'center' }}
+              style={{ borderRadius: 12, paddingVertical: 16, alignItems: 'center', opacity: canSubmit ? 1 : 0.5 }}
             >
-              <Text className="text-base font-bold text-on-surface">
+              <Text className="text-base font-bold" style={{ color: PLATE_INK }}>
                 {t('common.login')}
               </Text>
             </LinearGradient>
@@ -492,8 +653,8 @@ export function SciotteLoginModal({
     if (phase === 'logging-in' || phase === 'waiting-approval') {
       return (
         <View className="items-center py-10">
-          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${brandColor.primary}15` }}>
-            <ActivityIndicator size="large" color={brandColor.primary} />
+          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${colors.tokens.primary}20` }}>
+            <ActivityIndicator size="large" color={colors.tokens.primary} />
           </View>
           <Text className="text-base font-medium text-text-primary mb-1">{status}</Text>
           <Text className="text-sm text-text-tertiary text-center px-6">
@@ -548,7 +709,7 @@ export function SciotteLoginModal({
               className="rounded-2xl px-12 py-6 mb-5"
               style={{ ...cardStyle, borderRadius: 20 }}
             >
-              <Text className="text-5xl font-bold text-center" style={{ color: brandColor.primary }}>
+              <Text className="text-5xl font-bold text-center text-text-primary">
                 {matchNumber}
               </Text>
             </View>
@@ -589,15 +750,15 @@ export function SciotteLoginModal({
             activeOpacity={0.8}
           >
             <LinearGradient
-              colors={(!otpCode || isLoading) ? ['#333', '#333'] : brandColor.gradient}
+              colors={brandColor.gradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
-              style={{ borderRadius: 12, paddingVertical: 16, alignItems: 'center' }}
+              style={{ borderRadius: 12, paddingVertical: 16, alignItems: 'center', opacity: !otpCode || isLoading ? 0.5 : 1 }}
             >
               {isLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={PLATE_INK} />
               ) : (
-                <Text className="text-base font-bold text-on-surface">{t('app.verify')}</Text>
+                <Text className="text-base font-bold" style={{ color: PLATE_INK }}>{t('app.verify')}</Text>
               )}
             </LinearGradient>
           </TouchableOpacity>
@@ -637,7 +798,7 @@ export function SciotteLoginModal({
               end={{ x: 1, y: 0 }}
               style={{ borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12 }}
             >
-              <Text className="text-base font-semibold text-on-surface">{t('app.tryAgain')}</Text>
+              <Text className="text-base font-semibold" style={{ color: PLATE_INK }}>{t('app.tryAgain')}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -654,10 +815,16 @@ export function SciotteLoginModal({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
       >
+        {/* The backdrop closes the sheet on a tap, but it must not be one
+            accessibility element: a touchable is accessible by default, and
+            iOS then folds every field, checkbox and button inside the sheet
+            into it, so neither VoiceOver nor a UI driver can reach them. The
+            sheet's close button is the accessible way out. */}
         <TouchableOpacity
           className="flex-1 bg-scrim/60 justify-end"
           activeOpacity={1}
           onPress={onClose}
+          accessible={false}
         >
           <View
             className="bg-background-primary rounded-t-3xl overflow-hidden"
@@ -686,10 +853,7 @@ export function SciotteLoginModal({
                   end={{ x: 1, y: 1 }}
                   style={{ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}
                 >
-                  {target === 'garmin'
-                    ? <GarminLogo size={22} color="#FFFFFF" />
-                    : <StravaLogo size={22} color="#FFFFFF" />
-                  }
+                  {preset.renderLogo(22)}
                 </LinearGradient>
                 <View className="flex-1">
                   <Text className="text-lg font-bold text-text-primary">
@@ -713,7 +877,7 @@ export function SciotteLoginModal({
             {/* Content */}
             <ScrollView
               className="px-6 pt-2 pb-4"
-              style={{ maxHeight: 420 }}
+              style={{ maxHeight: contentMaxHeight }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >

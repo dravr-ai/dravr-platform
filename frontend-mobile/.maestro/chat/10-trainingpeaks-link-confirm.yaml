@@ -1,0 +1,56 @@
+# ABOUTME: A member answers the TrainingPeaks link their group's coach proposed — confirms it, then unlinks it
+# ABOUTME: Local, like settings/10-trainingpeaks-notice.yaml: needs the seeded "TrainingPeaks Squad" and its proposed link
+
+appId: ai.dravr.app
+
+---
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# The seeder files mobiletest a thread in the group alice@acme.com coaches.
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 15000
+- tapOn: "TrainingPeaks Squad"
+- extendedWaitUntil:
+    visible:
+      id: "chat-title-button"
+    timeout: 10000
+- tapOn:
+    id: "chat-title-button"
+- extendedWaitUntil:
+    visible:
+      id: "group-info-delegation"
+    timeout: 10000
+
+# The coach's proposal waits for the member's answer.
+- scrollUntilVisible:
+    element:
+      id: "delegation-request"
+    timeout: 10000
+- assertVisible:
+    id: "delegation-confirm"
+- assertVisible:
+    id: "delegation-decline"
+- tapOn:
+    id: "delegation-confirm"
+
+# Confirmed, the link reads through the coach's account.
+- extendedWaitUntil:
+    visible:
+      id: "delegation-linked"
+    timeout: 10000
+- assertNotVisible:
+    id: "delegation-request"
+
+# Unlinking asks first, then ends the link.
+- tapOn:
+    id: "delegation-unlink-.*"
+- tapOn: "Unlink|Dissocier"
+- extendedWaitUntil:
+    notVisible:
+      id: "delegation-linked"
+    timeout: 10000

@@ -1106,14 +1106,45 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
         .await
         .unwrap()
         .is_none());
+    // The coach is filed the group's chat as its creator is: the fresh thread
+    // the code was typed in, holding only command rows, becomes it.
     let listed = repos
         .chat
         .list_conversations(&coach_user_id.to_string(), owner_tenant, 50, 0)
         .await
         .unwrap()
         .items;
-    assert!(
-        !listed.iter().any(|c| c.title == "Trail Crew"),
-        "a human coach gets no member conversation"
+    let threads: Vec<_> = listed
+        .iter()
+        .filter(|c| c.group_id.as_deref() == Some(group_id.to_string().as_str()))
+        .collect();
+    assert_eq!(threads.len(), 1, "the coach gets one group thread");
+    assert_eq!(threads[0].id, coach_conv);
+    assert_eq!(threads[0].title, "Trail Crew");
+
+    // Re-redeeming as the coach already attached files nothing more.
+    let again = send(
+        ChatRoutes::routes(Arc::clone(&resources)),
+        &coach_auth,
+        &coach_conv,
+        &format!("/group join {code}"),
+    )
+    .await;
+    assert_eq!(
+        again.assistant.message.content,
+        rendered(&resources, KEY_GROUP_JOINED_AS_COACH, &["Trail Crew"])
+    );
+    let relisted = repos
+        .chat
+        .list_conversations(&coach_user_id.to_string(), owner_tenant, 50, 0)
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(
+        relisted
+            .iter()
+            .filter(|c| c.group_id.as_deref() == Some(group_id.to_string().as_str()))
+            .count(),
+        1
     );
 }

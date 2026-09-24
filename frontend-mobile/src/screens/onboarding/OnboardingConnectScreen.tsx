@@ -33,6 +33,15 @@ import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
+import { sciotteTargetForBackend } from '@pierre/shared-constants';
+import type { SciotteTarget } from '@pierre/shared-types';
+
+/** The brand each credential-login target is named by once it connects. */
+const SCIOTTE_BRAND_KEY: Record<SciotteTarget, string> = {
+  strava: 'app.brandStrava',
+  garmin: 'app.brandGarmin',
+  trainingpeaks: 'app.brandTrainingPeaks',
+};
 
 /**
  * Backed by the same source of truth (`provider_connections`) as the
@@ -62,7 +71,9 @@ export function OnboardingConnectScreen() {
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   // Sciotte (credential login) target for the modal — null when closed.
-  const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [sciotteTarget, setSciotteTarget] = useState<SciotteTarget | null>(null);
+  // Whether the chosen row still needs its exposure notice accepted.
+  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   // Whoop is BYO-OAuth-app: users register their own developer app at
   // developer.whoop.com and paste client_id/secret before the OAuth dance can
@@ -205,9 +216,12 @@ export function OnboardingConnectScreen() {
       }
       return;
     }
-    // Other Sciotte backends (Garmin) always use credential-based login.
-    if (provider.provider.startsWith('sciotte')) {
-      setSciotteTarget('garmin');
+    // Every other scrape-mirror row (Garmin, TrainingPeaks) signs in with the
+    // provider's own credentials, after its notice when it has one.
+    const target = sciotteTargetForBackend(provider.provider);
+    if (target) {
+      setSciotteConsentRequired(provider.consent_required);
+      setSciotteTarget(target);
       return;
     }
     if (provider.provider === 'intervals_icu') {
@@ -224,8 +238,9 @@ export function OnboardingConnectScreen() {
     void launchOAuth(provider.provider, provider.display_name);
   };
 
-  // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
-  // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`. Filter
+  // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
+  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded), `whoop`
+  // and `intervals_icu`. Filter
   // out the bare `strava` row — official OAuth is reached exclusively through
   // the Sciotte modal's t('app.useOwnStravaApp') button, so a separate
   // strava card would just duplicate the entry. Mirror its `connected` state
@@ -250,6 +265,7 @@ export function OnboardingConnectScreen() {
     const descriptions: Record<string, string> = {
       sciotte: t('app.provRunCycleSwim'),
       sciotte_garmin: t('app.provActivitiesHealth'),
+      sciotte_trainingpeaks: t('app.provTrainingPeaksShort'),
       whoop: t('app.provRecoveryStrainSleep'),
       intervals_icu: t('app.provEnduranceWellness'),
     };
@@ -405,12 +421,12 @@ export function OnboardingConnectScreen() {
         visible={sciotteTarget !== null}
         onClose={() => setSciotteTarget(null)}
         onConnected={() => {
-          const target = sciotteTarget ?? 'strava';
-          const friendly = target === 'garmin' ? t('app.brandGarmin') : t('app.brandStrava');
+          const friendly = t(SCIOTTE_BRAND_KEY[sciotteTarget ?? 'strava']);
           setSciotteTarget(null);
           void finalizeConnection(friendly);
         }}
         target={sciotteTarget ?? 'strava'}
+        consentRequired={sciotteConsentRequired}
       />
 
       <IntervalsIcuLinkModal

@@ -39,6 +39,8 @@ pub mod claim_verdicts;
 pub mod coaching_groups;
 /// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
 pub mod commitments;
+/// Delegated connections (`Postgres`) backing `DelegatedConnectionRepository`.
+pub mod delegated_connections;
 /// Email-verification token management — proving a registered address
 pub mod email_verification;
 /// Encryption support (AES-256-GCM)
@@ -88,8 +90,6 @@ pub mod provider_connections;
 pub mod recipes;
 /// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
 pub mod resumable_turns;
-/// Agent-athlete roster assignments (Postgres) backing `RosterRepository`.
-pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (Postgres)
 pub mod route_summaries;
 /// Security and notification repository implementations

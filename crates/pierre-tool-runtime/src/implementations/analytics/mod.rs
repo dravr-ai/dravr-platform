@@ -73,6 +73,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_config::environment::default_provider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::weather::{analyze_weather_impact, build_provider};
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
@@ -459,7 +460,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                 "analyze_weather_impact",
                 WeatherImpactResult {
                     activity_id: activity_id.to_owned(),
-                    activity_name: activity.name().to_owned(),
+                    activity_name: display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
                     weather: None,
                     impact: None,
                     note: Some(
@@ -498,7 +499,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                     "analyze_weather_impact",
                     WeatherImpactResult {
                         activity_id: activity_id.to_owned(),
-                        activity_name: activity.name().to_owned(),
+                        activity_name: display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
                         weather: None,
                         impact: None,
                         note: Some("Weather provider is disabled by configuration".to_owned()),
@@ -546,7 +547,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             "analyze_weather_impact",
             WeatherImpactResult {
                 activity_id: activity_id.to_owned(),
-                activity_name: activity.name().to_owned(),
+                activity_name: display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
                 weather: Some(weather_json),
                 impact: Some(WeatherImpactAssessment {
                     difficulty_level: impact.difficulty_level.clone(),

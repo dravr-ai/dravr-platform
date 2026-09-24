@@ -14,6 +14,8 @@
 //! - **`GroupService`** — the central coordinator wiring strategies to repository access
 //! - **Context injection** — augments agent system prompts with group-aware information
 //! - **Digest computation** — weekly group reports for notifications
+//! - **Delegated connections** — [`delegation::DelegationStore`], where every
+//!   group lifecycle event ends the links a coach reads members through
 
 // Re-export pierre-core modules for path compatibility within this crate
 pub use pierre_core::errors;
@@ -27,6 +29,12 @@ mod context_alerts;
 
 /// Central group coaching service and context injection
 pub mod service;
+
+/// Invite redemption: the checks an invite passes and a coach's attachment
+mod invites;
+
+/// Ending delegated connections: the one chokepoint every lifecycle event uses
+pub mod delegation;
 
 /// Who may create a group: the tenant-role shortcut and the creation policy
 pub mod creation_policy;

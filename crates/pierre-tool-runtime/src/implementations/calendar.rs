@@ -92,14 +92,17 @@ pub(super) enum TargetRule {
     AnyLabel,
     /// A label inside [`RelativeIntensity`]'s grammar, so the provider can
     /// compute a planned load for the step — the reason a plan day carries
-    /// steps at all.
+    /// steps at all. An RPE band is inside the grammar too; a calendar whose
+    /// workout text has no RPE target (Intervals.icu) takes it as a timed
+    /// step, which is why the rejection below does not offer it.
     Resolvable,
 }
 
 /// The vocabulary a resolvable target comes from, for the rejection.
 const TARGET_VOCABULARY: &str = "a zone (Z1-Z7, or 'Z2 HR'), a named zone (recovery, endurance, \
                                  tempo, threshold, VO2max, anaerobic, sprint), 'sweet spot', or a \
-                                 percent band ('75%', '88-93% FTP')";
+                                 percent band ('75%', '88-93% FTP', '95-100% threshold HR', \
+                                 '90-95% threshold pace')";
 
 /// Validate one step and return the seconds it contributes to its session.
 ///
@@ -137,6 +140,14 @@ pub(super) fn validate_step(at: &str, step: &WorkoutStep, rule: TargetRule) -> A
             field("repeat"),
             step.repeat
         )));
+    }
+    if let Some(group) = step.repeat_group {
+        if !usize::try_from(group).is_ok_and(|g| (1..=MAX_SESSION_STEPS).contains(&g)) {
+            return Err(AppError::invalid_input(format!(
+                "{} must be between 1 and {MAX_SESSION_STEPS}, got {group}",
+                field("repeat_group")
+            )));
+        }
     }
     if let Some(distance) = step.distance_meters {
         if !distance.is_finite() || distance <= 0.0 || distance > MAX_STEP_DISTANCE_METERS {
@@ -190,6 +201,20 @@ pub(super) fn step_schema() -> PropertySchema {
         PropertySchema {
             property_type: "integer".to_owned(),
             description: Some("Repetitions of this step; omit for a single block.".to_owned()),
+            ..Default::default()
+        },
+    );
+    p.insert(
+        "repeat_group".to_owned(),
+        PropertySchema {
+            property_type: "integer".to_owned(),
+            description: Some(
+                "Which repeated set this step belongs to, numbered 1, 2, 3 in step order. \
+                 Give every step of one set the same number and the next set the next \
+                 number, so 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) \
+                 stays two sets; omit it when no two adjacent sets share a repeat count."
+                    .to_owned(),
+            ),
             ..Default::default()
         },
     );

@@ -120,6 +120,17 @@ async fn page_renders_signin_and_approve_form() {
     assert!(html.contains("name=\"email\""), "email field present");
     assert!(html.contains("value=\"approve\""), "approve button present");
     assert!(html.contains(USER_CODE), "user_code shown");
+    // The operator's page draws with the shared Boreal sheet like every other
+    // hosted page, not a private dark palette with a stock blue button.
+    assert!(
+        html.contains(&format!(r#"<div class="user-code">{USER_CODE}</div>"#)),
+        "the code is shown in the mono code block"
+    );
+    assert!(html.contains("@media (prefers-color-scheme: dark)"));
+    assert!(
+        html.contains(r#"<button class="btn btn-primary btn-block" name="action" value="approve""#)
+    );
+    assert!(!html.contains("#3b82f6"), "the stock blue is gone");
 }
 
 #[tokio::test]

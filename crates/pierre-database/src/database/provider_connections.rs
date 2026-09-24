@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
-    ConnectionType, ProviderConnection, ReauthMark, TenantId, UserOAuthToken,
+    ConnectionType, ProviderAccountRole, ProviderConnection, ReauthMark, TenantId, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -17,7 +17,8 @@ use crate::repositories::provider_connections::{
     CLAIM_REAUTH_NOTIFICATION_SQL, CONNECTION_STATUS_SQL, GET_FOR_USER_IN_TENANT_SQL,
     GET_FOR_USER_SQL, IS_CONNECTED_SQL, MARK_ACTIVE_SQL, MARK_NEEDS_REAUTH_IF_TOKEN_CURRENT_SQL,
     MARK_NEEDS_REAUTH_SQL, REGISTER_CONNECTION_SQL, REMOVE_CONNECTION_SQL,
-    RESOLVE_MOST_RECENT_IN_TENANT_SQL, RESOLVE_MOST_RECENT_SQL, TOUCH_LAST_USED_SQL,
+    REMOVE_DELEGATED_CONNECTION_SQL, RESOLVE_MOST_RECENT_IN_TENANT_SQL, RESOLVE_MOST_RECENT_SQL,
+    SET_ACCOUNT_ROLE_SQL, TOUCH_LAST_USED_SQL,
 };
 use crate::repositories::ProviderConnectionRepository;
 

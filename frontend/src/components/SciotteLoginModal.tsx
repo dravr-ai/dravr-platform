@@ -10,11 +10,13 @@ import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { formatTimeout } from './sciotteLoginCopy';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
-import { clsx } from 'clsx';
 import { describeApiError } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
-import { RevealButton } from './ui';
+import { useTheme } from '../hooks/useTheme';
+import { Button, Checkbox, RevealButton } from './ui';
+import { providerGlyphInk } from '@pierre/shared-constants';
+import type { SciotteTarget } from '@pierre/shared-types';
 
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
 
@@ -35,9 +37,64 @@ interface SciotteLoginModalProps {
    * callback URL — this is purely UI bookkeeping for the in-flight window.
    */
   onOAuthLaunched?: (provider: string) => void;
-  /** Target platform: "strava" or "garmin" */
-  target?: 'strava' | 'garmin';
+  /** Target platform: "strava", "garmin" or "trainingpeaks" */
+  target?: SciotteTarget;
+  /**
+   * The account has not yet accepted this provider's exposure notice
+   * (the card's `consent_required`): the notice and its required checkbox
+   * come before the credentials, and the login carries the acceptance.
+   */
+  consentRequired?: boolean;
 }
+
+/** How the credential login presents each target. */
+interface TargetPreset {
+  /** The id `ProviderIcon` draws the target's mark for. */
+  providerId: string;
+  /** The provider's name, as the header and progress copy say it. */
+  labelKey: string;
+  /** Title and placeholder of the provider's own credential form. */
+  titleKey: string;
+  placeholderKey: string;
+  /** What the provider signs in with — TrainingPeaks takes a username. */
+  identifier: 'email' | 'username';
+  /** No Google/Apple choice to make: straight to the provider's form. */
+  directCredentials: boolean;
+  /** The exposure notice shown while the account has not accepted it. */
+  notice?: { titleKey: string; bodyKey: string; consentKey: string };
+}
+
+const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
+  strava: {
+    providerId: 'sciotte',
+    labelKey: 'shell.sciotteTargetStrava',
+    titleKey: 'shell.sciotteStravaAccount',
+    placeholderKey: 'shell.stravaEmail',
+    identifier: 'email',
+    directCredentials: false,
+  },
+  garmin: {
+    providerId: 'sciotte_garmin',
+    labelKey: 'shell.sciotteProviderGarmin',
+    titleKey: 'shell.sciotteGarminAccount',
+    placeholderKey: 'shell.garminEmail',
+    identifier: 'email',
+    directCredentials: true,
+  },
+  trainingpeaks: {
+    providerId: 'sciotte_trainingpeaks',
+    labelKey: 'shell.sciotteProviderTrainingPeaks',
+    titleKey: 'shell.sciotteTrainingPeaksAccount',
+    placeholderKey: 'shell.trainingpeaksUsername',
+    identifier: 'username',
+    directCredentials: true,
+    notice: {
+      titleKey: 'providers.trainingpeaksNotice.title',
+      bodyKey: 'providers.trainingpeaksNotice.body',
+      consentKey: 'providers.trainingpeaksNotice.consent',
+    },
+  },
+};
 
 // AppError serialises as { code, message, ... }; legacy/in-band errors sometimes
 // expose { error }. Prefer message (current shape) then error, then the axios
@@ -54,8 +111,10 @@ export default function SciotteLoginModal({
   onConnected,
   onOAuthLaunched,
   target = 'strava',
+  consentRequired = false,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
+  const { scheme } = useTheme();
   const online = useOnlineStatus();
   // Credentials and a 2FA code, in an overlay that had no dialog semantics at
   // all: nothing announced it as a dialog, Escape did nothing, and Tab left
@@ -73,6 +132,12 @@ export default function SciotteLoginModal({
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const preset = TARGET_PRESETS[target];
+  const glyphInk = providerGlyphInk(preset.providerId, scheme);
+  // The notice is shown only while the account has not accepted it, and only
+  // for a target that has one.
+  const notice = consentRequired ? preset.notice : undefined;
+  const [consentAccepted, setConsentAccepted] = useState(false);
   // When the user picks t('app.useOwnStravaApp'), we open the BYO setup
   // modal on top of this one. On save it kicks off the official OAuth flow
   // and closes this whole stack via `onConnected`. Only meaningful when
@@ -85,9 +150,10 @@ export default function SciotteLoginModal({
 
   useEffect(() => {
     if (isOpen) {
-      // Garmin uses direct email/password — skip the choose phase
-      setPhase(target === 'garmin' ? 'credentials' : 'choose');
+      // Garmin and TrainingPeaks sign in with their own credentials — skip the choose phase
+      setPhase(TARGET_PRESETS[target].directCredentials ? 'credentials' : 'choose');
       setMethod('email');
+      setConsentAccepted(false);
       setStatus('');
       setError(null);
       setEmail('');
@@ -112,14 +178,21 @@ export default function SciotteLoginModal({
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!email || !password) return;
+      if (notice && !consentAccepted) return;
 
       setIsLoading(true);
       setError(null);
       setPhase('logging-in');
-      setStatus(t('app.connectingToProvider', { provider: target === 'garmin' ? t('shell.sciotteProviderGarmin') : t('shell.sciotteTargetStrava') }));
+      setStatus(t('app.connectingToProvider', { provider: t(TARGET_PRESETS[target].labelKey) }));
 
       try {
-        const data = await oauthApi.sciotteLogin({ email, password, method, target });
+        const data = await oauthApi.sciotteLogin({
+          email,
+          password,
+          method,
+          target,
+          ...(notice ? { tos_consent: consentAccepted } : {}),
+        });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -157,7 +230,7 @@ export default function SciotteLoginModal({
         setIsLoading(false);
       }
     },
-    [email, password, method, target, onClose, onConnected, online, t]
+    [email, password, method, target, notice, consentAccepted, onClose, onConnected, online, t]
   );
 
   // 2FA option selection
@@ -209,7 +282,7 @@ export default function SciotteLoginModal({
 
   // Auto-poll once when number-match phase is reached — the phone notification
   // arrives before the UI shows the number, so poll immediately
-  const providerLabel = target === 'garmin' ? t('shell.sciotteProviderGarmin') : t('shell.sciotteTargetStrava');
+  const providerLabel = t(preset.labelKey);
 
   const [pollingStarted, setPollingStarted] = useState(false);
   useEffect(() => {
@@ -285,13 +358,13 @@ export default function SciotteLoginModal({
 
   if (!isOpen) return null;
 
-  const labels = target === 'garmin' && method === 'email'
-    ? { titleKey: 'shell.sciotteGarminAccount', emailPlaceholderKey: 'shell.garminEmail' }
+  const labels = method === 'email'
+    ? { titleKey: preset.titleKey, emailPlaceholderKey: preset.placeholderKey }
     : METHOD_LABELS[method];
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -304,17 +377,19 @@ export default function SciotteLoginModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
           <div className="flex items-center gap-3">
-            {/* The mark of the provider being connected — Strava's chevron on
-                its brand orange (a third-party colour, not a Boreal token), or
-                Garmin's dial on the product tone. One icon source for both:
-                the same component the provider cards draw. */}
+            {/* The mark of the provider being connected, in the ink the
+                provider rows draw it in: the brand's own colour (a third-party
+                colour, not a Boreal token) where it clears the 3:1 icon floor,
+                the body ink where it does not — both from PROVIDER_GLYPH_INK.
+                The tile is surface-container-lowest, which sits further from
+                each of those inks than the canvas the table was measured on.
+                One icon source: the same component the provider rows draw. */}
             <div
-              className={clsx(
-                'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-                target === 'garmin' ? 'bg-primary/15 text-primary' : 'bg-warning text-on-surface',
-              )}
+              data-testid="sciotte-provider-mark"
+              className="w-8 h-8 rounded-lg border ghost-border bg-surface-container-lowest text-on-surface flex items-center justify-center flex-shrink-0"
+              style={glyphInk ? { color: glyphInk } : undefined}
             >
-              <ProviderIcon providerId={target === 'garmin' ? 'sciotte_garmin' : 'sciotte'} className="w-4 h-4" />
+              <ProviderIcon providerId={preset.providerId} className="w-4 h-4" />
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>
@@ -337,9 +412,11 @@ export default function SciotteLoginModal({
           {/* Phase: Choose */}
           {phase === 'choose' && (
             <div className="space-y-3">
-              <button
+              <Button
+                variant="secondary"
+                size="lg"
+                className="w-full gap-3"
                 onClick={() => selectMethod('google')}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-surface-container-high border ghost-border rounded-lg hover:bg-surface-container-highest hover:border-white/30 transition-all text-on-surface font-medium"
               >
                 <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
@@ -348,17 +425,19 @@ export default function SciotteLoginModal({
                   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                 </svg>
                 {t('shell.sciotteContinueGoogle')}
-              </button>
+              </Button>
 
-              <button
+              <Button
+                variant="secondary"
+                size="lg"
+                className="w-full gap-3"
                 onClick={() => selectMethod('apple')}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-surface-container-high border ghost-border rounded-lg hover:bg-surface-container-highest hover:border-white/30 transition-all text-on-surface font-medium"
               >
                 <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
                 </svg>
                 {t('shell.sciotteContinueApple')}
-              </button>
+              </Button>
 
               <div className="relative my-4">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t ghost-border" /></div>
@@ -400,25 +479,42 @@ export default function SciotteLoginModal({
           {/* Phase: Email credentials */}
           {phase === 'credentials' && (
             <div>
-              <button onClick={() => target === 'garmin' ? onClose() : setPhase('choose')} className="flex items-center gap-1 text-sm text-on-surface/50 hover:text-on-surface/80 transition-colors mb-4">
+              <button onClick={() => preset.directCredentials ? onClose() : setPhase('choose')} className="flex items-center gap-1 text-sm text-on-surface/50 hover:text-on-surface/80 transition-colors mb-4">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 {t('shell.sciotteBack')}
               </button>
               <h3 className="text-on-surface font-medium mb-4">{t(labels.titleKey)}</h3>
+              {/* The exposure comes before the credentials: the account is told
+                  what connecting risks, and accepts it, before typing anything. */}
+              {notice && (
+                <div role="note" className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3">
+                  <p className="text-sm font-medium text-on-warning-container mb-1">{t(notice.titleKey)}</p>
+                  <p className="text-sm text-on-warning-container mb-3">{t(notice.bodyKey)}</p>
+                  <Checkbox
+                    id="sciotte-tos-consent"
+                    label={t(notice.consentKey)}
+                    checked={consentAccepted}
+                    onChange={(e) => setConsentAccepted(e.target.checked)}
+                    labelClassName="text-on-warning-container"
+                  />
+                </div>
+              )}
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div>
-                  <label htmlFor="sciotte-email" className="block text-sm text-on-surface/60 mb-1.5">{t('common.email')}</label>
+                  <label htmlFor="sciotte-email" className="block text-sm text-on-surface/60 mb-1.5">
+                    {t(preset.identifier === 'username' ? 'common.username' : 'common.email')}
+                  </label>
                   <input
                     id="sciotte-email"
-                    type="email"
+                    type={preset.identifier === 'username' ? 'text' : 'email'}
                     placeholder={t(labels.emailPlaceholderKey)}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="input-glass w-full"
                     required
-                    autoComplete="email"
+                    autoComplete={preset.identifier === 'username' ? 'username' : 'email'}
                     autoFocus
-                    name="email"
+                    name={preset.identifier === 'username' ? 'username' : 'email'}
                   />
                 </div>
                 <div>
@@ -442,9 +538,15 @@ export default function SciotteLoginModal({
 />
                   </div>
                 </div>
-                <button type="submit" disabled={isLoading || !email || !password} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium /40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  disabled={isLoading || !email || !password || (notice !== undefined && !consentAccepted)}
+                >
                   {isLoading ? t('shell.sciotteLoggingIn') : t('shell.sciotteLogIn')}
-                </button>
+                </Button>
               </form>
             </div>
           )}
@@ -453,7 +555,7 @@ export default function SciotteLoginModal({
           {phase === 'logging-in' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px] ghost-border border-t-on-surface" />
+                <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px]" />
                 <p className="text-on-surface/80 text-sm font-medium">{progressLabel}</p>
                 <p className="text-on-surface/40 text-xs mt-2">
                   {(() => {
@@ -481,14 +583,16 @@ export default function SciotteLoginModal({
               </div>
               <div className="space-y-3">
                 {twoFactorOptions.map((option) => (
-                  <button
+                  <Button
                     key={option.id}
+                    variant="secondary"
+                    size="lg"
+                    className="w-full justify-start"
                     onClick={() => handleSelectTwoFactor(option.id)}
                     disabled={isLoading}
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-surface-container-high border ghost-border rounded-lg hover:bg-surface-container-highest hover:border-white/30 transition-all text-on-surface text-left disabled:opacity-50"
                   >
-                    <span className="text-sm">{option.label}</span>
-                  </button>
+                    {option.label}
+                  </Button>
                 ))}
               </div>
             </div>
@@ -498,7 +602,7 @@ export default function SciotteLoginModal({
           {phase === 'waiting-approval' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="pierre-spinner w-12 h-12 mx-auto mb-4 border-2 ghost-border border-t-amber-500" />
+                <div className="pierre-spinner w-12 h-12 mx-auto mb-4" />
                 <p className="text-on-surface font-medium">{t('shell.sciotteCheckPhone')}</p>
                 <p className="text-on-surface/50 text-sm mt-1">{t('shell.sciotteTapYes')}</p>
               </div>
@@ -514,7 +618,7 @@ export default function SciotteLoginModal({
                 </div>
                 <p className="text-on-surface font-medium mb-1">{t('shell.sciotteTapNumber')}</p>
                 <p className="text-on-surface/50 text-sm mb-4">{t('shell.sciotteGoogleNotificationHint')}</p>
-                <div className="pierre-spinner w-8 h-8 mx-auto border-2 ghost-border border-t-blue-500" />
+                <div className="pierre-spinner w-8 h-8 mx-auto" />
                 <p className="text-on-surface/30 text-xs mt-3">{t('shell.sciotteWaitingForTap')}</p>
               </div>
             </div>
@@ -534,9 +638,9 @@ export default function SciotteLoginModal({
               </div>
               <form onSubmit={handleOtpSubmit} className="space-y-4">
                 <input type="text" placeholder={t('shell.sciotteVerificationCode')} value={otpCode} onChange={(e) => setOtpCode(e.target.value)} className="input-glass w-full text-center text-lg tracking-widest" required autoFocus autoComplete="one-time-code" inputMode="numeric" />
-                <button type="submit" disabled={isLoading || !otpCode} className="w-full py-3 bg-gradient-to-r from-nutrition to-warning rounded-lg text-on-surface font-medium /40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                <Button type="submit" variant="primary" size="lg" className="w-full" disabled={isLoading || !otpCode}>
                   {t('shell.sciotteVerify')}
-                </button>
+                </Button>
               </form>
             </div>
           )}
@@ -549,7 +653,7 @@ export default function SciotteLoginModal({
                   <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <p className="text-activity text-lg font-medium">{t('shell.sciotteConnected')}</p>
-                <p className="text-on-surface/50 text-sm mt-1">{t('frag.your')} {providerLabel} data is now available</p>
+                <p className="text-on-surface/50 text-sm mt-1">{t('shell.sciotteConnectedDataReady', { provider: providerLabel })}</p>
               </div>
             </div>
           )}
@@ -563,9 +667,12 @@ export default function SciotteLoginModal({
                 </div>
                 <p className="text-error text-lg font-medium mb-2">{t('shell.sciotteLoginFailed')}</p>
                 <p className="text-on-surface/50 text-sm max-w-sm mb-4">{error}</p>
-                <button onClick={() => { setPhase(target === 'garmin' ? 'credentials' : 'choose'); setError(null); }} className="px-4 py-2 bg-surface-container-high border ghost-border hover:bg-surface-container-highest hover:border-white/30 rounded-lg text-on-surface text-sm transition-all">
+                <Button
+                  variant="secondary"
+                  onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); }}
+                >
                   {t('chat.tryAgain')}
-                </button>
+                </Button>
               </div>
             </div>
           )}

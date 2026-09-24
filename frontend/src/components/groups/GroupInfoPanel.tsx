@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info for the open group thread — members, invites, coach, settings, analytics, transcript
+// ABOUTME: Group info for the open group thread — members, TrainingPeaks links, invites, coach, settings, analytics, room
 // ABOUTME: The Groups tab's management surface, re-homed where App Messaging keeps it: inside the chat
 
 import { useState } from 'react';
-import { BarChart3, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
+import { Activity, BarChart3, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
 import {
+  useDelegatedConnections,
   useGroup,
   useGroupMembers,
   useGroupPermissions,
@@ -33,6 +34,7 @@ import MemberList from './MemberList';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
+import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import type { GroupDigestMode, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 import { oneDecimal } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -45,6 +47,8 @@ interface GroupInfoPanelProps {
    * The host closes the panel and drops the thread selection.
    */
   onMembershipEnded: () => void;
+  /** Open the connections pane, where a coach connects their own TrainingPeaks. */
+  onOpenConnections?: () => void;
 }
 
 // Built at import time, where `t` does not exist: the table carries the key
@@ -93,18 +97,40 @@ function Section({
  * consent, the analytics an admin may read, the shared room transcript, and
  * the two exits. Creating and joining are commands, so neither appears.
  */
-export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfoPanelProps) {
+export default function GroupInfoPanel({
+  groupId,
+  onMembershipEnded,
+  onOpenConnections,
+}: GroupInfoPanelProps) {
   const { t, language } = useTranslation();
+  const auth = useAuth();
   const { group, isLoading: isGroupLoading } = useGroup(groupId);
   const { members, isLoading: isMembersLoading } = useGroupMembers(groupId);
-  const { stats, isLoading: isStatsLoading } = useGroupStats(groupId);
+
+  const currentUserId = auth.user?.id ?? '';
+  const currentMember = members.find((m) => m.user_id === currentUserId);
+  // The group's human coach holds no membership row: they read the group and
+  // its members, link TrainingPeaks athletes, and follow the room, while the
+  // member-only surfaces (consent, invites, settings, analytics, leave) stay
+  // off, since their routes refuse a non-member.
+  const isGroupCoach = !!group?.coach_user_id && group.coach_user_id === currentUserId;
+  const isCoachViewer = isGroupCoach && !currentMember;
+
+  const { stats, isLoading: isStatsLoading } = useGroupStats(
+    groupId,
+    // Held until the group resolves: before then a coach reads as a member.
+    !!group && !isCoachViewer,
+  );
+  const { connections: delegatedConnections, viewer: delegationViewer } = useDelegatedConnections(
+    groupId,
+    !!group?.coach_user_id,
+  );
   const { weeklyDigest } = useGroupPermissions();
   const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
-  const auth = useAuth();
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
 
@@ -129,16 +155,15 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
     setSettingsInitialized(true);
   }
 
-  const currentUserId = auth.user?.id ?? '';
-  const currentMember = members.find((m) => m.user_id === currentUserId);
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
+  // A member sees only their own links, at most one live per group.
+  const liveLink = delegationViewer === 'member' ? (delegatedConnections[0] ?? null) : null;
   // The group's attached human coach may change where the weekly digest goes,
   // and nothing else; the server refuses any other field from them.
-  const isCoach = currentUserId !== '' && group?.coach_user_id === currentUserId;
   // The digest select shows only where the tenant's tier sends a digest at all.
-  const canSetDigest = weeklyDigest && (isAdmin || isCoach);
+  const canSetDigest = weeklyDigest && (isAdmin || isGroupCoach);
 
   /**
    * Set the caller's own peer-sharing consent. The route writes the caller's
@@ -257,9 +282,9 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
             </span>
           )}
           {group.coach_user_id && (
-            <span className="flex items-center gap-1.5 text-primary">
+            <span className="flex items-center gap-1.5 text-primary" data-testid="group-info-coach-badge">
               <UserCog className="w-3.5 h-3.5" aria-hidden="true" />
-              {t('humanCoach.attachedBadge')}
+              {isGroupCoach ? t('humanCoach.youCoach') : t('humanCoach.attachedBadge')}
             </span>
           )}
         </div>
@@ -297,9 +322,35 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         />
       </Section>
 
-      <Section icon={<Link2 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabInvites')}>
-        <InviteManager groupId={groupId} currentUserRole={currentUserRole} />
-      </Section>
+      {/* Which side of the links the caller is on is the server's answer:
+          a coach who is also a member is still the group's coach. */}
+      {delegationViewer === 'coach' ? (
+        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.sectionTitle')}>
+          <DelegatedConnectionsSection
+            groupId={groupId}
+            mode="coach"
+            connections={delegatedConnections}
+            members={members}
+            onOpenConnections={onOpenConnections}
+          />
+        </Section>
+      ) : delegationViewer === 'member' && liveLink ? (
+        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.memberSectionTitle')}>
+          <DelegatedConnectionsSection
+            groupId={groupId}
+            mode="member"
+            connections={[liveLink]}
+            members={members}
+          />
+        </Section>
+      ) : null}
+
+      {/* Only an owner or admin may list a group's invites; the route refuses anyone else. */}
+      {isAdmin && (
+        <Section icon={<Link2 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabInvites')}>
+          <InviteManager groupId={groupId} currentUserRole={currentUserRole} />
+        </Section>
+      )}
 
       {isAdmin && (
         <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title={t('humanCoach.coach')}>
@@ -394,6 +445,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         </Section>
       )}
 
+      {!isCoachViewer && (
       <Section icon={<BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabAnalytics')}>
         {isStatsLoading ? (
           <div className="flex justify-center py-6">
@@ -434,11 +486,13 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         )}
         <GroupInsightsPanel groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
       </Section>
+      )}
 
       <Section icon={<MessageCircle className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabRoom')}>
         <GroupTranscriptPanel groupId={groupId} />
       </Section>
 
+      {!isCoachViewer && (
       <section className="space-y-3 rounded-lg border border-error/20 p-4">
         <h4 className="text-xs font-semibold text-error">{t('chat.dangerZone')}</h4>
         {!isOwner && (
@@ -478,13 +532,18 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
           </div>
         )}
       </section>
+      )}
 
       <ConfirmDialog
         isOpen={confirmLeave}
         onClose={() => setConfirmLeave(false)}
         onConfirm={() => void handleLeave()}
         title={t('groups.leaveGroup')}
-        message={t('app.confirmLeaveGroupWeb', { group: group.name })}
+        message={
+          liveLink
+            ? `${t('app.confirmLeaveGroupWeb', { group: group.name })} ${t('delegation.leaveEndsLink')}`
+            : t('app.confirmLeaveGroupWeb', { group: group.name })
+        }
         confirmLabel={t('app.leaveGroup')}
         variant="warning"
         isLoading={isLeaving}
@@ -506,7 +565,7 @@ export default function GroupInfoPanel({ groupId, onMembershipEnded }: GroupInfo
         onClose={() => setConfirmRemoveCoach(false)}
         onConfirm={() => void handleRemoveCoach()}
         title={t('humanCoach.remove')}
-        message="Detach the human coach from this group? They will lose access to the group's roster. You can invite a coach again later."
+        message={t('humanCoach.detachQ')}
         confirmLabel={t('humanCoach.remove')}
         variant="warning"
         isLoading={isRemovingCoach}

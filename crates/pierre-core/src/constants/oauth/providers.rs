@@ -56,6 +56,28 @@ pub const SCIOTTE: &str = "sciotte";
 /// Browser-based Garmin Connect data extraction, gated behind `provider-sciotte` feature.
 pub const SCIOTTE_GARMIN: &str = "sciotte_garmin";
 
+/// TrainingPeaks user-facing provider identifier.
+///
+/// TrainingPeaks has no OAuth backend inside Pierre — its partner API is
+/// closed — so this name never has a factory of its own. It exists so the
+/// backend resolver can hide the scrape mirror behind it, exactly as `garmin`
+/// hides `sciotte_garmin`.
+pub const TRAININGPEAKS: &str = "trainingpeaks";
+
+/// The dated version of the TrainingPeaks exposure notice.
+///
+/// A TrainingPeaks login is refused until the account accepts it; the notice
+/// is shown in the web and mobile connect modals and on the hosted login page.
+/// An account that accepted this version logs in again without being asked.
+/// Bump it whenever the notice text changes on any surface or in any locale,
+/// so every account is asked again.
+pub const TRAININGPEAKS_TERMS_VERSION: &str = "2026-09-24";
+
+/// Sciotte TrainingPeaks web scraping provider identifier.
+///
+/// Browser-based TrainingPeaks calendar extraction, gated behind `provider-sciotte` feature.
+pub const SCIOTTE_TRAININGPEAKS: &str = "sciotte_trainingpeaks";
+
 /// Synthetic fitness provider identifier (for testing)
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-synthetic` feature.
@@ -72,9 +94,9 @@ pub const SYNTHETIC_SLEEP: &str = "synthetic_sleep";
 /// Whether `provider` answers from locally generated data and so needs no
 /// connection, token, or session of any kind.
 ///
-/// Deliberately narrower than "does not use OAuth". `sciotte` and
-/// `sciotte_garmin` skip OAuth but run on a browser session the athlete still
-/// has to establish, and `coros` is simply unconfigured — a request naming any
+/// Deliberately narrower than "does not use OAuth". `sciotte`, `sciotte_garmin`
+/// and `sciotte_trainingpeaks` skip OAuth but run on a browser session the
+/// athlete still has to establish, and `coros` is simply unconfigured — a request naming any
 /// of those from an athlete with nothing connected must still be refused, or
 /// the refusal that sends them to connect never fires. Only the synthetic
 /// providers make their data up on the spot.

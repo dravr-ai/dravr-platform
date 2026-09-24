@@ -24,10 +24,13 @@ pub async fn get_tenant_id(
     require(resolve_tenant(resources, auth, TenantMode::Required).await?)
 }
 
-/// Reject group-scoped access when the caller is not an active member of
-/// the group. `group_id` must be a real `coaching_group` the user belongs
-/// to — otherwise the caller would be handed peer content and fitness data
-/// they have no relationship to. Gates both conversation attachment and the
+/// Reject group-scoped access unless the group admits the caller: a live
+/// member of an active group, or its human coach
+/// ([`CoachingGroupRepository::admits_member_or_coach`](pierre_database::repositories::CoachingGroupRepository::admits_member_or_coach)).
+/// Otherwise the caller would be handed peer content and fitness data they
+/// have no relationship to. The coach oversees the group through its agent
+/// persona, with each member's data still gated by their own
+/// `peer_sharing_consent`. Gates both conversation attachment and the
 /// room-transcript read.
 pub async fn verify_group_membership(
     resources: &Arc<ServerContext>,
@@ -35,31 +38,15 @@ pub async fn verify_group_membership(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Result<(), AppError> {
-    let member = resources
+    if resources
         .common
         .repos
         .groups
-        .get_member(group_id, user_id)
-        .await?;
-    if matches!(&member, Some(m) if m.left_at.is_none()) {
-        return Ok(());
-    }
-
-    // The group's human coach can reach the group even though they are
-    // not a member — they oversee the group through its agent persona, with
-    // each member's data still gated by their own peer_sharing_consent.
-    if let Some(group) = resources
-        .common
-        .repos
-        .groups
-        .get_group(group_id, tenant_id)
+        .admits_member_or_coach(group_id, user_id, tenant_id)
         .await?
     {
-        if group.coach_user_id == Some(user_id) {
-            return Ok(());
-        }
+        return Ok(());
     }
-
     Err(AppError::new(
         ErrorCode::PermissionDenied,
         "Cannot attach conversation to a group you don't belong to",

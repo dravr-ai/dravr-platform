@@ -13,10 +13,10 @@ import fr from '../../../../packages/i18n/src/locales/fr/translation.json';
 import pt from '../../../../packages/i18n/src/locales/pt/translation.json';
 
 /**
- * The four capability slugs `GET /api/oauth/providers` builds, in the order
+ * The five capability slugs `GET /api/oauth/providers` builds, in the order
  * `crates/pierre-routes-auth/src/oauth.rs` pushes them.
  */
-const SERVER_SCOPES = ['activities', 'sleep', 'recovery', 'health'];
+const SERVER_SCOPES = ['activities', 'sleep', 'recovery', 'health', 'planned_workouts'];
 
 const BUNDLES: Record<string, Record<string, unknown>> = {
   fr: fr as Record<string, unknown>,
@@ -59,6 +59,7 @@ describe('provider capability scopes', () => {
     }
     expect(leaf(BUNDLES.fr, PROVIDER_SCOPE_LABEL_KEY.sleep)).toBe('sommeil');
     expect(leaf(BUNDLES.fr, PROVIDER_SCOPE_LABEL_KEY.recovery)).toBe('récupération');
+    expect(leaf(BUNDLES.fr, PROVIDER_SCOPE_LABEL_KEY.planned_workouts)).toBe('séances planifiées');
   });
 
   it('has no key for a slug it does not know, so the caller prints it verbatim', () => {

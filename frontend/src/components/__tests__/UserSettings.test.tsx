@@ -144,8 +144,20 @@ vi.mock('../../services/api', () => ({
 // Render the Sciotte modal as a testid carrying its target so a fallback that
 // opens it (target="strava") is observable.
 vi.mock('../SciotteLoginModal', () => ({
-  default: ({ isOpen, target }: { isOpen: boolean; target: string }) =>
-    isOpen ? <div data-testid="sciotte-modal">{target}</div> : null,
+  default: ({
+    isOpen,
+    target,
+    consentRequired,
+  }: {
+    isOpen: boolean;
+    target: string;
+    consentRequired?: boolean;
+  }) =>
+    isOpen ? (
+      <div data-testid="sciotte-modal" data-consent={String(Boolean(consentRequired))}>
+        {target}
+      </div>
+    ) : null,
 }));
 
 function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
@@ -719,6 +731,195 @@ describe('UserSettings Component', () => {
     // and mobile ConnectionsScreen/OnboardingConnectScreen suites; UserSettings
     // routes it through the same handleConnectProvider poll, which cannot be
     // isolated reliably here because that poll's interval outlives unmount.
+  });
+
+  describe('Data Providers — TrainingPeaks through a coach', () => {
+    const trainingPeaksCard = (overrides: Record<string, unknown>) => ({
+      provider: 'sciotte_trainingpeaks',
+      display_name: 'TrainingPeaks',
+      requires_oauth: false,
+      connected: false,
+      needs_reauth: false,
+      capabilities: ['activities'],
+      consent_required: false,
+      ...overrides,
+    });
+    const delegation = (status: 'proposed' | 'confirmed', coach_needs_reauth = false) => ({
+      connection_id: 'dc-1',
+      group_id: 'group-1',
+      group_name: 'Marathon Squad',
+      coach_display_name: 'Casey Coach',
+      status,
+      coach_needs_reauth,
+    });
+
+    it('names the coach a delegated connection reads through, and unlinks rather than disconnects', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [trainingPeaksCard({ connected: true, delegation: delegation('confirmed') })],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-delegated-sciotte_trainingpeaks')).toHaveTextContent(
+        'Connected through Casey Coach',
+      );
+      expect(screen.getByTestId('provider-disconnect-sciotte_trainingpeaks')).toHaveTextContent('Unlink');
+    });
+
+    it('says when the coach must reconnect, not the athlete', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [trainingPeaksCard({ connected: true, delegation: delegation('confirmed', true) })],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-delegated-sciotte_trainingpeaks')).toHaveTextContent(
+        'Casey Coach needs to reconnect TrainingPeaks; your workouts are paused until then.',
+      );
+      expect(screen.queryByText('Reconnect needed')).not.toBeInTheDocument();
+    });
+
+    it('points a pending link at the group it waits in', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [trainingPeaksCard({ delegation: delegation('proposed') })],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-pending-link-sciotte_trainingpeaks')).toHaveTextContent(
+        'Casey Coach asked to link your workouts — review it in Marathon Squad',
+      );
+    });
+
+    it('badges a coach account and says where its athletes are linked', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [trainingPeaksCard({ connected: true, account_role: 'coach' })],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-coach-account-sciotte_trainingpeaks')).toHaveTextContent(
+        'Coach account',
+      );
+      expect(
+        screen.getByText(
+          'TrainingPeaks keeps no calendar for a coach account. Link your athletes from a group you coach.',
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe('Data Providers — the letter glyph follows the scheme', () => {
+    const row = (provider: string, display_name: string) => ({
+      provider,
+      display_name,
+      requires_oauth: false,
+      connected: false,
+      needs_reauth: false,
+      capabilities: ['activities'],
+      consent_required: false,
+    });
+
+    beforeEach(() => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [row('sciotte_trainingpeaks', 'TrainingPeaks'), row('whoop', 'WHOOP'), row('synthetic', 'Synthetic')],
+      });
+    });
+
+    afterEach(() => {
+      localStorage.removeItem('dravr.theme');
+      document.documentElement.classList.remove('dark');
+    });
+
+    it('draws TrainingPeaks in its blue and WHOOP in body ink on the light canvas', async () => {
+      localStorage.setItem('dravr.theme', 'light');
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      const trainingPeaks = await screen.findByTestId('provider-glyph-sciotte_trainingpeaks');
+      expect(trainingPeaks).toHaveTextContent('T');
+      expect(trainingPeaks).toHaveStyle({ color: 'rgb(0, 86, 149)' });
+
+      const whoop = screen.getByTestId('provider-glyph-whoop');
+      expect(whoop).toHaveClass('text-on-surface');
+      expect(whoop.style.color).toBe('');
+    });
+
+    it('draws TrainingPeaks in body ink and WHOOP in its green on the dark canvas', async () => {
+      localStorage.setItem('dravr.theme', 'dark');
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      const trainingPeaks = await screen.findByTestId('provider-glyph-sciotte_trainingpeaks');
+      expect(trainingPeaks).toHaveClass('text-on-surface');
+      expect(trainingPeaks.style.color).toBe('');
+
+      expect(screen.getByTestId('provider-glyph-whoop')).toHaveStyle({ color: 'rgb(0, 212, 106)' });
+    });
+
+    it('draws a provider with no brand colour in body ink', async () => {
+      localStorage.setItem('dravr.theme', 'light');
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      const synthetic = await screen.findByTestId('provider-glyph-synthetic');
+      expect(synthetic).toHaveClass('text-on-surface');
+      expect(synthetic.style.color).toBe('');
+    });
+  });
+
+  describe('Data Providers — TrainingPeaks', () => {
+    const trainingPeaksCard = (connected: boolean) => ({
+      provider: 'sciotte_trainingpeaks',
+      display_name: 'TrainingPeaks',
+      requires_oauth: false,
+      connected,
+      needs_reauth: false,
+      capabilities: ['activities'],
+      consent_required: !connected,
+    });
+
+    beforeEach(() => {
+      vi.stubGlobal('open', vi.fn());
+    });
+
+    it('opens the TrainingPeaks login with its notice, never an OAuth window', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [trainingPeaksCard(false)] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByText('TrainingPeaks')).toBeInTheDocument();
+      expect(screen.queryByText('Manual')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+      const modal = await screen.findByTestId('sciotte-modal');
+      expect(modal).toHaveTextContent('trainingpeaks');
+      expect(modal).toHaveAttribute('data-consent', 'true');
+      expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('disconnects the TrainingPeaks mirror that holds the session', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [trainingPeaksCard(true)] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Disconnect' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+
+      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('sciotte_trainingpeaks'));
+    });
   });
 
   describe('Data Providers — Strava connected through the native OAuth row', () => {

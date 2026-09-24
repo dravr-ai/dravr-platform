@@ -5,7 +5,13 @@
 // ABOUTME: The offline case is the one that used to read back to athletes as a wrong password
 
 import { describe, it, expect } from 'vitest';
-import { classifyApiError, describeApiError, describeLoginFailure, API_ERROR_KEYS } from '../src/apiError';
+import {
+  classifyApiError,
+  describeApiError,
+  describeLoginFailure,
+  refusalReason,
+  API_ERROR_KEYS,
+} from '../src/apiError';
 
 /** An axios-shaped rejection that reached a server. */
 const responded = (status: number, data?: Record<string, unknown>) => ({
@@ -280,5 +286,24 @@ describe('describeLoginFailure', () => {
         t,
       }),
     ).toBe('auth.invalidCredentials');
+  });
+});
+
+describe('refusalReason', () => {
+  it('reads the reason a refusal names in details.reason', () => {
+    const err = responded(409, {
+      code: 'ResourceAlreadyExists',
+      message: 'Resource already exists',
+      details: { reason: 'own_connection' },
+    });
+    expect(refusalReason(err)).toBe('own_connection');
+  });
+
+  it('is undefined when the refusal names none, or never reached a server', () => {
+    expect(refusalReason(responded(400, { message: 'bad' }))).toBeUndefined();
+    expect(refusalReason(responded(429, { details: { limit: 3 } }))).toBeUndefined();
+    expect(refusalReason(responded(409, { details: { reason: 7 } }))).toBeUndefined();
+    expect(refusalReason(new Error('Network Error'))).toBeUndefined();
+    expect(refusalReason(null)).toBeUndefined();
   });
 });

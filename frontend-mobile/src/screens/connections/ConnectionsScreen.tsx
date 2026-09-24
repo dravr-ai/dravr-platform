@@ -17,7 +17,7 @@ import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { spacing, useThemeColors } from '../../constants/theme';
-import { EmptyState, PaneScrollView, Section, Sheet } from '../../components/ui';
+import { EmptyState, PaneScrollView, Section, Sheet, StatusDot } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
@@ -26,6 +26,8 @@ import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { sciotteTargetForBackend } from '@pierre/shared-constants';
+import type { SciotteTarget } from '@pierre/shared-types';
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
@@ -39,7 +41,9 @@ export function ConnectionsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [sciotteTarget, setSciotteTarget] = useState<SciotteTarget | null>(null);
+  // Whether the chosen row still needs its exposure notice accepted.
+  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
   const [intervalsModalVisible, setIntervalsModalVisible] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
   // Whoop is BYO-OAuth-app: users register their own developer app at
@@ -205,17 +209,20 @@ export function ConnectionsScreen() {
    * the default while shared-app seats remain (the server recommends `oauth`);
    * once the athlete cap is reached it recommends `mirror` and we go straight
    * to the Sciotte credential login. If the OAuth attempt itself fails,
-   * handleConnect falls back to Sciotte. Garmin (`sciotte_garmin`) is always
-   * credentials. Whoop is BYO: the setup sheet opens first and OAuth fires
+   * handleConnect falls back to Sciotte. Garmin and TrainingPeaks are always
+   * credentials, TrainingPeaks after its notice while the account has not
+   * accepted it. Whoop is BYO: the setup sheet opens first and OAuth fires
    * once the user saves valid client_id/secret, which spares first-touch
    * users a speculative attempt and its "Configuration error" toast.
    */
   const startConnect = (provider: ExtendedProviderStatus) => {
-    if (provider.provider.startsWith('sciotte')) {
-      if (provider.provider === 'sciotte' && provider.recommended_backend === 'oauth') {
+    const target = sciotteTargetForBackend(provider.provider);
+    if (target) {
+      if (target === 'strava' && provider.recommended_backend === 'oauth') {
         handleConnect('strava', provider.display_name);
       } else {
-        setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+        setSciotteConsentRequired(provider.consent_required);
+        setSciotteTarget(target);
       }
     } else if (provider.provider === 'intervals_icu') {
       setIntervalsModalVisible(true);
@@ -228,12 +235,14 @@ export function ConnectionsScreen() {
 
   // The one line under a provider's name. After the 2026-Q2 provider cleanup
   // the API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
-  // (Garmin-branded), `whoop` and `intervals_icu`; an unknown id gets the
+  // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded), `whoop`
+  // and `intervals_icu`; an unknown id gets the
   // generic line so the screen never crashes on an unexpected payload.
   const providerBlurb = (providerId: string): string => {
     const blurbs: Record<string, string> = {
       sciotte: t('app.provStravaBlurb'),
       sciotte_garmin: t('app.provGarminBlurb'),
+      sciotte_trainingpeaks: t('app.provTrainingPeaksBlurb'),
       whoop: t('app.provWhoopBlurb'),
       intervals_icu: t('app.provIntervalsBlurb'),
     };
@@ -268,11 +277,36 @@ export function ConnectionsScreen() {
       );
     const reconnect = () => startConnect(provider);
     const disconnect = () => handleDisconnect(id, provider.display_name);
+    // A connection the athlete's group coach serves: confirmed, it is read
+    // through the coach's account and disconnecting it ends the link;
+    // proposed, it waits for the athlete's answer in the group.
+    const delegation = provider.delegation;
+    const isDelegated = isConnected && delegation?.status === 'confirmed';
+    let subtitle = providerBlurb(id);
+    if (isDelegated) {
+      subtitle = delegation.coach_needs_reauth
+        ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
+        : t('providers.connectedThrough', { coach: delegation.coach_display_name });
+    } else if (delegation?.status === 'proposed') {
+      subtitle = t('providers.pendingLink', {
+        coach: delegation.coach_display_name,
+        group: delegation.group_name,
+      });
+    } else if (provider.account_role === 'coach') {
+      subtitle = t('humanCoach.trainingpeaksAccountHint');
+    }
 
     // One status word and one ink action, never a pill or a filled button:
     // the state reads as text and the thing to do about it as a link.
     let trailing: React.ReactNode = null;
-    if (needsReauth) {
+    if (isDelegated) {
+      trailing = (
+        <>
+          <StatusDot tone={delegation.coach_needs_reauth ? 'warning' : 'success'} />
+          {action(t('delegation.unlink'), disconnect)}
+        </>
+      );
+    } else if (needsReauth) {
       trailing = (
         <>
           <Text className="text-sm font-medium text-warning">{t('providers.expired')}</Text>
@@ -282,7 +316,7 @@ export function ConnectionsScreen() {
     } else if (isConnected) {
       trailing = (
         <>
-          <View className="w-2 h-2 rounded-full bg-success" />
+          <StatusDot tone="success" />
           <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
           {canConnect && action(t('app.disconnect'), disconnect)}
         </>
@@ -306,6 +340,7 @@ export function ConnectionsScreen() {
                     canReconnect: needsReauth,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
+                    disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
                   },
                   t,
                 )
@@ -323,9 +358,20 @@ export function ConnectionsScreen() {
           style={last ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
         >
           <View className="flex-1 min-w-0 py-2">
-            <Text className="text-base text-text-primary">{provider.display_name}</Text>
-            <Text className="text-sm text-text-secondary" numberOfLines={1}>
-              {providerBlurb(id)}
+            <View className="flex-row items-baseline gap-2">
+              <Text className="text-base text-text-primary">{provider.display_name}</Text>
+              {provider.account_role === 'coach' && (
+                <Text className="text-xs font-medium text-text-tertiary" testID={`provider-coach-account-${id}`}>
+                  {t('humanCoach.trainingpeaksAccount')}
+                </Text>
+              )}
+            </View>
+            <Text
+              className="text-sm text-text-secondary"
+              numberOfLines={subtitle === providerBlurb(id) ? 1 : 2}
+              testID={`provider-subtitle-${id}`}
+            >
+              {subtitle}
             </Text>
           </View>
           {trailing !== null && <View className="flex-row items-center gap-2 ml-3">{trailing}</View>}
@@ -408,6 +454,7 @@ export function ConnectionsScreen() {
           setSciotteTarget(null);
         }}
         target={sciotteTarget ?? 'strava'}
+        consentRequired={sciotteConsentRequired}
       />
 
       <IntervalsIcuLinkModal

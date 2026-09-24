@@ -278,8 +278,31 @@ describe('client locale corpus', () => {
     // without the digest on the server (+6), plus its catalogue description
     // (+1); the web select and the phone's radio rows read the label, the
     // three mode names and a hint for each (+7). +14 (carnet#541).
+    // 2361 once TrainingPeaks joined as a provider: its name, account and
+    // username labels on web and mobile, its settings blurb, the connected
+    // copy that stopped being an English literal, `common.username`, and
+    // `providers.trainingpeaksNotice.*` — the exposure notice every connect
+    // surface shows before the credentials, and the short line the mobile
+    // onboarding row carries. +15.
+    // 2363 once a provider could read the workouts its calendar plans:
+    // `providers.scope.planned_workouts` is the word the connect card shows
+    // for the capability TrainingPeaks declares. +1.
+    // 2373 once a coach could read a member's TrainingPeaks workouts through
+    // their own account: `notifications.event.delegation_*` titles and bodies
+    // ask the member, tell the coach the answer, and tell both sides when
+    // TrainingPeaks drops the athlete from the coach's roster, rendered on the
+    // server into the feed, the push and the linked chat channels. +10.
+    // 2420 once the group info could hold those links: `delegation.*` is the
+    // coach's roster section, the member's request and its answers, and each
+    // refusal the link routes send; `providers.connectedThrough` and
+    // `pendingLink` are what the TrainingPeaks row says of a delegated
+    // connection; `humanCoach.trainingpeaksAccount` and its hint badge a coach
+    // account; `humanCoach.youCoach` is the coach's own badge on the group.
+    // +47.
+    // 2453 once main's digest keys (2380) met the TrainingPeaks branch's
+    // +73 above, whose running totals were counted from an older base.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2380);
+    expect(reference).toHaveLength(2453);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

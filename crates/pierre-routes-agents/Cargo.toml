@@ -1,4 +1,4 @@
-# ABOUTME: Coaches/roster/store REST routes extracted from pierre-server
+# ABOUTME: Agent and store REST routes extracted from pierre-server
 # ABOUTME: Decoupled via CoachesCtx + MiddlewareCtx; mounted by the composition root
 
 [package]
@@ -6,7 +6,7 @@ name = "pierre-routes-agents"
 version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Coach CRUD, version history, store browse/install, and coach-athlete roster routes for the Pierre platform"
+description = "Agent CRUD, version history, and store browse/install routes for the Pierre platform"
 repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 

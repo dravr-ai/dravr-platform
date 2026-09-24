@@ -494,6 +494,31 @@ impl GroupRoutes {
             .ok_or_else(|| AppError::not_found("You are not a member of this group"))
     }
 
+    /// Verify the caller may read the group: a live member of an active
+    /// group, or its human coach
+    /// ([`CoachingGroupRepository::admits_member_or_coach`](pierre_database::repositories::CoachingGroupRepository::admits_member_or_coach)).
+    ///
+    /// The coach holds no membership row, yet sees the group's info and the
+    /// member list its members already see, to link their `TrainingPeaks`
+    /// athletes; every other surface keeps its member gate.
+    async fn require_member_or_coach<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        group_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Result<(), AppError> {
+        if resources
+            .repos()
+            .groups
+            .admits_member_or_coach(group_id, user_id, tenant_id)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(AppError::not_found("You are not a member of this group"))
+        }
+    }
+
     // ========================================================================
     // Group CRUD handlers
     // ========================================================================
@@ -634,8 +659,7 @@ impl GroupRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        // Verify caller is a member
-        Self::require_member(&resources, &group_id, auth.user_id).await?;
+        Self::require_member_or_coach(&resources, &group_id, auth.user_id, tenant_id).await?;
 
         let group = resources
             .group_service()
@@ -662,7 +686,7 @@ impl GroupRoutes {
 
         let updated = resources
             .group_service()
-            .update_group(&group_id, tenant_id, &body)
+            .update_group(&group_id, tenant_id, &body, Some(auth.user_id))
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
@@ -684,7 +708,7 @@ impl GroupRoutes {
 
         let deleted = resources
             .group_service()
-            .delete_group(&group_id, tenant_id)
+            .delete_group(&group_id, tenant_id, auth.user_id)
             .await?;
 
         if !deleted {
@@ -705,9 +729,9 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        let tenant_id = Self::get_tenant_id(&auth)?;
 
-        // Verify caller is a member
-        Self::require_member(&resources, &group_id, auth.user_id).await?;
+        Self::require_member_or_coach(&resources, &group_id, auth.user_id, tenant_id).await?;
 
         let members = resources.group_service().list_members(&group_id).await?;
 
@@ -754,7 +778,7 @@ impl GroupRoutes {
 
         let removed = resources
             .group_service()
-            .remove_member(&group_id, target_uuid)
+            .remove_member(&group_id, target_uuid, auth.user_id)
             .await?;
 
         if !removed {
@@ -1040,9 +1064,9 @@ impl GroupRoutes {
                 Ok((StatusCode::CREATED, Json(response)).into_response())
             }
             GroupInviteKind::Coach => {
-                // Agent eligibility: the redeemer must be a roster-managing
-                // agent (`manages_roster`) or a platform admin — the same gate
-                // the `/api/roster` endpoints use.
+                // Coach eligibility: the redeemer must hold `manages_roster`,
+                // the permission to coach a group, or be a platform admin —
+                // the same gate `/group join` applies to a coach code in chat.
                 let user = resources
                     .repos()
                     .users
@@ -1159,7 +1183,7 @@ impl GroupRoutes {
 
         let cleared = resources
             .group_service()
-            .set_group_coach(&group_id, None, tenant_id)
+            .set_group_coach(&group_id, None, tenant_id, auth.user_id)
             .await?;
 
         if !cleared {

@@ -18,6 +18,7 @@ use crate::runtime::ToolRuntime;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::Activity;
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::business_thresholds::{
@@ -244,7 +245,7 @@ async fn fetch_and_analyze_activity(
                                     "- {} (ID: {}): {} - {:?}",
                                     a.start_date().format("%Y-%m-%d"),
                                     a.id(),
-                                    a.name(),
+                                    display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
                                     a.sport_type()
                                 )
                             })
@@ -269,7 +270,10 @@ async fn fetch_and_analyze_activity(
                         analysis.auto_selected = Some(AutoSelectedActivity {
                             reason: format!("Activity '{activity_id}' not found"),
                             selected_activity: most_recent.id().to_owned(),
-                            selected_activity_name: most_recent.name().to_owned(),
+                            selected_activity_name: display_line(
+                                most_recent.name(),
+                                ACTIVITY_NAME_MAX_CHARS,
+                            ),
                             selected_activity_date: most_recent
                                 .start_date()
                                 .format("%Y-%m-%d")

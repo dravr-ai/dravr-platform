@@ -12,6 +12,7 @@
 //! a push would create, update, or remove against a given ledger.
 
 use chrono::{NaiveDate, Utc};
+use pierre_core::models::periodization::{RpeRange, ThresholdBasis};
 use pierre_core::models::{
     CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind, PrescribedWorkout,
     RelativeIntensity, SportType, WorkoutStep,
@@ -60,6 +61,7 @@ fn threshold_steps() -> Vec<WorkoutStep> {
         distance_meters: None,
         target_zone: zone.to_owned(),
         repeat,
+        repeat_group: None,
         note: None,
     };
     vec![
@@ -385,9 +387,18 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
     assert_eq!((with_rx.create, with_rx.remove), (3, 0));
 }
 
+/// A percent band as the grammar parses it.
+const fn band(low: u16, high: u16, threshold: Option<ThresholdBasis>) -> RelativeIntensity {
+    RelativeIntensity::Percent {
+        low,
+        high,
+        threshold,
+    }
+}
+
 #[test]
 fn the_intensity_grammar_is_closed() {
-    use RelativeIntensity::{HeartRateZone, Percent, SweetSpot, Zone};
+    use RelativeIntensity::{HeartRateZone, SweetSpot, Zone};
     let parsed = |s: &str| RelativeIntensity::parse(s);
     assert_eq!(parsed("Z2"), Some(Zone(2)));
     assert_eq!(parsed(" zone 4 "), Some(Zone(4)));
@@ -396,15 +407,18 @@ fn the_intensity_grammar_is_closed() {
     assert_eq!(parsed("Threshold"), Some(Zone(4)));
     assert_eq!(parsed("VO2max"), Some(Zone(5)));
     assert_eq!(parsed("sweet spot"), Some(SweetSpot));
-    assert_eq!(parsed("75%"), Some(Percent { low: 75, high: 75 }));
-    assert_eq!(parsed("88-93% FTP"), Some(Percent { low: 88, high: 93 }));
+    assert_eq!(parsed("75%"), Some(band(75, 75, None)));
+    assert_eq!(
+        parsed("88-93% FTP"),
+        Some(band(88, 93, Some(ThresholdBasis::Ftp)))
+    );
     // A pace-family label names what the sport already decides, and an en
     // dash between a band's bounds is the hyphen a keyboard offered.
     assert_eq!(parsed("Z2 pace"), Some(Zone(2)));
     assert_eq!(parsed("zone 3 Pace"), Some(Zone(3)));
     assert_eq!(
         parsed("88\u{2013}93% FTP"),
-        Some(Percent { low: 88, high: 93 })
+        Some(band(88, 93, Some(ThresholdBasis::Ftp)))
     );
     // Outside the grammar: structure, inverted bands, absolute watts, prose.
     assert_eq!(parsed("3x8min @ 88-93% FTP"), None);
@@ -413,6 +427,46 @@ fn the_intensity_grammar_is_closed() {
     assert_eq!(parsed("Z9"), None);
     assert_eq!(parsed("comfortably hard"), None);
     assert_eq!(parsed(""), None);
+}
+
+#[test]
+fn a_band_keeps_the_threshold_it_names_and_rpe_is_a_band_of_its_own() {
+    let parsed = |s: &str| RelativeIntensity::parse(s);
+    // A bare band is of the sport's own family; a named threshold is kept, so
+    // a calendar can state it whatever the sport.
+    assert_eq!(
+        parsed("95-100% threshold HR"),
+        Some(band(95, 100, Some(ThresholdBasis::HeartRate)))
+    );
+    assert_eq!(
+        parsed("90-95% LTHR"),
+        Some(band(90, 95, Some(ThresholdBasis::HeartRate)))
+    );
+    assert_eq!(
+        parsed("90-95% threshold pace"),
+        Some(band(90, 95, Some(ThresholdBasis::Pace)))
+    );
+    assert_eq!(
+        parsed("RPE 7"),
+        Some(RelativeIntensity::Rpe(RpeRange { min: 7, max: 7 }))
+    );
+    assert_eq!(
+        parsed("rpe 6-7"),
+        Some(RelativeIntensity::Rpe(RpeRange { min: 6, max: 7 }))
+    );
+    // A heart-rate percent that does not say of which threshold, and an RPE
+    // past the 1-10 scale, stay prose.
+    assert_eq!(parsed("75% HR"), None);
+    assert_eq!(parsed("RPE 11"), None);
+}
+
+#[test]
+fn the_canonical_label_reads_back_to_the_value_that_wrote_it() {
+    for label in ["Z2", "Z2 HR", "sweet spot", "75%", "88-93% FTP", "RPE 6-7"] {
+        let value = RelativeIntensity::parse(label).unwrap();
+        assert_eq!(value.to_string(), label);
+        assert_eq!(RelativeIntensity::parse(&value.to_string()), Some(value));
+    }
 }
 
 #[test]

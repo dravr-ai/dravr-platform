@@ -78,7 +78,11 @@ mod sciotte;
 mod sciotte_hosted;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_hosted_templates;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_session_reuse;
 mod short_link;
+#[cfg(feature = "provider-sciotte")]
+mod trainingpeaks_account;
 
 // Re-exported for the sciotte login error-handling regression test
 // (`sciotte_login_error_handling_test`): the `sciotte` module is private, so

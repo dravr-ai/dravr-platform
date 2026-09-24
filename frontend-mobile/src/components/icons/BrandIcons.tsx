@@ -2,20 +2,31 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: SVG brand logos for third-party fitness providers and auth methods
-// ABOUTME: Strava, Garmin, Whoop, intervals.icu, Google and Apple marks, plus the provider-id → glyph map
+// ABOUTME: Strava, Garmin, TrainingPeaks, Whoop, intervals.icu, Google and Apple marks, plus the provider-id → glyph map
 
 import React from 'react';
 import type { ComponentType } from 'react';
 import Svg, { Path, Circle, Rect } from 'react-native-svg';
-import { PROVIDER_COLORS } from '../../constants/theme';
 
 export interface IconProps {
   size?: number;
   color?: string;
 }
 
+/**
+ * A fitness provider's mark has no default ink. Whether its brand colour
+ * clears the ground it sits on depends on the scheme — TrainingPeaks' blue
+ * fails the dark canvas, WHOOP's green the light one — so the caller hands it
+ * the ink: `ProviderGlyph` from the shared glyph-ink table, a brand plate its
+ * fixed white.
+ */
+export interface ProviderMarkProps {
+  size?: number;
+  color: string;
+}
+
 /** Strava logo — the distinctive arrow/chevron mark */
-export function StravaLogo({ size = 24, color = PROVIDER_COLORS.strava }: IconProps) {
+export function StravaLogo({ size = 24, color }: ProviderMarkProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
@@ -24,7 +35,7 @@ export function StravaLogo({ size = 24, color = PROVIDER_COLORS.strava }: IconPr
 }
 
 /** Garmin logo — simplified "G" mark with triangle */
-export function GarminLogo({ size = 24, color = PROVIDER_COLORS.garmin }: IconProps) {
+export function GarminLogo({ size = 24, color }: ProviderMarkProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth="2" />
@@ -34,8 +45,17 @@ export function GarminLogo({ size = 24, color = PROVIDER_COLORS.garmin }: IconPr
   );
 }
 
+/** TrainingPeaks mark — a pair of peaks */
+export function TrainingPeaksLogo({ size = 24, color }: ProviderMarkProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <Path d="M2 20L9 7l4 7 3-5 6 11H2z" />
+    </Svg>
+  );
+}
+
 /** Whoop logo — the strap drawn as a rounded band with its sensor at the centre */
-export function WhoopLogo({ size = 24, color = PROVIDER_COLORS.whoop }: IconProps) {
+export function WhoopLogo({ size = 24, color }: ProviderMarkProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Rect x="4" y="3" width="16" height="18" rx="8" stroke={color} strokeWidth="2.5" />
@@ -45,7 +65,7 @@ export function WhoopLogo({ size = 24, color = PROVIDER_COLORS.whoop }: IconProp
 }
 
 /** intervals.icu logo — three interval bars of a workout chart */
-export function IntervalsIcuLogo({ size = 24, color = PROVIDER_COLORS.intervals_icu }: IconProps) {
+export function IntervalsIcuLogo({ size = 24, color }: ProviderMarkProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Rect x="3" y="12" width="4" height="9" rx="1" />
@@ -78,19 +98,21 @@ export function AppleLogo({ size = 24, color = '#FFFFFF' }: IconProps) {
 
 /**
  * The glyph for each provider id the server reports. The sciotte ids are the
- * captured Strava and Garmin accounts, so they share the brand's mark.
+ * captured Strava, Garmin and TrainingPeaks accounts, so they share the
+ * brand's mark.
  */
-const PROVIDER_GLYPHS: Readonly<Record<string, ComponentType<IconProps>>> = {
+const PROVIDER_GLYPHS: Readonly<Record<string, ComponentType<ProviderMarkProps>>> = {
   sciotte: StravaLogo,
   strava: StravaLogo,
   sciotte_garmin: GarminLogo,
   garmin: GarminLogo,
+  sciotte_trainingpeaks: TrainingPeaksLogo,
   whoop: WhoopLogo,
   intervals_icu: IntervalsIcuLogo,
 };
 
 /** Resolve a provider id to its brand glyph, or null when no mark exists for it. */
-export function providerGlyph(providerId: string): ComponentType<IconProps> | null {
+export function providerGlyph(providerId: string): ComponentType<ProviderMarkProps> | null {
   return Object.prototype.hasOwnProperty.call(PROVIDER_GLYPHS, providerId)
     ? PROVIDER_GLYPHS[providerId]
     : null;

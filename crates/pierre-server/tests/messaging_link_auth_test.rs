@@ -161,6 +161,14 @@ async fn test_link_page_renders_for_valid_code() {
         body.contains(&code),
         "Page should include the code in a hidden field"
     );
+    // The link page draws with the shared Boreal sheet in both schemes.
+    let dark_at = body
+        .find("@media (prefers-color-scheme: dark)")
+        .expect("the link page carries the dark scheme");
+    assert!(body[..dark_at].contains("--color-primary: 37 95 77;"));
+    assert!(body[dark_at..].contains("--color-primary: 163 208 190;"));
+    assert!(body.contains(r#"class="btn btn-primary btn-block" id="submitBtn">Log In</button>"#));
+    assert!(!body.contains("{{"), "no placeholder survives the render");
 }
 
 #[tokio::test]
@@ -250,9 +258,9 @@ async fn test_link_auth_login_success() {
     assert_eq!(resp.status(), 200);
     let body = resp.text();
     assert!(
-        body.contains("Linked") || body.contains("linked") || body.contains("success"),
+        body.contains("<h1>Account Linked!</h1>"),
         "Should show success page, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }
 
@@ -293,7 +301,7 @@ async fn test_link_auth_wrong_password() {
     assert!(
         body.contains("Invalid email or password"),
         "Should show login error, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }
 
@@ -334,9 +342,9 @@ async fn test_link_auth_register_success() {
     assert_eq!(resp.status(), 200);
     let body = resp.text();
     assert!(
-        body.contains("Linked") || body.contains("linked") || body.contains("success"),
+        body.contains("<h1>Account Linked!</h1>"),
         "Should show success page after registration, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }
 
@@ -381,7 +389,7 @@ async fn test_link_auth_expired_code() {
     assert!(
         body.contains("expired") || body.contains("invalid"),
         "Should show error for expired code, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }
 
@@ -422,9 +430,9 @@ async fn test_link_auth_double_submit() {
     assert_eq!(resp.status(), 200);
     let body = resp.text();
     assert!(
-        body.contains("Linked") || body.contains("linked") || body.contains("success"),
+        body.contains("<h1>Account Linked!</h1>"),
         "First submit should succeed, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 
     // Second submission with same code should fail gracefully
@@ -483,7 +491,7 @@ async fn test_link_auth_register_duplicate_email() {
     assert!(
         body.contains("already exists"),
         "Should show duplicate email error, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }
 
@@ -532,7 +540,7 @@ async fn test_link_auth_cross_tenant_rejected() {
     assert!(
         body.contains("does not belong to this organization"),
         "Should reject cross-tenant link, got: {}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }
 
@@ -635,13 +643,13 @@ async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
         "the link code was created seconds ago, unused and unexpired — reporting it \
          invalid means the tenant was resolved from the provider's code instead of \
          `state`. status={status}, body={}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
     assert_ne!(
         status,
         400,
         "a valid link code must not be rejected as bad input; the callback should get \
          past state resolution and fail later on the unconfigured channel. body={}",
-        &body[..body.len().min(500)]
+        body.split("</head>").last().unwrap_or(&body)
     );
 }

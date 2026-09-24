@@ -14,6 +14,7 @@ use crate::protocols::ProtocolError;
 use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::Activity;
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use pierre_intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -518,7 +519,7 @@ fn compare_with_specific_activity(
         activity_id: target.id().to_owned(),
         comparison_type: "specific_activity".to_owned(),
         comparison_activity_id: Some(compare_id.to_owned()),
-        comparison_activity_name: Some(compare.name().to_owned()),
+        comparison_activity_name: Some(display_line(compare.name(), ACTIVITY_NAME_MAX_CHARS)),
         sport_type: Some(format!("{:?}", target.sport_type())),
         comparisons: Some(comparisons),
         insights,

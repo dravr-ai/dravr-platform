@@ -67,6 +67,7 @@ use pierre_llm::{
     ObservedToolCall, StreamChunk, Tool,
 };
 use pierre_mcp_server::context::ServerContext;
+use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -457,6 +458,64 @@ async fn a_sole_dead_connection_still_blanks_to_the_reconnect_message() {
         !result.content.contains(AGENT_ANSWER),
         "nothing answered the ask, so no model text may survive: {}",
         result.content
+    );
+}
+
+/// A TrainingPeaks session that must be (re)established — a dead one, or an
+/// athlete who asked the agent to connect it — reaches the athlete as a
+/// TrainingPeaks reconnect message whose link opens the TrainingPeaks login.
+/// The display name and the token's target are the two places a Strava
+/// default would hide; the rest of the reply reads the same either way.
+#[tokio::test]
+async fn a_trainingpeaks_reconnect_names_it_and_opens_its_login() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+
+    let mut result = loop_result(Some("sciotte_trainingpeaks"), None);
+    let recovery = recover(&resources, user_id, tenant, &mut result).await;
+
+    let prompt = recovery
+        .prompt
+        .expect("a TrainingPeaks reconnect mints a control");
+    assert_eq!(prompt.provider, "sciotte_trainingpeaks");
+    assert_eq!(prompt.display_name, "TrainingPeaks");
+    assert_eq!(
+        result.content,
+        MessagingStringsRegistry::new().render(
+            KEY_PROVIDER_REAUTH_REQUIRED,
+            "fr",
+            &["TrainingPeaks", prompt.url.as_str()],
+        )
+    );
+
+    let code = prompt
+        .url
+        .rsplit("/r/")
+        .next()
+        .expect("the control carries a short link");
+    let target = resources
+        .common
+        .repos
+        .short_links
+        .resolve_short_link(code)
+        .await
+        .expect("resolve query succeeds")
+        .expect("the short code resolves");
+    let token = target
+        .split_once("/providers/sciotte/login?token=")
+        .map_or_else(
+            || panic!("the short link opens the hosted login: {target}"),
+            |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
+        );
+    let claims = verify_link_token(
+        &token,
+        "test-admin-jwt-secret-for-reconnect-minting",
+        "sciotte",
+    )
+    .expect("the minted token verifies");
+    assert_eq!(
+        claims.tgt, "trainingpeaks",
+        "the hosted login must open the TrainingPeaks scraper, not the Strava default"
     );
 }
 

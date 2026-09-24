@@ -94,8 +94,32 @@ pub async fn seed_sciotte_session(
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
+    seed_scrape_session(
+        resources,
+        user_id,
+        tenant_id,
+        "sciotte",
+        "cap-verified-session",
+    )
+    .await;
+}
+
+/// [`seed_sciotte_session`] for any scrape backend (`sciotte_garmin`,
+/// `sciotte_trainingpeaks`) under a caller-chosen session id.
+///
+/// The provider sends the stored session's id as `X-Session-Id` on every
+/// scrape, so a stand-in scraper can answer each seeded athlete differently.
+// Shared across test binaries; any single binary may use only part of it.
+#[allow(dead_code)]
+pub async fn seed_scrape_session(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+    session_id: &str,
+) {
     let session_json = json!({
-        "session_id": "cap-verified-session",
+        "session_id": session_id,
         "cookies": [{
             "name": "_strava4_session",
             "value": "test-cookie",
@@ -112,7 +136,7 @@ pub async fn seed_sciotte_session(
     let mut token = UserOAuthToken::new(
         user_id,
         tenant_id.to_string(),
-        "sciotte".to_owned(),
+        backend.to_owned(),
         session_json,
         None,
         Some(Utc::now() + chrono::Duration::hours(6)),
@@ -125,5 +149,5 @@ pub async fn seed_sciotte_session(
         .oauth_tokens
         .upsert_token(&token)
         .await
-        .expect("upsert sciotte session token");
+        .expect("upsert scrape session token");
 }

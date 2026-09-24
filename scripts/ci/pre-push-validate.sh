@@ -644,6 +644,31 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh" ]] \
     echo ""
 fi
 
+# ----------------------------------------------------------------------------
+# Tier 1l: hosted page stylesheet (compile-free, ~1s)
+# ----------------------------------------------------------------------------
+#
+# Every server-rendered hosted page embeds one stylesheet generated from the
+# Boreal tokens (crates/pierre-core/src/hosted_page.css). The crates cannot run
+# the generator, so the file is committed, and a committed generated file goes
+# stale the moment a token moves. The fourteen templates it replaced had each
+# kept a private copy of a palette the product retired months before, because
+# nothing tied them to the tokens. The gate regenerates and diffs, and holds
+# every hosted template to the shared sheet. It runs when anything the sheet is
+# built from, or anything that embeds it, is in the push.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
+    && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands)\.ts|scripts/generate-hosted-css\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^scripts/ci/check-hosted-css\.sh$'; then
+    echo "Tier 1l: Hosted page stylesheet"
+    echo "-------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh"; then
+        echo ""
+        echo "FAIL: the hosted page stylesheet is stale, or a hosted template draws outside it!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

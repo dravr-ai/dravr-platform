@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::fmt::Display;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
@@ -16,10 +17,14 @@ use chrono::Utc;
 use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::constants::oauth::providers::TRAININGPEAKS_TERMS_VERSION;
+use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
+use pierre_core::models::{Activity, ConnectionType, TenantId, UserOAuthToken};
 use pierre_providers::backend_resolver;
+use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
+use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_services::delegated_connections::forget_coach_roster;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -30,6 +35,8 @@ use pierre_providers::sciotte_remote::{
     shed_retry_after_secs, RemoteLoginOutcome, RemoteSciotteClient, RETRY_AFTER_SECS_DETAIL,
 };
 
+use crate::sciotte_session_reuse::try_reuse_existing_session;
+use crate::trainingpeaks_account::{spawn_login_probe, supersede_delegated_link};
 use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
@@ -259,9 +266,14 @@ pub struct SciotteLoginRequest {
     pub password: String,
     #[serde(default = "default_method")]
     pub method: String,
-    /// Target platform: "strava" (default) or "garmin"
+    /// Target platform: "strava" (default), "garmin" or "trainingpeaks"
     #[serde(default = "default_target")]
     pub target: String,
+    /// The user ticked the TrainingPeaks exposure notice on this attempt. Read
+    /// only for a TrainingPeaks login, and only while the account has not
+    /// already accepted the current notice.
+    #[serde(default)]
+    pub tos_consent: bool,
 }
 
 fn default_method() -> String {
@@ -308,7 +320,9 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
 /// After storing, spawns a background task to pre-fetch activities into cache so the
-/// agent can serve data immediately when the user starts chatting.
+/// agent can serve data immediately when the user starts chatting. A TrainingPeaks
+/// session is first probed for its account role, which decides whether there is
+/// a calendar to prefetch at all.
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: uuid::Uuid,
@@ -336,9 +350,18 @@ async fn store_sciotte_session(
         updated_at: now,
     };
 
-    resources.repos.oauth_tokens.upsert_token(&token).await?;
-
     let tenant = TenantId::from_uuid(tenant_id);
+    if provider_name == SCIOTTE_TRAININGPEAKS {
+        supersede_delegated_link(resources, user_id, tenant).await?;
+    }
+
+    resources.repos.oauth_tokens.upsert_token(&token).await?;
+    if provider_name == SCIOTTE_TRAININGPEAKS {
+        // A roster read through the session this one replaces may name
+        // another account's athletes.
+        forget_coach_roster(&resources.cache, user_id, tenant).await;
+    }
+
     resources
         .repos
         .provider_connections
@@ -354,8 +377,14 @@ async fn store_sciotte_session(
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
 
-    // Pre-fetch activities in background so the cache is warm when the user chats
-    spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json);
+    // Pre-fetch activities in background so the cache is warm when the user
+    // chats. A TrainingPeaks coach account has no calendar of its own, so its
+    // role is read first and decides whether there is anything to prefetch.
+    if provider_name == SCIOTTE_TRAININGPEAKS {
+        spawn_login_probe(resources, user_id, tenant_id, session, &session_json);
+    } else {
+        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json);
+    }
 
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
 }
@@ -372,76 +401,97 @@ fn spawn_activity_prefetch(
     provider_name: &str,
     session_json: &str,
 ) {
-    use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
+    tokio::spawn(prefetch_activities(
+        Arc::clone(&resources.provider_registry),
+        Arc::clone(&resources.cache),
+        user_id,
+        tenant_id,
+        provider_name.to_owned(),
+        session_json.to_owned(),
+    ));
+}
 
-    let registry = resources.provider_registry.clone();
-    let cache = resources.cache.clone();
-    let provider_name = provider_name.to_owned();
-    let session_json = session_json.to_owned();
-
-    tokio::spawn(async move {
-        info!(
-            user_id = %user_id,
-            provider = %provider_name,
-            "Starting background activity pre-fetch (remote scrape)"
-        );
-
-        let provider = match registry.create_provider(&provider_name) {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(error = %e, "Background pre-fetch: failed to create provider");
-                return;
-            }
-        };
-
-        let credentials = OAuth2Credentials {
-            client_id: String::new(),
-            client_secret: String::new(),
-            access_token: Some(session_json),
-            refresh_token: None,
-            expires_at: None,
-            scopes: vec![],
-        };
-        if let Err(e) = provider.set_credentials(credentials).await {
-            warn!(error = %e, "Background pre-fetch: failed to set credentials");
-            return;
-        }
-
-        let params = ActivityQueryParams {
-            limit: Some(30),
-            offset: None,
+/// Pre-fetch and cache the newest activities of the account `session_json`
+/// signed in to, under `provider_name`. Every failure is logged: the cache is
+/// only warmed, and the next read fetches live.
+pub async fn prefetch_activities(
+    registry: Arc<ProviderRegistry>,
+    cache: Arc<Cache>,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider_name: String,
+    session_json: String,
+) {
+    info!(
+        user_id = %user_id,
+        provider = %provider_name,
+        "Starting background activity pre-fetch (remote scrape)"
+    );
+    let Some(activities) =
+        fetch_prefetch_window(&registry, user_id, &provider_name, session_json).await
+    else {
+        return;
+    };
+    let count = activities.len();
+    let cache_key = CacheKey::new(
+        TenantId::from_uuid(tenant_id),
+        user_id,
+        provider_name.clone(),
+        CacheResource::ActivityList {
+            page: 1,
+            per_page: 30,
             before: None,
             after: None,
-        };
+            sport_type: None,
+        },
+    );
+    let ttl = Duration::from_mins(15);
+    if let Err(e) = cache.set(&cache_key, &activities, ttl).await {
+        warn!(error = %e, "Background pre-fetch: failed to cache activities");
+    } else {
+        info!(user_id = %user_id, provider = %provider_name, count, "Background activity pre-fetch complete — cache warm");
+    }
+}
 
-        match provider.get_activities_with_params(&params).await {
-            Ok(activities) => {
-                let count = activities.len();
-                let tenant = TenantId::from_uuid(tenant_id);
-                let cache_key = CacheKey::new(
-                    tenant,
-                    user_id,
-                    provider_name.clone(),
-                    CacheResource::ActivityList {
-                        page: 1,
-                        per_page: 30,
-                        before: None,
-                        after: None,
-                        sport_type: None,
-                    },
-                );
-                let ttl = Duration::from_mins(15);
-                if let Err(e) = cache.set(&cache_key, &activities, ttl).await {
-                    warn!(error = %e, "Background pre-fetch: failed to cache activities");
-                } else {
-                    info!(user_id = %user_id, provider = %provider_name, count, "Background activity pre-fetch complete — cache warm");
-                }
-            }
-            Err(e) => {
-                warn!(user_id = %user_id, error = %e, "Background pre-fetch: failed to fetch activities");
-            }
-        }
-    });
+/// The newest 30 activities of the account `session_json` signed in to, read
+/// through a fresh `provider_name` provider; `None`, logged, when the provider
+/// cannot be built, take the session, or answer.
+async fn fetch_prefetch_window(
+    registry: &ProviderRegistry,
+    user_id: Uuid,
+    provider_name: &str,
+    session_json: String,
+) -> Option<Vec<Activity>> {
+    let provider = registry
+        .create_provider(provider_name)
+        .inspect_err(|e| warn!(error = %e, "Background pre-fetch: failed to create provider"))
+        .ok()?;
+    let credentials = OAuth2Credentials {
+        client_id: String::new(),
+        client_secret: String::new(),
+        access_token: Some(session_json),
+        refresh_token: None,
+        expires_at: None,
+        scopes: vec![],
+    };
+    provider
+        .set_credentials(credentials)
+        .await
+        .inspect_err(|e| warn!(error = %e, "Background pre-fetch: failed to set credentials"))
+        .ok()?;
+    let params = ActivityQueryParams {
+        limit: Some(30),
+        offset: None,
+        before: None,
+        after: None,
+    };
+    provider
+        .get_activities_with_params(&params)
+        .await
+        .inspect_err(|e| {
+            warn!(user_id = %user_id, error = %e, "Background pre-fetch: failed to fetch activities");
+        })
+        .ok()
 }
 
 /// Map a [`RemoteLoginOutcome`] from the dedicated scraper service to an HTTP
@@ -596,78 +646,6 @@ fn try_verify_link_token_from_headers(
     verify_link_token(token, &resources.admin_jwt_secret, "sciotte").ok()
 }
 
-/// Short-circuit the login when the user already has a *usable* stored Sciotte
-/// session for this provider — turns a double-tap / refresh-after-connect into a
-/// zero-work operation. Since the Phase 4 cutover there is no in-pod Chrome to
-/// probe cookies with, so this leans on two cheap local signals: the blob must
-/// deserialise, and any `expires_at` it carries must still be in the future. A
-/// corrupt or known-expired session falls through to a fresh login instead of
-/// handing back a "connected" the next scrape would immediately reject — which
-/// would strand the user in a "connected but keeps asking me to reconnect" loop.
-/// The dedicated service still re-validates the cookies (and triggers re-auth)
-/// when the next scrape imports them.
-///
-/// Returns `Ok(Some(response))` when the short-circuit fires, `Ok(None)` when
-/// the caller must proceed with a fresh login (no token, an unparseable blob,
-/// or a known-expired session), and `Err(_)` only for a hard DB failure.
-async fn try_reuse_existing_session(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: Uuid,
-    provider_name: &str,
-) -> Result<Option<Response>, AppError> {
-    let tenant = TenantId::from_uuid(tenant_id);
-    let Some(token) = resources
-        .repos
-        .oauth_tokens
-        .get_token(user_id, tenant, provider_name)
-        .await?
-    else {
-        return Ok(None);
-    };
-
-    // Guard on deserializability so a corrupt blob falls through to a fresh
-    // login rather than short-circuiting into an unusable "connected" state.
-    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
-        warn!(
-            %user_id,
-            provider = %provider_name,
-            "Stored Sciotte session blob is not deserialisable — falling through to fresh login"
-        );
-        return Ok(None);
-    };
-
-    // A session whose expiry is already in the past is certainly dead. Without
-    // Chrome we can't probe the cookies, but this cheap local check stops us
-    // returning "connected" for a session the next scrape would reject (the
-    // reconnect-loop trap). A `None` expiry is "unknown, assume usable" — the
-    // service re-auths on import if the cookies turn out stale.
-    if let Some(expires_at) = session.expires_at {
-        if expires_at <= Utc::now() {
-            info!(
-                %user_id,
-                provider = %provider_name,
-                "Stored Sciotte session is expired — falling through to fresh login"
-            );
-            return Ok(None);
-        }
-    }
-
-    info!(
-        %user_id,
-        provider = %provider_name,
-        "Reusing stored Sciotte session — short-circuiting login"
-    );
-    Ok(Some(
-        Json(serde_json::json!({
-            "status": "connected",
-            "provider": provider_name,
-            "short_circuit": true,
-        }))
-        .into_response(),
-    ))
-}
-
 /// Client-facing sciotte login configuration. Lets the login UI size its
 /// "this may take up to N" progress copy from the server's real timeout
 /// budget instead of a hardcoded constant, so the displayed wait always
@@ -750,11 +728,8 @@ pub fn report_login_system_failure<E: Display>(
 /// `report_login_system_failure`.
 #[must_use]
 pub fn friendly_login_failure_message(provider: &str) -> String {
-    let display = if provider.contains("garmin") {
-        "Garmin"
-    } else {
-        "Strava"
-    };
+    let display = backend_resolver::brand_name(&global_registry(), provider)
+        .unwrap_or("your fitness account");
     format!(
         "We couldn't sign you in to {display} right now. \
          This is usually temporary — please try again in a few minutes."
@@ -827,6 +802,38 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
     response
 }
 
+/// Refuse a TrainingPeaks login until the account has accepted the current
+/// exposure notice, recording the acceptance this attempt carries.
+///
+/// TrainingPeaks offers no API Pierre can use, so the scraper reads the
+/// calendar through the user's own signed-in session — access TrainingPeaks'
+/// Terms of Use prohibit for third parties, putting the account at risk. Every
+/// connect surface (web, mobile, the hosted page, the channel picker) states
+/// this before the credentials field; this is where that statement becomes a
+/// precondition rather than copy, so no surface can skip it. An account that
+/// already accepted this notice version is not asked again, including on a
+/// reconnect after a disconnect.
+async fn require_trainingpeaks_terms(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    accepted_now: bool,
+) -> Result<(), AppError> {
+    let users = &resources.repos.users;
+    if users.trainingpeaks_terms_version(user_id).await?.as_deref()
+        == Some(TRAININGPEAKS_TERMS_VERSION)
+    {
+        return Ok(());
+    }
+    if !accepted_now {
+        return Err(AppError::invalid_input(
+            "Connecting TrainingPeaks requires accepting the account notice first",
+        ));
+    }
+    users
+        .record_trainingpeaks_terms(user_id, TRAININGPEAKS_TERMS_VERSION)
+        .await
+}
+
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
 pub async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
@@ -839,19 +846,26 @@ pub async fn handle_sciotte_login(
         return Err(AppError::invalid_input("Email and password are required"));
     }
 
+    let target = &request.target;
+    // Before anything else can happen with these credentials: a TrainingPeaks
+    // login is refused until the account has accepted the exposure notice.
+    if matches!(
+        SciotteTarget::from_target_param(target),
+        SciotteTarget::TrainingPeaks
+    ) {
+        require_trainingpeaks_terms(&resources, user_id, request.tos_consent).await?;
+    }
+
     // This login supersedes whatever the user left parked: the service mints a
     // fresh flow_id for it, and an id inherited from an abandoned 2FA would
     // name a flow the service has already reaped.
     forget_remote_flow(&resources.cache, tenant_id, user_id).await;
 
-    let target = &request.target;
     let provider = SciotteTarget::from_target_param(target).provider_name();
 
-    // Session short-circuit: if the user already has a stored Sciotte session
-    // for this provider, return 200 without a fresh login. The dedicated
-    // service validates the cookies (and re-auths) on the next scrape, so a
-    // cheap DB-presence check is the right short-circuit for a double-tap or a
-    // refresh-after-connect.
+    // Session short-circuit: a stored Sciotte session written within the reuse
+    // window answers a double tap or a refresh-after-connect without a second
+    // login; anything older is replaced by signing in with these credentials.
     if let Some(response) =
         try_reuse_existing_session(&resources, user_id, tenant_id, provider).await?
     {
@@ -878,7 +892,7 @@ pub async fn handle_sciotte_login(
     {
         Ok(outcome) => outcome,
         Err(e) => {
-            return login_failure_response(user_id, tenant_id, provider, "credential_login", &e)
+            return login_failure_response(user_id, tenant_id, provider, "credential_login", &e);
         }
     };
     remote_login_to_response(

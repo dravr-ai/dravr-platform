@@ -297,7 +297,12 @@ impl TenantOAuthManager {
             "terra" => self.try_terra_config_credentials(tenant_id),
             // Synthetic providers generate data locally, COROS OAuth not yet configured
             // Sciotte uses browser session cookies, not OAuth credentials
-            "synthetic" | "synthetic_sleep" | "coros" | "sciotte" | "sciotte_garmin" => None,
+            "synthetic"
+            | "synthetic_sleep"
+            | "coros"
+            | "sciotte"
+            | "sciotte_garmin"
+            | "sciotte_trainingpeaks" => None,
             _ => {
                 warn!("Unsupported OAuth provider: {}", provider);
                 None

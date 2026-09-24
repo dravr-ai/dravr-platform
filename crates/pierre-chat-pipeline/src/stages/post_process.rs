@@ -25,7 +25,8 @@ use pierre_core::narration::{
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
-    apply_isolation_redaction, check_reply_conformance, enforce_conformance, RosterScope,
+    apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
+    RosterScope,
 };
 use super::plan_block::{append_block, plan_block_for_turn};
 use super::prompt_assembly::resolve_user_persona;
@@ -108,8 +109,9 @@ pub(crate) struct PostProcessInputs<'a> {
     pub active_model: &'a str,
 }
 
-/// Resolve the agent's roster so the conformance stage can tell a cited athlete
-/// apart from a stranger.
+/// Resolve the chatting coach's roster — the live members of the active groups
+/// they coach — so the conformance stage can tell a cited athlete apart from a
+/// stranger.
 ///
 /// Queried only when the persona's contract sets `require_tenant_isolation` —
 /// every other persona would pay a roster lookup that no rule reads. A failed
@@ -127,20 +129,13 @@ async fn resolve_roster_scope(
     {
         return None;
     }
-    let agent_id = Uuid::parse_str(&input.user_id).ok()?;
-    match ctx
-        .repos
-        .roster
-        .list_athletes_for_coach(agent_id, input.conversation_tenant_id)
-        .await
-    {
-        Ok(assignments) => Some(RosterScope::from_athlete_ids(
-            assignments.iter().map(|a| a.athlete_user_id.to_string()),
-        )),
+    let coach_user_id = Uuid::parse_str(&input.user_id).ok()?;
+    match coach_roster_scope(ctx.repos.groups.as_ref(), coach_user_id).await {
+        Ok(scope) => Some(scope),
         Err(e) => {
             tracing::warn!(
                 error = %e,
-                "roster lookup failed; tenant-isolation conformance will fail open"
+                "roster lookup failed; tenant-isolation conformance fails closed: every athlete citation is treated as unverifiable"
             );
             None
         }

@@ -1,4 +1,4 @@
-// ABOUTME: Shared statements and body for the single-column preference writes on the users row
+// ABOUTME: Shared statements and bodies for the preference columns on the users row
 // ABOUTME: One SQL text per preference; each backend shell supplies only how it binds a user id
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -27,6 +27,19 @@ pub(crate) const SET_ANALYTICS_CONSENT_SQL: &str = r"
             analytics_consent_at = CURRENT_TIMESTAMP
         WHERE id = $2
         ";
+
+/// Record which TrainingPeaks exposure notice the user accepted, and when.
+pub(crate) const SET_TRAININGPEAKS_TERMS_SQL: &str = r"
+        UPDATE users SET
+            trainingpeaks_terms_version = $1,
+            trainingpeaks_terms_consented_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        ";
+
+/// Read the TrainingPeaks exposure-notice version the user accepted; the
+/// column is NULL until they accept one.
+pub(crate) const GET_TRAININGPEAKS_TERMS_SQL: &str =
+    "SELECT trainingpeaks_terms_version FROM users WHERE id = $1";
 
 /// Set the user's preferred locale.
 pub(crate) const SET_LOCALE_SQL: &str = "UPDATE users SET locale = $1 WHERE id = $2";
@@ -85,6 +98,58 @@ macro_rules! impl_user_preferences {
                 })?;
 
             ensure_updated(result.rows_affected(), user_id)
+        }
+
+        /// Record that the user accepted TrainingPeaks exposure notice
+        /// `version`, stamping the time.
+        ///
+        /// The record belongs to the account, not to a TrainingPeaks session:
+        /// it is the account's answer to the notice, so a disconnect leaves it
+        /// and a reconnect reads it.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the user is not found or the database update
+        /// fails.
+        pub async fn record_trainingpeaks_terms(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+            version: &str,
+        ) -> AppResult<()> {
+            let result = sqlx::query(SET_TRAININGPEAKS_TERMS_SQL)
+                .bind(version)
+                .bind($bind_id(user_id))
+                .execute(pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!(
+                        "Failed to record TrainingPeaks notice consent: {e}"
+                    ))
+                })?;
+
+            ensure_updated(result.rows_affected(), user_id)
+        }
+
+        /// The TrainingPeaks exposure-notice version the user accepted, or
+        /// `None` when they have accepted none.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the user is not found or the database query
+        /// fails.
+        pub async fn trainingpeaks_terms_version(
+            pool: &Pool<$db>,
+            user_id: Uuid,
+        ) -> AppResult<Option<String>> {
+            let version: Option<Option<String>> = sqlx::query_scalar(GET_TRAININGPEAKS_TERMS_SQL)
+                .bind($bind_id(user_id))
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to read TrainingPeaks notice consent: {e}"))
+                })?;
+
+            version.ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))
         }
 
         /// Update the user's preferred locale.

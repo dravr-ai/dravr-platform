@@ -257,7 +257,7 @@ async fn adopt_chat_title(
         is_active: None,
     };
     if let Err(e) = groups
-        .update_group(&group.id.to_string(), binding.tenant_id, &request)
+        .update_group(&group.id.to_string(), binding.tenant_id, &request, None)
         .await
     {
         warn!(

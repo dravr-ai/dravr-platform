@@ -48,7 +48,12 @@ use crate::intervals_icu_provider::{
     default_config as intervals_icu_default_config, IntervalsIcuProviderFactory,
 };
 #[cfg(feature = "provider-sciotte")]
-use crate::sciotte_provider::{SciotteGarminProviderFactory, SciotteProviderFactory};
+use crate::sciotte_provider::{
+    SciotteGarminProviderFactory, SciotteProvider, SciotteProviderFactory,
+    SciotteTrainingPeaksProviderFactory,
+};
+#[cfg(feature = "provider-sciotte")]
+use crate::sciotte_remote::AthleteId;
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
 #[cfg(feature = "provider-fitbit")]
@@ -62,7 +67,7 @@ use crate::spi::StravaDescriptor;
 #[cfg(feature = "provider-whoop")]
 use crate::spi::WhoopDescriptor;
 #[cfg(feature = "provider-sciotte")]
-use crate::spi::{SciotteDescriptor, SciotteGarminDescriptor};
+use crate::spi::{SciotteDescriptor, SciotteGarminDescriptor, SciotteTrainingPeaksDescriptor};
 #[cfg(feature = "provider-strava")]
 use crate::strava_provider::StravaProviderFactory;
 #[cfg(feature = "provider-terra")]
@@ -118,6 +123,7 @@ impl ProviderRegistry {
         Self::register_coros(&mut registry);
         Self::register_sciotte(&mut registry);
         Self::register_sciotte_garmin(&mut registry);
+        Self::register_sciotte_trainingpeaks(&mut registry);
         Self::register_intervals_icu(&mut registry);
 
         // Log registered providers at startup
@@ -384,6 +390,33 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_garmin(_registry: &mut Self) {}
 
+    /// Register Sciotte TrainingPeaks provider (web scraping on the scraper service)
+    #[cfg(feature = "provider-sciotte")]
+    fn register_sciotte_trainingpeaks(registry: &mut Self) {
+        registry.register_factory(
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            Box::new(SciotteTrainingPeaksProviderFactory),
+        );
+        registry.register_descriptor(
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            Box::new(SciotteTrainingPeaksDescriptor),
+        );
+        registry.set_default_config(
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            ProviderConfig {
+                name: oauth_providers::SCIOTTE_TRAININGPEAKS.to_owned(),
+                auth_url: String::new(),
+                token_url: String::new(),
+                api_base_url: String::new(),
+                revoke_url: None,
+                default_scopes: vec![],
+            },
+        );
+    }
+
+    #[cfg(not(feature = "provider-sciotte"))]
+    fn register_sciotte_trainingpeaks(_registry: &mut Self) {}
+
     /// Register the Intervals.icu provider (API-key / HTTP Basic auth, not OAuth).
     ///
     /// Athletes link by pasting their athlete id + API key, so the config
@@ -540,6 +573,21 @@ impl ProviderRegistry {
             .collect()
     }
 
+    /// Get all providers that read the workouts their calendar plans, by
+    /// registered name, sorted so a message that lists them reads the same
+    /// on every call.
+    #[must_use]
+    pub fn planned_workout_providers(&self) -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = self
+            .descriptors
+            .iter()
+            .filter(|(_, d)| d.capabilities().supports_planned_workouts())
+            .map(|(name, _)| *name)
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
     /// Create a provider instance with default configuration
     ///
     /// # Errors
@@ -561,6 +609,42 @@ impl ProviderRegistry {
             .clone();
 
         factory.create(config)
+    }
+
+    /// Create a provider that reads one coached athlete's calendar through a
+    /// coach account's session, which the caller then sets as its
+    /// credentials.
+    ///
+    /// Only the `TrainingPeaks` mirror reads on behalf of a coached athlete: a
+    /// coach account there has no calendar of its own and reads each roster
+    /// athlete by id. The provider it builds names `athlete` on every read and
+    /// refuses a detail id outside that athlete's calendar.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for any other provider, and when the
+    /// `TrainingPeaks` mirror has no default configuration.
+    #[cfg(feature = "provider-sciotte")]
+    pub fn create_delegated_provider(
+        &self,
+        provider_name: &str,
+        athlete: AthleteId,
+    ) -> AppResult<Box<dyn FitnessProvider>> {
+        if provider_name != oauth_providers::SCIOTTE_TRAININGPEAKS {
+            return Err(AppError::invalid_input(format!(
+                "{provider_name} cannot be read on behalf of a coached athlete"
+            )));
+        }
+        let config = self
+            .default_configs
+            .get(provider_name)
+            .ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "No default configuration for provider: {provider_name}"
+                ))
+            })?
+            .clone();
+        Ok(Box::new(SciotteProvider::delegated(config, athlete)))
     }
 
     /// Create a provider instance with custom configuration

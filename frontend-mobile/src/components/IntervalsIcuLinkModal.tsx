@@ -10,7 +10,8 @@ import { CheckCircle2 } from 'lucide-react-native';
 import { describeApiError } from '@pierre/ui-logic';
 import { useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
-import { IntervalsIcuLogo } from './icons/BrandIcons';
+import { ProviderGlyph } from './ProviderGlyph';
+import { PROVIDER_BRAND } from '../constants/brands';
 import { Button, Input, Sheet } from './ui';
 import { useTranslation } from '@pierre/i18n';
 
@@ -66,10 +67,10 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected }: Interva
     <Sheet visible={visible} onClose={onClose} testID="intervals-sheet" backdropTestID="intervals-sheet-backdrop">
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View className="flex-row items-center gap-3 mb-4">
-          <IntervalsIcuLogo size={24} />
+          <ProviderGlyph providerId="intervals_icu" label={PROVIDER_BRAND.intervalsIcu} />
           <View className="flex-1 min-w-0">
             <Text className="text-lg font-semibold text-text-primary">
-              {t('app.connectProvider', { provider: 'Intervals.icu' })}
+              {t('app.connectProvider', { provider: PROVIDER_BRAND.intervalsIcu })}
             </Text>
             <Text className="text-xs text-text-tertiary">{t('app.apiKeyNoOauth')}</Text>
           </View>

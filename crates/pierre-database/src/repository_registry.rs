@@ -13,23 +13,23 @@ use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, ActivityBackfillJobRepository, ActivityCacheRepository,
     AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
-    CoachingGroupRepository, CommitmentRepository, DataSourceRepository, DossierRepository,
-    EmailVerificationRepository, FeatureFlagsRepository, FitnessConfigRepository,
-    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
-    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
-    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, ResumableTurnRepository, RosterRepository, RouteSummaryRepository,
-    SecurityRepository, SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository,
-    SleepRepository, StoreListingsRepository, StravaSeatReclaimWarningRepository,
-    SubscriptionsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
-    TrainingHistoryRepository, TrainingPlanRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserOnboardingRepository, UserPhysiologicalProfileRepository,
-    UserRateLimitOverrideRepository, UserRepository, UserTierOverrideRepository,
-    UserToolOverrideRepository, WeatherCacheRepository, WorkerRunRepository,
-    WorkoutTemplateRepository,
+    CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
+    DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
+    FeatureFlagsRepository, FitnessConfigRepository, GuardianPendingActionsRepository,
+    HarnessMemoryRepository, HealthSnapshotRepository, ImpersonationRepository,
+    LlmCredentialRepository, LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository,
+    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
+    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, RecipeRepository, RecoveryRepository, ResumableTurnRepository,
+    RouteSummaryRepository, SecurityRepository, SeederRepository, SessionRefreshTokenRepository,
+    ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
+    TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
+    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
+    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
 
@@ -165,9 +165,10 @@ pub struct RepositoryRegistry {
     /// Continuous time-series points (`data_point_series` table). Implements
     /// riviere's `TimeSeriesStore`; backs the dravr-enforme write adapter.
     pub time_series_points: Arc<dyn TimeSeriesStore>,
-    /// Agent-athlete roster assignments (1:N junction). Gates routes that
-    /// require `manages_roster=true` and surfaces who agents whom.
-    pub roster: Arc<dyn RosterRepository>,
+    /// Delegated connections: a group member's provider read through the
+    /// session of the group's human coach, proposed by the coach and
+    /// confirmed by the member.
+    pub delegated_connections: Arc<dyn DelegatedConnectionRepository>,
     /// Per-user rate-limit overrides (industry-standard exemption pattern).
     /// Row presence wins over `UserTier::monthly_limit()` in admin views and
     /// the rate-limit middleware.
@@ -261,7 +262,7 @@ impl RepositoryRegistry {
             workout_templates: db.clone(),
             agent_artefacts: db.clone(),
             time_series_points: db.clone(),
-            roster: db.clone(),
+            delegated_connections: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
@@ -337,7 +338,7 @@ impl RepositoryRegistry {
             workout_templates: db.clone(),
             agent_artefacts: db.clone(),
             time_series_points: db.clone(),
-            roster: db.clone(),
+            delegated_connections: db.clone(),
             user_rate_limit_overrides: db.clone(),
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),

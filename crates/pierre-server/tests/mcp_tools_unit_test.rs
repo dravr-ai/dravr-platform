@@ -980,10 +980,15 @@ mod data_tests {
         use pierre_tool_runtime::implementations::data::create_data_tools;
 
         let tools = create_data_tools();
-        assert_eq!(tools.len(), 7, "Expected 7 data tools");
+        assert_eq!(tools.len(), 8, "Expected 8 data tools");
 
         let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
-        let expected_names = ["get_activities", "get_athlete", "get_stats"];
+        let expected_names = [
+            "get_activities",
+            "get_athlete",
+            "get_stats",
+            "get_planned_workouts",
+        ];
 
         for expected in expected_names {
             assert!(
@@ -1451,7 +1456,7 @@ fn test_total_tool_count() {
         + admin.len()
         + mobility.len();
 
-    assert_eq!(total, 79, "Expected 79 tools across all categories");
+    assert_eq!(total, 80, "Expected 80 tools across all categories");
 }
 
 #[test]

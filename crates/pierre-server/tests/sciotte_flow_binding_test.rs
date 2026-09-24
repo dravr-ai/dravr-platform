@@ -183,7 +183,8 @@ async fn a_new_login_supersedes_the_previously_parked_flow() {
     let (resources, user_id, tenant_id) = test_setup().await;
     let token = sciotte_token(&resources, user_id, tenant_id);
 
-    // A stored, still-valid sciotte session makes the login short-circuit.
+    // A still-valid sciotte session stored moments ago makes the login
+    // short-circuit.
     let now = Utc::now();
     let session = serde_json::json!({
         "session_id": "stored-session-1",

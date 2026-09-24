@@ -326,3 +326,9 @@ pub mod weather_backfill;
 
 /// Push an athlete's active training plan to a provider calendar and reconcile the ledger.
 pub mod plan_calendar_push;
+
+/// What kind of account a `TrainingPeaks` connection signed in with, and what a coach account is granted.
+pub mod trainingpeaks_accounts;
+
+/// A group's coach links `TrainingPeaks` roster athletes to members, who confirm; either side ends a link.
+pub mod delegated_connections;

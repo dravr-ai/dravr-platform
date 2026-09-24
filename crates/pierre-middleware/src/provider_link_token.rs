@@ -143,7 +143,7 @@ pub struct MintProviderLinkTokenArgs<'a> {
     pub tenant_id: Uuid,
     /// Provider name (e.g. "sciotte")
     pub provider: &'a str,
-    /// Target platform ("strava" or "garmin")
+    /// Target platform ("strava", "garmin" or "trainingpeaks")
     pub target: &'a str,
     /// Originating channel slug ("slack", "discord", "telegram", ...)
     pub channel: &'a str,

@@ -7,3 +7,7 @@ disallowed-methods = [
     { path = "anyhow::Context::context", reason = "Use structured ProviderError types instead of .context()" },
     { path = "anyhow::Context::with_context", reason = "Use structured ProviderError types instead of .with_context()" },
 ]
+
+# Mirrors the root: vendor-spelled CamelCase brands that `doc_markdown` would
+# read as code. ".." keeps clippy's default list.
+doc-valid-idents = ["TrainingPeaks", ".."]

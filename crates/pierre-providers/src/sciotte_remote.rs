@@ -36,7 +36,14 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dravr_sciotte::models::{Activity as SciotteActivity, AuthSession};
+use chrono::NaiveDate;
+/// One athlete on a coach account's roster, as the scraper lists it.
+pub use dravr_sciotte::models::CoachedAthlete;
+/// The scraper's own types for the session a read goes through, whose data it
+/// names and what the signed-in account is: callers outside this crate name
+/// them through here, since only this crate depends on `dravr-sciotte`.
+pub use dravr_sciotte::models::{AccountRole, AthleteId, AthleteProfile, AuthSession};
+use dravr_sciotte::models::{Activity as SciotteActivity, PlannedWorkout as SciottePlannedWorkout};
 use dravr_tronc::iam::IdTokenSource;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use reqwest::{Client, StatusCode};
@@ -117,26 +124,6 @@ pub enum RemoteLoginOutcome {
     Failed(String),
 }
 
-/// Athlete profile fields the platform needs, as reported by `GET /api/athlete`.
-///
-/// A subset of the scraper's profile DTO (serde ignores the rest) so the client
-/// does not have to mirror the full upstream type.
-#[derive(Debug, Clone, Deserialize)]
-pub struct RemoteAthleteProfile {
-    /// Display name, when the provider exposes one.
-    #[serde(default)]
-    pub display_name: Option<String>,
-    /// First name, when available.
-    #[serde(default)]
-    pub firstname: Option<String>,
-    /// Last name, when available.
-    #[serde(default)]
-    pub lastname: Option<String>,
-    /// Profile picture URL, when available.
-    #[serde(default)]
-    pub profile_picture_url: Option<String>,
-}
-
 /// What `GET /api/activities` answers with: the scraped rows and whether the
 /// service read the list's head.
 ///
@@ -169,9 +156,42 @@ pub struct RemoteActivityQuery {
     pub before_epoch: Option<i64>,
     /// Optional sport-type filter.
     pub sport_type: Option<String>,
-    /// Whether to enrich each activity with its detail page (N+1, slower).
+    /// Whether to enrich each activity with its detail page (N+1, slower),
+    /// newest first, up to the scraper's own per-request ceiling.
     pub enrich_details: bool,
+    /// Whose activities to read, by the provider's athlete id. `None` reads
+    /// the signed-in account's own; a `TrainingPeaks` coach account has none
+    /// and answers [`ATHLETE_REQUIRED`].
+    pub athlete: Option<AthleteId>,
 }
+
+/// What `GET /api/planned-workouts` answers with: the planned workouts,
+/// oldest first, and how many the service says it sent.
+#[derive(Debug, Deserialize)]
+pub struct RemotePlannedWorkoutList {
+    /// How many workouts the service put in `planned_workouts`.
+    pub count: usize,
+    /// The planned workouts, oldest first.
+    pub planned_workouts: Vec<SciottePlannedWorkout>,
+}
+
+/// Body `error` marker of the scraper's `400` for a read that named no
+/// athlete on a coach account, which has no calendar of its own.
+pub const ATHLETE_REQUIRED: &str = "athlete_required";
+
+/// Body `error` marker of the scraper's `403` for an athlete the provider
+/// refused: outside the signed-in coach's roster, or any athlete at all on a
+/// provider that reads only the signed-in account.
+pub const ATHLETE_NOT_ACCESSIBLE: &str = "athlete_not_accessible";
+
+/// Body `error` markers of the scraper's `400`s for a query it refused to
+/// parse — a malformed athlete id, a missing, malformed or inverted window.
+/// The platform builds both, so either one is a platform bug.
+const MALFORMED_QUERY_MARKERS: &[&str] = &["invalid_athlete", "invalid_window"];
+
+/// Key of the [`AppError::details`] entry naming which scraper refusal an
+/// error carries, read back by [`sciotte_refusal`].
+const SCIOTTE_REFUSAL_DETAIL: &str = "sciotte_refusal";
 
 /// The structured backpressure error for a scraper-service load-shed, or
 /// `None` when the response is a genuine failure.
@@ -264,14 +284,96 @@ pub fn auth_required_error(http_status: StatusCode, body: &Value) -> Option<AppE
         .then(|| AppError::provider_auth_required("sciotte"))
 }
 
-/// Map a non-success scrape response to an error, classifying the service's
-/// designed load-shed as retryable backpressure and its `401` as an
-/// auth-shaped failure rather than a system failure. Backpressure wins over
-/// the status match: a shed carries its own body marker and must not be
-/// misread as anything else.
+/// The typed error for a scraper refusal of the athlete a read named, or
+/// `None` for anything else.
 ///
-/// `operation` names the endpoint in the internal message only — neither
-/// message reaches a client verbatim.
+/// Neither refusal is a dead session, so neither may become
+/// [`ErrorCode::ProviderAuthRequired`]: that code sends the athlete through a
+/// re-login, and signing in again changes nothing about which account they
+/// hold or whose roster an athlete is on.
+///
+/// - `400` [`ATHLETE_REQUIRED`]: the session is a coach account, which has no
+///   calendar or activities of its own. An [`ErrorCode::InvalidInput`], whose
+///   message reaches the reader: a link to each athlete, made from a group
+///   the coach coaches, is what reads their workouts. The provider layer
+///   re-words it with its brand name.
+/// - `403` [`ATHLETE_NOT_ACCESSIBLE`]: the named athlete is not one this
+///   session may read. An [`ErrorCode::PermissionDenied`].
+/// - `400` `invalid_athlete` / `invalid_window`: the query the platform built
+///   was malformed, so an internal error — no action of the athlete's fixes it.
+///
+/// Each of the first two carries its marker under the details key
+/// [`sciotte_refusal`] reads, so a caller can branch on the kind.
+#[must_use]
+pub fn athlete_refusal_error(http_status: StatusCode, body: &Value) -> Option<AppError> {
+    let marker = body.get("error").and_then(Value::as_str)?;
+    match (http_status, marker) {
+        (StatusCode::BAD_REQUEST, ATHLETE_REQUIRED) => Some(with_refusal_marker(
+            AppError::invalid_input(
+                "This account is a coach account, and a coach account has no training \
+                 calendar of its own. To read an athlete's workouts, link each athlete from a \
+                 group you coach; the athlete confirms the link.",
+            ),
+            ATHLETE_REQUIRED,
+        )),
+        (StatusCode::FORBIDDEN, ATHLETE_NOT_ACCESSIBLE) => Some(athlete_not_accessible()),
+        (StatusCode::BAD_REQUEST, malformed) if MALFORMED_QUERY_MARKERS.contains(&malformed) => {
+            let detail = body.get("message").and_then(Value::as_str).unwrap_or("");
+            Some(AppError::internal(format!(
+                "sciotte refused the query the platform built as {malformed}: {detail}"
+            )))
+        }
+        _ => None,
+    }
+}
+
+/// The refusal of an athlete the session may not read.
+///
+/// It carries the [`ATHLETE_NOT_ACCESSIBLE`] marker: the scraper's `403` maps
+/// to it, and a delegated read answers it when the coach's roster no longer
+/// lists the athlete it names.
+#[must_use]
+pub fn athlete_not_accessible() -> AppError {
+    with_refusal_marker(
+        AppError::new(
+            ErrorCode::PermissionDenied,
+            "That athlete is not on this coach account's roster",
+        ),
+        ATHLETE_NOT_ACCESSIBLE,
+    )
+}
+
+/// `error` with `marker` recorded under the refusal details key.
+fn with_refusal_marker(mut error: AppError, marker: &str) -> AppError {
+    let mut details = Map::new();
+    details.insert(
+        SCIOTTE_REFUSAL_DETAIL.to_owned(),
+        Value::String(marker.to_owned()),
+    );
+    error.details = Some(Box::new(Value::Object(details)));
+    error
+}
+
+/// The scraper refusal `error` carries ([`ATHLETE_REQUIRED`],
+/// [`ATHLETE_NOT_ACCESSIBLE`]), or `None` for any other error.
+#[must_use]
+pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
+    error
+        .details
+        .as_ref()?
+        .get(SCIOTTE_REFUSAL_DETAIL)?
+        .as_str()
+}
+
+/// Map a non-success scrape response to an error, classifying the service's
+/// designed load-shed as retryable backpressure, its session-death `401` as
+/// an auth-shaped failure, and its athlete refusals as the typed errors
+/// [`athlete_refusal_error`] names, rather than any of them as a system
+/// failure. Backpressure wins over the status match: a shed carries its own
+/// body marker and must not be misread as anything else.
+///
+/// `operation` names the endpoint in the internal message only — the
+/// internal message never reaches a client verbatim.
 async fn scrape_failure(operation: &str, resp: reqwest::Response) -> AppError {
     let status = resp.status();
     let body = resp.json::<Value>().await.unwrap_or_default();
@@ -279,6 +381,7 @@ async fn scrape_failure(operation: &str, resp: reqwest::Response) -> AppError {
         return shed;
     }
     auth_required_error(status, &body)
+        .or_else(|| athlete_refusal_error(status, &body))
         .unwrap_or_else(|| AppError::internal(format!("sciotte {operation} returned {status}")))
 }
 
@@ -593,7 +696,13 @@ impl RemoteSciotteClient {
             params.push(("sport_type", s.clone()));
         }
         if query.enrich_details {
-            params.push(("detail", "true".to_owned()));
+            // The scraper takes the pass by its scope and bounds it by its own
+            // ceiling (DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS); any other value is
+            // a 400 for the whole list read.
+            params.push(("detail", "every".to_owned()));
+        }
+        if let Some(athlete) = &query.athlete {
+            params.push(("athlete", athlete.as_str().to_owned()));
         }
         if !params.is_empty() {
             req = req.query(&params);
@@ -610,13 +719,69 @@ impl RemoteSciotteClient {
             .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))
     }
 
-    /// GET `/api/athlete` — scrape the athlete profile for `session_id`.
+    /// GET `/api/planned-workouts` — read the workouts planned on the
+    /// calendar of `session_id` over `[after, before]`, inclusive days.
+    ///
+    /// `athlete` names whose calendar, by the provider's athlete id; `None`
+    /// reads the signed-in account's own. Returns the raw upstream rows,
+    /// oldest first; the caller converts them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on transport failure, a non-success status (classified
+    /// by `scrape_failure`: a shed, a dead session, an athlete refusal, or an
+    /// internal fault), an unparseable body, or a body whose `count` disagrees
+    /// with the rows it carries.
+    pub async fn get_planned_workouts(
+        &self,
+        session_id: &str,
+        after: NaiveDate,
+        before: NaiveDate,
+        athlete: Option<&AthleteId>,
+    ) -> AppResult<Vec<SciottePlannedWorkout>> {
+        let mut params = vec![
+            ("after", after.format("%Y-%m-%d").to_string()),
+            ("before", before.format("%Y-%m-%d").to_string()),
+        ];
+        if let Some(athlete) = athlete {
+            params.push(("athlete", athlete.as_str().to_owned()));
+        }
+        let resp = self
+            .request(reqwest::Method::GET, "/api/planned-workouts")
+            .await?
+            .header("X-Session-Id", session_id)
+            .query(&params)
+            .send()
+            .await
+            .map_err(|e| AppError::internal(format!("sciotte planned-workouts request: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(scrape_failure("planned-workouts", resp).await);
+        }
+        let list = resp
+            .json::<RemotePlannedWorkoutList>()
+            .await
+            .map_err(|e| AppError::internal(format!("sciotte planned-workouts decode: {e}")))?;
+        // A body that disagrees with itself was cut or mangled on the way; a
+        // plan read from it could be missing days the coach filled.
+        if list.count != list.planned_workouts.len() {
+            return Err(AppError::internal(format!(
+                "sciotte planned-workouts announced {} workouts and carried {}",
+                list.count,
+                list.planned_workouts.len()
+            )));
+        }
+        Ok(list.planned_workouts)
+    }
+
+    /// GET `/api/athlete` — scrape the profile of the account `session_id`
+    /// signed in with: its names, its id, whether it trains or coaches, and a
+    /// coach account's roster.
     ///
     /// # Errors
     ///
     /// Returns an error on transport failure, a non-success status, or an
     /// unparseable body.
-    pub async fn get_athlete(&self, session_id: &str) -> AppResult<RemoteAthleteProfile> {
+    pub async fn get_athlete(&self, session_id: &str) -> AppResult<AthleteProfile> {
         let resp = self
             .request(reqwest::Method::GET, "/api/athlete")
             .await?
@@ -627,7 +792,7 @@ impl RemoteSciotteClient {
         if !resp.status().is_success() {
             return Err(scrape_failure("athlete", resp).await);
         }
-        resp.json::<RemoteAthleteProfile>()
+        resp.json::<AthleteProfile>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte athlete decode: {e}")))
     }

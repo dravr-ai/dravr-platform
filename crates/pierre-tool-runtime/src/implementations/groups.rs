@@ -37,6 +37,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, Too
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
 use pierre_core::models::Activity;
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
@@ -230,7 +231,7 @@ fn resolve_unique_peer<'a>(
 fn project_activity(a: &Activity) -> GroupMemberActivity {
     GroupMemberActivity {
         id: a.id().to_owned(),
-        name: a.name().to_owned(),
+        name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
         sport: format!("{:?}", a.sport_type()),
         start_date: a.start_date().to_rfc3339(),
         distance_km: a.distance_meters().map(|m| m / 1000.0),

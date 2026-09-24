@@ -9,12 +9,20 @@ import React, { forwardRef, useId } from 'react';
 // Input, Textarea and Select cover text entry; until these existed, every
 // checkbox and radio in the app was hand-rolled, which is the same hole that
 // let a boxed textarea sit beside an editorial underline for months.
+// The edge is the only thing that shows an empty box is there, so it takes
+// the outline token, which clears WCAG 1.4.11's 3:1 on every surface tier in
+// both schemes; a ghost border does not.
 const CONTROL =
-  'w-4 h-4 shrink-0 ghost-border bg-surface-container-low text-primary ' +
+  'w-4 h-4 shrink-0 border border-outline bg-surface-container-low text-primary ' +
   'focus:ring-2 focus:ring-primary focus:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed';
 
 interface ChoiceProps {
   label: string;
+  /**
+   * The label's ink. Defaults to the body ink; a control sitting on a tinted
+   * hue passes that hue's `on-*-container` ink (DESIGN.md §2, bound ink).
+   */
+  labelClassName?: string;
   /** Secondary line under the label, in the same voice as Input's helpText. */
   description?: string;
   error?: string;
@@ -25,7 +33,7 @@ export interface CheckboxProps
     ChoiceProps {}
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ label, description, error, className = '', id, disabled, ...props }, ref) => {
+  ({ label, labelClassName = 'text-on-surface', description, error, className = '', id, disabled, ...props }, ref) => {
     const reactId = useId();
     const inputId = id || reactId;
 
@@ -45,7 +53,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
             {...props}
           />
           <span className="min-w-0">
-            <span className="block text-sm text-on-surface">{label}</span>
+            <span className={`block text-sm ${labelClassName}`}>{label}</span>
             {description && (
               <span className="block text-xs text-outline mt-0.5">{description}</span>
             )}
@@ -64,7 +72,7 @@ export interface RadioProps
     ChoiceProps {}
 
 export const Radio = forwardRef<HTMLInputElement, RadioProps>(
-  ({ label, description, error, className = '', id, disabled, ...props }, ref) => {
+  ({ label, labelClassName = 'text-on-surface', description, error, className = '', id, disabled, ...props }, ref) => {
     const reactId = useId();
     const inputId = id || reactId;
 
@@ -84,7 +92,7 @@ export const Radio = forwardRef<HTMLInputElement, RadioProps>(
             {...props}
           />
           <span className="min-w-0">
-            <span className="block text-sm text-on-surface">{label}</span>
+            <span className={`block text-sm ${labelClassName}`}>{label}</span>
             {description && (
               <span className="block text-xs text-outline mt-0.5">{description}</span>
             )}

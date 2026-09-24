@@ -19,12 +19,11 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::TenantContext;
-use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionStatus, TenantId};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{json, Value};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::capabilities::ToolCapabilities;
 use crate::context::ToolExecutionContext;
@@ -37,10 +36,13 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities as TroncCapabilities, ToolContext};
 use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::untrusted::display_line;
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
-use pierre_providers::backend_resolver::{self, BackendKind};
+use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::ProviderRegistry;
+use pierre_services::delegated_connections::describe_link;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tools_core::ToolResult;
@@ -48,20 +50,115 @@ use pierre_tools_core::ToolResult;
 /// The user-facing providers this build actually ships, in name order.
 ///
 /// Read off [`ProviderRegistry`], which registers each provider under its own
-/// cargo feature, minus the mirror backends (`sciotte`, `sciotte_garmin`) that
-/// are coalesced into the user-facing provider they serve (`strava`,
-/// `garmin`). Deriving it means a provider the binary cannot connect can never
-/// be named: the hand-written list this replaced went on offering `fitbit`,
-/// `terra` and `coros` to MCP clients long after the 2026-Q2 cleanup left them
-/// out of `server-production` (carnet#233).
+/// cargo feature, with every mirror backend (`sciotte`, `sciotte_garmin`,
+/// `sciotte_trainingpeaks`) folded into the user-facing provider it serves
+/// (`strava`, `garmin`, `trainingpeaks`). Folding rather than dropping matters
+/// for TrainingPeaks: it has no backend of its own, so it is only ever named
+/// through its mirror. Deriving it means a provider the binary cannot connect
+/// can never be named: the hand-written list this replaced went on offering
+/// `fitbit`, `terra` and `coros` to MCP clients long after the 2026-Q2 cleanup
+/// left them out of `server-production` (carnet#233).
 fn user_facing_providers(registry: &ProviderRegistry) -> Vec<&'static str> {
     let mut names: Vec<&'static str> = registry
         .supported_providers()
         .into_iter()
-        .filter(|provider| !backend_resolver::is_mirror_backend(provider))
+        .map(backend_resolver::user_facing_name)
         .collect();
     names.sort_unstable();
+    names.dedup();
     names
+}
+
+/// Whether the connection serving `user_facing` needs the athlete to reconnect.
+///
+/// Connection rows are stored under the BACKEND name (`sciotte_garmin`) while
+/// the status tool reports the user-facing one (`garmin`), so a lookup by the
+/// user-facing name never saw a mirror's dead session. When a backend serves
+/// the provider, that backend's row decides — a dormant mirror row behind a
+/// working Strava OAuth grant is not a reconnect. With nothing serving, any
+/// serving backend's flagged row counts: a dead session whose token is gone is
+/// still a reconnect, not a fresh connect.
+fn serving_row_needs_reauth(
+    status_by_provider: &HashMap<String, ConnectionStatus>,
+    user_facing: &str,
+    backend_kind: BackendKind,
+) -> bool {
+    let flagged = |backend: &str| {
+        status_by_provider
+            .get(backend)
+            .is_some_and(ConnectionStatus::requires_reauth)
+    };
+    match backend_kind {
+        BackendKind::Oauth => flagged(user_facing),
+        BackendKind::Mirror => {
+            backend_resolver::mirror_backend_for(user_facing).is_some_and(flagged)
+        }
+        // The session is the coach's, and nothing the athlete re-authorizes
+        // renews it: the coach's own state is reported instead.
+        BackendKind::Delegated => false,
+        BackendKind::None => backend_resolver::serving_backends(user_facing)
+            .iter()
+            .any(|backend| flagged(backend)),
+    }
+}
+
+/// Longest coach name the status reports for a delegated provider. The name
+/// is the coach's own Dravr display name, so it reaches the model as one
+/// defanged line.
+const COACH_NAME_MAX_CHARS: usize = 60;
+
+/// One provider's state, as both status shapes report it.
+struct ProviderState {
+    connected: bool,
+    status: &'static str,
+    needs_reauth: bool,
+    backend: BackendKind,
+    delegated_by: Option<String>,
+}
+
+/// The state of `provider`, which `status` coalesced, as the athlete reads it.
+///
+/// A provider read through the group coach's session (a delegated link)
+/// names the coach, and reads `coach_reconnect_needed` while the coach's own
+/// session needs the coach to sign in again: the athlete has nothing to
+/// re-authorize, so `needs_reauth` stays false.
+async fn provider_state(
+    repos: &RepositoryRegistry,
+    status_by_provider: &HashMap<String, ConnectionStatus>,
+    provider: &str,
+    status: CoalescedStatus,
+) -> ProviderState {
+    let needs_reauth = serving_row_needs_reauth(status_by_provider, provider, status.backend_kind);
+    let (delegated_by, coach_needs_reconnect) = match status.delegation {
+        Some(link) => match describe_link(repos, link).await {
+            Ok(Some(view)) => (
+                Some(display_line(&view.coach_name, COACH_NAME_MAX_CHARS)),
+                view.coach_needs_reconnect,
+            ),
+            Ok(None) => (None, false),
+            Err(e) => {
+                warn!(error = %e, "Could not read the coach behind a delegated provider");
+                (None, false)
+            }
+        },
+        None => (None, false),
+    };
+    let word = if needs_reauth {
+        "needs_reauth"
+    } else if coach_needs_reconnect {
+        "coach_reconnect_needed"
+    } else if status.connected {
+        "connected"
+    } else {
+        "disconnected"
+    };
+    ProviderState {
+        connected: status.connected,
+        status: word,
+        needs_reauth,
+        backend: status.backend_kind,
+        delegated_by,
+    }
 }
 
 /// Canonicalise a provider name into its static entry from
@@ -249,14 +346,32 @@ pub struct ConnectProviderResult {
 /// One provider's connection state, as reported inside the all-providers map.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ProviderConnectionStatus {
-    /// Whether a usable token is on file.
+    /// Whether a usable token is on file, or a coach's link serves it.
     pub connected: bool,
-    /// The state in words.
+    /// The state in words: `connected`, `disconnected`, `needs_reauth`, or
+    /// `coach_reconnect_needed` while the coach whose session serves a
+    /// delegated provider must sign in again.
     pub status: String,
     /// Whether the athlete must authorize again.
     pub needs_reauth: bool,
-    /// Which backend serves this provider.
+    /// Which backend serves this provider: `oauth`, `mirror`, `delegated`
+    /// (read through the group coach's own session) or `none`.
     pub backend: String,
+    /// The coach whose session a `delegated` provider is read through.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delegated_by: Option<String>,
+}
+
+impl From<ProviderState> for ProviderConnectionStatus {
+    fn from(state: ProviderState) -> Self {
+        Self {
+            connected: state.connected,
+            status: state.status.to_owned(),
+            needs_reauth: state.needs_reauth,
+            backend: state.backend.as_str().to_owned(),
+            delegated_by: state.delegated_by,
+        }
+    }
 }
 
 /// What `get_connection_status` answers with.
@@ -273,14 +388,20 @@ pub enum ConnectionStatusResult {
     Single {
         /// The provider asked about.
         provider: String,
-        /// The state in words.
+        /// The state in words: `connected`, `disconnected`, `needs_reauth`,
+        /// or `coach_reconnect_needed` while the coach whose session serves a
+        /// delegated provider must sign in again.
         status: String,
-        /// Whether a usable token is on file.
+        /// Whether a usable token is on file, or a coach's link serves it.
         connected: bool,
         /// Whether the athlete must authorize again.
         needs_reauth: bool,
-        /// Which backend serves it.
+        /// Which backend serves it: `oauth`, `mirror`, `delegated` (read
+        /// through the group coach's own session) or `none`.
         backend: String,
+        /// The coach whose session a `delegated` provider is read through.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        delegated_by: Option<String>,
     },
     /// A name that is not a provider was asked about. Carries `note` instead of
     /// `needs_reauth`, because there is nothing to re-authorize.
@@ -395,61 +516,42 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         if backend_resolver::is_mirror_backend(provider) {
             return Ok(ToolResult::error(json!({
                 "error": format!(
-                    "Unknown provider '{provider}'. Use 'strava' or 'garmin' instead.",
+                    "Unknown provider '{provider}'. Use '{}' instead.",
+                    backend_resolver::user_facing_name(provider)
                 )
             })));
         }
-        if !registry.is_supported(provider) {
+        let Some(provider) = user_facing_canonical(registry, provider) else {
             let supported = user_facing_providers(registry).join(", ");
             return Ok(ToolResult::error(json!({
                 "error": format!(
                     "Provider '{provider}' is not supported. Supported providers: {supported}"
                 )
             })));
-        }
+        };
 
         let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-        // If the user has already opted into the sciotte mirror backend for
-        // this provider, refuse to mint an OAuth URL — they must re-authenticate
-        // through the mirror flow.
+        // A provider whose mirror is its ONLY backend (Garmin, TrainingPeaks)
+        // has no OAuth flow to start: Garmin's API is partner-gated and
+        // uncredentialed, TrainingPeaks has none Pierre can call. Minting an
+        // OAuth URL for either fails with a configuration error the agent then
+        // relays as if the provider were broken. Raise the provider's
+        // auth-required signal instead, whether or not a session row exists —
+        // the chat pipeline answers it with a minted hosted-login link, and an
+        // MCP client gets the structured reconnect code.
         //
-        // Strava is exempt: it is migrating to its OAuth API, so a sciotte-Strava
-        // user is allowed to authorize OAuth (after which resolve_backend routes
-        // them to the API and the mirror goes dormant). Garmin keeps the block —
-        // its official API is partner-gated, so the mirror is its only backend.
-        let mirror = if provider == oauth_providers::STRAVA {
-            None
-        } else {
-            backend_resolver::mirror_backend_for(provider)
-        };
-        if let Some(mirror) = mirror {
-            if let Ok(Some(_)) = repos
-                .oauth_tokens
-                .get_token(user_uuid, tenant_id, mirror)
-                .await
-            {
+        // Strava is not mirror-only: its OAuth backend is real, so a
+        // sciotte-Strava user may still authorize OAuth, after which
+        // `resolve_backend` routes them to the API and the mirror goes dormant.
+        if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
+            if backend_resolver::serving_backends(provider) == [mirror] {
                 info!(
                     user_id = %user_uuid,
                     provider = provider,
-                    mirror = mirror,
-                    "Refusing OAuth connect: user has mirror backend active, \
-                     they must re-authenticate through the mirror flow"
+                    "connect_provider: mirror-only provider, handing off to the hosted login"
                 );
-                return Ok(ToolResult::error(json!({
-                    "provider": provider,
-                    "backend": "mirror",
-                    "requires_mirror_reauth": true,
-                    "message": format!(
-                        "Your {provider} connection uses a direct login (email + password), \
-                         not OAuth. If it has stopped working, re-authenticate through the \
-                         same flow — do not propose a fresh OAuth connection."
-                    ),
-                    "error": format!(
-                        "{provider} is already connected via direct login; \
-                         OAuth reconnection is blocked."
-                    ),
-                })));
+                return Err(AppError::provider_auth_required(mirror));
             }
         }
 
@@ -602,49 +704,52 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                             status: "disconnected".to_owned(),
                             connected: false,
                             backend: "none".to_owned(),
-                            note: "Unknown provider. Use 'strava' or 'garmin' instead.".to_owned(),
+                            note: format!(
+                                "Unknown provider. Use '{}' instead.",
+                                backend_resolver::user_facing_name(specific_provider)
+                            ),
                         },
                     );
                 }
 
                 let auth_repos = ctx.resources.repos().auth_repos();
-                let (is_connected, backend_kind) = match user_facing_canonical(
+                let coalesced = match user_facing_canonical(
                     ctx.resources.provider_registry(),
                     specific_provider,
                 ) {
                     Some(canonical) => {
-                        let status = backend_resolver::coalesced_status(
+                        backend_resolver::coalesced_status(
                             &auth_repos,
                             user_uuid,
                             tenant_id,
                             canonical,
                         )
-                        .await;
-                        (status.connected, status.backend_kind)
+                        .await
                     }
-                    None => (false, BackendKind::None),
+                    None => CoalescedStatus {
+                        user_facing: "",
+                        connected: false,
+                        backend_kind: BackendKind::None,
+                        delegation: None,
+                    },
                 };
-
-                let needs_reauth = status_by_provider
-                    .get(specific_provider)
-                    .copied()
-                    .is_some_and(|s| s.requires_reauth());
-                let status = if needs_reauth {
-                    "needs_reauth"
-                } else if is_connected {
-                    "connected"
-                } else {
-                    "disconnected"
-                };
+                let state = provider_state(
+                    ctx.resources.repos(),
+                    &status_by_provider,
+                    specific_provider,
+                    coalesced,
+                )
+                .await;
 
                 ok_typed(
                     "get_connection_status",
                     ConnectionStatusResult::Single {
                         provider: specific_provider.to_owned(),
-                        status: status.to_owned(),
-                        connected: is_connected,
-                        needs_reauth,
-                        backend: backend_kind.as_str().to_owned(),
+                        status: state.status.to_owned(),
+                        connected: state.connected,
+                        needs_reauth: state.needs_reauth,
+                        backend: state.backend.as_str().to_owned(),
+                        delegated_by: state.delegated_by,
                     },
                 )
             } else {
@@ -660,28 +765,14 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
                         user_facing,
                     )
                     .await;
-
-                    let needs_reauth = status_by_provider
-                        .get(user_facing)
-                        .copied()
-                        .is_some_and(|s| s.requires_reauth());
-                    let status_str = if needs_reauth {
-                        "needs_reauth"
-                    } else if status.connected {
-                        "connected"
-                    } else {
-                        "disconnected"
-                    };
-
-                    providers_status.insert(
-                        user_facing.to_owned(),
-                        ProviderConnectionStatus {
-                            connected: status.connected,
-                            status: status_str.to_owned(),
-                            needs_reauth,
-                            backend: status.backend_kind.as_str().to_owned(),
-                        },
-                    );
+                    let state = provider_state(
+                        ctx.resources.repos(),
+                        &status_by_provider,
+                        user_facing,
+                        status,
+                    )
+                    .await;
+                    providers_status.insert(user_facing.to_owned(), state.into());
                 }
 
                 ok_typed(
@@ -748,11 +839,9 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             let user_uuid = ctx.user_id;
 
             let Some(provider) = args.get("provider").and_then(Value::as_str) else {
-                let supported = ctx
-                    .resources
-                    .provider_registry()
-                    .supported_providers()
-                    .join(", ");
+                // The user-facing names, never the registry's raw keys: those
+                // include the mirror backends, which must not reach the LLM.
+                let supported = user_facing_providers(ctx.resources.provider_registry()).join(", ");
                 return Ok(ToolResult::error(json!({
                     "error": format!(
                         "Missing required 'provider' parameter. Supported providers: {supported}"

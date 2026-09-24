@@ -121,6 +121,13 @@ bitflags::bitflags! {
         /// 37s. Absent by default, so a new provider is assumed expensive and
         /// stays fast until it opts in.
         const CHEAP_ACTIVITY_DETAIL = 0b0100_0000;
+        /// Provider reads the workouts its calendar plans for the athlete —
+        /// what a coach or a plan prescribed for a day — through
+        /// `FitnessProvider::list_planned_workouts`.
+        ///
+        /// This is the last free bit of the `u8`: the next capability widens
+        /// the storage type first.
+        const PLANNED_WORKOUTS = 0b1000_0000;
     }
 }
 
@@ -179,6 +186,12 @@ impl ProviderCapabilities {
     #[must_use]
     pub const fn supports_continuous_data(&self) -> bool {
         self.contains(Self::CONTINUOUS_DATA)
+    }
+
+    /// Check if the provider reads the workouts its calendar plans
+    #[must_use]
+    pub const fn supports_planned_workouts(&self) -> bool {
+        self.contains(Self::PLANNED_WORKOUTS)
     }
 }
 
@@ -644,6 +657,46 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
 
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::ACTIVITIES
+    }
+
+    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+        None
+    }
+
+    fn oauth_params(&self) -> Option<OAuthParams> {
+        None
+    }
+
+    fn api_base_url(&self) -> &'static str {
+        ""
+    }
+
+    fn default_scopes(&self) -> &'static [&'static str] {
+        &[]
+    }
+}
+
+/// Sciotte TrainingPeaks web scraping provider descriptor.
+///
+/// Activities and the calendar's planned workouts, and never
+/// `CHEAP_ACTIVITY_DETAIL`: a TrainingPeaks workout's detail is a browser
+/// round trip per workout on the scraper service, the same N+1 the Garmin and
+/// Strava mirrors ration. The planned read is one scraper call per window.
+#[cfg(feature = "provider-sciotte")]
+pub struct SciotteTrainingPeaksDescriptor;
+
+#[cfg(feature = "provider-sciotte")]
+impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
+    fn name(&self) -> &'static str {
+        "sciotte_trainingpeaks"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "TrainingPeaks"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::PLANNED_WORKOUTS)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

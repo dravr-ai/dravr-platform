@@ -169,6 +169,16 @@ export const ENDPOINTS = {
     REPORT: (id: string) => `/api/groups/${id}/report`,
     /** Group health flags */
     HEALTH: (id: string) => `/api/groups/${id}/health`,
+    /** A group's live TrainingPeaks links; POST proposes one (coach only) */
+    DELEGATED_CONNECTIONS: (id: string) => `/api/groups/${id}/delegated-connections`,
+    /** End one link (the coach or the linked member) */
+    DELEGATED_CONNECTION: (groupId: string, connectionId: string) =>
+      `/api/groups/${groupId}/delegated-connections/${connectionId}`,
+    /** The linked member confirms a proposed link */
+    DELEGATED_CONNECTION_CONFIRM: (groupId: string, connectionId: string) =>
+      `/api/groups/${groupId}/delegated-connections/${connectionId}/confirm`,
+    /** The coach's TrainingPeaks roster, with each athlete's link in the group */
+    DELEGATION_ROSTER: (id: string) => `/api/groups/${id}/delegated-connections/roster`,
   },
 
   // ==================== USER ====================

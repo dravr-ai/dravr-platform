@@ -1,4 +1,4 @@
-// ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its colour, name, one line, status, action
+// ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its scheme's ink, name, one line, status, action
 // ABOUTME: Displays fitness providers from server with connection status and OAuth initiation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,26 +10,13 @@ import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { PROVIDER_LINK_POLL_INTERVAL_MS, providerGlyphInk, sciotteTargetForBackend } from '@pierre/shared-constants';
+import type { SciotteTarget } from '@pierre/shared-types';
 import SciotteLoginModal from './SciotteLoginModal';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import { useTranslation } from '@pierre/i18n';
+import { useTheme } from '../hooks/useTheme';
 
-// Brand colours for known providers, carried by the glyph rather than by a
-// tile (DESIGN.md §5: brand marks are glyphs). Third-party colours are the one
-// allowed hex carve-out; WHOOP's is black, which is invisible on the dark
-// canvas, so its glyph takes the body ink. After the 2026-Q2 provider cleanup
-// the API surfaces `sciotte` (Strava-branded), `sciotte_garmin` (Garmin-branded),
-// `whoop` and `intervals_icu`; unknown ids fall back to DEFAULT_STYLE below.
-const PROVIDER_STYLES: Record<string, { glyphColor: string }> = {
-  sciotte: { glyphColor: 'text-[#FC4C02]' },
-  sciotte_garmin: { glyphColor: 'text-[#007CC3]' },
-  whoop: { glyphColor: 'text-on-surface' },
-  intervals_icu: { glyphColor: 'text-[#1273DE]' },
-};
-
-// Default style for unknown providers
-const DEFAULT_STYLE = { glyphColor: 'text-on-surface-variant' };
 
 // One row, whichever provider: a 24px glyph, the name with its one line
 // beside it, the status or action on the right, a faint hairline above.
@@ -54,7 +41,8 @@ const providerDescriptionKey = (provider: ProviderStatus): string => {
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
 // Strava chevron (it's the Strava data path); `sciotte_garmin` reuses the Garmin
-// dial. Default falls back to a neutral disc.
+// dial; `sciotte_trainingpeaks` is a pair of peaks. Default falls back to a
+// neutral disc.
 export const ProviderIcon = ({ providerId, className }: { providerId: string; className?: string }) => {
   const baseClass = className || 'w-5 h-5';
 
@@ -69,6 +57,12 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z" />
+        </svg>
+      );
+    case 'sciotte_trainingpeaks':
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M2 20L9 7l4 7 3-5 6 11H2z" />
         </svg>
       );
     case 'whoop':
@@ -112,7 +106,10 @@ export default function ProviderConnectionCards({
   onOAuthLaunched,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
-  const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+  const { scheme } = useTheme();
+  const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
+  // Whether the chosen card still needs its exposure notice accepted.
+  const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -215,9 +212,12 @@ export default function ProviderConnectionCards({
       return;
     }
 
-    // Other Sciotte backends (Garmin) always use credential-based login.
-    if (provider.provider.startsWith('sciotte')) {
-      setSciotteModalTarget('garmin');
+    // Every other scrape-mirror card (Garmin, TrainingPeaks) signs in with the
+    // provider's own credentials, after its notice when it has one.
+    const target = sciotteTargetForBackend(provider.provider);
+    if (target) {
+      setSciotteConsentRequired(provider.consent_required);
+      setSciotteModalTarget(target);
       return;
     }
 
@@ -274,7 +274,11 @@ export default function ProviderConnectionCards({
   return (
     <div className="w-full">
       {providers.map((provider) => {
-        const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
+        // The brand colour is carried by the glyph, not by a tile (DESIGN.md
+        // §5), and only in a scheme where it clears the 3:1 icon floor on the
+        // canvas; elsewhere — and for a provider with no brand colour — the
+        // glyph takes the body ink. `PROVIDER_GLYPH_INK` holds both halves.
+        const glyphInk = providerGlyphInk(provider.provider, scheme);
         const isConnecting = connectingProvider === provider.provider;
         const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
         const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
@@ -296,7 +300,9 @@ export default function ProviderConnectionCards({
           >
             <span
               aria-hidden="true"
-              className={`flex h-6 w-6 flex-shrink-0 items-center justify-center ${isNonOAuth ? 'opacity-60' : ''} ${style.glyphColor}`}
+              data-testid={`provider-glyph-${provider.provider}`}
+              className={`flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface ${isNonOAuth ? 'opacity-60' : ''}`}
+              style={glyphInk ? { color: glyphInk } : undefined}
             >
               {isConnecting ? (
                 <div className="pierre-spinner h-5 w-5"></div>
@@ -372,6 +378,7 @@ export default function ProviderConnectionCards({
           if (onProviderConnected) onProviderConnected();
         }}
         target={sciotteModalTarget ?? 'strava'}
+        consentRequired={sciotteConsentRequired}
       />
 
       {/* Intervals.icu API-key link modal */}

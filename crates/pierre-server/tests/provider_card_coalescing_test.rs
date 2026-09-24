@@ -153,6 +153,31 @@ async fn mirror_row_still_lights_its_own_card() {
     );
 }
 
+/// TrainingPeaks has only its mirror, so its scrape row is the whole card —
+/// and must light that card alone.
+#[tokio::test]
+async fn trainingpeaks_mirror_row_lights_its_own_card_and_no_other() {
+    let (resources, user_id, tenant_id, user) = test_setup().await;
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+
+    let cards = provider_cards(&resources, &user).await;
+
+    assert!(
+        card(&cards, oauth_providers::SCIOTTE_TRAININGPEAKS),
+        "a sciotte_trainingpeaks connection must show on the TrainingPeaks card: {cards:?}"
+    );
+    assert!(
+        !card(&cards, oauth_providers::SCIOTTE) && !card(&cards, oauth_providers::SCIOTTE_GARMIN),
+        "a TrainingPeaks connection must not light the Strava or Garmin card: {cards:?}"
+    );
+}
+
 /// Coalescing widens what counts as connected, so pin the other direction too:
 /// an athlete with no connection has no card lit, and one provider does not
 /// light another.

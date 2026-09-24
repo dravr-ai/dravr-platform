@@ -995,7 +995,15 @@ fn generate_completions(req: &CompleteRequest) -> Completion {
             }
             if req.argument.name == "provider" {
                 return prefix_completion(
-                    &["strava", "fitbit", "garmin", "whoop", "terra", "sciotte"],
+                    &[
+                        "strava",
+                        "fitbit",
+                        "garmin",
+                        "whoop",
+                        "terra",
+                        "sciotte",
+                        "trainingpeaks",
+                    ],
                     &req.argument.value,
                 );
             }

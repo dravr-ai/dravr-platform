@@ -57,6 +57,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_providers::backend_resolver;
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -193,7 +194,10 @@ pub async fn apply_auth_recovery(
     };
 
     let locale = profile.locale.as_str();
-    let display_name = provider_display_name(&provider_slug).to_owned();
+    let display_name =
+        backend_resolver::brand_name(deps.tool_runtime.provider_registry(), &provider_slug)
+            .unwrap_or(&provider_slug)
+            .to_owned();
     let (linked_key, bare_key) = standing.keys();
     let replaces_reply = standing.replaces_reply();
 
@@ -365,7 +369,7 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
 
 /// Mint the reconnect URL for `provider_slug`.
 ///
-/// Scrape-mirror providers (`sciotte`, `sciotte_garmin`) use the Dravr-hosted login page
+/// Scrape-mirror providers (every slug with a [`backend_resolver::hosted_login_target`]) use the Dravr-hosted login page
 /// (email + password) — the same short-TTL link-token mint the channel bots use. OAuth
 /// providers (WHOOP, Fitbit, Strava, Garmin, …) get their real provider authorization URL
 /// plus a persisted CSRF state row. Returns `None` (fall back to the LLM path) on failure.
@@ -376,8 +380,7 @@ async fn mint_reconnect_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
-    if matches!(provider_slug, "sciotte" | "sciotte_garmin") {
-        let target = sciotte_target_for_provider(provider_slug);
+    if let Some(target) = backend_resolver::hosted_login_target(provider_slug) {
         let token = match mint_link_token(
             &MintProviderLinkTokenArgs {
                 user_id,
@@ -438,33 +441,5 @@ async fn mint_reconnect_url(
             );
             None
         }
-    }
-}
-
-/// Map a provider slug returned from the tool loop to the `target` field
-/// required by the hosted-login mint endpoint. Sciotte's hosted UI takes
-/// `target=strava | garmin` and the slug already encodes which platform is
-/// wedged.
-fn sciotte_target_for_provider(provider_slug: &str) -> &'static str {
-    match provider_slug {
-        "sciotte_garmin" => "garmin",
-        // Default: the historical sciotte slug is Strava-specific.
-        _ => "strava",
-    }
-}
-
-/// Human-readable display name for a provider slug, used in the localized
-/// re-auth message. Strings are deliberately platform brand names so French
-/// and English copies stay short. An unknown slug passes through as-is — it
-/// renders in every chat locale, unlike any hardcoded fallback word.
-fn provider_display_name(provider_slug: &str) -> &str {
-    match provider_slug {
-        "sciotte_garmin" | "garmin" => "Garmin",
-        "sciotte" | "strava" => "Strava",
-        "whoop" => "WHOOP",
-        "fitbit" => "Fitbit",
-        "coros" => "COROS",
-        "terra" => "Terra",
-        other => other,
     }
 }

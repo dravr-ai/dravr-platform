@@ -914,7 +914,13 @@ async fn local_only_backends_send_nothing_upstream() {
         format!("{}/oauth/revoke", strava_upstream.base_url);
     let service = oauth_service(&resources, config);
 
-    for backend in ["intervals_icu", "sciotte", "sciotte_garmin", "coros"] {
+    for backend in [
+        "intervals_icu",
+        "sciotte",
+        "sciotte_garmin",
+        "sciotte_trainingpeaks",
+        "coros",
+    ] {
         assert_eq!(
             revocation_shape(&service, backend),
             None,
@@ -943,6 +949,30 @@ async fn local_only_backends_send_nothing_upstream() {
         .expect("disconnect succeeds");
     strava_upstream.assert_silent("a sciotte-backed Strava disconnect");
     assert_locally_disconnected(&resources, user_id, tenant_id, "sciotte").await;
+
+    // TrainingPeaks has no backend of its own: a disconnect names the card
+    // (`trainingpeaks`), and the chokepoint must expand it to the mirror that
+    // holds the session — through provider validation, which knows no
+    // `trainingpeaks` factory.
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "sciotte_trainingpeaks",
+        "trainingpeaks-cookie-jar-do-not-log",
+        None,
+        Utc::now() + Duration::days(30),
+    )
+    .await;
+    service
+        .disconnect_provider(
+            user_id,
+            "trainingpeaks",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("a TrainingPeaks disconnect by its user-facing name succeeds");
+    strava_upstream.assert_silent("a TrainingPeaks disconnect");
+    assert_locally_disconnected(&resources, user_id, tenant_id, "sciotte_trainingpeaks").await;
 
     // Intervals.icu: the API key row is the whole link; deleting it is the disconnect.
     let (user_id, tenant_id) = seed_connected(

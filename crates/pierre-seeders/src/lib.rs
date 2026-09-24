@@ -18,3 +18,4 @@ pub mod demo_data;
 pub mod llm_usage;
 pub mod mobility;
 pub mod synthetic_activities;
+pub mod trainingpeaks_delegation;

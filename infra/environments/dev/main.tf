@@ -561,27 +561,17 @@ module "backend" {
       # filled by the weather backfill, so coaching has what it needs without it.
       # Enrichment only adds precise UTC start-time + HR/power/cadence.
       #
-      # LIMITATION(registre#321): PIERRE_SCIOTTE_ENRICH_DETAILS is an unbounded
-      # switch against this deployment — "true" costs one detail-page navigation
-      # per scraped activity, the ~4.5 min above, with no ceiling. The scrape runs
-      # on dravr-sciotte-server since the ADR-021 Phase 4 cutover, and its
-      # GET /api/activities accepts limit, sport_type, detail, after and before —
-      # no per-request enrich cap (ActivityQuery in dravr-sciotte-server's
-      # router.rs). Its activities_handler fills ActivityParams from defaults, so
-      # the scraper's enrich_limit is always None and it falls back to the full
-      # activity count. A cap sent from the platform is discarded in silence:
-      # ActivityQuery carries no deny_unknown_fields and axum decodes it through
-      # serde_urlencoded. Bounding this means an upstream field plus a handler
-      # passthrough, a rebuilt image, and a forced Cloud Run revision first.
+      # "true" asks the scraper service for a detail pass over every activity
+      # the list returns (detail=every on GET /api/activities). The service
+      # bounds that pass by its own per-request ceiling,
+      # DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS (set on the sciotte service below),
+      # at ~3.4s a navigation; it stays off because the list page already
+      # carries what coaching reads.
       #
-      # The ration that does exist bounds a different axis.
       # EXPENSIVE_DETAIL_PROMOTION_BUDGET (pierre-core's config::fitness, spent in
-      # pierre-tool-runtime's implementations::data) caps the separate
-      # GET /api/activities/{id} calls the tool runtime issues after the list
-      # returns. It never reaches the navigations performed inside one
-      # /api/activities scrape, which is what this flag turns on, so it is no
-      # ceiling on flipping this to "true". carnet#321 carries the exact
-      # references, where a stale line number is expected rather than misleading.
+      # pierre-tool-runtime's implementations::data) bounds a different axis: the
+      # separate GET /api/activities/{id} calls the tool runtime issues after the
+      # list returns.
       PIERRE_SCIOTTE_ENRICH_DETAILS = "false"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
@@ -1027,29 +1017,14 @@ module "sciotte" {
     DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
     DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
 
-    # Detail-page location fallback (carnet#409). After the feed pass, Strava
-    # activities still missing city/region get one detail-page navigation each,
-    # sequentially, at ~3.4s measured. The crate's default cap is 30, and unlike
-    # PIERRE_SCIOTTE_ENRICH_DETAILS this runs UNCONDITIONALLY for strava.com —
-    # it sits outside the enrich_details guard, so turning enrichment off does
-    # not turn this off.
-    #
-    # It cost 101.4s of a 171s scrape on 2026-09-08: the list pass had all 378
-    # activities at T+67.5s, the platform's 90s loopback bound fired ~20s into
-    # this fallback, and the completed scrape was discarded. Only that scrape
-    # ever reached the cap.
-    #
-    # 10 rather than 30 because the cap only binds past the dashboard feed's own
-    # location coverage. Across 23 firings in 30 days, `missing` tracked returned
-    # depth: 7->0, 10->0, 32->0, 38->3, 50->6, 60->6, and 378->30 (capped). So 10
-    # never binds on any interactive scrape observed, and bounds the pathological
-    # case at ~34s instead of ~101s. Lower only with evidence; 0 disables the
-    # fallback and drops city/region for anything the feed does not cover.
-    #
-    # This is latency relief, not the fix. The fix is gating the fallback on
-    # caller intent the way detail enrichment already is, which is carnet#409
-    # against dravr-sciotte.
-    SCIOTTE_DETAIL_FALLBACK_MAX = "10"
+    # Ceiling on detail-page navigations in one scrape request, ~3.4s each.
+    # Every detail pass is opted into per request (carnet#409): the Strava
+    # location backfill (detail=missing_location) and PIERRE_SCIOTTE_ENRICH_DETAILS
+    # on the API service (detail=every) alike, and a request's own cap is
+    # tightened to this. 10 bounds a pass at ~34s, inside the platform's 90s
+    # loopback bound; the crate default of 30 (~101s) overran it on 2026-09-08,
+    # when a completed scrape was discarded. 0 disables every detail pass.
+    DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS = "10"
 
     # Hybrid login: selectors first, vision (Copilot screenshot reasoning) on
     # failure — required for the Strava/Google OAuth path (validated live).

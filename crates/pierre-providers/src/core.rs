@@ -124,9 +124,12 @@
 //! This separation allows providers to adapt their specific API formats while
 //! maintaining a consistent interface for the rest of the application.
 
+use crate::backend_resolver::user_facing_name;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
-use crate::models::{Activity, Athlete, CalendarEventRef, PersonalRecord, PlannedSession, Stats};
+use crate::models::{
+    Activity, Athlete, CalendarEventRef, PersonalRecord, PlannedSession, PlannedWorkout, Stats,
+};
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -473,6 +476,26 @@ pub trait FitnessProvider: Send + Sync {
     /// Get user's personal records
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>>;
 
+    // ── Training-calendar reads ──────────────────────────────────────────
+
+    /// Read the workouts the provider's calendar plans for the athlete over
+    /// `[after, before]` (inclusive calendar days, in the athlete's own
+    /// calendar), oldest first, each in the periodization step grammar.
+    ///
+    /// A provider overrides this when its descriptor declares
+    /// [`ProviderCapabilities::PLANNED_WORKOUTS`](crate::spi::ProviderCapabilities::PLANNED_WORKOUTS).
+    /// Every other provider inherits the refusal from
+    /// [`planned_workouts_unsupported`], naming itself: an empty list would
+    /// read as a calendar with nothing planned on it.
+    async fn list_planned_workouts(
+        &self,
+        after: NaiveDate,
+        before: NaiveDate,
+    ) -> AppResult<Vec<PlannedWorkout>> {
+        let _ = (after, before);
+        Err(planned_workouts_unsupported(self.name()))
+    }
+
     // ── Training-calendar writes ─────────────────────────────────────────
     //
     // The four methods below are the whole write surface a provider with a
@@ -531,6 +554,19 @@ pub trait FitnessProvider: Send + Sync {
             self.name()
         )))
     }
+}
+
+/// The refusal of a planned-workout read by a provider that has none.
+///
+/// Names the provider the way the athlete knows it — a scraped mirror's
+/// backend slug (`sciotte_garmin`) never reaches a reply — so the agent can
+/// say which account cannot answer instead of reporting an empty calendar.
+#[must_use]
+pub fn planned_workouts_unsupported(provider: &str) -> AppError {
+    AppError::invalid_input(format!(
+        "{} does not expose planned workouts",
+        user_facing_name(provider)
+    ))
 }
 
 /// Provider factory for creating instances
@@ -657,6 +693,17 @@ impl FitnessProvider for TenantProvider {
 
     async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
         self.inner.get_personal_records().await
+    }
+
+    // The planned read is forwarded for the same reason: without it a
+    // tenant-scoped provider would answer the "does not expose planned
+    // workouts" refusal while the provider it wraps can read the calendar.
+    async fn list_planned_workouts(
+        &self,
+        after: NaiveDate,
+        before: NaiveDate,
+    ) -> AppResult<Vec<PlannedWorkout>> {
+        self.inner.list_planned_workouts(after, before).await
     }
 
     // The calendar write surface is forwarded like every read: a wrapped

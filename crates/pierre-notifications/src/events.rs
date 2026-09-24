@@ -64,6 +64,20 @@ pub enum NotificationEvent {
     /// The athlete's shared Strava seat will be released unless they come
     /// back: the seat-reclaim sweeper's warning before it disconnects them.
     SeatReleaseWarning,
+    /// A group's coach asked to read a member's `TrainingPeaks` workouts
+    /// through the coach's own `TrainingPeaks` account: sent to the member,
+    /// whose confirmation is the consent to that read.
+    DelegationProposed,
+    /// The member confirmed the coach's link: sent to the coach.
+    DelegationConfirmed,
+    /// The member declined the coach's link: sent to the coach.
+    DelegationDeclined,
+    /// `TrainingPeaks` no longer lists a linked member on the coach's roster,
+    /// so the link ended: sent to the coach.
+    DelegationOffRoster,
+    /// The same end, sent to the member: their workouts are no longer read
+    /// through the coach's account.
+    DelegationOffCoachRoster,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
     /// A coaching group's weekly roll-up, sent to the members who manage it.
@@ -91,6 +105,11 @@ impl NotificationEvent {
             Self::AgentFeedback => "coach_feedback",
             Self::SyncFailure => "sync_failure",
             Self::SeatReleaseWarning => "seat_release_warning",
+            Self::DelegationProposed => "delegation_proposed",
+            Self::DelegationConfirmed => "delegation_confirmed",
+            Self::DelegationDeclined => "delegation_declined",
+            Self::DelegationOffRoster => "delegation_off_roster",
+            Self::DelegationOffCoachRoster => "delegation_off_coach_roster",
             Self::PersonaDigest => "persona_digest",
             Self::GroupWeeklyDigest => "group_weekly_digest",
         }
@@ -113,6 +132,11 @@ impl NotificationEvent {
             Self::AgentFeedback,
             Self::SyncFailure,
             Self::SeatReleaseWarning,
+            Self::DelegationProposed,
+            Self::DelegationConfirmed,
+            Self::DelegationDeclined,
+            Self::DelegationOffRoster,
+            Self::DelegationOffCoachRoster,
             Self::PersonaDigest,
             Self::GroupWeeklyDigest,
         ]
@@ -136,6 +160,13 @@ impl NotificationEvent {
             Self::AgentFeedback => "notifications.event.agent_feedback.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
+            Self::DelegationProposed => "notifications.event.delegation_proposed.title",
+            Self::DelegationConfirmed => "notifications.event.delegation_confirmed.title",
+            Self::DelegationDeclined => "notifications.event.delegation_declined.title",
+            Self::DelegationOffRoster => "notifications.event.delegation_off_roster.title",
+            Self::DelegationOffCoachRoster => {
+                "notifications.event.delegation_off_coach_roster.title"
+            }
             Self::PersonaDigest => "notifications.digest.title",
             Self::GroupWeeklyDigest => "notifications.group_digest.title",
         }
@@ -157,6 +188,13 @@ impl NotificationEvent {
             Self::AgentFeedback => "notifications.event.agent_feedback.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
+            Self::DelegationProposed => "notifications.event.delegation_proposed.body",
+            Self::DelegationConfirmed => "notifications.event.delegation_confirmed.body",
+            Self::DelegationDeclined => "notifications.event.delegation_declined.body",
+            Self::DelegationOffRoster => "notifications.event.delegation_off_roster.body",
+            Self::DelegationOffCoachRoster => {
+                "notifications.event.delegation_off_coach_roster.body"
+            }
             Self::PersonaDigest => "notifications.digest.body",
             Self::GroupWeeklyDigest => "notifications.group_digest.summary",
         }
@@ -187,6 +225,12 @@ impl NotificationEvent {
             Self::AgentFeedback => &["agent_name", "activity_type"],
             Self::SyncFailure => &["error_summary"],
             Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
+            Self::DelegationProposed | Self::DelegationOffCoachRoster => {
+                &["coach_name", "group_name"]
+            }
+            Self::DelegationConfirmed | Self::DelegationDeclined | Self::DelegationOffRoster => {
+                &["member_name", "group_name"]
+            }
             Self::PersonaDigest => &["item_count"],
             Self::GroupWeeklyDigest => &["active_members", "total_members", "avg_volume_km"],
         }

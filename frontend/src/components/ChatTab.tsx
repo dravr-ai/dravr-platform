@@ -54,6 +54,7 @@ import type {
 } from './chat';
 import type { MessageFeedbackEntry } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 
 /**
  * The id prefix of the user row appended to the transcript while a turn is in
@@ -989,6 +990,14 @@ export default function ChatTab({
           }}
           onDelete={() => void handleDeleteConversation()}
           onThreadGone={handleThreadGone}
+          onOpenConnections={
+            onNavigate
+              ? () => {
+                  setInfoOpen(false);
+                  onNavigate(CONNECTIONS_ROUTE);
+                }
+              : undefined
+          }
         />
       ) : null}
 

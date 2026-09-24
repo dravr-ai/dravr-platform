@@ -28,6 +28,8 @@ pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+# model_from_env: the model a seeded conversation gets, as the server resolves it.
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }

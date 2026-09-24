@@ -400,11 +400,11 @@ pub fn default_admin_config() -> &'static dyn AdminConfigLookup {
     &DEFAULT_ADMIN_CONFIG
 }
 
-/// Slice of runtime state the agents/roster/store route layer needs.
+/// Slice of runtime state the agents/store route layer needs.
 ///
 /// Covers `/api/agents/*`, `/api/admin/agents/*`, `/api/admin/store/*`,
-/// `/api/roster/*`, and `/api/store/*`. Pulls the repository registry
-/// (agents + store-listings + roster + tenants + users repos), the
+/// and `/api/store/*`. Pulls the repository registry
+/// (agents + store-listings + tenants + users repos), the
 /// platform's `Database` handle (for the version-history author lookup),
 /// and provider handles for the LLM re-rank of agent proposals.
 ///

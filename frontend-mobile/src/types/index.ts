@@ -67,4 +67,7 @@ export type {
   GroupStatsResponse,
   GroupWeeklyReportResponse,
   GroupHealthFlagsResponse,
+  DelegatedConnection,
+  DelegationRosterAthlete,
+  ProposeDelegatedConnectionRequest,
 } from '@pierre/shared-types';

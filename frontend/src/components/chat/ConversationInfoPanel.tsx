@@ -34,6 +34,8 @@ interface ConversationInfoPanelProps {
   onThreadGone: () => void;
   /** Open with the participants control already expanded. */
   openParticipants?: boolean;
+  /** Open the connections pane, where a group's coach connects TrainingPeaks. */
+  onOpenConnections?: () => void;
 }
 
 /** What the open conversation makes this drawer about. */
@@ -69,6 +71,7 @@ export default function ConversationInfoPanel({
   onDelete,
   onThreadGone,
   openParticipants = false,
+  onOpenConnections,
 }: ConversationInfoPanelProps) {
   const { t } = useTranslation();
   const shape = shapeOf(conversation);
@@ -121,7 +124,11 @@ export default function ConversationInfoPanel({
 
         <div className="px-5 py-5">
           {shape === 'group' && conversation.group_id ? (
-            <GroupInfoPanel groupId={conversation.group_id} onMembershipEnded={onThreadGone} />
+            <GroupInfoPanel
+              groupId={conversation.group_id}
+              onMembershipEnded={onThreadGone}
+              onOpenConnections={onOpenConnections}
+            />
           ) : shape === 'coach' ? (
             coach ? (
               <CoachInfoPanel

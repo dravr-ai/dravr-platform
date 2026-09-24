@@ -13,7 +13,6 @@ export interface ProviderConfig {
   name: string;
   domain: string;
   displayName: string;
-  color: string;
 }
 
 /**
@@ -24,19 +23,16 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, ProviderConfig> = {
     name: 'strava',
     domain: 'strava.com',
     displayName: 'Strava',
-    color: '#FC4C02',
   },
   fitbit: {
     name: 'fitbit',
     domain: 'fitbit.com',
     displayName: 'Fitbit',
-    color: '#00B0B9',
   },
   garmin: {
     name: 'garmin',
     domain: 'garmin.com',
     displayName: 'Garmin',
-    color: '#007CC3',
   },
 };
 

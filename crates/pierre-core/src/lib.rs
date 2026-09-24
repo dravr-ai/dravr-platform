@@ -69,7 +69,7 @@ pub mod markdown;
 /// Sentence-boundary chunking of an over-limit reply into ordered messages
 pub mod chunking;
 
-/// HTML escaping utilities for XSS prevention in server-rendered templates
+/// HTML escaping for server-rendered templates, and the Boreal stylesheet every hosted page embeds
 pub mod html;
 pub mod json_value;
 

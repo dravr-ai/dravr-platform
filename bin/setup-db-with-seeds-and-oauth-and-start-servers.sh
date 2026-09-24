@@ -262,6 +262,12 @@ echo "    Seeding dev provider activities (Strava + Garmin) for test users..."
 # real fixture-backed athletes: alice = Strava, bob = Garmin (exercises both paths).
 "$PIERRE_CLI" seed synthetic-activities --email alice@acme.com --provider strava --count 30 --days 30 2>&1 | tail -1
 "$PIERRE_CLI" seed synthetic-activities --email bob@startup.io --provider garmin --count 30 --days 30 2>&1 | tail -1
+# A group coached by alice whose TrainingPeaks link waits for mobiletest's
+# answer: the member-confirm flows (mobile Maestro chat/10) need one to answer.
+# After synthetic-activities, which gives alice her Strava; alice's
+# TrainingPeaks session is a stand-in, so reads through it fail at the scraper.
+echo "    Seeding a TrainingPeaks coach link for $MOBILE_TEST_EMAIL..."
+"$PIERRE_CLI" seed trainingpeaks-delegation --member-email "$MOBILE_TEST_EMAIL" 2>&1 | tail -1
 
 # Seed LLM usage data for consumption analytics dashboard
 echo "    Seeding LLM usage data (30 days)..."

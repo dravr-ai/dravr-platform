@@ -28,9 +28,13 @@ use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::sciotte_hosted_templates;
 use crate::AuthRoutesContext;
+use pierre_core::constants::oauth::providers::{
+    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
+};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid_with_message;
@@ -39,6 +43,7 @@ use pierre_middleware::provider_link_token::{
     mint_link_token, verify_link_token, MintProviderLinkTokenArgs, ProviderLinkTokenClaims,
     PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
+use pierre_providers::backend_resolver;
 
 /// Default target platform when the caller does not specify one
 const DEFAULT_TARGET: &str = "strava";
@@ -143,13 +148,14 @@ pub async fn handle_mint_sciotte_link_token(
     if request.channel.is_empty() {
         return Err(AppError::invalid_input("channel is required"));
     }
-    let target = match request.target.as_str() {
-        "strava" | "garmin" => request.target.as_str(),
-        other => {
-            return Err(AppError::invalid_input(format!(
-                "Unsupported target '{other}' — expected 'strava' or 'garmin'"
-            )));
-        }
+    let Some(target) = backend_resolver::mirror_backend_for(&request.target)
+        .and_then(backend_resolver::hosted_login_target)
+    else {
+        return Err(AppError::invalid_input(format!(
+            "Unsupported target '{}' — expected one of: {}",
+            request.target,
+            backend_resolver::hosted_login_targets().join(", ")
+        )));
     };
 
     let token = mint_link_token(
@@ -236,11 +242,9 @@ pub async fn handle_sciotte_hosted_login_page(
     };
 
     // Target is clamped server-side at mint time; re-validate on render in case of tampering.
-    let target = if matches!(claims.tgt.as_str(), "strava" | "garmin") {
-        claims.tgt.as_str()
-    } else {
-        DEFAULT_TARGET
-    };
+    let target = backend_resolver::mirror_backend_for(&claims.tgt)
+        .and_then(backend_resolver::hosted_login_target)
+        .unwrap_or(DEFAULT_TARGET);
 
     info!(
         user_id = %claims.sub,
@@ -249,10 +253,29 @@ pub async fn handle_sciotte_hosted_login_page(
         "Rendered Sciotte hosted-login page"
     );
 
+    // The notice is asked for until the account has accepted its current
+    // version. An unreadable answer asks again: the login refuses without it.
+    let consent_required = target == oauth_providers::TRAININGPEAKS
+        && match Uuid::parse_str(&claims.sub) {
+            Ok(user_id) => {
+                resources
+                    .repos
+                    .users
+                    .trainingpeaks_terms_version(user_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    != Some(TRAININGPEAKS_TERMS_VERSION)
+            }
+            Err(_) => true,
+        };
+
     Html(sciotte_hosted_templates::render_login_page(
         token,
         target,
         &claims.channel,
+        consent_required,
     ))
     .into_response()
 }

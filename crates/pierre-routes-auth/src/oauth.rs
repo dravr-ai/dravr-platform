@@ -23,10 +23,11 @@ use crate::AuthRoutesContext;
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
 use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{ConnectionType, DelegationStatus, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 use pierre_providers::ProviderDescriptor;
+use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
     categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
 };
@@ -36,9 +37,13 @@ use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_revocation::DisconnectReason;
 
-use pierre_auth::dto::auth::{OAuthStatus, ProviderStatus, ProvidersStatusResponse};
+use pierre_auth::dto::auth::{
+    OAuthStatus, ProviderDelegation, ProviderStatus, ProvidersStatusResponse,
+};
 use pierre_auth::strava_pool;
-use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::{
+    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
+};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -315,6 +320,18 @@ fn card_is_connected(card: &str, rows: &HashSet<String>) -> bool {
         .any(|backend| rows.contains(backend.as_str()))
 }
 
+/// A member's link as the provider card carries it.
+fn provider_delegation(delegation: MemberDelegation) -> ProviderDelegation {
+    ProviderDelegation {
+        connection_id: delegation.link.id.to_string(),
+        group_id: delegation.link.group_id.to_string(),
+        group_name: delegation.group_name,
+        coach_display_name: delegation.coach_name,
+        status: delegation.link.status,
+        coach_needs_reauth: delegation.coach_needs_reconnect,
+    }
+}
+
 /// Compute the provider catalogue + connection status for a user.
 ///
 /// Shared by the JWT-gated `/api/providers` handler and the channel-initiated
@@ -349,8 +366,45 @@ pub async fn compute_providers_status(
         .map(|c| c.provider.clone())
         .collect();
 
-    let connected_providers: HashSet<String> =
-        connections.into_iter().map(|c| c.provider).collect();
+    // The account behind the TrainingPeaks card, as TrainingPeaks reported it:
+    // the one the user signed in to most recently. A delegated row is read
+    // through someone else's account and says nothing about the user's own.
+    let trainingpeaks_account_role = connections
+        .iter()
+        .filter(|c| {
+            c.provider == oauth_providers::SCIOTTE_TRAININGPEAKS
+                && c.connection_type != ConnectionType::Delegated
+        })
+        .max_by_key(|c| c.connected_at)
+        .and_then(|c| c.account_role);
+
+    // The link through which the user's group coach reads TrainingPeaks for
+    // them. A failed read shows no link rather than failing the page.
+    let mut trainingpeaks_delegation = match member_delegation(
+        &resources.repos,
+        user_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await
+    {
+        Ok(delegation) => delegation.map(provider_delegation),
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "Could not read the user's TrainingPeaks link");
+            None
+        }
+    };
+
+    // A delegated row connects the card only while its link stands: the read
+    // path refuses a link the group relation no longer backs, and so does the
+    // card, before the next read releases the row.
+    let delegation_stands = trainingpeaks_delegation
+        .as_ref()
+        .is_some_and(|delegation| delegation.status == DelegationStatus::Confirmed);
+    let connected_providers: HashSet<String> = connections
+        .into_iter()
+        .filter(|c| c.connection_type != ConnectionType::Delegated || delegation_stands)
+        .map(|c| c.provider)
+        .collect();
 
     // Seat availability across the shared-app OAuth POOL: the env-default
     // STRAVA_CLIENT_ID app plus any enabled DB pool apps. Strava enforces a
@@ -362,6 +416,19 @@ pub async fn compute_providers_status(
     let strava_seats_left = strava_pool::strava_seat_summary(resources.repos.oauth_tokens.as_ref())
         .await
         .map_or(0, |s| s.left());
+
+    // TrainingPeaks asks for its exposure notice until this account has
+    // accepted the current version. A failed read asks again: showing the
+    // notice twice costs a tick, skipping it costs the precondition.
+    let trainingpeaks_terms_accepted = resources
+        .repos
+        .users
+        .trainingpeaks_terms_version(user_id)
+        .await
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(TRAININGPEAKS_TERMS_VERSION);
 
     // Build provider status list
     let mut provider_statuses = Vec::new();
@@ -404,6 +471,9 @@ pub async fn compute_providers_status(
             if caps.supports_health() {
                 capabilities.push("health".to_owned());
             }
+            if caps.supports_planned_workouts() {
+                capabilities.push("planned_workouts".to_owned());
+            }
 
             // The Sciotte entry is the user-facing "Strava" card. Tell the
             // frontend which Strava backend a new connection should use:
@@ -428,6 +498,14 @@ pub async fn compute_providers_status(
                 capabilities,
                 recommended_backend,
                 seats_left,
+                consent_required: provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS
+                    && !trainingpeaks_terms_accepted,
+                account_role: (provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS)
+                    .then_some(trainingpeaks_account_role)
+                    .flatten(),
+                delegation: (provider_name == oauth_providers::SCIOTTE_TRAININGPEAKS)
+                    .then(|| trainingpeaks_delegation.take())
+                    .flatten(),
             });
         }
     }
@@ -438,6 +516,7 @@ pub async fn compute_providers_status(
         "synthetic_sleep",
         "sciotte",
         "sciotte_garmin",
+        "sciotte_trainingpeaks",
         "strava",
         "garmin",
         "fitbit",

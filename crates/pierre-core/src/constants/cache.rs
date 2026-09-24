@@ -32,6 +32,15 @@ pub const TTL_STATS_SECS: u64 = 21_600; // 6 hours
 /// consecutive agent turns and short provider outages.
 pub const TTL_TRAINING_HISTORY_SECS: u64 = 3_600;
 
+/// Provider roster cache TTL in seconds (10 minutes).
+///
+/// A coach's roster on the provider (the athletes a TrainingPeaks coach
+/// account coaches) is read through a scraper page load. Ten minutes keeps a
+/// coach linking several athletes in one sitting from paying that load per
+/// click, while an athlete added on the provider shows up within the same
+/// session; the linking UI can ask for a fresh read.
+pub const TTL_PROVIDER_ROSTER_SECS: u64 = 600;
+
 /// Redis connection pool minimum size
 pub const REDIS_POOL_MIN_SIZE: usize = 2;
 

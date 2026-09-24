@@ -42,7 +42,8 @@ pub use cache::Cache;
 
 use constants::cache::{
     DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CLEANUP_INTERVAL_SECS, TTL_ACTIVITY_LIST_SECS,
-    TTL_ACTIVITY_SECS, TTL_PROFILE_SECS, TTL_STATS_SECS, TTL_TRAINING_HISTORY_SECS,
+    TTL_ACTIVITY_SECS, TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS, TTL_STATS_SECS,
+    TTL_TRAINING_HISTORY_SECS,
 };
 use errors::AppResult;
 use models::TenantId;
@@ -227,6 +228,7 @@ impl CacheTtlConfig {
             }
             CacheResource::Stats { .. } => Duration::from_secs(self.stats_secs),
             CacheResource::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
+            CacheResource::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
             CacheResource::SciotteLoginFlow | CacheResource::Custom(_) => Duration::ZERO,
         }
     }
@@ -409,6 +411,10 @@ pub enum CacheResource {
         /// Inclusive ISO date (YYYY-MM-DD) of the end of the requested range.
         to: String,
     },
+    /// The athletes a coach account coaches on the provider, as the provider's
+    /// roster reports them (10 min TTL). Keyed by the coach's own tenant and
+    /// user, so one coach's roster never answers for another's.
+    ProviderRoster,
     /// The sciotte login flow an athlete has parked on the scraper service,
     /// awaiting its OTP/2FA continuation. Shared rather than process-local so a
     /// continuation reaches the flow whichever pod it lands on. TTL is
@@ -434,6 +440,7 @@ impl CacheResource {
             }
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
             Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
+            Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
             Self::SciotteLoginFlow | Self::Custom(_) => Duration::ZERO,
         }
     }
@@ -468,6 +475,7 @@ impl fmt::Display for CacheResource {
             Self::TrainingHistory { from, to } => {
                 write!(f, "training_history:{from}:{to}")
             }
+            Self::ProviderRoster => write!(f, "provider_roster"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),
         }

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests Group info's membership gating — who sees the admin rows and the digest mode, who leaves, who archives
-// ABOUTME: The sheet is the only group surface left, so an owner and a plain member must each get their own
+// ABOUTME: An owner, a plain member and the group's coach each get their own; a member answers the coach's TrainingPeaks link
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -33,10 +33,18 @@ const GROUP: CoachingGroup = {
 
 const mockLeaveGroup = jest.fn();
 const mockDeleteGroup = jest.fn();
+
+const mockConfirmLink = jest.fn();
 jest.mock('../src/services/api', () => ({
   coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
+  oauthApi: { getProvidersStatus: jest.fn().mockResolvedValue({ providers: [] }) },
   groupsApi: {
     getGroup: jest.fn(),
+    listDelegatedConnections: jest.fn(),
+    getDelegationRoster: jest.fn(),
+    proposeDelegatedConnection: jest.fn(),
+    confirmDelegatedConnection: (...args: unknown[]) => mockConfirmLink(...args),
+    endDelegatedConnection: jest.fn(),
     listMembers: jest.fn(),
     getStats: jest.fn().mockResolvedValue({ stats: null }),
     listInvites: jest.fn().mockResolvedValue({ invites: [] }),
@@ -101,6 +109,11 @@ describe('GroupInfoSheet', () => {
       weekly_digest: false,
     });
     (groupsApi.listMembers as jest.Mock).mockResolvedValue({ members: MEMBERS });
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
+      connections: [],
+      total: 0,
+      viewer: 'member',
+    });
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
   });
 
@@ -251,5 +264,93 @@ describe('GroupInfoSheet', () => {
 
     expect(mockLeaveGroup).toHaveBeenCalledWith('group-1');
     expect(handlers.onLeft).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the group's coach the TrainingPeaks section and no exit, settings or analytics", async () => {
+    mockCallerId = 'user-coach';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-coach' });
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
+      connections: [],
+      total: 0,
+      viewer: 'coach',
+    });
+    (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        { provider_athlete_id: '900001', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: 'user-phil' },
+      ],
+    });
+    const { findByTestId, queryByTestId, getByTestId } = renderSheet();
+
+    expect(await findByTestId('group-info-delegation')).toBeTruthy();
+    expect(await findByTestId('delegation-roster-row-900001')).toHaveTextContent(/Alex Athlete/);
+    fireEvent.press(getByTestId('group-info-coach-toggle'));
+    expect(getByTestId('group-info-human-coach')).toHaveTextContent(/You coach this group/);
+    expect(queryByTestId('leave-group-button')).toBeNull();
+    expect(queryByTestId('archive-group-button')).toBeNull();
+    expect(queryByTestId('group-info-settings')).toBeNull();
+    expect(queryByTestId('group-info-analytics')).toBeNull();
+    // Stats and invites refuse a non-member, so the coach never asks for them.
+    expect(groupsApi.getStats).not.toHaveBeenCalled();
+    expect(groupsApi.listInvites).not.toHaveBeenCalled();
+  });
+
+  it('shows a coach who is also a member the TrainingPeaks section the server names them coach of', async () => {
+    // The caller owns the group, holds its membership row, and coaches it.
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-owner' });
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
+      connections: [],
+      total: 0,
+      viewer: 'coach',
+    });
+    (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({
+      provider: 'trainingpeaks',
+      athletes: [
+        { provider_athlete_id: '900001', display_name: 'Alex Athlete', connection: null, suggested_member_user_id: null },
+      ],
+    });
+    const { findByTestId, getByTestId } = renderSheet();
+
+    expect(await findByTestId('group-info-delegation')).toBeTruthy();
+    expect(await findByTestId('delegation-roster-row-900001')).toHaveTextContent(/Alex Athlete/);
+    fireEvent.press(getByTestId('group-info-coach-toggle'));
+    expect(getByTestId('group-info-human-coach')).toHaveTextContent(/You coach this group/);
+    // A member still: the owner keeps their exit.
+    expect(getByTestId('archive-group-button')).toBeTruthy();
+  });
+
+  it('asks a member to confirm the link their coach proposed, and confirms it', async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-coach' });
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
+      connections: [
+        {
+          id: 'dc-1',
+          group_id: 'group-1',
+          provider: 'trainingpeaks',
+          coach_user_id: 'user-coach',
+          coach_display_name: 'Casey Coach',
+          member_user_id: 'user-phil',
+          member_display_name: 'Phil',
+          provider_athlete_id: '900001',
+          provider_athlete_name: 'Alex Athlete',
+          status: 'proposed',
+          proposed_at: '2026-09-24T08:00:00Z',
+          confirmed_at: null,
+        },
+      ],
+      total: 1,
+      viewer: 'member',
+    });
+    mockConfirmLink.mockResolvedValue({});
+    const { findByTestId, getByTestId } = renderSheet();
+
+    expect(await findByTestId('delegation-request-body')).toHaveTextContent(
+      "Casey Coach coaches you on TrainingPeaks as Alex Athlete. Confirm, and Dravr reads your TrainingPeaks workouts through Casey Coach's account — you do not sign in to TrainingPeaks yourself.",
+    );
+    await act(async () => {
+      fireEvent.press(getByTestId('delegation-confirm'));
+    });
+    expect(mockConfirmLink).toHaveBeenCalledWith('group-1', 'dc-1');
   });
 });

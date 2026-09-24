@@ -346,6 +346,11 @@ mod notification_event_locale_tests {
             NotificationEvent::AgentFeedback,
             NotificationEvent::SyncFailure,
             NotificationEvent::SeatReleaseWarning,
+            NotificationEvent::DelegationProposed,
+            NotificationEvent::DelegationConfirmed,
+            NotificationEvent::DelegationDeclined,
+            NotificationEvent::DelegationOffRoster,
+            NotificationEvent::DelegationOffCoachRoster,
             NotificationEvent::PersonaDigest,
             NotificationEvent::GroupWeeklyDigest,
         ] {

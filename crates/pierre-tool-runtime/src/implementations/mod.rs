@@ -104,6 +104,10 @@ pub mod stored_data;
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod endurance_workouts;
+/// `get_planned_workouts` — the workouts a connected provider's calendar plans,
+/// read through the `PLANNED_WORKOUTS` capability (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod planned_workouts;
 
 /// Answer shapes for the endurance workout tools, and their derived schemas.
 pub mod endurance_workouts_output;

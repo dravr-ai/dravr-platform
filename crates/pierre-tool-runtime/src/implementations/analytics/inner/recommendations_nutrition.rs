@@ -6,6 +6,7 @@
 
 use pierre_config::constants::time_constants;
 use pierre_core::models::Activity;
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 
 use crate::implementations::analytics::recommendations_output::{
     ActivitySummary, MacronutrientTargets, MealSuggestion, RecommendationsResult,
@@ -180,7 +181,7 @@ pub(super) fn generate_nutrition_recommendations(activities: &[Activity]) -> Rec
             hydration_ml: hydration_ml.round(),
         }),
         activity_summary: Some(ActivitySummary {
-            name: activity.name().to_owned(),
+            name: display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
             // The serde spelling, not the Debug one: `SportType` renames its
             // variants, so `{:?}` would put a different word on the wire than
             // every other surface uses for the same sport.

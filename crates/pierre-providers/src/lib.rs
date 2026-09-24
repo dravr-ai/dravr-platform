@@ -70,6 +70,12 @@ pub mod strava_types;
 /// Terra unified API provider (150+ wearables)
 #[cfg(feature = "provider-terra")]
 pub mod terra;
+/// `TrainingPeaks` planned workouts: a scraped plan's blocks and targets in the periodization step grammar.
+#[cfg(feature = "provider-sciotte")]
+pub mod trainingpeaks_plan;
+/// `TrainingPeaks` athlete self-report: the feeling rank (1 is the best face) and RPE, read off a scraped workout.
+#[cfg(feature = "provider-sciotte")]
+pub mod trainingpeaks_self_report;
 /// WHOOP provider for sleep, recovery, and workout data
 #[cfg(feature = "provider-whoop")]
 pub mod whoop_provider;

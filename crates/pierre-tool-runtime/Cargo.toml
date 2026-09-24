@@ -56,6 +56,8 @@ pierre-tools-core = { version = "0.3.0", path = "../pierre-tools-core" }
 dravr-tronc = { workspace = true }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
+# The delegated-connection chokepoint a linked read ends a link through when it no longer reads.
+pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
@@ -112,6 +114,10 @@ tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
 
 [[test]]
 name = "activity_list_local_clock_test"
+required-features = ["tools-data"]
+
+[[test]]
+name = "activity_name_neutralized_test"
 required-features = ["tools-data"]
 
 [[test]]

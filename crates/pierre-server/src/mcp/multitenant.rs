@@ -999,9 +999,10 @@ impl ProviderToolRouter {
         #[cfg(feature = "client-groups")]
         let app = {
             use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
-            use pierre_routes_groups::GroupRoutes;
+            use pierre_routes_groups::{DelegatedConnectionRoutes, GroupRoutes};
             app.merge(GroupRoutes::routes(Arc::clone(resources)))
                 .merge(GroupAnalyticsRoutes::routes(Arc::clone(resources)))
+                .merge(DelegatedConnectionRoutes::routes(Arc::clone(resources)))
         };
 
         // ═══════════════════════════════════════════════════════════════
@@ -1024,15 +1025,6 @@ impl ProviderToolRouter {
         let app = app.merge(LlmSettingsRoutes::routes::<ServerContext>(Arc::clone(
             resources,
         )));
-
-        // Agent-athlete roster routes — gated by users.manages_roster=true
-        // (or is_admin=true). Always mounted; the permission check lives
-        // inside the handler so a user without the bit gets a 403 here
-        // rather than a 404 from a missing route.
-        let app = app.merge(
-            pierre_routes_agents::build_roster_router::<ServerContext>()
-                .with_state(Arc::clone(resources)),
-        );
 
         // ═══════════════════════════════════════════════════════════════
         // OTHER CLIENT ROUTES

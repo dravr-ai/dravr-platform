@@ -91,7 +91,7 @@ interface AxiosShape {
       error?: string;
       error_description?: string;
       code?: string;
-      details?: QuotaDetails;
+      details?: QuotaDetails & { reason?: unknown };
     };
   };
 }
@@ -173,6 +173,19 @@ export function classifyApiError(
     return { kind: 'server', detail, status };
   }
   return { kind: 'unknown', detail, status };
+}
+
+/**
+ * The machine reason a refusal names in its `details.reason`, when it names one.
+ *
+ * Some routes refuse for several reasons under one status — a 409 is both
+ * "already linked" and "you connect it yourself" — and send which one in
+ * `details.reason`, since the message is English for an API caller. A screen
+ * that words each reason itself reads it here instead of unwrapping axios.
+ */
+export function refusalReason(err: unknown): string | undefined {
+  const reason = (err as AxiosShape | null | undefined)?.response?.data?.details?.reason;
+  return typeof reason === 'string' ? reason : undefined;
 }
 
 /**

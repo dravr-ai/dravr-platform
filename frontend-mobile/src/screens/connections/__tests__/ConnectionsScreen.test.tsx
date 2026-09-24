@@ -37,8 +37,18 @@ jest.mock('../../../components/SciotteLoginModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
   return {
-    SciotteLoginModal: ({ visible, target }: { visible: boolean; target: string }) =>
-      visible ? React.createElement(Text, null, `sciotte-modal:${target}`) : null,
+    SciotteLoginModal: ({
+      visible,
+      target,
+      consentRequired,
+    }: {
+      visible: boolean;
+      target: string;
+      consentRequired?: boolean;
+    }) =>
+      visible
+        ? React.createElement(Text, null, `sciotte-modal:${target}${consentRequired ? ':consent' : ''}`)
+        : null,
   };
 });
 jest.mock('../../../components/IntervalsIcuLinkModal', () => ({ IntervalsIcuLinkModal: () => null }));
@@ -62,6 +72,30 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
     seats_left: recommended_backend === 'oauth' ? 3 : 0,
   };
 }
+
+describe('ConnectionsScreen — TrainingPeaks', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('opens the TrainingPeaks login with its notice, never an OAuth session', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [{
+    provider: 'sciotte_trainingpeaks',
+    display_name: 'TrainingPeaks',
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities'],
+    consent_required: true,
+  }] });
+
+    render(<ConnectionsScreen />);
+    fireEvent.press(await screen.findByText('Connect'));
+
+    expect(await screen.findByText('sciotte-modal:trainingpeaks:consent')).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+});
 
 describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
   beforeEach(() => {

@@ -2,7 +2,9 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The provider capability-scope vocabulary — one word per wire slug, in the athlete's language
-// ABOUTME: Mirrors the scopes the provider-status route builds; labels are corpus keys, resolved with t()
+// ABOUTME: Also maps each scrape-mirror provider card to the credential-login target it opens
+
+import type { SciotteTarget } from '@pierre/shared-types';
 
 /**
  * Every capability slug `GET /api/oauth/providers` can put on a provider card,
@@ -10,7 +12,13 @@
  * The strings are the wire values, so they stay English whatever the athlete
  * reads.
  */
-export const PROVIDER_SCOPES = ['activities', 'sleep', 'recovery', 'health'] as const;
+export const PROVIDER_SCOPES = [
+  'activities',
+  'sleep',
+  'recovery',
+  'health',
+  'planned_workouts',
+] as const;
 
 export type ProviderScope = (typeof PROVIDER_SCOPES)[number];
 
@@ -25,6 +33,7 @@ export const PROVIDER_SCOPE_LABEL_KEY: Record<ProviderScope, string> = {
   sleep: 'providers.scope.sleep',
   recovery: 'providers.scope.recovery',
   health: 'providers.scope.health',
+  planned_workouts: 'providers.scope.planned_workouts',
 };
 
 /**
@@ -35,4 +44,23 @@ export const PROVIDER_SCOPE_LABEL_KEY: Record<ProviderScope, string> = {
  */
 export function providerScopeLabelKey(scope: string): string | null {
   return PROVIDER_SCOPE_LABEL_KEY[scope as ProviderScope] ?? null;
+}
+
+/**
+ * Each scrape-mirror backend's login target — the server's
+ * `backend_resolver::hosted_login_target`, which the hosted pages read, so
+ * the web and mobile cards open the same login the channel link does.
+ */
+const SCIOTTE_TARGET_BY_BACKEND: Record<string, SciotteTarget> = {
+  sciotte: 'strava',
+  sciotte_garmin: 'garmin',
+  sciotte_trainingpeaks: 'trainingpeaks',
+};
+
+/**
+ * The credential-login target for a provider card, or `null` for a provider
+ * that connects some other way (OAuth, an API key).
+ */
+export function sciotteTargetForBackend(provider: string): SciotteTarget | null {
+  return SCIOTTE_TARGET_BY_BACKEND[provider] ?? null;
 }

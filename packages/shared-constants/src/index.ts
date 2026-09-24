@@ -31,6 +31,8 @@ export {
   CONTAINER_INKS,
   CONTAINER_INKS_DARK,
   PROVIDER_COLORS,
+  PROVIDER_GLYPH_INK,
+  providerGlyphInk,
   GRADIENT_COLORS,
   AMBIENT_SHADOW,
   AI_GLOW,
@@ -44,7 +46,7 @@ export {
   DESIGN_SYSTEM,
 } from './design-system';
 
-export type { DesignSystem, BorealTokens, ColorScheme } from './design-system';
+export type { DesignSystem, BorealTokens, ColorScheme, ProviderGlyphInk } from './design-system';
 
 // Notification constants (category metadata, time formatting)
 export {
@@ -130,7 +132,12 @@ export { MEMORY_KIND_LABEL_KEY } from './memory';
 
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
-export { PROVIDER_SCOPES, PROVIDER_SCOPE_LABEL_KEY, providerScopeLabelKey } from './providers';
+export {
+  PROVIDER_SCOPES,
+  PROVIDER_SCOPE_LABEL_KEY,
+  providerScopeLabelKey,
+  sciotteTargetForBackend,
+} from './providers';
 export type { ProviderScope } from './providers';
 
 // React Query keys (for consistent cache key management)
@@ -171,3 +178,13 @@ export {
   weeklyReportSummary,
   weeklyReportRecommendations,
 } from './groups';
+
+// TrainingPeaks link vocabulary: each refusal the group's link routes send,
+// as a corpus key resolved with each client's own t()
+export {
+  DELEGATION_REFUSAL_KEY,
+  DELEGATION_ACTION_FAILED_KEY,
+  DELEGATION_CONNECTION_REFUSALS,
+  isDelegationRefusal,
+  delegationRefusalKey,
+} from './delegation';

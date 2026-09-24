@@ -10,6 +10,7 @@
 //! - `GetActivitiesTool` - Retrieve user activities with filtering and pagination
 //! - `GetAthleteTool` - Get athlete profile information
 //! - `GetStatsTool` - Get aggregated activity statistics
+//! - `GetPlannedWorkoutsTool` - Read the workouts a provider's calendar plans
 //! - `GetSleepSessionsTool` - Query stored sleep sessions
 //! - `GetRecoveryMetricsTool` - Query stored recovery and readiness metrics
 //! - `GetHealthSnapshotsTool` - Query stored health snapshots (body composition, vitals)
@@ -24,6 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use pierre_core::models::TenantId;
 use serde_json::{json, Value};
 use tracing::{debug, error, field, info, warn, Span};
@@ -58,6 +60,7 @@ use crate::implementations::fitness_support::{
     PaginationInfo,
 };
 use crate::implementations::handler_bridge;
+use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use crate::implementations::stored_data::{
     GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
 };
@@ -798,6 +801,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // Recent window, or a deep window on a fast OAuth API provider —
                 // authenticate and fetch from the provider inline.
                 let executor = UniversalExecutor::new(context.resources.clone());
+                let attempt_started_at = Utc::now();
                 let authenticated = executor
                     .auth_service
                     .create_authenticated_provider(
@@ -812,6 +816,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         match provider.get_activities_with_params(&query_params).await {
                             Ok(activities) => (activities, Some(provider)),
                             Err(e) => {
+                                if let Some(tenant) = tenant_id_str.as_deref() {
+                                    executor
+                                        .auth_service
+                                        .react_to_trainingpeaks_refusal(
+                                            context.user_id,
+                                            tenant,
+                                            provider.as_ref(),
+                                            &e,
+                                            attempt_started_at,
+                                        )
+                                        .await;
+                                }
                                 return Ok(ToolResult::error(json!({
                                     "error": format!("Failed to fetch activities: {e}"),
                                 })));
@@ -1105,6 +1121,7 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(GetActivitiesTool),
         Box::new(GetAthleteTool),
         Box::new(GetStatsTool),
+        Box::new(GetPlannedWorkoutsTool),
         Box::new(GetSleepSessionsTool),
         Box::new(GetRecoveryMetricsTool),
         Box::new(GetHealthSnapshotsTool),

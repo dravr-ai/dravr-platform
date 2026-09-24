@@ -180,3 +180,48 @@ async fn a_non_admin_caller_cannot_mint_even_for_a_member_pair() {
     let body: Value = response.json();
     assert_eq!(body["message"], "Admin privileges required", "{body}");
 }
+
+#[tokio::test]
+async fn a_trainingpeaks_target_mints_and_an_unknown_one_names_every_target() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, _, admin_auth) =
+        create_user_with_role(&resources, "mint-admin-tp@link.test", UserRole::Admin).await;
+    let (athlete_id, athlete_tenant, _) =
+        create_user_with_role(&resources, "mint-athlete-tp@link.test", UserRole::User).await;
+
+    let mut body = mint_body(athlete_id, athlete_tenant);
+    body["target"] = json!("trainingpeaks");
+    let response = AxumTestRequest::post(MINT_PATH)
+        .header("authorization", &admin_auth)
+        .json(&body)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(response.status(), 200);
+    let minted: Value = response.json();
+    let claims = verify_link_token(
+        minted["token"].as_str().unwrap(),
+        &resources.auth.admin_jwt_secret,
+        "sciotte",
+    )
+    .expect("the minted token verifies under the admin secret");
+    assert_eq!(
+        claims.tgt, "trainingpeaks",
+        "the hosted login must open the TrainingPeaks scraper, not the Strava default"
+    );
+
+    body["target"] = json!("polar");
+    let response = AxumTestRequest::post(MINT_PATH)
+        .header("authorization", &admin_auth)
+        .json(&body)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(response.status(), 400);
+    let refusal: Value = response.json();
+    let message = refusal["message"].as_str().unwrap_or_default();
+    for target in ["strava", "garmin", "trainingpeaks"] {
+        assert!(
+            message.contains(target),
+            "the refusal must name every hosted-login target ({target}): {refusal}"
+        );
+    }
+}

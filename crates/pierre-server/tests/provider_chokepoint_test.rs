@@ -213,9 +213,9 @@ async fn a_token_without_a_connection_row_is_not_refused() {
 /// A request naming a **non-OAuth** provider is not refused, even with nothing
 /// connected.
 ///
-/// `synthetic` generates its data and holds no credential — which is why
-/// `fetch_provider_activities` carries an explicit `requires_oauth == false`
-/// branch for it. Demo and seeded accounts run entirely on that provider, so a
+/// `synthetic` generates its data and holds no credential — which is why the
+/// executor's refusal stands aside for the credential-free providers
+/// (`is_credential_free`). Demo and seeded accounts run entirely on that provider, so a
 /// chokepoint that refused on "no connection rows" alone would lock them out of
 /// every analytics tool while their data was sitting right there.
 #[tokio::test]

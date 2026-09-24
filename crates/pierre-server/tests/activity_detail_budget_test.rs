@@ -39,7 +39,7 @@ fn declares_cheap_detail(registry: &ProviderRegistry, provider: &str) -> bool {
 #[test]
 fn scrape_backed_providers_do_not_claim_cheap_detail() {
     let registry = ProviderRegistry::new();
-    for provider in ["sciotte", "sciotte_garmin"] {
+    for provider in ["sciotte", "sciotte_garmin", "sciotte_trainingpeaks"] {
         assert!(
             !declares_cheap_detail(&registry, provider),
             "{provider} fetches detail through a headless browser — claiming it is \

@@ -13,7 +13,7 @@
 
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalTool};
 use crate::protocols::{ProtocolError, ProtocolType};
-use pierre_core::untrusted::{cap, defang_for_display, flatten_line};
+use pierre_core::untrusted::display_line;
 use pierre_mcp_schema::{Content, Tool, ToolCall, ToolResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -138,10 +138,7 @@ impl ProtocolConverter {
     /// the delimiter — and the machine-readable copy rides `structured_content`
     /// regardless, so nothing that parses the result loses anything here.
     fn renderable(raw: &str) -> String {
-        cap(
-            &defang_for_display(&flatten_line(raw)),
-            MAX_RENDERED_FIELD_CHARS,
-        )
+        display_line(raw, MAX_RENDERED_FIELD_CHARS)
     }
 
     /// Format response content into human-readable text

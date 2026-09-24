@@ -30,6 +30,8 @@ pub mod claim_verdicts;
 pub mod coaching_groups;
 /// Athlete commitments (`SQLite`) backing `CommitmentRepository`.
 pub mod commitments;
+/// Delegated connections (`SQLite`) backing `DelegatedConnectionRepository`.
+pub mod delegated_connections;
 /// Email-verification token management — proving a registered address
 pub mod email_verification_tokens;
 /// Database error types
@@ -83,8 +85,6 @@ pub mod recipes;
 pub mod repositories;
 /// Messaging turns the shutdown drain handed off, leased to one re-runner at a time
 pub mod resumable_turns;
-/// Agent-athlete roster assignments (`SQLite`) backing `RosterRepository`.
-pub mod roster;
 /// Endurance cached GPX `route_summaries` repository (`SQLite`)
 pub mod route_summaries;
 /// Security repository: the RSA signing keypair and the system secrets

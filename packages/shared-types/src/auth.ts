@@ -177,7 +177,53 @@ export interface ExtendedProviderStatus {
    * seat-limited (Strava). Absent for providers without a seat cap.
    */
   seats_left?: number;
+  /**
+   * Connecting this provider first needs the account to accept its exposure
+   * notice — TrainingPeaks, until the current notice version is accepted. The
+   * client shows the notice with a required checkbox before the credentials
+   * and sends `tos_consent: true` with the login; the login is refused
+   * without it.
+   */
+  consent_required: boolean;
+  /**
+   * What kind of account the user's own connection signed in with, once the
+   * provider has reported it: `"coach"` for a TrainingPeaks coach account,
+   * which keeps no calendar of its own. Absent until the role is read, and
+   * for every provider that reports none.
+   */
+  account_role?: 'athlete' | 'coach';
+  /**
+   * The link through which the user's group coach reads this provider for
+   * them (TrainingPeaks, read through the coach's own account once the user
+   * confirms): the confirmed link, else the newest one awaiting the user's
+   * answer. Absent when there is none.
+   */
+  delegation?: ProviderDelegation;
 }
+
+/** A group coach's link to the user's provider, as the provider card shows it. */
+export interface ProviderDelegation {
+  /** The link's id, which the group's link routes take. */
+  connection_id: string;
+  group_id: string;
+  group_name: string;
+  /** The coach's display name, else their email. */
+  coach_display_name: string;
+  /** `proposed` waits for the user's answer; `confirmed` is being read. */
+  status: 'proposed' | 'confirmed';
+  /**
+   * The coach must reconnect their own account before the user's workouts
+   * can be read again. The user has nothing to reconnect.
+   */
+  coach_needs_reauth: boolean;
+}
+
+/**
+ * The platforms the credential login (`POST /api/providers/sciotte/login`)
+ * takes as `target`: one per scrape-mirror backend, named as the athlete
+ * knows the provider.
+ */
+export type SciotteTarget = 'strava' | 'garmin' | 'trainingpeaks';
 
 /** Response from /api/providers endpoint */
 export interface ProvidersStatusResponse {

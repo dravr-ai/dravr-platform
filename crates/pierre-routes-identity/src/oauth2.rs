@@ -29,6 +29,7 @@ use pierre_auth::oauth2_server::{
     rate_limiting::OAuth2RateLimiter,
 };
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::html::with_hosted_page_css;
 use pierre_core::models::OAuthClientGrant;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
@@ -795,7 +796,7 @@ impl OAuth2Routes {
             params.scope.to_owned()
         };
 
-        Self::OAUTH_LOGIN_TEMPLATE
+        with_hosted_page_css(Self::OAUTH_LOGIN_TEMPLATE)
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",
@@ -845,7 +846,7 @@ impl OAuth2Routes {
                     acc
                 });
 
-        Self::OAUTH_CONSENT_TEMPLATE
+        with_hosted_page_css(Self::OAUTH_CONSENT_TEMPLATE)
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",
@@ -924,10 +925,7 @@ impl OAuth2Routes {
             })
         })
         .await
-        .unwrap_or_else(|_| {
-            "<html><body><h1>Error</h1><p>Failed to generate login page</p></body></html>"
-                .to_owned()
-        });
+        .unwrap_or_else(|_| with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE));
 
         Html(html)
     }
@@ -1010,7 +1008,7 @@ impl OAuth2Routes {
                 // Use embedded template - zero filesystem IO, guaranteed to exist at compile-time
                 // Values go into an <a href> URL attribute — URL-encode for URL
                 // correctness, then HTML-escape for attribute safety (XSS prevention)
-                let error_html = Self::OAUTH_LOGIN_ERROR_TEMPLATE
+                let error_html = with_hosted_page_css(Self::OAUTH_LOGIN_ERROR_TEMPLATE)
                     .replace(
                         "{{ERROR_MESSAGE}}",
                         &escape_html_attribute(
@@ -1541,7 +1539,7 @@ impl OAuth2Routes {
             .as_ref()
             .unwrap_or(&default_description);
 
-        let html = Self::OAUTH_ERROR_TEMPLATE
+        let html = with_hosted_page_css(Self::OAUTH_ERROR_TEMPLATE)
             .replace("{{error_title}}", &escape_html_attribute(error_title))
             .replace("{{ERROR}}", &escape_html_attribute(&error.error))
             .replace("{{PROVIDER}}", "Dravr")

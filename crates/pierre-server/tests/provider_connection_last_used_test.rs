@@ -14,14 +14,16 @@
 //! The resolver picks "which fitness backend should serve this user's tool
 //! call" when the LLM omits the `provider` argument. Order:
 //! 1. Health: an `active` connection ahead of one flagged `needs_reauth`/`revoked`.
-//! 2. Most-recently-used connection (`last_used_at DESC NULLS LAST`).
-//! 3. Otherwise, most-recently-registered (`connected_at DESC`).
-//! 4. `None` when the user has zero connections.
+//! 2. A coach account (no calendar of its own) after every other account.
+//! 3. Most-recently-used connection (`last_used_at DESC NULLS LAST`).
+//! 4. Otherwise, most-recently-registered (`connected_at DESC`).
+//! 5. `None` when the user has zero connections.
 
 use std::time::Duration;
 
 use chrono::Utc;
-use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
+use pierre_core::constants::oauth::providers::SCIOTTE_TRAININGPEAKS;
+use pierre_core::models::{ConnectionStatus, ConnectionType, ProviderAccountRole, TenantId};
 use tokio::time::sleep;
 
 mod common;
@@ -304,5 +306,152 @@ async fn touch_last_used_is_a_noop_for_unknown_provider() {
     assert!(
         all.is_empty(),
         "touch_last_used must not insert a row when none matches"
+    );
+}
+
+/// A coach account keeps no calendar of its own, so among healthy connections
+/// it is elected last whatever its recency: a coach who also connected Strava
+/// gets their own workouts from Strava. Health still comes first, and a
+/// reconnect clears the role, since the new login may be another account.
+#[tokio::test]
+async fn resolve_most_recent_elects_a_coach_account_after_every_other_healthy_one() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let repos = database.repositories();
+    let tenants = repos.tenants.list_for_user(user_id).await.unwrap();
+    let tenant_id = TenantId::from_uuid(tenants[0].id.as_uuid());
+    let connections = &repos.provider_connections;
+
+    assert!(
+        !connections
+            .set_account_role(
+                user_id,
+                tenant_id,
+                SCIOTTE_TRAININGPEAKS,
+                ProviderAccountRole::Coach
+            )
+            .await
+            .unwrap(),
+        "no connection, nothing to record the role on"
+    );
+
+    connections
+        .register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    sleep(Duration::from_millis(20)).await;
+    connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            SCIOTTE_TRAININGPEAKS,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    connections
+        .touch_last_used(user_id, tenant_id, SCIOTTE_TRAININGPEAKS)
+        .await
+        .unwrap();
+    let elect = || async move {
+        connections
+            .resolve_most_recent(user_id, Some(tenant_id))
+            .await
+            .unwrap()
+            .expect("two connections exist")
+    };
+    let elected = elect().await;
+    assert_eq!(elected.provider, SCIOTTE_TRAININGPEAKS, "recency wins");
+    assert_eq!(elected.account_role, None, "the role is unread until set");
+
+    assert!(connections
+        .set_account_role(
+            user_id,
+            tenant_id,
+            SCIOTTE_TRAININGPEAKS,
+            ProviderAccountRole::Coach
+        )
+        .await
+        .unwrap());
+    let elected = elect().await;
+    assert_eq!(
+        elected.provider, "strava",
+        "a coach account goes after the athlete's own connection"
+    );
+    let cross_tenant = connections
+        .resolve_most_recent(user_id, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cross_tenant.provider, "strava", "across tenants too");
+    let rows = connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    let trainingpeaks = rows
+        .iter()
+        .find(|c| c.provider == SCIOTTE_TRAININGPEAKS)
+        .unwrap();
+    assert_eq!(trainingpeaks.account_role, Some(ProviderAccountRole::Coach));
+
+    connections
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "strava",
+            Some("invalid_grant"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        elect().await.provider,
+        SCIOTTE_TRAININGPEAKS,
+        "health comes before the role: a healthy coach account beats a dead sibling"
+    );
+
+    connections
+        .register_connection(
+            user_id,
+            tenant_id,
+            SCIOTTE_TRAININGPEAKS,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    let rows = connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    let trainingpeaks = rows
+        .iter()
+        .find(|c| c.provider == SCIOTTE_TRAININGPEAKS)
+        .unwrap();
+    assert_eq!(
+        trainingpeaks.account_role, None,
+        "a reconnect clears the role so the new login is read again"
+    );
+
+    assert!(connections
+        .set_account_role(
+            user_id,
+            tenant_id,
+            SCIOTTE_TRAININGPEAKS,
+            ProviderAccountRole::Athlete
+        )
+        .await
+        .unwrap());
+    let rows = connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.iter()
+            .find(|c| c.provider == SCIOTTE_TRAININGPEAKS)
+            .unwrap()
+            .account_role,
+        Some(ProviderAccountRole::Athlete)
     );
 }

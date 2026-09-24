@@ -44,6 +44,7 @@ use pierre_core::civil_time::{
     resolve_zone,
 };
 use pierre_core::models::Activity;
+use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_providers::deduplication::{FilledField, FragmentReport};
 
 use super::sport_labels::{localized_feel, localized_sport_name};
@@ -250,7 +251,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
             "{}. [{}] {} - {}{} - {:.2} km - {}{}",
             i + 1,
             sport,
-            activity.name(),
+            display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS),
             date,
             day_tag,
             distance_km,

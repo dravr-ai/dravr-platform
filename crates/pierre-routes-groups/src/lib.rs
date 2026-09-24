@@ -30,6 +30,10 @@
 
 #![warn(missing_docs)]
 
+/// `TrainingPeaks` delegated connections: a group's coach links roster
+/// athletes to members, who confirm; either side ends a link.
+pub mod delegated_connections;
+
 /// Group analytics router (`/stats`, `/report`, `/health`).
 ///
 /// Sits next to [`mod@groups`]; shares the
@@ -60,6 +64,7 @@ mod group_update_access;
 /// Push-notification endpoints (device tokens, preferences, feed, scheduling).
 pub mod notifications;
 
+pub use delegated_connections::DelegatedConnectionRoutes;
 pub use group_chat_poster::GroupChatPoster;
 pub use groups::{
     GroupMetadata, GroupRoutes, HealthFlagsResponse, StatsResponse, WeeklyReportResponse,

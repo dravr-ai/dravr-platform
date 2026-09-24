@@ -192,7 +192,7 @@ pub enum ProtocolError {
     /// minted hosted-login URL instead of letting the LLM rephrase the failure.
     #[error("Provider {provider} requires authentication")]
     ProviderAuthRequired {
-        /// Provider slug (e.g. `sciotte`, `sciotte_garmin`).
+        /// Provider slug (e.g. `sciotte`, `sciotte_garmin`, `sciotte_trainingpeaks`).
         provider: String,
     },
 }

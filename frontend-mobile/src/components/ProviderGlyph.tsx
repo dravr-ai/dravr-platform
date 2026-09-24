@@ -2,10 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The face a provider row draws before its name — the brand glyph, or an initials circle when no mark exists for the id
-// ABOUTME: Shared by the Connections rows and the OAuth-credentials list so one provider wears one face everywhere
+// ABOUTME: Shared by every provider row and sheet so one provider wears one face, inked per scheme from the shared glyph-ink table
 
 import React from 'react';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
+import { providerGlyphInk, useTheme, useThemeColors } from '../constants/theme';
 import { InitialsAvatar } from './ui';
 import { providerGlyph } from './icons/BrandIcons';
 
@@ -25,11 +26,18 @@ interface ProviderGlyphProps {
  * `providerGlyph` knows no mark for it — a provider the server reports that
  * the glyph map has not caught up with still gets a face, in a slot colour
  * rather than a brand colour it does not have.
+ *
+ * The mark's ink is the shared `PROVIDER_GLYPH_INK` answer for the active
+ * scheme: the brand colour where it clears the 3:1 icon floor on the canvas,
+ * the body ink where it does not (TrainingPeaks' blue on the dark canvas,
+ * WHOOP's green on the light one).
  */
 export function ProviderGlyph({ providerId, label, size = GLYPH_SIZE }: ProviderGlyphProps) {
+  const { scheme } = useTheme();
+  const colors = useThemeColors();
   const Glyph = providerGlyph(providerId);
   if (Glyph) {
-    return <Glyph size={size} />;
+    return <Glyph size={size} color={providerGlyphInk(providerId, scheme) ?? colors.text.primary} />;
   }
   return (
     <InitialsAvatar

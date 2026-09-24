@@ -19,6 +19,7 @@
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use pierre_core::html::HOSTED_PAGE_CSS;
 use tracing::warn;
 
 use crate::AuthRoutesContext;
@@ -51,9 +52,9 @@ fn preferred_locale(headers: &HeaderMap) -> &'static str {
     }
 }
 
-/// Render the localized expired/unknown-code page. No template engine, no token
-/// — a lapsed short link just means the reconnect window closed; steer the user
-/// back to chat in their own language.
+/// Render the localized expired/unknown-code page on the shared Boreal sheet.
+/// No template engine, no token — a lapsed short link just means the reconnect
+/// window closed; steer the user back to chat in their own language.
 fn short_link_gone_html(locale: &str) -> String {
     let (title, body) = match locale {
         "en" => (
@@ -81,11 +82,13 @@ fn short_link_gone_html(locale: &str) -> String {
     format!(
         "<!doctype html><html lang=\"{locale}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-<title>{title}</title></head>\
-<body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;text-align:center\">\
+<meta name=\"color-scheme\" content=\"light dark\">\
+<title>{title}</title><style>{HOSTED_PAGE_CSS}</style></head>\
+<body><main class=\"card card-center\">\
+<div class=\"lockup\" role=\"img\" aria-label=\"Dravr\"></div>\
 <h1>{title}</h1>\
 <p>{body}</p>\
-</body></html>"
+</main></body></html>"
     )
 }
 

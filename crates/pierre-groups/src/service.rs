@@ -16,7 +16,7 @@ use pierre_core::models::groups::{
     UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
-use pierre_core::models::TenantId;
+use pierre_core::models::{DelegationEndReason, TenantId};
 use pierre_database::repositories::CoachingGroupRepository;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -72,6 +72,7 @@ pub struct ChannelGroupSpec<'a> {
 }
 
 use crate::context_alerts::connection_and_staleness_alerts;
+use crate::delegation::DelegationStore;
 use crate::strategies::context::select_context_strategy;
 use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
 
@@ -83,14 +84,28 @@ use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
 /// system prompts with group context.
 pub struct GroupService {
     repo: Arc<dyn CoachingGroupRepository>,
+    /// Ends the delegated connections a membership, archive or coach change
+    /// takes away. Shared (`Arc`) with the composition root, which builds it
+    /// once over the same repository registry.
+    delegation: Arc<DelegationStore>,
     tier: Arc<dyn GroupTierStrategy>,
 }
 
 impl GroupService {
-    /// Create a new group service with the given repository and tier strategy
+    /// Create a group service over the group repository, the store that ends
+    /// delegated connections when the group relation behind them ends, and the
+    /// tier strategy
     #[must_use]
-    pub fn new(repo: Arc<dyn CoachingGroupRepository>, tier: Arc<dyn GroupTierStrategy>) -> Self {
-        Self { repo, tier }
+    pub fn new(
+        repo: Arc<dyn CoachingGroupRepository>,
+        delegation: Arc<DelegationStore>,
+        tier: Arc<dyn GroupTierStrategy>,
+    ) -> Self {
+        Self {
+            repo,
+            delegation,
+            tier,
+        }
     }
 
     // ========================================================================
@@ -575,27 +590,59 @@ impl GroupService {
         self.repo.list_groups_for_user(user_id).await
     }
 
-    /// Update a group
+    /// Update a group.
+    ///
+    /// `actor` is who changed it; `None` when the system does.
+    ///
+    /// An inactive group carries no live delegated connection: deactivating a
+    /// group ends every link it held, exactly as archiving it does, and a
+    /// group made active again starts with none — a coach proposes afresh and
+    /// the member confirms afresh, since the ended links' consent went with
+    /// them.
     ///
     /// # Errors
     ///
-    /// Returns an error if database operations fail or the group is not found.
+    /// Returns an error if database operations fail or the group's links
+    /// cannot be ended.
     pub async fn update_group(
         &self,
         group_id: &str,
         tenant_id: TenantId,
         request: &UpdateGroupRequest,
+        actor: Option<Uuid>,
     ) -> AppResult<Option<CoachingGroup>> {
-        self.repo.update_group(group_id, tenant_id, request).await
+        let updated = self.repo.update_group(group_id, tenant_id, request).await?;
+        if let Some(group) = updated.as_ref().filter(|group| !group.is_active) {
+            self.delegation
+                .end_for_group(group.id, actor, DelegationEndReason::GroupArchived)
+                .await?;
+        }
+        Ok(updated)
     }
 
-    /// Soft-delete a group
+    /// Soft-delete a group. `actor` is who archived it; every delegated
+    /// connection the group carried ends with it.
     ///
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn delete_group(&self, group_id: &str, tenant_id: TenantId) -> AppResult<bool> {
-        self.repo.delete_group(group_id, tenant_id).await
+    pub async fn delete_group(
+        &self,
+        group_id: &str,
+        tenant_id: TenantId,
+        actor: Uuid,
+    ) -> AppResult<bool> {
+        let archived = self.repo.delete_group(group_id, tenant_id).await?;
+        if archived {
+            self.delegation
+                .end_for_group(
+                    group_uuid(group_id)?,
+                    Some(actor),
+                    DelegationEndReason::GroupArchived,
+                )
+                .await?;
+        }
+        Ok(archived)
     }
 
     // ========================================================================
@@ -687,133 +734,12 @@ impl GroupService {
         Ok(created)
     }
 
-    /// Shared invite-validity gate: active, not expired, under its use limit.
-    /// Fetch the group an invite points at, refusing one that has been archived.
-    ///
-    /// `delete_group` archives the row rather than dropping it, and an invite
-    /// outlives that archive. Both redemption paths read the invite first and
-    /// then loaded the group unconditionally, so a link handed out before the
-    /// owner deleted the group still admitted people to it — against a confirm
-    /// dialog that promises the group is gone and its members removed.
-    async fn open_group_for_invite(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<CoachingGroup> {
-        let group = self
-            .repo
-            .get_group(group_id, tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Group not found"))?;
-        if !group.is_active {
-            return Err(AppError::not_found("This group is no longer available"));
-        }
-        Ok(group)
-    }
-
-    fn check_invite_usable(invite: &GroupInvite) -> AppResult<()> {
-        if !invite.is_active {
-            return Err(AppError::invalid_input("This invite has been deactivated"));
-        }
-        if let Some(expires) = invite.expires_at {
-            if expires < chrono::Utc::now() {
-                return Err(AppError::invalid_input("This invite has expired"));
-            }
-        }
-        if let Some(max) = invite.max_uses {
-            if invite.use_count >= max {
-                return Err(AppError::invalid_input(
-                    "This invite has reached its use limit",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// Redeem a coach-kind invite, attaching the caller as the group's human
-    /// agent (`coach_user_id`).
-    ///
-    /// Eligibility (the caller is a roster-managing agent and belongs to the
-    /// group's tenant) is enforced by the route layer, which owns user-repo
-    /// access. This method owns the group-side business logic: invite
-    /// validity, the single-agent guard, the attachment write, and the
-    /// invite-use increment.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the invite is invalid/expired/exhausted, is not a
-    /// agent invite, the group is missing, or a different agent is already
-    /// attached.
-    pub async fn redeem_coach_invite(
-        &self,
-        invite_code: &str,
-        coach_user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<CoachingGroup> {
-        let invite = self
-            .repo
-            .get_invite_by_code(invite_code)
-            .await?
-            .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
-
-        Self::check_invite_usable(&invite)?;
-
-        if invite.kind != GroupInviteKind::Coach {
-            return Err(AppError::invalid_input(
-                "This invite does not grant coach access",
-            ));
-        }
-
-        let group = self
-            .open_group_for_invite(&invite.group_id.to_string(), tenant_id)
-            .await?;
-
-        // Single human coach per group (v1). Re-redeeming as the same agent is
-        // idempotent; a different agent is rejected so an owner explicitly
-        // detaches the current agent first.
-        match group.coach_user_id {
-            Some(existing) if existing == coach_user_id => return Ok(group),
-            Some(_) => {
-                return Err(AppError::invalid_input(
-                    "This group already has a coach. Remove the current coach first.",
-                ));
-            }
-            None => {}
-        }
-
-        let attached = self
-            .repo
-            .set_group_coach_user(&invite.group_id.to_string(), Some(coach_user_id), tenant_id)
-            .await?;
-        if !attached {
-            return Err(AppError::internal("Failed to attach coach to group"));
-        }
-        self.repo
-            .increment_invite_use_count(&invite.id.to_string())
-            .await?;
-
-        // Reuses the catalogued `group.joined` event (an agent redeeming a
-        // coach-kind invite is still a join); the message distinguishes the
-        // agent case for operators. Emitted after the attach succeeds, so
-        // re-redeeming the same invite — which returns early above — no
-        // longer double-counts the way the route-level emission did.
-        info!(
-            target: "notify",
-            event = "group.joined",
-            user_id = %coach_user_id,
-            tenant_id = %tenant_id,
-            group_id = %invite.group_id,
-            "coach joined coaching group"
-        );
-
-        self.repo
-            .get_group(&invite.group_id.to_string(), tenant_id)
-            .await?
-            .ok_or_else(|| AppError::internal("Group not found after coach attach"))
-    }
-
     /// Attach or clear the group's human coach directly (admin/owner action).
-    /// Pass `None` to detach.
+    /// Pass `None` to detach. `actor` is who changed it.
+    ///
+    /// Every delegated connection in the group reads through the coach being
+    /// replaced, so when the write changes who coaches the group, those links
+    /// end with it.
     ///
     /// # Errors
     ///
@@ -823,10 +749,27 @@ impl GroupService {
         group_id: &str,
         coach_user_id: Option<Uuid>,
         tenant_id: TenantId,
+        actor: Uuid,
     ) -> AppResult<bool> {
-        self.repo
+        let previous = self
+            .repo
+            .get_group(group_id, tenant_id)
+            .await?
+            .and_then(|group| group.coach_user_id);
+        let written = self
+            .repo
             .set_group_coach_user(group_id, coach_user_id, tenant_id)
-            .await
+            .await?;
+        if written && previous != coach_user_id {
+            self.delegation
+                .end_for_group(
+                    group_uuid(group_id)?,
+                    Some(actor),
+                    DelegationEndReason::CoachDetached,
+                )
+                .await?;
+        }
+        Ok(written)
     }
 
     /// List active groups the user is the attached human coach of.
@@ -838,13 +781,24 @@ impl GroupService {
         self.repo.list_groups_coached_by(user_id).await
     }
 
-    /// Leave a group
+    /// Leave a group. The member's delegated connections in it end.
     ///
     /// # Errors
     ///
     /// Returns an error if database operations fail.
     pub async fn leave_group(&self, group_id: &str, user_id: Uuid) -> AppResult<bool> {
-        self.repo.remove_member(group_id, user_id).await
+        let left = self.repo.remove_member(group_id, user_id).await?;
+        if left {
+            self.delegation
+                .end_for_member_leaving(
+                    group_uuid(group_id)?,
+                    user_id,
+                    Some(user_id),
+                    DelegationEndReason::MemberLeft,
+                )
+                .await?;
+        }
+        Ok(left)
     }
 
     /// List members
@@ -856,13 +810,30 @@ impl GroupService {
         self.repo.list_members(group_id).await
     }
 
-    /// Remove a member (admin action)
+    /// Remove a member (admin action). `actor` is the admin; the member's
+    /// delegated connections in the group end.
     ///
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn remove_member(&self, group_id: &str, user_id: Uuid) -> AppResult<bool> {
-        self.repo.remove_member(group_id, user_id).await
+    pub async fn remove_member(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        actor: Uuid,
+    ) -> AppResult<bool> {
+        let removed = self.repo.remove_member(group_id, user_id).await?;
+        if removed {
+            self.delegation
+                .end_for_member_leaving(
+                    group_uuid(group_id)?,
+                    user_id,
+                    Some(actor),
+                    DelegationEndReason::MemberRemoved,
+                )
+                .await?;
+        }
+        Ok(removed)
     }
 
     /// Update member role
@@ -1112,6 +1083,13 @@ impl GroupService {
     pub fn repo(&self) -> &dyn CoachingGroupRepository {
         self.repo.as_ref()
     }
+}
+
+/// The id of a group named by the text a route or command carries. Called
+/// only after a write keyed on that same text succeeded, so the text is a
+/// group id the database already matched.
+fn group_uuid(group_id: &str) -> AppResult<Uuid> {
+    Uuid::parse_str(group_id).map_err(|_| AppError::invalid_input("Invalid group id"))
 }
 
 /// Generate an 8-character alphanumeric invite code

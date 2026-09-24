@@ -231,9 +231,9 @@ mod messaging_e2e_tests {
         assert_eq!(resp.status(), 200);
         let html = resp.text();
         assert!(
-            html.contains("Linked") || html.contains("linked") || html.contains("success"),
+            html.contains("<h1>Account Linked!</h1>"),
             "Should show success page, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
 
         // Step 6: Verify channel link was created in DB
@@ -463,9 +463,9 @@ mod messaging_e2e_tests {
         assert_eq!(resp.status(), 200);
         let html = resp.text();
         assert!(
-            html.contains("Linked") || html.contains("linked") || html.contains("success"),
+            html.contains("<h1>Account Linked!</h1>"),
             "Slack auth should succeed, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
 
         // Step 6: Verify channel link exists
@@ -568,9 +568,9 @@ mod messaging_e2e_tests {
         assert_eq!(resp.status(), 200);
         let html = resp.text();
         assert!(
-            html.contains("Linked") || html.contains("linked") || html.contains("success"),
+            html.contains("<h1>Account Linked!</h1>"),
             "Registration should succeed, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
 
         // Step 4: Verify channel link was created
@@ -668,9 +668,9 @@ mod messaging_e2e_tests {
         assert_eq!(resp.status(), 200);
         let html = resp.text();
         assert!(
-            html.contains("Linked") || html.contains("linked") || html.contains("success"),
+            html.contains("<h1>Account Linked!</h1>"),
             "Messenger auth should succeed, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
 
         // Step 4: Verify channel link
@@ -968,9 +968,9 @@ mod messaging_e2e_tests {
         assert_eq!(resp.status(), 200);
         let html = resp.text();
         assert!(
-            html.contains("Linked") || html.contains("linked") || html.contains("success"),
+            html.contains("<h1>Account Linked!</h1>"),
             "First auth should succeed, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
 
         // Second auth with same code should fail
@@ -1237,7 +1237,7 @@ mod messaging_e2e_tests {
         assert!(
             html.contains("expired") || html.contains("invalid"),
             "Expired code page should show error, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
 
         // POST auth should also show error
@@ -1257,7 +1257,7 @@ mod messaging_e2e_tests {
         assert!(
             html.contains("expired") || html.contains("invalid"),
             "Expired code auth should fail, got: {}",
-            &html[..html.len().min(500)]
+            html.split("</head>").last().unwrap_or(&html)
         );
     }
 

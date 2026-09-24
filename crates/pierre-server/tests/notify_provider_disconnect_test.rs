@@ -241,6 +241,50 @@ async fn chat_tool_disconnect_resolves_mirror_and_emits() {
 // The /mcp + SSE carve-out (dravr-carnet#29's stale-row path)
 // ============================================================================
 
+/// TrainingPeaks through the chat tool: `trainingpeaks` has no backend of its
+/// own, so the disconnect must pass provider validation on its mirror, clean
+/// both `sciotte_trainingpeaks` rows, and name the event for the provider the
+/// athlete connected — the same name `provider.connected` carries.
+#[tokio::test]
+async fn chat_tool_disconnect_resolves_the_trainingpeaks_mirror_and_emits() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+    seed_connected_provider(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+        &ConnectionType::Manual,
+    )
+    .await;
+
+    let (events, _guard) = capture_notify();
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let ctx = ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_tenant(tenant_id.to_string())
+        .with_auth_method("jwt_bearer");
+    let result = DisconnectProviderTool
+        .execute(&state, &ctx, json!({ "provider": "trainingpeaks" }))
+        .await;
+    assert!(
+        !result.is_error,
+        "disconnect must succeed: {:?}",
+        result.structured_content
+    );
+
+    assert_fully_disconnected(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let event = only(&events, "provider.disconnected");
+    assert_athlete_disconnect(&event, user_id, tenant_id, oauth_providers::TRAININGPEAKS);
+}
+
 /// The carve-out used to delete only the raw-named token — no connection-row
 /// removal, no event. Driving `route_disconnect_tool` must now leave no
 /// orphaned row and must emit the attributed event, exactly like the other

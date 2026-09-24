@@ -6,12 +6,16 @@
 
 /// Authentication service used by universal protocol handlers
 pub mod auth;
+/// Whose session a `TrainingPeaks` read goes through; a coach account's own read is refused in words
+mod delegated_auth;
 /// `UniversalExecutor` dispatch surface that fans every protocol call onto the tool registry
 pub mod executor;
 /// Output format helpers (JSON / TOON envelopes) shared across handlers
 pub mod format;
 /// Shared provider helper functions (tenant-aware credential resolution, provider creation)
 pub mod provider_helpers;
+/// The one-time push telling a user a provider connection needs reconnecting
+mod reauth_notice;
 /// Classification of a failed token refresh: a refusal of the grant or client, or transient
 mod refresh_failure;
 /// Synced sleep and recovery reads, merged across sources (sleep + analytics tools)

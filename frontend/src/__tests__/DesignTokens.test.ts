@@ -237,6 +237,22 @@ describe('the three token mirrors agree with DESIGN.md', () => {
     expect(cssToken(MOBILE_CSS, 'primary-container', 2)).toBe(BOREAL_DARK.primaryContainer);
   });
 
+  it('mirrors the dark outline, a text role, at AA on every dark tier', () => {
+    // Web raised it for contrast while mobile and shared-constants kept the
+    // older value, which measured 3.91:1 on surface-container-highest.
+    expect(cssToken(WEB_CSS, 'outline', 2)).toBe(BOREAL_DARK.outline);
+    expect(cssToken(MOBILE_CSS, 'outline', 2)).toBe(BOREAL_DARK.outline);
+    for (const tier of [
+      BOREAL_DARK.surface,
+      BOREAL_DARK.surfaceContainerLow,
+      BOREAL_DARK.surfaceContainer,
+      BOREAL_DARK.surfaceContainerHigh,
+      BOREAL_DARK.surfaceContainerHighest,
+    ]) {
+      expect(contrast(BOREAL_DARK.outline, tier)).toBeGreaterThanOrEqual(AA_TEXT);
+    }
+  });
+
   it('gives light the darker ghost-border ink and dark the pale one', () => {
     // A hairline has to contrast with what it sits on, and the two grounds are
     // opposite. Mobile shipped the dark ink in both schemes.

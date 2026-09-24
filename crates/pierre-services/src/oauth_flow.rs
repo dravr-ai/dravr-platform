@@ -315,15 +315,17 @@ impl OAuthService {
         )
     }
 
-    /// Validate that provider is supported by checking the provider registry
+    /// Validate that the provider is registered, or — like `trainingpeaks`,
+    /// which only a mirror serves — that a backend serving it is.
     fn validate_provider(&self, provider: &str) -> AppResult<()> {
-        if self.data.provider_registry().is_supported(provider) {
-            Ok(())
-        } else {
-            Err(AppError::invalid_input(format!(
-                "Unsupported provider: {provider}"
-            )))
+        let registry = self.data.provider_registry();
+        let serving = backend_resolver::serving_backends(provider);
+        if registry.is_supported(provider) || serving.iter().any(|b| registry.is_supported(b)) {
+            return Ok(());
         }
+        Err(AppError::invalid_input(format!(
+            "Unsupported provider: {provider}"
+        )))
     }
 
     /// Exchange OAuth code for access token, using PKCE when a code verifier is available

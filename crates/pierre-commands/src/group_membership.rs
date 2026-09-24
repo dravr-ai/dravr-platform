@@ -1,5 +1,5 @@
 // ABOUTME: Handlers for /group create and /group join — how a coaching group enters a conversation list
-// ABOUTME: Create binds the fresh thread it was typed in; join files the member's own group-scoped conversation
+// ABOUTME: Create and a coach's join bind the fresh thread typed in; a member's join files their own group conversation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -97,7 +97,8 @@ impl GroupCreateHandler {
             .and_then(|v| v.as_str().map(ToOwned::to_owned))
     }
 
-    /// Give the creator a conversation that is the group's chat.
+    /// Give the creator — or a coach attaching through a coach code — a
+    /// conversation that is the group's chat.
     ///
     /// An in-app thread with no group and no coaching turn yet — the one the
     /// apps open for "New group chat" before sending this command — becomes
@@ -388,9 +389,16 @@ impl GroupJoinHandler {
         )))
     }
 
+    /// Attach an eligible coach as the group's human coach, and give them
+    /// the group's chat the way its creator gets it
+    /// ([`GroupCreateHandler::file_creator_conversation`]): the coach holds no
+    /// membership row, but reaches the group's info and its linking from that
+    /// thread. A coach already attached re-redeems idempotently and is filed
+    /// nothing a second time.
     async fn join_as_coach(
         ctx: &PlatformCommandContext,
         code: &str,
+        group: &CoachingGroup,
         group_tenant: TenantId,
     ) -> Result<CommandResponse, AppError> {
         // Eligibility as the REST route checks it: a roster-managing agent
@@ -411,6 +419,10 @@ impl GroupJoinHandler {
             .await
         {
             Ok(attached) => {
+                if group.coach_user_id != Some(ctx.user_id) {
+                    let thread = typed_in_thread(ctx).await?;
+                    GroupCreateHandler::file_creator_conversation(ctx, thread, &attached).await?;
+                }
                 info!(
                     user_id = %ctx.user_id,
                     group_id = %attached.id,
@@ -456,7 +468,7 @@ impl CommandHandler for GroupJoinHandler {
 
         match invite.kind {
             GroupInviteKind::Member => Self::join_as_member(ctx, code, &group, group_tenant).await,
-            GroupInviteKind::Coach => Self::join_as_coach(ctx, code, group_tenant).await,
+            GroupInviteKind::Coach => Self::join_as_coach(ctx, code, &group, group_tenant).await,
         }
     }
 }

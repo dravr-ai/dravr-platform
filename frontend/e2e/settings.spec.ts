@@ -572,11 +572,12 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab displays individual provider names', async ({ page }) => {
-    // After the 2026-Q2 provider cleanup the API surfaces only three: `sciotte`
-    // (Strava-branded), `sciotte_garmin` (Garmin-branded), and `whoop`.
+    // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
+    // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded) and `whoop`.
     const testProviders = [
       { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
       { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
       { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
@@ -587,15 +588,123 @@ test.describe('Settings Page - User Mode', () => {
     // Verify provider names are rendered (exact match avoids description text collisions)
     await expect(page.getByText('Strava', { exact: true })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Garmin', { exact: true })).toBeVisible();
+    await expect(page.getByText('TrainingPeaks', { exact: true })).toBeVisible();
     await expect(page.getByText('WHOOP', { exact: true })).toBeVisible();
   });
 
+  test('TrainingPeaks connects only after its notice is accepted', async ({ page }) => {
+    const testProviders = [
+      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: false },
+      { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
+    ];
+    await loginAndNavigateToSettings(page, false, { providers: testProviders });
+
+    const logins: Array<Record<string, unknown>> = [];
+    await page.route('**/api/providers/sciotte/config', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ login_timeout_secs: 240 }) })
+    );
+    await page.route('**/api/providers/sciotte/login', async (route) => {
+      logins.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'connected', provider: 'sciotte_trainingpeaks' }),
+      });
+    });
+
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page
+      .getByTestId('provider-row-sciotte_trainingpeaks')
+      .getByRole('button', { name: 'Connect', exact: true })
+      .click();
+
+    const dialog = page.getByRole('dialog');
+    const notice = dialog.getByRole('note');
+    await expect(notice).toContainText('Before you connect TrainingPeaks');
+    await expect(notice).toContainText('Terms of Use (section 13)');
+    // A coach's account also reads the athletes who confirm a link, so the
+    // notice says so before the account is connected.
+    await expect(notice).toContainText(
+      "If yours is a human coach's account, Dravr also uses it to read the calendars of the athletes who confirm a link in a group you oversee.",
+    );
+
+    // TrainingPeaks signs in with a username, and nothing is sent until the
+    // notice is accepted.
+    await dialog.getByLabel('Username').fill('coach-account');
+    await dialog.getByLabel('Password', { exact: true }).fill('not-a-real-password');
+    const logIn = dialog.getByRole('button', { name: 'Log In' });
+    await expect(logIn).toBeDisabled();
+
+    await dialog
+      .getByLabel('I understand that TrainingPeaks could suspend my account, and I accept that risk.')
+      .check();
+    await expect(logIn).toBeEnabled();
+    await logIn.click();
+
+    // Settings closes the modal as soon as the connection lands.
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => logins.length).toBe(1);
+    expect(logins[0]).toEqual({
+      email: 'coach-account',
+      password: 'not-a-real-password',
+      method: 'email',
+      target: 'trainingpeaks',
+      tos_consent: true,
+    });
+  });
+
+  test('a TrainingPeaks row read through a coach names the coach and unlinks', async ({ page }) => {
+    const testProviders = [
+      {
+        provider: 'sciotte_trainingpeaks',
+        display_name: 'TrainingPeaks',
+        requires_oauth: false,
+        connected: true,
+        needs_reauth: false,
+        capabilities: ['activities'],
+        consent_required: false,
+        delegation: {
+          connection_id: 'dc-1',
+          group_id: 'group-1',
+          group_name: 'Marathon Squad',
+          coach_display_name: 'Casey Coach',
+          status: 'confirmed',
+          coach_needs_reauth: false,
+        },
+      },
+      {
+        provider: 'sciotte_garmin',
+        display_name: 'Garmin',
+        requires_oauth: false,
+        connected: true,
+        needs_reauth: false,
+        capabilities: ['activities'],
+        consent_required: false,
+        account_role: 'coach',
+      },
+    ];
+    await loginAndNavigateToSettings(page, false, { providers: testProviders });
+
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+
+    await expect(page.getByTestId('provider-delegated-sciotte_trainingpeaks')).toHaveText(
+      'Connected through Casey Coach',
+    );
+    await expect(page.getByTestId('provider-disconnect-sciotte_trainingpeaks')).toHaveText('Unlink');
+    // A coach account is badged, with where its athletes are linked.
+    await expect(page.getByTestId('provider-coach-account-sciotte_garmin')).toHaveText('Coach account');
+    await expect(
+      page.getByText('TrainingPeaks keeps no calendar for a coach account. Link your athletes from a group you coach.'),
+    ).toBeVisible();
+  });
+
   test('data providers tab shows Connect affordance for all surfaced providers', async ({ page }) => {
-    // After the 2026-Q2 provider cleanup all surfaced providers are connectable:
-    // sciotte / sciotte_garmin via credential login, whoop via OAuth.
+    // Every surfaced provider is connectable: sciotte / sciotte_garmin /
+    // sciotte_trainingpeaks via credential login, whoop via OAuth.
     const testProviders = [
       { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
       { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
       { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
@@ -603,11 +712,11 @@ test.describe('Settings Page - User Mode', () => {
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
 
-    // All three providers should have Connect buttons
+    // All four providers should have Connect buttons
     const connectButtons = page.getByRole('button', { name: 'Connect', exact: true });
     await expect(connectButtons.first()).toBeVisible({ timeout: 5000 });
     const connectCount = await connectButtons.count();
-    expect(connectCount).toBe(3);
+    expect(connectCount).toBe(4);
   });
 
   test('tokens tab shows setup instructions button for Claude and ChatGPT', async ({ page }) => {

@@ -41,8 +41,11 @@ use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBun
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
+use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
+use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -598,6 +601,7 @@ fn threshold_steps() -> Vec<WorkoutStep> {
         distance_meters: None,
         target_zone: zone.to_owned(),
         repeat,
+        repeat_group: None,
         note: None,
     };
     vec![
@@ -1007,6 +1011,71 @@ async fn a_session_with_no_steps_is_rejected() -> Result<()> {
         "got: {err:?}"
     );
     assert!(stub.requests().await.is_empty());
+    Ok(())
+}
+
+/// A prescribed session whose adjacent sets share a repeat count — 3 × (1 min
+/// on, 1 min off) straight into 3 × (30 s on, 30 s off) — keeps them two sets
+/// by their `repeat_group`, which the step schema declares so the model can
+/// number them; a group number outside the session is refused by name.
+#[tokio::test]
+async fn a_prescribed_session_keeps_adjacent_sets_apart_by_their_group() -> Result<()> {
+    let definition = serde_json::to_value(
+        <PrescribeWorkoutTool as McpTool<dyn ToolRuntime>>::definition(&PrescribeWorkoutTool),
+    )?;
+    assert!(
+        definition.to_string().contains("\"repeat_group\""),
+        "the step schema declares repeat_group: {definition}"
+    );
+
+    let stub = stub_live(4242).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let step = |label: &str, seconds: u32, zone: &str, group: u32| {
+        json!({
+            "label": label,
+            "duration_seconds": seconds,
+            "target_zone": zone,
+            "repeat": 3,
+            "repeat_group": group,
+        })
+    };
+    let session = |group_of_second_set: u32| {
+        json!({
+            "name": "Two sets",
+            "sport": "ride",
+            "intensity_distribution": "polarized",
+            "structure": [
+                step("On", 60, "Z5", 1),
+                step("Off", 60, "Z1", 1),
+                step("Sprint", 30, "Z6", group_of_second_set),
+                step("Float", 30, "Z1", group_of_second_set),
+            ],
+        })
+    };
+
+    let result = fixture
+        .ok(
+            "prescribe_workout",
+            json!({ "session": session(2), "date": "2026-09-24" }),
+        )
+        .await?;
+    assert_eq!(result["status"].as_str(), Some("pushed"), "got: {result}");
+    let request = stub.only_request().await;
+    assert_eq!(
+        request.matches("3x\\n").count(),
+        2,
+        "two repeat blocks, one per group; got: {request}"
+    );
+
+    let err = fixture
+        .prescribe(json!({ "session": session(0), "date": "2026-09-25" }))
+        .await
+        .expect_err("a group numbered outside the session is refused");
+    assert!(
+        format!("{err:?}").contains("structure[2].repeat_group"),
+        "the refusal names the step and the field; got: {err:?}"
+    );
+    assert_eq!(stub.requests().await.len(), 1, "nothing more was pushed");
     Ok(())
 }
 
@@ -1533,6 +1602,104 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
     assert!(
         text.ends_with(&format!("\n\n- {} 61m Z4", SportType::Ride.display_name())),
         "back to the single intensity step, cued by the sport; got: {text}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_band_keeps_its_threshold_and_adjacent_sets_keep_their_groups() -> Result<()> {
+    // A percent band that names its threshold is stated against that
+    // threshold on every sport: "88-93% FTP" on a run is a power target, not
+    // a pace one. Only a bare band takes the sport's own family, and an RPE
+    // band, which the workout-builder text has no target for, goes out timed.
+    let stub = stub_live(3000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let user = fixture.user_id;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+    let step =
+        |label: &str, seconds: u32, zone: &str, repeat: u32, group: Option<u32>| WorkoutStep {
+            label: label.to_owned(),
+            duration_seconds: seconds,
+            distance_meters: None,
+            target_zone: zone.to_owned(),
+            repeat,
+            repeat_group: group,
+            note: None,
+        };
+    let banded = || {
+        vec![
+            step("Tempo", 600, "88-93% FTP", 1, None),
+            step("Steady", 600, "95-100% threshold HR", 1, None),
+            step("Strides", 60, "105-110% threshold pace", 1, None),
+            step("Easy", 300, "75%", 1, None),
+            step("Float", 300, "RPE 3", 1, None),
+        ]
+    };
+    let mut run = planned(d(1), "run", "Banded run", Some(31), "Z2");
+    run.steps = banded();
+    let mut ride = planned(d(2), "vélo", "Banded ride", Some(31), "Z2");
+    ride.steps = banded();
+    // 3 × (1 min on / 1 min off) straight into 3 × (30 s on / 30 s off): the
+    // same count, two sets.
+    let mut sets = planned(d(3), "vélo", "Two sets", Some(9), "Z4");
+    sets.steps = vec![
+        step("On", 60, "Z5", 3, Some(1)),
+        step("Off", 60, "Z1", 3, Some(1)),
+        step("Sprint", 30, "Z6", 3, Some(2)),
+        step("Float", 30, "Z1", 3, Some(2)),
+    ];
+    fixture
+        .save_weeks(true, &[(d(0), "", vec![run, ride, sets])])
+        .await;
+
+    let report = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(report["created"].as_u64(), Some(3), "got: {report}");
+
+    let description = |event: FakeEvent| {
+        event.body["description"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let run_text = description(
+        stub.event_by_key(&CalendarKey::plan_day(user, d(1), 0))
+            .await
+            .expect("the run is on the calendar"),
+    );
+    assert!(
+        run_text.ends_with(
+            "- Tempo 10m 88-93%\n- Steady 10m 95-100% LTHR\n- Strides 1m 105-110% Pace\n\
+             - Easy 5m 75% Pace\n- Float 5m"
+        ),
+        "each band in its own threshold's unit on a run; got: {run_text}"
+    );
+    let ride_text = description(
+        stub.event_by_key(&CalendarKey::plan_day(user, d(2), 0))
+            .await
+            .expect("the ride is on the calendar"),
+    );
+    assert!(
+        ride_text.ends_with(
+            "- Tempo 10m 88-93%\n- Steady 10m 95-100% LTHR\n- Strides 1m 105-110% Pace\n\
+             - Easy 5m 75%\n- Float 5m"
+        ),
+        "each band in its own threshold's unit on a ride; got: {ride_text}"
+    );
+
+    let sets_text = description(
+        stub.event_by_key(&CalendarKey::plan_day(user, d(3), 0))
+            .await
+            .expect("the set day is on the calendar"),
+    );
+    assert!(
+        sets_text.ends_with("3x\n- On 1m Z5\n- Off 1m Z1\n\n3x\n- Sprint 30s Z6\n- Float 30s Z1"),
+        "two sets with the same count stay two blocks; got: {sets_text}"
+    );
+    assert_eq!(
+        sets_text.lines().filter(|line| *line == "3x").count(),
+        2,
+        "got: {sets_text}"
     );
     Ok(())
 }

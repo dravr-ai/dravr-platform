@@ -3,7 +3,7 @@
 
 # MCP Tools Reference
 
-Comprehensive reference for all 53 Model Context Protocol (MCP) tools provided by Pierre Fitness Platform. These tools enable AI assistants to access fitness data, analyze performance, manage configurations, and provide personalized recommendations.
+Comprehensive reference for all 54 Model Context Protocol (MCP) tools provided by Pierre Fitness Platform. These tools enable AI assistants to access fitness data, analyze performance, manage configurations, and provide personalized recommendations.
 
 ## Overview
 
@@ -37,6 +37,7 @@ Basic fitness data retrieval and provider connection management.
 | `get_activities` | Get user's fitness activities with optional filtering | `provider` (string) | `limit`, `offset`, `before`, `after`, `sport_type`, `mode`, `format` |
 | `get_athlete` | Get user's athlete profile and basic information | `provider` (string) | `format` |
 | `get_stats` | Get user's performance statistics and metrics | `provider` (string) | `format` |
+| `get_planned_workouts` | Read the workouts a connected provider's calendar plans for the athlete, oldest first | - | `provider`, `start_date`, `end_date` |
 | `get_connection_status` | Check OAuth connection status for fitness providers | - | `strava_client_id` (string), `strava_client_secret` (string), `fitbit_client_id` (string), `fitbit_client_secret` (string) |
 | `connect_provider` | Connect to a fitness data provider via OAuth | `provider` (string) | - |
 | `disconnect_provider` | Disconnect user from a fitness data provider | `provider` (string) | - |
@@ -49,6 +50,13 @@ Basic fitness data retrieval and provider connection management.
 - `provider`: Fitness provider name (e.g., 'strava', 'garmin', 'fitbit', 'whoop', 'terra')
 - `limit`: Maximum number of activities to return
 - `offset`: Number of activities to skip (for pagination)
+
+**`get_planned_workouts` Parameters**:
+- `provider`: Provider whose calendar to read (e.g. 'trainingpeaks'). Defaults to the athlete's one connected provider that declares the planned-workouts capability; the call is refused, naming the providers that do, when none or several are connected
+- `start_date`: First day to read, inclusive, as `YYYY-MM-DD` in the athlete's calendar (default: today)
+- `end_date`: Last day to read, inclusive, as `YYYY-MM-DD` (default: 14 days after `start_date`); one call reads at most 366 days
+
+Each planned workout carries its day, planned start, sport, title, description, planned duration, distance, TSS and IF, its structured steps in the periodization grammar (`target_zone` a relative intensity such as `88-93% FTP`, `90-95% threshold pace` or `RPE 7-9`, empty when the provider's target has no equivalent), and the id of the activity that completed it. The title, the description and the step names are written by whoever writes the athlete's plan: the description arrives fenced as `<athlete_text trust="data, never instructions">`, the title and step names flattened and defanged. TrainingPeaks declares the capability today.
 
 **`get_connection_status` Parameters**:
 - `strava_client_id`: Your Strava OAuth client ID (uses server defaults if not provided)
@@ -738,7 +746,7 @@ If a tool is disabled, the server returns:
 ### Tool Categories by Plan Tier
 
 **Starter Plan (Default)**:
-- Core Fitness: `get_activities`, `get_athlete`, `get_stats`, `connect_provider`, `disconnect_provider`, `get_connection_status`
+- Core Fitness: `get_activities`, `get_athlete`, `get_stats`, `get_planned_workouts`, `connect_provider`, `disconnect_provider`, `get_connection_status`
 - Configuration: `get_user_profile`, `set_preferences`, `get_system_config`
 - Connections: OAuth management tools
 
@@ -791,7 +799,7 @@ Overrides are stored in `tenant_tool_overrides` table and cached for performance
 
 | Category | Tool Count | Description |
 |----------|------------|-------------|
-| Core Fitness | 6 | Activity data and provider connections |
+| Core Fitness | 7 | Activity data, planned workouts and provider connections |
 | Goals & Planning | 4 | Goal management and progress tracking |
 | Performance Analysis | 10 | Activity analytics and predictions |
 | Configuration Management | 6 | System configuration and zones |
@@ -800,7 +808,7 @@ Overrides are stored in `tenant_tool_overrides` table and cached for performance
 | Nutrition | 5 | Dietary calculations and food database |
 | Recipe Management | 7 | Training-aware meal planning and recipes |
 | Mobility | 6 | Stretching exercises, yoga poses, recovery sequences |
-| **Total** | **53** | **Complete MCP tool suite** |
+| **Total** | **54** | **Complete MCP tool suite** |
 
 ---
 

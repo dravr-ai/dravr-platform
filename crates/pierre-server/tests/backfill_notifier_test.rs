@@ -33,6 +33,7 @@ use pierre_mcp_server::services::backfill_reentry::{
     engaged_with_activities, ChatReentry, ReentryReply, ReentryRequest,
 };
 use pierre_messaging::channel::MessagingChannel;
+use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use tokio::time::sleep;
 
@@ -269,6 +270,131 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         channel.sent.lock().unwrap().len(),
         2,
         "reauth nudge re-sends the reconnect link until the user reconnects"
+    );
+}
+
+/// The reauth nudge for a TrainingPeaks session: the body names the brand,
+/// never the backend slug, and the link opens the TrainingPeaks scraper. The
+/// token's target is where a Strava default would hide — the body and the
+/// short link read the same either way.
+#[tokio::test]
+async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "whatsapp",
+        "14502244753",
+        None,
+        &conversation_id,
+    )
+    .await;
+    repos
+        .provider_connections
+        .register_connection(
+            user_uuid,
+            tenant_id,
+            "sciotte_trainingpeaks",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let notifier =
+        ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
+    notifier
+        .push_provider_reauth(
+            user_uuid,
+            tenant_id,
+            &conversation_id,
+            "sciotte_trainingpeaks",
+            Utc::now(),
+        )
+        .await;
+
+    let code: String = {
+        let sent = channel.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1, "a reauth nudge must send once");
+        let MessageContent::Text { body } = &sent[0].content else {
+            panic!("expected a text nudge");
+        };
+        assert!(body.contains("TrainingPeaks"), "names the provider: {body}");
+        assert!(
+            !body.contains("sciotte"),
+            "the backend slug never reaches the athlete: {body}"
+        );
+        body.split_whitespace()
+            .find(|t| t.contains("/r/"))
+            .and_then(|t| t.rsplit("/r/").next())
+            .expect("nudge body carries a /r/ short link")
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect()
+    };
+    let target = repos
+        .short_links
+        .resolve_short_link(&code)
+        .await
+        .expect("resolve query succeeds")
+        .expect("short code resolves to a stored target");
+    let token = target
+        .split_once("/providers/sciotte/login?token=")
+        .map_or_else(
+            || panic!("short link resolves to the hosted login: {target}"),
+            |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
+        );
+    let claims = verify_link_token(&token, "test-jwt-secret", "sciotte")
+        .expect("the nudge's token verifies under the notifier secret");
+    assert_eq!(
+        claims.tgt, "trainingpeaks",
+        "the reconnect link must open the TrainingPeaks login, not Strava's"
+    );
+}
+
+/// A slug with no hosted login gets no link at all: a Strava login offered to
+/// reconnect some other provider is worse than silence.
+#[tokio::test]
+async fn push_provider_reauth_sends_nothing_for_a_provider_with_no_hosted_login() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::new(db.repositories());
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    seed_session(
+        &db,
+        &user_id,
+        tenant_id,
+        "whatsapp",
+        "14502244753",
+        None,
+        &conversation_id,
+    )
+    .await;
+    repos
+        .provider_connections
+        .register_connection(user_uuid, tenant_id, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+
+    let channel = Arc::new(CapturingChannel::default());
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
+    let notifier =
+        ServerBackfillNotifier::with_resolver(repos.clone(), strings(), resolver.clone());
+    notifier
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "whoop", Utc::now())
+        .await;
+
+    assert!(
+        channel.sent.lock().unwrap().is_empty(),
+        "no reconnect link may be minted for a provider the hosted login cannot serve"
     );
 }
 

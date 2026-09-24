@@ -11,6 +11,8 @@ use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
+use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmProviderType;
 use pierre_seeders::agents::{run as run_agents, SeedArgs as AgentsArgs};
 use pierre_seeders::bootstrap::{run as run_bootstrap, SeedArgs as BootstrapArgs};
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
@@ -18,6 +20,9 @@ use pierre_seeders::llm_usage::{run as run_llm_usage, SeedArgs as LlmUsageArgs};
 use pierre_seeders::mobility::{run as run_mobility, SeedArgs as MobilityArgs};
 use pierre_seeders::synthetic_activities::{
     run as run_synthetic_activities, SeedArgs as SyntheticActivitiesArgs,
+};
+use pierre_seeders::trainingpeaks_delegation::{
+    run as run_trainingpeaks_delegation, SeedArgs as TrainingPeaksDelegationArgs,
 };
 use tracing::info;
 
@@ -41,35 +46,45 @@ pub enum SeedCommand {
 
     /// Seed diverse synthetic activities for testing without OAuth providers
     SyntheticActivities(SyntheticActivitiesArgs),
+
+    /// Seed a group whose coach proposed a TrainingPeaks link to a member, for the member-confirm flows
+    TrainingpeaksDelegation(TrainingPeaksDelegationArgs),
 }
 
 /// Dispatch a `Seed` subcommand to its seeder module.
 ///
-/// Every variant but `SyntheticActivities` shares a single lightweight
-/// `Database::init_for_seeding` connection (zero encryption key — seeders only
-/// touch reference data), avoiding the full `KeyManager` bootstrap that
-/// user/token commands require.
+/// Every variant but the two that write an encrypted token
+/// (`SyntheticActivities`, `TrainingpeaksDelegation`) shares a single
+/// lightweight `Database::init_for_seeding` connection (zero encryption key —
+/// those seeders only touch reference data), avoiding the full `KeyManager`
+/// bootstrap that user/token commands require.
 pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> {
     match action {
         // synthetic-activities seeds an encrypted dev-fixture oauth_token, so it
         // needs the real DEK from KeyManager — the zero seeding key would write
         // a token the server can't decrypt, leaving the user "disconnected".
         SeedCommand::SyntheticActivities(args) => {
-            dispatch_synthetic_activities(args, database_url).await
+            let repos = keyed_repositories(database_url, "synthetic-activities").await?;
+            run_synthetic_activities(args, &repos).await
+        }
+        // The coach's stand-in TrainingPeaks session is an encrypted token too.
+        // The group threads get the model every new conversation gets from
+        // the configured LLM provider, unless one is named.
+        SeedCommand::TrainingpeaksDelegation(mut args) => {
+            args.model = args.model.or_else(LlmProviderType::model_from_env);
+            let repos = keyed_repositories(database_url, "trainingpeaks-delegation").await?;
+            run_trainingpeaks_delegation(args, &repos).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
 }
 
-/// Seed synthetic activities + a dev-fixture provider token using the full
-/// two-tier key management (real DEK), so the seeded `oauth_token` decrypts in
+/// Repositories over the full two-tier key management (the real DEK), for a
+/// seeder that writes an encrypted `oauth_token`: the token then decrypts in
 /// the server exactly like a real provider connection.
-async fn dispatch_synthetic_activities(
-    args: SyntheticActivitiesArgs,
-    database_url: &str,
-) -> AppResult<()> {
+async fn keyed_repositories(database_url: &str, seeder: &str) -> AppResult<RepositoryRegistry> {
     info!(
-        "Connecting to database for synthetic-activities seeding (full key init): {}",
+        "Connecting to database for {seeder} seeding (full key init): {}",
         redact_url(database_url)
     );
     let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
@@ -81,8 +96,7 @@ async fn dispatch_synthetic_activities(
     )
     .await?;
     key_manager.complete_initialization(&mut database).await?;
-    let repos = database.repositories();
-    run_synthetic_activities(args, &repos).await
+    Ok(database.repositories())
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {
@@ -99,8 +113,8 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::DemoData(args) => run_demo_data(args, &repos).await,
         SeedCommand::LlmUsage(args) => run_llm_usage(args, &repos).await,
         SeedCommand::Mobility(args) => run_mobility(args, &repos).await,
-        SeedCommand::SyntheticActivities(_) => {
-            unreachable!("SyntheticActivities is handled by dispatch() with full key init")
+        SeedCommand::SyntheticActivities(_) | SeedCommand::TrainingpeaksDelegation(_) => {
+            unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }
     }
 }

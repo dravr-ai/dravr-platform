@@ -5,6 +5,7 @@
 // Metro resolves @pierre/* via extraNodeModules at runtime.
 import {
   PROVIDER_COLORS,
+  providerGlyphInk,
   SPACING,
   BORDER_RADIUS,
   FONT_SIZE,
@@ -48,7 +49,10 @@ export function useCardStyle(): ViewStyle {
 }
 
 // Provider brand colours belong to third parties and do not follow the scheme.
-export { PROVIDER_COLORS };
+// A provider GLYPH does not draw from them directly: `providerGlyphInk` says,
+// per scheme, whether the brand colour clears the canvas or yields to the body
+// ink (`useThemeColors().text.primary`).
+export { PROVIDER_COLORS, providerGlyphInk };
 
 // The live palette hook — the one source of colour on the phone. Every value
 // flips when the athlete toggles appearance from Settings, which a module-level

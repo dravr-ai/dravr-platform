@@ -15,6 +15,11 @@ interface PresentProviderMenuOptions {
   canReconnect: boolean;
   onReconnect: () => void;
   onDisconnect: () => void;
+  /**
+   * The destructive row's word, when it is not "Disconnect": a connection
+   * read through the athlete's coach ends that link, so it reads "Unlink".
+   */
+  disconnectLabel?: string;
 }
 
 interface MenuRow {
@@ -31,7 +36,7 @@ interface MenuRow {
  * instead, so the list carries the provider, its state and nothing else.
  */
 export function presentProviderMenu(
-  { providerName, canReconnect, onReconnect, onDisconnect }: PresentProviderMenuOptions,
+  { providerName, canReconnect, onReconnect, onDisconnect, disconnectLabel }: PresentProviderMenuOptions,
   t: TFunction,
 ): void {
   Haptics.selectionAsync().catch(() => undefined);
@@ -40,7 +45,7 @@ export function presentProviderMenu(
   if (canReconnect) {
     rows.push({ label: t('app.reconnect'), onPress: onReconnect, destructive: false });
   }
-  rows.push({ label: t('app.disconnect'), onPress: onDisconnect, destructive: true });
+  rows.push({ label: disconnectLabel ?? t('app.disconnect'), onPress: onDisconnect, destructive: true });
   const cancelLabel = t('common.cancel');
   const destructiveButtonIndex = rows.findIndex((row) => row.destructive);
 

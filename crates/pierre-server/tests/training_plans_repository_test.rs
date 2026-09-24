@@ -229,6 +229,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
             distance_meters: None,
             target_zone: "88-93% FTP".to_owned(),
             repeat: 3,
+            repeat_group: Some(1),
             note: Some("seated, steady cadence".to_owned()),
         },
         WorkoutStep {
@@ -237,6 +238,7 @@ async fn a_structured_day_round_trips_and_a_prose_row_reads_as_no_steps() -> Res
             distance_meters: Some(1500.0),
             target_zone: "Z1".to_owned(),
             repeat: 3,
+            repeat_group: Some(1),
             note: None,
         },
     ];

@@ -11,8 +11,8 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderConnection, ReauthMark, StravaPoolApp,
-    StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole, ProviderConnection,
+    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -363,6 +363,26 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
+    /// Remove a provider connection only when its type is
+    /// [`ConnectionType::Delegated`]: ending a delegated link can never delete
+    /// the member's own connection to the same provider. Returns whether a
+    /// row went.
+    async fn remove_delegated_connection(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool>;
+    /// Record the kind of account the connection signed in with, as the
+    /// provider reported it. Returns whether a connection row was updated;
+    /// `false` when the user has no such connection.
+    async fn set_account_role(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        role: ProviderAccountRole,
+    ) -> AppResult<bool>;
     /// Get all provider connections for a user
     async fn get_for_user(
         &self,
@@ -388,7 +408,10 @@ pub trait ProviderConnectionRepository: Send + Sync {
     ///
     /// Health first: a connection whose `status` requires re-auth is elected only when
     /// the user has no `active` one, so a dead connection never shadows a healthy
-    /// sibling that can still answer. Among equally healthy rows, returns the freshest
+    /// sibling that can still answer. Then a connection whose `account_role` is
+    /// [`ProviderAccountRole::Coach`] goes after the others: a coach account has no
+    /// calendar of its own, so a coach who also connected another provider gets
+    /// their own workouts from it. Among equally ranked rows, returns the freshest
     /// `last_used_at` (NULLs last), falling back to the freshest `connected_at` when no
     /// row has been touched yet. Tenant scope is honored when `tenant_id` is provided;
     /// otherwise the lookup is cross-tenant. Returns `None` when the user has no

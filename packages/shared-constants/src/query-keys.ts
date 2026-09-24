@@ -208,6 +208,9 @@ export const QUERY_KEYS = {
     health: (groupId: string) => ['groups', groupId, 'health'] as const,
     invites: (groupId: string) => ['groups', groupId, 'invites'] as const,
     transcript: (groupId: string) => ['groups', groupId, 'transcript'] as const,
+    delegatedConnections: (groupId: string) =>
+      ['groups', groupId, 'delegated-connections'] as const,
+    delegationRoster: (groupId: string) => ['groups', groupId, 'delegation-roster'] as const,
     permissions: () => ['groups', 'permissions'] as const,
   },
 

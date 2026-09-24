@@ -13,7 +13,9 @@ mod helpers;
 use std::sync::Arc;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::{
+    self as oauth_providers, TRAININGPEAKS_TERMS_VERSION,
+};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
@@ -90,6 +92,14 @@ async fn connect_page_without_token_renders_error_page() {
         !body.contains("\"provider\""),
         "no provider cards may render without a token"
     );
+    assert!(
+        body.contains("@media (prefers-color-scheme: dark)")
+            && body.contains(
+                r#"<div class="status-icon status-icon-error" aria-hidden="true">!</div>"#
+            ),
+        "the error page draws with the shared Boreal sheet, in both schemes"
+    );
+    assert!(!body.contains("{{"), "no placeholder survives the render");
 }
 
 #[tokio::test]
@@ -335,7 +345,7 @@ async fn oauth_init_rejects_unknown_provider() {
     assert_ne!(resp.status(), 302, "unknown provider must not redirect");
     let body = resp.text();
     assert!(
-        body.contains("couldn't start the connection") || body.contains("error"),
+        body.contains("We couldn&#x27;t start the connection for this provider."),
         "unknown provider renders the error path: {body}"
     );
 }
@@ -358,5 +368,267 @@ async fn success_page_renders_with_channel_and_target() {
     assert!(
         body.to_lowercase().contains("telegram"),
         "success page should reference the originating channel: {body}"
+    );
+}
+
+/// TrainingPeaks has only the scrape path, so the picker offers it as a
+/// credential card, and its mirror row is what lights it.
+#[tokio::test]
+async fn connect_page_offers_trainingpeaks_and_lights_it_on_the_mirror_row() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+
+    let before = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(before.status(), 200);
+    let body = before.text();
+    assert!(
+        body.contains("\"provider\":\"sciotte_trainingpeaks\"")
+            && body.contains("\"target\":\"trainingpeaks\""),
+        "a TrainingPeaks credential card is offered: {body}"
+    );
+    assert!(!body.contains("\"connected\":true"));
+
+    register_connection(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+    )
+    .await;
+    let after = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    assert!(
+        after.contains("\"connected\":true"),
+        "the sciotte_trainingpeaks row must show the TrainingPeaks card connected: {after}"
+    );
+}
+
+#[tokio::test]
+async fn success_page_names_trainingpeaks() {
+    let (resources, _, _) = test_setup().await;
+    let resp =
+        AxumTestRequest::get("/providers/connect/success?channel=telegram&target=trainingpeaks")
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.text();
+    assert!(
+        body.contains("TrainingPeaks"),
+        "the success page names the provider just connected, not a generic label: {body}"
+    );
+}
+
+// ============================================================================
+// The TrainingPeaks exposure notice on the hosted pages
+// ============================================================================
+
+/// The hosted login page for `target`, rendered from a freshly minted link
+/// token (each render burns its token).
+async fn hosted_login_page(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    target: &str,
+) -> String {
+    let token = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: tenant_id.as_uuid(),
+            provider: "sciotte",
+            target,
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &resources.auth.admin_jwt_secret,
+    )
+    .expect("mint hosted-login token");
+    let resp = AxumTestRequest::get(&format!(
+        "/providers/sciotte/login?token={}",
+        urlencoding::encode(&token)
+    ))
+    .send(AuthRoutes::routes(resources.auth_routes_context()))
+    .await;
+    assert_eq!(resp.status(), 200);
+    resp.text()
+}
+
+/// The hosted TrainingPeaks login states the exposure above the credentials
+/// and holds Log In until the box is ticked — until this account has accepted
+/// the notice, after which a reconnect goes straight to the form. Garmin never
+/// shows it.
+#[tokio::test]
+async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_it() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+
+    let page = hosted_login_page(&resources, user_id, tenant_id, "trainingpeaks").await;
+    assert!(
+        page.contains("TrainingPeaks could suspend my account"),
+        "the acceptance is stated on the page: {page}"
+    );
+    assert!(page.contains("Terms of Use (section 13)"));
+    assert!(
+        page.contains(
+            // The page HTML-escapes the apostrophe.
+            "If yours is a human coach&#x27;s account, Dravr also uses it to read the \
+             calendars of the athletes who confirm a link in a group you oversee."
+        ),
+        "the notice says a coach's account reads the athletes who confirm a link: {page}"
+    );
+    assert!(
+        page.contains("id=\"consent-block\">"),
+        "the notice starts visible"
+    );
+    // The notice opens with its title, as the web and mobile modals show it,
+    // on the warning callout with the acceptance as its outlined checkbox.
+    assert!(
+        page.contains(r#"<div class="callout" role="note" id="consent-block">"#)
+            && page.contains(r#"<p class="callout-title">Before you connect TrainingPeaks</p>"#),
+        "the hosted notice carries its title: {page}"
+    );
+    assert!(
+        page.find("Before you connect TrainingPeaks").unwrap()
+            < page.find("Terms of Use (section 13)").unwrap(),
+        "the title heads the notice body"
+    );
+    assert!(page.contains(r#"<label class="check"><input type="checkbox" id="tos-consent">"#));
+    assert!(
+        page.contains("@media (prefers-color-scheme: dark)"),
+        "the login page draws with the shared Boreal sheet, in both schemes"
+    );
+    assert!(!page.contains("{{"), "no placeholder survives the render");
+    assert!(page.contains("consentRequired: true"));
+    // TrainingPeaks signs in with a username; an email-typed field would
+    // refuse the account before it was ever sent.
+    assert!(
+        page.contains("<label for=\"email\">Username</label>")
+            && page.contains("type=\"text\" id=\"email\"")
+            && page.contains("autocomplete=\"username\""),
+        "the TrainingPeaks login asks for a username"
+    );
+    let notice_at = page.find("id=\"consent-block\"").unwrap();
+    let form_at = page.find("id=\"login-form\"").unwrap();
+    assert!(
+        notice_at < form_at,
+        "the notice comes before the credentials, not after them"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .record_trainingpeaks_terms(user_id, TRAININGPEAKS_TERMS_VERSION)
+        .await
+        .unwrap();
+    let accepted = hosted_login_page(&resources, user_id, tenant_id, "trainingpeaks").await;
+    assert!(accepted.contains("consentRequired: false"));
+    assert!(accepted.contains("id=\"consent-block\" hidden>"));
+
+    let garmin = hosted_login_page(&resources, user_id, tenant_id, "garmin").await;
+    assert!(garmin.contains("consentRequired: false"));
+    assert!(
+        garmin.contains("<label for=\"email\">Email</label>")
+            && garmin.contains("type=\"email\" id=\"email\""),
+        "Garmin keeps its email login"
+    );
+    assert!(garmin.contains("id=\"consent-block\" hidden>"));
+}
+
+/// The picker carries the notice hidden, and tells the page per card whether
+/// to show it — only the TrainingPeaks card asks, and only until accepted.
+#[tokio::test]
+async fn picker_asks_for_the_trainingpeaks_notice_on_that_card_alone() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+    let url = format!(
+        "/providers/connect?token={}",
+        urlencoding::encode(&connect_token(&resources, user_id, tenant_id))
+    );
+
+    let body = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    assert!(body.contains("id=\"consent-block\" hidden>"));
+    assert!(body.contains("TrainingPeaks could suspend my account"));
+    assert!(
+        body.contains(r#"<p class="callout-title">Before you connect TrainingPeaks</p>"#),
+        "the picker's notice carries its title too"
+    );
+    // A card's glyph takes its provider's ink per scheme, from PROVIDER_GLYPH_INK.
+    assert!(body.contains(r#".pc-glyph[data-provider="sciotte_trainingpeaks"]"#));
+    assert!(
+        body.contains("\"target\":\"trainingpeaks\",\"consent_required\":true"),
+        "the TrainingPeaks card asks for the notice: {body}"
+    );
+    assert!(
+        body.contains("\"target\":\"garmin\",\"consent_required\":false"),
+        "the Garmin card does not: {body}"
+    );
+    assert!(
+        body.contains("\"consent_required\":true,\"login_identifier\":\"username\"")
+            && body.contains(
+                "\"target\":\"garmin\",\"consent_required\":false,\"login_identifier\":\"email\""
+            ),
+        "each card tells the page what its provider signs in with: {body}"
+    );
+    assert!(
+        body.contains("'Username / password'"),
+        "the picker names the username a TrainingPeaks card asks for"
+    );
+
+    resources
+        .common
+        .repos
+        .users
+        .record_trainingpeaks_terms(user_id, TRAININGPEAKS_TERMS_VERSION)
+        .await
+        .unwrap();
+    let accepted = AxumTestRequest::get(&url)
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await
+        .text();
+    assert!(
+        accepted.contains("\"target\":\"trainingpeaks\",\"consent_required\":false"),
+        "an account that accepted is not asked again: {accepted}"
+    );
+}
+
+// ============================================================================
+// GET /r/{code} — the expired short-link page
+// ============================================================================
+
+/// A lapsed short link lands on a hosted page like the others: the shared
+/// Boreal sheet in both schemes, the lockup, and the copy in the browser's
+/// language.
+#[tokio::test]
+async fn expired_short_link_page_draws_with_the_boreal_sheet() {
+    let (resources, _, _) = test_setup().await;
+    let resp = AxumTestRequest::get("/r/0123456789abcdef0123456789abcdef")
+        .header("accept-language", "en-CA,en;q=0.9")
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+
+    assert_eq!(resp.status(), 404);
+    let body = resp.text();
+    assert!(
+        body.contains("<h1>This link has expired</h1>"),
+        "the page speaks the browser's language: {body}"
+    );
+    assert!(body.contains(r#"<div class="lockup" role="img" aria-label="Dravr"></div>"#));
+    let dark_at = body
+        .find("@media (prefers-color-scheme: dark)")
+        .expect("the page carries the dark scheme");
+    assert!(body[..dark_at].contains("--color-primary: 37 95 77;"));
+    assert!(body[dark_at..].contains("--color-primary: 163 208 190;"));
+    assert!(
+        !body.contains("style=\""),
+        "no inline style is left on the page"
     );
 }

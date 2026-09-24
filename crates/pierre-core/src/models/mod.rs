@@ -34,6 +34,9 @@ pub mod a2a;
 mod athlete;
 /// The difficulty-calibration interview's topic table and next-topic policy.
 pub mod calibration;
+/// A member's provider read through their group coach's session: the
+/// `delegated_connections` row and its lifecycle vocabulary.
+pub mod delegated_connection;
 /// Endurance athlete dossier composed at read time from physiology, goals,
 /// zones, nutrition, and equipment slots.
 pub mod dossier;
@@ -47,8 +50,6 @@ pub mod onboarding;
 /// The canonical six fitness-adapted health pillars (single source of truth
 /// for per-user context, pillar-tagged facts, and the OKF bundle).
 pub mod pillar;
-/// Agent-athlete roster assignment shape backing `coach_athlete_assignments`.
-pub mod roster;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sleep;
@@ -82,6 +83,10 @@ pub use dravr_cageux::models::activity::{
 };
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;
+// A session a provider's calendar plans for the athlete, in the periodization
+// grammar — read back from TrainingPeaks today, from any calendar provider
+// that declares the planned-workouts capability.
+pub use dravr_cageux::models::planned_workout::{PlannedWorkout, PlannedWorkoutBuilder};
 // Form banding lives in the sports-science engine (dravr-cageux) so every
 // surface reads the same edges; see `FormBand` for why raw TSB is never banded.
 pub use dravr_cageux::training_load::FormBand;
@@ -130,7 +135,7 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
 pub use athlete::{Athlete, PeriodTotals, PersonalRecord, PrMetric, Stats};
-pub use roster::CoachAthleteAssignment;
+pub use delegated_connection::{DelegatedConnection, DelegationEndReason, DelegationStatus};
 
 // User domain
 pub use user::{
@@ -176,9 +181,9 @@ pub use dravr_cageux::periodization::{
 // OAuth domain
 pub use oauth::{
     connection_needs_reauth, AuthRequest, AuthResponse, ConnectionStatus, ConnectionType,
-    DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification, ProviderConnection,
-    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning, StravaTokenApp,
-    UserOAuthApp, UserOAuthToken, UserSession,
+    DecryptedToken, EncryptedToken, OAuthAppCredentials, OAuthNotification, ProviderAccountRole,
+    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaSeatReclaimWarning,
+    StravaTokenApp, UserOAuthApp, UserOAuthToken, UserSession,
 };
 
 // OAuth client state for provider authorization flows

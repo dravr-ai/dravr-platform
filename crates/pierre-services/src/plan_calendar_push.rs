@@ -171,6 +171,7 @@ pub fn plan_day_session(user_id: Uuid, day: &PlannedDay, ordinal: usize) -> Opti
                 distance_meters: None,
                 target_zone: intensity.to_owned(),
                 repeat: 1,
+                repeat_group: None,
                 note: None,
             }],
             _ => Vec::new(),
