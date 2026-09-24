@@ -251,13 +251,14 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
           ./scripts/ci/check-migration-versions.test.sh
           ./scripts/ci/check-migration-immutability.test.sh
           ./scripts/ci/check-moved-symbols.test.sh
+          ./scripts/ci/check-inline-paths.test.sh
           ./scripts/ci/check-phantom-surfaces.test.sh
           ./scripts/ci/check-contremaitre-sync.test.sh
           ./scripts/ci/check-backend-pairs.test.sh
