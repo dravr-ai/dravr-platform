@@ -404,19 +404,14 @@ impl FitnessProvider for FitbitProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        // Fitbit authenticates the refresh with an HTTP Basic header and
-        // rejects the client credentials repeated in the body.
         let mut new_credentials = utils::refresh_oauth_token(
             &self.client,
-            &utils::RefreshRequest {
-                token_url: &self.config.token_url,
-                client_id: &credentials.client_id,
-                client_secret: &credentials.client_secret,
-                refresh_token: &refresh_token,
-                provider_name: oauth_providers::FITBIT,
-                client_auth: utils::ClientAuth::BasicHeader,
-                extra_form: &[],
-            },
+            &utils::RefreshRequest::fitbit(
+                &self.config.token_url,
+                &credentials.client_id,
+                &credentials.client_secret,
+                &refresh_token,
+            ),
         )
         .await?;
         // Fitbit omits the refresh token when it is unchanged, and the

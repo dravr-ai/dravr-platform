@@ -7,6 +7,7 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 
+use crate::constants::oauth_providers;
 use crate::errors::{AppError, AppResult};
 use crate::http_client::SharedHttpClient;
 use chrono::{TimeZone, Utc};
@@ -332,6 +333,71 @@ pub struct RefreshRequest<'a> {
     pub extra_form: &'a [(&'a str, &'a str)],
 }
 
+impl<'a> RefreshRequest<'a> {
+    /// A refresh with the client credentials in the form body and no vendor
+    /// field: the `OAuth2` default, and what Strava expects.
+    #[must_use]
+    pub const fn form_fields(
+        provider_name: &'a str,
+        token_url: &'a str,
+        client_id: &'a str,
+        client_secret: &'a str,
+        refresh_token: &'a str,
+    ) -> Self {
+        Self {
+            token_url,
+            client_id,
+            client_secret,
+            refresh_token,
+            provider_name,
+            client_auth: ClientAuth::FormFields,
+            extra_form: &[],
+        }
+    }
+
+    /// A Fitbit refresh. Fitbit authenticates it with an HTTP Basic header and
+    /// rejects the client credentials repeated in the body.
+    #[must_use]
+    pub const fn fitbit(
+        token_url: &'a str,
+        client_id: &'a str,
+        client_secret: &'a str,
+        refresh_token: &'a str,
+    ) -> Self {
+        Self {
+            token_url,
+            client_id,
+            client_secret,
+            refresh_token,
+            provider_name: oauth_providers::FITBIT,
+            client_auth: ClientAuth::BasicHeader,
+            extra_form: &[],
+        }
+    }
+
+    /// A WHOOP refresh. WHOOP rotates refresh tokens and returns a new one
+    /// only when `scope=offline` is sent on the refresh; without it the
+    /// single-use refresh token is consumed but not replaced, so the next
+    /// refresh fails with HTTP 400 `invalid_request`.
+    #[must_use]
+    pub const fn whoop(
+        token_url: &'a str,
+        client_id: &'a str,
+        client_secret: &'a str,
+        refresh_token: &'a str,
+    ) -> Self {
+        Self {
+            token_url,
+            client_id,
+            client_secret,
+            refresh_token,
+            provider_name: oauth_providers::WHOOP,
+            client_auth: ClientAuth::FormFields,
+            extra_form: &[("scope", "offline")],
+        }
+    }
+}
+
 /// Standard token refresh response structure
 #[derive(Debug, Deserialize)]
 pub struct TokenRefreshResponse {
@@ -359,8 +425,10 @@ pub struct TokenRefreshResponse {
 ///
 /// Returns an error if:
 /// - HTTP request fails
-/// - Token endpoint returns error
-/// - Response parsing fails
+/// - Token endpoint returns error, whose text names the HTTP status and the
+///   vendor's error body (`Token endpoint returned HTTP 400 Bad Request: {...}`)
+/// - Response parsing fails, whose text leaves the body out: a success body is
+///   the token pair
 pub async fn refresh_oauth_token(
     client: &SharedHttpClient,
     request: &RefreshRequest<'_>,
@@ -407,13 +475,16 @@ pub async fn refresh_oauth_token(
         )
     })?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let err = ProviderError::AuthenticationFailed {
-            provider: provider_name.to_owned(),
-            reason: format!("token refresh failed with status: {status}"),
-        };
-        return Err(AppError::external_service(provider_name, err.to_string()));
+    // A refusal carries the status and the vendor's error body: what the
+    // grant's standing is read from (a dead refresh token, a rejected client,
+    // a rate limit). The body of a refusal holds no token.
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::external_service(
+            provider_name,
+            format!("Token endpoint returned HTTP {status}: {body}"),
+        ));
     }
 
     let token_response: TokenRefreshResponse = response.json().await.map_err(|e| {

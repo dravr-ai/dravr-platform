@@ -11,7 +11,7 @@ use crate::protocol::types::{
     UniversalResponse, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
 };
 use crate::runtime::ToolRuntime;
-use pierre_config::environment::{default_provider, get_oauth_config, OAuthProviderConfig};
+use pierre_config::environment::default_provider;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::FitnessProvider;
@@ -19,7 +19,7 @@ use pierre_tools_core::ToolResult;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Extract the literal `provider` argument from request parameters, when present.
@@ -224,17 +224,6 @@ pub fn create_auth_error_response(provider_name: &str, error: &str) -> Universal
             map
         }),
     }
-}
-
-/// Get OAuth config for a provider, with logging
-pub fn get_provider_oauth_config(provider_name: &str) -> OAuthProviderConfig {
-    let config = get_oauth_config(provider_name);
-    debug!(
-        provider = provider_name,
-        has_client_id = config.client_id.is_some(),
-        "Loaded OAuth config for provider"
-    );
-    config
 }
 
 /// Fetch activities from the user's connected provider

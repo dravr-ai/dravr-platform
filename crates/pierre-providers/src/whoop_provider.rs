@@ -355,21 +355,14 @@ impl FitnessProvider for WhoopProvider {
             .refresh_token
             .ok_or_else(|| AppError::internal("No refresh token available"))?;
 
-        // WHOOP rotates refresh tokens and only returns a new one when
-        // `scope=offline` is sent on the refresh; without it the single-use
-        // refresh token is consumed but not replaced, so the next refresh
-        // fails with HTTP 400 invalid_request.
         let mut new_credentials = utils::refresh_oauth_token(
             &self.client,
-            &utils::RefreshRequest {
-                token_url: &self.config.token_url,
-                client_id: &credentials.client_id,
-                client_secret: &credentials.client_secret,
-                refresh_token: &refresh_token,
-                provider_name: oauth_providers::WHOOP,
-                client_auth: utils::ClientAuth::FormFields,
-                extra_form: &[("scope", "offline")],
-            },
+            &utils::RefreshRequest::whoop(
+                &self.config.token_url,
+                &credentials.client_id,
+                &credentials.client_secret,
+                &refresh_token,
+            ),
         )
         .await?;
         // The rotated refresh token is kept when WHOOP sends one; scopes are

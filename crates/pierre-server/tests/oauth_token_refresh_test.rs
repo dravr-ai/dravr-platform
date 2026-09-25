@@ -148,7 +148,10 @@
 
 mod common;
 
+use axum::http::HeaderMap;
 use axum::{routing::post, Form, Json, Router};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -855,6 +858,10 @@ async fn strava_pool_issued_token_refreshes_under_its_own_app() {
     );
 }
 
+/// `(authorization header, form body)` of every refresh POST a mock token
+/// endpoint received.
+type RefreshRequests = Arc<Mutex<Vec<(String, HashMap<String, String>)>>>;
+
 /// One provider's expected refresh behaviour, exercised by
 /// [`assert_refresh_once_and_persists`].
 struct RefreshSeamCase {
@@ -872,6 +879,11 @@ struct RefreshSeamCase {
     /// Refresh token the DB must hold after refresh. When the response omits a
     /// new refresh token, this is the ORIGINAL (input) token, preserved.
     expected_refresh: &'static str,
+    /// Whether the vendor takes the client credentials as an HTTP Basic
+    /// header (and refuses them in the body) rather than as form fields.
+    basic_client_auth: bool,
+    /// Form fields the vendor requires beyond the four standard ones.
+    extra_form: &'static [(&'static str, &'static str)],
     /// Unique seed email so concurrent cases don't collide.
     email: &'static str,
 }
@@ -888,17 +900,28 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
 
     let hits = Arc::new(AtomicUsize::new(0));
     let hits_route = Arc::clone(&hits);
+    let requests: RefreshRequests = Arc::new(Mutex::new(Vec::new()));
+    let requests_route = Arc::clone(&requests);
     let body = case.mock_response.clone();
     let app = Router::new().route(
         "/oauth/token",
-        post(move || {
-            let hits = Arc::clone(&hits_route);
-            let body = body.clone();
-            async move {
-                hits.fetch_add(1, Ordering::SeqCst);
-                Json(body)
-            }
-        }),
+        post(
+            move |headers: HeaderMap, Form(form): Form<HashMap<String, String>>| {
+                let hits = Arc::clone(&hits_route);
+                let requests = Arc::clone(&requests_route);
+                let body = body.clone();
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    let authorization = headers
+                        .get("authorization")
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_owned();
+                    requests.lock().unwrap().push((authorization, form));
+                    Json(body)
+                }
+            },
+        ),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
@@ -949,6 +972,54 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
         case.provider
     );
 
+    // The refresh reached the token endpoint in the shape its vendor requires.
+    let (authorization, form) = requests.lock().unwrap()[0].clone();
+    assert_eq!(
+        form.get("grant_type").map(String::as_str),
+        Some("refresh_token")
+    );
+    assert_eq!(
+        form.get("refresh_token").map(String::as_str),
+        Some("old_refresh_token")
+    );
+    if case.basic_client_auth {
+        assert_eq!(
+            authorization,
+            format!("Basic {}", BASE64.encode("test_client:test_secret")),
+            "{} authenticates the refresh with an HTTP Basic header",
+            case.provider
+        );
+        assert!(
+            !form.contains_key("client_id") && !form.contains_key("client_secret"),
+            "{} refuses the client credentials in the body: {form:?}",
+            case.provider
+        );
+    } else {
+        assert_eq!(authorization, "", "{} takes no Basic header", case.provider);
+        assert_eq!(
+            form.get("client_id").map(String::as_str),
+            Some("test_client")
+        );
+        assert_eq!(
+            form.get("client_secret").map(String::as_str),
+            Some("test_secret")
+        );
+    }
+    for (key, value) in case.extra_form {
+        assert_eq!(
+            form.get(*key).map(String::as_str),
+            Some(*value),
+            "{} requires {key}={value} on the refresh: {form:?}",
+            case.provider
+        );
+    }
+    assert_eq!(
+        form.len(),
+        if case.basic_client_auth { 2 } else { 4 } + case.extra_form.len(),
+        "{} refresh carries exactly the fields its vendor takes: {form:?}",
+        case.provider
+    );
+
     let stored = database
         .repositories()
         .oauth_tokens
@@ -994,6 +1065,8 @@ async fn fitbit_expired_token_refreshes_exactly_once_and_persists() {
         }),
         expected_access: "fitbit_new_access",
         expected_refresh: "fitbit_new_refresh",
+        basic_client_auth: true,
+        extra_form: &[],
         email: "refresh-fitbit@example.com",
     })
     .await;
@@ -1001,8 +1074,9 @@ async fn fitbit_expired_token_refreshes_exactly_once_and_persists() {
 
 /// WHOOP refresh — BOTH cases in one test: the normal case (response carries a
 /// new refresh token, which must be rotated) and the omit case (no refresh token
-/// in the response, so the seeded input token must be preserved per
-/// `client.rs`: `response.refresh_token.or_else(|| input)`).
+/// in the response, so the seeded input token is kept). Both send
+/// `scope=offline`, without which WHOOP consumes the refresh token and returns
+/// none to replace it.
 ///
 /// The two cases run sequentially in a single test on purpose: each
 /// `assert_refresh_once_and_persists` call sets and then drops the shared
@@ -1028,6 +1102,8 @@ async fn whoop_refresh_with_and_without_new_token() {
         }),
         expected_access: "whoop_new_access",
         expected_refresh: "whoop_new_refresh",
+        basic_client_auth: false,
+        extra_form: &[("scope", "offline")],
         email: "refresh-whoop@example.com",
     })
     .await;
@@ -1045,6 +1121,8 @@ async fn whoop_refresh_with_and_without_new_token() {
         }),
         expected_access: "whoop_new_access_2",
         expected_refresh: "old_refresh_token",
+        basic_client_auth: false,
+        extra_form: &[("scope", "offline")],
         email: "refresh-whoop-omit@example.com",
     })
     .await;
