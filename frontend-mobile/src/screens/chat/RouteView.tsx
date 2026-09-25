@@ -5,7 +5,7 @@ import React, { useMemo } from 'react';
 import { View, Text } from 'react-native';
 import { Camera, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-native';
 import Svg, { Line } from 'react-native-svg';
-import type { RouteBounds, RouteView as RouteBlock } from '@pierre/scene-types';
+import type { RouteView as RouteBlock } from '@pierre/scene-types';
 import { useTranslation } from '@pierre/i18n';
 import {
   alignedSeries,
@@ -14,6 +14,7 @@ import {
   climbRange,
   kilometres,
   metresAt,
+  routeFrame,
   trackGeometry,
 } from '@pierre/chat-utils';
 import { BASEMAP_STYLE, BOREAL_LIGHT } from '@pierre/shared-constants';
@@ -48,41 +49,8 @@ const CLIMB_WIDTH = 4;
  */
 const CLIMB_DASH = [1.4, 1.1];
 
-/**
- * The narrowest box the camera will frame, in degrees.
- *
- * A track whose extent is a point — an activity that recorded one fix, a
- * trainer session that recorded only jitter — otherwise fits at the style's
- * maximum zoom, which is a map of one tree. Widening the box to this floor
- * keeps the frame at about the distance a route is read from. A real ride is
- * orders of magnitude wider and passes through untouched.
- */
-const MIN_SPAN_DEGREES = 0.004;
-
 /** Inset between the track and the map's edges, in points. */
 const CAMERA_PADDING = { top: 24, right: 24, bottom: 24, left: 24 };
-
-/**
- * The carried extent as MapLibre's `[west, south, east, north]`.
- *
- * The extent is carried by the block rather than folded from the points here,
- * so every client frames the same ride identically. Only the degenerate case is
- * adjusted, and it is adjusted symmetrically about the midpoint so the track
- * stays centred.
- */
-function cameraBounds(bounds: RouteBounds): [number, number, number, number] {
-  const widen = (min: number, max: number): [number, number] => {
-    const span = max - min;
-    if (span >= MIN_SPAN_DEGREES) {
-      return [min, max];
-    }
-    const grow = (MIN_SPAN_DEGREES - span) / 2;
-    return [min - grow, max + grow];
-  };
-  const [south, north] = widen(bounds.min_latitude, bounds.max_latitude);
-  const [west, east] = widen(bounds.min_longitude, bounds.max_longitude);
-  return [west, south, east, north];
-}
 
 /**
  * The dashed swatch that names the climb ink in the legend.
@@ -125,7 +93,7 @@ export default function RouteView({ route }: { route: RouteBlock }) {
     () => climbGeometry(route.coordinates, route.climbs),
     [route.coordinates, route.climbs],
   );
-  const bounds = useMemo(() => cameraBounds(route.bounds), [route.bounds]);
+  const bounds = useMemo(() => routeFrame(route.bounds), [route.bounds]);
 
   // A track with no positions is not a map. Both clients say why rather than
   // dropping the block silently: the athlete asked to see a route and is owed

@@ -15,11 +15,12 @@ import {
   climbRange,
   kilometres,
   metresAt,
+  routeFrame,
   trackGeometry,
 } from '@pierre/chat-utils';
 import { BASEMAP_STYLE } from '@pierre/shared-constants';
 import { useTheme } from '../../hooks/useTheme';
-import { addRouteLayers, routeInk, viewportBounds } from './routeLayers';
+import { addRouteLayers, routeInk } from './routeLayers';
 
 /**
  * One recorded track, drawn.
@@ -41,7 +42,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
     () => climbGeometry(view.coordinates, view.climbs),
     [view.coordinates, view.climbs]
   );
-  const bounds = useMemo(() => viewportBounds(view.bounds), [view.bounds]);
+  const bounds = useMemo(() => routeFrame(view.bounds), [view.bounds]);
   const ink = useMemo(() => routeInk(scheme), [scheme]);
 
   // The style-load handler runs again on every basemap swap and has to paint in
@@ -75,11 +76,12 @@ export default function RouteView({ view }: { view: RouteViewData }) {
       const created = new Map({
         container: node,
         style: paint.current.style,
+        // Handed over at construction rather than fitted afterwards, so the
+        // first frame is already over the route instead of panning to it once
+        // tiles arrive. A one-fix track arrives widened to the shared minimum
+        // span, so it opens at the distance the phone frames it from.
         bounds,
-        // A track whose extent is a point — an activity that recorded one fix —
-        // otherwise fits at the style's maximum zoom, which is a map of one
-        // tree. 16 is as close as a route is ever read.
-        fitBoundsOptions: { padding: 24, maxZoom: 16 },
+        fitBoundsOptions: { padding: 24 },
         // MapLibre's own attribution lands bottom-right, under the zoom stack;
         // the compact one is docked opposite it below.
         attributionControl: false,
