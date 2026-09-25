@@ -10,7 +10,7 @@ Pierre supports multiple authentication methods for different use cases.
 | method | use case | header | endpoints |
 |--------|----------|--------|-----------|
 | jwt tokens | mcp clients, web apps | `Authorization: Bearer <token>` | all authenticated endpoints |
-| api keys | a2a systems | `X-API-Key: <key>` | a2a endpoints |
+| api keys | a2a systems, headless mcp clients | `Authorization: <key>` (rest), `Authorization: Bearer <key>` (`/mcp`) | rest and mcp endpoints |
 | oauth2 | provider integration | varies | fitness provider apis |
 
 ## JWT Authentication
@@ -93,24 +93,33 @@ For a2a systems and service-to-service communication.
 
 ### Creating API Keys
 
-Requires admin or user jwt:
+Requires admin or user jwt. The tier follows from `rate_limit_requests` (see the tiers below); a trial key starts `pk_trial_`, every other tier `pk_live_`:
 ```bash
 curl -X POST http://localhost:8081/api/keys \
   -H "Authorization: Bearer <jwt_token>" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My A2A System",
-    "tier": "professional"
+    "rate_limit_requests": 100000
   }'
 ```
 
 Response:
 ```json
 {
-  "api_key": "generated_key",
-  "name": "My A2A System",
-  "tier": "professional",
-  "created_at": "2024-01-01T00:00:00Z"
+  "api_key": "pk_live_<32 characters>",
+  "key_info": {
+    "id": "c529f54e-75af-4c74-b8c1-002b6cbffed6",
+    "name": "My A2A System",
+    "description": null,
+    "tier": "professional",
+    "key_prefix": "pk_live_abcd",
+    "is_active": true,
+    "last_used_at": null,
+    "expires_at": null,
+    "created_at": "2026-01-01T00:00:00Z"
+  },
+  "warning": "Store this API key securely. It will not be shown again."
 }
 ```
 
@@ -118,10 +127,14 @@ Save api key - cannot be retrieved later.
 
 ### Using API Keys
 
+A rest route reads the key as the whole `Authorization` value, with no scheme (`Bearer` there introduces a jwt):
+
 ```bash
-curl -H "X-API-Key: <api_key>" \
-  http://localhost:8081/api/activities
+curl -H "Authorization: <api_key>" \
+  http://localhost:8081/api/providers
 ```
+
+The mcp endpoint takes the key as a bearer token, `Authorization: Bearer <api_key>`: its transport strips the scheme before the key is recognised by its prefix. The `pierre-mcp-client` bridge sends it that way when `PIERRE_API_KEY` is set.
 
 ### API Key Tiers
 
@@ -963,7 +976,7 @@ Implementation: `src/database_plugins/sqlite.rs`, `src/database_plugins/postgres
 
 - verify api key active: not deleted or expired
 - check rate limits: may be throttled
-- ensure correct header: `X-API-Key` (case-sensitive)
+- ensure correct header: `Authorization: <key>` on rest routes, `Authorization: Bearer <key>` on `/mcp`
 
 ## Implementation References
 

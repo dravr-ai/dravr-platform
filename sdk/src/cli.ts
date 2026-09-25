@@ -37,6 +37,7 @@ const logStartupDiagnostics = (config: BridgeConfig, callbackPort: string): void
   }
   console.error(`  PIERRE_SERVER_URL = ${process.env.PIERRE_SERVER_URL || '[NOT SET]'}`);
   console.error(`  PIERRE_JWT_TOKEN = ${process.env.PIERRE_JWT_TOKEN ? '[SET]' : '[NOT SET]'}`);
+  console.error(`  PIERRE_API_KEY = ${process.env.PIERRE_API_KEY ? '[SET]' : '[NOT SET]'}`);
   console.error(`  NODE_ENV = ${process.env.NODE_ENV || '[NOT SET]'}`);
   console.error(`  CI = ${process.env.CI || '[NOT SET]'}`);
 };
@@ -61,9 +62,10 @@ program
     `
 Credentials (environment only, never passed as arguments):
   PIERRE_JWT_TOKEN              Pre-authenticated JWT; selects JWT auth mode
+  PIERRE_API_KEY                Dravr API key; selects API key mode, which never opens a browser
   PIERRE_OAUTH_CLIENT_SECRET    OAuth 2.0 client secret; used with --oauth-client-id
 
-Without either, the client registers an OAuth client dynamically and authorizes in a browser.`,
+Without any of them, the client registers an OAuth client dynamically and authorizes in a browser.`,
   )
   .action(async (options) => {
     try {
@@ -82,12 +84,15 @@ Without either, the client registers an OAuth client dynamically and authorizes 
       // world-readable for the life of the process (`ps -ef`, /proc/<pid>/cmdline) and they
       // also persist in shell history and in the MCP host's configuration file.
       const jwtToken = process.env.PIERRE_JWT_TOKEN;
+      const apiKey = process.env.PIERRE_API_KEY;
       const oauthClientSecret = process.env.PIERRE_OAUTH_CLIENT_SECRET;
 
       // Determine auth mode based on the credentials available (priority order)
       let config: BridgeConfig;
       if (jwtToken) {
         config = { ...baseConfig, mode: 'jwt', jwtToken };
+      } else if (apiKey) {
+        config = { ...baseConfig, mode: 'api-key', apiKey };
       } else if (options.oauthClientId && oauthClientSecret) {
         config = { ...baseConfig, mode: 'oauth', oauthClientId: options.oauthClientId, oauthClientSecret };
       } else {

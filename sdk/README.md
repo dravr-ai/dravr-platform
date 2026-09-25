@@ -125,9 +125,16 @@ client runs, and they persist in shell history and in the MCP host's configurati
 | Variable | Effect |
 |----------|--------|
 | `PIERRE_JWT_TOKEN` | Authenticates with a pre-issued JWT; selects JWT auth mode |
+| `PIERRE_API_KEY` | Authenticates with a Dravr API key (`POST /api/keys`); selects API key mode |
 | `PIERRE_OAUTH_CLIENT_SECRET` | Client secret for the `--oauth-client-id` given; selects OAuth auth mode |
 
-With neither set, the client registers an OAuth client dynamically and authorizes in a browser.
+The first one set, in that order, decides the mode. With none of them set, the client registers
+an OAuth client dynamically and authorizes in a browser.
+
+In API key mode the key is the whole session: it is sent as the bearer token on every `/mcp`
+request, no browser sign-in ever runs, and a key Dravr refuses is reported as refused rather than
+replaced by a session stored from an earlier sign-in. `connect_provider` has Dravr mint the
+provider's authorization page for the key's athlete.
 In an MCP host, set them in the server entry's `env` block:
 
 ```json

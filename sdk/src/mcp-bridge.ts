@@ -97,7 +97,11 @@ export interface BridgeConfigOAuth extends BridgeConfigBase {
   oauthClientSecret: string;
 }
 
-/** API key authentication mode */
+/**
+ * API key authentication mode: the Dravr API key is sent as the bearer on every /mcp
+ * request, which Dravr's MCP transport authenticates as that key. No browser sign-in
+ * runs in this mode, and a key Dravr refuses is reported as refused.
+ */
 export interface BridgeConfigApiKey extends BridgeConfigBase {
   mode: 'api-key';
   apiKey: string;
@@ -405,6 +409,14 @@ export class PierreMcpClient {
               'Dravr MCP Server reachable; a session is needed for tools - use "Connect to Dravr"',
             );
             return;
+          }
+          if (this.config.mode === "api-key") {
+            // The key is the only credential this mode presents, and presenting it
+            // again gets the same answer, so the refusal is reported at once.
+            throw new PierreError(
+              PierreErrorCode.AUTH_ERROR,
+              "Dravr refused the configured API key - check that it is active and has not expired or been revoked",
+            );
           }
           if (attempt < maxAttempts) {
             this.log(
@@ -1447,22 +1459,8 @@ export class PierreMcpClient {
         );
       }
 
-      // Step 3: Extract user_id from JWT token
-      const tokens = await this.oauthProvider.tokens();
-      if (!tokens?.access_token) {
-        throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
-      }
-
-      // Decode JWT to get user_id (JWT format: header.payload.signature)
-      const payload = tokens.access_token.split(".")[1];
-      const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
-      const userId = decoded.sub;
-
-      if (!userId) {
-        throw new PierreError(PierreErrorCode.AUTH_ERROR, "Could not extract user_id from JWT token");
-      }
-
-      this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
+      // Step 3: The page that starts the provider's authorization for this athlete
+      const providerOAuthUrl = await this.providerAuthorizationUrl(provider);
 
       // Ensure callback server is running to receive provider OAuth completion notification
       // The server will POST to this callback when provider OAuth completes
@@ -1477,9 +1475,6 @@ export class PierreMcpClient {
       }
 
       try {
-        // Correct OAuth URL format: /api/oauth/auth/{provider}/{user_id}
-        const providerOAuthUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
-
         // Open provider OAuth in browser with focus
         openUrlInBrowserWithFocus(providerOAuthUrl, {
           disableBrowser: this.config.disableBrowser,
@@ -1585,6 +1580,59 @@ export class PierreMcpClient {
         isError: true,
       };
     }
+  }
+
+  /**
+   * The page that starts `provider`'s authorization for the athlete this bridge acts for.
+   *
+   * A Dravr session token names its athlete in the JWT `sub` claim, and the page is
+   * Dravr's initiation route for that user id. An API key names no athlete the bridge can
+   * read, so in api-key mode Dravr is asked for the provider's authorization URL instead:
+   * the key authenticates that request, and Dravr mints the URL for the key's athlete and
+   * records the flow's state on its side.
+   */
+  private async providerAuthorizationUrl(provider: string): Promise<string> {
+    if (this.config.mode === "api-key") {
+      // A REST route reads an API key as the whole Authorization value, with no scheme:
+      // there `Bearer` introduces a session token. The MCP transport strips `Bearer`
+      // before it looks, which is why /mcp requests carry the key under that scheme.
+      const response = await fetch(
+        `${this.config.pierreServerUrl}/api/oauth/mobile/init/${encodeURIComponent(provider)}`,
+        { headers: { Authorization: this.config.apiKey } },
+      );
+      if (!response.ok) {
+        throw new PierreError(
+          PierreErrorCode.PROVIDER_ERROR,
+          `Dravr refused to start ${provider} authorization for the configured API key (HTTP ${response.status})`,
+        );
+      }
+      const minted = (await response.json()) as { authorization_url?: unknown };
+      if (typeof minted.authorization_url !== "string") {
+        throw new PierreError(
+          PierreErrorCode.PROVIDER_ERROR,
+          `Dravr answered the ${provider} authorization request without an authorization_url`,
+        );
+      }
+      this.log(`Initiating ${provider} OAuth flow for the configured API key`);
+      return minted.authorization_url;
+    }
+
+    const tokens = await this.oauthProvider?.tokens();
+    if (!tokens?.access_token) {
+      throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
+    }
+
+    // Decode JWT to get user_id (JWT format: header.payload.signature)
+    const payload = tokens.access_token.split(".")[1];
+    const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
+    const userId = decoded.sub;
+
+    if (!userId) {
+      throw new PierreError(PierreErrorCode.AUTH_ERROR, "Could not extract user_id from JWT token");
+    }
+
+    this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
+    return `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
   }
 
   private async startBridge(): Promise<void> {
