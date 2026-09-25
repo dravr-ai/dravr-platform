@@ -30,7 +30,8 @@ use pierre_providers::backend_resolver;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
-    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
+    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, AuthUrlOptions,
+    BridgeCallbackToken, OAuthService, BRIDGE_CALLBACK_TOKEN_HEADER,
 };
 use pierre_services::oauth_redirects;
 use pierre_services::provider_notice::{asks_for_notice, require_notice_accepted};
@@ -590,6 +591,30 @@ pub struct OAuthStartQuery {
     pub tos_consent: bool,
 }
 
+/// The per-flow token of the SDK bridge listener that starts this flow, when
+/// a bridge starts it: sent in [`BRIDGE_CALLBACK_TOKEN_HEADER`], never in the
+/// URL, and presented on the flow's success notification, the only POST that
+/// listener accepts provider tokens from. Checked before the flow starts, so
+/// a malformed token is refused rather than stored.
+///
+/// # Errors
+/// Returns an invalid-input error when the header is present but malformed.
+fn presented_callback_token(headers: &HeaderMap) -> Result<Option<BridgeCallbackToken>, AppError> {
+    headers
+        .get(BRIDGE_CALLBACK_TOKEN_HEADER)
+        .map(|value| {
+            value.to_str().map_or_else(
+                |_| {
+                    Err(AppError::invalid_input(format!(
+                        "{BRIDGE_CALLBACK_TOKEN_HEADER} must be visible ASCII"
+                    )))
+                },
+                BridgeCallbackToken::parse,
+            )
+        })
+        .transpose()
+}
+
 /// Refuse to begin `provider`'s OAuth flow until the account has accepted the
 /// notice in force for it, recording the acceptance this start carries.
 ///
@@ -649,6 +674,7 @@ pub async fn handle_oauth_auth_initiate(
         .await?;
 
     let user_id = parse_user_id(&user_id_str)?;
+    let bridge_callback_token = presented_callback_token(&headers)?;
 
     // Verify authenticated user matches the requested user_id
     if auth_result.user_id != user_id {
@@ -676,7 +702,15 @@ pub async fn handle_oauth_auth_initiate(
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     let auth_response = oauth_service
-        .get_auth_url(user_id, tenant_id, &provider)
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                bridge_callback_token: bridge_callback_token.as_ref(),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await
         .map_err(|e| {
             error!(
@@ -732,6 +766,7 @@ pub async fn handle_mobile_oauth_init(
 
     // Get optional redirect_uri from query parameters (mobile app's deep link)
     let redirect_url = query.get("redirect_uri");
+    let bridge_callback_token = presented_callback_token(&headers)?;
 
     // Validate redirect URL against allowlist to prevent open-redirect attacks
     if let Some(url) = redirect_url {
@@ -835,6 +870,7 @@ pub async fn handle_mobile_oauth_init(
         pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
         // The shared-pool app the URL names, so the exchange uses its client.
         oauth_app_client_id: authorization.oauth_app_client_id,
+        bridge_callback_token: bridge_callback_token.map(|token| token.as_str().to_owned()),
         created_at: now,
         expires_at: now + chrono::Duration::minutes(10),
         used: false,
@@ -925,6 +961,7 @@ pub async fn handle_oauth_authorize_redirect(
         .await?;
     let user_id = auth_result.user_id;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    let bridge_callback_token = presented_callback_token(&headers)?;
 
     let span = Span::current();
     span.record("user_id", field::display(&user_id));
@@ -936,7 +973,15 @@ pub async fn handle_oauth_authorize_redirect(
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let authorization = oauth_service
-        .get_auth_url(user_id, tenant_id, &provider)
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                bridge_callback_token: bridge_callback_token.as_ref(),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await?;
 
     info!(

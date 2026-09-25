@@ -125,7 +125,8 @@ describe('provider token callback authentication', () => {
   test('the callback path accepts POST only', async () => {
     const res = await httpRequest(port, {
       method: 'GET',
-      path: `/oauth/provider-callback/strava?callback_token=${callbackToken}`,
+      path: '/oauth/provider-callback/strava',
+      headers: { 'x-callback-token': callbackToken },
     });
 
     expect(res.status).toBe(405);
@@ -166,15 +167,17 @@ describe('provider token callback authentication', () => {
     expect(provider.getTokenStatus().providers.strava).toBe(true);
   });
 
-  test('the flow secret in the query string is accepted for the same flow', async () => {
+  test('the flow secret in the query string is not read: only the header carries it', async () => {
     const res = await httpRequest(port, {
       method: 'POST',
       path: `/oauth/provider-callback/whoop?callback_token=${callbackToken}`,
       json: { access_token: 'whoop-access-token', expires_in: 28800 },
     });
 
-    expect(res.status).toBe(200);
-    expect(provider.getProviderToken('whoop').access_token).toBe('whoop-access-token');
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.body).message).toBe('Invalid or missing callback authentication token');
+    expect(provider.getProviderToken('whoop')).toBeUndefined();
+    expect(provider.allStoredTokens.providers).toBeUndefined();
   });
 
   test('an authenticated payload without an access token stores nothing', async () => {

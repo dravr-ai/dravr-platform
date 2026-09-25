@@ -29,6 +29,7 @@ use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, LoginRequest, OAuthService, RegisterRequest};
+use pierre_services::oauth_flow::AuthUrlOptions;
 use pierre_services::provider_revocation::DisconnectReason;
 use serial_test::serial;
 use std::{env, sync::Arc};
@@ -1211,7 +1212,7 @@ async fn test_oauth_get_auth_url_strava() -> Result<()> {
     let user_id = Uuid::new_v4();
 
     let response = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await?;
 
     assert!(response.authorization_url.contains("strava.com"));
@@ -1233,7 +1234,12 @@ async fn test_oauth_get_auth_url_unsupported_provider() -> Result<()> {
     let user_id = Uuid::new_v4();
 
     let result = oauth_routes
-        .get_auth_url(user_id, tenant_id, "unsupported_provider")
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            "unsupported_provider",
+            AuthUrlOptions::default(),
+        )
         .await;
 
     assert!(result.is_err());
@@ -1769,7 +1775,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         .await?;
 
     let auth_url = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await?;
 
     // Verify everything worked

@@ -167,6 +167,7 @@ use pierre_mcp_server::mcp::{
     resources::{ServerContext, ServerContextOptions},
 };
 use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
+use pierre_services::oauth_flow::AuthUrlOptions;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use tokio::time::{sleep, Duration};
@@ -697,6 +698,7 @@ async fn test_oauth_callback_error_handling() {
                 scope: None,
                 pkce_code_verifier: None,
                 oauth_app_client_id: None,
+                bridge_callback_token: None,
                 created_at: Utc::now(),
                 expires_at: Utc::now() + chrono::Duration::minutes(10),
                 used: false,
@@ -982,7 +984,7 @@ async fn test_oauth_state_csrf_protection() {
 
     // Generate OAuth URL and get state
     let auth_response = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await
         .unwrap();
 
@@ -997,7 +999,7 @@ async fn test_oauth_state_csrf_protection() {
 
     // Verify each request generates unique state
     let auth_response2 = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await
         .unwrap();
     assert_ne!(auth_response.state, auth_response2.state);

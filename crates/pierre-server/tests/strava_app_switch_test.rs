@@ -58,7 +58,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::oauth_flow::OAuthService;
+use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
@@ -347,7 +347,7 @@ async fn fill_env_app(repos: &RepositoryRegistry) {
 /// consumes its state — and return the `client_id` the URL sent the athlete to.
 async fn reconnect(service: &OAuthService, user_id: Uuid, tenant: TenantId) -> String {
     let authorization = service
-        .get_auth_url(user_id, tenant, "strava")
+        .get_auth_url(user_id, tenant, "strava", AuthUrlOptions::default())
         .await
         .expect("a seat remains somewhere");
     service
@@ -773,7 +773,7 @@ async fn a_reconnect_that_loses_a_race_stores_nothing_and_revokes_its_own_grant(
     connect(repos, user_id, tenant, None).await;
     kill(repos, user_id, tenant).await;
     let authorization = service
-        .get_auth_url(user_id, tenant, "strava")
+        .get_auth_url(user_id, tenant, "strava", AuthUrlOptions::default())
         .await
         .expect("the env app has room");
     let winner = UserOAuthToken::new(
@@ -1954,7 +1954,7 @@ async fn a_reconnect_that_cannot_list_the_athletes_tokens_revokes_nothing() {
         .await
         .unwrap();
     let authorization = service
-        .get_auth_url(user_id, dead_in, "strava")
+        .get_auth_url(user_id, dead_in, "strava", AuthUrlOptions::default())
         .await
         .expect("the env app has room");
     // The listing reads this table; nothing else the callback needs does.
@@ -1994,7 +1994,7 @@ async fn a_lost_race_leaves_a_fresh_grant_the_athlete_holds_elsewhere() {
     let (user_id, live_in, racing_in) = athlete_in_two_tenants(&resources, "raced-live").await;
     connect(repos, user_id, live_in, None).await;
     let authorization = service
-        .get_auth_url(user_id, racing_in, "strava")
+        .get_auth_url(user_id, racing_in, "strava", AuthUrlOptions::default())
         .await
         .expect("the env app has room");
     let winner = UserOAuthToken::new(

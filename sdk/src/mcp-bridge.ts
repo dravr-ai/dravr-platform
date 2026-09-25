@@ -33,6 +33,7 @@ import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
 import {
+  CALLBACK_TOKEN_HEADER,
   isNoticeRefusal,
   providerNoticeMessage,
   startProviderOAuth,
@@ -1480,28 +1481,28 @@ export class PierreMcpClient {
         );
       }
 
-      // Step 3: Start the provider's authorization before any browser opens: a provider
+      // Step 3: Bind the callback listener before the flow starts. Dravr posts the
+      // provider tokens there when the flow completes, and the listener accepts that
+      // POST only with its per-flow token, which travels with the start below.
+      await this.oauthProvider.ensureCallbackServerBound();
+      const callbackToken = this.oauthProvider.callbackAuthToken;
+      if (!callbackToken) {
+        throw new PierreError(
+          PierreErrorCode.CONFIG_ERROR,
+          "Callback listener is bound but holds no per-flow token",
+        );
+      }
+
+      // Step 4: Start the provider's authorization before any browser opens: a provider
       // whose notice the account owes (WHOOP's owner authorization) is refused, and the
       // user reads where to accept it rather than a raw 400 page.
-      const page = await this.startProviderAuthorization(provider);
+      const page = await this.startProviderAuthorization(provider, callbackToken);
       if (page.kind === "notice_required") {
         this.log(`${provider} OAuth refused: the account owes the provider's notice`);
         return {
           content: [{ type: "text", text: page.message }],
           isError: true,
         };
-      }
-
-      // Ensure callback server is running to receive provider OAuth completion notification
-      // The server will POST to this callback when provider OAuth completes
-      if (this.oauthProvider) {
-        const oauthProviderAny = this.oauthProvider as any;
-        if (!oauthProviderAny.callbackServer) {
-          this.log("Starting callback server for provider OAuth notification");
-          // Accessing redirectUrl triggers startCallbackServerSync internally
-          const callbackUrl = oauthProviderAny.redirectUrl;
-          this.log(`Callback server ready at ${callbackUrl}`);
-        }
       }
 
       try {
@@ -1624,9 +1625,15 @@ export class PierreMcpClient {
    * the key authenticates that request, and Dravr mints the URL for the key's athlete and
    * records the flow's state on its side. Either way a refusal naming the provider's
    * notice becomes the message that says where to accept it.
+   *
+   * Both starts carry `callbackToken`, the callback listener's per-flow token, in a request
+   * header: Dravr keeps it with the flow's state and presents it on the completion POST, the
+   * one request the listener accepts provider tokens from. It never rides a URL, so neither
+   * a request log nor the browser's history holds it.
    */
   private async startProviderAuthorization(
     provider: string,
+    callbackToken: string,
   ): Promise<ProviderAuthorizationPage> {
     if (this.config.mode === "api-key") {
       // A REST route reads an API key as the whole Authorization value, with no scheme:
@@ -1634,7 +1641,12 @@ export class PierreMcpClient {
       // before it looks, which is why /mcp requests carry the key under that scheme.
       const response = await fetch(
         `${this.config.pierreServerUrl}/api/oauth/mobile/init/${encodeURIComponent(provider)}`,
-        { headers: { Authorization: this.config.apiKey } },
+        {
+          headers: {
+            Authorization: this.config.apiKey,
+            [CALLBACK_TOKEN_HEADER]: callbackToken,
+          },
+        },
       );
       if (!response.ok) {
         const refusal: unknown = await response.json().catch(() => null);
@@ -1673,7 +1685,12 @@ export class PierreMcpClient {
 
     this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
     const initiateUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
-    const start = await startProviderOAuth(initiateUrl, tokens.access_token, provider);
+    const start = await startProviderOAuth(
+      initiateUrl,
+      tokens.access_token,
+      provider,
+      callbackToken,
+    );
     switch (start.kind) {
       case "notice_required":
         return start;

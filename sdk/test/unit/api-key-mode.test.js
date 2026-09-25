@@ -38,7 +38,7 @@ const STORED_SESSION = {
  * as a bearer, the REST initiation route takes it as the bare Authorization value. Every
  * request is recorded, so a test can assert both what was sent and what was never asked.
  */
-function startDravr({ acceptKey = true, mintStatus = 200 } = {}) {
+function startDravr({ acceptKey = true, mintStatus = 200, mintRefusal = { error: 'unauthorized' } } = {}) {
   const seen = [];
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -56,7 +56,7 @@ function startDravr({ acceptKey = true, mintStatus = 200 } = {}) {
 
         if (req.method === 'GET' && req.url === '/api/oauth/mobile/init/strava') {
           if (req.headers.authorization !== API_KEY || mintStatus !== 200) {
-            send(mintStatus === 200 ? 401 : mintStatus, { error: 'unauthorized' });
+            send(mintStatus === 200 ? 401 : mintStatus, mintRefusal);
             return;
           }
           send(200, { authorization_url: MINTED_URL, provider: 'strava', state: 'minted-state' });
@@ -279,8 +279,45 @@ describe('api-key mode', () => {
       // REST reads the key as the whole Authorization value; a Bearer scheme there is a
       // session token.
       expect(mint.headers.authorization).toBe(API_KEY);
+      // The flow starts with the callback listener's per-flow token, the one Dravr must
+      // present on its completion POST for the listener to accept the provider tokens.
+      const listenerToken = wired.bridge.oauthProvider.callbackAuthToken;
+      expect(listenerToken).toMatch(/^[0-9a-f]{64}$/);
+      expect(mint.headers['x-callback-token']).toBe(listenerToken);
+      // It rides a header only: no URL, and no page the browser opens, carries it.
+      expect(wired.logs.some((line) => line.includes(listenerToken))).toBe(false);
       expect(wired.logs).toContain(`OAuth URL: ${MINTED_URL}`);
       expect(waits).toEqual([{ provider: 'strava', ms: 55000 }]);
+    } finally {
+      await wired.cleanup();
+    }
+  });
+
+  test('connect_provider reads a notice refusal as where to accept it, and opens no page', async () => {
+    dravr = await startDravr({
+      mintStatus: 400,
+      mintRefusal: {
+        code: 'InvalidInput',
+        message: 'Connecting Strava requires accepting the account notice first',
+        details: { action: 'accept_provider_notice', provider: 'strava' },
+      },
+    });
+    const wired = await startedBridge(dravr);
+    const waits = [];
+    wired.bridge.oauthProvider.waitForProviderOAuth = async (provider) => {
+      waits.push(provider);
+    };
+    try {
+      const result = await wired.handler('tools/call')(
+        { method: 'tools/call', params: { name: 'connect_provider', arguments: { provider: 'strava' } } },
+        { signal: new AbortController().signal },
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/Connecting STRAVA needs your authorization first/);
+      expect(result.content[0].text).toMatch(/Open the Dravr app, go to Connections/);
+      expect(wired.logs.some((line) => line.startsWith('OAuth URL:'))).toBe(false);
+      expect(waits).toEqual([]);
     } finally {
       await wired.cleanup();
     }

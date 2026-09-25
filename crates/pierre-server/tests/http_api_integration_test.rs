@@ -35,6 +35,7 @@ use pierre_database::{
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, LoginRequest, OAuthService, RegisterRequest};
+use pierre_services::oauth_flow::AuthUrlOptions;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -401,7 +402,7 @@ async fn test_sdk_oauth_credentials_storage() -> Result<()> {
 
     // Test 2: Get OAuth authorization URL
     let auth_url_response = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await?;
     assert!(auth_url_response.authorization_url.contains("strava.com"));
     assert!(auth_url_response
@@ -518,7 +519,12 @@ async fn test_sdk_error_handling() -> Result<()> {
     let user_id = uuid::Uuid::parse_str(&user_id_str)?;
 
     let result = oauth_routes
-        .get_auth_url(user_id, tenant_id, "unsupported_provider")
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            "unsupported_provider",
+            AuthUrlOptions::default(),
+        )
         .await;
     assert!(result.is_err());
     assert!(result
@@ -607,7 +613,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
 
     // Step 7: Test OAuth URL generation
     let auth_url = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await?;
     assert!(auth_url.authorization_url.contains("test_client_id")); // Uses tenant credentials
 
