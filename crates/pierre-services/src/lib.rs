@@ -218,6 +218,9 @@ pub mod oauth_flow;
 /// The registry-backed token endpoint and WHOOP owner-id lookups the code exchange uses
 mod oauth_exchange_lookups;
 
+/// Redeeming a callback's state, the only path to a flow's mobile redirect URL
+mod oauth_state_redeem;
+
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 
