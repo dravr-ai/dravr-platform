@@ -21,17 +21,8 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { QueryProvider } from '../src/providers/QueryProvider';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
-import { useOnboardingStatus } from '../src/hooks/useOnboardingStatus';
-import { useCoachProposalSeen } from '../src/hooks/useCoachProposalSeen';
-import { useProfileTypeChosen } from '../src/hooks/useProfileTypeChosen';
-import { useOnboardingFlag } from '../src/hooks/useOnboardingFlag';
-import { useProviderSkipped } from '../src/hooks/useProviderSkipped';
-import { useMessagingOnboarding } from '../src/hooks/useMessagingOnboarding';
-import {
-  currentOnboardingStep,
-  type OnboardingContext,
-  type OnboardingStepId,
-} from '@pierre/shared-constants';
+import { useOnboardingContext } from '../src/hooks/useOnboardingContext';
+import { currentOnboardingStep, type OnboardingStepId } from '@pierre/shared-constants';
 import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../src/services/analytics';
 import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
 import { initI18n } from '@pierre/i18n';
@@ -153,38 +144,13 @@ function RootLayoutNav() {
   // Admins are exempt — their primary intent is administering, not chatting,
   // so a missing provider must not block them out of the app entirely. The
   // backend 403 still applies if an admin posts a chat without a provider.
-  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
-  const needsOnboardingFetch =
-    isAuthenticated && user?.user_status === 'active' && !isAdminRole;
-  const { data: onboardingStatus } = useOnboardingStatus(needsOnboardingFetch);
-  const { seen: coachProposalSeen } = useCoachProposalSeen(user?.id);
-  const { chosen: profileTypeChosen } = useProfileTypeChosen(user?.id);
-  // The two pre-connect steps added alongside profile-type; same fail-open flag.
-  const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
-  const { done: parqDone } = useOnboardingFlag('dravr.parq_done.', user?.id);
-  // Session-only escape from the provider gate, matching web. Not persisted:
-  // the nudge should come back next launch.
-  const { skipped: skippedProvider } = useProviderSkipped(user?.id);
-  // The messaging steps live post-connect; only fetch the channel list there.
-  const postConnect =
-    Boolean(needsOnboardingFetch) && onboardingStatus?.needs_provider_connection === false;
-  const messaging = useMessagingOnboarding(user?.id, postConnect);
-
-  // First-connect transition (needs true→false) — gates coach-proposal only, so
-  // an already-onboarded user simply opening the app is never intercepted by it.
-  const [justOnboarded, setJustOnboarded] = React.useState(false);
-  const prevNeedsProvider = React.useRef<boolean | undefined>(undefined);
-  React.useEffect(() => {
-    const now = onboardingStatus?.needs_provider_connection;
-    if (prevNeedsProvider.current === true && now === false) {
-      setJustOnboarded(true);
-    }
-    prevNeedsProvider.current = now;
-  }, [onboardingStatus?.needs_provider_connection]);
+  // This mount lives for the whole session, above the OAuth callback, so the
+  // context's `justOnboarded` is the session's first-connect transition.
+  const { context: onboardingContext, settled: onboardingSettled } = useOnboardingContext();
 
   // Decide the onboarding route from the SHARED step registry (single source with
-  // web): build the onboarding context, ask the registry for the current step,
-  // and map it to its `(onboarding)` route — or route to chat when none remain.
+  // web): ask the registry for the current step of the onboarding context, and
+  // map it to its `(onboarding)` route — or route to chat when none remain.
   React.useEffect(() => {
     if (isLoading) return;
 
@@ -201,31 +167,9 @@ function RootLayoutNav() {
 
     // Hold routing while the AsyncStorage-backed flags for the current phase are
     // still in flight, to avoid flashing chat then bouncing back to a step.
-    const preConnect = onboardingStatus?.needs_provider_connection === true;
-    if (
-      preConnect &&
-      (profileTypeChosen === undefined || aboutYouDone === undefined || parqDone === undefined)
-    ) {
-      return;
-    }
-    if (postConnect && (coachProposalSeen === undefined || messaging.loading)) return;
+    if (!onboardingSettled) return;
 
-    const ctx: OnboardingContext = {
-      onboardingActive: Boolean(needsOnboardingFetch),
-      needsProviderConnection: onboardingStatus?.needs_provider_connection,
-      skippedProvider,
-      justOnboarded,
-      profileTypeChosen: profileTypeChosen ?? true,
-      aboutYouDone: aboutYouDone ?? true,
-      parqDone: parqDone ?? true,
-      coachProposalDone: coachProposalSeen ?? true,
-      messagingAvailableCount: messaging.availableCount,
-      messagingChannelChosen: messaging.channelChosen,
-      messagingChannelDone: messaging.channelDone,
-      messagingConfigureDone: messaging.configureDone,
-    };
-
-    const step = currentOnboardingStep(ctx);
+    const step = currentOnboardingStep(onboardingContext);
     if (step) {
       const route = routeForStep(step.id);
       const sub = route.split('/').pop();
@@ -245,20 +189,8 @@ function RootLayoutNav() {
     segments,
     router,
     user?.user_status,
-    needsOnboardingFetch,
-    postConnect,
-    justOnboarded,
-    onboardingStatus?.needs_provider_connection,
-    coachProposalSeen,
-    profileTypeChosen,
-    aboutYouDone,
-    parqDone,
-    skippedProvider,
-    messaging.availableCount,
-    messaging.channelChosen,
-    messaging.channelDone,
-    messaging.configureDone,
-    messaging.loading,
+    onboardingContext,
+    onboardingSettled,
   ]);
 
   if (isLoading || !fontsLoaded) {
