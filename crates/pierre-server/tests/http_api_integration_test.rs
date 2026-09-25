@@ -10,6 +10,8 @@
 mod common;
 
 use anyhow::Result;
+use axum::body::{to_bytes, Body};
+use axum::http::{Request, StatusCode};
 use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
@@ -34,14 +36,34 @@ use pierre_database::{
     database::generate_encryption_key,
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_mcp_server::routes::mcp::McpRoutes;
 use pierre_routes_auth::{AuthService, LoginRequest, OAuthService, RegisterRequest};
 use pierre_services::oauth_flow::AuthUrlOptions;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
+use tower::ServiceExt;
 
-/// Test setup for SDK integration tests
-// Long function: Defines complete test environment setup including database, auth, config, and test data
+/// Test setup for SDK integration tests: the services built over [`setup_test_context`].
 async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthService, TenantId)> {
+    let (database, server_resources, tenant_id) = setup_test_context().await?;
+
+    let auth_routes = AuthService::new(
+        server_resources.auth.auth_manager.clone(),
+        server_resources.auth.jwks_manager.clone(),
+        server_resources.common.config.clone(),
+        server_resources.data(),
+    );
+    let oauth_routes = OAuthService::new(
+        server_resources.data(),
+        server_resources.common.config.clone(),
+    );
+
+    Ok((database, auth_routes, oauth_routes, tenant_id))
+}
+
+/// The database, the server context built over it, and the test tenant.
+// Long function: Defines complete test environment setup including database, auth, config, and test data
+async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, TenantId)> {
     // Initialize server config for tests
     common::init_server_config();
 
@@ -276,18 +298,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         .await,
     );
 
-    let auth_routes = AuthService::new(
-        server_resources.auth.auth_manager.clone(),
-        server_resources.auth.jwks_manager.clone(),
-        server_resources.common.config.clone(),
-        server_resources.data(),
-    );
-    let oauth_routes = OAuthService::new(
-        server_resources.data(),
-        server_resources.common.config.clone(),
-    );
-
-    Ok((database, auth_routes, oauth_routes, tenant_id))
+    Ok((database, server_resources, tenant_id))
 }
 
 /// Helper to create and approve a test user
@@ -636,46 +647,61 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
     Ok(())
 }
 
+/// An MCP host reaches `/mcp` with a Dravr API key the way the SDK bridge
+/// sends it (`PIERRE_API_KEY`): as the bearer credential of the
+/// `Authorization` header. The same key under `X-API-Key`, a header
+/// authentication never reads, is no credential at all, so that request is
+/// refused as unauthenticated.
 #[tokio::test]
-async fn test_sdk_mcp_config_generation() -> Result<()> {
-    let (_database, _auth_routes, _oauth_routes, _tenant_id) = setup_test_environment().await?;
+async fn test_mcp_host_presents_an_api_key_as_its_bearer_not_x_api_key() -> Result<()> {
+    let (database, server_resources, _tenant_id) = setup_test_context().await?;
+    let (user_id, _) = common::create_test_user(&database).await?;
 
-    // Test MCP configuration generation (simulates SDK generateMcpConfig function)
-    let api_key = "pk_test_example_api_key_for_mcp_config";
-    let server_url = "http://localhost:8080";
+    let (api_key, api_key_string) = ApiKeyManager::new().create_api_key(
+        user_id,
+        CreateApiKeyRequest {
+            name: "MCP host key".to_owned(),
+            description: None,
+            tier: ApiKeyTier::Starter,
+            rate_limit_requests: None,
+            expires_in_days: None,
+        },
+    )?;
+    database.repositories().api_keys.create(&api_key).await?;
 
-    // Simulate the MCP configuration that the SDK would generate
-    let mcp_config = json!({
-        "mcpServers": {
-            "pierre-fitness": {
-                "command": "node",
-                "args": [
-                    "-e",
-                    format!("const http=require('http');process.stdin.on('data',d=>{{const req=http.request('{}{}',{{method:'POST',headers:{{'Content-Type':'application/json','X-API-Key':'{}','Origin':'http://localhost'}}}},res=>{{let data='';res.on('data',chunk=>data+=chunk);res.on('end',()=>process.stdout.write(data))}});req.write(d);req.end()}});", server_url, "/mcp", api_key)
-                ]
-            }
-        }
-    });
+    let tools_list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+    let post_mcp = |header: &'static str, value: String| {
+        McpRoutes::routes(server_resources.clone()).oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header(header, value)
+                .body(Body::from(tools_list.to_string()))
+                .unwrap(),
+        )
+    };
 
-    // Verify MCP config structure
-    assert!(mcp_config["mcpServers"]["pierre-fitness"]["command"].is_string());
-    assert!(mcp_config["mcpServers"]["pierre-fitness"]["args"].is_array());
-
-    let args = mcp_config["mcpServers"]["pierre-fitness"]["args"]
+    let as_bearer = post_mcp("authorization", format!("Bearer {api_key_string}")).await?;
+    assert_eq!(as_bearer.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(as_bearer.into_body(), usize::MAX).await?)?;
+    let tools = body["result"]["tools"]
         .as_array()
-        .unwrap();
-    assert_eq!(args.len(), 2);
-    assert_eq!(args[0], "-e");
+        .unwrap_or_else(|| panic!("tools/list answers the key's tool set: {body}"));
+    assert!(
+        tools.iter().any(|tool| tool["name"] == "get_activities"),
+        "the key's tool set includes get_activities: {body}"
+    );
 
-    let bridge_code = args[1].as_str().unwrap();
-    assert!(bridge_code.contains(api_key));
-    assert!(bridge_code.contains(server_url));
-    assert!(bridge_code.contains("X-API-Key"));
-
-    println!("MCP config generation test successful!");
-    println!(
-        "Generated config: {}",
-        serde_json::to_string_pretty(&mcp_config)?
+    let as_x_api_key = post_mcp("x-api-key", api_key_string).await?;
+    assert_eq!(as_x_api_key.status(), StatusCode::UNAUTHORIZED);
+    let challenge = as_x_api_key
+        .headers()
+        .get("www-authenticate")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        challenge.starts_with("Bearer"),
+        "the refusal asks for a bearer credential: {challenge}"
     );
 
     Ok(())
