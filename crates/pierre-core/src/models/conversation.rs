@@ -288,6 +288,30 @@ pub const WITHHELD_REPLY_FINISH_REASON: &str = "reply_withheld";
 /// language, whatever the sentence says.
 pub const UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON: &str = "capability_claim_unverified";
 
+/// `finish_reason` stamped on an assistant row the provider cut off at its
+/// token budget, which the athlete saw with a localized caveat appended.
+///
+/// Unlike the stamps above, the row is NOT dropped at replay: its partial
+/// answer is exactly what a "continue" needs in front of the model. Only the
+/// caveat is platform text — first-person narration about the reply failing,
+/// the class the replay scrub exists to remove — so replay cuts the row at
+/// the caveat's separator and keeps what the model wrote. The raw vendor
+/// value (`"length"`, `"MAX_TOKENS"`) could not say that a caveat is there.
+pub const TRUNCATED_REPLY_FINISH_REASON: &str = "reply_truncated";
+
+/// `finish_reason` stamped on an assistant row a content filter trimmed.
+///
+/// Shown with a localized caveat appended, and replayed like
+/// [`TRUNCATED_REPLY_FINISH_REASON`]: the model's words stay, the caveat goes.
+pub const FILTERED_REPLY_FINISH_REASON: &str = "reply_filtered";
+
+/// What sets a provider-stop caveat off from the model's words.
+///
+/// Found in rows stamped [`TRUNCATED_REPLY_FINISH_REASON`] or
+/// [`FILTERED_REPLY_FINISH_REASON`] — the same rule the claim-verification
+/// banner is set off with.
+pub const STOP_CAVEAT_SEPARATOR: &str = "\n\n---\n";
+
 /// `finish_reason` stamped on both rows of a persisted slash-command turn: the
 /// athlete's `/…` line and the platform's answer to it.
 ///
@@ -381,6 +405,27 @@ impl MessageRecord {
     #[must_use]
     pub fn is_command_turn(&self) -> bool {
         self.finish_reason.as_deref() == Some(COMMAND_FINISH_REASON)
+    }
+
+    /// The row's content as it may re-enter a prompt.
+    ///
+    /// A row stamped [`TRUNCATED_REPLY_FINISH_REASON`] or
+    /// [`FILTERED_REPLY_FINISH_REASON`] ends in a platform caveat the athlete
+    /// saw; the model's words before it replay, the caveat does not. The
+    /// caveat is always the last thing written into the reply, so the last
+    /// separator is where it starts. Every other row is returned whole.
+    #[must_use]
+    pub fn replayable_content(&self) -> &str {
+        let stamped = matches!(
+            self.finish_reason.as_deref(),
+            Some(TRUNCATED_REPLY_FINISH_REASON | FILTERED_REPLY_FINISH_REASON)
+        );
+        if !stamped {
+            return &self.content;
+        }
+        self.content
+            .rsplit_once(STOP_CAVEAT_SEPARATOR)
+            .map_or(self.content.as_str(), |(reply, _caveat)| reply)
     }
 }
 

@@ -4,87 +4,80 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::iter;
+use std::net::Ipv4Addr;
+
 use tracing::warn;
+use url::{Host, Url};
 use urlencoding::encode;
 
-/// App-specific URL schemes that are always allowed for mobile OAuth redirects.
-/// These are deep-link schemes that cannot be intercepted by external websites.
-const APP_SCHEMES: &[&str] = &["dravr://", "exp://", "http://localhost"];
+/// App deep-link schemes that are always allowed for mobile OAuth redirects.
+/// A website cannot claim them, so a redirect there reaches the app.
+const APP_SCHEMES: &[&str] = &["dravr", "exp"];
 
 /// Validate a mobile OAuth redirect URL against the allowlist.
 ///
 /// Allowed redirect targets:
 /// - `dravr://` deep links (mobile app)
 /// - `exp://` deep links (Expo development)
-/// - `http://localhost` (local development)
-/// - `https://` URLs whose origin matches `base_url` or an entry in
-///   `allowed_redirect_origins` (prevents open-redirect to arbitrary sites)
+/// - `http://localhost` or `http://127.0.0.1`, any port (local development)
+/// - `https://` URLs whose origin — scheme, host and port — equals `base_url`
+///   or an entry in `allowed_redirect_origins`
+///
+/// The URL is parsed, never prefix-matched: `http://localhost.evil.com` and
+/// `http://localhost@evil.com` both start with `http://localhost`, and
+/// `https://api.dravr.ai:@evil.com` reads as `api.dravr.ai` to a scan that
+/// stops at the first `:`. A URL carrying userinfo is refused outright, since
+/// userinfo exists only to make a URL's host hard to read.
 ///
 /// The `base_url` is the server's own origin (e.g. `https://api.dravr.ai`).
 /// `extra_origins` are additional HTTPS origins configured via
 /// `ALLOWED_MOBILE_REDIRECT_ORIGINS` (e.g. Cloudflare tunnel URLs).
 #[must_use]
 pub fn is_allowed_redirect_url(url: &str, base_url: &str, extra_origins: &[String]) -> bool {
-    // App-specific schemes are always safe
-    if APP_SCHEMES.iter().any(|scheme| url.starts_with(scheme)) {
-        return true;
-    }
-
-    // For https:// URLs, verify the origin matches an allowlisted host
-    if url.starts_with("https://") {
-        return is_origin_allowed(url, base_url, extra_origins);
-    }
-
-    false
-}
-
-/// Extract the host portion from a URL string (`scheme://host/path` -> host)
-fn extract_host(url: &str) -> Option<&str> {
-    // Strip scheme
-    let after_scheme = url.split("://").nth(1)?;
-    // Take host (before first / or ? or :port)
-    let host = after_scheme
-        .split('/')
-        .next()?
-        .split('?')
-        .next()?
-        .split(':')
-        .next()?;
-    if host.is_empty() {
-        None
-    } else {
-        Some(host)
-    }
-}
-
-/// Check whether an HTTPS URL's origin matches the server `base_url` or an extra allowed origin.
-fn is_origin_allowed(url: &str, base_url: &str, extra_origins: &[String]) -> bool {
-    let Some(redirect_host) = extract_host(url) else {
-        warn!("Failed to extract host from redirect URL: {url}");
+    let Ok(parsed) = Url::parse(url) else {
+        warn!("Rejected redirect URL that does not parse: {url}");
         return false;
     };
-
-    // Check against server's own base_url
-    if let Some(base_host) = extract_host(base_url) {
-        if base_host == redirect_host {
-            return true;
-        }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        warn!("Rejected redirect URL carrying userinfo: {url}");
+        return false;
     }
 
-    // Check against extra allowed origins
-    for origin in extra_origins {
-        if let Some(allowed_host) = extract_host(origin) {
-            if allowed_host == redirect_host {
-                return true;
-            }
-        }
+    match parsed.scheme() {
+        scheme if APP_SCHEMES.contains(&scheme) => true,
+        "http" => is_loopback_host(&parsed),
+        "https" => is_origin_allowed(&parsed, base_url, extra_origins),
+        _ => false,
     }
+}
 
-    warn!(
-        "Redirect URL host '{}' not in allowlist (base_url: {}, extra: {:?})",
-        redirect_host, base_url, extra_origins
-    );
-    false
+/// Whether an `http://` URL names this machine: `localhost` or `127.0.0.1`.
+fn is_loopback_host(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(domain)) => domain == "localhost",
+        Some(Host::Ipv4(ip)) => ip == Ipv4Addr::LOCALHOST,
+        Some(Host::Ipv6(_)) | None => false,
+    }
+}
+
+/// Check whether an HTTPS URL's origin equals the server `base_url`'s or an extra allowed origin's.
+fn is_origin_allowed(url: &Url, base_url: &str, extra_origins: &[String]) -> bool {
+    let origin = url.origin();
+    let allowed = iter::once(base_url)
+        .chain(extra_origins.iter().map(String::as_str))
+        .filter_map(|candidate| Url::parse(candidate).ok())
+        .any(|candidate| candidate.origin() == origin);
+
+    if !allowed {
+        warn!(
+            "Redirect URL origin '{}' not in allowlist (base_url: {}, extra: {:?})",
+            origin.ascii_serialization(),
+            base_url,
+            extra_origins
+        );
+    }
+    allowed
 }
 
 /// Extract mobile redirect URL from the OAuth state string

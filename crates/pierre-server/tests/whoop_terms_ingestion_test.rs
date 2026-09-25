@@ -312,7 +312,7 @@ async fn a_synced_whoop_night_keeps_its_measurements_and_none_of_whoops_scores()
     let repos = Arc::new(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     connect(&repos, user_id, tenant, "whoop").await;
-    connect(&repos, user_id, tenant, "garmin").await;
+    connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
     let storage = PierreSyncStorage::new(&repos);
@@ -362,7 +362,7 @@ async fn a_synced_whoop_day_keeps_its_measurements_and_drops_recovery_and_strain
     let repos = Arc::new(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
     connect(&repos, user_id, tenant, "whoop").await;
-    connect(&repos, user_id, tenant, "garmin").await;
+    connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
     let storage = PierreSyncStorage::new(&repos);
@@ -406,14 +406,15 @@ async fn a_synced_whoop_day_keeps_its_measurements_and_drops_recovery_and_strain
 /// A sync still in flight when the athlete disconnects WHOOP hands over
 /// records after the disconnect has deleted the grant and purged the rows.
 /// Resolving the tenant from any other token the athlete holds would write
-/// them straight back; they are refused instead, while another provider's
-/// records keep resolving as before.
+/// them straight back; they are refused instead. The rule is every
+/// provider's: a record is written only under the tenant of the connection
+/// that serves its own provider.
 #[tokio::test]
 async fn a_whoop_record_is_refused_once_the_athletes_whoop_grant_is_gone() {
     let db = create_test_db().await;
     let repos = Arc::new(db.repositories());
     let (user_id, tenant) = seed_user(&db).await;
-    connect(&repos, user_id, tenant, "garmin").await;
+    connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let intervals_ds = data_source(&repos, user_id, tenant, "intervals_icu").await;
     let storage = PierreSyncStorage::new(&repos);
@@ -429,20 +430,28 @@ async fn a_whoop_record_is_refused_once_the_athletes_whoop_grant_is_gone() {
     assert!(nights(&repos, user_id, tenant).await.is_empty());
     assert!(days(&repos, user_id, tenant).await.is_empty());
 
-    // intervals.icu holds no token here either; its night still resolves the
-    // tenant through the athlete's Garmin grant, as before.
+    // intervals.icu holds no token here either: its night is refused too,
+    // rather than written under the athlete's Garmin connection.
     let intervals_night = StoredSleepSession {
         source_name: "intervals_icu".to_owned(),
         ..garmin_night(user_id, &intervals_ds)
     };
-    let stored = storage
+    assert!(storage
         .store_sleep_sessions(&[intervals_night])
+        .await
+        .is_err());
+    assert!(nights(&repos, user_id, tenant).await.is_empty());
+
+    // Garmin's own night resolves through its sciotte session.
+    let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
+    let stored = storage
+        .store_sleep_sessions(&[garmin_night(user_id, &garmin_ds)])
         .await
         .unwrap();
     assert_eq!(stored, 1);
     let read = nights(&repos, user_id, tenant).await;
     assert_eq!(read.len(), 1);
-    assert_eq!(read[0].source_name, "intervals_icu");
+    assert_eq!(read[0].source_name, "garmin");
 }
 
 /// Serve one HTTP response to the first request and hand back the base URL.

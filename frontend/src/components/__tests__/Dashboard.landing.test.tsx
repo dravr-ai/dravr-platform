@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Locks the chat-first landing for regular users and the retirement of the Coach and Groups tabs
-// ABOUTME: A stale #insights, #my-coaches or #groups hash lands on chat; the athlete's nav has neither
+// ABOUTME: Locks the Home landing for regular users, the logo's way back to it, and the retired Coach and Groups tabs
+// ABOUTME: A stale #insights, #my-coaches or #groups hash lands on Home; the athlete's nav has neither
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor, within } from '@testing-library/react';
@@ -26,6 +26,10 @@ vi.mock('../ChatTab', () => ({
 
 vi.mock('../StoreScreen', () => ({
   default: () => <div data-testid="discover-tab">Discover surface</div>,
+}));
+
+vi.mock('../home/Home', () => ({
+  default: () => <div data-testid="home-tab">Home surface</div>,
 }));
 
 vi.mock('../ConnectProviderBanner', () => ({
@@ -61,7 +65,18 @@ describe('Dashboard landing — regular user', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('lands on chat with no hash', async () => {
+  it('lands on Home with no hash', async () => {
+    await act(async () => {
+      renderDashboard();
+    });
+
+    expect(await screen.findByTestId('home-tab')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-tab')).toBeNull();
+    expect(window.location.hash).toBe('#home');
+  });
+
+  it('still opens chat for a #chat deep link', async () => {
+    window.history.replaceState(null, '', '/#chat');
     await act(async () => {
       renderDashboard();
     });
@@ -70,8 +85,24 @@ describe('Dashboard landing — regular user', () => {
     expect(window.location.hash).toBe('#chat');
   });
 
+  it('takes the athlete Home from the rail logo', async () => {
+    window.history.replaceState(null, '', '/#discover');
+    await act(async () => {
+      renderDashboard();
+    });
+    expect(await screen.findByTestId('discover-tab')).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByTestId('rail-logo-home').click();
+    });
+
+    expect(await screen.findByTestId('home-tab')).toBeInTheDocument();
+    expect(screen.getByTestId('rail-logo-home')).toHaveAccessibleName('Home');
+    await waitFor(() => expect(window.location.hash).toBe('#home'));
+  });
+
   it.each(['#insights', '#insights/friends', '#my-coaches', '#groups', '#groups/group-1'])(
-    'resolves a stale %s deep link to chat on first load',
+    'resolves a stale %s deep link to Home on first load',
     async (hash) => {
       window.history.replaceState(null, '', `/${hash}`);
 
@@ -79,14 +110,14 @@ describe('Dashboard landing — regular user', () => {
         renderDashboard();
       });
 
-      expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
+      expect(await screen.findByTestId('home-tab')).toBeInTheDocument();
       expect(screen.queryByTestId('discover-tab')).toBeNull();
       // The retired hash is rewritten, so a reload does not replay it.
-      expect(window.location.hash).toBe('#chat');
+      expect(window.location.hash).toBe('#home');
     },
   );
 
-  it('resolves a stale #my-coaches hash typed after load to chat', async () => {
+  it('resolves a stale #my-coaches hash typed after load to Home', async () => {
     window.history.replaceState(null, '', '/#discover');
     await act(async () => {
       renderDashboard();
@@ -97,11 +128,11 @@ describe('Dashboard landing — regular user', () => {
       window.location.hash = '#my-coaches';
     });
 
-    expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
-    await waitFor(() => expect(window.location.hash).toBe('#chat'));
+    expect(await screen.findByTestId('home-tab')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#home'));
   });
 
-  it('offers exactly Chat, Discover and Notifications in the rail — providers live under Settings', async () => {
+  it('offers exactly Home, Chat, Discover and Notifications in the rail — providers live under Settings', async () => {
     await act(async () => {
       renderDashboard();
     });
@@ -110,10 +141,10 @@ describe('Dashboard landing — regular user', () => {
     const labels = within(nav)
       .getAllByRole('button')
       .map((button) => button.textContent?.trim());
-    expect(labels).toEqual(['Chat', 'Discover', 'Notifications']);
+    expect(labels).toEqual(['Home', 'Chat', 'Discover', 'Notifications']);
   });
 
-  it('resolves a stale #groups hash typed after load to chat', async () => {
+  it('resolves a stale #groups hash typed after load to Home', async () => {
     window.history.replaceState(null, '', '/#discover');
     await act(async () => {
       renderDashboard();
@@ -124,7 +155,7 @@ describe('Dashboard landing — regular user', () => {
       window.location.hash = '#groups/group-1';
     });
 
-    expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
-    await waitFor(() => expect(window.location.hash).toBe('#chat'));
+    expect(await screen.findByTestId('home-tab')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#home'));
   });
 });

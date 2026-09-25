@@ -52,7 +52,6 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         password_hash: bcrypt::hash("password", bcrypt::DEFAULT_COST)?,
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -124,7 +123,6 @@ async fn test_tenant_credential_isolation() -> Result<()> {
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             enabled: true,
         },
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
@@ -245,7 +243,6 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
     let database = setup_test_database().await?;
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig::default(),
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
@@ -561,7 +558,6 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
     let database = setup_test_database().await?;
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig::default(),
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
@@ -629,7 +625,6 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
     let database = setup_test_database().await?;
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig::default(),
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
@@ -723,7 +718,6 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
     let database = Arc::new(setup_test_database().await?);
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig::default(),
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),

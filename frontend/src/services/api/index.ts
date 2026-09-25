@@ -30,6 +30,10 @@ export const i18nApi = pierreApi.i18n;
 // The calling user's quota counters, polled by the chat banner and the usage card.
 export const usageApi = pierreApi.usage;
 
+// The athlete's own training data for the Home page: recent activities, one
+// activity's route, and the plan for today.
+export const athleteApi = pierreApi.athlete;
+
 // Providers API delegates to shared oauth module
 export const providersApi = {
   getProvidersStatus: pierreApi.oauth.getProvidersStatus.bind(pierreApi.oauth),

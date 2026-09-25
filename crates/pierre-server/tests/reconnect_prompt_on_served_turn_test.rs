@@ -105,6 +105,7 @@ fn loop_result(blank: Option<&str>, served: Option<&str>) -> ToolLoopResult {
         guardian_denied: None,
         guardian_confirm: None,
         capability_claim_unverified: false,
+        provider_warnings: Vec::new(),
     }
 }
 
@@ -1015,6 +1016,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
             activities_prefetched: false,
             usage: None,
             identity_leak: None,
+            provider_warnings: Vec::new(),
         },
         quota: QuotaState::Ok,
         reconnect: recovery.prompt,

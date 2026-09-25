@@ -1002,7 +1002,6 @@ fn generate_completions(req: &CompleteRequest) -> Completion {
                 return prefix_completion(
                     &[
                         "strava",
-                        "fitbit",
                         "garmin",
                         "whoop",
                         "terra",

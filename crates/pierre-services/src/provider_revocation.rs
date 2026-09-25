@@ -30,7 +30,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
 use pierre_providers::sciotte_remote::{AuthSession, RemoteSciotteClient, SessionRemoval};
-use pierre_providers::utils::{refresh_oauth_token, ClientAuth, RefreshRequest};
+use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, info, warn};
@@ -109,21 +109,18 @@ impl RevocationOutcome {
 /// The wire shape a backend expects "this app no longer has my data" in.
 ///
 /// Endpoints come from where each provider's other endpoints already live:
-/// `pierre-config` for Strava, Fitbit and Garmin (`*_REVOKE_URL` env), the
+/// `pierre-config` for Strava and Garmin (`*_REVOKE_URL` env), the
 /// provider registry's default config for WHOOP and Terra
 /// (`PIERRE_<PROVIDER>_REVOKE_URL` env).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RevocationShape {
-    /// RFC 7009 token revocation (Strava, Fitbit): `POST` with the client
-    /// credentials as HTTP Basic auth and the stored refresh token (else the
+    /// RFC 7009 token revocation (Strava): `POST` with the client
+    /// credentials as HTTP Basic auth, the stored refresh token (else the
     /// access token) as the `token` form param — revoking either kills the
-    /// whole grant. Strava reads `token_type_hint`; Fitbit documents `token`
-    /// alone, so the hint is per-provider.
+    /// whole grant — and its `token_type_hint`.
     TokenRevocation {
         /// The provider's revocation endpoint.
         revoke_url: String,
-        /// Whether to send `token_type_hint` alongside `token`.
-        token_type_hint: bool,
     },
     /// Per-user deregistration (WHOOP `DELETE /v2/user/access`, Garmin
     /// Health API `DELETE /user/registration`): the user's access token as
@@ -167,11 +164,6 @@ pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<Revocat
     match backend {
         oauth_providers::STRAVA => Some(RevocationShape::TokenRevocation {
             revoke_url: config.strava_api_config().revoke_url.clone(),
-            token_type_hint: true,
-        }),
-        oauth_providers::FITBIT => Some(RevocationShape::TokenRevocation {
-            revoke_url: config.fitbit_api_config().revoke_url.clone(),
-            token_type_hint: false,
         }),
         oauth_providers::GARMIN => {
             let garmin = config.garmin_api_config();
@@ -309,19 +301,13 @@ pub async fn revoke_upstream_grant(
     backend: &str,
 ) -> RevocationOutcome {
     let result = match shape {
-        RevocationShape::TokenRevocation {
-            revoke_url,
-            token_type_hint,
-        } => {
+        RevocationShape::TokenRevocation { revoke_url } => {
             let Some((revoke_token, hint)) = revocation_material(token, user_id, backend) else {
                 return RevocationOutcome::Unconfirmed(
                     "the stored token row carries no token material".to_owned(),
                 );
             };
-            let mut form = vec![("token", revoke_token.as_str())];
-            if *token_type_hint {
-                form.push(("token_type_hint", hint));
-            }
+            let form = [("token", revoke_token.as_str()), ("token_type_hint", hint)];
             api_client()
                 .post(revoke_url)
                 .basic_auth(&creds.client_id, Some(&creds.client_secret))
@@ -624,7 +610,6 @@ async fn live_access_token(
             client_secret: &creds.client_secret,
             refresh_token: &refresh,
             provider_name: backend,
-            client_auth: ClientAuth::FormFields,
             extra_form: &[],
         },
     )

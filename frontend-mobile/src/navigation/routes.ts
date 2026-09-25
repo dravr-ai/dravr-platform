@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The expo-router paths the chat tab and the agent edit sheet live at, in one place
+// ABOUTME: The expo-router paths the Home and chat tabs and the agent edit sheet live at, in one place
 // ABOUTME: Screens, the tab bar, deep links and tests read these so a moved route changes one line
 
 import { MOBILE_THREAD_PATHNAME, surfaceById } from '@pierre/shared-constants';
 
-/** The chat tab: the conversation list, and where the app lands after onboarding. */
+/** The chat tab: the conversation list. */
 export const CHAT_LIST_ROUTE = '/(app)/(tabs)/(chat)' as const;
 
 /**
@@ -74,6 +74,15 @@ function mobileRouteOf(id: string): string {
   }
   return route;
 }
+
+/**
+ * The Home tab — today's session, the week around it, the latest activities —
+ * where the app lands after sign-in and onboarding, and where the Dravr
+ * lockup leads from any header that carries it. Read from the surface
+ * registry, so the tab the app lands on and the route the registry declares
+ * for mobile cannot differ.
+ */
+export const HOME_ROUTE = mobileRouteOf('home');
 
 /**
  * The connected-apps screen — the external MCP clients the athlete approved.

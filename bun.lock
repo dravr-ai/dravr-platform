@@ -249,8 +249,12 @@
     "packages/shared-types": {
       "name": "@pierre/shared-types",
       "version": "1.0.0",
+      "dependencies": {
+        "@pierre/scene-types": "*",
+      },
       "devDependencies": {
         "typescript": "~5.8.3",
+        "vitest": "^4.1.8",
       },
     },
     "packages/tsconfig-pierre": {

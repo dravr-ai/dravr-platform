@@ -1,5 +1,5 @@
 # ABOUTME: Cargo manifest for pierre-providers crate
-# ABOUTME: Fitness data provider implementations (Strava, Garmin, Fitbit, WHOOP, COROS, Terra)
+# ABOUTME: Fitness data provider implementations (Strava, Garmin, WHOOP, COROS, Terra)
 
 [package]
 name = "pierre-providers"
@@ -15,7 +15,6 @@ default = ["provider-whoop", "provider-strava", "provider-sciotte"]
 provider-strava = []
 provider-garmin = []
 provider-terra = []
-provider-fitbit = []
 provider-whoop = []
 provider-coros = []
 provider-sciotte = ["dep:dravr-sciotte", "dep:dravr-tronc"]
@@ -24,7 +23,6 @@ all-providers = [
     "provider-strava",
     "provider-garmin",
     "provider-terra",
-    "provider-fitbit",
     "provider-whoop",
     "provider-coros",
     "provider-sciotte",
@@ -46,7 +44,6 @@ async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["sync", "time"] }
 async-stream = "0.3"
-base64 = "0.22"
 bitflags = { version = "2.11", features = ["serde"] }
 futures-util = "0.3"
 num-traits = "0.2"

@@ -15,7 +15,7 @@
 //!   `/oauth2/token`) are rate-limited per client IP.
 //! - **Per-user OAuth-app management** (`/api/users/oauth-apps`) — endpoints
 //!   that let authenticated users register their own per-provider OAuth
-//!   client credentials (Strava, Fitbit, Garmin, …) to avoid the shared
+//!   client credentials (Strava, Garmin, WHOOP, …) to avoid the shared
 //!   tenant rate limits.
 //!
 //! Both groups are generic over [`pierre_runtime_context::IdentityCtx`].

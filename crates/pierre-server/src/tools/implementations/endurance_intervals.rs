@@ -234,8 +234,8 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
             // LIMITATION(registre#6): real streams arrive from Strava and
             // Intervals.icu via get_activity_with_streams; on every other
-            // provider integration (Garmin, Fitbit, COROS, WHOOP, Terra,
-            // sciotte) this branch still always fires — no sample source yet.
+            // provider integration (Garmin, COROS, WHOOP, Terra, sciotte) this
+            // branch still always fires — no sample source yet.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;

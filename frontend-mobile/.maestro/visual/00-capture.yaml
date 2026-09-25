@@ -1,4 +1,4 @@
-# ABOUTME: Captures the eight vault-generator surfaces (chat list, thread, thread-empty, settings, connections, discover, notifications, memory) as screenshots for the design vault
+# ABOUTME: Captures the vault-generator surfaces (home, chat list, thread, thread-empty, settings, connections, discover, notifications, memory) as screenshots for the design vault
 # ABOUTME: One run captures one scheme; see the SCHEME comment below for how a runner produces both
 
 appId: ai.dravr.app
@@ -113,7 +113,16 @@ env:
     file: ../helpers/navigate-to-discover.yaml
 - takeScreenshot: "${SCHEME}-discover"
 
-# Surface: chat list — the tab the app lands on after login.
+# Surface: home — the tab the app lands on after login.
+- tapOn:
+    text: "Accueil|Home"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 10000
+- takeScreenshot: "${SCHEME}-home"
+
+# Surface: chat list.
 - tapOn:
     text: "Discussion|Chat"
 - extendedWaitUntil:

@@ -24,6 +24,7 @@ import {
   parseSceneBlocks,
   splitVizMarkers,
   transcriptBlocks,
+  withVerdictRows,
 } from '@pierre/chat-utils';
 import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
 import { linkifyUrls } from './utils';
@@ -193,8 +194,9 @@ const MessageItem = memo(function MessageItem({
 
   // One list, whatever the turn's age: the server's own blocks when it just
   // landed, the same shape decoded from the persisted row when it did not.
+  // Either way the verdict rows, once read, are the reply's one chip rail.
   const replyBlocks = useMemo(
-    () => blocks ?? transcriptBlocks(message, messageVerdicts),
+    () => (blocks ? withVerdictRows(blocks, messageVerdicts) : transcriptBlocks(message, messageVerdicts)),
     [blocks, message, messageVerdicts],
   );
 

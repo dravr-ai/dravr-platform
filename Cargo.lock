@@ -171,7 +171,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -182,7 +182,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1374,7 +1374,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1422,8 +1422,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.22.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.22.0#719fb2f2baa1d2125c8b99051de90c4150c96b08"
+version = "0.22.1"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.22.1#c73b61a69298e3ed26a4f659ed99427d394d112a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1487,20 +1487,19 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=88e1ebce9f19d16c50288604844430cfeb9905f7#88e1ebce9f19d16c50288604844430cfeb9905f7"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=e21c77c9689e8619e05990a1865bc29b51ca7afa#e21c77c9689e8619e05990a1865bc29b51ca7afa"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.5.2"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.5.2#3220a42a0ea79b81a38408f0e211967180e045e1"
+version = "0.6.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.6.1#53d44a9c6623f6e0e17736cafd65d592906d4467"
 dependencies = [
  "async-trait",
- "axum",
+ "base64",
  "chrono",
  "dravr-equilibre",
  "dravr-riviere",
  "dravr-sciotte",
- "hex",
  "http",
  "reqwest 0.12.28",
  "ring",
@@ -1514,8 +1513,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.4.0"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.4.0#69747496d234d182f588885bde14f56387ac3294"
+version = "0.5.0"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.5.0#02473f804c1decf7767a2d8d8336f470eef78e1e"
 dependencies = [
  "chrono",
  "schemars 1.2.1",
@@ -1711,9 +1710,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.29.0"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77760e7265d37b41a09715e43b71b6790bf34f78e099c9fd09ee59fe59f34c7d"
+checksum = "d84f3ca74f9c3ece8779710f723520d0d842f9fe78fd83b1afb62948ceef5acd"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1733,9 +1732,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.29.0"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "037dcc18b1614b8440406ccd22d0dbaf26329f09efa80d1bdf5dd7eba3f88777"
+checksum = "0fe9bac3a2ff0523399f5fd89dd172a75760786045a419561456d54df4c31ebf"
 dependencies = [
  "async-trait",
  "axum",
@@ -1797,7 +1796,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2524,7 +2523,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2744,7 +2743,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3164,7 +3163,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3834,6 +3833,8 @@ dependencies = [
  "dravr-equilibre",
  "dravr-stripe",
  "embacle",
+ "hex",
+ "hmac",
  "http",
  "opentelemetry",
  "opentelemetry_sdk",
@@ -4901,7 +4902,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4939,7 +4940,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -5397,7 +5398,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5454,7 +5455,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5900,7 +5901,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6284,10 +6285,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7237,7 +7238,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -23,7 +23,7 @@ import { BrandLockup, EmptyState, PromptDialog } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { HeaderActions } from '../../components/ui/HeaderActions';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
-import { threadHref } from '../../navigation/routes';
+import { HOME_ROUTE, threadHref } from '../../navigation/routes';
 import { ChatPlusFlows } from '../chat/ChatPlusFlows';
 import { NewChatButton } from '../chat/NewChatButton';
 import { presentChatPlusMenu } from '../chat/presentChatPlusMenu';
@@ -202,16 +202,20 @@ export function ConversationsScreen() {
 
         The lockup stands where the screen title would, the way every
         messenger writes its own name across the top of its conversation list.
-        The chat tab is the only one that carries it (DESIGN.md §5): the phone
-        has no icon rail to hold the mark, so this header is the single place
-        the athlete's Dravr identity can live, and repeating it on every tab
-        would make it chrome instead. The destination's name stays the spoken
-        one, so a screen reader still says which tab this is.
+        Home and this tab are the only two that carry it (DESIGN.md §5): the
+        phone has no icon rail to hold the mark, so these headers are where the
+        athlete's Dravr identity lives, and repeating it on every tab would
+        make it chrome instead. It is a button here, as the web rail's mark is:
+        a press goes Home, and its spoken name says so.
       */}
       <Stack.Screen
         options={{
           headerTitle: () => (
-            <BrandLockup accessibilityLabel={t('app.convListTitle')} testID="conversations-title" />
+            <BrandLockup
+              accessibilityLabel={t('nav.home')}
+              onPress={() => router.navigate(HOME_ROUTE)}
+              testID="conversations-title"
+            />
           ),
           headerRight: () => (
             <HeaderActions>

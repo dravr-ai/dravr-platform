@@ -84,7 +84,7 @@ fn needs_activity_data(prerequisites: &AgentPrerequisites) -> bool {
     !prerequisites.providers.is_empty()
 }
 
-/// "Strava", "Strava or Garmin", "Strava, Garmin or Fitbit".
+/// "Strava", "Strava or Garmin", "Strava, Garmin or Whoop".
 fn join_with_or(names: &[String]) -> String {
     match names {
         [] => String::new(),
@@ -496,7 +496,6 @@ pub fn capitalize_provider(provider: &str) -> String {
     match provider_lower.as_str() {
         "strava" => "Strava".to_owned(),
         "garmin" => "Garmin".to_owned(),
-        "fitbit" => "Fitbit".to_owned(),
         "terra" => "Terra".to_owned(),
         _ => {
             let mut chars = provider.chars();

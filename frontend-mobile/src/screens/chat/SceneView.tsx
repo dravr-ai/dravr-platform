@@ -7,6 +7,7 @@ import Svg, { Path, Rect, Line, Text as SvgText } from 'react-native-svg';
 import type {
   ColorToken,
   RenderBlock,
+  RouteView as RouteBlock,
   Scene,
   SceneNode,
   TableView,
@@ -23,7 +24,15 @@ import { useThemeColors } from '../../constants/theme';
 // rather than failing to draw a map. Loading it when a route block is actually
 // rendered keeps the app bootable everywhere and costs a frame only where a map
 // is genuinely being drawn.
-const RouteView = React.lazy(() => import('./RouteView'));
+//
+// A `require` inside the promise rather than `import()`: Metro evaluates a
+// module on its first `require`, so the native module still loads only when a
+// map is drawn, and a throw while loading it still rejects the promise the
+// boundary below catches. Jest's module VM cannot run a dynamic `import()` at
+// all, which left every map on every surface untestable.
+const RouteView = React.lazy(() =>
+  Promise.resolve().then(() => require('./RouteView') as typeof import('./RouteView')),
+);
 
 /**
  * Keeps a missing map from taking the thread down with it.
@@ -36,10 +45,10 @@ const RouteView = React.lazy(() => import('./RouteView'));
  * carries the coaching either way.
  */
 class RouteBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; unavailable?: React.ReactNode },
   { failed: boolean }
 > {
-  public constructor(props: { children: React.ReactNode }) {
+  public constructor(props: { children: React.ReactNode; unavailable?: React.ReactNode }) {
     super(props);
     this.state = { failed: false };
   }
@@ -50,7 +59,7 @@ class RouteBoundary extends React.Component<
 
   public render(): React.ReactNode {
     if (this.state.failed) {
-      return <RouteUnavailable />;
+      return this.props.unavailable ?? <RouteUnavailable />;
     }
     return this.props.children;
   }
@@ -63,6 +72,36 @@ function RouteUnavailable() {
     <View className="my-2 rounded-lg border border-outline-variant p-3">
       <Text className="text-xs text-on-surface-variant">{t('chat.routeNoTrack')}</Text>
     </View>
+  );
+}
+
+/**
+ * The route card, loaded when it is first drawn and held behind the boundary
+ * that keeps a runtime without MapLibre (Expo Go) from losing the surface
+ * around it. The thread and the Home tab both draw their maps through this,
+ * so neither can import the native module at module scope by accident.
+ *
+ * `fallback` is what shows while the card's code loads: nothing in a thread,
+ * where the prose carries the reply, and a sentence on Home, where the map is
+ * the section's content. `unavailable` replaces the thread's sentence when the
+ * map cannot be drawn at all: Home knows the activity has a track, so it says
+ * the map failed rather than that there was nothing to map.
+ */
+export function LazyRouteView({
+  route,
+  fallback = null,
+  unavailable,
+}: {
+  route: RouteBlock;
+  fallback?: React.ReactNode;
+  unavailable?: React.ReactNode;
+}) {
+  return (
+    <RouteBoundary unavailable={unavailable}>
+      <React.Suspense fallback={fallback}>
+        <RouteView route={route} />
+      </React.Suspense>
+    </RouteBoundary>
   );
 }
 
@@ -301,13 +340,7 @@ export default function SceneView({ block }: { block: RenderBlock }) {
     return <SceneTable view={block} colors={colors} />;
   }
   if (block.kind === 'route') {
-    return (
-      <RouteBoundary>
-        <React.Suspense fallback={null}>
-          <RouteView route={block} />
-        </React.Suspense>
-      </RouteBoundary>
-    );
+    return <LazyRouteView route={block} />;
   }
   return null;
 }

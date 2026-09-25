@@ -1,0 +1,53 @@
+# ABOUTME: Login lands on Home — the Today and Recent activities sections — and the Dravr lockup in the chat header leads back to it
+# ABOUTME: Asserts sections and controls by id, never seeded content, so it holds whatever plan and activity cache the tester has
+
+appId: ai.dravr.app
+
+---
+- runFlow:
+    file: ../helpers/launch-app.yaml
+- runFlow:
+    file: ../helpers/login.yaml
+
+# login.yaml returns once home-screen is visible: Home is the landing. Its
+# header title is the lockup, a button named Home.
+- assertVisible:
+    id: "home-title"
+- extendedWaitUntil:
+    visible:
+      id: "home-section-today"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: "home-section-activities"
+    direction: DOWN
+    timeout: 15000
+- takeScreenshot: "home-landing"
+
+# Leave Home for the chat tab; its header carries the same lockup.
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
+- assertVisible:
+    id: "conversations-title"
+- assertNotVisible:
+    id: "home-screen"
+
+# The lockup is the way Home.
+- tapOn:
+    id: "conversations-title"
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 10000
+- assertNotVisible:
+    id: "conversations-screen"
+
+# Already Home, the lockup scrolls back to the top and stays here.
+- tapOn:
+    id: "home-title"
+- extendedWaitUntil:
+    visible:
+      id: "home-section-today"
+    timeout: 5000
+- assertVisible:
+    id: "home-screen"

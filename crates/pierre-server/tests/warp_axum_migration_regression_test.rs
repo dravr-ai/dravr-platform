@@ -39,13 +39,6 @@ fn test_oauth_scopes_constants_exist() {
         "STRAVA_DEFAULT_SCOPES should not contain unnecessary 'read' scope"
     );
 
-    // Verify Fitbit scope constant exists with full health metrics scopes
-    assert_eq!(
-        oauth::FITBIT_DEFAULT_SCOPES,
-        "activity profile sleep heartrate weight",
-        "FITBIT_DEFAULT_SCOPES should include full health metrics (space-separated)"
-    );
-
     println!("✅ Regression test passed: OAuth scope constants exist and have correct values");
 }
 
@@ -94,10 +87,6 @@ fn test_all_regressions_fixed() {
 
     // Regression #1 & #2: OAuth constants exist
     assert_eq!(oauth::STRAVA_DEFAULT_SCOPES, "activity:read_all");
-    assert_eq!(
-        oauth::FITBIT_DEFAULT_SCOPES,
-        "activity profile sleep heartrate weight"
-    );
 
     // The approval body still exists; its tenant fields were deleted in
     // registre#407 and are covered by the ignore-unknown-keys test above.

@@ -403,11 +403,6 @@ impl TenantOAuthClient {
                 "https://www.strava.com/oauth/token".to_owned(),
                 true,
             ),
-            "fitbit" => (
-                "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                "https://api.fitbit.com/oauth2/token".to_owned(),
-                true,
-            ),
             "garmin" => (
                 "https://connect.garmin.com/oauthConfirm".to_owned(),
                 "https://connectapi.garmin.com/oauth-service/oauth/access_token".to_owned(),

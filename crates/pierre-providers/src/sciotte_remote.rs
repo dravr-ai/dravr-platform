@@ -43,7 +43,9 @@ pub use dravr_sciotte::models::CoachedAthlete;
 /// names and what the signed-in account is: callers outside this crate name
 /// them through here, since only this crate depends on `dravr-sciotte`.
 pub use dravr_sciotte::models::{AccountRole, AthleteId, AthleteProfile, AuthSession};
-use dravr_sciotte::models::{Activity as SciotteActivity, PlannedWorkout as SciottePlannedWorkout};
+use dravr_sciotte::models::{
+    Activity as SciotteActivity, DailySummary, PlannedWorkout as SciottePlannedWorkout,
+};
 use dravr_tronc::iam::IdTokenSource;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use reqwest::{Client, StatusCode};
@@ -874,6 +876,39 @@ impl RemoteSciotteClient {
         resp.json::<SciotteActivity>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activity decode: {e}")))
+    }
+
+    /// GET `/api/daily-summary` — scrape the day's health summary for
+    /// `session_id`: what the session's provider records for `date` (sleep,
+    /// resting heart rate, HRV, body metrics, `VO2max`, as far as it keeps them).
+    ///
+    /// A day the provider holds nothing for is a summary with every metric
+    /// absent, not an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on transport failure, a non-success status (classified
+    /// by `scrape_failure`: a shed, a dead session, or an internal fault), or an
+    /// unparseable body.
+    pub async fn get_daily_summary(
+        &self,
+        session_id: &str,
+        date: NaiveDate,
+    ) -> AppResult<DailySummary> {
+        let resp = self
+            .request(reqwest::Method::GET, "/api/daily-summary")
+            .await?
+            .header("X-Session-Id", session_id)
+            .query(&[("date", date.format("%Y-%m-%d").to_string())])
+            .send()
+            .await
+            .map_err(|e| AppError::internal(format!("sciotte daily-summary request: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(scrape_failure("daily-summary", resp).await);
+        }
+        resp.json::<DailySummary>()
+            .await
+            .map_err(|e| AppError::internal(format!("sciotte daily-summary decode: {e}")))
     }
 
     /// Parse a login-step response body into a [`RemoteLoginOutcome`], or into

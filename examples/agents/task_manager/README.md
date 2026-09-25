@@ -191,4 +191,3 @@ This example demonstrates (A2A 1.0):
 
 - [A2A Protocol Specification](https://github.com/google/A2A)
 - [Pierre Task Management](../../../src/a2a/protocol.rs)
-- [A2A vs MCP: When to Use Each](../../../book/src/protocols.md)

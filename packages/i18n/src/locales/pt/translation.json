@@ -753,7 +753,7 @@
     "brandCoros": "COROS",
     "corosAccount": "Conta COROS",
     "corosEmail": "E-mail COROS",
-    "provCorosBlurb": "Atividades dos relógios COROS",
+    "provCorosBlurb": "Atividades e métricas de recuperação dos relógios COROS",
     "provCorosShort": "Atividades e voltas"
   },
   "auth": {
@@ -1741,6 +1741,33 @@
     "weeklyReport": "Relatório semanal",
     "youSuffix": "(tu)"
   },
+  "home": {
+    "plan": {
+      "tomorrow": "Amanhã",
+      "phaseWeek": "{{phase}} · semana {{week}}",
+      "notCovered": "O teu plano não cobre este dia.",
+      "emptyTitle": "Ainda não tens um plano de treino",
+      "emptyBody": "Fala ao teu agente da tua prova-alvo e ele planeia a tua temporada, semana a semana.",
+      "buildCta": "Criar o meu plano",
+      "buildDraft": "Cria-me um plano de treino para a minha prova-alvo.",
+      "dayDraft": "Explica-me a minha sessão de {{date}}: {{workout}}",
+      "restDayDraft": "Porque é que {{date}} é dia de descanso no meu plano?",
+      "loadFailed": "Não foi possível carregar o teu plano."
+    },
+    "activities": {
+      "heading": "Atividades recentes",
+      "noProvider": "Liga um serviço de fitness para veres aqui as tuas atividades recentes.",
+      "empty": "Ainda não há atividades. Aparecem aqui assim que o teu fornecedor sincronizar.",
+      "routeTooShort": "Este percurso é demasiado curto para ser desenhado sem revelar onde começa.",
+      "mapLoading": "A carregar o mapa…",
+      "routeFailed": "Não foi possível carregar o mapa.",
+      "loadFailed": "Não foi possível carregar as tuas atividades recentes.",
+      "refreshing": "A procurar atividades novas no teu fornecedor…",
+      "syncedAt": "Última sincronização: {{time}}",
+      "analyzeDraft": "Analisa a minha atividade de {{date}} ({{sport}})",
+      "sketchAlt": "Esboço do percurso"
+    }
+  },
   "humanCoach": {
     "attached": "Treinador humano associado",
     "attachedBadge": "Coach associado",
@@ -1907,6 +1934,10 @@
     "quota_burst": "Nota: ultrapassaste o limite de {1} do teu plano e continuas com a reserva. O contador repõe-se a {2}.",
     "rate_limited": "Estás a enviar mensagens um pouco mais depressa do que o teu plano permite. Aguarda um momento e tenta novamente — eu estarei aqui.",
     "reply_withheld": "A minha resposta não seguiu — misturava detalhes técnicos que não têm lugar aqui. Envia de novo a tua última mensagem e retomamos onde estávamos.",
+    "reply_stop": {
+      "truncated": "✂️ A minha resposta foi cortada antes de terminar. Pede-me para continuar e retomo onde parei.",
+      "filtered": "⚠️ Um filtro de conteúdo removeu parte da minha resposta, por isso pode estar incompleta. Tenta reformular a tua pergunta."
+    },
     "scope": {
       "carve_out": {
         "nutrition": "## Esclarecimento para o teu papel de nutrição\n\nÉs especializado em nutrição: as perguntas sobre refeições, jantares, pequenos-almoços, lanches, escolhas alimentares e planeamento de refeições ligado ao treino estão plenamente no teu domínio. Responde diretamente, apoiando-te nos dados de treino do utilizador (intensidade, duração, gasto energético). A regra «procura de comida fora do âmbito» acima visa apenas procura de restaurantes, apps de entrega e menus online — não cobre conselhos nutricionais baseados em evidência nem planeamento de refeições fundado nos dados de treino. Nunca recuses «o que comer depois da corrida», «ideias para o jantar após treinar», «lanche pós-treino» ou equivalente.",
@@ -1975,6 +2006,7 @@
     "dataProviders": "Fornecedores",
     "discover": "Descobrir",
     "groups": "Grupos",
+    "home": "Início",
     "notifications": "Notificações",
     "settings": "Definições",
     "usage": "Utilização"
@@ -2285,7 +2317,7 @@
     "synthTest": "Dados de teste sintéticos para desenvolvimento",
     "whoop": "Métricas de recuperação, esforço e sono",
     "trainingpeaks": "Treinos realizados e a respetiva carga de treino do TrainingPeaks",
-    "coros": "Atividades de relógios COROS"
+    "coros": "Atividades e métricas de recuperação de relógios COROS"
   },
   "providers": {
     "add": "Adicionar fornecedor",
@@ -2305,7 +2337,6 @@
     "failedConnectRetry": "Não foi possível ligar o fornecedor. Tenta outra vez.",
     "failedLoadProviderStatus": "Não foi possível carregar o estado dos fornecedores",
     "failedToConnectReason": "Falha ao ligar: {{reason}}",
-    "fitbit": "Fitbit",
     "fitnessHint": "Liga as tuas contas desportivas para sincronizar atividades, métricas de saúde e mais.",
     "fitnessTitle": "Fornecedores de dados",
     "garmin": "Garmin",

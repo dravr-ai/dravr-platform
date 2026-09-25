@@ -142,7 +142,7 @@ async fn test_multiple_provider_notifications() -> Result<()> {
     database
         .repositories()
         .notifications
-        .store(user_id, "fitbit", true, "Connected to Fitbit", None)
+        .store(user_id, "whoop", true, "Connected to WHOOP", None)
         .await?;
 
     // Verify both notifications are stored
@@ -155,7 +155,7 @@ async fn test_multiple_provider_notifications() -> Result<()> {
 
     let providers: Vec<&str> = notifications.iter().map(|n| n.provider.as_str()).collect();
     assert!(providers.contains(&"strava"));
-    assert!(providers.contains(&"fitbit"));
+    assert!(providers.contains(&"whoop"));
 
     Ok(())
 }

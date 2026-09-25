@@ -142,8 +142,7 @@ const ROLE_INJECTION_MARKERS: &[&str] = &[
 
 const DANGEROUS_URL_SCHEMES: &[&str] = &["javascript:", "data:text/html", "vbscript:", "file://"];
 
-/// Longest match snippet, in chars, a sanitization report carries.
-pub const SNIPPET_MAX: usize = 64;
+const SNIPPET_MAX: usize = 64;
 
 fn capture_snippet(source: &str, idx: usize, length: usize) -> String {
     let end = (idx + length).min(source.len());

@@ -31,7 +31,7 @@ Generate the encryption key with: `openssl rand -base64 32`
 | `garmin` | `PIERRE_GARMIN_CLIENT_ID`, `PIERRE_GARMIN_CLIENT_SECRET` |
 | `synthetic` | None (works out of the box) |
 
-See `book/src/environment.md` for the complete variable reference.
+See `.envrc.example` for the complete variable reference.
 
 ## Quick Start
 

@@ -15,9 +15,9 @@
 //! The token endpoint is the registry's resolved one, so a
 //! `PIERRE_<PROVIDER>_TOKEN_URL` override reaches the exchange the same way
 //! it reaches refresh and revocation. The owner id is what a provider's push
-//! events name the athlete by; Strava and Fitbit return it inline in the
-//! token response, WHOOP only from its profile endpoint, so that one is read
-//! with the fresh access token before the token is stored.
+//! events name the athlete by; Strava returns it inline in the token
+//! response, WHOOP only from its profile endpoint, so that one is read with
+//! the fresh access token before the token is stored.
 
 use pierre_auth::oauth2_client::OAuth2Token;
 use pierre_core::constants::oauth_providers;
@@ -93,8 +93,8 @@ impl OAuthService {
     /// Fill in the provider-side owner id when the token exchange did not
     /// deliver one.
     ///
-    /// Strava and Fitbit return the owner inline in the token response and
-    /// arrive here with the id set. WHOOP does not, and its webhooks name the
+    /// Strava returns the owner inline in the token response and arrives
+    /// here with the id set. WHOOP does not, and its webhooks name the
     /// athlete by that id alone, so the profile is read with the fresh access
     /// token ([`owner_id_for_access_token`]) before the token is stored.
     /// Best-effort: a failed read stores the token without the id — the

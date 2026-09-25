@@ -31,6 +31,7 @@ use pierre_evals::{
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
 
+use super::reply_locale::resolve_banner_locale;
 use crate::envelope::VerdictChip;
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::{
@@ -78,41 +79,6 @@ pub fn resolve_claim_judge(
             None
         }
     }
-}
-
-/// Localizes the verification warn / block-fallback strings.
-///
-/// The claim-verification banner is appended verbatim to the LLM's reply, so the
-/// banner's language must match the reply's language — otherwise an
-/// English session ends with a French postscript (or vice versa).
-///
-/// Resolution order (returns first match):
-/// 1. **Reply text via whatlang** — long replies (≥ a few sentences)
-///    detect reliably even for casual conversational tone, which is the
-///    case the per-turn locale heuristic in `messaging_ingress` misses
-///    (a 4-word user question can't be detected, but the 200-word reply
-///    can).
-/// 2. **The turn's resolved `locale`** — [`crate::SurfaceProfile::locale`],
-///    settled once at the ingress boundary from the user's input, the
-///    channel link, and `users.locale`. Honored verbatim whenever the
-///    reply's own language is inconclusive.
-pub(crate) fn resolve_banner_locale(reply: &str, locale: &str) -> String {
-    if let Some(info) = whatlang::detect(reply) {
-        if info.is_reliable() {
-            let detected = match info.lang() {
-                whatlang::Lang::Fra => Some("fr"),
-                whatlang::Lang::Eng => Some("en"),
-                whatlang::Lang::Spa => Some("es"),
-                whatlang::Lang::Deu => Some("de"),
-                whatlang::Lang::Por => Some("pt"),
-                _ => None,
-            };
-            if let Some(code) = detected {
-                return code.to_owned();
-            }
-        }
-    }
-    locale.to_owned()
 }
 
 /// Approximate "lead" of an agent reply for verification-banner deduplication.

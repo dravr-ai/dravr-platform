@@ -468,12 +468,6 @@ pub mod rate_limits {
     pub const STRAVA_RATE_LIMIT_15MIN: u32 = 100;
     /// Strava daily rate limit
     pub const STRAVA_RATE_LIMIT_DAILY: u32 = 15000;
-    /// Fitbit hourly rate limit
-    pub const FITBIT_RATE_LIMIT_HOURLY: u32 = 150;
-    /// Fitbit daily rate limit
-    pub const FITBIT_RATE_LIMIT_DAILY: u32 = 1000;
-    /// Fitbit default daily rate limit
-    pub const FITBIT_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
     /// Strava default daily rate limit
     pub const STRAVA_DEFAULT_DAILY_RATE_LIMIT: u32 = 15000;
     /// Garmin default daily rate limit
@@ -558,10 +552,6 @@ pub mod api_provider_limits {
     pub const STRAVA_RATE_LIMIT_15MIN: u32 = 100;
     /// Strava daily rate limit
     pub const STRAVA_RATE_LIMIT_DAILY: u32 = 15000;
-    /// Fitbit hourly rate limit
-    pub const FITBIT_RATE_LIMIT_HOURLY: u32 = 150;
-    /// Fitbit daily rate limit
-    pub const FITBIT_RATE_LIMIT_DAILY: u32 = 1000;
 
     /// Strava specific limits
     pub mod strava {
@@ -594,19 +584,6 @@ pub mod api_provider_limits {
         pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 25;
         /// Maximum workouts per single API request
         pub const MAX_ACTIVITIES_PER_REQUEST: usize = 50;
-    }
-
-    /// Fitbit API limits
-    pub mod fitbit {
-        /// Estimated rate-limit block duration (seconds).
-        ///
-        /// Fitbit's quota is hourly, so an exhausted caller waits for the next
-        /// hour boundary rather than a short backoff.
-        pub const ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS: u64 = 3600;
-        /// Default activities per page request
-        pub const DEFAULT_ACTIVITIES_PER_PAGE: usize = 100;
-        /// Maximum activities per single API request
-        pub const MAX_ACTIVITIES_PER_REQUEST: usize = 100;
     }
 
     /// Intervals.icu API limits

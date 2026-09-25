@@ -190,7 +190,7 @@ pub struct UserOAuthToken {
     pub user_id: Uuid,
     /// Tenant context for this token
     pub tenant_id: String,
-    /// Provider name (strava, fitbit, etc.)
+    /// Provider name (strava, whoop, etc.)
     pub provider: String,
     /// Encrypted OAuth access token
     pub access_token: String,
@@ -303,7 +303,7 @@ impl UserOAuthToken {
 /// User OAuth app credentials for cloud deployment
 ///
 /// Each user can configure their own OAuth application credentials
-/// for each provider (Strava, Fitbit, etc.) to work in cloud deployments
+/// for each provider (Strava, WHOOP, etc.) to work in cloud deployments
 /// where server-wide environment variables won't work.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOAuthApp {
@@ -311,7 +311,7 @@ pub struct UserOAuthApp {
     pub id: String,
     /// User who owns this OAuth app configuration
     pub user_id: Uuid,
-    /// OAuth provider name (strava, fitbit, etc.)
+    /// OAuth provider name (strava, whoop, etc.)
     pub provider: String,
     /// OAuth client ID from the provider
     pub client_id: String,
@@ -656,7 +656,7 @@ pub struct OAuthNotification {
     pub id: String,
     /// User ID this notification belongs to
     pub user_id: String,
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava", "whoop")
     pub provider: String,
     /// Whether OAuth flow succeeded
     pub success: bool,

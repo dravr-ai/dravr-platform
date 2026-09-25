@@ -115,8 +115,12 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * One day of the fortnight: the date, the sport, and the session — its text,
  * duration and intensity, then the steps, the template and the fuel it
  * carries. A rest day is the one word.
+ *
+ * A table row: the card lays a week out as a table, and the Home page's day
+ * detail renders the same row in a one-row table, so a day reads the same in
+ * both places.
  */
-function DayRow({ day }: { day: PlanDay }) {
+export function DayRow({ day }: { day: PlanDay }) {
   const { t } = useTranslation();
   const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
     (part): part is string => typeof part === 'string' && part.length > 0,
@@ -177,9 +181,10 @@ function DayRow({ day }: { day: PlanDay }) {
 /**
  * The week's heading: "This week" for the week covering today, "Next week"
  * for the one after it, the Monday's date for any other. The date rides in
- * mono beside the two named weeks so every heading still carries it.
+ * mono beside the two named weeks so every heading still carries it. The Home
+ * page's next-week line is this heading.
  */
-function WeekHeading({ week, index, currentIndex }: { week: PlanWeek; index: number; currentIndex: number }) {
+export function WeekHeading({ week, index, currentIndex }: { week: PlanWeek; index: number; currentIndex: number }) {
   const { t } = useTranslation();
   const named = week.current
     ? t('plan.card.thisWeek')

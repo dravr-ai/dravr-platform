@@ -8,14 +8,40 @@
 
 use pierre_core::prompt_fingerprint::{
     detect_canary_in_response, fingerprint_prompt, generate_canary, inject_canary_marker,
-    normalize, scan_response_for_leaks, LeakVerdict, DEFAULT_LEAK_THRESHOLD, SHINGLE_WINDOW,
+    scan_response_for_leaks, LeakVerdict, DEFAULT_LEAK_THRESHOLD, SHINGLE_WINDOW,
 };
 
+/// The fingerprint hashes the normalized text, so its SHA-256 and length pin
+/// the normalization exactly: these digests are of "hello world", "a b" and
+/// "unchanged".
 #[test]
 fn normalize_collapses_whitespace_and_lowercases() {
-    assert_eq!(normalize("Hello\n\tWorld"), "hello world");
-    assert_eq!(normalize("   A   B  "), "a b");
-    assert_eq!(normalize("unchanged"), "unchanged");
+    let cases = [
+        (
+            "Hello\n\tWorld",
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+            11,
+        ),
+        (
+            "   A   B  ",
+            "c8687a08aa5d6ed2044328fa6a697ab8e96dc34291e8c2034ae8c38e6fcc6d65",
+            3,
+        ),
+        (
+            "unchanged",
+            "aaa8d3c8d74ad3e8f6b1772aa9c7e0eaa528cb42fc93599ce2f125b00d4c424c",
+            9,
+        ),
+    ];
+    for (input, sha256_hex, normalized_len) in cases {
+        let fp = fingerprint_prompt(input);
+        assert_eq!(fp.sha256_hex, sha256_hex, "normalized form of {input:?}");
+        assert_eq!(
+            fp.normalized_len, normalized_len,
+            "normalized length of {input:?}"
+        );
+        assert_eq!(fp.original_len, input.len());
+    }
 }
 
 #[test]

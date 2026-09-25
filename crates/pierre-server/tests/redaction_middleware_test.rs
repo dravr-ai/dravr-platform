@@ -139,12 +139,12 @@ fn redact_query_keeps_parameter_names_and_replaces_only_sensitive_values() {
 fn redacted_request_line_composes_path_and_redacted_query() {
     let config = RedactionConfig::default();
 
-    let uri: Uri = "/api/oauth/callback/fitbit?code=secret&scope=activity"
+    let uri: Uri = "/api/oauth/callback/whoop?code=secret&scope=activity"
         .parse()
         .unwrap();
     assert_eq!(
         redacted_request_line(&uri, &config),
-        "/api/oauth/callback/fitbit?code=[REDACTED]&scope=activity"
+        "/api/oauth/callback/whoop?code=[REDACTED]&scope=activity"
     );
 
     let bare: Uri = "/health".parse().unwrap();

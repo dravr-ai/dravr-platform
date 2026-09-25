@@ -152,5 +152,4 @@ This example demonstrates:
 ## Learn More
 
 - [A2A Protocol Specification](https://a2a-protocol.org/v1.0.0/specification)
-- [Pierre A2A Documentation](../../../book/src/protocols.md)
 - [Agent Card Design](../../../crates/pierre-a2a/src/agent_card.rs)

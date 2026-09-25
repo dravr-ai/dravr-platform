@@ -440,40 +440,20 @@ fi
 print_task "Cargo clippy + build (zero tolerance linting)"
 
 # ============================================================================
-# CRITICAL: Why we need explicit -- -D warnings flag
+# Warnings are denied through build.warnings, not `-- -D warnings`
 # ============================================================================
-# DO NOT REMOVE THE "-D warnings" FLAG - Here's why:
-#
-# The [lints.clippy] configuration in Cargo.toml (lines 160-166) has known
-# reliability issues with flag ordering that cause inconsistent behavior:
-#
-# GitHub Issue: https://github.com/rust-lang/rust-clippy/issues/11237
-# Title: "cargo clippy not obeying [lints.clippy] from Cargo.toml"
-# Root Cause: Cargo sorts flags before passing to clippy, breaking precedence
-# Examples: wildcard_imports, too_many_lines, option_if_let_else all failed
-#           to respect [lints.clippy] deny configuration
-#
-# Official Clippy Documentation (https://doc.rust-lang.org/clippy/usage.html):
-# "For CI all warnings can be elevated to errors which will in turn fail
-#  the build and cause Clippy to exit with a code other than 0"
-# Recommended Command: cargo clippy -- -Dwarnings
-#
-# Without explicit -D warnings:
-# ❌ Clippy may exit with code 0 even when warnings exist
-# ❌ CI/CD won't fail on code quality issues
-# ❌ Cargo.toml [lints] flag ordering can be inconsistent
-#
-# With explicit -D warnings:
-# ✅ Guaranteed non-zero exit code on ANY warning
-# ✅ Bypasses Cargo.toml flag ordering bugs
-# ✅ Standard CI/CD pattern (documented in official Clippy docs)
+# Clippy exits 0 over warnings unless something denies them, so something must.
+# CARGO_BUILD_WARNINGS=deny makes cargo fail the run once every crate has been
+# linted, instead of turning the first warning into an error that stops every
+# dependent crate from being checked. The lint groups stay at -D: a clippy
+# finding is an error here exactly as Cargo.toml's [workspace.lints] declares.
 # ============================================================================
 
 # Run clippy with output to screen
 # Explicit -D flags deny all clippy violations (matching CCFW strictness)
 # CRITICAL: All lint groups use -D (deny) to match production CI validation
 # ZERO TOLERANCE: No allowances - all warnings must be fixed
-if cargo clippy --all-targets --all-features --quiet -- -D warnings -D clippy::all -D clippy::pedantic -D clippy::nursery -W clippy::cognitive_complexity; then
+if CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features --quiet -- -D clippy::all -D clippy::pedantic -D clippy::nursery -W clippy::cognitive_complexity; then
     echo -e "${GREEN}[OK] Clippy passed - ZERO code warnings (enforced by Cargo.toml)${NC}"
     echo -e "${GREEN}[OK] Debug build completed (reused for all validation)${NC}"
 else

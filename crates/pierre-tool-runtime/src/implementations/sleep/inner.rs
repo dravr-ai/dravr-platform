@@ -13,10 +13,11 @@ use chrono::Utc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use super::activity_source::{fetch_provider_activities, select_activity_provider};
 use crate::protocol::sleep_helpers::{latest_sleep_data, sleep_history_data};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use pierre_core::models::{Activity, FormBand};
+use pierre_core::models::FormBand;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_intelligence::algorithms::RecoveryAggregationAlgorithm;
 use pierre_intelligence::{RecoveryCalculator, SleepAnalyzer, SleepData, TrainingLoadCalculator};
@@ -33,88 +34,6 @@ const DEFAULT_TREND_DAYS: u32 = 14;
 
 /// Longest window `track_sleep_trends` reads: a year of nights.
 const MAX_TREND_DAYS: u32 = 366;
-
-/// Provider-agnostic activity fetcher
-///
-/// Fetches activities from any supported fitness provider based on the provider name.
-/// Uses `AuthService` for tenant-aware credential lookup and provider instantiation,
-/// falling back to environment credentials when tenant-specific ones are not configured.
-///
-/// # Arguments
-/// * `executor` - The tool executor with access to auth service and provider registry
-/// * `user_uuid` - The user's UUID for token lookup
-/// * `tenant_id` - Optional tenant ID for multi-tenant deployments
-/// * `provider_name` - Name of the provider to fetch from (e.g., "strava", "garmin", "fitbit")
-///
-/// # Errors
-/// Returns a boxed `UniversalResponse` if authentication fails or activities cannot be fetched
-async fn fetch_provider_activities(
-    executor: &UniversalToolExecutor,
-    user_uuid: Uuid,
-    tenant_id: Option<&str>,
-    provider_name: &str,
-) -> Result<Vec<Activity>, Box<UniversalResponse>> {
-    // Use AuthService for tenant-aware authenticated provider creation
-    let provider = executor
-        .auth_service
-        .create_authenticated_provider(provider_name, user_uuid, tenant_id)
-        .await?;
-
-    #[allow(clippy::cast_possible_truncation)]
-    let mut activities = provider
-        .get_activities(
-            Some(executor.resources.config().sleep_tool_params.activity_limit as usize),
-            None,
-        )
-        .await
-        .map_err(|e| UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!(
-                "Failed to fetch activities from '{provider_name}': {e}"
-            )),
-            metadata: None,
-        })?;
-
-    // Sort oldest-first — EMA calculation in TrainingLoadCalculator requires chronological order
-    activities.sort_by_key(Activity::start_date);
-    Ok(activities)
-}
-
-/// Select the best available activity provider for a user
-///
-/// Checks connected providers and returns the first one that supports activities.
-/// Priority order: strava > garmin > fitbit > whoop > terra
-async fn select_activity_provider(
-    executor: &UniversalToolExecutor,
-    user_uuid: Uuid,
-    tenant_id: Option<&str>,
-) -> Option<String> {
-    // Activity provider priority (Strava is best for activities)
-    let priority = ["strava", "garmin", "fitbit", "whoop", "terra"];
-
-    for provider in priority {
-        if let Some(caps) = executor
-            .resources
-            .provider_registry()
-            .get_capabilities(provider)
-        {
-            if caps.supports_activities() {
-                // Check if user has a valid token
-                if matches!(
-                    executor
-                        .auth_service
-                        .get_valid_token(user_uuid, provider, tenant_id)
-                        .await,
-                    Ok(Some(_))
-                ) {
-                    return Some(provider.to_owned());
-                }
-            }
-        }
-    }
-    None
-}
 
 /// Handle `analyze_sleep_quality` tool - analyze the most recent synced night
 ///

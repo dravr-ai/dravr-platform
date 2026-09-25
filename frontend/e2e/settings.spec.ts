@@ -576,7 +576,7 @@ test.describe('Settings Page - User Mode', () => {
     // (Garmin-branded), `sciotte_trainingpeaks` (TrainingPeaks-branded) and `whoop`.
     const testProviders = [
       { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
-      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities', 'sleep', 'recovery', 'health'] },
       { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
       { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
     ];
@@ -594,7 +594,7 @@ test.describe('Settings Page - User Mode', () => {
 
   test('TrainingPeaks connects only after its notice is accepted', async ({ page }) => {
     const testProviders = [
-      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: false },
+      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities', 'sleep', 'recovery', 'health'], consent_required: false },
       { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
@@ -656,7 +656,7 @@ test.describe('Settings Page - User Mode', () => {
   test('COROS connects with an email only after its notice is accepted', async ({ page }) => {
     const testProviders = [
       { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: false },
-      { provider: 'sciotte_coros', display_name: 'COROS', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
+      { provider: 'sciotte_coros', display_name: 'COROS', requires_oauth: false, connected: false, capabilities: ['activities', 'recovery', 'health'], consent_required: true },
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
@@ -737,7 +737,7 @@ test.describe('Settings Page - User Mode', () => {
         requires_oauth: false,
         connected: true,
         needs_reauth: false,
-        capabilities: ['activities'],
+        capabilities: ['activities', 'sleep', 'recovery', 'health'],
         consent_required: false,
         account_role: 'coach',
       },
@@ -762,7 +762,7 @@ test.describe('Settings Page - User Mode', () => {
     // sciotte_trainingpeaks via credential login, whoop via OAuth.
     const testProviders = [
       { provider: 'sciotte', display_name: 'Strava', requires_oauth: false, connected: false, capabilities: ['activities'] },
-      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'sciotte_garmin', display_name: 'Garmin', requires_oauth: false, connected: false, capabilities: ['activities', 'sleep', 'recovery', 'health'] },
       { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
       { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
     ];

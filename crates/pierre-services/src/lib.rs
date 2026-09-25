@@ -124,6 +124,10 @@ pub mod health_sync;
 #[cfg(feature = "health-sync")]
 pub mod whoop_terms;
 
+/// Health sync's daily-summary reads, made on the dedicated sciotte scraper service
+#[cfg(feature = "health-sync")]
+pub mod sciotte_health_reader;
+
 /// Memory extraction: Tier 2 background distillation of user facts from finished turns
 pub mod memory_extraction;
 /// Re-running the extractions an instance died owing, from the job ledger
@@ -217,6 +221,9 @@ pub mod oauth_flow;
 
 /// The registry-backed token endpoint and WHOOP owner-id lookups the code exchange uses
 mod oauth_exchange_lookups;
+
+/// Redeeming a callback's state, the only path to a flow's mobile redirect URL
+mod oauth_state_redeem;
 
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;

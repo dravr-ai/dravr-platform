@@ -119,11 +119,9 @@ async fn oauth_status_surfaces_a_repository_failure_instead_of_reporting_disconn
     assert_eq!(response.status_code(), StatusCode::OK);
     let body: serde_json::Value = response.json();
     let statuses = body.as_array().expect("status array");
-    assert_eq!(statuses.len(), 2);
+    assert_eq!(statuses.len(), 1);
     assert_eq!(statuses[0]["provider"], "strava");
     assert_eq!(statuses[0]["connected"], false);
-    assert_eq!(statuses[1]["provider"], "fitbit");
-    assert_eq!(statuses[1]["connected"], false);
 
     // Break the backing table so the repository read fails for the same user.
     match resources.agent.database.as_ref() {

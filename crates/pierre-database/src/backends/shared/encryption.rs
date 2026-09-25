@@ -24,7 +24,7 @@ use uuid::Uuid;
 /// # Arguments
 /// * `tenant_id` - Tenant ID (or "default" for single-tenant)
 /// * `user_id` - User UUID
-/// * `provider` - OAuth provider (e.g., "strava", "fitbit", "google")
+/// * `provider` - OAuth provider (e.g., "strava", "whoop", "google")
 /// * `table` - Database table name (e.g., `"user_oauth_tokens"`)
 ///
 /// # Returns

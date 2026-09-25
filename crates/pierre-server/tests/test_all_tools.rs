@@ -151,13 +151,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: Some("test_fitbit_id".to_owned()),
-                client_secret: Some("test_fitbit_secret".to_owned()),
-                redirect_uri: Some("http://localhost:3000/oauth/callback/fitbit".to_owned()),
-                scopes: vec!["activity".to_owned(), "profile".to_owned()],
-                enabled: true,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -207,13 +200,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
@@ -320,7 +306,6 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         password_hash: "fake_hash_for_ci".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         user_status: UserStatus::Active,
@@ -980,7 +965,7 @@ async fn test_disconnect_provider(
     // We'll skip actually disconnecting in tests
     let request = create_request(
         "disconnect_provider",
-        json!({"provider": "fitbit"}),
+        json!({"provider": "whoop"}),
         user_id,
         tenant_id,
     );

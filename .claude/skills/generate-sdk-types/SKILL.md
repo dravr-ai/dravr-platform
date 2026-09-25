@@ -98,7 +98,7 @@ export interface GetActivitiesParams {
   start_date?: string;
   end_date?: string;
   limit?: number;
-  provider?: 'strava' | 'garmin' | 'fitbit';
+  provider?: 'strava' | 'garmin' | 'whoop';
 }
 ```
 

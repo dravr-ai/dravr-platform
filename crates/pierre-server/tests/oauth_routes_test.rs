@@ -14,12 +14,12 @@ mod common;
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-    GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
-    McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
-    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GeocodingServiceConfig,
+    GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
+    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
+    RateLimitConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
@@ -69,13 +69,6 @@ async fn test_email_validation() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -105,13 +98,6 @@ async fn test_email_validation() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()
@@ -285,13 +271,6 @@ async fn test_password_validation() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -321,13 +300,6 @@ async fn test_password_validation() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()
@@ -473,13 +445,6 @@ async fn test_duplicate_user_registration() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -509,13 +474,6 @@ async fn test_duplicate_user_registration() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()
@@ -652,13 +610,6 @@ async fn test_login_with_correct_credentials() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -688,13 +639,6 @@ async fn test_login_with_correct_credentials() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()
@@ -795,7 +739,6 @@ async fn test_login_with_correct_credentials() {
         password_hash: "$2b$10$hashedpassword".to_owned(),
         tier: UserTier::Enterprise,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -885,13 +828,6 @@ async fn test_login_with_wrong_password() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -921,13 +857,6 @@ async fn test_login_with_wrong_password() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()
@@ -1072,13 +1001,6 @@ async fn test_login_with_non_existent_user() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -1108,13 +1030,6 @@ async fn test_login_with_non_existent_user() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()

@@ -18,6 +18,11 @@
 //! cargo run -p pierre-evals --bin coaching_model_bench -- [--only SUBSTR] [--limit N] [--out PATH] [--md PATH]
 //! ```
 
+// A pub item this binary never uses is reachable from nowhere: the lint is
+// crate-level because a library's test harness is a binary too, where it
+// would flag every pub item the unit tests do not call.
+#![deny(dead_code_pub_in_binary)]
+
 use std::env;
 use std::fs;
 use std::time::Instant;

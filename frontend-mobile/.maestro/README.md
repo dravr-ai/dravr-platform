@@ -36,13 +36,14 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 │   ├── launch-app.yaml      # Launch app fresh
 │   ├── login.yaml           # Perform login
 │   ├── login-if-needed.yaml # Conditional login
-│   ├── navigate-to-*.yaml   # Navigation helpers
+│   ├── navigate-to-*.yaml   # Navigation helpers (chat, discover, settings)
 │   ├── new-chat.yaml        # Start new conversation
 │   ├── send-chat-message.yaml
 │   ├── wait-for-response.yaml
 │   ├── logout.yaml
 │   └── go-back.yaml
 ├── login/                   # Login flow tests
+├── home/                    # Home: the landing after login, and the lockup that leads back to it
 ├── settings/                # Settings screen tests
 ├── chat/                    # Chat functionality tests
 ├── store/                   # Discover/Store tests (browse, install → hint, uninstall)

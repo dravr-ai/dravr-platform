@@ -287,8 +287,8 @@ pub(crate) const FIND_RECOVERY_METRIC_TENANT_SQL: &str =
 /// Insert or refresh one day's body metrics. `RETURNING id` reports the id
 /// actually stored, which on the update path is the pre-existing row's.
 pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
-            INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at, bmi)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            INSERT INTO health_snapshots (id, user_id, tenant_id, provider, data_source_id, synced_at, date, weight, body_fat_percentage, muscle_mass, bone_mass, body_water_percentage, bp_systolic, bp_diastolic, blood_glucose, created_at, bmi, vo2_max)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             ON CONFLICT(user_id, tenant_id, provider, date) DO UPDATE SET
                 weight = EXCLUDED.weight,
                 bmi = EXCLUDED.bmi,
@@ -298,7 +298,8 @@ pub(crate) const UPSERT_HEALTH_SNAPSHOT_SQL: &str = r"
                 body_water_percentage = EXCLUDED.body_water_percentage,
                 bp_systolic = EXCLUDED.bp_systolic,
                 bp_diastolic = EXCLUDED.bp_diastolic,
-                blood_glucose = EXCLUDED.blood_glucose
+                blood_glucose = EXCLUDED.blood_glucose,
+                vo2_max = EXCLUDED.vo2_max
             RETURNING id
             ";
 
@@ -308,7 +309,7 @@ macro_rules! health_snapshot_columns {
     () => {
         "id, user_id, provider, data_source_id, date, weight, body_fat_percentage,
                    muscle_mass, bmi, bone_mass, body_water_percentage, bp_systolic, bp_diastolic,
-                   blood_glucose, created_at"
+                   blood_glucose, vo2_max, created_at"
     };
 }
 
@@ -530,6 +531,7 @@ where
         systolic_bp: bp_systolic.map(i32::cast_unsigned),
         diastolic_bp: bp_diastolic.map(i32::cast_unsigned),
         blood_glucose: column(row, "blood_glucose")?,
+        vo2_max: column(row, "vo2_max")?,
         source_name: column(row, "provider")?,
         recorded_at: column(row, "created_at")?,
     })
@@ -985,6 +987,7 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(snapshot.blood_glucose)
                     .bind(now)
                     .bind(snapshot.bmi)
+                    .bind(snapshot.vo2_max)
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {

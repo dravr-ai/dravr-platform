@@ -207,7 +207,7 @@ echo "Tests found (should be >0)"
 ```
 
 ### 4. OAuth 2.0 Client Compliance (Pierre as OAuth Client)
-**Objective:** Validate OAuth client for Strava/Garmin/Fitbit
+**Objective:** Validate OAuth client for Strava/Garmin/WHOOP
 
 **Actions:**
 ```bash

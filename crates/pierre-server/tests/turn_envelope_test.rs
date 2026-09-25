@@ -126,6 +126,7 @@ fn telemetry(identity_leak: Option<IdentityLeakMatch>) -> TurnTelemetry {
         activities_prefetched: false,
         usage: None,
         identity_leak,
+        provider_warnings: Vec::new(),
     }
 }
 

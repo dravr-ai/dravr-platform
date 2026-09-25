@@ -132,9 +132,9 @@ pub enum GateOutcome {
 /// dispatch, applying the active [`GuardianMode`].
 ///
 /// This is the SINGLE gate every dispatch point shares — the chokepoint
-/// [`crate::protocol::executor::UniversalExecutor::execute_tool`] and the `/mcp`
-/// OAuth carve-out in the server — so a special-cased dispatch path cannot
-/// silently bypass the guard. Returns the outcome plus whether budget was
+/// [`crate::protocol::executor::UniversalExecutor::execute_tool`], which every
+/// transport's registry dispatch passes through — so a special-cased dispatch
+/// path cannot silently bypass the guard. Returns the outcome plus whether budget was
 /// `reserved`, so a caller that then runs the tool itself can refund on failure
 /// exactly as the chokepoint does post-execution.
 #[must_use]

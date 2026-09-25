@@ -12,18 +12,19 @@ use crate::database::Database as SqliteDatabase;
 use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, ActivityBackfillJobRepository, ActivityCacheRepository,
-    AdminRepository, AgentsRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
-    CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
-    DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
-    FeatureFlagsRepository, FitnessConfigRepository, GuardianPendingActionsRepository,
-    HarnessMemoryRepository, HealthSnapshotRepository, ImpersonationRepository,
-    LlmCredentialRepository, LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository,
-    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, PlaybookRepository,
-    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
-    SessionRefreshTokenRepository, ShortLinkRepository, SleepRepository, StoreListingsRepository,
+    ActivityRouteTrackRepository, AdminRepository, AgentsRepository, ApiKeyRepository,
+    ChatRepository, ClaimVerdictRepository, CoachingGroupRepository, CommitmentRepository,
+    DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
+    EmailVerificationRepository, FeatureFlagsRepository, FitnessConfigRepository,
+    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
+    ImpersonationRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
+    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, RecipeRepository, RecoveryRepository, ResumableTurnRepository,
+    RouteSummaryRepository, SecurityRepository, SeederRepository, SessionRefreshTokenRepository,
+    ShortLinkRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     TenantRepository, ToolSelectionRepository, TrainingHistoryRepository, TrainingPlanRepository,
     UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserOnboardingRepository,
@@ -191,6 +192,9 @@ pub struct RepositoryRegistry {
     /// the chat path so a slow scrape (Garmin/sciotte) or redundant API call
     /// never blocks a turn.
     pub activity_cache: Arc<dyn ActivityCacheRepository>,
+    /// One stored route read per activity, so each activity's geometry costs
+    /// at most one provider read.
+    pub activity_route_tracks: Arc<dyn ActivityRouteTrackRepository>,
     /// Deletes every row one provider contributed: one user's on disconnect,
     /// every tenant's on the operator's termination purge.
     pub provider_data: Arc<dyn ProviderDataRepository>,
@@ -270,6 +274,7 @@ impl RepositoryRegistry {
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
+            activity_route_tracks: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             guardian_actions: db,
@@ -347,6 +352,7 @@ impl RepositoryRegistry {
             user_tier_overrides: db.clone(),
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
+            activity_route_tracks: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             guardian_actions: db,

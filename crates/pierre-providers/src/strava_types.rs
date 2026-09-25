@@ -83,6 +83,10 @@ pub struct StravaActivityResponse {
 
     // Additional performance metrics from summary endpoint
     pub(crate) calories: Option<f32>,
+
+    /// Route overview. Strava sends it on the list and detail payloads alike,
+    /// with an empty `summary_polyline` for an activity recorded without GPS.
+    pub(crate) map: Option<StravaMap>,
 }
 
 /// Strava split data from detailed activity endpoint

@@ -268,20 +268,21 @@ describe('DESIGN.md §5 states one shell rule per client', () => {
     DESIGN_MD.indexOf('### Focus rings'),
   );
 
-  it('keeps the web rail name-free', () => {
+  it('keeps the web rail name-free, with the mark as the way Home', () => {
     const rail = regionTable.split('\n').find((line) => line.includes('Icon rail (72px)'));
     expect(rail, 'the icon rail row').toBeDefined();
     expect(rail).toContain('web only');
     expect(rail).toContain('No name or role text');
+    expect(rail).toContain('a button to Home');
   });
 
-  it('gives the mobile chat tab the mark and the wordmark', () => {
-    const mobile = regionTable.split('\n').find((line) => line.includes('Chat-tab header'));
+  it('gives the phone the mark and the wordmark on its Home and Chat tabs only', () => {
+    const mobile = regionTable.split('\n').find((line) => line.includes('Home and Chat tab headers'));
     expect(mobile, 'the mobile shell row').toBeDefined();
     expect(mobile).toContain('mobile only');
     expect(mobile).toMatch(/mark \*\*and\*\* the DRAVR wordmark/);
     expect(mobile).toContain('in place of the screen title');
-    expect(mobile).toContain('The other tabs keep their own titles');
+    expect(mobile).toContain('keep their own titles');
   });
 
   it('says why the two shells differ rather than leaving a contradiction', () => {

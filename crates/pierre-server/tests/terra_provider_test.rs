@@ -625,20 +625,154 @@ async fn test_webhook_handler_unhandled_event() {
     );
 }
 
+/// Signing secret shared by the signature validation tests
+const WEBHOOK_SECRET: &str = "whsec_test_secret";
+
+/// Raw JSON body shared by the signature validation tests
+const WEBHOOK_BODY: &[u8] = br#"{"type":"activity","user":{"user_id":"terra_user_1"}}"#;
+
+/// Timestamp the signature validation tests sign with
+const WEBHOOK_TIMESTAMP: &str = "1723808700";
+
+/// Hex HMAC-SHA256 of `message` keyed by `secret`
+fn hmac_sha256_hex(secret: &str, message: &[u8]) -> String {
+    let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    hex::encode(hmac::sign(&key, message).as_ref())
+}
+
+/// Terra's `v1` signature: HMAC-SHA256 of `"{timestamp}.{body}"`
+fn terra_v1_signature(secret: &str, timestamp: &str, body: &[u8]) -> String {
+    let mut signed_payload = format!("{timestamp}.").into_bytes();
+    signed_payload.extend_from_slice(body);
+    hmac_sha256_hex(secret, &signed_payload)
+}
+
 #[test]
 fn test_signature_validation_valid() {
-    let secret = "test_secret";
-    let body = b"test body";
+    let signature = terra_v1_signature(WEBHOOK_SECRET, WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+    let header = format!("t={WEBHOOK_TIMESTAMP},v1={signature}");
 
-    // Generate valid signature using ring::hmac
-    let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
-    let tag = hmac::sign(&key, body);
-    let signature = hex::encode(tag.as_ref());
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Valid
+    );
+}
 
-    let validator = WebhookSignatureValidator::new(secret.to_owned());
-    let header = format!("t=1234567890,v1={signature}");
-    let result = validator.validate(Some(&header), body);
-    assert_eq!(result, SignatureValidation::Valid);
+#[test]
+fn test_signature_validation_known_vector() {
+    // Computed independently of ring with:
+    // printf '%s' '1723808700.{"type":"activity","user":{"user_id":"terra_user_1"}}' \
+    //   | openssl dgst -sha256 -hmac 'whsec_test_secret'
+    let header = "t=1723808700,v1=954bc40fa3da266bcd04eccf25cb512d7ac6cc9f6eec3d9fcb2cef6bdb6aa6a0";
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+
+    assert_eq!(
+        validator.validate(Some(header), WEBHOOK_BODY),
+        SignatureValidation::Valid
+    );
+}
+
+#[test]
+fn test_signature_validation_rejects_body_only_signature() {
+    let body_only = hmac_sha256_hex(WEBHOOK_SECRET, WEBHOOK_BODY);
+    // The same body-only HMAC computed by openssl, pinning what is being rejected
+    assert_eq!(
+        body_only,
+        "fe5a9fccd59883bfd5394e4d2d8f7b35980783203829f3217c6f55ef98f4153e"
+    );
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+    let header = format!("t={WEBHOOK_TIMESTAMP},v1={body_only}");
+
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+}
+
+#[test]
+fn test_signature_validation_rejects_signature_over_other_timestamp() {
+    let signature = terra_v1_signature(WEBHOOK_SECRET, "1723808699", WEBHOOK_BODY);
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+    let header = format!("t={WEBHOOK_TIMESTAMP},v1={signature}");
+
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+}
+
+#[test]
+fn test_signature_validation_accepts_second_matching_v1() {
+    let stale = terra_v1_signature("whsec_rotated_out", WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    let current = terra_v1_signature(WEBHOOK_SECRET, WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    assert_ne!(stale, current);
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+    let header = format!("t={WEBHOOK_TIMESTAMP},v1={stale},v1={current}");
+
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Valid
+    );
+}
+
+#[test]
+fn test_signature_validation_ignores_non_v1_schemes() {
+    // A correct signature under `v0` must not stand in for a wrong `v1`
+    let signature = terra_v1_signature(WEBHOOK_SECRET, WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    let wrong = terra_v1_signature(WEBHOOK_SECRET, WEBHOOK_TIMESTAMP, b"{}");
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+    let header = format!("t={WEBHOOK_TIMESTAMP},v1={wrong},v0={signature}");
+
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+}
+
+#[test]
+fn test_signature_validation_trims_whitespace_between_elements() {
+    let signature = terra_v1_signature(WEBHOOK_SECRET, WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+    let header = format!("t={WEBHOOK_TIMESTAMP}, v1={signature}");
+
+    assert_eq!(
+        validator.validate(Some(&header), WEBHOOK_BODY),
+        SignatureValidation::Valid
+    );
+}
+
+#[test]
+fn test_signature_validation_missing_timestamp_is_invalid() {
+    let signature = terra_v1_signature(WEBHOOK_SECRET, "", WEBHOOK_BODY);
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+
+    assert_eq!(
+        validator.validate(Some(&format!("v1={signature}")), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+    assert_eq!(
+        validator.validate(Some(&format!("t=,v1={signature}")), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+}
+
+#[test]
+fn test_signature_validation_missing_v1_is_invalid() {
+    let signature = terra_v1_signature(WEBHOOK_SECRET, WEBHOOK_TIMESTAMP, WEBHOOK_BODY);
+    let validator = WebhookSignatureValidator::new(WEBHOOK_SECRET.to_owned());
+
+    assert_eq!(
+        validator.validate(Some(&format!("t={WEBHOOK_TIMESTAMP}")), WEBHOOK_BODY),
+        SignatureValidation::Invalid
+    );
+    assert_eq!(
+        validator.validate(
+            Some(&format!("t={WEBHOOK_TIMESTAMP},v0={signature}")),
+            WEBHOOK_BODY
+        ),
+        SignatureValidation::Invalid
+    );
 }
 
 #[test]

@@ -9,9 +9,8 @@ use crate::strava_pool::select_strava_app;
 use chrono::Utc;
 use pierre_core::constants::oauth_providers;
 use pierre_core::constants::rate_limits::{
-    FITBIT_DEFAULT_DAILY_RATE_LIMIT, GARMIN_DEFAULT_DAILY_RATE_LIMIT,
-    STRAVA_DEFAULT_DAILY_RATE_LIMIT, TERRA_DEFAULT_DAILY_RATE_LIMIT,
-    WHOOP_DEFAULT_DAILY_RATE_LIMIT,
+    GARMIN_DEFAULT_DAILY_RATE_LIMIT, STRAVA_DEFAULT_DAILY_RATE_LIMIT,
+    TERRA_DEFAULT_DAILY_RATE_LIMIT, WHOOP_DEFAULT_DAILY_RATE_LIMIT,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials, UserOAuthApp};
@@ -485,7 +484,6 @@ impl TenantOAuthManager {
     ) -> Option<TenantOAuthCredentials> {
         match provider.to_lowercase().as_str() {
             "strava" => self.try_strava_config_credentials(tenant_id),
-            "fitbit" => self.try_fitbit_config_credentials(tenant_id),
             "garmin" => self.try_garmin_config_credentials(tenant_id),
             "whoop" => self.try_whoop_config_credentials(tenant_id),
             "terra" => self.try_terra_config_credentials(tenant_id),
@@ -554,52 +552,6 @@ impl TenantOAuthManager {
         }
         warn!(
             "No Strava OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",
-            tenant_id
-        );
-        None
-    }
-
-    /// Try to load Fitbit credentials from `ServerConfig`
-    fn try_fitbit_config_credentials(&self, tenant_id: TenantId) -> Option<TenantOAuthCredentials> {
-        let fitbit_config = &self.oauth_config.fitbit;
-
-        if let (Some(client_id), Some(client_secret)) =
-            (&fitbit_config.client_id, &fitbit_config.client_secret)
-        {
-            let redirect_uri = fitbit_config
-                .redirect_uri
-                .clone()
-                .unwrap_or_else(|| Self::default_redirect_uri("fitbit"));
-            info!(
-                "Using server-level Fitbit OAuth credentials for tenant {}",
-                tenant_id
-            );
-            return Some(TenantOAuthCredentials {
-                tenant_id,
-                provider: "fitbit".to_owned(),
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
-                redirect_uri,
-                scopes: if fitbit_config.scopes.is_empty() {
-                    vec![
-                        "activity".to_owned(),
-                        "heartrate".to_owned(),
-                        "location".to_owned(),
-                        "nutrition".to_owned(),
-                        "profile".to_owned(),
-                        "settings".to_owned(),
-                        "sleep".to_owned(),
-                        "social".to_owned(),
-                        "weight".to_owned(),
-                    ]
-                } else {
-                    fitbit_config.scopes.clone()
-                },
-                rate_limit_per_day: FITBIT_DEFAULT_DAILY_RATE_LIMIT,
-            });
-        }
-        warn!(
-            "No Fitbit OAuth credentials in ServerConfig for tenant {}. MCP client should provide these credentials via OAuth configuration tool.",
             tenant_id
         );
         None
@@ -765,17 +717,6 @@ impl TenantOAuthManager {
     fn default_scopes_for_provider(provider: &str) -> Vec<String> {
         match provider.to_lowercase().as_str() {
             "strava" => "activity:read_all".split(',').map(str::to_owned).collect(),
-            "fitbit" => vec![
-                "activity".to_owned(),
-                "heartrate".to_owned(),
-                "location".to_owned(),
-                "nutrition".to_owned(),
-                "profile".to_owned(),
-                "settings".to_owned(),
-                "sleep".to_owned(),
-                "social".to_owned(),
-                "weight".to_owned(),
-            ],
             "garmin" => vec!["wellness:read".to_owned(), "activities:read".to_owned()],
             "whoop" => vec![
                 "offline".to_owned(),
@@ -802,7 +743,6 @@ impl TenantOAuthManager {
     pub fn default_rate_limit_for_provider(provider: &str) -> u32 {
         match provider.to_lowercase().as_str() {
             "strava" => STRAVA_DEFAULT_DAILY_RATE_LIMIT,
-            "fitbit" => FITBIT_DEFAULT_DAILY_RATE_LIMIT,
             "garmin" => GARMIN_DEFAULT_DAILY_RATE_LIMIT,
             "whoop" => WHOOP_DEFAULT_DAILY_RATE_LIMIT,
             "terra" => TERRA_DEFAULT_DAILY_RATE_LIMIT,

@@ -65,7 +65,6 @@ fn create_test_user(tier: UserTier) -> User {
         password_hash: "test_hash".to_owned(),
         tier,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,

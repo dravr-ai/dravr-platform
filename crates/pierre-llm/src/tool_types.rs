@@ -66,6 +66,9 @@ pub struct ChatResponseWithTools {
     pub usage: Option<TokenUsage>,
     /// Finish reason (stop, length, etc.)
     pub finish_reason: Option<String>,
+    /// Request parameters the serving provider ignored (see
+    /// `ChatResponse::warnings`); `None` when it honored all of them.
+    pub warnings: Option<Vec<String>>,
 }
 
 impl ChatResponseWithTools {

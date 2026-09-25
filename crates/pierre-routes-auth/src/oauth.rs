@@ -73,15 +73,19 @@ pub async fn handle_oauth_callback(
     // (e.g. Strava sends `?error=access_denied`). Redirect back to the frontend
     // callback page (or mobile deep link) with a friendly error instead of
     // surfacing a raw `AuthInvalid` JSON body to the browser.
+    //
+    // The mobile redirect is honoured only once the state is redeemed: the URL
+    // rides inside the state string, and this branch is reachable by anyone,
+    // so an unverified state would be an open redirect (carnet#556). A
+    // cancelled flow is over, so burning its state here costs nothing.
     if !params.contains_key("code") {
         let error_msg = params.get("error").map_or("cancelled", String::as_str);
         let state = params.get("state").map_or("", String::as_str);
-        let mobile_redirect_url = oauth_redirects::extract_mobile_redirect_from_state(
-            state,
-            &resources.config.base_url,
-            &resources.config.security.allowed_mobile_redirect_origins,
-        );
-        if let Some(mobile_url) = mobile_redirect_url {
+        let redeemed = oauth_routes.redeem_state(state, &provider).await.ok();
+        let mobile_url = redeemed
+            .as_ref()
+            .and_then(|parsed| parsed.mobile_redirect_url());
+        if let Some(mobile_url) = mobile_url {
             let redirect_url = oauth_redirects::oauth_return_url(
                 mobile_url.trim_end_matches('/'),
                 &provider,
@@ -107,13 +111,31 @@ pub async fn handle_oauth_callback(
         .get("state")
         .ok_or_else(|| AppError::auth_invalid("Missing OAuth state parameter"))?;
 
-    match oauth_routes.handle_callback(code, state, &provider).await {
+    // A state that does not redeem never names a redirect: the failure goes to
+    // the frontend or the error page, never to a URL the caller chose.
+    let parsed_state = match oauth_routes.redeem_state(state, &provider).await {
+        Ok(parsed_state) => parsed_state,
+        Err(e) => {
+            return Ok(callback_failure_response(
+                frontend_url.as_deref(),
+                &provider,
+                &e,
+                None,
+            ))
+        }
+    };
+    let verified_mobile_url = parsed_state.mobile_redirect_url().map(str::to_owned);
+
+    match oauth_routes
+        .complete_callback(code, &provider, parsed_state)
+        .await
+    {
         Ok(response) => {
             #[cfg(feature = "health-sync")]
             spawn_health_backfill(&resources, &response.user_id, &response.provider);
 
             // Completion reaches the client through the durable path:
-            // `handle_callback` has already written the notification row, and
+            // `complete_callback` has already written the notification row, and
             // `append_oauth_notifications_to_response` attaches every unread one
             // to the next tool response. The push that used to run here fanned
             // out over session-keyed MCP protocol streams, which revision
@@ -151,59 +173,62 @@ pub async fn handle_oauth_callback(
 
             Ok((StatusCode::OK, [(header::CONTENT_TYPE, "text/html")], html).into_response())
         }
-        Err(e) => {
-            error!("OAuth callback failed: {}", e);
-
-            // Determine error message and description based on error type
-            let (error_msg, description) = categorize_oauth_error(&e);
-
-            // For errors, we need to parse the state to check for mobile redirect URL
-            // since handle_callback failed and didn't return the parsed state
-            let config = &resources.config;
-            let mobile_redirect_url = oauth_redirects::extract_mobile_redirect_from_state(
-                state,
-                &config.base_url,
-                &config.security.allowed_mobile_redirect_origins,
-            );
-
-            // Priority: mobile redirect URL > frontend URL > render template
-            if let Some(mobile_url) = mobile_redirect_url {
-                let redirect_url = oauth_redirects::oauth_return_url(
-                    mobile_url.trim_end_matches('/'),
-                    &provider,
-                    false,
-                    Some(error_msg),
-                );
-                // Don't log the full URL — a hosted-connect return carries the
-                // connect link-token in its query string.
-                info!(provider = %provider, "Redirecting OAuth error to embedded return URL");
-                return Ok(
-                    (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
-                );
-            }
-
-            // If frontend URL is configured, redirect to frontend with error params
-            if let Some(url) = frontend_url {
-                let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
-                let redirect_url =
-                    oauth_redirects::oauth_return_url(&base, &provider, false, Some(error_msg));
-                info!(provider = %provider, "Redirecting OAuth error to frontend");
-                return Ok(
-                    (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response()
-                );
-            }
-
-            let html =
-                OAuthTemplateRenderer::render_error_template(&provider, error_msg, description);
-
-            Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(header::CONTENT_TYPE, "text/html")],
-                html,
-            )
-                .into_response())
-        }
+        Err(e) => Ok(callback_failure_response(
+            frontend_url.as_deref(),
+            &provider,
+            &e,
+            verified_mobile_url.as_deref(),
+        )),
     }
+}
+
+/// The response to an OAuth callback that failed.
+///
+/// `mobile_url` is the redirect from a state this server redeemed, or `None`
+/// when the state never redeemed — it is never read from the query string.
+///
+/// Priority: mobile redirect URL > frontend URL > rendered error page.
+fn callback_failure_response(
+    frontend_url: Option<&str>,
+    provider: &str,
+    e: &AppError,
+    mobile_url: Option<&str>,
+) -> Response {
+    error!("OAuth callback failed: {}", e);
+
+    // Determine error message and description based on error type
+    let (error_msg, description) = categorize_oauth_error(e);
+
+    if let Some(mobile_url) = mobile_url {
+        let redirect_url = oauth_redirects::oauth_return_url(
+            mobile_url.trim_end_matches('/'),
+            provider,
+            false,
+            Some(error_msg),
+        );
+        // Don't log the full URL — a hosted-connect return carries the
+        // connect link-token in its query string.
+        info!(provider = %provider, "Redirecting OAuth error to embedded return URL");
+        return (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response();
+    }
+
+    // If frontend URL is configured, redirect to frontend with error params
+    if let Some(url) = frontend_url {
+        let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
+        let redirect_url =
+            oauth_redirects::oauth_return_url(&base, provider, false, Some(error_msg));
+        info!(provider = %provider, "Redirecting OAuth error to frontend");
+        return (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response();
+    }
+
+    let html = OAuthTemplateRenderer::render_error_template(provider, error_msg, description);
+
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        [(header::CONTENT_TYPE, "text/html")],
+        html,
+    )
+        .into_response()
 }
 
 /// Handle OAuth status check
@@ -260,15 +285,13 @@ pub async fn handle_oauth_status(
         }
     }
 
-    // Add default providers if not connected
-    for provider in ["strava", "fitbit"] {
-        if !providers_seen.contains(provider) {
-            provider_statuses.push(OAuthStatus {
-                provider: provider.to_owned(),
-                connected: false,
-                last_sync: None,
-            });
-        }
+    // Strava is always listed, connected or not
+    if !providers_seen.contains("strava") {
+        provider_statuses.push(OAuthStatus {
+            provider: "strava".to_owned(),
+            connected: false,
+            last_sync: None,
+        });
     }
 
     Ok((StatusCode::OK, Json(provider_statuses)).into_response())
@@ -547,7 +570,6 @@ pub async fn compute_providers_status(
         "sciotte_coros",
         "strava",
         "garmin",
-        "fitbit",
         "whoop",
         "coros",
         "terra",
@@ -889,7 +911,7 @@ pub async fn handle_oauth_authorize_redirect(
 ///
 /// DELETE /api/oauth/providers/:provider/disconnect
 ///
-/// Disconnects a fitness provider (e.g., Strava, Fitbit) by deleting the stored OAuth tokens.
+/// Disconnects a fitness provider (e.g., Strava, WHOOP) by deleting the stored OAuth tokens.
 /// Requires valid JWT authentication via cookie or Authorization header.
 #[tracing::instrument(
     skip(resources, headers),
@@ -1021,7 +1043,10 @@ pub async fn handle_sync_provider(
 ///
 /// Triggers a 30-day backfill via the sync orchestrator so the user gets
 /// historical data immediately after connecting a wearable provider, whether
-/// through OAuth or a pasted API key (intervals.icu).
+/// through OAuth, a pasted API key (intervals.icu) or a scrape login (Garmin,
+/// COROS). `provider` is the name the sync knows it under; a provider the
+/// sync does not manage (Strava's activities, read on demand) has nothing to
+/// backfill.
 #[cfg(feature = "health-sync")]
 pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
     const BACKFILL_DAYS: u32 = 30;
@@ -1029,6 +1054,13 @@ pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provi
     let Some(orchestrator) = resources.sync_orchestrator.clone() else {
         return;
     };
+    if !orchestrator.provider_names().contains(&provider) {
+        tracing::debug!(
+            provider,
+            "No health sync for this provider; nothing to backfill"
+        );
+        return;
+    }
     let user_id = user_id.to_owned();
     let provider = provider.to_owned();
     tokio::spawn(async move {

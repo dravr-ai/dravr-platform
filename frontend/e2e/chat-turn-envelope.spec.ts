@@ -5,7 +5,7 @@
 // ABOUTME: Covers the coach-authored assistant turn, markdown/plan/scene rendering, and one verdict affordance.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
 const CONVERSATION_ID = 'conv-coached';
 const CONVERSATION_TITLE = 'Bloc seuil de septembre';
@@ -310,8 +310,12 @@ async function setupChatMocks(page: Page, options: ChatMockOptions = {}) {
   }
 }
 
-/** Open the coached conversation from the sidebar and wait for its turn. */
+/**
+ * Open Chat from Home, where sign-in lands, then the coached conversation
+ * from the list, and wait for its turn.
+ */
 async function openConversation(page: Page) {
+  await openChat(page);
   await expect(page.getByText(CONVERSATION_TITLE)).toBeVisible({ timeout: 10000 });
   await page.getByText(CONVERSATION_TITLE).click();
   await expect(page.getByText('How did the block go?')).toBeVisible({ timeout: 10000 });

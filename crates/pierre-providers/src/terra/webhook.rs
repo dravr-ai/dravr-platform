@@ -11,8 +11,11 @@
 //!
 //! ## Security
 //!
-//! All webhook requests include a `terra-signature` header containing an HMAC-SHA256
-//! signature. This handler validates signatures before processing any data.
+//! All webhook requests include a `terra-signature` header of the form
+//! `t=<timestamp>,v1=<signature>`, where each `v1` value is the hex HMAC-SHA256 of
+//! `"{timestamp}.{raw body}"` keyed by the endpoint signing secret. Only the `v1`
+//! scheme is trusted, and the header may carry more than one `v1` value. This
+//! handler validates signatures before processing any data.
 //!
 //! ## Event Types
 //!
@@ -25,6 +28,7 @@
 
 use ring::hmac;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tracing::{debug, error, info, warn};
 
 use super::cache::TerraDataCache;
@@ -59,37 +63,85 @@ impl WebhookSignatureValidator {
 
     /// Validate a webhook request signature
     ///
+    /// The request is valid when any `v1` signature in the header equals the
+    /// HMAC-SHA256 of `"{t}.{body}"` keyed by the signing secret. A header without
+    /// a `t` timestamp or without a `v1` signature is invalid.
+    ///
     /// # Arguments
     /// * `signature_header` - Value of the `terra-signature` header
-    /// * `body` - Raw request body bytes
+    /// * `body` - Raw, unaltered request body bytes
     ///
     /// # Returns
     /// `SignatureValidation` indicating whether the signature is valid
     #[must_use]
     pub fn validate(&self, signature_header: Option<&str>, body: &[u8]) -> SignatureValidation {
-        let Some(signature) = signature_header else {
+        let Some(header) = signature_header else {
             return SignatureValidation::Missing;
         };
-
-        // Parse the signature format: "t=timestamp,v1=signature"
-        let parts: Vec<&str> = signature.split(',').collect();
-        let sig_part = parts.iter().find(|p| p.starts_with("v1="));
-
-        let Some(sig_value) = sig_part.and_then(|p| p.strip_prefix("v1=")) else {
+        let Some(parsed) = SignatureHeader::parse(header) else {
             return SignatureValidation::Invalid;
         };
 
-        // Compute expected signature using ring::hmac
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.signing_secret.as_bytes());
-        let tag = hmac::sign(&key, body);
-        let expected = hex::encode(tag.as_ref());
+        let expected = self.expected_signature(parsed.timestamp, body);
+        let matched = parsed.signatures.iter().any(|signature| {
+            hex::decode(signature)
+                .is_ok_and(|candidate| bool::from(expected.as_ref().ct_eq(candidate.as_slice())))
+        });
 
-        // Constant-time comparison to prevent timing attacks
-        if subtle::ConstantTimeEq::ct_eq(sig_value.as_bytes(), expected.as_bytes()).into() {
+        if matched {
             SignatureValidation::Valid
         } else {
             SignatureValidation::Invalid
         }
+    }
+
+    /// HMAC-SHA256 of Terra's signed payload `"{timestamp}.{body}"`, keyed by the
+    /// signing secret
+    ///
+    /// The payload is fed to the MAC in pieces, so the body is hashed once and
+    /// never copied however many `v1` signatures the header carries.
+    fn expected_signature(&self, timestamp: &str, body: &[u8]) -> hmac::Tag {
+        let key = hmac::Key::new(hmac::HMAC_SHA256, self.signing_secret.as_bytes());
+        let mut context = hmac::Context::with_key(&key);
+        context.update(timestamp.as_bytes());
+        context.update(b".");
+        context.update(body);
+        context.sign()
+    }
+}
+
+/// Parsed `terra-signature` header: the signed timestamp and every `v1` signature
+struct SignatureHeader<'a> {
+    /// Value of the `t` element, signed verbatim as the payload prefix
+    timestamp: &'a str,
+    /// Hex values of every `v1` element
+    signatures: Vec<&'a str>,
+}
+
+impl<'a> SignatureHeader<'a> {
+    /// Parse `t=<timestamp>,v1=<hex>[,v1=<hex>...]`
+    ///
+    /// Elements are split on `,` and then on `=`, with surrounding whitespace
+    /// trimmed. The first `t` is the timestamp. Every scheme other than `v1` is
+    /// dropped, so a weaker scheme such as `v0` can never stand in for `v1`.
+    /// Returns `None` when the timestamp is absent or empty, or when no `v1`
+    /// signature is present.
+    fn parse(header: &'a str) -> Option<Self> {
+        let mut timestamp = None;
+        let mut signatures = Vec::new();
+        for element in header.split(',') {
+            match element.trim().split_once('=') {
+                Some(("t", value)) if timestamp.is_none() => timestamp = Some(value),
+                Some(("v1", value)) => signatures.push(value),
+                _ => {}
+            }
+        }
+
+        let timestamp = timestamp.filter(|value| !value.is_empty())?;
+        (!signatures.is_empty()).then_some(Self {
+            timestamp,
+            signatures,
+        })
     }
 }
 

@@ -11,8 +11,13 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::{Dossier, DossierFact, Pillar};
 use pierre_core::tokens::estimate_context_tokens;
 use pierre_services::memory_facts::SentenceRenderer;
-use pierre_services::okf::{render_okf_bundle, render_okf_bundle_default, DEFAULT_TOKEN_BUDGET};
+use pierre_services::okf::{render_okf_bundle, render_okf_bundle_default};
 use uuid::Uuid;
+
+/// The budget `render_okf_bundle_default` renders under. Pinned here rather
+/// than read from the crate: the default is a prompt-size decision, and
+/// changing it should fail this file and be made on purpose.
+const DEFAULT_BUDGET: u32 = 600;
 
 fn fact(object: &str) -> DossierFact {
     DossierFact {
@@ -172,13 +177,20 @@ fn bundle_stays_within_reason_of_budget() {
             .or_default()
             .push(fact("eats enough carbs around key sessions"));
     }
-    let bundle = render_okf_bundle(
+    let bundle = render_okf_bundle_default(
         &d,
-        DEFAULT_TOKEN_BUDGET,
         SentenceRenderer::new(&MessagingStringsRegistry::new(), "en"),
     )
     .unwrap_or_default();
+    // The default path renders under the default budget and nothing else.
+    let explicit = render_okf_bundle(
+        &d,
+        DEFAULT_BUDGET,
+        SentenceRenderer::new(&MessagingStringsRegistry::new(), "en"),
+    )
+    .unwrap_or_default();
+    assert_eq!(bundle, explicit);
     // Allow headroom for the always-included sections + header/footer, but
     // the budget must actually bound the pillar body.
-    assert!(estimate_context_tokens(&bundle) < DEFAULT_TOKEN_BUDGET * 2);
+    assert!(estimate_context_tokens(&bundle) < DEFAULT_BUDGET * 2);
 }

@@ -76,7 +76,7 @@ pub struct AuthRecoveryDeps<'a> {
     pub base_url: &'a str,
     /// Localized messaging strings used to render the user-facing reply.
     pub messaging_strings_registry: &'a Arc<MessagingStringsRegistry>,
-    /// Tool runtime used to mint a real OAuth authorization URL (WHOOP/Fitbit/…) for
+    /// Tool runtime used to mint a real OAuth authorization URL (WHOOP/Strava/…) for
     /// non-sciotte providers — the sciotte mirror keeps its hosted-login mint above.
     pub tool_runtime: &'a Arc<dyn ToolRuntime>,
     /// URL shortener store — wraps the dotty hosted-login link in a dot-free
@@ -371,7 +371,7 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
 ///
 /// Scrape-mirror providers (every slug with a [`backend_resolver::hosted_login_target`]) use the Dravr-hosted login page
 /// (email + password) — the same short-TTL link-token mint the channel bots use. OAuth
-/// providers (WHOOP, Fitbit, Strava, Garmin, …) get their real provider authorization URL
+/// providers (WHOOP, Strava, Garmin, …) get their real provider authorization URL
 /// plus a persisted CSRF state row. Returns `None` (fall back to the LLM path) on failure.
 async fn mint_reconnect_url(
     deps: &AuthRecoveryDeps<'_>,

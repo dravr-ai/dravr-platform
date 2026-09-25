@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{Duration, Utc};
 use pierre_core::errors::messaging::MessagingError;
+use pierre_core::http_client::SharedHttpError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::{TenantId, User};
 use pierre_database::backends::{
@@ -32,6 +33,7 @@ use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
 use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
+use pierre_messaging::http_client::describe_request_error;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
@@ -156,17 +158,25 @@ async fn telegram_bot_username(config: &serde_json::Value) -> Result<String, App
         return Ok(cached);
     }
 
+    // The token sits in the request path and a `reqwest::Error` displays that
+    // URL, while `AppError::internal` details reach Cloud Logging. Transport
+    // errors go through canot's `describe_request_error`, which strips the URL;
+    // a middleware error cannot be stripped, so the token is masked out of it.
     let url = format!("https://api.telegram.org/bot{token}/getMe");
-    let response = shared_client()
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| AppError::internal(format!("Telegram getMe request failed: {e}")))?;
+    let response = shared_client().get(&url).send().await.map_err(|e| {
+        let detail = match e {
+            SharedHttpError::Reqwest(e) => describe_request_error(e),
+            SharedHttpError::Middleware(e) => format!("{e:#}").replace(token, "***"),
+        };
+        AppError::internal(format!("Telegram getMe request failed: {detail}"))
+    })?;
 
-    let body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| AppError::internal(format!("Telegram getMe returned no JSON: {e}")))?;
+    let body: serde_json::Value = response.json().await.map_err(|e| {
+        AppError::internal(format!(
+            "Telegram getMe returned no JSON: {}",
+            describe_request_error(e)
+        ))
+    })?;
 
     let username = body
         .get("result")

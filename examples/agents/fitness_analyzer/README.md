@@ -334,7 +334,7 @@ curl "http://localhost:8081/a2a/clients" \
 ```
 
 **No Activities Retrieved:**
-- Ensure user has connected Strava/Fitbit via Pierre UI
+- Ensure user has connected Strava/WHOOP via Pierre UI
 - Check OAuth token validity in Pierre server logs
 - Verify A2A client has proper scopes
 

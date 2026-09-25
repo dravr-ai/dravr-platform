@@ -2,8 +2,8 @@
 // ABOUTME: Red when a history read stops producing the block a live turn carries for the same reply
 
 import { describe, it, expect } from 'vitest';
-import type { ClaimVerdict, Message } from '@pierre/shared-types';
-import { transcriptBlocks } from '../src/blocks';
+import type { ClaimVerdict, Message, ReplyBlock } from '@pierre/shared-types';
+import { transcriptBlocks, withVerdictRows } from '../src/blocks';
 
 const CHART = {
   kind: 'chart',
@@ -152,5 +152,58 @@ describe('transcriptBlocks', () => {
         created_at: '2026-08-24T09:59:00Z',
       }),
     ).toEqual([{ type: 'prose', text: 'How was my week?' }]);
+  });
+});
+
+describe('withVerdictRows', () => {
+  const prose: ReplyBlock = { type: 'prose', text: 'Your load is climbing.' };
+  const actions: ReplyBlock = { type: 'actions', actions: [] };
+
+  it('adds the rail a supported-only reply never streamed, as a reload draws it', () => {
+    const rows = [verdictRow({ status: 'supported', evidence_strength: 'strong' })];
+
+    const live = withVerdictRows([prose], rows);
+
+    expect(live).toEqual(transcriptBlocks(assistantRow(), rows));
+    expect(live[1]).toEqual({
+      type: 'verdicts',
+      chips: [{ claim: 'Your VO2max is 82.', contradicted: false }],
+    });
+  });
+
+  it('replaces the streamed flagged-only block in place, leaving one rail', () => {
+    const streamed: ReplyBlock[] = [
+      prose,
+      { type: 'verdicts', chips: [{ claim: 'Your VO2max is 82.', contradicted: true }] },
+      actions,
+    ];
+    const rows = [
+      verdictRow(),
+      verdictRow({ id: 'v2', claim_text: 'Sleep 6h is plenty.', status: 'supported' }),
+    ];
+
+    const merged = withVerdictRows(streamed, rows);
+
+    expect(merged).toEqual([
+      prose,
+      {
+        type: 'verdicts',
+        chips: [
+          { claim: 'Your VO2max is 82.', contradicted: true },
+          { claim: 'Sleep 6h is plenty.', contradicted: false },
+        ],
+      },
+      actions,
+    ]);
+    expect(merged.filter((block) => block.type === 'verdicts')).toHaveLength(1);
+  });
+
+  it('keeps the streamed blocks as they arrived while no rows have been read', () => {
+    const streamed: ReplyBlock[] = [
+      prose,
+      { type: 'verdicts', chips: [{ claim: 'Your VO2max is 82.', contradicted: true }] },
+    ];
+
+    expect(withVerdictRows(streamed, [])).toEqual(streamed);
   });
 });

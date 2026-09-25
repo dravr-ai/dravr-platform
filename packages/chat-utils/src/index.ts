@@ -12,7 +12,8 @@ export type { QuotaBanner } from './quota';
 // Persisted transcript row -> the ReplyBlock list a live turn arrives in.
 // The command-reply normaliser is private to that decoder: the live turn path
 // never called it, and an export nobody reads is a promise nobody keeps.
-export { COMMAND_FINISH_REASON, transcriptBlocks } from './blocks';
+// A live turn's streamed blocks take the same verdicts block once its rows are read.
+export { COMMAND_FINISH_REASON, transcriptBlocks, withVerdictRows } from './blocks';
 
 // Activity list parsing (backward compat for old messages with baked-in content)
 export { splitActivityContent, countActivities } from './activity';

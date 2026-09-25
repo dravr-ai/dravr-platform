@@ -82,12 +82,12 @@ describe('EncryptedFileStorage - Encrypt/Decrypt Roundtrip', () => {
           token_type: 'Bearer',
           scope: 'read,activity:read',
         },
-        fitbit: {
-          access_token: 'fitbit_token',
-          refresh_token: 'fitbit_refresh',
+        whoop: {
+          access_token: 'whoop_token',
+          refresh_token: 'whoop_refresh',
           expires_at: 1700003600,
           token_type: 'Bearer',
-          scope: 'activity heartrate',
+          scope: 'read:workout read:recovery',
         },
       },
       client_info: {
@@ -101,7 +101,7 @@ describe('EncryptedFileStorage - Encrypt/Decrypt Roundtrip', () => {
 
     expect(retrieved).toEqual(tokens);
     expect(retrieved.providers.strava.access_token).toBe('strava_token');
-    expect(retrieved.providers.fitbit.scope).toBe('activity heartrate');
+    expect(retrieved.providers.whoop.scope).toBe('read:workout read:recovery');
     expect(retrieved.client_info.client_id).toBe('registered_client_id');
   });
 

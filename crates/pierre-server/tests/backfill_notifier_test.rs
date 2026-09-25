@@ -1421,6 +1421,7 @@ fn reentry_telemetry(activity_list_captured: bool, activities_prefetched: bool) 
         activities_prefetched,
         usage: None,
         identity_leak: None,
+        provider_warnings: Vec::new(),
     }
 }
 

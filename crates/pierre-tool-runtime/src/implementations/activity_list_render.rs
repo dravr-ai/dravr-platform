@@ -58,7 +58,7 @@ use super::sport_labels::{localized_feel, localized_sport_name};
 ///
 /// `backfill_temps` carries weather-backfilled temperatures keyed by activity id;
 /// used when the provider didn't surface ambient temp on the row itself
-/// (sciotte / Whoop / Fitbit / Terra all leave it empty).
+/// (sciotte / Whoop / Terra all leave it empty).
 ///
 /// `fragment_report` is the session merge that produced `activities`; when
 /// `Some` and at least one group was merged, a header note is prepended naming
@@ -226,7 +226,7 @@ pub fn format_activities_as_list<S: BuildHasher>(
         }
         // Prefer the provider-surfaced temperature; fall back to the
         // weather-backfill side-table for activities whose provider
-        // didn't capture ambient temp (sciotte / Whoop / Fitbit / Terra).
+        // didn't capture ambient temp (sciotte / Whoop / Terra).
         let temp = activity
             .temperature()
             .or_else(|| backfill_temps.get(activity.id()).copied());

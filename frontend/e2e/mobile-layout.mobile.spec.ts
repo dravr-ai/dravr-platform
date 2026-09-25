@@ -5,7 +5,7 @@
 // ABOUTME: Verifies bottom tab bar, drawer, no horizontal overflow, tap targets.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
 const CONVERSATION = {
   id: 'conv-mobile-1',
@@ -61,17 +61,19 @@ test.describe('Mobile authenticated layout', () => {
     await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
   });
 
-  test('bottom tab bar renders with 4 entries including Menu', async ({ page }) => {
+  test('bottom tab bar renders with 5 entries including Menu', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(nav).toBeVisible();
-    // 3 primary + Menu. Insights was retired by the Chat-First Cutover, the
-    // Coach tab folded into Discover, and Groups moved inside the group's own
-    // chat thread — so the bar holds exactly these and nothing else.
+    // 4 primary + Menu. Home leads the bar because sign-in lands there.
+    // Insights was retired by the Chat-First Cutover, the Coach tab folded
+    // into Discover, and Groups moved inside the group's own chat thread — so
+    // the bar holds exactly these and nothing else.
+    await expect(nav.getByRole('button', { name: 'Home' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Chat' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Discover' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Notifications' })).toBeVisible();
     await expect(nav.getByRole('button', { name: 'Open menu' })).toBeVisible();
-    await expect(nav.getByRole('button')).toHaveCount(4);
+    await expect(nav.getByRole('button')).toHaveCount(5);
     await expect(nav.getByRole('button', { name: 'Insights' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Agents' })).toHaveCount(0);
     await expect(nav.getByRole('button', { name: 'Groups' })).toHaveCount(0);
@@ -106,7 +108,7 @@ test.describe('Mobile authenticated layout', () => {
   });
 
   test('navigating from drawer dismisses it and switches tab', async ({ page }) => {
-    // Chat, Discover and Notifications are the pinned primary tabs; a
+    // Home, Chat, Discover and Notifications are the pinned primary tabs; a
     // provider connection is configuration, so it lives under Settings and
     // the drawer offers Settings, not a Data Providers destination.
     await page.getByRole('button', { name: 'Open menu' }).click();
@@ -131,6 +133,8 @@ test.describe('Mobile composer', () => {
     });
     await mockConversationCreate(page);
     await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    // Sign-in lands on Home; the bottom bar's Chat is the way into a thread.
+    await openChat(page);
     await page.getByTestId('conversation-pane').getByRole('button', { name: 'New', exact: true }).click();
     await page.getByRole('menuitem', { name: 'New chat' }).click();
     await expect(page.getByPlaceholder('Message Dravr...').first()).toBeVisible();

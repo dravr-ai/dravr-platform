@@ -217,6 +217,7 @@ user_owned_tables!(
     "workout_templates",
     "route_summaries",
     "cached_activities",
+    "activity_route_tracks",
     "activity_backfill_coverage",
     "activity_backfill_jobs",
     "activity_fetch_freshness",

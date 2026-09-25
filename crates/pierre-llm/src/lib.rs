@@ -51,6 +51,8 @@ mod model_check;
 pub mod prompts;
 /// Unified LLM provider selector
 mod provider;
+/// Why a provider stopped generating: complete, truncated or filtered
+pub mod provider_stop;
 /// Which tier of a fallback chain answered the current call
 pub mod served_tier;
 mod tool_bridge;

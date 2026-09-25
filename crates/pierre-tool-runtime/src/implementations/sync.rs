@@ -126,7 +126,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to refresh: 'strava', 'garmin', 'whoop', 'fitbit', or 'all' \
+                    "Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' \
                      to refresh all connected providers."
                         .to_owned(),
                 ),

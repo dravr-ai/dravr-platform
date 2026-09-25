@@ -1,0 +1,15 @@
+# ABOUTME: Helper flow to navigate from any tab to the chat tab's conversation list
+# ABOUTME: Uses the bottom tab bar; the app lands on Home, so every flow that starts from the list comes through here
+
+appId: ai.dravr.app
+
+---
+# Tap the Chat tab in bottom navigation (the seeded tester runs in French).
+- tapOn:
+    text: "Discussion|Chat"
+
+# Wait for the conversation list to load
+- extendedWaitUntil:
+    visible:
+      id: "conversations-screen"
+    timeout: 10000

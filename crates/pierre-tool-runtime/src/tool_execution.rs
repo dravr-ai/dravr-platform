@@ -137,6 +137,7 @@ pub async fn run_api_tool_loop(
                     call_sequence: call_seq,
                     tools_called: tools_in_response,
                 });
+                tally.note_provider_warnings(r.warnings.as_deref());
                 // notify: LLM call succeeded — latency lands on the Slack
                 // ping so a regression in tail latency surfaces in chat.
                 info!(
@@ -494,6 +495,7 @@ pub async fn run_cli_tool_loop(
         let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
             Ok(r) => {
+                tally.note_provider_warnings(r.warnings.as_deref());
                 // notify: CLI call succeeded.
                 info!(
                     target: "notify",
@@ -906,31 +908,6 @@ async fn run_react_tool_loop(
     }
 }
 
-/// Build the [`ToolLoopResult`] for a Guardian-rejected plan.
-///
-/// Covers both the over-step-cap and the failed-static-verification cases.
-/// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
-/// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
-/// post-processing as if it were model output.
-fn guardian_plan_denied(reason: &str) -> ToolLoopResult {
-    ToolLoopResult {
-        content: String::new(),
-        usage: None,
-        finish_reason: Some("guardian_plan_rejected".to_owned()),
-        activity_list: None,
-        tool_calls_count: 0,
-        tools_called: Vec::new(),
-        pending_provider_auth_required: None,
-        served_without_provider: None,
-        guardian_denied: Some(GuardianDenial {
-            tool_name: "(plan)".to_owned(),
-            reason: reason.to_owned(),
-        }),
-        guardian_confirm: None,
-        capability_claim_unverified: false,
-    }
-}
-
 /// Disposition of a model-emitted plan after parsing.
 enum ParsedPlan {
     /// A parseable, within-cap plan — run it.
@@ -980,7 +957,7 @@ fn plan_rejection(workflow: &Workflow, params: &ToolLoopParams<'_>) -> Option<To
     );
     if let VerifyOutcome::Reject(reason) = outcome {
         warn!(reason = ?reason, "guardian plan: REJECTED before execution");
-        return Some(guardian_plan_denied("plan_rejected"));
+        return Some(ToolLoopResult::guardian_plan_denied("plan_rejected"));
     }
     info!(
         steps = workflow.steps.len(),
@@ -1004,6 +981,7 @@ fn plan_block_result(
         tool_calls_count,
         tools_called,
         served_without_provider: None,
+        provider_warnings: Vec::new(),
     };
     if let Some(pending_id) = block.pending_id {
         return tally.guardian_confirm(
@@ -1084,6 +1062,7 @@ pub async fn run_planned_tool_loop(
     let plan_messages = with_planner_prompt(llm_messages, &planner_system_prompt());
     let plan_request = ChatRequest::new(plan_messages).with_model(params.model);
     let plan_response = params.provider.complete(&plan_request).await?;
+    let plan_warnings = plan_response.warnings;
     let plan_json = plan_response.content;
 
     // 2. Parse. An unparseable plan is a weak-model artifact → degrade to ReAct.
@@ -1093,7 +1072,7 @@ pub async fn run_planned_tool_loop(
     let workflow = match parse_plan(&plan_json, params.model) {
         ParsedPlan::Run(workflow) => workflow,
         ParsedPlan::Degrade => return run_react_tool_loop(params, llm_messages).await,
-        ParsedPlan::TooLarge => return Ok(guardian_plan_denied("plan_too_large")),
+        ParsedPlan::TooLarge => return Ok(ToolLoopResult::guardian_plan_denied("plan_too_large")),
     };
 
     // 3. Verify the frozen plan before anything executes.
@@ -1127,12 +1106,15 @@ pub async fn run_planned_tool_loop(
         "guardian plan: completed with synthesis"
     );
 
-    let tally = ToolLoopTally {
+    let mut tally = ToolLoopTally {
         activity_list: None,
         tool_calls_count,
         tools_called,
         served_without_provider: reconnect_offer_in_steps(&outputs),
+        provider_warnings: Vec::new(),
     };
+    tally.note_provider_warnings(plan_warnings.as_deref());
+    tally.note_provider_warnings(synth_response.warnings.as_deref());
     Ok(tally.answered(
         synth_response.content,
         synth_response.usage,
@@ -1475,6 +1457,9 @@ pub async fn finalize_headless_turn(
         // Set downstream by the capability-recovery stage, which runs after
         // every loop variant returns.
         capability_claim_unverified: false,
+        // The ACP session reports no parameter warnings: the subprocess owns
+        // the request, so there is no platform-built request to check.
+        provider_warnings: Vec::new(),
     })
 }
 

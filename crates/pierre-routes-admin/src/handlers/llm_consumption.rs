@@ -414,8 +414,7 @@ impl LlmConsumptionRoutes {
     /// One row is one LLM call; its `tools_called` may name several tools, and
     /// `execution_time_ms` is the call's latency (attributed to each tool it
     /// invoked — latency is measured per call, not per tool).
-    #[must_use]
-    pub fn build_tool_usage_response(rows: &[LlmUsageRecord], days: u16) -> ToolUsageResponse {
+    fn build_tool_usage_response(rows: &[LlmUsageRecord], days: u16) -> ToolUsageResponse {
         let mut invocations: HashMap<String, i64> = HashMap::new();
         let mut latency_sum: HashMap<String, i64> = HashMap::new();
         let mut latency_n: HashMap<String, i64> = HashMap::new();

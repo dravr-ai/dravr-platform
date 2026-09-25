@@ -1,12 +1,11 @@
 // ABOUTME: External API provider configuration types for fitness platforms
-// ABOUTME: Handles Strava, Fitbit, Garmin API settings and external service configurations
+// ABOUTME: Handles Strava, Garmin API settings and external service configurations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::constants::api_provider_limits::{
-    garmin, strava, FITBIT_RATE_LIMIT_DAILY, FITBIT_RATE_LIMIT_HOURLY, STRAVA_RATE_LIMIT_15MIN,
-    STRAVA_RATE_LIMIT_DAILY,
+    garmin, strava, STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -20,8 +19,6 @@ pub struct ExternalServicesConfig {
     pub geocoding: GeocodingServiceConfig,
     /// Strava API configuration
     pub strava_api: StravaApiConfig,
-    /// Fitbit API configuration
-    pub fitbit_api: FitbitApiConfig,
     /// Garmin API configuration
     pub garmin_api: GarminApiConfig,
 }
@@ -34,7 +31,6 @@ impl ExternalServicesConfig {
             weather: WeatherServiceConfig::from_env(),
             geocoding: GeocodingServiceConfig::from_env(),
             strava_api: StravaApiConfig::from_env(),
-            fitbit_api: FitbitApiConfig::from_env(),
             garmin_api: GarminApiConfig::from_env(),
         }
     }
@@ -140,48 +136,6 @@ impl StravaApiConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(STRAVA_RATE_LIMIT_DAILY),
-        }
-    }
-}
-
-/// Fitbit API configuration for OAuth and data fetching
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FitbitApiConfig {
-    /// Fitbit API base URL
-    pub base_url: String,
-    /// Fitbit auth URL
-    pub auth_url: String,
-    /// Fitbit token URL
-    pub token_url: String,
-    /// Fitbit token-revocation URL.
-    ///
-    /// `POST /oauth2/revoke` with the client credentials as HTTP Basic auth
-    /// and the access or refresh token as the `token` form param; revoking
-    /// either kills every token of that user for the app.
-    pub revoke_url: String,
-    /// Rate limit for hourly window
-    pub rate_limit_hourly: u32,
-    /// Rate limit for daily window
-    pub rate_limit_daily: u32,
-}
-
-impl FitbitApiConfig {
-    /// Load Fitbit API configuration from environment
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            base_url: env_var_or("FITBIT_API_BASE", "https://api.fitbit.com"),
-            auth_url: env_var_or("FITBIT_AUTH_URL", "https://www.fitbit.com/oauth2/authorize"),
-            token_url: env_var_or("FITBIT_TOKEN_URL", "https://api.fitbit.com/oauth2/token"),
-            revoke_url: env_var_or("FITBIT_REVOKE_URL", "https://api.fitbit.com/oauth2/revoke"),
-            rate_limit_hourly: env::var("FITBIT_RATE_LIMIT_HOURLY")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(FITBIT_RATE_LIMIT_HOURLY),
-            rate_limit_daily: env::var("FITBIT_RATE_LIMIT_DAILY")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(FITBIT_RATE_LIMIT_DAILY),
         }
     }
 }

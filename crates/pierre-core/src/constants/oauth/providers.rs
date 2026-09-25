@@ -15,11 +15,6 @@
 /// the provider implementation is gated behind `provider-strava` feature.
 pub const STRAVA: &str = "strava";
 
-/// Fitbit fitness provider identifier
-/// Note: Provider name constants are always available for configuration;
-/// the provider implementation is gated behind `provider-fitbit` feature.
-pub const FITBIT: &str = "fitbit";
-
 /// Garmin fitness provider identifier
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-garmin` feature.
@@ -147,15 +142,7 @@ pub fn is_credential_free(provider: &str) -> bool {
 pub const fn all() -> &'static [&'static str] {
     // This is a compile-time constant, so we include all potential providers
     // For runtime checking, use the registry
-    &[
-        "strava",
-        "fitbit",
-        "garmin",
-        "whoop",
-        "coros",
-        "synthetic",
-        "sciotte",
-    ]
+    &["strava", "garmin", "whoop", "coros", "synthetic", "sciotte"]
 }
 
 /// Check if a provider is statically known
@@ -183,9 +170,6 @@ pub const TOKEN_TYPE_SESSION: &str = "session";
 
 /// Strava default scopes (comma-separated as per Strava API requirements)
 pub const STRAVA_DEFAULT_SCOPES: &str = "activity:read_all";
-
-/// Fitbit default scopes (space-separated as per Fitbit API requirements)
-pub const FITBIT_DEFAULT_SCOPES: &str = "activity profile sleep heartrate weight";
 
 /// Garmin default scopes
 pub const GARMIN_DEFAULT_SCOPES: &str = "wellness:read,activities:read";

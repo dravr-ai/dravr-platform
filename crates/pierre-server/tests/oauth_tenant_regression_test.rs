@@ -8,7 +8,6 @@
 //!
 //! Tests to verify fixes for:
 //! - Multi-tenant OAuth credential support
-//! - Fitbit OAuth token exchange
 //! - OAuth credential validation
 //! - Tenant slug validation
 
@@ -177,10 +176,10 @@ fn test_oauth_providers_constants() {
 
     // Verify provider names
     assert_eq!(oauth_providers::STRAVA, "strava");
-    assert_eq!(oauth_providers::FITBIT, "fitbit");
+    assert_eq!(oauth_providers::WHOOP, "whoop");
 }
 
-/// Test that OAuth scopes constants exist for both providers
+/// Test that the OAuth scope constants carry each provider's documented scopes
 #[test]
 fn test_oauth_scopes_for_all_providers() {
     use pierre_mcp_server::constants::oauth;
@@ -192,11 +191,11 @@ fn test_oauth_scopes_for_all_providers() {
         "Strava scope should be activity:read_all"
     );
 
-    // Fitbit scopes - expanded for full health metrics support
+    // WHOOP scopes - space-separated, `offline` first for refresh tokens
     assert_eq!(
-        oauth::FITBIT_DEFAULT_SCOPES,
-        "activity profile sleep heartrate weight",
-        "Fitbit scope should include activity, profile, sleep, heartrate, weight (space-separated)"
+        oauth::WHOOP_DEFAULT_SCOPES,
+        "offline read:profile read:body_measurement read:workout read:sleep read:recovery read:cycles",
+        "WHOOP scope should request offline access plus every read scope the provider reads"
     );
 }
 

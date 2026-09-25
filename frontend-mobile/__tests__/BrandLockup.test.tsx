@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Dravr lockup lives on the chat tab's header and nowhere else on the phone
-// ABOUTME: Pins the mark, the wordmark and its lockup type spec in both schemes, and the absence on other tabs
+// ABOUTME: The Dravr lockup lives on the Home and chat tab headers and nowhere else on the phone, and a press on it goes Home
+// ABOUTME: Pins the mark, the wordmark and its lockup type spec in both schemes, the button it becomes, and the absence on other tabs
 
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
@@ -57,6 +57,7 @@ import { BrandLockup } from '../src/components/ui/BrandLockup';
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { StoreScreen } from '../src/screens/store/StoreScreen';
 import { ChatHeaderTitle } from '../src/screens/chat/ChatHeaderTitle';
+import { HOME_ROUTE } from '../src/navigation/routes';
 
 const APPEARANCE_KEY = 'pierre.appearance_pref';
 
@@ -95,9 +96,21 @@ describe('the Dravr lockup on the phone', () => {
       expect(screen.queryByText('Chats')).toBeNull();
       expect(screen.queryByText('Discussions')).toBeNull();
 
-      // The destination keeps a spoken name for assistive tech.
-      expect(screen.getByTestId('conversations-title').props.accessibilityLabel).toBe('Chats');
-      expect(screen.getByTestId('conversations-title').props.accessibilityRole).toBe('header');
+      // It is the way Home, and says so to assistive tech.
+      expect(screen.getByTestId('conversations-title').props.accessibilityLabel).toBe('Home');
+      expect(screen.getByTestId('conversations-title').props.accessibilityRole).toBe('button');
+    });
+
+    it('goes Home when pressed', async () => {
+      const screen = renderInTheme(<ConversationsScreen />);
+      await waitFor(() => expect(screen.getByTestId('conversations-title')).toBeTruthy());
+
+      fireEvent.press(screen.getByTestId('conversations-title'));
+
+      expect(mockRouter.navigate).toHaveBeenCalledWith(HOME_ROUTE);
+      expect(HOME_ROUTE).toBe('/(app)/(tabs)/(home)');
+      // A press on the brand is navigation, never a new thread.
+      expect(mockRouter.push).not.toHaveBeenCalled();
     });
 
     it('carries the one "+" of the app, trailing in the native header', async () => {
@@ -168,6 +181,36 @@ describe('the Dravr lockup on the phone', () => {
       // `primary`, and the wordmark reads the one token.
       expect(style.color).toBe('#255f4d');
       expect(style.color).toBe(BOREAL_LIGHT.primary);
+    });
+  });
+
+  describe('the pressable lockup', () => {
+    it('keeps the look of the heading lockup: same mark, same wordmark, no badge', async () => {
+      const onPress = jest.fn();
+      const screen = renderInTheme(
+        <BrandLockup size={28} onPress={onPress} accessibilityLabel="Home" testID="pressable-lockup" />,
+      );
+
+      const wordmark = await waitFor(() => screen.getByTestId('pressable-lockup-wordmark'));
+      expect(wordmark).toHaveTextContent(PRODUCT_WORDMARK);
+      expect((wordmark.props.style as { fontFamily: string }).fontFamily).toBe('SchibstedGrotesk');
+      expect(screen.getByTestId('pressable-lockup-mark').props.source).toBeDefined();
+
+      fireEvent.press(screen.getByTestId('pressable-lockup'));
+      expect(onPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('reaches the 44 pt thumb floor through its hit slop', () => {
+      const screen = renderInTheme(<BrandLockup size={28} onPress={jest.fn()} testID="pressable-lockup" />);
+
+      const slop = screen.getByTestId('pressable-lockup').props.hitSlop as { top: number; bottom: number };
+      expect(28 + slop.top + slop.bottom).toBe(44);
+    });
+
+    it('stays a heading when nothing is pressed through it', () => {
+      const screen = renderInTheme(<BrandLockup size={28} />);
+
+      expect(screen.getByTestId('brand-lockup').props.accessibilityRole).toBe('header');
     });
   });
 

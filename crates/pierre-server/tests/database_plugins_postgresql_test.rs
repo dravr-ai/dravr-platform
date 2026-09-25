@@ -588,7 +588,6 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         created_at: Utc::now(),
         last_active: Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

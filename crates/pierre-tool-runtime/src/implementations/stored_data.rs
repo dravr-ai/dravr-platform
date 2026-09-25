@@ -486,7 +486,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 //
 // Provider-synced health records: the same third-party-scrape provenance as
-// GetActivities/GetAthlete (Whoop/Garmin/Fitbit/Terra), carrying
+// GetActivities/GetAthlete (Whoop/Garmin/Terra), carrying
 // provider-controlled free-text fields (device/source names, data_source_id —
 // cf. the garmin data_source_id blob leak). A taint SOURCE, so a later
 // consequential sink in the same turn is gated.

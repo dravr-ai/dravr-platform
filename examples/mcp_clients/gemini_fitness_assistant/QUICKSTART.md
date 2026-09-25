@@ -121,7 +121,7 @@ Type `quit` or `exit` to stop.
 
 ## Next Steps
 
-- Connect a fitness provider (Strava/Garmin/Fitbit) at http://localhost:8081
+- Connect a fitness provider (Strava/Garmin/WHOOP) at http://localhost:8081
 - Explore more examples in [README.md](README.md)
 - Try demo mode: `python gemini_fitness_assistant.py --demo`
 - Check alternative free LLMs (Groq, Ollama) in the main README

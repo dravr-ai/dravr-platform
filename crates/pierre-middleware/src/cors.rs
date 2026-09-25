@@ -27,7 +27,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 ///
 /// - Standard headers: content-type, authorization, accept, origin
 /// - CORS headers: x-requested-with, access-control-request-*
-/// - Provider headers: x-strava-client-id, x-fitbit-client-id, etc.
+/// - Provider headers: x-strava-client-id, x-strava-client-secret
 /// - Tenant headers: x-tenant-name, x-tenant-id
 /// - API key header: x-pierre-api-key
 ///
@@ -81,8 +81,6 @@ pub fn setup_cors(allowed_origins: &str) -> CorsLayer {
             HeaderName::from_static("access-control-request-headers"),
             HeaderName::from_static("x-strava-client-id"),
             HeaderName::from_static("x-strava-client-secret"),
-            HeaderName::from_static("x-fitbit-client-id"),
-            HeaderName::from_static("x-fitbit-client-secret"),
             HeaderName::from_static("x-csrf-token"),
             HeaderName::from_static("x-pierre-api-key"),
             HeaderName::from_static("x-tenant-name"),

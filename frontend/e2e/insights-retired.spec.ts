@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Locks the retirement of the Insights and Friends surfaces (Chat-First Cutover, 2026-08-26)
-// ABOUTME: Asserts the nav has no Insights entry, a stale #insights hash lands on chat, and /api/social is never called
+// ABOUTME: Asserts the nav has no Insights entry, a stale #insights hash lands on Home, and /api/social is never called
 
 import { test, expect } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -49,18 +49,17 @@ test.describe('Insights and Friends are retired', () => {
     await expect(page.getByRole('button', { name: 'Find Friends' })).toHaveCount(0);
   });
 
-  test('a stale #insights deep link lands on chat', async ({ page }) => {
+  test('a stale #insights deep link lands on Home', async ({ page }) => {
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
     await page.goto('/#insights/friends');
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    // Nothing serves the tab any more, so the shell renders the chat surface
-    // and the retired names appear nowhere on the page. The conversation list
-    // is the chat surface's own pane — it is there whether or not a thread is
-    // open, which the composer is not.
-    await expect(page.getByTestId('conversation-list')).toBeVisible({ timeout: 10000 });
+    // Nothing serves the tab any more, so the shell renders the athlete's
+    // default surface — Home — and the retired names appear nowhere on it.
+    await expect(page.getByTestId('home-page')).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/#home$/);
     await expect(page.getByRole('heading', { name: /friends/i })).toHaveCount(0);
     await expect(page.getByText('No Insights Yet')).toHaveCount(0);
   });

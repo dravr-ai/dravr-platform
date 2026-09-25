@@ -14,7 +14,7 @@ publish = false
 default = []
 provider-whoop = ["dravr-enforme/provider-whoop"]
 provider-garmin = ["dravr-enforme/provider-garmin"]
-provider-strava = ["dravr-enforme/provider-strava"]
+provider-coros = ["dravr-enforme/provider-coros"]
 provider-intervals-icu = ["dravr-enforme/provider-intervals-icu"]
 
 [dependencies]

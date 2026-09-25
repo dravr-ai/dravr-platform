@@ -86,7 +86,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
+                    "Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -229,7 +229,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
+                    "Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider.".to_owned(),
                 ),
                 ..Default::default()
             },

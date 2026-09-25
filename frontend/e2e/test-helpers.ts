@@ -71,6 +71,34 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ rows: [], known: [] }),
     });
   });
+  // The athlete Home page, where a regular user lands after sign-in — so
+  // every spec that signs one in reaches it, including the spec-local login
+  // helpers that skip `setupDashboardMocks`. The defaults are an athlete with
+  // no plan and an empty activity cache: the page's honest empty states, never
+  // invented rows. `home.spec.ts` registers its own answers after these, which
+  // win.
+  await page.route('**/api/me/training-plan**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ plan: null, today: new Date().toISOString().slice(0, 10) }),
+    });
+  });
+  await page.route('**/api/me/activities/recent**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ activities: [], as_of: null, stale: false }),
+    });
+  });
+  await page.route('**/api/me/activities/*/*/route', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ route: null, reason: 'no_gps' }),
+    });
+  });
+
   // Default onboarding status for spec-local login helpers that skip
   // `setupDashboardMocks`. Specs exercising the forced-onboarding flow
   // override with `needs_provider_connection: true` before calling login.
@@ -497,6 +525,21 @@ export async function loginToDashboard(page: Page, credentials?: { email?: strin
   // Note: 'text=Dravr' would match login page's "Dravr" title, so use 'main' instead
   await page.waitForSelector('main', { timeout: APP_SHELL_TIMEOUT_MS });
   await page.waitForTimeout(300);
+}
+
+/**
+ * Opens Chat the way a signed-in athlete does: sign-in lands on Home, and the
+ * primary navigation's Chat entry — the rail on a wide screen, the bottom bar
+ * on a phone — is the way in. Only the visible one of the two is clicked.
+ */
+export async function openChat(page: Page) {
+  await page
+    .getByRole('navigation', { name: 'Primary navigation' })
+    .getByRole('button', { name: 'Chat', exact: true })
+    .filter({ visible: true })
+    .first()
+    .click();
+  await page.waitForURL(/#chat(\/|$)/, { timeout: APP_SHELL_TIMEOUT_MS });
 }
 
 /**

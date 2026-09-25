@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The system tab bar — one labelled trigger per entry of the tab list (Chat, Discover, Settings)
+// ABOUTME: The system tab bar — one labelled trigger per entry of the tab list (Home, Chat, Discover, Settings)
 // ABOUTME: UIKit's bar on iOS (glass on iOS 26, minimizing on scroll), Material's on Android; nothing hand-drawn
 
 import React from 'react';

@@ -81,12 +81,7 @@ impl StripePriceConfig {
     }
 
     /// Resolve a logical tier to its Stripe price id.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppError::invalid_input`] for a tier with no configured price,
-    /// including the free `starter` tier.
-    pub fn price_for(&self, tier: &str) -> AppResult<&str> {
+    fn price_for(&self, tier: &str) -> AppResult<&str> {
         match tier {
             "professional" => Ok(&self.professional),
             "enterprise" => Ok(&self.enterprise),
@@ -216,11 +211,7 @@ impl BillingProvider for StripeProvider {
 }
 
 /// Map a `dravr-stripe` error onto the platform's [`AppError`].
-///
-/// Signature and payload failures become `InvalidInput`; API and transport
-/// failures become `ExternalServiceError` naming Stripe.
-#[must_use]
-pub fn map_stripe_err(err: StripeError) -> AppError {
+fn map_stripe_err(err: StripeError) -> AppError {
     match err {
         StripeError::SignatureVerification(reason) => {
             AppError::invalid_input(format!("Stripe signature verification failed: {reason}"))
@@ -237,9 +228,9 @@ pub fn map_stripe_err(err: StripeError) -> AppError {
 ///
 /// Subscription events become `SubscriptionUpserted` (or `SubscriptionCanceled`
 /// for `customer.subscription.deleted`), a failed invoice with a subscription id
-/// becomes `PaymentFailed`, and everything else is `Ignored`.
-#[must_use]
-pub fn normalize_event(event: StripeEvent) -> EventEnvelope {
+/// becomes `PaymentFailed`, and everything else is `Ignored`. Private, so the
+/// only way in is `parse_webhook`, which verifies the signature first.
+fn normalize_event(event: StripeEvent) -> EventEnvelope {
     let billing_event = match (&event.event_type, event.data) {
         (event_type, StripeEventData::Subscription(sub))
             if event_type == "customer.subscription.deleted" =>

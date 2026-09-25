@@ -12,12 +12,11 @@ use std::{
 };
 
 use chrono::Utc;
-use tracing::{debug, error, field, info, warn, Span};
+use tracing::{debug, error, field, info, Span};
 use urlencoding::encode;
 
 use crate::analytics::cache_user_email;
 use crate::oauth_bridge_notify;
-use crate::oauth_redirects::extract_mobile_redirect_from_state;
 use crate::provider_revocation;
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::get_oauth_config;
@@ -32,6 +31,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::database::repositories::UserRepository;
 use pierre_mcp_transport::OAuthCallbackResponse;
+
+pub use crate::oauth_state_redeem::ParsedOAuthState;
 use pierre_providers::backend_resolver;
 use pierre_runtime_context::DataContext;
 
@@ -45,19 +46,6 @@ pub struct OAuthService {
     /// Crate-visible for the `provider_revocation` companion module.
     pub(crate) data: DataContext,
     config: Arc<ServerConfig>,
-}
-
-/// Parsed OAuth state containing user ID and optional mobile redirect URL
-struct ParsedOAuthState {
-    user_id: uuid::Uuid,
-    /// Optional redirect URL for mobile OAuth flows (base64 encoded in state)
-    mobile_redirect_url: Option<String>,
-    /// PKCE code verifier recovered from server-side state storage
-    pkce_code_verifier: Option<String>,
-    /// Tenant ID from the OAuth state, used for tenant-specific credential lookup
-    tenant_id: Option<uuid::Uuid>,
-    /// Strava shared-app pool member pinned at authorize (`None` = env-default).
-    oauth_app_client_id: Option<String>,
 }
 
 impl OAuthService {
@@ -82,28 +70,42 @@ impl OAuthService {
     /// then exchanges the authorization code for tokens. Uses PKCE when the code verifier
     /// was stored with the state during authorization URL generation.
     ///
+    /// [`Self::redeem_state`] then [`Self::complete_callback`]; a caller that
+    /// must know the verified mobile redirect even when the exchange fails
+    /// calls the two itself.
+    ///
     /// # Errors
     /// Returns error if OAuth state is invalid/expired/reused or callback processing fails
-    #[tracing::instrument(
-        skip(self, code, state),
-        fields(
-            provider = %provider,
-            user_id = field::Empty,
-            tenant_id = field::Empty,
-        )
-    )]
     pub async fn handle_callback(
         &self,
         code: &str,
         state: &str,
         provider: &str,
     ) -> AppResult<OAuthCallbackResponse> {
-        // Validate provider is supported before consuming state
-        self.validate_provider(provider)?;
+        let parsed_state = self.redeem_state(state, provider).await?;
+        self.complete_callback(code, provider, parsed_state).await
+    }
 
-        // Consume state atomically from database (verifies it was server-issued,
-        // not expired, not reused, and matches the expected provider)
-        let parsed_state = self.consume_and_validate_state(state, provider).await?;
+    /// Exchange the authorization code of a flow whose state
+    /// [`Self::redeem_state`] already redeemed, store the token, and notify.
+    ///
+    /// # Errors
+    /// Returns an error when the user or tenant cannot be resolved, the code
+    /// exchange fails, or the token cannot be stored.
+    #[tracing::instrument(
+        skip(self, code, parsed_state),
+        fields(
+            provider = %provider,
+            user_id = field::Empty,
+            tenant_id = field::Empty,
+        )
+    )]
+    pub async fn complete_callback(
+        &self,
+        code: &str,
+        provider: &str,
+        parsed_state: ParsedOAuthState,
+    ) -> AppResult<OAuthCallbackResponse> {
         let user_id = parsed_state.user_id;
         // The shared-app pool member pinned at authorize (Strava). Used to
         // resolve the same client_id/secret at exchange and recorded on the
@@ -244,81 +246,9 @@ impl OAuthService {
         Ok(expires_at)
     }
 
-    /// Consume and validate OAuth state from server-side storage
-    ///
-    /// Atomically verifies the state was issued by this server, has not expired,
-    /// and has not been used before (one-time use). Uses the provider name as the
-    /// `client_id` for additional validation that the callback matches the initiated flow.
-    ///
-    /// State format: `{user_id}:{random}` or `{user_id}:{random}:{base64_redirect_url}`
-    /// The redirect URL allows mobile apps to specify where to redirect after OAuth completes.
-    async fn consume_and_validate_state(
-        &self,
-        state: &str,
-        provider: &str,
-    ) -> AppResult<ParsedOAuthState> {
-        // Atomically consume the state from database (marks as used, checks expiry)
-        let consumed = self
-            .data
-            .repos()
-            .oauth_client_state
-            .consume_oauth_client_state(state, provider, Utc::now())
-            .await
-            .map_err(|e| {
-                warn!("Failed to consume OAuth state from database: {}", e);
-                AppError::auth_invalid("OAuth state validation failed")
-            })?;
-
-        let client_state = consumed.ok_or_else(|| {
-            warn!(
-                "OAuth state not found, expired, or already used for provider {}",
-                provider
-            );
-            AppError::auth_invalid("Invalid, expired, or already used OAuth state parameter")
-        })?;
-
-        let user_id = client_state.user_id.ok_or_else(|| {
-            error!("OAuth state missing user_id for provider {}", provider);
-            AppError::auth_invalid("OAuth state missing user identity")
-        })?;
-
-        // Extract optional mobile redirect URL from the state string
-        // (embedded as base64 in the third segment of the state format)
-        let mobile_redirect_url = self.extract_mobile_redirect_from_state_str(state);
-
-        // PKCE code verifier stored server-side during authorization URL generation
-        let pkce_code_verifier = client_state.pkce_code_verifier;
-
-        // Parse tenant_id from the stored OAuth client state for credential lookup
-        let tenant_id = client_state
-            .tenant_id
-            .as_deref()
-            .and_then(|tid| uuid::Uuid::parse_str(tid).ok());
-
-        Ok(ParsedOAuthState {
-            user_id,
-            mobile_redirect_url,
-            pkce_code_verifier,
-            tenant_id,
-            oauth_app_client_id: client_state.oauth_app_client_id,
-        })
-    }
-
-    /// Extract mobile redirect URL from state string format
-    ///
-    /// State format: `{user_id}:{random}:{base64_redirect_url}`
-    /// Delegates to `extract_mobile_redirect_from_state`.
-    fn extract_mobile_redirect_from_state_str(&self, state: &str) -> Option<String> {
-        extract_mobile_redirect_from_state(
-            state,
-            &self.config.base_url,
-            &self.config.security.allowed_mobile_redirect_origins,
-        )
-    }
-
     /// Validate that the provider is registered, or — like `trainingpeaks`,
     /// which only a mirror serves — that a backend serving it is.
-    fn validate_provider(&self, provider: &str) -> AppResult<()> {
+    pub(crate) fn validate_provider(&self, provider: &str) -> AppResult<()> {
         let registry = self.data.provider_registry();
         let serving = backend_resolver::serving_backends(provider);
         if registry.is_supported(provider) || serving.iter().any(|b| registry.is_supported(b)) {
@@ -501,8 +431,8 @@ impl OAuthService {
             token_type: token.token_type.clone(),
             expires_at: Some(expires_at),
             scope: token.scope.clone(),
-            // Provider-side owner id (Strava athlete id, Fitbit user id) captured
-            // at token exchange. Persisting it lets provider push events (e.g.
+            // Provider-side owner id (Strava athlete id) captured at token
+            // exchange. Persisting it lets provider push events (e.g.
             // Strava webhooks) be routed to the single owning user.
             provider_user_id: token.provider_user_id.clone(),
             // Which shared-app pool member issued this token (pinned at authorize)

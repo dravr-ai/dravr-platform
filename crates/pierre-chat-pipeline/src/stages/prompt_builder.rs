@@ -316,7 +316,10 @@ fn push_history_row(
         return;
     }
 
-    let stripped = strip_simulation_artifacts(&msg.content);
+    // A truncated or filtered reply replays without the caveat the platform
+    // appended to it: the model's partial answer is what a "continue" needs,
+    // the caveat is narration about the reply failing.
+    let stripped = strip_simulation_artifacts(msg.replayable_content());
     if stripped.is_empty() {
         return;
     }
@@ -421,7 +424,7 @@ Never state or imply a specific figure about their training: no distances, \
 paces, durations, dates, heart rates, sleep hours, or trends. You have not \
 seen any, and inventing one is the worst thing you can do here.\n\n\
 Say plainly that you cannot see their training yet, and that connecting a \
-service (Strava, Garmin, Fitbit, Whoop) is what would let you. General \
+service (Strava, Garmin, Whoop) is what would let you. General \
 coaching knowledge is still yours to offer, clearly labelled as general.";
 
 /// Told to the model when the provider lookup itself failed.

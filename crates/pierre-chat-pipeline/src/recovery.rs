@@ -23,6 +23,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
 use pierre_core::narration;
 use pierre_database::database::ConversationRecord;
+use pierre_llm::provider_stop::ProviderStop;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse};
 use pierre_services::prompt_leak;
 use tracing::{info, warn};
@@ -212,6 +213,7 @@ pub async fn run_recovery_and_post_process(
                 leak_replaced: false,
                 identity_leak: None,
                 verdict_chips: Vec::new(),
+                provider_stop: ProviderStop::Complete,
             },
             None,
         );
@@ -271,6 +273,7 @@ pub async fn run_recovery_and_post_process(
                 leak_replaced: false,
                 identity_leak: None,
                 verdict_chips: Vec::new(),
+                provider_stop: ProviderStop::Complete,
             },
             recovery.prompt,
         );
@@ -295,6 +298,16 @@ pub async fn run_recovery_and_post_process(
         result,
     );
 
+    // The provider's stop describes the reply the tool loop returned. Once a
+    // recovery stage or the identity re-ask replaced that reply — with a
+    // reconnect message, or with a re-ask whose own stop was never read — it
+    // describes nothing the athlete will see.
+    let provider_stop = if result.content == content_before_recovery {
+        ProviderStop::from_finish_reason(result.finish_reason.as_deref())
+    } else {
+        ProviderStop::Complete
+    };
+
     // Cloned rather than borrowed: `mem::take` below needs `&mut result`, and a
     // simultaneous immutable borrow of a sibling field does not survive being
     // packed into the struct literal. A handful of tool names per turn.
@@ -314,6 +327,7 @@ pub async fn run_recovery_and_post_process(
             turn_was_grounded: !tools_called.is_empty()
                 || stages::capability_recovery::turn_carries_activity_block(llm_messages),
             active_model,
+            provider_stop,
         },
         mem::take(&mut result.content),
         hooks,

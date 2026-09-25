@@ -22,6 +22,7 @@
 
 use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
 use pierre_core::models::{FuelingProtocol, TenantId};
 use pierre_database::repositories::training_plans::PlanOwner;
@@ -305,30 +306,50 @@ pub async fn load_plan_card(
     registry: &MessagingStringsRegistry,
     locale: &str,
 ) -> Option<PlanCard> {
-    let tenant_id = tenant.to_string();
-    let user = user_id.to_string();
-    let plan = match repos
-        .training_plans
-        .get_active_plan(&tenant_id, &user, PlanOwner::from_slug(agent))
-        .await
-    {
-        Ok(Some(plan)) => plan,
-        Ok(None) => return None,
+    match try_load_plan_card(repos, tenant, user_id, agent, today, registry, locale).await {
+        Ok(card) => card,
         Err(e) => {
             warn!(error = %e, "plan card: active plan unreadable");
-            return None;
+            None
         }
+    }
+}
+
+/// Load the athlete's active plan under `agent` and project it for the card,
+/// reporting a store that cannot be read.
+///
+/// The read behind [`load_plan_card`] for a caller where the plan *is* the
+/// answer rather than a courtesy on one: a page that shows the plan must tell
+/// "no plan" (`Ok(None)`) from "the plan could not be read" (`Err`), or an
+/// outage reads to the athlete as a plan that was deleted.
+///
+/// # Errors
+///
+/// Returns the repository error when the active plan or its weeks cannot be
+/// read.
+pub async fn try_load_plan_card(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+    agent: Option<&str>,
+    today: NaiveDate,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> AppResult<Option<PlanCard>> {
+    let tenant_id = tenant.to_string();
+    let user = user_id.to_string();
+    let Some(plan) = repos
+        .training_plans
+        .get_active_plan(&tenant_id, &user, PlanOwner::from_slug(agent))
+        .await?
+    else {
+        return Ok(None);
     };
-    let weeks = match repos
+    let weeks = repos
         .training_plans
         .list_plan_weeks(&tenant_id, &user, &plan.id, false)
-        .await
-    {
-        Ok(weeks) => weeks,
-        Err(e) => {
-            warn!(error = %e, "plan card: plan weeks unreadable");
-            return None;
-        }
-    };
-    Some(PlanCard::build(&plan, &weeks, today, registry, locale))
+        .await?;
+    Ok(Some(PlanCard::build(
+        &plan, &weeks, today, registry, locale,
+    )))
 }

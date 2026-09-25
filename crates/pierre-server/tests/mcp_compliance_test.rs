@@ -165,7 +165,7 @@ fn test_initialize_response_format() {
         ServerInfo::new("pierre-mcp-server", "1.0.0"),
         ServerCapabilities::tools_only(),
         Some(
-            "This server provides fitness data tools for Strava and Fitbit integration.".to_owned(),
+            "This server provides fitness data tools for Strava and Garmin integration.".to_owned(),
         ),
     );
 

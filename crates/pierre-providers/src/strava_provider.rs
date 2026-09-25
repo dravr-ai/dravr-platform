@@ -285,6 +285,12 @@ impl StravaProvider {
                 .as_ref()
                 .and_then(|latlng| latlng.get(1).copied()),
         )
+        .summary_polyline_opt(
+            activity
+                .map
+                .and_then(|map| map.summary_polyline)
+                .filter(|polyline| !polyline.trim().is_empty()),
+        )
         .city_opt(activity.location_city)
         .region_opt(activity.location_state)
         .country_opt(activity.location_country)

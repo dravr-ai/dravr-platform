@@ -30,12 +30,12 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
         "STRAVA_REDIRECT_URI",
         "PIERRE_STRAVA_SCOPES",
         "STRAVA_SCOPES",
-        "FITBIT_CLIENT_ID",
-        "FITBIT_CLIENT_SECRET",
-        "PIERRE_FITBIT_CLIENT_ID",
-        "PIERRE_FITBIT_CLIENT_SECRET",
-        "PIERRE_FITBIT_SCOPES",
-        "FITBIT_SCOPES",
+        "GARMIN_CLIENT_ID",
+        "GARMIN_CLIENT_SECRET",
+        "PIERRE_GARMIN_CLIENT_ID",
+        "PIERRE_GARMIN_CLIENT_SECRET",
+        "PIERRE_GARMIN_SCOPES",
+        "GARMIN_SCOPES",
         "PIERRE_WHOOP_SCOPES",
         "WHOOP_SCOPES",
     ] {
@@ -63,11 +63,8 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
     // Default scopes are the provider's, whichever way they are read.
     assert_eq!(server.strava.scopes, vec!["activity:read_all"]);
     assert_eq!(server.strava.scopes, runtime.scopes);
-    assert_eq!(
-        server.fitbit.scopes,
-        vec!["activity", "profile", "sleep", "heartrate", "weight"]
-    );
-    assert_eq!(server.fitbit.scopes, get_oauth_config("fitbit").scopes);
+    assert_eq!(server.garmin.scopes, vec!["wellness:read", "activities:read"]);
+    assert_eq!(server.garmin.scopes, get_oauth_config("garmin").scopes);
     assert_eq!(
         server.whoop.scopes,
         vec![
@@ -83,8 +80,8 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
     assert_eq!(server.whoop.scopes, get_oauth_config("whoop").scopes);
 
     // A provider with no credentials is disabled both ways.
-    assert!(!server.fitbit.enabled);
-    assert!(!get_oauth_config("fitbit").enabled);
+    assert!(!server.garmin.enabled);
+    assert!(!get_oauth_config("garmin").enabled);
 
     env::remove_var("PIERRE_STRAVA_CLIENT_ID");
     env::remove_var("PIERRE_STRAVA_CLIENT_SECRET");

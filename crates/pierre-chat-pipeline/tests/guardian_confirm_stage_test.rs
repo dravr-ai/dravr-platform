@@ -35,6 +35,7 @@ fn loop_result(confirm: Option<GuardianConfirmRequest>) -> ToolLoopResult {
         guardian_denied: None,
         guardian_confirm: confirm,
         capability_claim_unverified: false,
+        provider_warnings: Vec::new(),
     }
 }
 

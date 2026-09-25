@@ -9,9 +9,9 @@
 
 //! Honest freshness + sync roster for OAuth-connected Strava.
 //!
-//! Strava is registered with the enforme orchestrator for sciotte TSB
+//! Strava was once registered with the enforme orchestrator for sciotte TSB
 //! scraping, but enforme background-syncs no activity data for anyone, and
-//! for OAuth-connected users (Bearer token, no browser session) it can sync
+//! for OAuth-connected users (Bearer token, no browser session) it could sync
 //! nothing at all. Two live failure modes followed (2026-07-11):
 //!
 //! 1. Every no-op sync cycle stamped `oauth_tokens.last_sync`, so freshness
@@ -22,9 +22,11 @@
 //! 2. The scheduler iterated OAuth-only Strava users every cycle, logging a
 //!    misleading "Scheduled sync completed, `records_created`: 0".
 //!
-//! These tests pin the fixes: activity-only providers derive freshness from
-//! the activity cache even when orchestrator-registered, and the scheduled
-//! sync roster excludes Strava rows without a sciotte session credential.
+//! Strava's health sync is no longer part of the build (the platform computes
+//! fitness and form from activities), so Strava is on-demand outright. These
+//! tests pin what still holds: Strava's freshness is the activity cache's
+//! whatever `last_sync` says, and a sync roster reads only the rows its sync
+//! can use — a mirror-only provider's session rows, never a leftover OAuth row.
 
 mod common;
 
@@ -68,12 +70,24 @@ async fn seed_strava_token(
     token_type: &str,
     access_token: &str,
 ) {
+    seed_token(repos, user_id, tenant, "strava", token_type, access_token).await;
+}
+
+/// Seed a token row for any backend (`strava`, `sciotte`).
+async fn seed_token(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant: &str,
+    provider: &str,
+    token_type: &str,
+    access_token: &str,
+) {
     let now = Utc::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
         tenant_id: tenant.to_owned(),
-        provider: "strava".to_owned(),
+        provider: provider.to_owned(),
         access_token: access_token.to_owned(),
         refresh_token: Some("refresh".to_owned()),
         token_type: token_type.to_owned(),
@@ -124,13 +138,13 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
         .await
         .unwrap();
 
-    // Build a real orchestrator so "strava" IS registered — the fix must
-    // classify it on-demand by capability, not by (non-)registration.
+    // A real orchestrator, as the server builds it: Strava has no health
+    // sync in it, and its freshness must come from the activity cache.
     let storage = Arc::new(PierreSyncStorage::new(repos));
     let orchestrator = storage.build_orchestrator();
     assert!(
-        orchestrator.provider_names().contains(&"strava"),
-        "test premise: strava must be registered with the orchestrator"
+        !orchestrator.provider_names().contains(&"strava"),
+        "test premise: strava has no health sync"
     );
 
     let service = RefreshService::new(
@@ -231,48 +245,51 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
 }
 
 #[tokio::test]
-async fn scheduled_sync_roster_excludes_oauth_only_strava_users() {
+async fn a_mirror_only_providers_roster_reads_its_session_rows_never_oauth_rows() {
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
 
     let (oauth_user, _) = create_test_user(&resources.agent.database).await.unwrap();
     let (sciotte_user, _) =
-        create_test_user_with_email(&resources.agent.database, "sciotte-strava@example.com")
+        create_test_user_with_email(&resources.agent.database, "sciotte-garmin@example.com")
             .await
             .unwrap();
     let oauth_tenant = owned_tenant(repos, oauth_user).await;
     let sciotte_tenant = owned_tenant(repos, sciotte_user).await;
 
-    // OAuth-connected user: opaque Bearer token the TSB scraper cannot use.
-    seed_strava_token(
+    // A leftover row for Garmin's partner-gated OAuth API: nothing reads it.
+    seed_token(
         repos,
         oauth_user,
         &oauth_tenant.to_string(),
+        "garmin",
         "Bearer",
         "opaque-oauth-token",
     )
     .await;
-    // Sciotte-connected user: serialized browser session the scraper restores.
-    seed_strava_token(
+    // A scrape-connected athlete: the session Garmin's health sync reads, on
+    // the mirror backend's row as the sciotte login writes it.
+    seed_token(
         repos,
         sciotte_user,
         &sciotte_tenant.to_string(),
+        "sciotte_garmin",
         "session",
         "{\"session\":\"seed\"}",
     )
     .await;
 
     let storage = Arc::new(PierreSyncStorage::new(repos));
-    let roster = storage.list_connected_users("strava").await.unwrap();
+    let roster = storage.list_connected_users("garmin").await.unwrap();
 
     let ids: Vec<&str> = roster.iter().map(|u| u.user_id.as_str()).collect();
     assert!(
         ids.contains(&sciotte_user.to_string().as_str()),
-        "session-credentialed strava user must stay on the sync roster; got {ids:?}"
+        "the scrape-connected Garmin athlete must be on the sync roster; got {ids:?}"
     );
     assert!(
         !ids.contains(&oauth_user.to_string().as_str()),
-        "OAuth-only strava user must be excluded from the sync roster (guaranteed no-op \
-         sync would only stamp last_sync and log a misleading completion); got {ids:?}"
+        "a leftover garmin OAuth row serves nothing and must stay off the roster; got {ids:?}"
     );
+    assert!(roster.iter().all(|u| u.provider == "garmin"));
 }

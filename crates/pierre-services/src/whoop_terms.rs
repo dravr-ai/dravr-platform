@@ -34,7 +34,7 @@ use pierre_core::models::{StoredRecoveryMetrics, StoredSleepSession};
 /// Whether a synced record came from WHOOP, by the source name the sync
 /// adapter stamps on it.
 #[must_use]
-pub fn is_whoop(source_name: &str) -> bool {
+fn is_whoop(source_name: &str) -> bool {
     source_name.eq_ignore_ascii_case(oauth_providers::WHOOP)
 }
 

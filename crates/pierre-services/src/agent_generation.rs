@@ -151,7 +151,7 @@ pub async fn conversation_excerpt(
         .skip(total_messages.saturating_sub(keep))
         .map(|m| ExcerptLine {
             role: m.role.clone(),
-            content: m.content.clone(),
+            content: m.replayable_content().to_owned(),
         })
         .collect();
     Ok(Some(ConversationExcerpt {

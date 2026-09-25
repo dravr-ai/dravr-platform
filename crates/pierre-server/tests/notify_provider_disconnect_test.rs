@@ -1,5 +1,5 @@
 // ABOUTME: Asserts provider.disconnected fires from the domain chokepoint on every disconnect surface
-// ABOUTME: Plus the /mcp carve-out removing the provider_connections row it used to leave orphaned
+// ABOUTME: Plus /mcp routing to the registry tool, which removes the provider_connections row too
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,9 +7,9 @@
 //! Regression tests for dravr-carnet#29.
 //!
 //! `provider.disconnected` was emitted only from the REST route, so a
-//! disconnect through the chat tool loop or the `/mcp` + SSE carve-out was
+//! disconnect through the chat tool loop or the `/mcp` surface was
 //! invisible to `PostHog` — connects and disconnects were counted on different
-//! surfaces. Worse, the carve-out hand-rolled a raw-name token delete: it
+//! surfaces. Worse, `/mcp` hand-rolled a raw-name token delete: it
 //! never resolved the sciotte mirror backend and never removed the
 //! `provider_connections` row, so a chat user who disconnected kept a row
 //! claiming the provider was still connected.
@@ -32,12 +32,10 @@ use axum::http::StatusCode;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, only, NotifyEvent};
-use pierre_auth::tenant::TenantContext;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
-use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::mcp::tool_handlers::ToolRoutingContext;
+use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::implementations::connection::DisconnectProviderTool;
@@ -238,7 +236,7 @@ async fn chat_tool_disconnect_resolves_mirror_and_emits() {
 }
 
 // ============================================================================
-// The /mcp + SSE carve-out (dravr-carnet#29's stale-row path)
+// The /mcp surface (dravr-carnet#29's stale-row path)
 // ============================================================================
 
 /// TrainingPeaks through the chat tool: `trainingpeaks` has no backend of its
@@ -285,12 +283,14 @@ async fn chat_tool_disconnect_resolves_the_trainingpeaks_mirror_and_emits() {
     assert_athlete_disconnect(&event, user_id, tenant_id, oauth_providers::TRAININGPEAKS);
 }
 
-/// The carve-out used to delete only the raw-named token — no connection-row
-/// removal, no event. Driving `route_disconnect_tool` must now leave no
-/// orphaned row and must emit the attributed event, exactly like the other
-/// surfaces.
+/// `/mcp` used to answer `disconnect_provider` from a hand-rolled carve-out:
+/// first a raw-named token delete with no connection-row removal and no event
+/// (carnet#29), later a `{message, provider, tenant_id, success}` body with no
+/// `structuredContent` for the advertised outputSchema (carnet#552). It now
+/// routes to the registry tool, so the disconnect leaves no orphaned row,
+/// emits the attributed event, and answers with the schema's structured part.
 #[tokio::test]
-async fn mcp_carveout_disconnect_removes_connection_row_and_emits() {
+async fn mcp_disconnect_routes_to_the_registry_tool_and_emits() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
@@ -304,24 +304,41 @@ async fn mcp_carveout_disconnect_removes_connection_row_and_emits() {
     .await;
 
     let (events, _guard) = capture_notify();
-    let tenant_context =
-        TenantContext::for_tenant_scoped_operation(tenant_id, "Test Tenant".to_owned(), user_id);
-    let tool_context = ToolContext::new()
+    let mut tool_context = ToolContext::new()
         .with_user(user_id.to_string())
         .with_tenant(tenant_id.to_string())
         .with_auth_method("jwt_bearer");
-    let routing_ctx = ToolRoutingContext {
-        resources: &resources,
-        tenant_context: &tenant_context,
-        tool_context: &tool_context,
-    };
-    let response =
-        ProviderToolRouter::route_disconnect_tool(oauth_providers::STRAVA, json!(1), &routing_ctx)
-            .await;
+    // The grant `/mcp` authenticated the caller with. The carve-out never
+    // checked one; the registry tool requires `profile:write`.
+    tool_context.scopes = vec!["profile:write".to_owned()];
+    let state: Arc<dyn ToolRuntime> = resources.clone();
+    let response = ToolHandlers::dispatch_tool_call(
+        &resources,
+        &state,
+        &tool_context,
+        user_id,
+        tenant_id,
+        "disconnect_provider",
+        json!({ "provider": oauth_providers::STRAVA }),
+    )
+    .await;
     assert!(
-        response.error.is_none(),
+        !response.is_error,
         "disconnect must succeed: {:?}",
-        response.error
+        response.content
+    );
+    let structured = response
+        .structured_content
+        .as_ref()
+        .expect("the outputSchema's structured part is present");
+    assert_eq!(
+        structured["provider"],
+        oauth_providers::STRAVA,
+        "the structured part names the provider: {structured}"
+    );
+    assert!(
+        structured.get("tenant_id").is_none(),
+        "the result no longer leaks the tenant id: {structured}"
     );
 
     assert_fully_disconnected(&resources, user_id, tenant_id, oauth_providers::STRAVA).await;
