@@ -22,9 +22,9 @@ function entry(command: string, args: string | null = null): CommandEntry {
   return { name: command.slice(1).replace(/ /g, '-'), command, args, description: command, domain: 'group' };
 }
 
-function coach(overrides: Partial<Agent> = {}): Agent {
+function agent(overrides: Partial<Agent> = {}): Agent {
   return {
-    id: 'coach-1',
+    id: 'agent-1',
     title: 'Tempo Coach',
     handle: 'tempo-coach',
     description: 'Threshold work',
@@ -165,20 +165,20 @@ describe('createMentionPaletteHook', () => {
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   });
 
-  it('asks for the coach list only once the athlete has typed an @', () => {
+  it('asks for the agent list only once the athlete has typed an @', () => {
     renderHook(() => useMentionPalette({ value: 'hello', caret: 5, onChange: vi.fn() }), {
       wrapper: wrapperFor(client),
     });
     expect(list).not.toHaveBeenCalled();
   });
 
-  it('never offers a catalogue coach the athlete has not installed', async () => {
-    // `find_installed_by_handle` joins `coach_assignments` for this athlete, so a
-    // coach that is merely listed would be a mention that silently does not route.
+  it('never offers a catalogue agent the athlete has not installed', async () => {
+    // `find_installed_by_handle` joins `coach_assignments` for this athlete, so an
+    // agent that is merely listed would be a mention that silently does not route.
     list.mockResolvedValue({
       agents: [
-        coach(),
-        coach({ id: 'coach-2', title: 'Marathon Coach', handle: 'marathon-coach', is_assigned: false }),
+        agent(),
+        agent({ id: 'agent-2', title: 'Marathon Coach', handle: 'marathon-coach', is_assigned: false }),
       ],
     });
 
@@ -190,11 +190,11 @@ describe('createMentionPaletteHook', () => {
     expect(result.current.matches.map((c) => c.handle)).toEqual(['tempo-coach']);
   });
 
-  it('offers an installed system coach — the resolver admits one', async () => {
-    // `WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = 1)`: a system coach
+  it('offers an installed system agent — the resolver admits one', async () => {
+    // `WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = 1)`: a system agent
     // the athlete has been assigned resolves, so `is_system` is not the filter.
     list.mockResolvedValue({
-      agents: [coach({ id: 'coach-sys', title: 'Sleep Coach', handle: 'sleep-coach', is_system: true })],
+      agents: [agent({ id: 'agent-sys', title: 'Sleep Coach', handle: 'sleep-coach', is_system: true })],
     });
 
     const { result } = renderHook(() => useMentionPalette({ value: '@', caret: 1, onChange: vi.fn() }), {
@@ -207,7 +207,7 @@ describe('createMentionPaletteHook', () => {
 
   it('narrows the offer as the athlete types the handle', async () => {
     list.mockResolvedValue({
-      agents: [coach(), coach({ id: 'coach-3', title: 'Sleep Coach', handle: 'sleep-coach' })],
+      agents: [agent(), agent({ id: 'agent-3', title: 'Sleep Coach', handle: 'sleep-coach' })],
     });
 
     const { result, rerender } = renderHook(
@@ -223,7 +223,7 @@ describe('createMentionPaletteHook', () => {
   });
 
   it('Enter inserts the highlighted handle and a space, with the caret after it', async () => {
-    list.mockResolvedValue({ agents: [coach()] });
+    list.mockResolvedValue({ agents: [agent()] });
     const onChange = vi.fn();
     const { result } = renderHook(() => useMentionPalette({ value: 'hey @Tem', caret: 8, onChange }), {
       wrapper: wrapperFor(client),
@@ -240,7 +240,7 @@ describe('createMentionPaletteHook', () => {
   });
 
   it('leaves Enter to the composer once the handle is typed in full', async () => {
-    list.mockResolvedValue({ agents: [coach()] });
+    list.mockResolvedValue({ agents: [agent()] });
     const onChange = vi.fn();
     const { result } = renderHook(
       () => useMentionPalette({ value: '@tempo-coach', caret: 12, onChange }),
