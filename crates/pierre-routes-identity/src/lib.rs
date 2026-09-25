@@ -37,6 +37,9 @@
 /// OAuth 2.0 authorization-server endpoints (RFC 6749 / 8414 / 7591 / 7636).
 pub mod oauth2;
 
+/// The 429 the OAuth 2.0 endpoints answer a per-IP rate limit with.
+mod oauth2_rate_limited;
+
 /// Per-user OAuth-app credential management endpoints.
 pub mod user_oauth_apps;
 

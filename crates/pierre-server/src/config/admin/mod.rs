@@ -44,13 +44,13 @@
 //!
 //! // Update configuration
 //! let request = UpdateConfigRequest {
-//!     parameters: [("rate_limit.free_tier_burst".to_string(), json!(20))].into(),
-//!     reason: Some("Increased for load testing".to_string()),
+//!     parameters: [("feature.weather_api_enabled".to_string(), json!(false))].into(),
+//!     reason: Some("Weather provider outage".to_string()),
 //! };
 //! let response = service.update_config(&request, admin_id, admin_email, None, None, None).await?;
 //!
 //! // Get specific value
-//! let value = service.get_value("rate_limit.free_tier_burst", None).await?;
+//! let value = service.get_value("feature.weather_api_enabled", None).await?;
 //! ```
 
 /// Database-agnostic repository trait for admin configuration

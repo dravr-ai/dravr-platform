@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage};
 use pierre_core::models::JwtUsage;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
@@ -418,14 +418,13 @@ async fn test_api_key_usage_tracking() -> Result<()> {
 
     db.repositories().usage.record_api_key(&usage).await?;
 
-    // Get usage stats (Note: usage tracking may be handled differently in plugin interface)
-    let current_usage = db
+    // The recorded call is inside the key's window
+    let window_usage = db
         .repositories()
         .usage
-        .get_api_key_current(&api_key.id)
+        .get_api_key_window_usage(&api_key.id, Utc::now() - Duration::days(30))
         .await?;
-    // For plugin interface, just verify the method works
-    let _ = current_usage;
+    assert_eq!(window_usage.count, 1);
 
     // Get usage for date range (simplified for database plugin interface)
     // Note: Direct usage record retrieval is handled by the underlying database implementation
@@ -714,14 +713,13 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
         db.repositories().usage.record_api_key(&usage).await?;
     }
 
-    // Check aggregated stats (Note: usage aggregation may work differently in plugin interface)
-    let current_usage = db
+    // All five calls are inside the key's window
+    let window_usage = db
         .repositories()
         .usage
-        .get_api_key_current(&api_key.id)
+        .get_api_key_window_usage(&api_key.id, Utc::now() - Duration::days(30))
         .await?;
-    // For plugin interface, just verify the method works
-    let _ = current_usage;
+    assert_eq!(window_usage.count, 5);
 
     Ok(())
 }

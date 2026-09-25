@@ -9,19 +9,18 @@
 //! Provides B2B API key generation, validation, and usage tracking
 //! for the Pierre MCP Fitness API platform.
 
-use chrono::{Datelike, Duration, Timelike, Utc};
+use chrono::{Duration, Utc};
 use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use sha2::{Digest, Sha256};
-use tracing::warn;
 use uuid::Uuid;
 
 // Re-export DTOs from pierre-core (canonical definitions)
 pub use pierre_core::models::{
     ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
-    CreateApiKeyRequest, CreateApiKeyRequestSimple, RateLimitStatus,
+    CreateApiKeyRequest, CreateApiKeyRequestSimple,
 };
 
 /// API Key Manager
@@ -291,58 +290,5 @@ impl ApiKeyManager {
         }
 
         Ok(())
-    }
-
-    /// Get rate limit status for an API key
-    #[must_use]
-    pub fn rate_limit_status(&self, api_key: &ApiKey, current_usage: u32) -> RateLimitStatus {
-        if api_key.tier == ApiKeyTier::Enterprise {
-            RateLimitStatus {
-                is_rate_limited: false,
-                limit: None,
-                remaining: None,
-                reset_at: None,
-            }
-        } else {
-            let limit = api_key.rate_limit_requests;
-            let remaining = limit.saturating_sub(current_usage);
-            let is_rate_limited = current_usage >= limit;
-
-            // Calculate reset time (beginning of next month)
-            // Must set day to 1 BEFORE changing month to avoid invalid dates
-            // (e.g., Jan 29 -> Feb 29 fails in non-leap years)
-            let now = Utc::now();
-            let first_of_current = now
-                .with_day(1)
-                .and_then(|dt| dt.with_hour(0))
-                .and_then(|dt| dt.with_minute(0))
-                .and_then(|dt| dt.with_second(0))
-                .and_then(|dt| dt.with_nanosecond(0))
-                .unwrap_or(now);
-
-            let reset_at = if now.month() == 12 {
-                first_of_current
-                    .with_year(now.year() + 1)
-                    .and_then(|dt| dt.with_month(1))
-                    .unwrap_or_else(|| {
-                        warn!("Failed to calculate next year/January, using 30-day default");
-                        now + chrono::Duration::days(30)
-                    })
-            } else {
-                first_of_current
-                    .with_month(now.month() + 1)
-                    .unwrap_or_else(|| {
-                        warn!("Failed to increment month, using fallback");
-                        now + chrono::Duration::days(30)
-                    })
-            };
-
-            RateLimitStatus {
-                is_rate_limited,
-                limit: Some(limit),
-                remaining: Some(remaining),
-                reset_at: Some(reset_at),
-            }
-        }
     }
 }

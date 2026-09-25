@@ -1,5 +1,5 @@
 // ABOUTME: Pins the CORS layer's Access-Control-Expose-Headers contract for the refusal challenge
-// ABOUTME: Asserts a browser can read WWW-Authenticate cross-origin, by name and never by wildcard
+// ABOUTME: Asserts a browser can read WWW-Authenticate, Retry-After and X-RateLimit-* by name, never by wildcard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,6 +32,11 @@ use axum::{
 use pierre_middleware::setup_cors;
 use std::error::Error;
 use tower::ServiceExt;
+
+/// Every response header a browser client must be able to read: the refusal
+/// challenge, a refusal's wait, and the caller's request budget.
+const EXPOSED_HEADERS: &str =
+    "www-authenticate,retry-after,x-ratelimit-limit,x-ratelimit-remaining,x-ratelimit-reset";
 
 /// A production origin, used as both the configured allowlist entry and the
 /// request's `Origin`. Naming an origin puts `setup_cors` on its credentialed
@@ -90,7 +95,7 @@ async fn test_challenge_header_is_exposed_to_a_listed_origin() -> Result<(), Box
         .get(ACCESS_CONTROL_EXPOSE_HEADERS)
         .expect("CORS layer exposes response headers to JS")
         .to_str()?;
-    assert_eq!(exposed, "www-authenticate");
+    assert_eq!(exposed, EXPOSED_HEADERS);
 
     // The listed-origin branch turns credentials on, so the exposure has to be
     // by name: browsers discard a wildcard expose list on a credentialed
@@ -117,7 +122,7 @@ async fn test_challenge_header_is_exposed_under_wildcard_origins() -> Result<(),
         .get(ACCESS_CONTROL_EXPOSE_HEADERS)
         .expect("CORS layer exposes response headers to JS")
         .to_str()?;
-    assert_eq!(exposed, "www-authenticate");
+    assert_eq!(exposed, EXPOSED_HEADERS);
 
     Ok(())
 }
@@ -134,7 +139,7 @@ async fn test_challenge_header_is_exposed_when_list_is_empty() -> Result<(), Box
         .get(ACCESS_CONTROL_EXPOSE_HEADERS)
         .expect("CORS layer exposes response headers to JS")
         .to_str()?;
-    assert_eq!(exposed, "www-authenticate");
+    assert_eq!(exposed, EXPOSED_HEADERS);
 
     Ok(())
 }

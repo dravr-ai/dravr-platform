@@ -42,6 +42,8 @@ use std::{
 use tokio::task::spawn_blocking;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::oauth2_rate_limited::too_many_requests;
+
 /// Escape a string for safe insertion into HTML attribute values.
 ///
 /// Replaces the five HTML-special characters (`&`, `<`, `>`, `"`, `'`)
@@ -244,8 +246,7 @@ impl OAuth2Routes {
         let rate_status = context.rate_limiter.check_rate_limit("register", client_ip);
 
         if rate_status.is_limited {
-            let refusal = OAuth2Error::too_many_requests("Rate limit exceeded");
-            return (StatusCode::TOO_MANY_REQUESTS, Json(refusal)).into_response();
+            return too_many_requests(&rate_status);
         }
 
         // Registrations no user has authorized yet are capped; past the cap the
@@ -584,12 +585,9 @@ impl OAuth2Routes {
     fn check_token_rate_limit(context: &OAuth2Context, client_ip: IpAddr) -> Option<Response> {
         let rate_status = context.rate_limiter.check_rate_limit("token", client_ip);
 
-        if rate_status.is_limited {
-            let refusal = OAuth2Error::too_many_requests("Rate limit exceeded");
-            Some((StatusCode::TOO_MANY_REQUESTS, Json(refusal)).into_response())
-        } else {
-            None
-        }
+        rate_status
+            .is_limited
+            .then(|| too_many_requests(&rate_status))
     }
 
     fn parse_and_log_token_request(

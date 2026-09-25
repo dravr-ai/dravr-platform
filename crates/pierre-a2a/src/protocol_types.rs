@@ -33,6 +33,50 @@ pub fn error_info(reason: &str) -> Value {
     }])
 }
 
+/// `google.rpc.ErrorInfo` reason of a refusal for a spent request budget.
+/// Both bindings map it to HTTP 429 with a `Retry-After` header.
+pub const RATE_LIMIT_EXCEEDED_REASON: &str = "RATE_LIMIT_EXCEEDED";
+
+/// `@type` of the `google.rpc.RetryInfo` detail.
+const RETRY_INFO_TYPE: &str = "type.googleapis.com/google.rpc.RetryInfo";
+
+/// The `google.rpc` details of a rate-limit refusal.
+///
+/// The `ErrorInfo` names [`RATE_LIMIT_EXCEEDED_REASON`]; the `RetryInfo`
+/// carries the wait as its `retryDelay`, in the `google.protobuf.Duration`
+/// JSON form (`"42s"`), floored at one second.
+#[must_use]
+pub fn rate_limit_details(retry_after_secs: u64) -> Value {
+    json!([
+        {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": RATE_LIMIT_EXCEEDED_REASON,
+            "domain": A2A_ERROR_DOMAIN,
+        },
+        {
+            "@type": RETRY_INFO_TYPE,
+            "retryDelay": format!("{}s", retry_after_secs.max(1)),
+        }
+    ])
+}
+
+/// The wait, in whole seconds, of the `RetryInfo` detail in `details` (the
+/// array [`rate_limit_details`] builds), if it carries one.
+#[must_use]
+pub fn retry_after_secs(details: &Value) -> Option<u64> {
+    details.as_array()?.iter().find_map(|detail| {
+        if detail.get("@type").and_then(Value::as_str) != Some(RETRY_INFO_TYPE) {
+            return None;
+        }
+        detail
+            .get("retryDelay")?
+            .as_str()?
+            .strip_suffix('s')?
+            .parse()
+            .ok()
+    })
+}
+
 /// A2A-specific JSON-RPC errors (spec §5.4, codes `-32001..-32009`).
 ///
 /// Distinct from [`A2AError`], which covers Pierre's A2A management plane

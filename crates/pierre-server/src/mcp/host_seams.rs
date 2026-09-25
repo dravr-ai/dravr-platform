@@ -41,10 +41,14 @@ use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
+use pierre_core::constants::http_status::INTERNAL_SERVER_ERROR;
+use pierre_core::constants::key_prefixes;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_schema::McpResponse;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::implementations::guided_flow::{
     active_guided_flow, is_withheld_tool, turn_withholds_writes,
@@ -207,7 +211,9 @@ impl InstructionsSource for CatalogueInstructions {
 /// The transport injects the HTTP `Authorization` bearer into
 /// [`JsonRpcRequest::auth_token`]; this hook validates it once and resolves the
 /// per-call [`ToolContext`]. A missing or invalid bearer is a 401 with the
-/// RFC 9728 challenge; an authenticated caller without tenant membership is a 403.
+/// RFC 9728 challenge; a valid credential over its request budget is a 429
+/// with `Retry-After`; a server-side failure while authenticating is a 500;
+/// an authenticated caller without tenant membership is a 403.
 pub struct PierreAuthHook {
     /// Shared server resources for auth + tenant resolution.
     pub resources: Arc<ServerContext>,
@@ -236,6 +242,51 @@ impl PierreAuthHook {
     }
 }
 
+/// The transport refusal for an authentication failure.
+///
+/// Only a refused credential is a 401 `invalid_token`, which tells an `OAuth`
+/// client its token is dead and sends it to refresh and re-authorize. A spent
+/// request budget is a 429 carrying the refusal's own retry window, and a
+/// server-side failure (a database error reading the user or the usage
+/// counter) is a 500: neither says anything about the credential, and a 401
+/// for either loops the client through re-authorization only to be refused
+/// again. Mirrors [`AppError::into_auth_refusal`] on the REST routes.
+fn auth_refusal(error: &AppError, base_url: &str) -> AuthError {
+    if error.code == ErrorCode::RateLimitExceeded {
+        debug!(error = %error, "MCP request refused: the credential's request budget is spent");
+        return AuthError::RateLimited {
+            retry_after_secs: error.retry_after_secs().unwrap_or(1),
+            reason: error.sanitized_message(),
+        };
+    }
+    if error.http_status() >= INTERNAL_SERVER_ERROR {
+        error!(error = %error, "MCP request failed: authentication could not complete");
+        return AuthError::Internal {
+            reason: error.sanitized_message(),
+        };
+    }
+    debug!(error = %error, "MCP request rejected: bearer token failed validation");
+    AuthError::Unauthorized {
+        www_authenticate: www_authenticate_challenge(base_url, Some("invalid_token")),
+    }
+}
+
+/// What an MCP request did, for its usage row: the tool a `tools/call`
+/// names, otherwise the JSON-RPC method.
+fn mcp_operation(request: &JsonRpcRequest) -> &str {
+    if request.method == "tools/call" {
+        if let Some(tool) = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("name"))
+            .and_then(Value::as_str)
+        {
+            return tool;
+        }
+    }
+    &request.method
+}
+
 #[async_trait]
 impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
     async fn authenticate(
@@ -252,13 +303,14 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         };
 
         // The transport strips the `Bearer ` prefix; the auth middleware expects
-        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare `pk_live_<key>`
-        // for API keys — so reconstruct it from the stripped token.
-        let auth_header = if token.starts_with("pk_live_") {
-            token.to_owned()
-        } else {
-            format!("Bearer {token}")
-        };
+        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare API key
+        // (`pk_live_` or `pk_trial_`) — so reconstruct it from the stripped token.
+        let auth_header =
+            if token.starts_with(key_prefixes::LIVE) || token.starts_with(key_prefixes::TRIAL) {
+                token.to_owned()
+            } else {
+                format!("Bearer {token}")
+            };
 
         let auth_result = match self
             .resources
@@ -268,13 +320,11 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             .await
         {
             Ok(result) => result,
-            Err(e) => {
-                debug!(error = %e, "MCP request rejected: bearer token failed validation");
-                return Err(AuthError::Unauthorized {
-                    www_authenticate: www_authenticate_challenge(base_url, Some("invalid_token")),
-                });
-            }
+            Err(e) => return Err(auth_refusal(&e, base_url)),
         };
+        // The usage row an API key's request writes names the tool it
+        // called, not `POST /mcp`, which serves every tool.
+        report_request_operation(mcp_operation(request));
 
         match extract_tenant_context_internal(
             &self.resources.common.repos,

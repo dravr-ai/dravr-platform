@@ -1,5 +1,5 @@
-// ABOUTME: Tests for ChatTab's author label, its header info drawer and its url reply actions
-// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, and the trusted-domain gate
+// ABOUTME: Tests for ChatTab's author label, its header info drawer, its url reply actions and create failures
+// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, the trusted-domain gate and 429 wording
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,6 +24,7 @@ const sendTurn = vi.fn();
 const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 const applyNotice = vi.fn();
+const createConversation = vi.fn();
 
 vi.mock('../../services/api', () => ({
   chatApi: {
@@ -33,7 +34,7 @@ vi.mock('../../services/api', () => ({
     listParticipants: (...a: unknown[]) => listParticipants(...a),
     sendTurn: (...a: unknown[]) => sendTurn(...a),
     markConversationRead: vi.fn().mockResolvedValue(undefined),
-    createConversation: vi.fn(),
+    createConversation: (...a: unknown[]) => createConversation(...a),
     updateConversation: vi.fn(),
     deleteConversation: vi.fn(),
     markConversationUnread: vi.fn(),
@@ -670,5 +671,83 @@ describe('ChatTab copy and share', () => {
     // No navigator.share in jsdom, so the share path falls to the clipboard —
     // and it carries the same text the copy button does.
     expect(writeText).toHaveBeenCalledWith(READABLE);
+  });
+});
+
+describe('ChatTab conversation create failures', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [] });
+    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    listParticipants.mockResolvedValue([]);
+    listCoaches.mockResolvedValue({ agents: [] });
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: null }],
+      total: 1,
+    });
+    getConversationMessages.mockResolvedValue({ messages: [] });
+  });
+
+  async function startNewChat() {
+    const user = userEvent.setup();
+    renderChatTab();
+    const [menuButton] = await screen.findAllByRole('button', { name: 'New' });
+    await user.click(menuButton);
+    await user.click(await screen.findByRole('menuitem', { name: 'New chat' }));
+  }
+
+  function refusedWith(details: Record<string, unknown>, code: string) {
+    return { response: { status: 429, data: { code, message: 'refused', details } } };
+  }
+
+  it('reads a spent request budget as the usage quota, not as the conversation cap', async () => {
+    createConversation.mockRejectedValue(
+      refusedWith(
+        { limit_type: 'requests', current: 10000, limit: 10000, retry_after_secs: 3600 },
+        'RateLimitExceeded',
+      ),
+    );
+
+    await startNewChat();
+
+    expect(
+      await screen.findByText('Usage quota reached (10000/10000). Please try again later.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Could not start chat')).toBeInTheDocument();
+    expect(screen.queryByText('Conversation limit reached')).toBeNull();
+    expect(
+      screen.queryByText('Something went wrong creating the conversation. Please try again.'),
+    ).toBeNull();
+  });
+
+  it('keeps the conversation-cap wording for the conversation cap', async () => {
+    createConversation.mockRejectedValue(
+      refusedWith(
+        { limit_type: 'max_active_conversations', current: 10, limit: 10, resets_at: '' },
+        'QuotaExceeded',
+      ),
+    );
+
+    await startNewChat();
+
+    expect(await screen.findByText('Conversation limit reached')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "You've reached your limit of 10 active conversations. Delete one from the sidebar to start a new chat.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('falls back to the create-failed sentence for any other failure', async () => {
+    createConversation.mockRejectedValue({
+      response: { status: 409, data: { code: 'ResourceAlreadyExists' } },
+    });
+
+    await startNewChat();
+
+    expect(
+      await screen.findByText('Something went wrong creating the conversation. Please try again.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Could not start chat')).toBeInTheDocument();
   });
 });

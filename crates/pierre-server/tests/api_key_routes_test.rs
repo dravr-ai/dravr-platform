@@ -14,7 +14,6 @@ mod common;
 use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
-use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
@@ -43,14 +42,6 @@ fn create_test_auth_result(user_id: Uuid) -> AuthResult {
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "free".to_owned(),
-        },
-        rate_limit: UnifiedRateLimitInfo {
-            is_rate_limited: false,
-            limit: Some(1000),
-            remaining: Some(1000),
-            reset_at: Some(Utc::now() + Duration::hours(1)),
-            tier: "free".to_owned(),
-            auth_method: "jwt".to_owned(),
         },
         active_tenant_id: None,
     }

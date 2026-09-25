@@ -156,7 +156,6 @@ use futures_util::{stream, StreamExt, TryStreamExt};
 use pierre_auth::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthMethod, AuthResult},
-    rate_limiting::UnifiedRateLimitInfo,
 };
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
@@ -413,7 +412,6 @@ impl DashboardTestSetup {
     /// Create AuthResult for testing authenticated endpoints
     fn auth_result(&self) -> AuthResult {
         use pierre_auth::auth::{AuthMethod, AuthResult};
-        use UnifiedRateLimitInfo;
 
         AuthResult {
             scopes: OAuthScope::self_grant(),
@@ -421,14 +419,6 @@ impl DashboardTestSetup {
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
-            },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
             },
             active_tenant_id: None,
         }
@@ -582,14 +572,6 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
             },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
-            },
             active_tenant_id: None,
         })
         .await;
@@ -605,14 +587,6 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
             },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
-            },
             active_tenant_id: None,
         })
         .await;
@@ -627,14 +601,6 @@ async fn test_get_dashboard_overview_invalid_auth() -> Result<()> {
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
-            },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
             },
             active_tenant_id: None,
         })
@@ -824,14 +790,6 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
         auth_method: AuthMethod::JwtToken {
             tier: "premium".to_owned(),
         },
-        rate_limit: UnifiedRateLimitInfo {
-            is_rate_limited: false,
-            limit: Some(1000),
-            remaining: Some(1000),
-            reset_at: None,
-            tier: "premium".to_owned(),
-            auth_method: "jwt".to_owned(),
-        },
         active_tenant_id: None,
     };
 
@@ -936,14 +894,6 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                 },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
-                },
                 active_tenant_id: None,
             },
             7,
@@ -960,14 +910,6 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
-                },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
                 },
                 active_tenant_id: None,
             },
@@ -1004,17 +946,25 @@ async fn test_get_rate_limit_overview_success() -> Result<()> {
         assert!(!rate_limit.tier.is_empty());
         assert!(rate_limit.usage_percentage >= 0.0);
 
-        // Enterprise tier should have no limit
+        // Enterprise tier has no limit, and so no window to reset
         if rate_limit.tier == "enterprise" {
             assert!(rate_limit.limit.is_none());
             assert_eq!(rate_limit.usage_percentage, 0.0);
+            assert!(rate_limit.reset_date.is_none());
         } else {
             assert!(rate_limit.limit.is_some());
             assert!(rate_limit.limit.unwrap() > 0);
+            // The key's 30-day sliding window frees its first slot when the
+            // oldest seeded call (six days ago) leaves it: 24 days from now,
+            // the same instant the X-RateLimit-Reset header names.
+            let reset = rate_limit.reset_date.expect("a metered key resets");
+            let expected = Utc::now() + Duration::days(24);
+            assert!(
+                (reset - expected).num_seconds().abs() < 120,
+                "{} resets at {reset}, expected about {expected}",
+                rate_limit.tier
+            );
         }
-
-        // All should have reset date
-        assert!(rate_limit.reset_date.is_some());
     }
 
     Ok(())
@@ -1065,14 +1015,6 @@ async fn test_get_rate_limit_overview_invalid_auth() -> Result<()> {
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
             },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
-            },
             active_tenant_id: None,
         })
         .await;
@@ -1086,14 +1028,6 @@ async fn test_get_rate_limit_overview_invalid_auth() -> Result<()> {
             user_id: uuid::Uuid::nil(),
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
-            },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
             },
             active_tenant_id: None,
         })
@@ -1367,14 +1301,6 @@ async fn test_get_request_stats_invalid_auth() -> Result<()> {
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                 },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
-                },
                 active_tenant_id: None,
             },
             None,
@@ -1392,14 +1318,6 @@ async fn test_get_request_stats_invalid_auth() -> Result<()> {
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
-                },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
                 },
                 active_tenant_id: None,
             },
@@ -1490,14 +1408,6 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                 },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
-                },
                 active_tenant_id: None,
             },
             None,
@@ -1515,14 +1425,6 @@ async fn test_get_tool_usage_breakdown_invalid_auth() -> Result<()> {
                 user_id: uuid::Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
-                },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
                 },
                 active_tenant_id: None,
             },
@@ -1564,14 +1466,6 @@ async fn test_dashboard_with_malformed_jwt() -> Result<()> {
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                 },
-                rate_limit: UnifiedRateLimitInfo {
-                    is_rate_limited: false,
-                    limit: Some(1000),
-                    remaining: Some(1000),
-                    reset_at: None,
-                    tier: "premium".to_owned(),
-                    auth_method: "jwt".to_owned(),
-                },
                 active_tenant_id: None,
             })
             .await;
@@ -1599,14 +1493,6 @@ async fn test_dashboard_with_different_user() -> Result<()> {
         user_id: other_user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "premium".to_owned(),
-        },
-        rate_limit: UnifiedRateLimitInfo {
-            is_rate_limited: false,
-            limit: Some(1000),
-            remaining: Some(1000),
-            reset_at: None,
-            tier: "premium".to_owned(),
-            auth_method: "jwt".to_owned(),
         },
         active_tenant_id: None,
     };

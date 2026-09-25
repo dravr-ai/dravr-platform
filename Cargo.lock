@@ -4113,6 +4113,7 @@ dependencies = [
  "axum",
  "bitflags 2.11.1",
  "chrono",
+ "futures-util",
  "http",
  "jsonwebtoken 10.3.0",
  "opentelemetry",

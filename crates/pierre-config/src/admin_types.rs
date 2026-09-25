@@ -68,7 +68,7 @@ pub struct ParameterRange {
 /// Admin-configurable parameter with full metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigParameter {
-    /// Unique key identifier (e.g., `rate_limit.free_tier_burst`)
+    /// Unique key identifier (e.g., `feature.weather_api_enabled`)
     pub key: String,
     /// Human-readable display name
     pub display_name: String,
@@ -116,7 +116,7 @@ pub struct AdminConfigParameter {
 /// Configuration category for organizing parameters in the UI
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigCategory {
-    /// Unique identifier (e.g., `rate_limiting`)
+    /// Unique identifier (e.g., `feature_flags`)
     pub id: String,
     /// Internal name for API use
     pub name: String,

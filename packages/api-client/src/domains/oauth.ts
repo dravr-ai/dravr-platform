@@ -30,7 +30,7 @@ interface SciotteBusyErrorShape {
   response?: {
     status?: number;
     headers?: Record<string, string | number | undefined>;
-    data?: { error?: string; reason?: string; retry_after_secs?: number };
+    data?: { error?: string; reason?: string; details?: { retry_after_secs?: number } };
   };
 }
 
@@ -63,7 +63,9 @@ async function postWithSciotteBackpressureRetry<TResponse, TBody>(
         throw err;
       }
       const retryAfterHeader = typed.response?.headers?.['retry-after'];
-      const retryAfterFromBody = typed.response?.data?.retry_after_secs;
+      // The server's refusal carries the wait in `details`, the same value
+      // it sends as the header.
+      const retryAfterFromBody = typed.response?.data?.details?.retry_after_secs;
       const retryAfterSecs =
         Number(retryAfterHeader ?? retryAfterFromBody ?? 0) || 0;
       const exponentialMs = SCIOTTE_RETRY_BASE_MS * 2 ** attempt;

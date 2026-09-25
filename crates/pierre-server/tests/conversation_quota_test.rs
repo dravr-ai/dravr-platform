@@ -1,5 +1,5 @@
 // ABOUTME: Tests enforce_conversation_quota — the one cap check the REST create and /reset share
-// ABOUTME: Pins the refusal at the cap, the 0-means-unlimited value, and the default when the lookup fails
+// ABOUTME: Pins the refusal at the cap (no retry window, over HTTP too), 0-means-unlimited, and the lookup fallback
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,12 +10,16 @@
 mod common;
 
 use async_trait::async_trait;
+use axum::body::{to_bytes, Body};
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
+use axum::http::{Request, StatusCode};
 use common::{create_test_server_resources, create_test_user_with_plan};
 use pierre_config::constants::usage_quotas::{
     DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS,
 };
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode, RETRY_AFTER_SECS_DETAIL};
 use pierre_core::models::TenantId;
+use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
 use pierre_services::conversation_forge::{
@@ -23,6 +27,7 @@ use pierre_services::conversation_forge::{
 };
 use serde_json::Value;
 use std::sync::Arc;
+use tower::ServiceExt;
 use uuid::Uuid;
 
 /// Test double for the admin catalogue: answers one pinned value for the
@@ -87,10 +92,61 @@ async fn the_cap_refuses_the_thread_that_would_exceed_it() {
         .await
         .expect_err("two owned threads against a cap of two must refuse a third");
     assert_eq!(err.code, ErrorCode::QuotaExceeded);
+    // A fixed cap: waiting does not lift it, so it names no retry window.
+    assert_eq!(err.retry_after_secs(), None);
     let details = err.details.expect("a quota refusal carries its numbers");
     assert_eq!(details["limit_type"], "max_active_conversations");
     assert_eq!(details["current"], 2);
     assert_eq!(details["limit"], 2);
+    assert!(details.get(RETRY_AFTER_SECS_DETAIL).is_none());
+}
+
+/// The REST create answers the cap with a 429 that carries no `Retry-After`,
+/// through the application the server serves.
+#[tokio::test]
+async fn the_cap_refusal_over_http_names_no_retry_window() {
+    let threads = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
+    let (resources, user, tenant) = athlete_with_threads(threads).await;
+    let athlete = resources
+        .common
+        .repos
+        .users
+        .get_global(Uuid::parse_str(&user).unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_token_with_tenant(
+            &athlete,
+            &resources.auth.jwks_manager,
+            Some(tenant.to_string()),
+        )
+        .unwrap();
+
+    let response = ProviderToolRouter::build_http_app(&resources)
+        .oneshot(
+            Request::post("/api/chat/conversations")
+                .header(AUTHORIZATION, format!("Bearer {token}"))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        response.headers().get(RETRY_AFTER).is_none(),
+        "a fixed cap carries no Retry-After"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "QuotaExceeded");
+    assert_eq!(body["details"]["limit_type"], "max_active_conversations");
+    assert_eq!(body["details"]["limit"], DEFAULT_MAX_ACTIVE_CONVERSATIONS);
+    assert!(body["details"].get(RETRY_AFTER_SECS_DETAIL).is_none());
 }
 
 #[tokio::test]

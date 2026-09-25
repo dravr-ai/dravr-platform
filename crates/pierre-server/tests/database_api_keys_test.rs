@@ -128,13 +128,17 @@ async fn test_api_key_usage_tracking() {
         .await
         .expect("Failed to record usage");
 
-    // Check current usage
-    let current_usage = repos
+    // Check the key's window usage
+    let window_usage = repos
         .usage
-        .get_api_key_current(&api_key.id)
+        .get_api_key_window_usage(&api_key.id, Utc::now() - Duration::days(30))
         .await
-        .expect("Failed to get current usage");
-    assert_eq!(current_usage, 1);
+        .expect("Failed to get window usage");
+    assert_eq!(window_usage.count, 1);
+    assert_eq!(
+        window_usage.oldest.map(|oldest| oldest.timestamp()),
+        Some(usage.timestamp.timestamp())
+    );
 
     // Get usage stats
     let stats = repos

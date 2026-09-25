@@ -21,7 +21,7 @@ use pierre_runtime_context::MiddlewareCtx;
 /// Axum extractor that authenticates a user from the `Authorization` header or `auth_token` cookie.
 ///
 /// Tries the `Authorization` header first, then falls back to the `auth_token` cookie.
-/// Returns the full [`AuthResult`] including `user_id`, `auth_method`, `rate_limit`,
+/// Returns the full [`AuthResult`] including `user_id`, `auth_method`,
 /// and `active_tenant_id`.
 ///
 /// # Usage
@@ -76,6 +76,9 @@ impl<C: MiddlewareCtx> FromRequestParts<Arc<C>> for AuthenticatedUser {
 /// - No `Authorization` header or `auth_token` cookie is present
 /// - The token is invalid or expired
 /// - The user lookup or rate limit check fails
+///
+/// A spent request budget stays a 429 and a server-side failure keeps its
+/// 5xx ([`AppError::into_auth_refusal`]); every other failure is a 401.
 pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
     headers: &HeaderMap,
     resources: &Arc<C>,
@@ -94,7 +97,7 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
     resources
         .authenticate_request(Some(&auth_value))
         .await
-        .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
+        .map_err(|e| e.into_auth_refusal("Authentication failed"))
 }
 
 /// Convenience function to get `user_id` from an [`AuthenticatedUser`].

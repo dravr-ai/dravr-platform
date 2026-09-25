@@ -27,6 +27,7 @@ mod common;
 mod shared_quota_tests {
     use crate::common;
     use anyhow::Result;
+    use chrono::{Duration, Utc};
     use dravr_tronc::mcp::tool::ToolContext;
     use pierre_chat_pipeline::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
     use pierre_core::errors::ErrorCode;
@@ -35,10 +36,11 @@ mod shared_quota_tests {
     use pierre_database::backends::factory::Database;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
-    use pierre_runtime_context::default_admin_config;
+    use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
+    use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
     use pierre_services::usage_counter::UsageCounterService;
     use pierre_tool_runtime::runtime::ToolRuntime;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::sync::Arc;
 
     use uuid::Uuid;
@@ -129,6 +131,18 @@ mod shared_quota_tests {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> bool {
+        mcp_response(resources, user_id, tenant_id)
+            .await
+            .to_string()
+            .contains("Rate limit exceeded")
+    }
+
+    /// The JSON-RPC response a real `/mcp` tool dispatch produces.
+    async fn mcp_response(
+        resources: &Arc<ServerContext>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Value {
         let state: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
         let tool_context = ToolContext {
             user_id: Some(user_id.to_string()),
@@ -153,8 +167,19 @@ mod shared_quota_tests {
         )
         .await;
 
-        let rendered = serde_json::to_string(&response).unwrap();
-        rendered.contains("Rate limit exceeded")
+        serde_json::to_value(&response).unwrap()
+    }
+
+    /// The seconds from now to the next UTC midnight, when a daily counter
+    /// resets, and that instant as the counter names it.
+    fn to_next_utc_midnight() -> (i64, String) {
+        let now = Utc::now();
+        let tomorrow = (now + Duration::days(1)).date_naive();
+        let midnight = tomorrow.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        (
+            (midnight - now).num_seconds(),
+            format!("{tomorrow}T00:00:00Z"),
+        )
     }
 
     /// One below the hard limit, both doors are open; at the hard limit, both
@@ -197,6 +222,56 @@ mod shared_quota_tests {
             mcp_refused(&resources, user_id, tenant_id).await,
             "an /mcp tool call refuses at the same {hard_limit}, not at a ladder of its own"
         );
+        Ok(())
+    }
+
+    /// A daily refusal names its wait on both doors: the seconds to the next
+    /// UTC midnight, attached once by the refusal itself, with the counter's
+    /// own reset instant carried unchanged beside it.
+    #[tokio::test]
+    async fn daily_refusals_carry_the_seconds_to_the_reset() -> Result<()> {
+        let (resources, user_id, tenant_id) = setup().await?;
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+        let hard_limit = (STARTER.daily_messages as f64 * BURST_MULTIPLIER) as i64;
+        set_daily_messages(&resources, user_id, tenant_id, hard_limit).await;
+
+        let ctx = resources.chat_pipeline_context();
+        let refusal =
+            check_pre_chat_quotas_scoped(&ctx, tenant_id, user_id, &PreChatScope::default())
+                .await
+                .expect_err("the hard limit refuses a chat turn");
+        let (to_midnight, resets_at) = to_next_utc_midnight();
+        let details = refusal.details.as_deref().unwrap();
+        assert_eq!(details["limit_type"], "daily_messages");
+        assert_eq!(details["resets_at"].as_str(), Some(resets_at.as_str()));
+        let chat_wait = refusal.retry_after_secs().unwrap();
+        assert!(
+            (i64::try_from(chat_wait).unwrap() - to_midnight).abs() <= 2,
+            "chat refusal waits {chat_wait}s, midnight is {to_midnight}s away"
+        );
+
+        // The MCP door refuses from the same policy with the same wait: the
+        // refusal its JSON-RPC error is built from carries it too.
+        let inputs = QuotaPolicyInputs {
+            repos: resources.common.repos.as_ref(),
+            admin_config: resources
+                .agent
+                .admin_config
+                .as_deref()
+                .map(|c| c as &dyn AdminConfigLookup),
+        };
+        let mcp_refusal = check_quotas(&inputs, tenant_id, user_id, &QuotaSurface::McpToolCall)
+            .await
+            .expect_err("the hard limit refuses an MCP tool call");
+        let details = mcp_refusal.details.as_deref().unwrap();
+        assert_eq!(details["limit_type"], "daily_messages");
+        assert_eq!(details["resets_at"].as_str(), Some(resets_at.as_str()));
+        let mcp_wait = mcp_refusal.retry_after_secs().unwrap();
+        assert!(
+            (i64::try_from(mcp_wait).unwrap() - to_midnight).abs() <= 2,
+            "MCP refusal waits {mcp_wait}s, midnight is {to_midnight}s away"
+        );
+        assert!(mcp_refused(&resources, user_id, tenant_id).await);
         Ok(())
     }
 

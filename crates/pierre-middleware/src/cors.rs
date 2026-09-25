@@ -4,8 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use http::{header::HeaderName, HeaderValue, Method};
+use http::header::{HeaderName, RETRY_AFTER, WWW_AUTHENTICATE};
+use http::{HeaderValue, Method};
 use tower_http::cors::{AllowOrigin, CorsLayer};
+
+use crate::rate_limiting::headers::{
+    X_RATE_LIMIT_LIMIT, X_RATE_LIMIT_REMAINING, X_RATE_LIMIT_RESET,
+};
 
 /// Configure CORS settings for the MCP server
 ///
@@ -21,7 +26,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 /// - Permits standard HTTP methods (GET, POST, PUT, DELETE, OPTIONS, PATCH)
 /// - Includes custom headers for fitness provider authentication
 /// - Includes tenant identification headers for multi-tenancy
-/// - Exposes `WWW-Authenticate` so browser JS can read the refusal challenge
+/// - Exposes `WWW-Authenticate` so browser JS can read the refusal challenge,
+///   and `Retry-After` plus `X-RateLimit-*` so it can read the request budget
 ///
 /// # Allowed Headers
 ///
@@ -108,7 +114,17 @@ pub fn setup_cors(allowed_origins: &str) -> CorsLayer {
         // accident of that proxy. Named rather than `Any`, because `Any` emits
         // `Access-Control-Expose-Headers: *`, which browsers ignore on a
         // credentialed request — the shape the web adapter sends.
-        .expose_headers([HeaderName::from_static("www-authenticate")]);
+        //
+        // `Retry-After` and the `X-RateLimit-*` budget are withheld the same
+        // way and exposed for the same reason: a client can only honour a
+        // refusal's wait, or pace itself before one, when it can read them.
+        .expose_headers([
+            WWW_AUTHENTICATE,
+            RETRY_AFTER,
+            X_RATE_LIMIT_LIMIT,
+            X_RATE_LIMIT_REMAINING,
+            X_RATE_LIMIT_RESET,
+        ]);
 
     if credentials_required {
         cors.allow_credentials(true)

@@ -4,17 +4,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
 use chrono::{Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
-use pierre_auth::config::RateLimitConfig;
-use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
+use pierre_auth::rate_limiting::{
+    api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit,
+};
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
 use pierre_core::constants::key_prefixes;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::usage::JwtUsage;
 use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
@@ -23,6 +26,8 @@ use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
+
+use crate::rate_limiting::{enforce_request_budget, report_api_key_request, report_request_budget};
 
 /// How stale `users.last_active` may grow before an authenticated request
 /// writes it again, in minutes.
@@ -40,11 +45,16 @@ const LAST_ACTIVE_REFRESH_MINUTES: i64 = 5;
 /// and `UsageRepos` (`api-key` + JWT usage counters). Narrowing here
 /// would require two stored views and two separate constructor params
 /// with no material benefit — the middleware is a long-lived singleton.
+///
+/// Every credential it admits is gated on its request budget, and the JWT
+/// and API-key paths report that budget to the response's `X-RateLimit-*`
+/// headers; the API-key path also reports the admitted key, whose usage row
+/// the request-budget layer writes with the request's outcome (see
+/// [`crate::rate_limiting`]).
 #[derive(Clone)]
 pub struct McpAuthMiddleware {
     auth_manager: AuthManager,
     api_key_manager: ApiKeyManager,
-    rate_limit_calculator: UnifiedRateLimitCalculator,
     repos: Arc<RepositoryRegistry>,
     jwks_manager: Arc<JwksManager>,
 }
@@ -56,12 +66,10 @@ impl McpAuthMiddleware {
         auth_manager: AuthManager,
         repos: Arc<RepositoryRegistry>,
         jwks_manager: Arc<JwksManager>,
-        rate_limit_config: RateLimitConfig,
     ) -> Self {
         Self {
             auth_manager,
             api_key_manager: ApiKeyManager::new(),
-            rate_limit_calculator: UnifiedRateLimitCalculator::new_with_config(rate_limit_config),
             repos,
             jwks_manager,
         }
@@ -110,6 +118,15 @@ impl McpAuthMiddleware {
                         result.user_id
                     );
                     return Ok(result);
+                }
+                // A spent budget on the only credential presented is the
+                // answer: falling through would turn it into "missing
+                // authorization header", a 401 that signs the client out.
+                Err(e)
+                    if e.code == ErrorCode::RateLimitExceeded
+                        && !headers.contains_key(AUTHORIZATION) =>
+                {
+                    return Err(e);
                 }
                 Err(e) => {
                     // Cookie auth failed — fall through to Authorization header
@@ -268,29 +285,26 @@ impl McpAuthMiddleware {
             );
         })?;
 
-        // Get current usage for rate limiting
-        let current_usage = self.repos.usage.get_api_key_current(&db_key.id).await?;
-        let rate_limit = self
-            .rate_limit_calculator
-            .calculate_api_key_rate_limit(&db_key, current_usage);
+        // The key's calls inside its own sliding window. Reported before the
+        // gate, so a refusal carries the numbers too. A breach is a 429 with a
+        // retry window — it used to surface as `ExternalServiceError` (HTTP
+        // 502), which read as "server broken" to clients and misfired their
+        // backoff (registre#10).
+        let now = Utc::now();
+        let window_usage = self
+            .repos
+            .usage
+            .get_api_key_window_usage(&db_key.id, api_key_window_start(&db_key, now))
+            .await?;
+        let budget = calculate_api_key_rate_limit(&db_key, &window_usage, now);
+        report_request_budget(budget);
+        enforce_request_budget(budget, now)?;
 
-        // Check rate limit. A breach is a 429 with a retry window — it used to
-        // surface as `ExternalServiceError` (HTTP 502), which read as "server
-        // broken" to clients and misfired their backoff (registre#10).
-        if rate_limit.is_rate_limited {
-            let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
-                let now = chrono::Utc::now().timestamp();
-                u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
-            });
-            return Err(AppError::rate_limit_exceeded(
-                i64::from(current_usage),
-                i64::from(rate_limit.limit.unwrap_or(0)),
-                retry_after,
-            ));
-        }
-
-        // Update last used timestamp
+        // Update last used timestamp. The call is counted against the window
+        // the next request reads by the request-budget layer, which writes
+        // the key's usage row once this request has a real outcome.
         self.repos.api_keys.update_last_used(&db_key.id).await?;
+        report_api_key_request(&db_key.id);
         self.note_activity(&user).await;
 
         // Resolve user's default tenant — API keys are single-tenant by design
@@ -314,7 +328,6 @@ impl McpAuthMiddleware {
                 key_id: db_key.id,
                 tier: format!("{:?}", db_key.tier).to_lowercase(),
             },
-            rate_limit,
             active_tenant_id,
             // The athlete acting directly, not a third party acting for them,
             // so the credential is not a narrowed delegation. The role gate
@@ -416,34 +429,27 @@ impl McpAuthMiddleware {
 
         // Rate limit on the user-tier policy (JWT calculator — channel links
         // are long-lived user credentials, same authority as a session token).
-        let current_usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
-        let rate_limit = self
-            .rate_limit_calculator
-            .calculate_jwt_rate_limit(&user, current_usage);
-
+        // Deliberately NOT reported to the response headers: this response
+        // goes to Meta, Telegram or Slack, and the headers would hand the
+        // vendor the athlete's quota.
+        //
         // A breach is a rate-limit error, not an external-service fault: the
         // messaging denial arm matches `ErrorCode::RateLimitExceeded` to send
         // the localized "slow down" reply, and the old `ExternalServiceError`
         // shape fell through to the operator-error catch-all instead — the
         // rate-limited user got silence and on-call got paged (registre#8).
-        if rate_limit.is_rate_limited {
-            let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
-                let now = chrono::Utc::now().timestamp();
-                u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
-            });
+        let now = Utc::now();
+        let used_this_month = self.repos.usage.get_jwt_current_usage(user_id).await?;
+        let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
+        enforce_request_budget(budget, now).inspect_err(|e| {
             warn!(
                 user_id = %user_id,
                 channel = %channel,
-                current_usage,
-                limit = rate_limit.limit.unwrap_or(0),
+                used_this_month,
+                error = %e,
                 "Channel rate limit exceeded; refusing the turn"
             );
-            return Err(AppError::rate_limit_exceeded(
-                i64::from(current_usage),
-                i64::from(rate_limit.limit.unwrap_or(0)),
-                retry_after,
-            ));
-        }
+        })?;
 
         Ok(AuthResult {
             user_id,
@@ -452,7 +458,6 @@ impl McpAuthMiddleware {
                 channel_user_id: channel_user_id.to_owned(),
                 tier: format!("{:?}", user.tier).to_lowercase(),
             },
-            rate_limit,
             active_tenant_id,
             // The athlete acting directly, not a third party acting for them,
             // so the credential is not a narrowed delegation. The role gate
@@ -502,27 +507,17 @@ impl McpAuthMiddleware {
             warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
         })?;
 
-        // Get current usage for rate limiting
-        let current_usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
-        let rate_limit = self
-            .rate_limit_calculator
-            .calculate_jwt_rate_limit(&user, current_usage);
-
-        // Check rate limit. A 429 with a retry window, not a 401: "slow down"
-        // and "bad credentials" demand opposite client reactions, and the old
+        // The user's month-to-date requests against the tier's budget.
+        // Reported before the gate, so a refusal carries the numbers too. A
+        // breach is a 429 with a retry window, not a 401: "slow down" and "bad
+        // credentials" demand opposite client reactions, and the old
         // auth_invalid shape sent rate-limited clients into re-login loops
         // (registre#10).
-        if rate_limit.is_rate_limited {
-            let retry_after = rate_limit.reset_at.map_or(3600, |dt| {
-                let now = chrono::Utc::now().timestamp();
-                u64::try_from((dt.timestamp() - now).max(0)).unwrap_or(3600)
-            });
-            return Err(AppError::rate_limit_exceeded(
-                i64::from(current_usage),
-                i64::from(rate_limit.limit.unwrap_or(0)),
-                retry_after,
-            ));
-        }
+        let now = Utc::now();
+        let used_this_month = self.repos.usage.get_jwt_current_usage(user_id).await?;
+        let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
+        report_request_budget(budget);
+        enforce_request_budget(budget, now)?;
 
         // Record JWT usage so the *next* request sees an accurate
         // `get_jwt_current_usage` and the rate-limit gate actually fires.
@@ -539,7 +534,6 @@ impl McpAuthMiddleware {
             auth_method: AuthMethod::JwtToken {
                 tier: format!("{:?}", user.tier).to_lowercase(),
             },
-            rate_limit,
             active_tenant_id,
             // Whatever the token was minted with. A first-party session was
             // minted with the full self grant; a delegated OAuth token stays as
@@ -587,7 +581,7 @@ impl McpAuthMiddleware {
 
 /// Record a `JwtUsage` row for a successful JWT/cookie authentication.
 ///
-/// [`UnifiedRateLimitCalculator::calculate_jwt_rate_limit`] reads
+/// [`calculate_jwt_rate_limit`] is fed by
 /// `repos.usage.get_jwt_current_usage`; without a paired write the counter
 /// stays at zero and the rate-limit gate never fires across any transport
 /// that uses this calculator (HTTP cookie, Bearer header, `MCP`, and — via
@@ -608,12 +602,10 @@ pub async fn record_jwt_usage_for_request(
     endpoint: &str,
     method: &str,
 ) {
-    use pierre_core::models::usage::JwtUsage;
-
     let usage = JwtUsage {
         id: None,
         user_id,
-        timestamp: chrono::Utc::now(),
+        timestamp: Utc::now(),
         endpoint: endpoint.to_owned(),
         method: method.to_owned(),
         status_code: 200,

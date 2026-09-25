@@ -17,8 +17,6 @@ use crate::constants::{
     errors::{ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND},
     protocol::JSONRPC_VERSION,
 };
-use chrono::Utc;
-use pierre_auth::api_keys::ApiKeyUsage;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::tenant::TenantContext;
 use pierre_config::environment::log_effective_base_url;
@@ -35,7 +33,6 @@ use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
@@ -55,15 +52,15 @@ use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware;
 use axum::response::Response;
+use axum::Router;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
-use pierre_database::backends::UsageRepository;
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{
-    redaction_middleware, request_id_middleware, response_failure_log_middleware, setup_cors,
-    RedactedRequestLine,
+    redaction_middleware, request_budget_middleware, request_id_middleware,
+    response_failure_log_middleware, setup_cors, RedactedRequestLine,
 };
 #[cfg(feature = "client-admin-api")]
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
@@ -140,47 +137,6 @@ impl ProviderToolRouter {
             user_id,
         )
         .await
-    }
-
-    /// Record API key usage for billing and analytics
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the usage cannot be recorded in the database
-    pub async fn record_api_key_usage(
-        database: &dyn UsageRepository,
-        api_key_id: &str,
-        tool_name: &str,
-        response_time: Duration,
-        response: &McpResponse,
-    ) -> AppResult<()> {
-        let status_code = if response.error.is_some() {
-            400 // Error responses
-        } else {
-            200 // Success responses
-        };
-
-        let error_message = response.error.as_ref().map(|e| e.message.clone());
-
-        let usage = ApiKeyUsage {
-            id: None,
-            api_key_id: api_key_id.to_owned(),
-            timestamp: Utc::now(),
-            tool_name: tool_name.to_owned(),
-            response_time_ms: u32::try_from(response_time.as_millis()).ok(),
-            status_code,
-            error_message,
-            request_size_bytes: None,  // Could be calculated from request
-            response_size_bytes: None, // Could be calculated from response
-            ip_address: None,          // Would need to be passed from request context
-            user_agent: None,          // Would need to be passed from request context
-        };
-
-        database
-            .record_api_key(&usage)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to record API key usage: {e}")))?;
-        Ok(())
     }
 
     /// Get database reference for admin API
@@ -487,7 +443,8 @@ impl ProviderToolRouter {
 
     /// Run HTTP server with Axum framework
     ///
-    /// This method provides the Axum-based server implementation.
+    /// Builds the application with [`Self::build_http_app`], binds, and
+    /// serves it with `ConnectInfo` for the `OAuth2` IP limiter.
     ///
     /// # Errors
     /// Returns an error if server setup or routing configuration fails
@@ -498,71 +455,7 @@ impl ProviderToolRouter {
     ) -> AppResult<()> {
         info!("HTTP server (Axum) starting on port {}", port);
 
-        // Build the main router with all routes
-        let app = Self::setup_axum_router(&resources);
-
-        // Apply middleware layers (order matters - applied bottom-up).
-        // CatchPanicLayer is added LAST so it wraps every other layer; a
-        // panic in TraceLayer span machinery, the request-id middleware, or
-        // any handler converts to a 500 response instead of unwinding past
-        // tokio and killing the container.
-        // OTLP request metrics + inbound W3C trace-context extraction. Applied
-        // innermost so it runs inside the TraceLayer span — `Span::current()`
-        // is then the per-request span that `set_parent` chains to the caller's
-        // trace. Inert unless the `telemetry` feature is active. `MatchedPath`
-        // (low-cardinality route label) is still visible here via Router::layer.
-        #[cfg(feature = "telemetry")]
-        let app = app.layer(middleware::from_fn(telemetry_middleware));
-        let app = app
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(http_request_span)
-                    .on_response(
-                        DefaultOnResponse::new()
-                            .level(Level::INFO)
-                            .latency_unit(LatencyUnit::Millis),
-                    )
-                    // Silence tower-http's default failure logger: its event
-                    // knows only latency + status, so the forwarded ops alert
-                    // never named the failing endpoint. `response_failure_log`
-                    // (applied just outside this layer) is the single failure
-                    // logger, carrying method + path and routing designed
-                    // backpressure (Retry-After 503) to WARN instead of ERROR.
-                    .on_failure(()),
-            )
-            .layer(middleware::from_fn(response_failure_log_middleware))
-            // PII redaction for HTTP logging. Applied outside both the failure
-            // logger and the TraceLayer so the log-safe request line is on the
-            // request before either of them reads the endpoint from it.
-            .layer(middleware::from_fn_with_state(
-                resources.security().redaction_config().clone(),
-                redaction_middleware,
-            ))
-            .layer(middleware::from_fn(request_id_middleware))
-            .layer(setup_cors(&resources.common.config.cors.allowed_origins))
-            // Browser security response headers (X-Content-Type-Options,
-            // X-Frame-Options, Referrer-Policy, HSTS, Content-Security-Policy)
-            // are set at the nginx edge — docker/images/frontend/nginx.conf
-            // includes security-headers.conf at server level and again in every
-            // location that declares its own add_header. This service runs
-            // INGRESS_TRAFFIC_INTERNAL_ONLY behind that nginx, so nginx owns the
-            // headers for all browser traffic and no layer here sets them.
-            .layer(CatchPanicLayer::custom(Self::handle_request_panic))
-            // Outermost, so it compresses the finished body and every layer
-            // above still sees the response it produced.
-            //
-            // `tools/list` is what makes this worth having: 113 tools each
-            // carrying a derived `outputSchema` is 528 KB of JSON, and JSON
-            // schemas are the most repetitive payload this server sends —
-            // gzip takes that reply to 111 KB, a 4.8x cut, for no loss.
-            // Every other JSON response benefits by the same mechanism.
-            //
-            // `DefaultPredicate` is what makes it safe for the chat stream:
-            // it declines `text/event-stream` by name, so the SSE branch of
-            // `send_message` keeps flushing token by token instead of being
-            // buffered into a compressor. It also skips bodies already
-            // encoded and ones too small to be worth it.
-            .layer(CompressionLayer::new());
+        let app = Self::build_http_app(&resources);
 
         // Create server address using host from config (defaults to localhost, can be 0.0.0.0 for network access)
         let host = &resources.common.config.host;
@@ -587,6 +480,89 @@ impl ProviderToolRouter {
         Ok(())
     }
 
+    /// The whole HTTP application: every route group plus every layer that
+    /// wraps them, exactly as the server serves it.
+    ///
+    /// Tests drive this instead of assembling routers by hand, so what they
+    /// assert is the production composition. A test reaching the `OAuth2`
+    /// routes inserts `ConnectInfo` itself, which the server's
+    /// `into_make_service_with_connect_info` supplies.
+    pub fn build_http_app(resources: &Arc<ServerContext>) -> Router {
+        // Every route group and CSRF, wrapped by the request-budget layer: it
+        // opens the slot authentication reports into, renders the caller's
+        // budget as `X-RateLimit-*`, and writes the admitted API key's usage
+        // row with the response's status. It sits inside the telemetry, trace,
+        // failure-log, redaction, request-id, CORS, panic and compression
+        // layers, so CORS exposes what it sets, compression sees the finished
+        // headers, and a panic is recorded before the panic layer answers it.
+        let app = Self::setup_axum_router(resources).layer(middleware::from_fn_with_state(
+            Arc::clone(&resources.common.repos.usage),
+            request_budget_middleware,
+        ));
+
+        // Apply middleware layers (order matters - applied bottom-up).
+        // CatchPanicLayer is added LAST so it wraps every other layer; a
+        // panic in TraceLayer span machinery, the request-id middleware, or
+        // any handler converts to a 500 response instead of unwinding past
+        // tokio and killing the container.
+        // OTLP request metrics + inbound W3C trace-context extraction. Applied
+        // innermost so it runs inside the TraceLayer span — `Span::current()`
+        // is then the per-request span that `set_parent` chains to the caller's
+        // trace. Inert unless the `telemetry` feature is active. `MatchedPath`
+        // (low-cardinality route label) is still visible here via Router::layer.
+        #[cfg(feature = "telemetry")]
+        let app = app.layer(middleware::from_fn(telemetry_middleware));
+        app.layer(
+            TraceLayer::new_for_http()
+                .make_span_with(http_request_span)
+                .on_response(
+                    DefaultOnResponse::new()
+                        .level(Level::INFO)
+                        .latency_unit(LatencyUnit::Millis),
+                )
+                // Silence tower-http's default failure logger: its event
+                // knows only latency + status, so the forwarded ops alert
+                // never named the failing endpoint. `response_failure_log`
+                // (applied just outside this layer) is the single failure
+                // logger, carrying method + path and routing designed
+                // backpressure (Retry-After 503) to WARN instead of ERROR.
+                .on_failure(()),
+        )
+        .layer(middleware::from_fn(response_failure_log_middleware))
+        // PII redaction for HTTP logging. Applied outside both the failure
+        // logger and the TraceLayer so the log-safe request line is on the
+        // request before either of them reads the endpoint from it.
+        .layer(middleware::from_fn_with_state(
+            resources.security().redaction_config().clone(),
+            redaction_middleware,
+        ))
+        .layer(middleware::from_fn(request_id_middleware))
+        .layer(setup_cors(&resources.common.config.cors.allowed_origins))
+        // Browser security response headers (X-Content-Type-Options,
+        // X-Frame-Options, Referrer-Policy, HSTS, Content-Security-Policy)
+        // are set at the nginx edge — docker/images/frontend/nginx.conf
+        // includes security-headers.conf at server level and again in every
+        // location that declares its own add_header. This service runs
+        // INGRESS_TRAFFIC_INTERNAL_ONLY behind that nginx, so nginx owns the
+        // headers for all browser traffic and no layer here sets them.
+        .layer(CatchPanicLayer::custom(Self::handle_request_panic))
+        // Outermost, so it compresses the finished body and every layer
+        // above still sees the response it produced.
+        //
+        // `tools/list` is what makes this worth having: 113 tools each
+        // carrying a derived `outputSchema` is 528 KB of JSON, and JSON
+        // schemas are the most repetitive payload this server sends —
+        // gzip takes that reply to 111 KB, a 4.8x cut, for no loss.
+        // Every other JSON response benefits by the same mechanism.
+        //
+        // `DefaultPredicate` is what makes it safe for the chat stream:
+        // it declines `text/event-stream` by name, so the SSE branch of
+        // `send_message` keeps flushing token by token instead of being
+        // buffered into a compressor. It also skips bodies already
+        // encoded and ones too small to be worth it.
+        .layer(CompressionLayer::new())
+    }
+
     /// Setup complete Axum router with all route modules
     ///
     /// Routes are conditionally compiled based on feature flags to support
@@ -596,8 +572,8 @@ impl ProviderToolRouter {
     /// registration pattern. Splitting it would fragment related route setup
     /// logic and make the code harder to follow. Each section is clearly
     /// documented and the structure follows the feature flag hierarchy.
-    fn setup_axum_router(resources: &Arc<ServerContext>) -> axum::Router {
-        use axum::{middleware::from_fn_with_state, Router};
+    fn setup_axum_router(resources: &Arc<ServerContext>) -> Router {
+        use axum::middleware::from_fn_with_state;
 
         use pierre_middleware::csrf_protection_layer;
 
@@ -993,11 +969,11 @@ impl ProviderToolRouter {
     ///   Cloud Run's startup probe at this path instead of `/health`.
     /// * `/health/llm` — JSON snapshot of the latest LLM probe outcome
     ///   for operator introspection (provider, error, timestamp).
-    fn create_axum_health_routes(llm_health: Arc<LlmHealthState>) -> axum::Router {
+    fn create_axum_health_routes(llm_health: Arc<LlmHealthState>) -> Router {
         use axum::extract::State;
         use axum::http::StatusCode;
         use axum::response::IntoResponse;
-        use axum::{routing::get, Json, Router};
+        use axum::{routing::get, Json};
 
         async fn health_handler() -> Json<serde_json::Value> {
             Json(serde_json::json!({

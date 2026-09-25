@@ -340,11 +340,6 @@ export OPENWEATHER_API_KEY="your-openweathermap-api-key"
 # RATE LIMITING CONFIGURATION
 # ============================================================================
 
-# Tier-based burst limits
-export RATE_LIMIT_FREE_TIER_BURST="10"
-export RATE_LIMIT_PROFESSIONAL_BURST="50"
-export RATE_LIMIT_ENTERPRISE_BURST="100"
-
 # OAuth Rate Limiting
 export OAUTH_AUTHORIZE_RATE_LIMIT_RPM="60"
 export OAUTH_TOKEN_RATE_LIMIT_RPM="30"
