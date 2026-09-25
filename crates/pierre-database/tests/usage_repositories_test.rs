@@ -29,6 +29,7 @@ use pierre_core::models::{
     User,
 };
 use pierre_database::database::test_utils::create_test_db;
+use pierre_database::repositories::analytics::{next_utc_day_start, utc_day_start};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -309,6 +310,41 @@ async fn jwt_usage_counts_this_utc_month_and_not_last_month() {
         repo.get_jwt_current_usage(user_id).await.unwrap(),
         2,
         "the month's first instant counts, the hour before it does not, another user's call never does"
+    );
+}
+
+#[tokio::test]
+async fn jwt_usage_today_counts_from_the_utc_midnight() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let user_id = fresh_user(&repos).await;
+    let repo = &repos.usage;
+
+    let now = Utc::now();
+    let midnight = utc_day_start(now);
+    assert_eq!(
+        midnight,
+        now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+    );
+    assert_eq!(next_utc_day_start(now), midnight + Duration::days(1));
+
+    repo.record_jwt_usage(&jwt_call(user_id, now))
+        .await
+        .unwrap();
+    repo.record_jwt_usage(&jwt_call(user_id, midnight))
+        .await
+        .unwrap();
+    repo.record_jwt_usage(&jwt_call(user_id, midnight - Duration::seconds(1)))
+        .await
+        .unwrap();
+    repo.record_jwt_usage(&jwt_call(fresh_user(&repos).await, now))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repo.get_jwt_usage_today(user_id).await.unwrap(),
+        2,
+        "midnight counts, the second before it does not, another user's call never does"
     );
 }
 

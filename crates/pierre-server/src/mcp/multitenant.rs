@@ -53,8 +53,6 @@ use axum::extract::Request;
 use axum::middleware;
 use axum::response::Response;
 use axum::Router;
-#[cfg(feature = "oauth")]
-use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
@@ -755,9 +753,7 @@ impl ProviderToolRouter {
                 // ServerConfig — narrowing the route group's config dependency to
                 // OAuth2ServerConfig so the leaf crate has no pierre-server import.
                 config: Arc::new(resources.common.config.oauth2_server.clone()),
-                rate_limiter: Arc::new(OAuth2RateLimiter::from_rate_limit_config(
-                    resources.common.config.rate_limiting.clone(),
-                )),
+                rate_limiter: resources.auth.oauth2_rate_limiter.clone(),
             };
             app.merge(OAuth2Routes::routes(oauth2_context))
         };

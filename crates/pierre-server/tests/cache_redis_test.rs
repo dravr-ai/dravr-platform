@@ -65,6 +65,14 @@ macro_rules! require_redis {
     };
 }
 
+/// Every replica connected to one Redis sees the same entries.
+#[tokio::test]
+async fn test_redis_cache_is_shared_across_processes() -> Result<()> {
+    let cache = require_redis!(create_redis_cache().await?);
+    assert!(cache.is_shared_across_processes());
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_redis_cache_health_check() -> Result<()> {
     let cache = require_redis!(create_redis_cache().await?);
@@ -644,5 +652,88 @@ async fn test_redis_cache_tenant_pattern_invalidation() -> Result<()> {
     assert!(!cache.exists(&key1).await?);
     assert!(!cache.exists(&key2).await?);
 
+    Ok(())
+}
+
+/// Concurrent hits the window-count test spreads over as many tasks.
+const CONCURRENT_WINDOW_HITS: u64 = 50;
+
+/// A window opens at its first hit with the window as its Redis TTL, later
+/// hits count into it without moving its end, and once it closes the next hit
+/// opens a fresh one.
+#[tokio::test]
+async fn test_redis_count_in_window_counts_until_the_window_closes() -> Result<()> {
+    let cache = require_redis!(create_redis_cache().await?);
+    let key = test_cache_key(CacheResource::Custom("window".to_owned()));
+    let window = Duration::from_secs(2);
+    let _ = cache.invalidate(&key).await;
+
+    let first = cache.count_in_window(&key, window).await?;
+    assert_eq!(first.hits, 1);
+    assert!(first.resets_in <= window);
+    assert!(first.resets_in > Duration::from_millis(1500));
+
+    let second = cache.count_in_window(&key, window).await?;
+    assert_eq!(second.hits, 2);
+    assert!(
+        second.resets_in <= first.resets_in,
+        "a later hit does not extend the window"
+    );
+    let counted: Option<u64> = cache.get(&key).await?;
+    assert_eq!(counted, Some(2), "the count reads back as a number");
+
+    time::sleep(Duration::from_millis(2100)).await;
+    let reopened = cache.count_in_window(&key, window).await?;
+    assert_eq!(reopened.hits, 1);
+    assert!(reopened.resets_in > Duration::from_millis(1500));
+
+    cache.invalidate(&key).await?;
+    Ok(())
+}
+
+/// Hits landing at once, over the connection manager's multiplexed
+/// connection, are each counted exactly once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_redis_count_in_window_counts_concurrent_hits_once_each() -> Result<()> {
+    let cache = require_redis!(create_redis_cache().await?);
+    let key = test_cache_key(CacheResource::Custom("concurrent".to_owned()));
+    let window = Duration::from_mins(1);
+    let _ = cache.invalidate(&key).await;
+
+    let tasks: Vec<_> = (0..CONCURRENT_WINDOW_HITS)
+        .map(|_| {
+            let cache = cache.clone();
+            let key = key.clone();
+            tokio::spawn(async move { cache.count_in_window(&key, window).await })
+        })
+        .collect();
+    let mut seen = Vec::new();
+    for task in tasks {
+        seen.push(task.await??.hits);
+    }
+    seen.sort_unstable();
+
+    assert_eq!(seen, (1..=CONCURRENT_WINDOW_HITS).collect::<Vec<_>>());
+    cache.invalidate(&key).await?;
+    Ok(())
+}
+
+/// A key holding something other than a count is an error, never a fresh window.
+#[tokio::test]
+async fn test_redis_count_in_window_refuses_a_key_holding_other_data() -> Result<()> {
+    let cache = require_redis!(create_redis_cache().await?);
+    let key = test_cache_key(CacheResource::Custom("occupied".to_owned()));
+    cache
+        .set(&key, &"not a count", Duration::from_mins(1))
+        .await?;
+
+    assert!(cache
+        .count_in_window(&key, Duration::from_mins(1))
+        .await
+        .is_err());
+    let kept: Option<String> = cache.get(&key).await?;
+    assert_eq!(kept.as_deref(), Some("not a count"));
+
+    cache.invalidate(&key).await?;
     Ok(())
 }

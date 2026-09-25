@@ -31,6 +31,9 @@ pub mod api_keys;
 /// JWT-based user authentication and session management
 pub mod auth;
 
+/// The client address behind trusted proxies, and the key it is metered by
+pub mod client_address;
+
 /// Cryptographic utilities and key management
 pub mod crypto;
 

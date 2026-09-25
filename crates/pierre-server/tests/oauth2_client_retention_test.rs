@@ -24,7 +24,7 @@ use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{header, Request as HttpRequest, StatusCode};
 use chrono::{DateTime, Duration, Utc};
-use pierre_auth::config::{ClientRetentionConfig, OAuth2ServerConfig};
+use pierre_auth::config::{ClientRetentionConfig, OAuth2ServerConfig, RateLimitConfig};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::{
     ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Error,
@@ -529,7 +529,11 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
         auth_manager: common::create_test_auth_manager(),
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(config),
-        rate_limiter: Arc::new(OAuth2RateLimiter::new()),
+        rate_limiter: Arc::new(OAuth2RateLimiter::new(
+            None,
+            OAuth2RateLimiter::local_window_store(),
+            &RateLimitConfig::default(),
+        )),
     });
 
     let (status, admitted) = post_register(&router, "First").await;

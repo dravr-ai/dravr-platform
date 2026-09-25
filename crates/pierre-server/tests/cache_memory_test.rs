@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for in-memory cache implementation
-// ABOUTME: Tests TTL expiration, capacity limits, and background cleanup
+// ABOUTME: Tests TTL expiration, capacity limits, background cleanup, and fixed-window counting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -45,6 +45,15 @@ async fn create_test_cache(max_entries: usize, cleanup_interval_secs: u64) -> Re
     Cache::new(config)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to create test cache: {e}"))
+}
+
+/// An in-memory cache is this process's alone, so a limiter never treats it
+/// as the store every replica counts into.
+#[tokio::test]
+async fn test_in_memory_cache_is_not_shared_across_processes() -> Result<()> {
+    let cache = create_test_cache(10, 60).await?;
+    assert!(!cache.is_shared_across_processes());
+    Ok(())
 }
 
 #[tokio::test]
@@ -434,6 +443,82 @@ async fn test_cache_from_env_defaults() -> Result<()> {
     cache.set(&key, &data, Duration::from_secs(10)).await?;
     let retrieved: Option<TestData> = cache.get(&key).await?;
     assert_eq!(retrieved, Some(data));
+
+    Ok(())
+}
+
+/// Concurrent hits the window-count test spreads over as many tasks.
+const CONCURRENT_WINDOW_HITS: u64 = 50;
+
+/// A window opens at its first hit, later hits count into it without moving
+/// its end, and once it closes the next hit opens a fresh one.
+#[tokio::test]
+async fn test_count_in_window_counts_until_the_window_closes() -> Result<()> {
+    let cache = create_test_cache(100, 300).await?;
+    let key = test_cache_key(CacheResource::Custom("window".to_owned()));
+    let window = Duration::from_secs(2);
+
+    let first = cache.count_in_window(&key, window).await?;
+    assert_eq!(first.hits, 1);
+    assert!(first.resets_in <= window);
+    assert!(first.resets_in > Duration::from_millis(1500));
+
+    let second = cache.count_in_window(&key, window).await?;
+    assert_eq!(second.hits, 2);
+    assert!(
+        second.resets_in <= first.resets_in,
+        "a later hit does not extend the window"
+    );
+    let counted: Option<u64> = cache.get(&key).await?;
+    assert_eq!(counted, Some(2), "the count reads back as a number");
+
+    time::sleep(Duration::from_millis(2100)).await;
+    let reopened = cache.count_in_window(&key, window).await?;
+    assert_eq!(reopened.hits, 1);
+    assert!(reopened.resets_in > Duration::from_millis(1500));
+
+    Ok(())
+}
+
+/// Hits landing at once are each counted exactly once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_count_in_window_counts_concurrent_hits_once_each() -> Result<()> {
+    let cache = create_test_cache(100, 300).await?;
+    let key = test_cache_key(CacheResource::Custom("concurrent".to_owned()));
+    let window = Duration::from_mins(1);
+
+    let tasks: Vec<_> = (0..CONCURRENT_WINDOW_HITS)
+        .map(|_| {
+            let cache = cache.clone();
+            let key = key.clone();
+            tokio::spawn(async move { cache.count_in_window(&key, window).await })
+        })
+        .collect();
+    let mut seen = Vec::new();
+    for task in tasks {
+        seen.push(task.await??.hits);
+    }
+    seen.sort_unstable();
+
+    assert_eq!(seen, (1..=CONCURRENT_WINDOW_HITS).collect::<Vec<_>>());
+    Ok(())
+}
+
+/// A key holding something other than a count is an error, never a fresh window.
+#[tokio::test]
+async fn test_count_in_window_refuses_a_key_holding_other_data() -> Result<()> {
+    let cache = create_test_cache(100, 300).await?;
+    let key = test_cache_key(CacheResource::Custom("occupied".to_owned()));
+    cache
+        .set(&key, &"not a count", Duration::from_mins(1))
+        .await?;
+
+    assert!(cache
+        .count_in_window(&key, Duration::from_mins(1))
+        .await
+        .is_err());
+    let kept: Option<String> = cache.get(&key).await?;
+    assert_eq!(kept.as_deref(), Some("not a count"));
 
     Ok(())
 }

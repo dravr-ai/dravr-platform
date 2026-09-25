@@ -227,8 +227,8 @@ impl Claims {
 /// Authentication result with user context
 ///
 /// The caller's request budget is not carried here: the auth middleware
-/// gates on it and reports it to the response's `X-RateLimit-*` headers at
-/// the site that computes it.
+/// gates on it and reports it to the response's `X-RateLimit-*` headers once
+/// the credential's outcome is the request's answer.
 #[derive(Debug)]
 pub struct AuthResult {
     /// Authenticated user `ID`

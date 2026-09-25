@@ -275,9 +275,14 @@ impl ServerContext {
             jwks_manager_arc.clone(),
         ));
 
-        // Create OAuth2 rate limiter once for shared use
-        let oauth2_rate_limiter = Arc::new(OAuth2RateLimiter::from_rate_limit_config(
-            config.rate_limiting.clone(),
+        // On Redis every replica counts into the same OAuth2 window; an
+        // in-process cache is not shared, so the limiter keeps its own store
+        let oauth2_rate_limiter = Arc::new(OAuth2RateLimiter::new(
+            cache_arc
+                .is_shared_across_processes()
+                .then(|| cache_arc.clone()),
+            OAuth2RateLimiter::local_window_store(),
+            &config.rate_limiting,
         ));
 
         // Create stateless CSRF token manager (HMAC-signed, derived from admin JWT secret)

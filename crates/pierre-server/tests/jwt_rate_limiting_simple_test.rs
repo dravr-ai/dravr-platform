@@ -16,7 +16,9 @@ mod common;
 
 use chrono::Utc;
 use pierre_auth::auth::AuthManager;
-use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
+use pierre_auth::rate_limiting::{
+    calculate_jwt_rate_limit, RequestBudget, UserRequestLimits, UserRequestUsage,
+};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::User;
 use pierre_database::database::generate_encryption_key;
@@ -73,7 +75,15 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
     // After: JWT tokens are metered by the user's tier, 10,000 for Starter,
     // resetting at the first instant of the next UTC month.
     let now = Utc::now();
-    let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
+    let tier_limits = UserRequestLimits::resolve(&user, None);
+    let budget = calculate_jwt_rate_limit(
+        tier_limits,
+        UserRequestUsage {
+            today: 0,
+            this_month: used_this_month,
+        },
+        now,
+    );
     assert_eq!(
         budget,
         RequestBudget::Metered {
@@ -86,7 +96,14 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
     assert_eq!(budget.remaining_after_this_request(), Some(9_998));
 
     // At the tier's limit the gate refuses with a 429 and the seconds to reset
-    let spent = calculate_jwt_rate_limit(&user, 10_000, now);
+    let spent = calculate_jwt_rate_limit(
+        tier_limits,
+        UserRequestUsage {
+            today: 0,
+            this_month: 10_000,
+        },
+        now,
+    );
     let refusal = enforce_request_budget(spent, now).unwrap_err();
     assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
     let expected_wait = (next_utc_month_start(now) - now).num_seconds();

@@ -146,11 +146,16 @@ function describe(error: ErrorObject): string {
 /**
  * Validate an MCP tool result against the tool's advertised outputSchema.
  *
- * The spec (2025-06-18 server/tools, Output Schema) requires a server that
- * declares an outputSchema to return `structuredContent` conforming to it, so
- * a successful result without `structuredContent` is itself a failure. Error
- * results (`isError`) carry no structured part and are not validated, and a
- * tool with no outputSchema cannot be.
+ * The spec (2025-11-25 server/tools, Output Schema) requires a server that
+ * declares an outputSchema to return `structuredContent` conforming to it, so a
+ * successful result without `structuredContent` is itself a failure. The
+ * requirement makes no exception for error results, and the official SDK's
+ * `Client.callTool` validates `structuredContent` on an `isError` result too,
+ * so the server never sends one there: a refusal's machine-readable data (a
+ * quota refusal's `retry_after_secs`, a Guardian block's `error_code`) arrives
+ * as a JSON text block in `content`, after the message. An error result
+ * therefore has no structured part to validate and is passed through, and a
+ * tool with no outputSchema cannot be validated at all.
  *
  * @param toolName - The name of the tool that was called
  * @param result - The MCP tool result from callTool()

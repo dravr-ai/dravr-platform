@@ -25,13 +25,15 @@
 //!
 //! - **Isolation.** The slot belongs to one request's task and is never shared
 //!   with another request or cached. It holds the principal's own counters:
-//!   per API key, or per user across all of that user's tenants. Nothing is
-//!   reported before a credential has validated and passed the account-status
-//!   gate.
-//! - **Last write wins.** A request that authenticates twice (an exhausted
-//!   cookie falling through to a valid `Authorization` header) reports the
-//!   credential that was checked last, which is always one the caller
-//!   presented and that validated.
+//!   per API key, or per user across all of that user's tenants.
+//! - **One credential.** The budget rendered is the one that decided the
+//!   request: the budget of the credential that admitted it, or, on the 429 a
+//!   spent budget produced, that credential's own. Authentication reports only
+//!   once a credential's outcome is the request's answer, so a credential
+//!   checked and then superseded (a spent `auth_token` cookie falling through
+//!   to the `Authorization` header) is never reported, whatever the header's
+//!   outcome. A refusal no budget decided (a malformed token, a suspended or
+//!   pending owner, a server fault while authenticating) carries no headers.
 //! - **Scope.** Authentication that runs outside the request's task (a spawned
 //!   task, stdio, background work) finds no slot: the response then carries no
 //!   headers, never another request's, and no usage row is written. Every
@@ -90,7 +92,8 @@ const CLIENT_CLOSED_REQUEST: u16 = 499;
 /// What authentication reported about the request its task serves.
 #[derive(Default)]
 struct RequestReport {
-    /// The budget of the credential checked last.
+    /// The budget that decided the request: the one that admitted its
+    /// credential, or the one whose 429 refused it.
     budget: Option<RequestBudget>,
     /// The API key that admitted the request, whose usage row the layer
     /// writes.
@@ -148,11 +151,13 @@ pub fn create_rate_limit_headers(budget: RequestBudget) -> HeaderMap {
     map
 }
 
-/// Record the budget of the credential that just authenticated, for the
-/// enclosing [`request_budget_middleware`].
+/// Record the budget that decided this request.
 ///
-/// Outside one (stdio, background work, a spawned task) there is no response
-/// to carry it, so the report is dropped.
+/// The enclosing [`request_budget_middleware`] renders it: the budget that
+/// admitted the request's credential, or the one whose 429 is the request's
+/// answer. A later report replaces it. Outside one (stdio, background work,
+/// a spawned task) there is no response to carry it, so the report is
+/// dropped.
 pub fn report_request_budget(budget: RequestBudget) {
     report(|slot| slot.budget = Some(budget));
 }
@@ -299,9 +304,10 @@ fn route_label(request: &Request) -> String {
 /// Opens the request's slot, runs the rest of the stack inside it (Axum's
 /// `Next::run` awaits the handler and every extractor in this task), then
 /// writes the admitted API key's usage row with the response's status and
-/// latency, and inserts the `X-RateLimit-*` headers for the budget reported
-/// last. `insert` replaces, so a header another layer set is never
-/// duplicated. A request that never authenticated gets neither.
+/// latency, and inserts the `X-RateLimit-*` headers for the budget that
+/// decided the request. `insert` replaces, so a header another layer set is
+/// never duplicated. A request no budget decided (it never authenticated, or
+/// its credential was refused before any budget was read) gets no headers.
 ///
 /// A panicking handler is recorded as a 500 and the panic resumed, so the
 /// panic layer outside still answers it.

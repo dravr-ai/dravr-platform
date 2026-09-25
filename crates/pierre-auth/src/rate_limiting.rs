@@ -7,12 +7,15 @@
 //! # Request budgets
 //!
 //! What an authenticated principal may still spend. A user (JWT, cookie,
-//! channel link) has its tier's monthly request budget, counted from the first
-//! instant of the UTC month; an API key has its own `rate_limit_requests` over a
-//! sliding `rate_limit_window_seconds`. Both answer with one [`RequestBudget`],
-//! which the auth middleware gates on and reports as the `X-RateLimit-*`
-//! response headers. Both calculators take `now` so a caller and its tests
-//! agree on the instant the window is measured from.
+//! channel link) has the [`UserRequestLimits`] in force for it: an admin's
+//! per-user override when one is set, else its tier's monthly limit. A monthly
+//! limit is counted from the first instant of the UTC month, a daily one from
+//! the first instant of the UTC day. An API key has its own
+//! `rate_limit_requests` over a sliding `rate_limit_window_seconds`. Both
+//! answer with one [`RequestBudget`], which the auth middleware gates on and
+//! reports as the `X-RateLimit-*` response headers. Both calculators take
+//! `now` so a caller and its tests agree on the instant the window is measured
+//! from.
 
 use chrono::{DateTime, Duration, Timelike, Utc};
 use serde::Serialize;
@@ -20,7 +23,8 @@ use serde::Serialize;
 use crate::api_keys::{ApiKey, ApiKeyTier};
 use crate::config::rate_limit::RateLimitConfig;
 use pierre_core::models::{ApiKeyWindowUsage, User};
-use pierre_database::repositories::analytics::next_utc_month_start;
+use pierre_database::repositories::analytics::{next_utc_day_start, next_utc_month_start};
+use pierre_database::repositories::UserRateLimitOverride;
 
 /// What a principal may still spend in its current rate-limit window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,24 +67,96 @@ impl RequestBudget {
     }
 }
 
-/// A user's monthly request budget, from the tier's limit and the requests
-/// counted since the start of the UTC month.
+/// The request limits in force for a user. `None` on a dimension means no
+/// ceiling there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UserRequestLimits {
+    /// Requests per UTC day
+    pub daily: Option<u32>,
+    /// Requests per UTC month
+    pub monthly: Option<u32>,
+}
+
+impl UserRequestLimits {
+    /// The limits an admin's override sets when `override_row` exists, else
+    /// the tier's: its monthly limit and no daily one.
+    ///
+    /// The override replaces the tier outright, dimension by dimension, so a
+    /// `None` on the override lifts that ceiling even where the tier has one.
+    /// The admin rate-limit view reads the same resolution, so what it shows
+    /// is what the gate enforces.
+    #[must_use]
+    pub fn resolve(user: &User, override_row: Option<&UserRateLimitOverride>) -> Self {
+        override_row.map_or_else(
+            || Self {
+                daily: None,
+                monthly: user.tier.monthly_limit(),
+            },
+            |row| Self {
+                daily: row.daily_limit,
+                monthly: row.monthly_limit,
+            },
+        )
+    }
+}
+
+/// A user's requests counted in each limited window, before this one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UserRequestUsage {
+    /// Since the first instant of the UTC day
+    pub today: u32,
+    /// Since the first instant of the UTC month
+    pub this_month: u32,
+}
+
+/// A user's request budget under `limits`, from the requests counted in each
+/// window.
 ///
-/// A tier with no monthly limit is [`RequestBudget::Unlimited`]; every other
-/// tier resets at the first instant of the next UTC month.
+/// With no limit on either dimension it is [`RequestBudget::Unlimited`]. With
+/// one, it is that window's budget: a daily limit resets at the first instant
+/// of the next UTC day, a monthly one at the first instant of the next UTC
+/// month. With both, it is the window that decides the request — the one
+/// already spent (the later-resetting one when both are), else the one with
+/// fewer requests left — so the gate and the `X-RateLimit-*` headers name the
+/// same window.
 #[must_use]
 pub fn calculate_jwt_rate_limit(
-    user: &User,
-    used_this_month: u32,
+    limits: UserRequestLimits,
+    usage: UserRequestUsage,
     now: DateTime<Utc>,
 ) -> RequestBudget {
-    user.tier
-        .monthly_limit()
-        .map_or(RequestBudget::Unlimited, |limit| RequestBudget::Metered {
-            limit,
-            used: used_this_month,
-            resets_at: next_utc_month_start(now),
-        })
+    let daily = limits.daily.map(|limit| RequestBudget::Metered {
+        limit,
+        used: usage.today,
+        resets_at: next_utc_day_start(now),
+    });
+    let monthly = limits.monthly.map(|limit| RequestBudget::Metered {
+        limit,
+        used: usage.this_month,
+        resets_at: next_utc_month_start(now),
+    });
+    match (daily, monthly) {
+        (Some(daily), Some(monthly)) => binding_budget(daily, monthly),
+        (Some(only), None) | (None, Some(only)) => only,
+        (None, None) => RequestBudget::Unlimited,
+    }
+}
+
+/// Of two metered budgets, the one that decides the request.
+fn binding_budget(daily: RequestBudget, monthly: RequestBudget) -> RequestBudget {
+    match (daily.is_exceeded(), monthly.is_exceeded()) {
+        // The monthly window resets last, so it is the one a client must
+        // wait out.
+        (_, true) => monthly,
+        (true, false) => daily,
+        (false, false) => {
+            if daily.remaining_after_this_request() < monthly.remaining_after_this_request() {
+                daily
+            } else {
+                monthly
+            }
+        }
+    }
 }
 
 /// The first instant an API key's sliding window covers at `now`: its calls
@@ -118,6 +194,30 @@ pub fn calculate_api_key_rate_limit(
 /// The length of an API key's sliding window.
 fn api_key_window(api_key: &ApiKey) -> Duration {
     Duration::seconds(i64::from(api_key.rate_limit_window_seconds))
+}
+
+/// An `OAuth2` endpoint the per-address limiter meters. Each has its own limit
+/// and, per client address, its own window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OAuth2Endpoint {
+    /// `GET /oauth2/authorize`
+    Authorize,
+    /// `POST /oauth2/token`
+    Token,
+    /// `POST /oauth2/register`
+    Register,
+}
+
+impl OAuth2Endpoint {
+    /// The endpoint's name, as its window's cache key spells it
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authorize => "authorize",
+            Self::Token => "token",
+            Self::Register => "register",
+        }
+    }
 }
 
 /// `OAuth2`-specific rate limit configuration
@@ -163,14 +263,13 @@ impl OAuth2RateLimitConfig {
         }
     }
 
-    /// Get rate limit for specific `OAuth2` endpoint
+    /// Requests `endpoint` admits per window
     #[must_use]
-    pub fn get_limit(&self, endpoint: &str) -> u32 {
+    pub const fn get_limit(&self, endpoint: OAuth2Endpoint) -> u32 {
         match endpoint {
-            "authorize" => self.authorize_rpm,
-            "token" => self.token_rpm,
-            "register" => self.register_rpm,
-            _ => 60,
+            OAuth2Endpoint::Authorize => self.authorize_rpm,
+            OAuth2Endpoint::Token => self.token_rpm,
+            OAuth2Endpoint::Register => self.register_rpm,
         }
     }
 }

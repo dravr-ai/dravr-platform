@@ -13,7 +13,9 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
+use pierre_auth::rate_limiting::{
+    calculate_jwt_rate_limit, RequestBudget, UserRequestLimits, UserRequestUsage,
+};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -349,7 +351,11 @@ async fn test_production_rate_limiting() -> Result<()> {
 
     // The budget the auth gate computes for this user: the Starter tier's
     // monthly limit, none of it used yet
-    let budget = calculate_jwt_rate_limit(&user, 0, chrono::Utc::now());
+    let budget = calculate_jwt_rate_limit(
+        UserRequestLimits::resolve(&user, None),
+        UserRequestUsage::default(),
+        chrono::Utc::now(),
+    );
     let RequestBudget::Metered { limit, used, .. } = budget else {
         panic!("a Starter user is metered, got {budget:?}");
     };

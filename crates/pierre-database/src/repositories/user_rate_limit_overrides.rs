@@ -35,9 +35,11 @@ pub struct UserRateLimitOverride {
     pub updated_at: DateTime<Utc>,
 }
 
-/// CRUD for `user_rate_limit_overrides` — the exemption table consulted by
-/// `compute_user_rate_limits` (in `pierre-server`) before falling back to the
-/// tier default.
+/// CRUD for `user_rate_limit_overrides`, the per-user exemption table.
+///
+/// The auth middleware enforces a row and `compute_user_rate_limits` (in
+/// `pierre-services`) reports it, both through `UserRequestLimits::resolve`
+/// (in `pierre-auth`), before falling back to the tier default.
 ///
 /// A quota surface. The table carries no `tenant_id`; every statement is
 /// scoped by `user_id`, the strictly narrower key, and the admin handler

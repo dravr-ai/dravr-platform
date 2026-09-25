@@ -193,6 +193,15 @@ resource "google_storage_bucket_iam_member" "sciotte_scripts_reader" {
 # Backend API (always deployed)
 # -----------------------------------------------------------------------------
 
+# The load balancer's addresses (frontend_domain), read by name: the backend's
+# environment cannot take them from module.frontend_domain, which depends on
+# the frontend, which depends on the backend's URL.
+data "google_compute_global_address" "frontend_lb" {
+  for_each = length(var.public_domains) > 0 ? toset(["ipv4", "ipv6"]) : toset([])
+  name     = "${var.service_name}-frontend-${each.key}"
+  project  = var.project_id
+}
+
 module "backend" {
   source = "../../modules/cloud_run"
 
@@ -273,6 +282,17 @@ module "backend" {
       # while a build pointing at it is in the field; base_url itself is
       # always allowed. Empty when frontend_previous_origins is.
       ALLOWED_MOBILE_REDIRECT_ORIGINS = join(",", var.frontend_previous_origins)
+
+      # The OAuth2 limiter keys each client by the rightmost X-Forwarded-For
+      # entry no trusted proxy wrote, since the backend's TCP peer is a proxy
+      # and never the client. Internal networks (nginx's peer, the VPC source
+      # the backend sees) are always trusted. These add the public hops: the
+      # load balancer, which appends its own forwarding-rule address after the
+      # client's, and the ranges Google's front ends proxy from.
+      TRUSTED_PROXY_CIDRS = join(",", concat(
+        ["35.191.0.0/16", "130.211.0.0/22"],
+        [for lb in data.google_compute_global_address.frontend_lb : lb.address],
+      ))
 
       # Messaging turns run as Cloud Tasks requests (carnet#126, turn_queue.tf):
       # the runner enqueues each turn and Cloud Tasks delivers it to the

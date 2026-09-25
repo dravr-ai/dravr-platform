@@ -380,12 +380,16 @@ mod shared_quota_tests {
 
     /// A spent tool-call budget reaches an MCP client as data it can back off
     /// on: the `isError` result of `POST /mcp` `tools/call` carries the
-    /// refusal's counter, numbers, reset instant and wait as
-    /// `structuredContent`, and the same JSON as a second text block for a
-    /// client that reads only `content`. Rendering the refusal as its message
-    /// alone left the client with "Rate limit exceeded" and no wait.
+    /// refusal's message, then its counter, numbers, reset instant and wait as
+    /// a JSON text block. Rendering the refusal as its message alone left the
+    /// client with "Rate limit exceeded" and no wait.
+    ///
+    /// No `structuredContent`: the tool declares an `outputSchema` the quota
+    /// payload does not match, and the official TypeScript SDK validates
+    /// `structuredContent` on an error result too, so carrying the data there
+    /// turned the refusal into a `-32602` protocol error on the client.
     #[tokio::test]
-    async fn spent_tool_quota_reaches_the_mcp_client_as_structured_data() -> Result<()> {
+    async fn spent_tool_quota_reaches_the_mcp_client_as_data_in_content() -> Result<()> {
         let (resources, user_id, tenant_id) = setup().await?;
         #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         let hard_limit = (STARTER.daily_tool_calls as f64 * BURST_MULTIPLIER) as i64;
@@ -406,8 +410,15 @@ mod shared_quota_tests {
         let (to_midnight, resets_at) = to_next_utc_midnight();
         let result = &body["result"];
         assert_eq!(result["isError"], true, "the refusal is an error: {body}");
+        assert!(
+            result.get("structuredContent").is_none(),
+            "an error result carries no structuredContent: {body}"
+        );
 
-        let data = &result["structuredContent"];
+        let content = result["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2, "message, then the data as JSON: {body}");
+        assert_eq!(content[0]["text"], "Rate limit exceeded");
+        let data: Value = serde_json::from_str(content[1]["text"].as_str().unwrap())?;
         assert_eq!(data["limit_type"], "daily_tool_calls", "{body}");
         assert_eq!(data["limit"], STARTER.daily_tool_calls, "{body}");
         assert_eq!(data["current"], hard_limit, "{body}");
@@ -420,21 +431,11 @@ mod shared_quota_tests {
             (wait - to_midnight).abs() <= 2,
             "the refusal waits {wait}s, midnight is {to_midnight}s away"
         );
-
-        let content = result["content"].as_array().unwrap();
-        assert_eq!(content.len(), 2, "message, then the data as JSON: {body}");
-        assert_eq!(content[0]["text"], "Rate limit exceeded");
-        let text_data: Value = serde_json::from_str(content[1]["text"].as_str().unwrap())?;
-        assert_eq!(
-            &text_data, data,
-            "the text block carries the same data as structuredContent"
-        );
         Ok(())
     }
 
     /// A refusal that carries no data renders as its message alone: a tool
-    /// disabled for the tenant answers `isError` with one text block and no
-    /// `structuredContent`.
+    /// disabled for the tenant answers `isError` with one text block.
     #[tokio::test]
     async fn refusal_without_data_reaches_the_mcp_client_as_its_message() -> Result<()> {
         let (resources, user_id, tenant_id) = setup().await?;
@@ -449,7 +450,7 @@ mod shared_quota_tests {
         assert_eq!(result["isError"], true, "the refusal is an error: {body}");
         assert!(
             result.get("structuredContent").is_none(),
-            "no data, no structuredContent: {body}"
+            "an error result carries no structuredContent: {body}"
         );
         let content = result["content"].as_array().unwrap();
         assert_eq!(content.len(), 1, "the message alone: {body}");

@@ -31,7 +31,7 @@ use std::env;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user};
-use embacle_tool_host::ToolSurface;
+use embacle_tool_host::{ToolOutcome, ToolSurface};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -48,15 +48,36 @@ const DESTRUCTIVE: &str = "disconnect_provider";
 /// High enough that the surface's own call budget never fires here.
 const AMPLE_BUDGET: usize = 64;
 
-fn guardian_reason(structured: Option<&Value>) -> Option<String> {
-    structured
+/// The machine-readable part of an outcome: a success's structured payload, or
+/// the JSON a refusal carries after its reason. An error result has no
+/// structured part on any surface, so a refusal that still carries one fails
+/// here rather than being read.
+fn outcome_data(outcome: &ToolOutcome) -> Option<Value> {
+    if !outcome.is_error {
+        return outcome.structured.clone();
+    }
+    assert!(
+        outcome.structured.is_none(),
+        "an error result carries no structuredContent; got {:?}",
+        outcome.structured
+    );
+    outcome
+        .text
+        .rsplit_once("\n\n")
+        .and_then(|(_, json)| serde_json::from_str(json).ok())
+}
+
+fn guardian_reason(outcome: &ToolOutcome) -> Option<String> {
+    outcome_data(outcome)
+        .as_ref()
         .and_then(|s| s.get("reason"))
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
 }
 
-fn guardian_error_code(structured: Option<&Value>) -> Option<String> {
-    structured
+fn guardian_error_code(outcome: &ToolOutcome) -> Option<String> {
+    outcome_data(outcome)
+        .as_ref()
         .and_then(|s| s.get("error_code"))
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
@@ -98,7 +119,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
     // taint constrains what comes after, not the source.
     let source = surface.call(TAINT_SOURCE, &json!({})).await;
     assert_ne!(
-        guardian_error_code(source.structured.as_ref()).as_deref(),
+        guardian_error_code(&source).as_deref(),
         Some("guardian_denied"),
         "the untrusted source must run; it is what puts taint on the turn. got {}",
         source.text
@@ -118,15 +139,24 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         sink.text
     );
     assert_eq!(
-        guardian_error_code(sink.structured.as_ref()).as_deref(),
+        guardian_error_code(&sink).as_deref(),
         Some("guardian_denied"),
-        "the refusal must be the Guardian's, not the tool's own failure; got {:?}",
-        sink.structured
+        "the refusal must be the Guardian's, not the tool's own failure; got {}",
+        sink.text
     );
     assert_eq!(
-        guardian_reason(sink.structured.as_ref()).as_deref(),
+        guardian_reason(&sink).as_deref(),
         Some("tainted_sink"),
         "the reason must name the taint the previous loopback call recorded"
+    );
+    // The agent reads the refusal as its reason, then the Guardian's code and
+    // reason as JSON — in the text, never as structuredContent.
+    assert_eq!(
+        sink.text,
+        format!(
+            "Tool '{DESTRUCTIVE}' was blocked by security policy\n\n{}",
+            json!({ "error_code": "guardian_denied", "reason": "tainted_sink" })
+        )
     );
 
     // And the accumulation is scoped to the utterance, not to the process: a
@@ -142,7 +172,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         .call(DESTRUCTIVE, &json!({ "provider": "strava" }))
         .await;
     assert_ne!(
-        guardian_reason(fresh.structured.as_ref()).as_deref(),
+        guardian_reason(&fresh).as_deref(),
         Some("tainted_sink"),
         "a new turn must not inherit the previous turn's taint"
     );

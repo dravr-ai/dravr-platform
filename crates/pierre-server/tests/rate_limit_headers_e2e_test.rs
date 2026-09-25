@@ -1,5 +1,5 @@
 // ABOUTME: Drives the production HTTP app (build_http_app) to pin X-RateLimit-* and 429 Retry-After per credential
-// ABOUTME: Covers API keys, JWTs, MCP, A2A, usage rows' real outcomes, CORS exposure and the messaging leak guard
+// ABOUTME: Covers API keys, JWTs, superseded credentials, MCP, A2A, usage rows, CORS and the messaging leak guard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,9 +11,9 @@
 //! header layer and not only the layer: a credential that authenticates on any
 //! route reports its budget, a spent one is a 429 with `Retry-After` on every
 //! transport (REST, MCP, A2A), and nothing is reported for a caller that never
-//! authenticated or for a messaging vendor. An A2A client-credentials token
-//! carries no budget at all; that gap is registered as registre#620 on
-//! `A2AServer::resolve_client_principal`.
+//! authenticated, for a credential another one superseded, or for a messaging
+//! vendor. An A2A client-credentials token carries no budget at all; that gap
+//! is registered as registre#620 on `A2AServer::resolve_client_principal`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -41,7 +41,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
-use pierre_database::repositories::analytics::next_utc_month_start;
+use pierre_database::repositories::analytics::{next_utc_day_start, next_utc_month_start};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use serde_json::{json, Value};
@@ -407,6 +407,154 @@ async fn test_jwt_bearer_request_returns_numeric_rate_limit_headers() {
     assert!(answer.header("retry-after").is_none());
 }
 
+/// `PUT /api/admin/users/{user_id}/rate-limit-override` as `admin`.
+async fn set_override(app: &Router, admin: &Athlete, user_id: Uuid, body: &Value) {
+    let answer = send(
+        app,
+        Request::put(format!("/api/admin/users/{user_id}/rate-limit-override"))
+            .header(AUTHORIZATION, format!("Bearer {}", admin.token))
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
+}
+
+/// `GET /api/usage/status` with `athlete`'s bearer token.
+async fn usage_status(app: &Router, athlete: &Athlete) -> Answer {
+    let bearer = format!("Bearer {}", athlete.token);
+    send(
+        app,
+        get_with("/api/usage/status", &[("authorization", &bearer)]),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limit() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    seed_jwt_calls(&resources, starter.user.id, 2).await;
+
+    // The Starter tier admits 10 000 a month; the admin lowers it to 4
+    set_override(
+        &app,
+        &admin,
+        starter.user.id,
+        &json!({"daily_limit": null, "monthly_limit": 4, "note": "abuse review"}),
+    )
+    .await;
+
+    // Two seeded, this one the third: 4 - 3
+    let third = usage_status(&app, &starter).await;
+    assert_eq!(third.status, StatusCode::OK, "{}", third.body);
+    assert_eq!(third.header("x-ratelimit-limit"), Some("4"));
+    assert_eq!(third.header("x-ratelimit-remaining"), Some("1"));
+    let fourth = usage_status(&app, &starter).await;
+    assert_eq!(fourth.status, StatusCode::OK, "{}", fourth.body);
+    assert_eq!(fourth.header("x-ratelimit-remaining"), Some("0"));
+
+    // The fifth is past the override, far below the tier's 10 000
+    let before = next_utc_month_start(Utc::now()).timestamp();
+    let fifth = usage_status(&app, &starter).await;
+    let after = next_utc_month_start(Utc::now()).timestamp();
+    assert_eq!(
+        fifth.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        fifth.body
+    );
+    assert_eq!(fifth.header("x-ratelimit-limit"), Some("4"));
+    assert_eq!(fifth.header("x-ratelimit-remaining"), Some("0"));
+    let reset = fifth.numeric_header("x-ratelimit-reset");
+    assert!(
+        reset == before || reset == after,
+        "the month's reset, got {reset}"
+    );
+    assert!(fifth.numeric_header("retry-after") >= 1);
+
+    // The admin view reports the limit the gate enforced
+    let view = send(
+        &app,
+        get_with(
+            &format!("/api/admin/users/{}/rate-limit", starter.user.id),
+            &[("authorization", &format!("Bearer {}", admin.token))],
+        ),
+    )
+    .await;
+    assert_eq!(view.status, StatusCode::OK, "{}", view.body);
+    assert_eq!(view.body["data"]["rate_limits"]["monthly"]["limit"], 4);
+    assert_eq!(view.body["data"]["rate_limits"]["monthly"]["used"], 4);
+    assert_eq!(
+        view.body["data"]["rate_limits"]["daily"]["limit"],
+        Value::Null
+    );
+    assert_eq!(view.body["data"]["override_active"], true);
+
+    // Clearing the override puts the tier back
+    let cleared = send(
+        &app,
+        Request::delete(format!(
+            "/api/admin/users/{}/rate-limit-override",
+            starter.user.id
+        ))
+        .header(AUTHORIZATION, format!("Bearer {}", admin.token))
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(cleared.status, StatusCode::OK, "{}", cleared.body);
+    let restored = usage_status(&app, &starter).await;
+    assert_eq!(restored.status, StatusCode::OK, "{}", restored.body);
+    assert_eq!(restored.header("x-ratelimit-limit"), Some("10000"));
+    assert_eq!(restored.header("x-ratelimit-remaining"), Some("9995"));
+}
+
+#[tokio::test]
+async fn test_an_admin_daily_override_refuses_until_the_next_utc_day() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    // An Enterprise user has no tier ceiling at all
+    let enterprise = athlete(&resources, UserTier::Enterprise, UserRole::User).await;
+    let unmetered = usage_status(&app, &enterprise).await;
+    assert_eq!(unmetered.status, StatusCode::OK, "{}", unmetered.body);
+    unmetered.assert_no_budget_headers("an enterprise user before any override");
+
+    set_override(
+        &app,
+        &admin,
+        enterprise.user.id,
+        &json!({"daily_limit": 2, "monthly_limit": null, "note": null}),
+    )
+    .await;
+
+    // The request above counted today: this one is the second of two
+    let second = usage_status(&app, &enterprise).await;
+    assert_eq!(second.status, StatusCode::OK, "{}", second.body);
+    assert_eq!(second.header("x-ratelimit-limit"), Some("2"));
+    assert_eq!(second.header("x-ratelimit-remaining"), Some("0"));
+
+    let before = next_utc_day_start(Utc::now()).timestamp();
+    let third = usage_status(&app, &enterprise).await;
+    let after = next_utc_day_start(Utc::now()).timestamp();
+    assert_eq!(
+        third.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        third.body
+    );
+    assert_eq!(third.header("x-ratelimit-limit"), Some("2"));
+    let reset = third.numeric_header("x-ratelimit-reset");
+    assert!(
+        reset == before || reset == after,
+        "the next UTC midnight, got {reset}"
+    );
+}
+
 #[tokio::test]
 async fn test_jwt_cookie_request_returns_rate_limit_headers() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -558,6 +706,172 @@ async fn test_rate_limited_jwt_session_restore_and_extractor_get_429_not_401() {
         answer.header("x-ratelimit-remaining"),
         Some("9999"),
         "the credential that admitted the request is the one reported"
+    );
+}
+
+#[tokio::test]
+async fn test_superseded_cookie_budget_never_reaches_another_credentials_refusal() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let exhausted = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
+    let cookie = format!("auth_token={}", exhausted.token);
+
+    // The spent cookie falls through to the header, whose malformed token is
+    // the answer: a 401 no budget decided.
+    let malformed = send(
+        &app,
+        get_with(
+            "/api/auth/session",
+            &[("cookie", &cookie), ("authorization", "Bearer not-a-jwt")],
+        ),
+    )
+    .await;
+    assert_eq!(
+        malformed.status,
+        StatusCode::UNAUTHORIZED,
+        "{}",
+        malformed.body
+    );
+    assert_eq!(malformed.body["code"], "AuthInvalid", "{}", malformed.body);
+    malformed.assert_no_budget_headers("a malformed header token behind a spent cookie");
+
+    // A valid token whose owner is suspended: the 403 is the status gate's,
+    // which runs before any budget is read.
+    let suspended = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    resources
+        .common
+        .repos
+        .users
+        .update_status(suspended.user.id, UserStatus::Suspended, None)
+        .await
+        .unwrap();
+    let bearer = format!("Bearer {}", suspended.token);
+    let refused = send(
+        &app,
+        get_with(
+            "/api/auth/session",
+            &[("cookie", &cookie), ("authorization", &bearer)],
+        ),
+    )
+    .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.body);
+    assert_eq!(refused.body["code"], "AccountSuspended", "{}", refused.body);
+    refused.assert_no_budget_headers("a suspended owner's token behind a spent cookie");
+
+    // A key whose own budget is spent: its 429 carries the key's numbers,
+    // never the cookie's month.
+    let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 2, false).await;
+    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    seed_key_calls(&resources, &key.id, 2, seeded_at).await;
+    let spent = send(
+        &app,
+        get_with(
+            "/api/auth/session",
+            &[("cookie", &cookie), ("authorization", &full_key)],
+        ),
+    )
+    .await;
+    let now = Utc::now();
+    assert_eq!(
+        spent.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        spent.body
+    );
+    assert_eq!(spent.body["code"], "RateLimitExceeded");
+    assert_eq!(spent.header("x-ratelimit-limit"), Some("2"));
+    assert_eq!(spent.header("x-ratelimit-remaining"), Some("0"));
+    let retry_after = spent.numeric_header("retry-after");
+    let expected = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
+    assert!(
+        seconds_apart(retry_after, expected) <= 2,
+        "the key's window, not the cookie's month: retry {retry_after}s, expected about {expected}s"
+    );
+    assert!(
+        seconds_apart(
+            spent.numeric_header("x-ratelimit-reset"),
+            now.timestamp() + retry_after
+        ) <= 2
+    );
+    assert_eq!(
+        key_calls(&resources, &key.id).await,
+        2,
+        "a refused request is not counted"
+    );
+}
+
+#[tokio::test]
+async fn test_session_restore_reports_the_admitting_credentials_numbers() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+
+    // The cookie alone admits the request: its month is reported.
+    let restoring = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    seed_jwt_calls(&resources, restoring.user.id, 3).await;
+    let before = next_utc_month_start(Utc::now()).timestamp();
+    let by_cookie = send(
+        &app,
+        get_with(
+            "/api/auth/session",
+            &[("cookie", &format!("auth_token={}", restoring.token))],
+        ),
+    )
+    .await;
+    let after = next_utc_month_start(Utc::now()).timestamp();
+    assert_eq!(by_cookie.status, StatusCode::OK, "{}", by_cookie.body);
+    assert_eq!(
+        by_cookie.body["user"]["id"].as_str(),
+        Some(restoring.user.id.to_string().as_str())
+    );
+    assert_eq!(by_cookie.header("x-ratelimit-limit"), Some("10000"));
+    // Three seeded requests and this one: 10000 - 4
+    assert_eq!(by_cookie.header("x-ratelimit-remaining"), Some("9996"));
+    let reset = by_cookie.numeric_header("x-ratelimit-reset");
+    assert!(
+        reset == before || reset == after,
+        "reset {reset} is the first instant of next month"
+    );
+
+    // A spent cookie superseded by the key the header presents: the key
+    // admitted the request, so its window is the one reported.
+    let exhausted = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
+    let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 5, false).await;
+    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    seed_key_calls(&resources, &key.id, 1, seeded_at).await;
+    let by_key = send(
+        &app,
+        get_with(
+            "/api/auth/session",
+            &[
+                ("cookie", &format!("auth_token={}", exhausted.token)),
+                ("authorization", &full_key),
+            ],
+        ),
+    )
+    .await;
+    assert_eq!(by_key.status, StatusCode::OK, "{}", by_key.body);
+    assert_eq!(
+        by_key.body["user"]["id"].as_str(),
+        Some(owner.user.id.to_string().as_str()),
+        "the key's owner, not the cookie's"
+    );
+    assert_eq!(by_key.header("x-ratelimit-limit"), Some("5"));
+    // One seeded call and this request: 5 - 2
+    assert_eq!(by_key.header("x-ratelimit-remaining"), Some("3"));
+    let expected_reset = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS))).timestamp();
+    assert!(
+        seconds_apart(by_key.numeric_header("x-ratelimit-reset"), expected_reset) <= 2,
+        "the key's window frees its first slot when the seeded call leaves it"
+    );
+    assert!(by_key.header("retry-after").is_none());
+    assert_eq!(
+        key_calls(&resources, &key.id).await,
+        2,
+        "the admitted request is counted against the key"
     );
 }
 

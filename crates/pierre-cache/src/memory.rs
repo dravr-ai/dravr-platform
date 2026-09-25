@@ -17,7 +17,7 @@ use tracing::debug;
 
 use crate::constants::cache_config::DEFAULT_CAPACITY;
 use crate::errors::{AppError, AppResult};
-use crate::{CacheConfig, CacheKey, CacheProvider};
+use crate::{CacheConfig, CacheKey, CacheProvider, WindowCount};
 
 /// In-memory cache entry with expiration
 #[derive(Debug, Clone)]
@@ -63,8 +63,12 @@ impl InMemoryCache {
         None => NonZeroUsize::MIN,
     };
 
-    /// Create in-memory cache with optional background cleanup task
-    fn new_with_config(config: &CacheConfig) -> Self {
+    /// Create in-memory cache with optional background cleanup task.
+    ///
+    /// With `enable_background_cleanup` it spawns the cleanup task, so it must
+    /// then run inside a Tokio runtime.
+    #[must_use]
+    pub fn new_with_config(config: &CacheConfig) -> Self {
         // LruCache requires NonZeroUsize for capacity
         let capacity =
             NonZeroUsize::new(config.max_entries).unwrap_or(Self::DEFAULT_CACHE_CAPACITY);
@@ -240,6 +244,34 @@ impl CacheProvider for InMemoryCache {
         }
 
         Ok(None)
+    }
+
+    async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount> {
+        let key = key.to_string();
+        let mut store = self.store.write().await;
+
+        // One write guard covers the read and the write, so concurrent hits in
+        // this process each see the count the previous one left.
+        let open_window = store.get(&key).filter(|entry| !entry.is_expired());
+        let (hits, expires_at) = match open_window {
+            Some(entry) => {
+                let counted: u64 = serde_json::from_slice(&entry.data).map_err(|e| {
+                    AppError::internal(format!("Cache entry is not a window counter: {e}"))
+                })?;
+                (counted.saturating_add(1), entry.expires_at)
+            }
+            None => (1, Instant::now() + window),
+        };
+
+        // A JSON number, as `set` would write it, so `get::<u64>` reads it back.
+        let data = hits.to_string().into_bytes();
+        store.push(key, CacheEntry { data, expires_at });
+        drop(store);
+
+        Ok(WindowCount {
+            hits,
+            resets_in: expires_at.saturating_duration_since(Instant::now()),
+        })
     }
 
     async fn health_check(&self) -> AppResult<()> {

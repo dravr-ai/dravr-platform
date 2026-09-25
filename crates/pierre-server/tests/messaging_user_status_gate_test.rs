@@ -17,7 +17,9 @@ mod messaging_user_status_gate_tests {
     use axum::http::StatusCode;
     use chrono::Utc;
     use hmac::{Hmac, Mac};
-    use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
+    use pierre_auth::rate_limiting::{
+        calculate_jwt_rate_limit, RequestBudget, UserRequestLimits, UserRequestUsage,
+    };
     use pierre_auth::user_status::enforce_user_status;
     use pierre_contremaitre::messaging_strings::{
         MessagingStringsRegistry, KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED,
@@ -307,7 +309,14 @@ mod messaging_user_status_gate_tests {
             .await
             .unwrap();
         let now = Utc::now();
-        let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
+        let budget = calculate_jwt_rate_limit(
+            UserRequestLimits::resolve(&user, None),
+            UserRequestUsage {
+                today: 0,
+                this_month: used_this_month,
+            },
+            now,
+        );
         assert_eq!(
             budget,
             RequestBudget::Metered {

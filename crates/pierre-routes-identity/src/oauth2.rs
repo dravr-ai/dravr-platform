@@ -28,21 +28,18 @@ use pierre_auth::oauth2_server::{
     },
     rate_limiting::OAuth2RateLimiter,
 };
+use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::html::with_hosted_page_css;
 use pierre_core::models::OAuthClientGrant;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::oauth2_rate_limited::too_many_requests;
+use crate::oauth2_rate_limited::{page_refusal, refusal};
 
 /// Escape a string for safe insertion into HTML attribute values.
 ///
@@ -239,14 +236,12 @@ impl OAuth2Routes {
     async fn handle_client_registration(
         State(context): State<OAuth2Context>,
         ConnectInfo(addr): ConnectInfo<SocketAddr>,
+        headers: HeaderMap,
         Json(request): Json<ClientRegistrationRequest>,
     ) -> Response {
-        // Extract client IP from connection using Axum's ConnectInfo extractor
-        let client_ip = addr.ip();
-        let rate_status = context.rate_limiter.check_rate_limit("register", client_ip);
-
-        if rate_status.is_limited {
-            return too_many_requests(&rate_status);
+        let limiter = &context.rate_limiter;
+        if let Some(refused) = refusal(limiter, OAuth2Endpoint::Register, addr, &headers).await {
+            return refused;
         }
 
         // Registrations no user has authorized yet are capped; past the cap the
@@ -267,15 +262,10 @@ impl OAuth2Routes {
         Query(params): Query<HashMap<String, String>>,
         headers: HeaderMap,
     ) -> Response {
-        // Extract client IP from connection using Axum's ConnectInfo extractor
-        let client_ip = addr.ip();
-        let rate_status = context
-            .rate_limiter
-            .check_rate_limit("authorize", client_ip);
-
-        if rate_status.is_limited {
-            let refusal = OAuth2Error::too_many_requests("Rate limit exceeded");
-            return Self::render_oauth_error_response(&refusal);
+        let limiter = &context.rate_limiter;
+        let render = Self::render_oauth_error_response;
+        if let Some(refused) = page_refusal(limiter, addr, &headers, render).await {
+            return refused;
         }
 
         // Parse query parameters into AuthorizeRequest
@@ -557,13 +547,12 @@ impl OAuth2Routes {
     async fn handle_token(
         State(context): State<OAuth2Context>,
         ConnectInfo(addr): ConnectInfo<SocketAddr>,
+        headers: HeaderMap,
         Form(form): Form<HashMap<String, String>>,
     ) -> Response {
-        // Extract client IP from connection using Axum's ConnectInfo extractor
-        let client_ip = addr.ip();
-
-        if let Some(rate_limit_response) = Self::check_token_rate_limit(&context, client_ip) {
-            return rate_limit_response;
+        let limiter = &context.rate_limiter;
+        if let Some(refused) = refusal(limiter, OAuth2Endpoint::Token, addr, &headers).await {
+            return refused;
         }
 
         let request = match Self::parse_and_log_token_request(&form) {
@@ -580,14 +569,6 @@ impl OAuth2Routes {
         );
 
         Self::execute_token_exchange(auth_server, request, &form).await
-    }
-
-    fn check_token_rate_limit(context: &OAuth2Context, client_ip: IpAddr) -> Option<Response> {
-        let rate_status = context.rate_limiter.check_rate_limit("token", client_ip);
-
-        rate_status
-            .is_limited
-            .then(|| too_many_requests(&rate_status))
     }
 
     fn parse_and_log_token_request(
@@ -1503,7 +1484,8 @@ impl OAuth2Routes {
     const OAUTH_LOGIN_ERROR_TEMPLATE: &'static str =
         include_str!("../templates/oauth_login_error.html");
 
-    /// Render HTML error page for OAuth errors shown in browser
+    /// Render HTML error page for OAuth errors shown in browser: 429 for
+    /// `too_many_requests`, 503 for `temporarily_unavailable`, else 400
     fn render_oauth_error_response(error: &OAuth2Error) -> Response {
         let error_title = match error.error.as_str() {
             "invalid_client" => "✗ Invalid Client",
@@ -1535,6 +1517,11 @@ impl OAuth2Routes {
                 ),
             );
 
-        (StatusCode::BAD_REQUEST, Html(html)).into_response()
+        let status = match error.error.as_str() {
+            "too_many_requests" => StatusCode::TOO_MANY_REQUESTS,
+            "temporarily_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
+            _ => StatusCode::BAD_REQUEST,
+        };
+        (status, Html(html)).into_response()
     }
 }

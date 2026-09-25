@@ -40,6 +40,9 @@ pub trait UsageRepository: Send + Sync {
     async fn record_jwt_usage(&self, usage: &JwtUsage) -> AppResult<()>;
     /// Get current JWT usage count for rate limiting (current month)
     async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<u32>;
+    /// JWT usage count since the start of the current UTC day, for a
+    /// per-user daily request limit
+    async fn get_jwt_usage_today(&self, user_id: Uuid) -> AppResult<u32>;
     /// Get request logs with filtering options
     async fn get_request_logs(
         &self,

@@ -4,10 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
-use redis::AsyncCommands;
+use redis::{AsyncCommands, Script};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec};
 use tokio::time::sleep;
@@ -17,7 +18,26 @@ use crate::constants::cache::CACHE_KEY_PREFIX;
 use crate::errors::{AppError, AppResult};
 use crate::redaction::redact_url;
 use crate::redis_config::RedisConnectionConfig;
-use crate::{CacheConfig, CacheKey, CacheProvider};
+use crate::{CacheConfig, CacheKey, CacheProvider, WindowCount};
+
+/// Counts one hit into the window at `KEYS[1]` and returns the count with the
+/// milliseconds the window has left.
+///
+/// `INCR` creates a missing counter at 1; a counter with no expiry is given
+/// `ARGV[1]` milliseconds, which only the first hit of a window ever needs.
+/// Redis runs a script as one command, so no hit from another connection can
+/// land between the increment and the expiry.
+static COUNT_IN_WINDOW: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r"
+local hits = redis.call('INCR', KEYS[1])
+if redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return {hits, redis.call('PTTL', KEYS[1])}
+",
+    )
+});
 
 /// Redis cache implementation with connection pooling
 ///
@@ -262,6 +282,28 @@ impl CacheProvider for RedisCache {
             secs if secs > 0 => Ok(Some(Duration::from_secs(secs as u64))),
             _ => Ok(None),
         }
+    }
+
+    async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount> {
+        let redis_key = Self::build_key(key);
+        // PEXPIRE with 0 deletes the key outright, so a window is at least 1 ms.
+        let window_ms = u64::try_from(window.as_millis()).unwrap_or(u64::MAX).max(1);
+        let mut conn = self.manager.clone();
+
+        let (hits, remaining_ms): (u64, i64) = COUNT_IN_WINDOW
+            .key(&redis_key)
+            .arg(window_ms)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| {
+                error!("Redis window count failed: {}", e);
+                AppError::internal(format!("Cache error: {e}"))
+            })?;
+
+        Ok(WindowCount {
+            hits,
+            resets_in: Duration::from_millis(u64::try_from(remaining_ms).unwrap_or(0)),
+        })
     }
 
     async fn health_check(&self) -> AppResult<()> {
