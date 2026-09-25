@@ -36,6 +36,8 @@ import { ChatProgressStrip } from './ChatProgressStrip';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { MessageList } from './MessageList';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
+import { ProviderNoticeSheet } from '../../components/ProviderNotice';
+import { noticeRequired } from '@pierre/shared-constants';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
 import { useMessages } from './useMessages';
@@ -65,6 +67,9 @@ export function ChatScreen() {
   const [renameDefaultTitle, setRenameDefaultTitle] = useState('');
   // The message whose verdicts the sheet shows, or `null` while it is closed.
   const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
+  // The provider whose notice is on screen before a reconnect starts its
+  // OAuth flow (WHOOP, until the account accepts its owner authorization).
+  const [noticeFor, setNoticeFor] = useState<string | null>(null);
 
   // Custom hooks
   const conversations = useConversations();
@@ -372,6 +377,13 @@ export function ChatScreen() {
    * nowhere to return to.
    */
   const handleConnectProvider = useCallback(async (provider: string) => {
+    // A provider whose notice the account has not accepted (WHOOP's owner
+    // authorization) states it first; its Continue starts the flow.
+    const status = providerStatus.connectedProviders.find((p) => p.provider === provider);
+    if (noticeRequired(provider, status?.consent_required)) {
+      setNoticeFor(provider);
+      return;
+    }
     await providerStatus.handleConnectProvider(provider);
   }, [providerStatus]);
 
@@ -533,6 +545,16 @@ export function ChatScreen() {
         />
 
         {/* A reply asked for provider credentials the app does not hold yet. */}
+        <ProviderNoticeSheet
+          provider={noticeFor}
+          onCancel={() => setNoticeFor(null)}
+          onAccept={() => {
+            const accepted = noticeFor;
+            setNoticeFor(null);
+            if (accepted) void providerStatus.handleConnectProvider(accepted, undefined, true);
+          }}
+        />
+
         <Sheet
           visible={providerStatus.needsCredentialsProvider !== null}
           onClose={() => providerStatus.setNeedsCredentialsProvider(null)}

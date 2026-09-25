@@ -10,10 +10,17 @@ import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { PROVIDER_LINK_POLL_INTERVAL_MS, providerGlyphInk, sciotteTargetForBackend } from '@pierre/shared-constants';
+import {
+  PROVIDER_LINK_POLL_INTERVAL_MS,
+  noticeRequired,
+  providerGlyphInk,
+  sciotteTargetForBackend,
+  syncAuthorizationOwed,
+} from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import SciotteLoginModal from './SciotteLoginModal';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
+import { ProviderNoticeDialog } from './ProviderNotice';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../hooks/useTheme';
 
@@ -96,7 +103,12 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
 
 interface ProviderConnectionCardsProps {
   onProviderConnected?: () => void;
-  onConnectProvider?: (providerName: string) => void;
+  /**
+   * Starts the OAuth flow instead of the cards' own launch. `tosConsent` is
+   * true when the athlete just accepted the provider's notice (WHOOP's owner
+   * authorization), and must ride the start.
+   */
+  onConnectProvider?: (providerName: string, tosConsent: boolean) => void;
   connectingProvider?: string | null;
   onSkip?: () => void;
   isSkipPending?: boolean;
@@ -118,6 +130,9 @@ export default function ProviderConnectionCards({
   // Whether the chosen card still needs its exposure notice accepted.
   const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
+  // The OAuth provider whose notice is on screen before its authorization
+  // page opens (WHOOP, until the account accepts its owner authorization).
+  const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Fetch providers from server (includes OAuth and non-OAuth providers).
@@ -186,13 +201,13 @@ export default function ProviderConnectionCards({
   // same-origin URL keeps the window inside Safari's user-gesture stack without
   // the old `about:blank`-then-assign dance, which left the popup empty for the
   // whole authorize-URL round trip.
-  const connectViaOAuth = (providerName: string) => {
+  const connectViaOAuth = (providerName: string, tosConsent = false) => {
     track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
     if (onConnectProvider) {
-      onConnectProvider(providerName);
+      onConnectProvider(providerName, tosConsent);
       return;
     }
-    const url = oauthApi.authorizeUrl(providerName);
+    const url = oauthApi.authorizeUrl(providerName, { tosConsent });
     if (!window.open(url, '_blank')) {
       // Popup blocked outright — same-tab navigation is the documented
       // fallback; the callback records the result either way.
@@ -202,6 +217,13 @@ export default function ProviderConnectionCards({
 
   // Handle provider card click
   const handleConnect = async (provider: ProviderStatus) => {
+    // A connected WHOOP that owes its owner authorization has stopped
+    // syncing: it asks for the notice, and accepting it reconnects.
+    if (syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required)) {
+      setNoticeProvider(provider.provider);
+      return;
+    }
+
     // If already connected, no action needed
     if (provider.connected) return;
 
@@ -237,6 +259,13 @@ export default function ProviderConnectionCards({
     // Non-OAuth providers (like synthetic) skip directly to chat
     if (!provider.requires_oauth) {
       if (onSkip) onSkip();
+      return;
+    }
+
+    // A provider whose notice the account has not accepted (WHOOP's owner
+    // authorization) shows it first; its Continue starts the flow.
+    if (noticeRequired(provider.provider, provider.consent_required)) {
+      setNoticeProvider(provider.provider);
       return;
     }
 
@@ -288,6 +317,7 @@ export default function ProviderConnectionCards({
         const glyphInk = providerGlyphInk(provider.provider, scheme);
         const isConnecting = connectingProvider === provider.provider;
         const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
+        const owesAuthorization = syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required);
         const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
 
         return (
@@ -295,10 +325,12 @@ export default function ProviderConnectionCards({
             key={provider.provider}
             type="button"
             onClick={() => handleConnect(provider)}
-            disabled={provider.connected || isConnecting || !!connectingProvider}
+            disabled={(provider.connected && !owesAuthorization) || isConnecting || !!connectingProvider}
             className={`${ROW_CLASS} disabled:cursor-default`}
             aria-label={
-              provider.connected
+              owesAuthorization
+                ? t('providers.authorizeToKeepSyncing', { provider: provider.display_name })
+                : provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
                 : isNonOAuth
                   ? `${provider.display_name} - ${t(providerDescriptionKey(provider))}`
@@ -321,7 +353,16 @@ export default function ProviderConnectionCards({
               <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
               <span className="min-w-0 truncate text-xs text-on-surface-variant">{t(providerDescriptionKey(provider))}</span>
             </span>
-            {provider.connected && (
+            {owesAuthorization && (
+              <span
+                className="inline-flex flex-shrink-0 items-center gap-1.5 text-xs text-on-surface-variant"
+                data-testid={`provider-authorization-owed-${provider.provider}`}
+              >
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
+                {t('providers.authorizeToKeepSyncing', { provider: provider.display_name })}
+              </span>
+            )}
+            {provider.connected && !owesAuthorization && (
               <span className="inline-flex flex-shrink-0 items-center gap-1.5 text-xs text-on-surface-variant">
                 <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
                 {t('providers.connected')}
@@ -386,6 +427,16 @@ export default function ProviderConnectionCards({
         }}
         target={sciotteModalTarget ?? 'strava'}
         consentRequired={sciotteConsentRequired}
+      />
+
+      <ProviderNoticeDialog
+        provider={noticeProvider}
+        onCancel={() => setNoticeProvider(null)}
+        onAccept={() => {
+          const accepted = noticeProvider;
+          setNoticeProvider(null);
+          if (accepted) connectViaOAuth(accepted, true);
+        }}
       />
 
       {/* Intervals.icu API-key link modal */}

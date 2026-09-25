@@ -166,7 +166,7 @@ describe('ConnectionsScreen rows', () => {
     const action = screen.getByTestId('provider-action-garmin');
     expect(action.props.children).toBe('Reconnect');
     fireEvent.press(action);
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback'));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
     expect(screen.queryByText('Connected')).toBeNull();
   });
 

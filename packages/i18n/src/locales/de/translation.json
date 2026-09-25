@@ -2380,7 +2380,14 @@
       "title": "Bevor du COROS verbindest",
       "body": "COROS bietet Dravr noch keinen Weg, deine Aktivitäten direkt zu lesen. Deshalb meldet sich Dravr mit deinem COROS-Konto an, so wie COROS Training Hub. Die Nutzungsbedingungen von COROS (Abschnitte 4 und 7) erlauben weder automatisierten Zugriff noch, dass sich ein anderer Dienst mit deinem Konto anmeldet. COROS könnte das verbundene Konto daher sperren oder schließen.",
       "consent": "Ich verstehe, dass COROS mein Konto sperren könnte, und nehme dieses Risiko in Kauf."
-    }
+    },
+    "whoopNotice": {
+      "title": "Bevor du WHOOP verbindest",
+      "body": "Die API-Bedingungen von WHOOP erlauben Dravr, WHOOP-Daten nur mit der Autorisierung der Person zu speichern, der sie gehören. Mit deiner speichert Dravr deine WHOOP-Messwerte (nie die eigenen Scores von WHOOP), berechnet daraus deine Trainingskennzahlen und stellt sie deinem KI-Agenten bereit. Wenn du in der EU lebst, erteilst du diese Autorisierung auf Grundlage deiner Auskunfts- und Übertragbarkeitsrechte (Art. 20 DSGVO und EU-Datenverordnung). Wenn du WHOOP trennst, wird gelöscht, was Dravr gespeichert hat.",
+      "consent": "Als Eigentümer dieser Daten autorisiere ich Dravr, meine WHOOP-Messwerte zu speichern, daraus Trainingskennzahlen zu berechnen und sie meinem KI-Agenten bereitzustellen. Ich kann dies jederzeit widerrufen."
+    },
+    "authorizeToKeepSyncing": "Autorisiere {{provider}}, damit die Synchronisierung weiterläuft",
+    "authorizeAction": "Autorisieren"
   },
   "settings": {
     "account": "Konto",

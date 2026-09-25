@@ -23,7 +23,7 @@ use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
-use pierre_services::provider_notice::notice_in_force;
+use pierre_services::provider_notice::require_notice_accepted;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
@@ -823,26 +823,15 @@ async fn require_provider_terms(
     target: SciotteTarget,
     accepted_now: bool,
 ) -> Result<(), AppError> {
-    let backend = target.provider_name();
-    let Some(current) = notice_in_force(&resources.repos, tenant_id, user_id, backend).await else {
-        return Ok(());
-    };
-    let users = &resources.repos.users;
-    if users
-        .provider_terms_version(user_id, backend)
-        .await?
-        .as_deref()
-        == Some(current)
-    {
-        return Ok(());
-    }
-    if !accepted_now {
-        return Err(AppError::invalid_input(format!(
-            "Connecting {} requires accepting the account notice first",
-            target.brand()
-        )));
-    }
-    users.record_provider_terms(user_id, backend, current).await
+    require_notice_accepted(
+        &resources.repos,
+        tenant_id,
+        user_id,
+        target.provider_name(),
+        target.brand(),
+        accepted_now,
+    )
+    .await
 }
 
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)

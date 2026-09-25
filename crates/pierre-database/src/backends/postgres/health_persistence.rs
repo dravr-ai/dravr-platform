@@ -32,7 +32,7 @@ use crate::repositories::health_persistence::{
 };
 use crate::repositories::sync_cursors::{
     connected_user_from_row, impl_sync_cursor_repository, list_connected_provider_users_sql,
-    sync_cursor_from_row, GET_SYNC_CURSOR_SQL, UPSERT_SYNC_CURSOR_SQL,
+    sync_cursor_from_row, GET_SYNC_CURSOR_SQL, RESET_SYNC_CURSORS_SQL, UPSERT_SYNC_CURSOR_SQL,
 };
 use crate::repositories::time_series::{
     data_point_from_row, impl_time_series_store, TS_DELETE_RANGE_SQL, TS_FETCH_RANGE_SQL,

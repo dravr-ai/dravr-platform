@@ -1,5 +1,5 @@
 // ABOUTME: carnet#539 — WHOOP's own scores never reach storage, and WHOOP sleep efficiency is Dravr's own figure
-// ABOUTME: Sync, workouts, and the migration over rows already stored, each asserted on the values read back
+// ABOUTME: Sync, workouts, the migration over stored rows and the owner-authorization gate, each asserted on the values read back
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,6 +13,10 @@
 //! cache without its strain, and the migration clears the copies already
 //! stored. Other providers' scores are asserted untouched each time, so a
 //! policy that dropped everything would fail too.
+//!
+//! The measurements are kept only under the owner's authorization: for an
+//! account the `provider_exposure_notice` flag arms, no WHOOP record is
+//! written until the account accepts the current WHOOP notice.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so
@@ -31,13 +35,16 @@ use std::sync::{Arc, Once};
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use db_fixtures::seed_user;
 use pierre_config::environment::HttpClientConfig;
+use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{
-    ActivityBuilder, DataSource, DeviceType, SportType, StoredRecoveryMetrics, StoredSleepSession,
-    TenantId, UserOAuthToken,
+    ActivityBuilder, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
+    StoredSleepSession, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::RepositoryRegistry;
+use pierre_enforme::traits::health_store::HealthStore;
 use pierre_enforme::traits::recovery_store::RecoveryStore;
 use pierre_enforme::traits::sleep_store::SleepStore;
 use pierre_mcp_server::constants::init_server_config;
@@ -452,6 +459,168 @@ async fn a_whoop_record_is_refused_once_the_athletes_whoop_grant_is_gone() {
     let read = nights(&repos, user_id, tenant).await;
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].source_name, "garmin");
+}
+
+/// A weigh-in as WHOOP's sync adapter hands it over.
+fn whoop_weigh_in(user_id: Uuid, data_source_id: &str) -> StoredHealthMetrics {
+    StoredHealthMetrics {
+        id: format!("whoop-body-{}", Uuid::new_v4()),
+        user_id: user_id.to_string(),
+        data_source_id: data_source_id.to_owned(),
+        date: morning(),
+        weight_kg: Some(71.4),
+        body_fat_pct: None,
+        muscle_mass_kg: None,
+        bmi: None,
+        bone_mass_kg: None,
+        water_pct: None,
+        systolic_bp: None,
+        diastolic_bp: None,
+        blood_glucose: None,
+        vo2_max: None,
+        source_name: "whoop".to_owned(),
+        recorded_at: night_start() + Duration::seconds(NIGHT_SECONDS),
+    }
+}
+
+async fn weigh_ins(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Vec<StoredHealthMetrics> {
+    repos
+        .health_snapshots
+        .get_health_snapshots(
+            user_id,
+            &tenant,
+            night_start() - Duration::days(3),
+            night_start() + Duration::days(2),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn no_whoop_record_is_kept_until_the_owner_authorizes_it() {
+    let db = create_test_db().await;
+    let repos = Arc::new(db.repositories());
+    let (user_id, tenant) = seed_user(&db).await;
+    connect(&repos, user_id, tenant, "whoop").await;
+    connect(&repos, user_id, tenant, "sciotte_garmin").await;
+    let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
+    let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
+    repos
+        .feature_flags
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+        .await
+        .unwrap();
+    let storage = PierreSyncStorage::new(&repos);
+
+    // Armed, and WHOOP's notice not accepted: the WHOOP night, day and
+    // weigh-in are withheld, not failed, while Garmin's night is kept.
+    let stored = storage
+        .store_sleep_sessions(&[
+            whoop_night(user_id, &whoop_ds, night_start()),
+            garmin_night(user_id, &garmin_ds),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(stored, 1, "only the Garmin night counts as written");
+    let read = nights(&repos, user_id, tenant).await;
+    assert_eq!(read.len(), 1, "{read:?}");
+    assert_eq!(read[0].source_name, "garmin");
+    assert_eq!(
+        storage
+            .store_recovery_metrics(&[whoop_day(user_id, &whoop_ds)])
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(days(&repos, user_id, tenant).await.is_empty());
+    assert_eq!(
+        storage
+            .store_health_snapshots(&[whoop_weigh_in(user_id, &whoop_ds)])
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(weigh_ins(&repos, user_id, tenant).await.is_empty());
+
+    // An answer to an earlier notice authorizes nothing.
+    repos
+        .users
+        .record_provider_terms(user_id, "whoop", "2026-01-01")
+        .await
+        .unwrap();
+    assert_eq!(
+        storage
+            .store_recovery_metrics(&[whoop_day(user_id, &whoop_ds)])
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(days(&repos, user_id, tenant).await.is_empty());
+
+    // The current notice accepted, the same records are kept.
+    repos
+        .users
+        .record_provider_terms(user_id, "whoop", provider_terms_version("whoop").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        storage
+            .store_sleep_sessions(&[whoop_night(user_id, &whoop_ds, night_start())])
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        storage
+            .store_recovery_metrics(&[whoop_day(user_id, &whoop_ds)])
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        storage
+            .store_health_snapshots(&[whoop_weigh_in(user_id, &whoop_ds)])
+            .await
+            .unwrap(),
+        1
+    );
+    let read = nights(&repos, user_id, tenant).await;
+    assert_eq!(
+        from(&read, "whoop", |n| &n.source_name).total_sleep_seconds,
+        Some(25_200)
+    );
+    assert_eq!(
+        days(&repos, user_id, tenant).await[0].resting_heart_rate,
+        Some(52)
+    );
+    assert_eq!(
+        weigh_ins(&repos, user_id, tenant).await[0].weight_kg,
+        Some(71.4)
+    );
+}
+
+#[tokio::test]
+async fn an_account_the_flag_leaves_off_keeps_its_whoop_records() {
+    let db = create_test_db().await;
+    let repos = Arc::new(db.repositories());
+    let (user_id, tenant) = seed_user(&db).await;
+    connect(&repos, user_id, tenant, "whoop").await;
+    let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
+    let storage = PierreSyncStorage::new(&repos);
+
+    assert_eq!(
+        storage
+            .store_recovery_metrics(&[whoop_day(user_id, &whoop_ds)])
+            .await
+            .unwrap(),
+        1,
+        "no notice is asked of an unarmed account, so nothing is withheld"
+    );
+    assert_eq!(days(&repos, user_id, tenant).await.len(), 1);
 }
 
 /// Serve one HTTP response to the first request and hand back the base URL.

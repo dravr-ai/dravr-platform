@@ -661,6 +661,57 @@ describe('UserSettings Component', () => {
     });
   });
 
+  describe('Data Providers — a connected WHOOP that owes its owner authorization', () => {
+    const whoopCard = (consent_required: boolean) => ({
+      provider: 'whoop',
+      display_name: 'WHOOP',
+      requires_oauth: true,
+      connected: true,
+      needs_reauth: false,
+      capabilities: ['sleep', 'recovery'],
+      consent_required,
+    });
+
+    beforeEach(() => {
+      localStorage.clear();
+      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+    });
+
+    it('asks for the authorization instead of reading Connected, and reconnects with it', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [whoopCard(true)] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-authorization-owed-whoop')).toHaveTextContent(
+        'Authorize WHOOP to keep syncing',
+      );
+      expect(screen.queryByTestId('provider-disconnect-whoop')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('provider-connect-whoop'));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('note')).toHaveTextContent('Before you connect WHOOP');
+      expect(window.open).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('checkbox'));
+      await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+
+      expect(authorizeUrl).toHaveBeenCalledWith('whoop', { tosConsent: true });
+      expect(window.open).toHaveBeenCalled();
+    });
+
+    it('reads Connected with a Disconnect once the authorization is given', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [whoopCard(false)] });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-disconnect-whoop')).toBeInTheDocument();
+      expect(screen.queryByTestId('provider-authorization-owed-whoop')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Data Providers — Strava OAuth-first with Sciotte fallback', () => {
     const stravaCard = (recommended_backend: 'oauth' | 'mirror') => ({
       provider: 'sciotte',

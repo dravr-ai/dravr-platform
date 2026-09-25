@@ -2380,7 +2380,14 @@
       "title": "Before you connect COROS",
       "body": "COROS offers no way for Dravr to read your activities directly yet, so Dravr signs in with your COROS account, as COROS Training Hub does. COROS' Terms of Service (sections 4 and 7) do not allow automated access or letting another service sign in with your account, so COROS could suspend or close the account you connect.",
       "consent": "I understand that COROS could suspend my account, and I accept that risk."
-    }
+    },
+    "whoopNotice": {
+      "title": "Before you connect WHOOP",
+      "body": "WHOOP's API terms let Dravr keep WHOOP data only with the authorization of the person it belongs to. With yours, Dravr stores your WHOOP measurements (never WHOOP's own scores), computes your training metrics from them and gives them to your AI agent. If you live in the EU, you give this authorization under your rights to access and port your data (GDPR Article 20 and the EU Data Act). Disconnecting WHOOP deletes what Dravr stored.",
+      "consent": "As the owner of this data, I authorize Dravr to store my WHOOP measurements, compute training metrics from them, and provide them to my AI agent. I can revoke this at any time."
+    },
+    "authorizeToKeepSyncing": "Authorize {{provider}} to keep syncing",
+    "authorizeAction": "Authorize"
   },
   "settings": {
     "account": "Account",

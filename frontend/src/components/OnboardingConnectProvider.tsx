@@ -60,8 +60,11 @@ export default function OnboardingConnectProvider({
   // gate), we open the setup modal in-place and continue with OAuth as soon as
   // they save.
   const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // Whether the athlete accepted WHOOP's owner authorization on the card that
+  // opened the setup modal; the OAuth start after it carries that acceptance.
+  const [whoopTosConsent, setWhoopTosConsent] = useState(false);
 
-  const launchOAuth = (provider: string) => {
+  const launchOAuth = (provider: string, tosConsent: boolean) => {
     // Open the server's launch route directly. It is a same-origin page that
     // 302s to the provider, so the browser shows its normal loading state and
     // the window is never blank, and the open stays inside Safari's
@@ -71,13 +74,13 @@ export default function OnboardingConnectProvider({
     // assign `location.href` — left the popup empty for the whole round trip.
     // On desktop that flashed past; on an iPhone it read as a broken connect,
     // and when the assignment did not take there was no signal at all.
-    const popup = window.open(oauthApi.authorizeUrl(provider), '_blank');
+    const popup = window.open(oauthApi.authorizeUrl(provider, { tosConsent }), '_blank');
     setConnectError(null);
     if (!popup) {
       // Popup blocked outright (strict mobile Safari). Same-tab navigation is
       // the documented fallback; OAuthCallback writes `pierre_oauth_result` to
       // localStorage regardless of which tab finishes the flow.
-      window.location.href = oauthApi.authorizeUrl(provider);
+      window.location.href = oauthApi.authorizeUrl(provider, { tosConsent });
       return;
     }
     // No per-card spinner: the launch is complete the moment the window opens.
@@ -87,8 +90,11 @@ export default function OnboardingConnectProvider({
     setConnectingProvider(null);
   };
 
-  const handleConnectProvider = (provider: string) => {
+  const handleConnectProvider = (provider: string, tosConsent: boolean) => {
     if (provider === 'whoop') {
+      // The acceptance the cards just took rides the start that follows the
+      // setup modal.
+      setWhoopTosConsent(tosConsent);
       // Skip the speculative OAuth init for Whoop — open the setup modal
       // directly. The modal pre-populates from any existing app if present, so
       // returning users see their saved client_id and only need to re-enter
@@ -96,7 +102,7 @@ export default function OnboardingConnectProvider({
       setShowWhoopSetup(true);
       return;
     }
-    void launchOAuth(provider);
+    void launchOAuth(provider, tosConsent);
   };
 
   // Safety net: if the App-level route flip never happens (provider-status
@@ -234,7 +240,7 @@ export default function OnboardingConnectProvider({
         onClose={() => setShowWhoopSetup(false)}
         onSaved={() => {
           setShowWhoopSetup(false);
-          void launchOAuth('whoop');
+          void launchOAuth('whoop', whoopTosConsent);
         }}
         provider="whoop"
         displayName="WHOOP"

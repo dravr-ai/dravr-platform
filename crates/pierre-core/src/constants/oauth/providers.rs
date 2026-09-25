@@ -71,24 +71,36 @@ pub const SCIOTTE_TRAININGPEAKS: &str = "sciotte_trainingpeaks";
 /// (carnet#509) is approved.
 pub const SCIOTTE_COROS: &str = "sciotte_coros";
 
-/// The dated version of each provider's exposure notice, by the backend it
-/// guards.
+/// The dated version of each notice a provider requires the account to accept
+/// before connecting, by the backend it guards.
 ///
-/// A provider read by signing in with the athlete's own account, against its
-/// terms of use, states the risk before the credentials: TrainingPeaks
-/// (Terms of Use section 13) and COROS (Terms of Service sections 4 and 7). A
-/// login to one of these backends is refused until the account accepts its
-/// current notice; the web and mobile connect modals and the hosted pages show
-/// it. An account that accepted a version logs in again without being asked.
-/// Bump a provider's version whenever its notice text changes on any surface
-/// or in any locale, so every account is asked again.
-pub const PROVIDER_TERMS_VERSIONS: [(&str, &str); 2] = [
+/// Two kinds of notice share this table and the one acceptance record behind
+/// it:
+///
+/// - **Terms-of-use exposure.** A provider read by signing in with the
+///   athlete's own account, against its terms of use, states the risk before
+///   the credentials: TrainingPeaks (Terms of Use section 13) and COROS (Terms
+///   of Service sections 4 and 7).
+/// - **Owner authorization.** WHOOP's API Terms of Use (section 4, effective
+///   2026-10-06) let Dravr store WHOOP Data, compute from it and hand it to
+///   the coach only as the data's owner expressly authorizes; the athlete
+///   gives that authorization before the WHOOP OAuth flow begins, and health
+///   sync keeps no WHOOP record for an account that has not.
+///
+/// A connect to one of these backends — a credential login or the start of an
+/// OAuth flow — is refused until the account accepts its current notice; the
+/// web and mobile connect surfaces and the hosted pages show it. An account
+/// that accepted a version connects again without being asked. Bump a
+/// provider's version whenever its notice text changes on any surface or in
+/// any locale, so every account is asked again.
+pub const PROVIDER_TERMS_VERSIONS: [(&str, &str); 3] = [
     (SCIOTTE_TRAININGPEAKS, "2026-09-24"),
     (SCIOTTE_COROS, "2026-09-24"),
+    (WHOOP, "2026-09-25"),
 ];
 
-/// The current exposure-notice version for `backend`, or `None` when the
-/// provider asks for no notice.
+/// The current notice version for `backend`, or `None` when the provider
+/// asks for no notice.
 #[must_use]
 pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
     PROVIDER_TERMS_VERSIONS

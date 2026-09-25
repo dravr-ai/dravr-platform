@@ -28,6 +28,7 @@ import { PierreOAuthClientProvider, OAuthSessionConfig } from "./oauth-session-m
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
+import { startProviderOAuth } from "./provider-oauth-start.js";
 import {
   McpHttpClient,
   McpHttpError,
@@ -1519,9 +1520,23 @@ export class PierreMcpClient {
         }
       }
 
+      // Correct OAuth URL format: /api/oauth/auth/{provider}/{user_id}
+      const initiateUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
+
+      // Start the flow here, before any browser opens: a provider whose
+      // notice the account owes (WHOOP's owner authorization) is refused, and
+      // the user reads where to accept it rather than a raw 400 page.
+      const start = await startProviderOAuth(initiateUrl, tokens.access_token, provider);
+      if (start.kind === "notice_required") {
+        this.log(`${provider} OAuth refused: the account owes the provider's notice`);
+        return {
+          content: [{ type: "text", text: start.message }],
+          isError: true,
+        };
+      }
+
       try {
-        // Correct OAuth URL format: /api/oauth/auth/{provider}/{user_id}
-        const providerOAuthUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
+        const providerOAuthUrl = start.kind === "authorize" ? start.url : initiateUrl;
 
         // Open provider OAuth in browser with focus
         openUrlInBrowserWithFocus(providerOAuthUrl, {

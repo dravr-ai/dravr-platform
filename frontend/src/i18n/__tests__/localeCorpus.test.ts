@@ -315,8 +315,12 @@ describe('client locale corpus', () => {
     // a tapped day opens in chat; `home.activities.*` is the recent list's
     // heading, sync line, empty and failure states and its analyze draft.
     // +22.
+    // 2491 once WHOOP asked for its owner authorization before its OAuth
+    // flow: `providers.whoopNotice` title, body and authorization. +3.
+    // 2493 once a connected WHOOP that owes it says so:
+    // `providers.authorizeToKeepSyncing` and its `authorizeAction`. +2.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2488);
+    expect(reference).toHaveLength(2493);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
