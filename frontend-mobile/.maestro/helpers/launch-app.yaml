@@ -9,7 +9,9 @@ appId: host.exp.Exponent
 # while clearing JWT tokens from SecureStore so the app shows the login screen.
 # clearState would wipe UserDefaults, causing Expo Go's dev menu overlay to reappear.
 # Launching Expo Go first, THEN opening the deep link, forwards the URL directly to
-# the app without the iOS "Open in Expo Go?" confirmation dialog.
+# the app without the iOS "Open in Expo Go?" confirmation dialog on iOS 18. iOS 27
+# asks anyway, so the dialog is answered when it is there — one immediate check,
+# not a slot in the loop below, where every optional miss costs a lookup budget.
 - runFlow:
     when:
       platform: iOS
@@ -18,6 +20,11 @@ appId: host.exp.Exponent
       - clearKeychain
       - launchApp
       - openLink: "exp://127.0.0.1:8082"
+      - runFlow:
+          when:
+            visible: "Open"
+          commands:
+            - tapOn: "Open"
 
 # Android: the Expo Go package is lowercase and there is no keychain, so clearState
 # is the reset. 10.0.2.2 is the emulator's alias for the host machine. Expo Go needs a
