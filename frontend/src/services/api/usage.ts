@@ -60,7 +60,7 @@ export interface DailyConsumptionPoint {
   cost_usd: number;
 }
 
-/** LLM consumption response from GET /api/usage/llm-consumption */
+/** LLM consumption response from GET /admin/usage/llm-consumption */
 export interface LlmConsumptionResponse {
   summary: {
     total_tokens: number;
@@ -94,15 +94,6 @@ export const usageApi = {
   /** Fetch current usage status (quotas, counters, warnings) */
   async getStatus(): Promise<UsageStatusResponse> {
     const response = await axios.get('/api/usage/status');
-    return response.data;
-  },
-
-  /** Fetch LLM consumption analytics (user-scoped) */
-  async getLlmConsumption(days: number = 30, groupBy?: string): Promise<LlmConsumptionResponse> {
-    const params = new URLSearchParams();
-    params.append('days', String(days));
-    if (groupBy) params.append('group_by', groupBy);
-    const response = await axios.get(`/api/usage/llm-consumption?${params}`);
     return response.data;
   },
 

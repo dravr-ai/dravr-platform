@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: API service entry point - uses @pierre/api-client for shared modules
-// ABOUTME: Web-only modules (admin, keys, dashboard, a2a, usage) remain local
+// ABOUTME: Web-only modules (admin, dashboard, a2a, usage, messaging, billing) remain local
 
 import { pierreApi } from './client';
 
@@ -36,7 +36,6 @@ export const providersApi = {
 };
 
 // Export web-only modules from local implementations
-export { keysApi } from './keys';
 export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';

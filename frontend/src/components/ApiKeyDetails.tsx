@@ -2,12 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { Button, Card, CardHeader, Badge, Textarea } from './ui';
-import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
-import type { AdminToken, AdminTokenAudit, AdminTokenUsageStats, ProvisionedKey } from '../types/api';
+import type { AdminToken } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 interface ApiKeyDetailsProps {
@@ -125,28 +124,9 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
 };
 
 export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyDetailsProps) {
-  const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [showRotateModal, setShowRotateModal] = useState(false);
   const [rotatedToken, setRotatedToken] = useState<string>('');
-
-  const { data: auditData, isLoading: auditLoading } = useQuery({
-    queryKey: QUERY_KEYS.adminTokens.audit(token.id),
-    queryFn: () => adminApi.getAdminTokenAudit(token.id),
-    enabled: isAuthenticated,
-  });
-
-  const { data: usageStats, isLoading: statsLoading } = useQuery({
-    queryKey: QUERY_KEYS.adminTokens.usageStats(token.id),
-    queryFn: () => adminApi.getAdminTokenUsageStats(token.id),
-    enabled: isAuthenticated,
-  });
-
-  const { data: provisionedKeys } = useQuery({
-    queryKey: QUERY_KEYS.adminTokens.provisionedKeys(token.id),
-    queryFn: () => adminApi.getAdminTokenProvisionedKeys(token.id),
-    enabled: isAuthenticated,
-  });
 
   const revokeTokenMutation = useMutation({
     mutationFn: () => adminApi.revokeAdminToken(token.id),
@@ -163,7 +143,6 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
       setRotatedToken(data.jwt_token);
       setShowRotateModal(true);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminTokens.all });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminTokens.audit(token.id) });
       onTokenUpdated();
     },
   });
@@ -209,10 +188,6 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
     
     return <Badge variant="success">Active</Badge>;
   };
-
-  const auditEntries = auditData?.audit_entries || [];
-  const stats = usageStats as AdminTokenUsageStats;
-  const provisionedKeysData = provisionedKeys?.provisioned_keys || [];
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -291,192 +266,51 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* API Token Information */}
-        <Card variant="dark">
-          <CardHeader title="API Token Information" />
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1">Service Name</label>
-              <div className="text-sm text-on-surface">{token.service_name}</div>
-            </div>
-
-            {token.service_description && (
-              <div>
-                <label className="block text-sm font-medium text-on-surface-variant mb-1">Description</label>
-                <div className="text-sm text-on-surface">{token.service_description}</div>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1">Key Prefix</label>
-              <div className="text-sm font-mono text-on-surface">{token.token_prefix}...</div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-on-surface-variant mb-1">Permissions</label>
-              <div className="flex flex-wrap gap-2">
-                {token.is_super_admin ? (
-                  <Badge variant="enterprise">All Permissions (Super Admin)</Badge>
-                ) : (
-                  (token.permissions ?? []).map(permission => (
-                    <Badge key={permission} variant="info">
-                      {permission.replace(/_/g, ' ')}
-                    </Badge>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {token.expires_at && (
-              <div>
-                <label className="block text-sm font-medium text-on-surface-variant mb-1">Expires</label>
-                <div className="text-sm text-on-surface">
-                  {format(new Date(token.expires_at), 'MMM d, yyyy \'at\' h:mm a')}
-                </div>
-              </div>
-            )}
+      {/* API Token Information */}
+      <Card variant="dark">
+        <CardHeader title="API Token Information" />
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1">Service Name</label>
+            <div className="text-sm text-on-surface">{token.service_name}</div>
           </div>
-        </Card>
 
-        {/* Usage Statistics */}
-        <Card variant="dark">
-          <CardHeader title="Usage Statistics" />
-          {statsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="pierre-spinner w-6 h-6" />
-            </div>
-          ) : stats ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-semibold text-primary">
-                    {stats.total_actions.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-on-surface-variant">Total Actions</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-semibold text-activity">
-                    {stats.actions_last_24h.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-on-surface-variant">Last 24h</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-semibold text-primary">
-                    {stats.actions_last_7d.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-on-surface-variant">Last 7 days</div>
-                </div>
-              </div>
-
-              {stats.most_common_actions.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-on-surface-variant mb-2">Most Common Actions</label>
-                  <div className="space-y-2">
-                    {stats.most_common_actions.slice(0, 5).map((action, index) => (
-                      <div key={index} className="flex justify-between text-sm">
-                        <span className="text-on-surface">{action.action}</span>
-                        <span className="text-on-surface-variant">{action.count.toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-on-surface-variant">
-              No usage statistics available
+          {token.service_description && (
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">Description</label>
+              <div className="text-sm text-on-surface">{token.service_description}</div>
             </div>
           )}
-        </Card>
-      </div>
 
-      {/* Provisioned API Keys */}
-      <Card variant="dark">
-        <CardHeader title={`Provisioned API Keys (${provisionedKeysData.length})`} />
-        {provisionedKeysData.length === 0 ? (
-          <div className="text-center py-8 text-on-surface-variant">
-            No user keys have been provisioned using this API token yet.
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1">Key Prefix</label>
+            <div className="text-sm font-mono text-on-surface">{token.token_prefix}...</div>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b ghost-border">
-                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">User Email</th>
-                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">Tier</th>
-                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">Provisioned</th>
-                </tr>
-              </thead>
-              <tbody>
-                {provisionedKeysData.slice(0, 10).map((key: ProvisionedKey) => (
-                  <tr key={key.api_key_id} className="border-b ghost-border">
-                    <td className="py-3 px-4 text-sm text-on-surface">{key.user_email}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant={key.requested_tier as 'trial' | 'starter' | 'professional' | 'enterprise' | 'info'}>{key.requested_tier}</Badge>
-                    </td>
-                    <td className="py-3 px-4">
-                      <Badge variant={key.key_status === 'active' ? 'success' : 'error'}>
-                        {key.key_status}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-on-surface-variant">
-                      {format(new Date(key.created_at), 'MMM d, yyyy')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
 
-      {/* Recent Activity */}
-      <Card variant="dark">
-        <CardHeader title="Recent Activity" />
-        {auditLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="pierre-spinner w-6 h-6" />
+          <div>
+            <label className="block text-sm font-medium text-on-surface-variant mb-1">Permissions</label>
+            <div className="flex flex-wrap gap-2">
+              {token.is_super_admin ? (
+                <Badge variant="enterprise">All Permissions (Super Admin)</Badge>
+              ) : (
+                (token.permissions ?? []).map(permission => (
+                  <Badge key={permission} variant="info">
+                    {permission.replace(/_/g, ' ')}
+                  </Badge>
+                ))
+              )}
+            </div>
           </div>
-        ) : auditEntries.length === 0 ? (
-          <div className="text-center py-8 text-on-surface-variant">
-            No recent activity found for this API token.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {auditEntries.slice(0, 20).map((entry: AdminTokenAudit) => (
-              <div key={entry.id} className="flex items-start gap-3 p-3 rounded-lg bg-surface-container-low">
-                <div className={`w-2 h-2 rounded-full mt-2 ${
-                  entry.success ? 'bg-activity' : 'bg-error'
-                }`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="font-medium text-on-surface">{entry.action}</span>
-                    <span className="text-on-surface-variant">
-                      {format(new Date(entry.timestamp), 'MMM d, h:mm a')}
-                    </span>
-                  </div>
-                  {entry.target_resource && (
-                    <div className="text-xs text-on-surface-variant mt-1">
-                      Target: {entry.target_resource}
-                    </div>
-                  )}
-                  {entry.error_message && (
-                    <div className="text-xs text-error mt-1">
-                      Error: {entry.error_message}
-                    </div>
-                  )}
-                  {entry.ip_address && (
-                    <div className="text-xs text-outline mt-1">
-                      IP: {entry.ip_address}
-                    </div>
-                  )}
-                </div>
+
+          {token.expires_at && (
+            <div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">Expires</label>
+              <div className="text-sm text-on-surface">
+                {format(new Date(token.expires_at), 'MMM d, yyyy \'at\' h:mm a')}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </Card>
     </div>
   );

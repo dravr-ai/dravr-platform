@@ -52,9 +52,9 @@ BASELINE_WEB_HERO_GRADIENT=5
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=127
+BASELINE_WEB_CARD_SITES=124
 BASELINE_WEB_LEGACY_CARD_CLASSES=16
-BASELINE_WEB_LARGE_TEXT=67
+BASELINE_WEB_LARGE_TEXT=64
 
 # Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): the density and token
 # rules Phases 1-5 applied to the phone, ratcheted from what that migration

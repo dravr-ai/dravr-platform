@@ -39,28 +39,6 @@ describe('usageApi', () => {
     })
   })
 
-  describe('getLlmConsumption', () => {
-    it('should fetch LLM consumption with default 30 days', async () => {
-      const mockData = { summary: { total_tokens: 1000 } }
-      mockAxios.get.mockResolvedValue({ data: mockData })
-
-      const result = await usageApi.getLlmConsumption()
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/api/usage/llm-consumption?days=30')
-      expect(result).toEqual(mockData)
-    })
-
-    it('should fetch LLM consumption with custom params', async () => {
-      mockAxios.get.mockResolvedValue({ data: {} })
-
-      await usageApi.getLlmConsumption(7, 'model')
-
-      expect(mockAxios.get).toHaveBeenCalledWith(
-        '/api/usage/llm-consumption?days=7&group_by=model'
-      )
-    })
-  })
-
   describe('getAdminLlmConsumption', () => {
     it('should fetch admin LLM consumption with defaults', async () => {
       mockAxios.get.mockResolvedValue({ data: {} })

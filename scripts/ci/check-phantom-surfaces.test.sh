@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Fixture test for check-phantom-surfaces.sh's route gate — the route shapes the line grep missed
-# ABOUTME: Pins multi-line, {param} and .nest routes, the stock/diff contract, the marker, and fail-closed scans
+# ABOUTME: Fixture test for check-phantom-surfaces.sh's route gate and web service scan — what the old scans missed
+# ABOUTME: Pins multi-line, {param} and .nest routes, the stock/diff contract, the marker, uncalled web methods, fail-closed scans
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -36,11 +36,12 @@ git_q() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
 
 # tree <name> — a minimal workspace every scan of the gate can read: one trait
 # with an implementor, one deserialized config field, one api-client method
-# both clients call, and one /api route the api-client names.
+# both clients call, one web service method a component calls, and one /api
+# route the api-client names.
 tree() {
     local root="$TMP/$1"
     mkdir -p "$root/scripts/ci" "$root/crates/demo/src" \
-             "$root/packages/api-client/src/domains" "$root/frontend/src" "$root/frontend-mobile/src"
+             "$root/packages/api-client/src/domains" "$root/frontend/src/services/api" "$root/frontend-mobile/src"
     cp "$UNDER_TEST" "$root/scripts/ci/check-phantom-surfaces.sh"
     cp "$SCRIPT_DIR/backend-routes.py" "$root/scripts/ci/backend-routes.py"
     cp "$SCRIPT_DIR/gate-base-ref.sh" "$root/scripts/ci/gate-base-ref.sh"
@@ -77,9 +78,23 @@ export const createDemoApi = (axios: { get: (url: string) => unknown }) => ({
 TS
     printf 'export const load = (api: any) => api.demo.listThings();\n' > "$root/frontend/src/App.tsx"
     printf 'export const load = (api: any) => api.demo.listThings();\n' > "$root/frontend-mobile/src/App.tsx"
+    web_service "$root" ""
+    printf "import { gadgetsApi } from './services/api/gadgets';\nexport const show = () => gadgetsApi.loadGadgets();\n" \
+        > "$root/frontend/src/Gadgets.tsx"
     routes "$root" ""
     ( cd "$root" && git init -q . )
     echo "$root"
+}
+
+# web_service <root> <extra methods> — rewrites the web-only service with the
+# base `loadGadgets` method plus whatever the case adds.
+web_service() {
+    {
+        printf 'export const gadgetsApi = {\n'
+        printf '  async loadGadgets() {\n    return fetch(\x27/gadgets\x27);\n  },\n'
+        printf '%s' "$2"
+        printf '};\n'
+    } > "$1/frontend/src/services/api/gadgets.ts"
 }
 
 # routes <root> <extra registrations> — rewrites the router with the base
@@ -270,6 +285,47 @@ routes "$root" '        .route(WIDGETS_PATH, get(widgets))
 commit "$root" "register a computed path"
 expect "a computed .route( path fails rather than going unread" "$root" 1 HEAD~1
 expect_output "the refusal names the unreadable registration" ".route( without a string-literal path"
+
+# ---------------------------------------------------------------------------
+# 8. Web-only service methods (frontend/src/services/api)
+# ---------------------------------------------------------------------------
+# Scan 2 reads only the api-client, so a web service method nothing calls
+# passed, and the route it named read as consumed (carnet#581: 34 of them).
+root="$(tree web)"
+commit "$root" base
+expect "a web service method a component calls passes" "$root" 0 HEAD~1
+expect_output "the scan reports the method it read" "Web services: all 1 methods in frontend/src/services/api have a production caller."
+
+web_service "$root" '  async loadGadget(id: string) {
+    return fetch(`/gadgets/${id}`);
+  },
+'
+commit "$root" "add a method no component calls"
+expect "a web service method no component calls fails" "$root" 1 HEAD~1
+expect_output "the refusal names the uncalled method" "   loadGadget  (frontend/src/services/api/gadgets.ts:"
+
+# A test that exercises the method is not a caller.
+mkdir -p "$root/frontend/src/__tests__"
+printf "import { gadgetsApi } from '../services/api/gadgets';\ngadgetsApi.loadGadget('g1');\n" \
+    > "$root/frontend/src/__tests__/gadgets.test.ts"
+commit "$root" "cover it with a test only"
+expect "a caller in a test file does not count" "$root" 1 HEAD~1
+
+# Whole-tree: deleting the component that held the last call leaves the method
+# dead even though the diff adds no method at all.
+root="$(tree webdelete)"
+commit "$root" base
+rm "$root/frontend/src/Gadgets.tsx"
+commit "$root" "delete the only caller"
+expect "deleting the file with the last call fails" "$root" 1 HEAD~1
+expect_output "the refusal names the orphaned method" "   loadGadgets  (frontend/src/services/api/gadgets.ts:"
+
+root="$(tree webgone)"
+commit "$root" base
+rm -r "$root/frontend/src/services"
+commit "$root" "move the services somewhere the scan does not look"
+expect "a missing services directory fails closed" "$root" 1 HEAD~1
+expect_output "the refusal says the scan is stale" "frontend/src/services/api not found — this scan is stale."
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

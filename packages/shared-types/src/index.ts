@@ -150,37 +150,19 @@ export type {
   BadgeSyncResponse,
 } from './notifications.js';
 
-// Admin types (API keys, admin tokens, A2A protocol, dashboard)
+// Admin types (admin tokens, A2A protocol, dashboard)
 export type {
-  ApiKeyStatus,
-  ApiKey,
-  ApiKeysResponse,
-  CreateApiKeyRequest,
-  CreateApiKeyResponse,
   AdminPermission,
   AdminToken,
   AdminTokensResponse,
   CreateAdminTokenRequest,
   CreateAdminTokenResponse,
-  AdminTokenAudit,
-  AdminTokenUsageStats,
-  TierUsage,
-  DashboardOverview,
-  RateLimitOverview,
-  RequestLog,
-  RequestStats,
-  RequestFilter,
   ToolUsageBreakdown,
   A2AClient,
   A2AClientRegistrationRequest,
   A2AClientCredentials,
-  A2ASession,
   A2ARateLimitStatus,
   A2AUsageStats,
-  A2AUsageRecord,
-  A2ADashboardOverview,
-  SetupStatusResponse,
-  ProvisionedKey,
 } from './admin.js';
 
 // Group coaching types (groups, members, invites, analytics)
