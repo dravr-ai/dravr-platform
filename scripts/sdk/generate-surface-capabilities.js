@@ -159,11 +159,11 @@ ${surfaces.map(surfaceEntry).join('\n')}
 };
 
 /**
- * The notification \`data.screen\` vocabulary, paired with the \`USER_SURFACES\`
- * id each token opens.
+ * The notification \`data.screen\` vocabulary, paired with the destination id
+ * each token opens: a \`USER_SURFACES\` surface or a \`SETTINGS_PANES\` pane.
  *
- * The server declares this once; a client turns the surface id into its own
- * route through the registry rather than keeping a map of its own.
+ * The server declares this once; a client turns the destination id into its
+ * own route through the registry rather than keeping a map of its own.
  */
 export const NOTIFICATION_SCREEN_SURFACES = {
 ${screens.map((row) => `  ${lit(row.screen)}: ${lit(row.surface)},`).join('\n')}

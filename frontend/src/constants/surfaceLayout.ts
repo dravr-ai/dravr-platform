@@ -4,7 +4,7 @@
 // ABOUTME: Declares which dashboard routes receive the page gutter and which own their own chrome
 // ABOUTME: Page padding is a property of the surface, never of the viewer's role
 
-import { webRouteFor } from '@pierre/shared-constants';
+import { settingsPaneWebRoute } from '@pierre/shared-constants';
 
 /**
  * How a dashboard route fills the content pane.
@@ -69,12 +69,12 @@ export function layoutForRoute(route: string): SurfaceLayout {
 }
 
 /**
- * Where the provider-connection pane lives, read from the registry rather than
- * spelled again here.
+ * Where the provider-connection pane lives, read from the settings pane
+ * declaration rather than spelled again here.
  *
  * It used to be reachable at two routes — a `#data-providers` tab and the
  * `#settings/connections` section — with the tab's own handler rewriting the
  * hash to the section on first interaction, so the URL a user ended up with
  * depended on which door they came through.
  */
-export const CONNECTIONS_ROUTE = webRouteFor('data-providers') ?? 'settings';
+export const CONNECTIONS_ROUTE = settingsPaneWebRoute('connections');
