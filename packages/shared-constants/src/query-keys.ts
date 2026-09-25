@@ -63,6 +63,8 @@ export const QUERY_KEYS = {
      * bound to — the same athlete gets a different list in a group thread.
      */
     commands: (conversationId?: string | null) => ['chat-commands', conversationId ?? null] as const,
+    /** The claim-verification verdict rows of every reply in the conversation. */
+    verdicts: (conversationId: string | null) => ['chat', 'verdicts', conversationId] as const,
   },
 
   // ==================== COACHES ====================

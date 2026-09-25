@@ -100,15 +100,53 @@ export function transcriptBlocks(
     );
   }
 
-  if (verdicts.length > 0) {
-    blocks.push({
-      type: 'verdicts',
-      chips: verdicts.map((verdict) => ({
-        claim: verdict.claim_text,
-        contradicted: verdict.status === 'contradicted',
-      })),
-    });
+  const rail = verdictsBlock(verdicts);
+  if (rail) {
+    blocks.push(rail);
   }
 
   return blocks;
+}
+
+/**
+ * The `verdicts` block a reply carries for its persisted verdict rows, or
+ * `null` when it has none. One conversion for both a history read and a live
+ * turn whose rows were read after it landed.
+ */
+function verdictsBlock(verdicts: readonly ClaimVerdict[]): ReplyBlock | null {
+  if (verdicts.length === 0) return null;
+  return {
+    type: 'verdicts',
+    chips: verdicts.map((verdict) => ({
+      claim: verdict.claim_text,
+      contradicted: verdict.status === 'contradicted',
+    })),
+  };
+}
+
+/**
+ * Put a live turn's persisted verdict rows into the blocks it streamed.
+ *
+ * The stream's `verdicts` block names only the claims the pipeline flagged,
+ * so a reply whose claims were all supported streams no chip at all, while
+ * the conversation's verdict read returns every row. Once those rows are
+ * read, they become the reply's one `verdicts` block — in the streamed
+ * block's place when there was one, after the rest otherwise — so a live
+ * reply draws the same rail a reload of it does. With no rows yet, the
+ * streamed blocks stand as they arrived.
+ *
+ * @param blocks the blocks the turn streamed for this message.
+ * @param verdicts the conversation's verdict rows for this message.
+ */
+export function withVerdictRows(
+  blocks: readonly ReplyBlock[],
+  verdicts: readonly ClaimVerdict[],
+): ReplyBlock[] {
+  const rail = verdictsBlock(verdicts);
+  if (!rail) return [...blocks];
+  const at = blocks.findIndex((block) => block.type === 'verdicts');
+  if (at === -1) return [...blocks, rail];
+  return blocks
+    .filter((block, index) => block.type !== 'verdicts' || index === at)
+    .map((block) => (block.type === 'verdicts' ? rail : block));
 }

@@ -410,6 +410,13 @@ export function useMessages(): MessagesState & MessagesActions {
           });
           invalidateConversationList();
           rotatedTo = turn.rotated_to_conversation_id ?? null;
+          // The turn's verdict rows are written before `done`, and the
+          // stream's `verdicts` block names only the flagged claims — a reply
+          // whose claims all held streams no chip. Re-reading the rows gives
+          // the live reply the same rail a reload draws. A turn that moved to
+          // another thread leaves this one, and opening that thread reads its
+          // own rows.
+          if (!rotatedTo) void refreshVerdicts(conversationId);
         },
         onError: sendErr => {
           setError(turnFailureText(sendErr));
@@ -442,7 +449,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setProgressText(null);
     recoverOnReturn(heldIds);
     return rotatedTo;
-  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn]);
+  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -501,6 +508,8 @@ export function useMessages(): MessagesState & MessagesActions {
             scene_blocks: replySceneBlocks(turn),
           }]);
           invalidateConversationList();
+          // The regenerated reply's verdict rows, as for a first send.
+          void refreshVerdicts(conversationId);
         },
         onError: err => {
           setError(turnFailureText(err));
@@ -528,7 +537,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(false);
     setProgressText(null);
     recoverOnReturn(heldIds);
-  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn]);
+  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.
