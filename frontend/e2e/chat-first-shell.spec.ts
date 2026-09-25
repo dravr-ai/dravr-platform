@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Locks the chat shell on web — one list, the "+" menu, the "/" button and the header drawer
-// ABOUTME: Landing on chat, the retired Coach and Groups tabs, and the @handle mention autocomplete
+// ABOUTME: Landing on Home with Chat one tap away, the retired Coach and Groups tabs, and the @handle mention autocomplete
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
 const CONVERSATION = {
   id: 'conv-1',
@@ -219,22 +219,26 @@ async function setupShellMocks(page: Page): Promise<ShellTraffic> {
 }
 
 test.describe('Chat-first shell', () => {
-  test('a regular user lands on chat, and the sidebar offers Discover but no Coaches tab', async ({ page }) => {
+  test('a regular user lands on Home, and the rail offers Chat and Discover but no Coaches tab', async ({ page }) => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    await expect(page).toHaveURL(/#chat$/);
-    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/#home$/);
+    await expect(page.getByTestId('home-page')).toBeVisible({ timeout: 10000 });
 
     const aside = page.locator('aside');
     await expect(aside.getByRole('button', { name: 'Chat' })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Discover', exact: true })).toBeVisible();
     await expect(aside.getByRole('button', { name: 'Groups' })).toHaveCount(0);
     await expect(aside.getByRole('button', { name: 'Agents' })).toHaveCount(0);
+
+    // Chat is one tap away, and opens on its empty pane.
+    await openChat(page);
+    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
   });
 
-  test('a stale #groups deep link lands on chat', async ({ page }) => {
+  test('a stale #groups deep link lands on Home', async ({ page }) => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
@@ -242,14 +246,15 @@ test.describe('Chat-first shell', () => {
     await page.goto('/#groups/group-1');
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    await expect(page).toHaveURL(/#chat$/);
-    await expect(page.getByTestId('conversation-list')).toBeVisible();
+    await expect(page).toHaveURL(/#home$/);
+    await expect(page.getByTestId('home-page')).toBeVisible();
   });
 
   test('the empty pane names what to do and offers the "+" and Commands', async ({ page }) => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
+    await openChat(page);
 
     const empty = page.getByTestId('chat-empty-state');
     await expect(empty).toBeVisible({ timeout: 10000 });
@@ -261,6 +266,7 @@ test.describe('Chat-first shell', () => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
+    await openChat(page);
 
     const row = page.locator('[data-testid="conversation-row"]', { hasText: 'Sunday long run' });
     await expect(row.getByTestId('conversation-unread-count')).toHaveText('3', { timeout: 10000 });
@@ -302,7 +308,7 @@ test.describe('Chat-first shell', () => {
     await expect(page.getByTestId('plain-info-panel')).toBeVisible();
   });
 
-  test('a stale #my-coaches deep link lands on chat', async ({ page }) => {
+  test('a stale #my-coaches deep link lands on Home', async ({ page }) => {
     await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
@@ -310,8 +316,8 @@ test.describe('Chat-first shell', () => {
     await page.goto('/#my-coaches');
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
-    await expect(page).toHaveURL(/#chat$/);
+    await expect(page.getByTestId('home-page')).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/#home$/);
     await expect(page.getByText('custom AI personas')).toHaveCount(0);
   });
 
@@ -319,6 +325,7 @@ test.describe('Chat-first shell', () => {
     const { created } = await setupShellMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
+    await openChat(page);
 
     await page.getByRole('button', { name: 'New', exact: true }).first().click();
     const menu = page.getByRole('menu', { name: 'Start a conversation' });

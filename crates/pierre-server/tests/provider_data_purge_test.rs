@@ -55,7 +55,7 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillCoverage, ProviderDataPurge, SyncCursorRow,
+    ActivityBackfillJobRow, BackfillCoverage, ProviderDataPurge, StoredRouteTrack, SyncCursorRow,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
@@ -82,13 +82,14 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 9] = [
+const ONE_ROW_TABLES: [&str; 10] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
     "data_sources",
     "data_point_series_archive",
     "cached_activities",
+    "activity_route_tracks",
     "sync_state",
     "activity_fetch_freshness",
     "activity_backfill_coverage",
@@ -310,8 +311,9 @@ async fn seed_provider_rows(
         .await
         .unwrap();
 
+    let run_id = format!("{provider}-run-{user_id}-{tenant}");
     let run = ActivityBuilder::new(
-        format!("{provider}-run-{user_id}-{tenant}"),
+        run_id.clone(),
         format!("{provider} run"),
         SportType::Run,
         night_start() + Duration::hours(13),
@@ -323,6 +325,21 @@ async fn seed_provider_rows(
     repos
         .activity_cache
         .upsert_activities(user_id, &tenant, provider, &[run])
+        .await
+        .unwrap();
+    // The route the Home page read for that run, filed under the same key.
+    repos
+        .activity_route_tracks
+        .upsert_route_track(
+            &tenant,
+            user_id,
+            provider,
+            &run_id,
+            &StoredRouteTrack::Unavailable {
+                source: "streams".to_owned(),
+                reason: "no_gps".to_owned(),
+            },
+        )
         .await
         .unwrap();
     repos
@@ -580,6 +597,17 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
             .await
             .unwrap();
         assert_eq!(cached.len(), held, "{provider} cached activities");
+        let route = repos
+            .activity_route_tracks
+            .get_route_track(
+                &tenant,
+                athlete,
+                provider,
+                &format!("{provider}-run-{athlete}-{tenant}"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(route.is_some(), held == 1, "{provider} stored route");
         let cursor = repos
             .sync_cursors
             .get_sync_cursor(&athlete.to_string(), &tenant, provider, "sleep")
@@ -783,7 +811,11 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
     }
     assert_eq!(data["rows_removed"]["data_point_series"], 8, "{body}");
     assert_eq!(data["rows_removed"]["activity_backfill_jobs"], 3, "{body}");
-    assert_eq!(data["total_removed"], 4 * 9 + 8 + 3, "{body}");
+    assert_eq!(
+        data["total_removed"],
+        4 * ONE_ROW_TABLES.len() + 8 + 3,
+        "{body}"
+    );
     assert_eq!(
         data["connections_remaining"], 1,
         "the teammate is still connected and will sync again: {body}"

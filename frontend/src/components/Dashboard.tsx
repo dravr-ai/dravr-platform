@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Main dashboard orchestrator with admin sidebar and user mode navigation
-// ABOUTME: Admin lands on Users tab; delegates data fetching to focused panel components
+// ABOUTME: Admin lands on Users, an athlete on Home; delegates data fetching to focused panel components
 
 import { useState, lazy, Suspense, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
@@ -62,6 +62,7 @@ const AdminSettings = lazy(() => import('./AdminSettings'));
 const ApiKeyList = lazy(() => import('./ApiKeyList'));
 const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
+const Home = lazy(() => import('./home/Home'));
 const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
 const UserToolOverrides = lazy(() => import('./UserToolOverrides'));
 const SystemCoachesTab = lazy(() => import('./SystemCoachesTab'));
@@ -115,7 +116,8 @@ interface DashboardProps {
 export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: DashboardProps) {
   const { user, logout } = useAuth();
   const { t } = useTranslation();
-  // Default tab depends on user role: admin sees 'users', regular users see 'chat'
+  // Default tab depends on user role: admin sees 'users', an athlete lands on
+  // 'home' — today's plan and the latest activities, where the logo also leads.
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
   // Initialize from URL hash so deep links (#users, #agents, …) survive
@@ -131,7 +133,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // bookmarked `#users` arrives as a full page load, which never reaches
   // `applyRoute`, so gating only there would leave the very path a user takes
   // wide open.
-  const initialFallback = isAdminUser ? 'users' : 'chat';
+  const initialFallback = isAdminUser ? 'users' : 'home';
   const initialTab =
     (!isAdminUser && ADMIN_ONLY_TABS.has(initialTabSeg)) || RETIRED_TABS.has(initialTabSeg)
       ? initialFallback
@@ -251,6 +253,16 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     setPendingComposerAction({ kind: 'send', text: COMMAND_DRAFTS.groupJoin(pendingInviteCode) });
   }, [pendingInviteCode]);
 
+  // Home's way into a conversation: a fresh thread whose composer already
+  // holds the question — "Analyze my activity from…", "Build me a training
+  // plan…" — for the athlete to finish and send. The open thread is cleared
+  // first so the draft never lands in whichever conversation was open last.
+  const openChatDraft = useCallback((text: string) => {
+    setSelectedConversation(null);
+    setPendingComposerAction({ kind: 'draft', text });
+    setActiveTab('chat');
+  }, []);
+
   // ── URL hash routing ──────────────────────────────────────────────────────
   // Compose the route from the active tab + its open sub-view, so deep links
   // and the Back button operate on sub-views, not just top-level tabs.
@@ -290,7 +302,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // `chat/<conversationId>` so the reply opens that thread.
   const applyRoute = useCallback((raw: string) => {
     const slash = raw.indexOf('/');
-    const fallback = isAdminUser ? 'users' : 'chat';
+    const fallback = isAdminUser ? 'users' : 'home';
     const requested = (slash === -1 ? raw : raw.slice(0, slash)) || fallback;
     // The sidebar only offers tabs for the caller's role, but the hash is
     // user-editable: typing `#users` as a regular user mounted the admin
@@ -469,8 +481,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // Regular user tabs — the destinations of the rail. Settings is reached
   // from the gear and the avatar, and a provider connection is configuration,
-  // so it lives under Settings rather than beside Chat.
+  // so it lives under Settings rather than beside Chat. Home comes first: it
+  // is where sign-in lands.
   const regularTabs: TabDefinition[] = useMemo(() => [
+    { id: 'home', name: t('nav.home'), icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+      </svg>
+    ) },
     { id: 'chat', name: t('nav.chat'), icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -506,14 +524,14 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // and the rest fall into the off-canvas drawer. Active <768px only.
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // For regular users, pin Chat / Discover / Notifications to the bottom bar
-  // and route the rest through the drawer. For admin users we use the first
-  // three tabs (Users / Agents / Agent Store) as the primary slots.
+  // For regular users, pin Home / Chat / Discover / Notifications to the
+  // bottom bar and route the rest through the drawer. For admin users we use
+  // the first three tabs (Users / Agents / Agent Store) as the primary slots.
   const primaryTabIds = useMemo<string[]>(() => {
     if (isAdminUser) {
       return ['users', 'agents', 'agent-store'];
     }
-    return ['chat', 'discover', 'notifications'];
+    return ['home', 'chat', 'discover', 'notifications'];
   }, [isAdminUser, t]);
   const primaryMobileTabs: MobileNavTab[] = useMemo(() => {
     return primaryTabIds
@@ -584,6 +602,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             if (id === 'chat') setSelectedConversation(null);
           }}
           onOpenSettings={() => setActiveTab('settings')}
+          onHome={() => applyRoute('home')}
           settingsActive={activeTab === 'settings'}
           userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
         />
@@ -941,6 +960,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'agent-store' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachStoreManagement />
+          </Suspense>
+        )}
+        {activeTab === 'home' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <Home onNavigate={applyRoute} onOpenChatDraft={openChatDraft} />
           </Suspense>
         )}
         {activeTab === 'chat' && (

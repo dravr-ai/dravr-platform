@@ -27,7 +27,7 @@ const FIGURE = 'font-mono tabular-nums';
  * A figure inside a sentence — a date, a duration, a count — set in the mono
  * face so two of them under each other line up.
  */
-function Figure({ children }: { children: React.ReactNode }) {
+export function Figure({ children }: { children: React.ReactNode }) {
   return <Text className={FIGURE}>{children}</Text>;
 }
 
@@ -201,9 +201,10 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * One day of the fortnight: the date, the sport, and the session — its text,
  * duration and intensity, then the steps, the template and the fuel it
  * carries. A rest day is the one word. Rows are separated by space, not by a
- * rule; the card's one hairline sits under its header.
+ * rule; the card's one hairline sits under its header. The Home tab draws its
+ * selected and next-week days with this same row, so a day reads alike there.
  */
-function DayRow({ day }: { day: PlanDay }) {
+export function DayRow({ day }: { day: PlanDay }) {
   const { t } = useTranslation();
   const steps = day.steps ?? [];
   return (
@@ -264,7 +265,7 @@ function DayRow({ day }: { day: PlanDay }) {
  * the one after it, the Monday's date for any other. The date rides beside the
  * two named weeks so every heading still carries it.
  */
-function WeekHeading({
+export function WeekHeading({
   week,
   index,
   currentIndex,

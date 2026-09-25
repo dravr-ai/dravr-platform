@@ -1,4 +1,4 @@
-# ABOUTME: Test the chat landing after login: the conversation list, then a thread opened from its "+"
+# ABOUTME: Test the chat tab after login: Home first, then the conversation list, then a thread opened from its "+"
 # ABOUTME: Converted from chat.test.js basic visibility tests
 
 appId: ai.dravr.app
@@ -10,7 +10,12 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# Test: the app lands on the conversation list, with its "+" in the header
+# Test: the app lands on Home; the chat tab holds the conversation list,
+# with the lockup and its "+" in the header
+- assertVisible:
+    id: "home-screen"
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
 - assertVisible:
     id: "conversations-screen"
 - assertVisible:

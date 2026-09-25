@@ -16,8 +16,7 @@
 //! staleness as a provider problem (the 2026-08-13 inverted-recovery-verdict
 //! incident).
 
-use std::collections::HashSet;
-use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
@@ -30,6 +29,7 @@ use uuid::Uuid;
 use crate::activity_fetch::activity_cache_retention_days;
 use crate::group_fitness::{ActivityMergeStrategy, AllProvidersMerge};
 use crate::protocol::AuthService;
+use crate::revalidation::{RevalidationRegistry, REVALIDATION_TIMEOUT_SECS};
 use crate::runtime::ToolRuntime;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
@@ -37,13 +37,6 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 /// (stale-while-revalidate). Cached data is still what gets served; this only
 /// decides whether a refresh runs first.
 const ACTIVITY_CACHE_FRESH_SECS: i64 = 4 * 3600;
-
-/// Upper bound on a single revalidation. A sciotte/Garmin scrape that hangs on
-/// a provider-side throttle must not hold the single-flight slot (nor the
-/// per-profile Chrome `SingletonLock`) open indefinitely, blocking every later
-/// revalidation for the same user. Generous relative to a healthy ~2-minute
-/// scrape so it only fires on a genuine stall.
-const REVALIDATION_TIMEOUT_SECS: u64 = 240;
 
 /// Get all connected provider names for a user.
 ///
@@ -241,83 +234,6 @@ async fn activity_cache_is_stale(
         }
     }
     false
-}
-
-/// Tracks which `(user, tenant)` background revalidations are in flight so
-/// concurrent stale-cache chat turns collapse onto a single refresh.
-///
-/// Without this, every stale-cache turn spawned its own revalidation. The
-/// per-profile Chrome `SingletonLock` (see [`pierre_providers`]) serializes
-/// those scrapes rather than crashing, so N rapid turns queue N ~2-minute
-/// scrapes behind one lock — the later ones redundant by the time they run.
-/// Stale-while-revalidate only needs one in-flight refresh per user; the rest
-/// are dropped. Entries are removed when the revalidation task finishes (or
-/// times out), so the slot frees for the next genuinely-stale turn.
-///
-/// Production code shares one registry via [`Self::global`]; tests construct
-/// isolated instances with [`Self::new`].
-pub struct RevalidationRegistry {
-    in_flight: Arc<StdMutex<HashSet<(Uuid, TenantId)>>>,
-}
-
-impl RevalidationRegistry {
-    /// Create an empty registry.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            in_flight: Arc::new(StdMutex::new(HashSet::new())),
-        }
-    }
-
-    /// The process-global registry shared across every chat turn.
-    #[must_use]
-    pub fn global() -> &'static Self {
-        static GLOBAL: LazyLock<RevalidationRegistry> = LazyLock::new(RevalidationRegistry::new);
-        &GLOBAL
-    }
-
-    /// Claim the revalidation slot for a user. Returns a guard that frees the
-    /// slot on drop, or `None` if a revalidation is already in flight (the
-    /// caller then skips spawning a duplicate).
-    pub fn try_claim(&self, key: (Uuid, TenantId)) -> Option<RevalidationGuard> {
-        // Recover from poisoning: the set stays consistent even if a holder
-        // panicked, and refusing all future revalidations would be worse.
-        let mut set = self
-            .in_flight
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if set.insert(key) {
-            Some(RevalidationGuard {
-                in_flight: Arc::clone(&self.in_flight),
-                key,
-            })
-        } else {
-            None
-        }
-    }
-}
-
-impl Default for RevalidationRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Frees a claimed revalidation slot when dropped, including on panic or
-/// timeout, so a single failed refresh never wedges a user's slot shut.
-pub struct RevalidationGuard {
-    in_flight: Arc<StdMutex<HashSet<(Uuid, TenantId)>>>,
-    key: (Uuid, TenantId),
-}
-
-impl Drop for RevalidationGuard {
-    fn drop(&mut self) {
-        let mut set = self
-            .in_flight
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        set.remove(&self.key);
-    }
 }
 
 /// Re-fetch and persist a member's activities, waiting up to the same bounded

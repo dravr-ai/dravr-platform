@@ -10,7 +10,9 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# The chat tab lands on the list itself
+# The chat tab opens on the list itself
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
 - extendedWaitUntil:
     visible:
       id: "conversations-screen"

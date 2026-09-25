@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Dravr lockup — the badge mark beside the DRAVR wordmark, set the way DESIGN.md §1 defines it
-// ABOUTME: The phone's only in-app identity: it stands in for the chat tab's screen title (DESIGN.md §5)
+// ABOUTME: The phone's only in-app identity: the Home and chat tabs' header title, and with `onPress` the way back to Home (DESIGN.md §5)
 
 import React from 'react';
-import { View, Text, Image, type TextStyle } from 'react-native';
+import { View, Text, Image, Pressable, type TextStyle } from 'react-native';
 import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 
@@ -19,12 +19,28 @@ const BRAND_TRACKING_RATIO = 0.15;
  */
 const BADGE_RADIUS_RATIO = 0.25;
 
+/**
+ * The 44 pt thumb floor (DESIGN.md §10). The lockup is 28 tall, so a pressable
+ * one reaches the floor through its hit slop rather than a taller box, which
+ * would push the header's own layout around.
+ */
+const TOUCH_TARGET = 44;
+
 interface BrandLockupProps {
   /** Height and width of the badge mark. The wordmark is set to match. */
   size?: number;
   testID?: string;
-  /** Spoken name of the region the lockup heads. */
+  /**
+   * Spoken name. For a heading lockup it names the region it heads; for a
+   * pressable one it names where the press goes — `nav.home`.
+   */
   accessibilityLabel?: string;
+  /**
+   * Makes the lockup a button — the way to Home from any header that carries
+   * it. The look does not change: BRAND.md forbids recolouring or badging the
+   * mark, so the lockup gains a press, not a new appearance.
+   */
+  onPress?: () => void;
 }
 
 /**
@@ -41,7 +57,12 @@ interface BrandLockupProps {
  * sage-forest in light, mint in dark, the one green legible at text sizes in
  * both schemes.
  */
-export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityLabel }: BrandLockupProps) {
+export function BrandLockup({
+  size = 28,
+  testID = 'brand-lockup',
+  accessibilityLabel,
+  onPress,
+}: BrandLockupProps) {
   const colors = useThemeColors();
 
   const wordmarkStyle: TextStyle = {
@@ -50,6 +71,43 @@ export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityL
     letterSpacing: size * 0.72 * BRAND_TRACKING_RATIO,
     color: colors.text.accent,
   };
+
+  const content = (
+    <>
+      <Image
+        source={require('../../../assets/icon.png')}
+        style={{ width: size, height: size, borderRadius: size * BADGE_RADIUS_RATIO }}
+        resizeMode="contain"
+        testID={`${testID}-mark`}
+      />
+      <Text style={wordmarkStyle} testID={`${testID}-wordmark`}>
+        {PRODUCT_WORDMARK}
+      </Text>
+    </>
+  );
+
+  if (onPress) {
+    const slop = Math.max(0, (TOUCH_TARGET - size) / 2);
+    return (
+      <Pressable
+        onPress={onPress}
+        // No className: the press state reads through the style function,
+        // which a class string cannot carry.
+        style={({ pressed }) => ({
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          opacity: pressed ? 0.6 : 1,
+        })}
+        hitSlop={{ top: slop, bottom: slop, left: 0, right: 0 }}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? PRODUCT_WORDMARK}
+        testID={testID}
+      >
+        {content}
+      </Pressable>
+    );
+  }
 
   return (
     <View
@@ -60,15 +118,7 @@ export function BrandLockup({ size = 28, testID = 'brand-lockup', accessibilityL
       accessibilityLabel={accessibilityLabel ?? PRODUCT_WORDMARK}
       testID={testID}
     >
-      <Image
-        source={require('../../../assets/icon.png')}
-        style={{ width: size, height: size, borderRadius: size * BADGE_RADIUS_RATIO }}
-        resizeMode="contain"
-        testID={`${testID}-mark`}
-      />
-      <Text style={wordmarkStyle} testID={`${testID}-wordmark`}>
-        {PRODUCT_WORDMARK}
-      </Text>
+      {content}
     </View>
   );
 }

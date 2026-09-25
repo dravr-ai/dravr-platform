@@ -5,13 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY, KEY_PLAN_GOAL_LINE,
     KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_PHASE_LINE, KEY_PLAN_REST,
     KEY_PLAN_RESUMES, KEY_PLAN_SHARED_HEADER, KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY,
     KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
 };
+use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppError;
 use pierre_core::models::User;
 use pierre_database::repositories::training_plans::PlanOwner;
@@ -301,14 +302,14 @@ async fn caller_record(ctx: &PlatformCommandContext) -> Option<User> {
 }
 
 /// The caller's civil date. "Today" is the athlete's, not the server's UTC
-/// one — a 23:30 EDT `/plan` must show today's session, not tomorrow's.
+/// one — a 23:30 EDT `/plan` must show today's session, not tomorrow's. A
+/// missing or unparseable timezone reads as UTC, the same resolution every
+/// other surface that shows the plan applies.
 fn caller_today(user: Option<&User>) -> NaiveDate {
-    user.and_then(|u| u.timezone.as_deref())
-        .and_then(|tz| tz.parse::<chrono_tz::Tz>().ok())
-        .map_or_else(
-            || chrono::Utc::now().date_naive(),
-            |tz| chrono::Utc::now().with_timezone(&tz).date_naive(),
-        )
+    clock_date(
+        Utc::now(),
+        resolve_zone(user.and_then(|u| u.timezone.as_deref())),
+    )
 }
 
 /// The name a room already knows the caller by: their display name, else the

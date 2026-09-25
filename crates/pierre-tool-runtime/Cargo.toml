@@ -125,8 +125,8 @@ name = "activity_self_report_render_test"
 required-features = ["tools-data"]
 
 [[test]]
-name = "activity_revalidation_dedup_test"
-required-features = ["tools-groups"]
+name = "activity_detail_route_overview_test"
+required-features = ["tools-data"]
 
 [[test]]
 name = "sleep_payload_value_test"

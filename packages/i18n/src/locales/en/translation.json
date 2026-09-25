@@ -1741,6 +1741,33 @@
     "weeklyReport": "Weekly report",
     "youSuffix": "(you)"
   },
+  "home": {
+    "plan": {
+      "tomorrow": "Tomorrow",
+      "phaseWeek": "{{phase}} · week {{week}}",
+      "notCovered": "Your plan doesn't cover this day.",
+      "emptyTitle": "No training plan yet",
+      "emptyBody": "Tell your agent about your goal race and it will lay out your season, week by week.",
+      "buildCta": "Build my plan",
+      "buildDraft": "Build me a training plan for my goal race.",
+      "dayDraft": "Walk me through my session on {{date}}: {{workout}}",
+      "restDayDraft": "Why is {{date}} a rest day in my plan?",
+      "loadFailed": "Your plan couldn't be loaded."
+    },
+    "activities": {
+      "heading": "Recent activities",
+      "noProvider": "Connect a fitness provider to see your recent activities here.",
+      "empty": "No activities yet. They show up here once your provider syncs.",
+      "routeTooShort": "This route is too short to draw without showing where it starts.",
+      "mapLoading": "Loading the map…",
+      "routeFailed": "The map couldn't be loaded.",
+      "loadFailed": "Your recent activities couldn't be loaded.",
+      "refreshing": "Checking your provider for new activities…",
+      "syncedAt": "Last synced: {{time}}",
+      "analyzeDraft": "Analyze my activity from {{date}} ({{sport}})",
+      "sketchAlt": "Sketch of the route"
+    }
+  },
   "humanCoach": {
     "attached": "Human coach attached",
     "attachedBadge": "Coach attached",
@@ -1979,6 +2006,7 @@
     "dataProviders": "Data Providers",
     "discover": "Discover",
     "groups": "Groups",
+    "home": "Home",
     "notifications": "Notifications",
     "settings": "Settings",
     "usage": "Usage"

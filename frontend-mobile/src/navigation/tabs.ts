@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The three tabs of the system tab bar — route group, label key, platform glyphs and test id
+// ABOUTME: The four tabs of the system tab bar — route group, label key, platform glyphs and test id
 // ABOUTME: The tabs layout renders one trigger per entry, so the bar and the router cannot list different tabs
 
 import type { SFSymbol } from 'sf-symbols-typescript';
 import type { AndroidSymbol } from 'expo-symbols';
 
 /** The route group a tab opens. */
-export type TabBarRoute = '(chat)' | '(discover)' | '(settings)';
+export type TabBarRoute = '(home)' | '(chat)' | '(discover)' | '(settings)';
 
 /** One tab of the bar. */
 export interface TabBarTab {
@@ -24,12 +24,21 @@ export interface TabBarTab {
 }
 
 /**
- * The tab set, in order. Chat is first because it is where the app lands.
+ * The tab set, in order. Home is first because it is where the app lands
+ * after sign-in, and the tab the Dravr lockup in a header leads back to; Chat
+ * follows as the place the athlete goes to talk to the agent.
  *
  * This is the only copy: `TabsLayout` renders one `NativeTabs.Trigger` per
  * entry, so a tab cannot exist for the router and not for the bar.
  */
 export const TAB_BAR_TABS: readonly TabBarTab[] = [
+  {
+    route: '(home)',
+    labelKey: 'nav.home',
+    sf: { default: 'house', selected: 'house.fill' },
+    md: 'home',
+    testID: 'tab-home',
+  },
   {
     route: '(chat)',
     labelKey: 'app.navChat',

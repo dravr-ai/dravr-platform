@@ -27,6 +27,9 @@ export const featureFlagsApi = pierreApi.featureFlags;
 export const personasApi = pierreApi.personas;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const i18nApi = pierreApi.i18n;
+// The athlete's own training data for the Home page: recent activities, one
+// activity's route, and the plan for today.
+export const athleteApi = pierreApi.athlete;
 
 // Providers API delegates to shared oauth module
 export const providersApi = {

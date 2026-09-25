@@ -1741,6 +1741,33 @@
     "weeklyReport": "Relatório semanal",
     "youSuffix": "(tu)"
   },
+  "home": {
+    "plan": {
+      "tomorrow": "Amanhã",
+      "phaseWeek": "{{phase}} · semana {{week}}",
+      "notCovered": "O teu plano não cobre este dia.",
+      "emptyTitle": "Ainda não tens um plano de treino",
+      "emptyBody": "Fala ao teu agente da tua prova-alvo e ele planeia a tua temporada, semana a semana.",
+      "buildCta": "Criar o meu plano",
+      "buildDraft": "Cria-me um plano de treino para a minha prova-alvo.",
+      "dayDraft": "Explica-me a minha sessão de {{date}}: {{workout}}",
+      "restDayDraft": "Porque é que {{date}} é dia de descanso no meu plano?",
+      "loadFailed": "Não foi possível carregar o teu plano."
+    },
+    "activities": {
+      "heading": "Atividades recentes",
+      "noProvider": "Liga um serviço de fitness para veres aqui as tuas atividades recentes.",
+      "empty": "Ainda não há atividades. Aparecem aqui assim que o teu fornecedor sincronizar.",
+      "routeTooShort": "Este percurso é demasiado curto para ser desenhado sem revelar onde começa.",
+      "mapLoading": "A carregar o mapa…",
+      "routeFailed": "Não foi possível carregar o mapa.",
+      "loadFailed": "Não foi possível carregar as tuas atividades recentes.",
+      "refreshing": "A procurar atividades novas no teu fornecedor…",
+      "syncedAt": "Última sincronização: {{time}}",
+      "analyzeDraft": "Analisa a minha atividade de {{date}} ({{sport}})",
+      "sketchAlt": "Esboço do percurso"
+    }
+  },
   "humanCoach": {
     "attached": "Treinador humano associado",
     "attachedBadge": "Coach associado",
@@ -1979,6 +2006,7 @@
     "dataProviders": "Fornecedores",
     "discover": "Descobrir",
     "groups": "Grupos",
+    "home": "Início",
     "notifications": "Notificações",
     "settings": "Definições",
     "usage": "Utilização"

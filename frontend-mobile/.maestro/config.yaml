@@ -10,6 +10,7 @@ tags:
 # helpers/ is excluded: those are shared sub-flows invoked via runFlow, not standalone tests
 flows:
   - login/**
+  - home/**
   - settings/**
   - chat/**
   - store/**

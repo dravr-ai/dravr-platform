@@ -40,13 +40,14 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       await takeVisualScreenshot(page, 'user-login', 'form-rendered');
     });
 
-    test('user login - successful login redirects to chat', async ({ page }) => {
+    test('user login - successful login lands on Home', async ({ page }) => {
       await loginAsUser(page, 'webtest');
 
-      // Verify we're on the dashboard (not login page)
+      // Verify we're on the dashboard (not login page), on the athlete's Home
       await expect(page.locator('input[name="email"]')).not.toBeVisible();
+      await expect(page.getByTestId('home-page')).toBeVisible();
 
-      await takeVisualScreenshot(page, 'user-login', 'chat-visible');
+      await takeVisualScreenshot(page, 'user-login', 'home-visible');
     });
 
     test('user login - password visibility toggle works', async ({ page }) => {
@@ -237,11 +238,11 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       await takeVisualScreenshot(page, 'user-nav', 'no-insights');
     });
 
-    test('stale #insights hash - lands on chat', async ({ page }) => {
+    test('stale #insights hash - lands on Home', async ({ page }) => {
       await page.goto('/#insights');
       await waitForNetworkIdle(page);
 
-      await expect(page.getByTestId('conversation-list')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('home-page')).toBeVisible({ timeout: 10000 });
       await expect(page.getByText('No Insights Yet')).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Find Friends' })).toHaveCount(0);
 
@@ -324,7 +325,7 @@ test.describe('Role routing — admin tabs are not reachable by hash', () => {
   // UserManagement pane: the server refused every /api/admin call with 403 so
   // no data leaked, but the pane rendered its filter chrome and then retried
   // the 403 on a loop — eight requests for one page view.
-  test('a regular user typing #users lands on chat, not the admin pane', async ({ page }) => {
+  test('a regular user typing #users lands on Home, not the admin pane', async ({ page }) => {
     const adminCalls: string[] = [];
     await page.route('**/api/admin/**', async (route) => {
       adminCalls.push(route.request().url());
@@ -341,8 +342,8 @@ test.describe('Role routing — admin tabs are not reachable by hash', () => {
     // mounts and its endpoints are never called.
     await expect(page.getByRole('button', { name: 'All Users' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Pending' })).toHaveCount(0);
-    // The conversation list proves we landed on the role's own default surface.
-    await expect(page.getByTestId('conversation-list')).toBeVisible();
+    // The Home page proves we landed on the role's own default surface.
+    await expect(page.getByTestId('home-page')).toBeVisible();
     // And nothing should have hammered an endpoint this role cannot use.
     expect(adminCalls, `regular user issued ${adminCalls.length} admin API calls`).toHaveLength(0);
   });

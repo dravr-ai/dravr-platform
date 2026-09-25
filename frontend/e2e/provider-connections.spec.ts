@@ -5,7 +5,7 @@
 // ABOUTME: Tests provider cards, connection flow, disconnect actions, and capability display.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
 // Mock provider status data matching backend ProviderStatus
 const mockProviders = {
@@ -102,7 +102,7 @@ async function setupProviderMocks(page: Page) {
     });
   });
 
-  // Chat conversations (empty, user defaults to Chat tab)
+  // Chat conversations (empty: the chat pane then shows its provider status)
   await page.route('**/api/chat/conversations**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -135,6 +135,8 @@ test.describe('Provider Connections - Chat Provider Cards', () => {
     });
 
     await loginToDashboard(page);
+    // Sign-in lands on Home; the provider status these tests read is the chat pane's.
+    await openChat(page);
 
     // Chat tab should show providers - check page renders
     await page.waitForTimeout(1000);
@@ -155,6 +157,7 @@ test.describe('Provider Connections - Chat Provider Cards', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
 
     // Strava is connected, should show Connected badge
     await expect(page.getByText('Connected').first()).toBeVisible({ timeout: 10000 });
@@ -174,6 +177,7 @@ test.describe('Provider Connections - Chat Provider Cards', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
     await page.waitForTimeout(1000);
 
     // Provider names from server
@@ -215,6 +219,7 @@ test.describe('Provider Connections - OAuth Flow', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
     await page.waitForTimeout(1000);
 
     // Click on Garmin provider card (disconnected)
@@ -258,6 +263,7 @@ test.describe('Provider Connections - Disconnect', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
     await page.waitForTimeout(500);
 
     // Verify disconnect endpoint is reachable via direct fetch
@@ -294,6 +300,7 @@ test.describe('Provider Connections - Error Handling', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
 
     // Page should still render without crashing
     await page.waitForTimeout(1000);
@@ -316,6 +323,7 @@ test.describe('Provider Connections - Error Handling', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
 
     // Page should remain functional even with disconnect failure
     await page.waitForTimeout(500);
@@ -343,6 +351,7 @@ test.describe('Provider Connections - Multiple Providers', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
     await page.waitForTimeout(1000);
 
     // Both Strava (connected) and Garmin (disconnected) should display
@@ -368,6 +377,7 @@ test.describe('Provider Connections - Multiple Providers', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
     await page.waitForTimeout(1000);
 
     // Synthetic providers should display as demo

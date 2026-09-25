@@ -1741,6 +1741,33 @@
     "weeklyReport": "Wochenbericht",
     "youSuffix": "(du)"
   },
+  "home": {
+    "plan": {
+      "tomorrow": "Morgen",
+      "phaseWeek": "{{phase}} · Woche {{week}}",
+      "notCovered": "Dein Plan deckt diesen Tag nicht ab.",
+      "emptyTitle": "Noch kein Trainingsplan",
+      "emptyBody": "Erzähl deinem Agenten von deinem Zielwettkampf, dann plant er deine Saison Woche für Woche.",
+      "buildCta": "Meinen Plan erstellen",
+      "buildDraft": "Erstelle mir einen Trainingsplan für meinen Zielwettkampf.",
+      "dayDraft": "Erklär mir meine Einheit am {{date}}: {{workout}}",
+      "restDayDraft": "Warum ist {{date}} in meinem Plan ein Ruhetag?",
+      "loadFailed": "Dein Plan konnte nicht geladen werden."
+    },
+    "activities": {
+      "heading": "Letzte Aktivitäten",
+      "noProvider": "Verbinde einen Fitness-Dienst, um hier deine letzten Aktivitäten zu sehen.",
+      "empty": "Noch keine Aktivitäten. Sie erscheinen hier, sobald dein Anbieter synchronisiert.",
+      "routeTooShort": "Diese Route ist zu kurz, um sie zu zeigen, ohne ihren Startpunkt preiszugeben.",
+      "mapLoading": "Karte wird geladen…",
+      "routeFailed": "Die Karte konnte nicht geladen werden.",
+      "loadFailed": "Deine letzten Aktivitäten konnten nicht geladen werden.",
+      "refreshing": "Dein Anbieter wird nach neuen Aktivitäten abgefragt…",
+      "syncedAt": "Zuletzt synchronisiert: {{time}}",
+      "analyzeDraft": "Analysiere meine Aktivität vom {{date}} ({{sport}})",
+      "sketchAlt": "Skizze der Route"
+    }
+  },
   "humanCoach": {
     "attached": "Menschlicher Coach zugeordnet",
     "attachedBadge": "Coach zugewiesen",
@@ -1979,6 +2006,7 @@
     "dataProviders": "Anbieter",
     "discover": "Entdecken",
     "groups": "Gruppen",
+    "home": "Start",
     "notifications": "Benachrichtigungen",
     "settings": "Einstellungen",
     "usage": "Nutzung"

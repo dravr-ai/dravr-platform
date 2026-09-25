@@ -230,6 +230,20 @@ export const ENDPOINTS = {
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
+  // ==================== ATHLETE HOME ====================
+  /** The athlete's own training data, read for the Home page */
+  ATHLETE: {
+    /** Newest activities from the durable activity cache, across providers (`?limit=`, 1..=20, default 5) */
+    RECENT_ACTIVITIES: '/api/me/activities/recent',
+    /**
+     * One activity's privacy-trimmed route. Addressed by provider and the
+     * provider's own id, because an id is only unique within its provider.
+     */
+    ACTIVITY_ROUTE: (provider: string, activityId: string) =>
+      `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}/route`,
+    /** The active plan projected for a card, and the athlete's today (`?locale=`) */
+    TRAINING_PLAN: '/api/me/training-plan',
+  },
   // ==================== PERSONAS ====================
   PERSONAS: {
     /** The « Style de coaching » cards, rendered from the live contract registry */

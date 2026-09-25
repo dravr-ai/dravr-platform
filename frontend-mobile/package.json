@@ -24,6 +24,7 @@
     "e2e:integration:watch": "bunx jest --config integration/jest.config.js --watch",
     "maestro": "maestro test .maestro/",
     "maestro:login": "maestro test .maestro/login/",
+    "maestro:home": "maestro test .maestro/home/",
     "maestro:settings": "maestro test .maestro/settings/",
     "maestro:chat": "maestro test .maestro/chat/",
     "maestro:store": "maestro test .maestro/store/",

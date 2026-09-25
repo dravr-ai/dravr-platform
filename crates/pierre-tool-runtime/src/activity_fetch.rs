@@ -75,13 +75,15 @@ const STALE_FALLBACK_LIMIT: i64 = 500;
 const DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS: i64 = 180;
 
 /// Resolve the activity-cache retention window (days) from the environment,
-/// falling back to [`DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS`]. This is both the
+/// falling back to [`DEFAULT_ACTIVITY_CACHE_RETENTION_DAYS`].
+///
+/// This is both the
 /// prune cutoff applied after a write-through and the lookback used when
 /// reading cached rows, so widening it deepens the cache into a historical
 /// store (e.g. to keep a backfilled season) at the cost of more rows retained.
 /// Non-positive or unparseable values fall back to the default.
 #[must_use]
-pub(crate) fn activity_cache_retention_days() -> i64 {
+pub fn activity_cache_retention_days() -> i64 {
     env::var("PIERRE_ACTIVITY_CACHE_RETENTION_DAYS")
         .ok()
         .and_then(|v| v.parse::<i64>().ok())

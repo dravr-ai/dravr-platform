@@ -5,7 +5,7 @@
 // ABOUTME: Web equivalents of the mobile swipe gestures, on the unified list's rows
 
 import { test, expect } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
 const mockConversations = {
   conversations: [
@@ -103,10 +103,11 @@ test.describe('Conversation Management Actions', () => {
       });
     });
     await loginToDashboard(page);
+    // Sign-in lands on Home; the conversation list is Chat's.
+    await openChat(page);
   });
 
   test('should display conversations in sidebar', async ({ page }) => {
-    // User defaults to Chat tab, conversations should be in sidebar
     await expect(page.getByText('Training Plan Discussion')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Nutrition Questions')).toBeVisible();
   });

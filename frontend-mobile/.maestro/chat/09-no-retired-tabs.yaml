@@ -1,4 +1,4 @@
-# ABOUTME: The tab bar carries no Insights, Coaches or Groups tab — Chat, Discover, Settings only
+# ABOUTME: The tab bar carries no Insights, Coaches or Groups tab — Home, Chat, Discover, Settings only
 # ABOUTME: Relocated from visual/06-no-insights-tab.yaml (Boreal v2.2 Phase 6); a regression guard for retired tabs, not a render check, so it does not fold into visual/00-capture.yaml
 
 appId: ai.dravr.app
@@ -10,11 +10,13 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# The athlete lands on chat; the bar offers exactly the surviving tabs.
+# The athlete lands on Home; the bar offers exactly the surviving tabs.
 - extendedWaitUntil:
     visible:
       text: "Discussion|Chat"
     timeout: 15000
+- assertVisible:
+    text: "Accueil|Home"
 - assertVisible:
     text: "Découvrir|Discover"
 - assertVisible:

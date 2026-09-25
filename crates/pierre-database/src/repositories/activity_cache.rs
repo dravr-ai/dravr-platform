@@ -66,6 +66,21 @@ pub struct CaptureFreshness {
     pub last_fetch_at: Option<DateTime<Utc>>,
 }
 
+/// A cached activity with the provider key its row is stored under.
+///
+/// The key is not always the activity's own `provider()`: a row is filed
+/// under the provider name the fetch that wrote it was made for, while a
+/// mirror backend's activities name the backend (`sciotte`) whichever
+/// provider they mirror. A caller that addresses the row again, or deletes it
+/// with its provider's data, needs the key.
+#[derive(Debug, Clone)]
+pub struct CachedActivityRow {
+    /// The provider key the row is stored under.
+    pub provider: String,
+    /// The cached activity.
+    pub activity: Activity,
+}
+
 /// Persistence for activities fetched from any provider, enabling
 /// stale-while-revalidate reads on the chat path.
 ///
@@ -103,6 +118,31 @@ pub trait ActivityCacheRepository: Send + Sync {
         end: DateTime<Utc>,
         limit: i64,
     ) -> AppResult<Vec<Activity>>;
+
+    /// Cached activities for a user within `[start, end]` across every
+    /// provider, newest first, each with the provider key its row is stored
+    /// under.
+    async fn get_cached_activity_rows(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        limit: i64,
+    ) -> AppResult<Vec<CachedActivityRow>>;
+
+    /// One cached activity by its provider and the provider's id for it, or
+    /// `None` when the user holds no such row in this tenant.
+    ///
+    /// The key is the table's own uniqueness key: an activity id is unique
+    /// only within its provider, so two providers can hold the same id.
+    async fn get_cached_activity(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activity_id: &str,
+    ) -> AppResult<Option<Activity>>;
 
     /// Delete every cached activity a provider contributed for a user.
     ///
@@ -269,6 +309,21 @@ pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
     ORDER BY start_date DESC
     LIMIT $6";
 
+/// Cached activities across every provider within a window, newest first,
+/// with the provider key each row is stored under.
+pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
+    SELECT provider, data_json
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND start_date >= $3 AND start_date <= $4
+    ORDER BY start_date DESC
+    LIMIT $5";
+
+/// One cached activity, by the table's uniqueness key.
+pub(crate) const GET_CACHED_ACTIVITY_SQL: &str = r"
+    SELECT data_json
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
+
 /// Latest `synced_at` a provider's cached rows carry for a user.
 pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
     SELECT synced_at
@@ -428,13 +483,15 @@ macro_rules! capture_freshness_snapshot_sql {
 pub(crate) use capture_freshness_snapshot_sql;
 
 /// String form of an activity's sport type for the indexed column.
+///
 /// `SportType` is an externally-tagged enum: named variants serialize as a JSON
 /// string (`"run"`, `"trail_running"`), but the catch-all `Other(String)`
 /// serializes as an object (`{"other": "<provider_type>"}`). Unwrap that object
 /// to the inner provider string so unmapped sports (e.g. a Strava type cageux
 /// has no named variant for) get a real column value instead of `NULL` — the
 /// canonical value always remains in `data_json` regardless.
-pub(crate) fn sport_type_string(activity: &Activity) -> Option<String> {
+#[must_use]
+pub fn sport_type_string(activity: &Activity) -> Option<String> {
     match serde_json::to_value(activity.sport_type()).ok()? {
         serde_json::Value::String(s) => Some(s),
         serde_json::Value::Object(map) => {
@@ -486,6 +543,26 @@ where
         .map_err(|e| AppError::database(format!("activity col data_json: {e}")))?;
     serde_json::from_str::<Activity>(&data_json)
         .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))
+}
+
+/// Read a [`CachedActivityRow`] out of one `(provider, data_json)` row.
+///
+/// # Errors
+/// Returns a database error when either column is missing or `data_json`
+/// does not hold an `Activity`.
+pub(crate) fn cached_activity_row_from_row<R>(row: &R) -> AppResult<CachedActivityRow>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let provider: String = row
+        .try_get("provider")
+        .map_err(|e| AppError::database(format!("activity col provider: {e}")))?;
+    Ok(CachedActivityRow {
+        provider,
+        activity: activity_from_row(row)?,
+    })
 }
 
 /// Extract a [`BackfillCoverage`] from a row of either backend.
@@ -656,6 +733,48 @@ macro_rules! impl_activity_cache_repository {
                         AppError::database(format!("Failed to get cached activities: {e}"))
                     })?;
                 rows.iter().map(activity_from_row).collect()
+            }
+
+            async fn get_cached_activity_rows(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                start: DateTime<Utc>,
+                end: DateTime<Utc>,
+                limit: i64,
+            ) -> AppResult<Vec<CachedActivityRow>> {
+                let rows = sqlx::query(GET_CACHED_ACTIVITY_ROWS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(start)
+                    .bind(end)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get cached activity rows: {e}"))
+                    })?;
+                rows.iter().map(cached_activity_row_from_row).collect()
+            }
+
+            async fn get_cached_activity(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activity_id: &str,
+            ) -> AppResult<Option<Activity>> {
+                let row = sqlx::query(GET_CACHED_ACTIVITY_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(activity_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get cached activity: {e}"))
+                    })?;
+                row.as_ref().map(activity_from_row).transpose()
             }
 
             async fn latest_activity_sync(

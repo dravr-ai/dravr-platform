@@ -309,8 +309,14 @@ describe('client locale corpus', () => {
     // `messaging.reply_stop.truncated` and `.filtered`. +2.
     // 2466 once the legacy Fitbit Web API provider was deleted:
     // `providers.fitbit`, a brand name nothing rendered, went with it. -1.
+    // 2488 once the athlete landed on Home: `nav.home` names the page, the
+    // rail's logo button and the phone's first tab; `home.plan.*` is today,
+    // tomorrow, the phase week, the no-plan call to build one and the drafts
+    // a tapped day opens in chat; `home.activities.*` is the recent list's
+    // heading, sync line, empty and failure states and its analyze draft.
+    // +22.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2466);
+    expect(reference).toHaveLength(2488);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
