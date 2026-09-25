@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Lints fixtures through the real web and mobile ESLint configs
+// ABOUTME: Lints fixtures through the real web, mobile and shared-package ESLint configs
 // ABOUTME: Proves each refuses a thrown error's raw message and accepts the shared classifier
 
 import path from 'node:path';
@@ -15,12 +15,13 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 /**
  * Each config that lints code an athlete can see, with a path inside it that
  * the restriction must cover. The mobile config imports the shared entries by
- * a relative path and the web config through the package, so both are checked
- * rather than one standing in for the other.
+ * a relative path and the web and package configs through the package, so
+ * each is checked rather than one standing in for the others.
  */
 const CONFIGS = [
   { name: 'web', cwd: path.join(REPO_ROOT, 'frontend'), file: 'src/components/Fixture.tsx' },
   { name: 'mobile', cwd: path.join(REPO_ROOT, 'frontend-mobile'), file: 'src/screens/Fixture.tsx' },
+  { name: 'shared packages', cwd: path.join(REPO_ROOT, 'packages'), file: 'ui-logic/src/fixture.ts' },
 ] as const;
 
 const PREAMBLE = `
