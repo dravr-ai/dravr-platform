@@ -164,7 +164,6 @@ echo "Redaction function references (should be >0)"
 - `scripts/ci/validate-no-secrets.sh` - Secret detection script
 - `.gitignore` - Excludes .env and sensitive files
 - `.env.example` - Template for environment variables
-- `book/src/configuration.md` - Configuration documentation
 
 ## Related Skills
 - `validate-architecture` - Architectural validation

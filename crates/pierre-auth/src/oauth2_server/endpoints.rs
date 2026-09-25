@@ -543,8 +543,6 @@ impl OAuth2AuthorizationServer {
         // Implementation: oauth2_states table (src/database/mod.rs:232)
         // Consumption: validate_and_consume_auth_code() below (line ~457)
         // Tests: tests/oauth2_state_validation_test.rs (7 security scenarios)
-        //
-        // See docs/oauth2-server.md "State Parameter Validation" for integration guide
         if let Some(state_value) = params.state {
             let oauth2_state = super::models::OAuth2State {
                 state: state_value.to_owned(),

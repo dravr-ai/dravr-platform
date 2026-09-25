@@ -278,10 +278,6 @@ cd android && ./gradlew clean && cd ..
 2. For physical devices, use your machine's IP instead of localhost
 3. Check firewall allows connections on port 8081
 
-## Contributing
-
-See [Contributing Guide](../CONTRIBUTING.md) and [Mobile Development Guide](../book/src/mobile-development.md).
-
 ## License
 
-See root [LICENSE](../LICENSE) file.
+See [LICENSE.md](../LICENSE.md).

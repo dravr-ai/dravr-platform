@@ -4,7 +4,7 @@
 
 ## Project map
 
-- `crates/` — Cargo workspace, 48 crates. Leaf crates are independent reusable modules; **none** depend on `pierre_mcp_server`. Tool extensibility lives in `pierre-server`'s `tools::ToolRegistry` (implement `McpTool`, register in `register_builtin_tools` — see [book/src/tool-development.md](book/src/tool-development.md)).
+- `crates/` — Cargo workspace, 48 crates. Leaf crates are independent reusable modules; **none** depend on `pierre_mcp_server`. Tool extensibility lives in `pierre-server`'s `tools::ToolRegistry` (implement `McpTool`, register in `register_builtin_tools`).
 - `crates/pierre-server/tests/` — all integration tests (~600 files). Doc tests compile per-crate. No `#[cfg(test)]` in `src/` — tests are external only.
 - `frontend/` — web SPA (Vite, React, TailwindCSS, port 3000).
 - `frontend-mobile/` — React Native / Expo app (NativeWind, port 8082).
@@ -448,7 +448,6 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 | Audit / design analysis / session handoff / report | dravr-vault `Work Log/` (`kind:` audit / design / handoff / report) |
 | Training science: a formula, threshold, or framing rule | dravr-vault `Methodology/` (see the standing-folders block below) |
 | Feature R&D / feasibility analysis, not yet committed to | dravr-vault `Features/Potential/` (`stage: potential` + `verdict:`) |
-| Reference docs that ship | repo `book/src/` (mdBook) |
 | Directory-scoped specs | repo `<dir>/README.md` |
 
 - **Local Claude Code (this CLI):** prefer the vault via `obsidian-writer`. Avoid `gh gist create` for the doc types above — gists aren't vault-searchable or wikilinkable.
@@ -477,7 +476,7 @@ they go stale silently and are read as current, by humans and by you.
 | `Pillars/` | the six-pillar framework and its evidence base | you touch `Pillar`, the pillars walk, coverage, or onboarding topics | the pillar set, its definitions, or its assessment approach changes |
 
 - **Update in the same session as the change**, not "later" — a note whose `updated:` trails its source is how a folder quietly stops being maintained.
-- **The code wins every disagreement.** Most `Methodology/` notes mirror `book/src/*-methodology.md` and name it in `source:`, but the repo doc drifts from the code too: the 2026-08-21 review found published recovery weights of `TSB 40 / Sleep 35 / HRV 25` against shipped defaults of `40 / 40 / 20`. A note faithful to a stale mirror is still wrong. Read thresholds from the source, never from memory — and when the repo doc is the one at fault, fix it there too.
+- **The code wins every disagreement.** The 2026-08-21 review found published recovery weights of `TSB 40 / Sleep 35 / HRV 25` against shipped defaults of `40 / 40 / 20`. A note faithful to a stale mirror is still wrong. Read thresholds from the source, never from memory.
 - **Some framing rules in `Methodology/` are CI-enforced, not advisory.** ACWR and load ratios ship as descriptive magnitudes, never injury risk (`scripts/ci/check-contremaitre-sync.sh` Check 4, all five locales); form is banded as a share of the athlete's own CTL, never absolute TSB. Breaking either fails a push — read the note before writing a prompt, tool description, or locale string.
 - `Methodology/README.md` carries the sync contract and a runnable drift check; `Features/README.md` carries the frontmatter contract that `Features.base` selects on. These are enforced by Bases views and human review, not by CI — which is exactly why they need you to follow them.
 - R&D that is not yet committed to goes in `Features/Potential/` with `stage: potential` and a `verdict:`, plus a row in that folder's README index — not in `Work Log/`.

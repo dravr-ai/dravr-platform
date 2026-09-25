@@ -1,12 +1,12 @@
 // ABOUTME: Boreal Editorial design tokens shared across Dravr web and mobile
-// ABOUTME: Sourced from docs/design/boreal-design-system.md — dravr.ai canonical brand
+// ABOUTME: Vendored from the dravr-website global.css — dravr.ai canonical brand
 
 // ========== BOREAL LIGHT — MD3 TOKEN TREE ==========
 
 /**
  * Canonical MD3 light token set vendored from the dravr-website global.css.
  * Web reads this directly; mobile reads it via its theme context when the
- * system color scheme is light. Values mirror docs/design/boreal-tokens.reference.css.
+ * system color scheme is light.
  */
 export const BOREAL_LIGHT = {
   /** Sage-forest — the one accent, legible as text (4.7:1 on the darkest tier) and under white (7.4:1). */

@@ -490,10 +490,8 @@ When adding new agents or skills:
 
 ## 📚 Related Documentation
 
-- `CONTRIBUTING.md` - Contribution guidelines
 - `.claude/CLAUDE.md` - CLAUDE.md compliance checklist
 - `scripts/ci/validation-patterns.toml` - Architectural validation patterns
-- `book/src/ci-cd.md` - CI/CD workflow documentation
 
 ## 💡 Tips for Claude Code Users
 

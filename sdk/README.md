@@ -39,7 +39,6 @@ Add to your MCP client configuration file:
 **Configuration File Locations:**
 - **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 - **ChatGPT**: `~/Library/Application Support/ChatGPT/config.json` (macOS)
-- See [full installation guide](https://github.com/dravr-ai/dravr-platform/blob/main/book/src/installation-guides/install-mcp-client.md) for all platforms
 
 ## What It Does
 
@@ -86,7 +85,7 @@ Once connected, your AI assistant can access 100+ fitness tools including:
 
 Ask your AI assistant: *"What fitness tools do you have access to?"*
 
-See [Tools Reference](../book/src/tools-reference.md) for complete documentation.
+See [`packages/mcp-types/src/tools.ts`](../packages/mcp-types/src/tools.ts) for the complete tool list.
 
 ## Requirements
 
@@ -282,8 +281,6 @@ rm ~/.pierre-mcp-tokens.enc
 
 ## Documentation
 
-- [Tools Reference](../book/src/tools-reference.md)
-- [Installation Guide](https://github.com/dravr-ai/dravr-platform/blob/main/book/src/installation-guides/install-mcp-client.md)
 - [Server Documentation](https://github.com/dravr-ai/dravr-platform)
 
 ## Support

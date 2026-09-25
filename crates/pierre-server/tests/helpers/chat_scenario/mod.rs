@@ -1,5 +1,5 @@
 // ABOUTME: Chat conversation eval framework — multi-turn YAML scenarios with locale matrix + drift detection
-// ABOUTME: Public API: load scenario, build driver, run, assert. See book/src/eval/scenario-authoring.md
+// ABOUTME: Public API: load scenario, build driver, run, assert. See tests/scenarios/*.yaml
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

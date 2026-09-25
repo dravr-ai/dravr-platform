@@ -27,8 +27,6 @@
 #
 # Generate encryption key: openssl rand -base64 32
 #
-# Full documentation: book/src/environment.md
-#
 # ============================================================================
 # SERVER CONFIGURATION
 # ============================================================================

@@ -175,19 +175,6 @@ else
     print_fail "Missing dist files (run 'npm run build' in sdk/)"
 fi
 
-# 14. CHANGELOG check
-print_check "CHANGELOG entry"
-
-if [ -f "CHANGELOG.md" ]; then
-    if grep -q "## \[${SDK_VERSION}\]" CHANGELOG.md 2>/dev/null; then
-        print_pass "CHANGELOG entry found for ${SDK_VERSION}"
-    else
-        print_warn "No CHANGELOG entry for version ${SDK_VERSION}"
-    fi
-else
-    print_warn "CHANGELOG.md not found"
-fi
-
 # Summary
 echo ""
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"

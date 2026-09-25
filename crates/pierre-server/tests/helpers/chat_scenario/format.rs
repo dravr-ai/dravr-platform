@@ -12,8 +12,7 @@
 //! of [`AssertionSpec`], so a YAML author cannot smuggle in arbitrary
 //! Rust expressions that would silently no-op against the framework.
 //!
-//! See `tests/scenarios/*.yaml` for canonical examples and
-//! `book/src/eval/scenario-authoring.md` for the contributor guide.
+//! See `tests/scenarios/*.yaml` for canonical examples.
 
 use std::collections::BTreeMap;
 use std::error::Error;

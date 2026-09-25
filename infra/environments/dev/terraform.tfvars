@@ -66,8 +66,7 @@ backend_memory = "2Gi"
 # the runner is Cloud Tasks (turn_queue.tf, PIERRE_TURN_* below), so the turn
 # executes INSIDE a request Cloud Run waits for and an idle scaledown does not
 # pick it; and a turn interrupted anyway is resumed on the next instance
-# through the same status placeholder rather than apologised for. See
-# book/src/messaging-gateway.md.
+# through the same status placeholder rather than apologised for.
 backend_min_instances = 0
 # Capped at 3 by the DB connection budget (see the concurrency block below):
 # max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With
