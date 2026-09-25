@@ -429,6 +429,8 @@ macro_rules! impl_seeder_repository {
                     .bind(&activity.city)
                     .bind(&activity.region)
                     .bind(&activity.country)
+                    .bind(activity.start_latitude)
+                    .bind(activity.start_longitude)
                     .bind(activity.created_at)
                     .bind(activity.updated_at)
                     .execute(self.pool())

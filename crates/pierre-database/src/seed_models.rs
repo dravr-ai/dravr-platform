@@ -88,6 +88,10 @@ pub struct SeedSyntheticActivity {
     pub region: String,
     /// Country
     pub country: String,
+    /// Where the activity started, when it was recorded outdoors with GPS
+    pub start_latitude: Option<f64>,
+    /// Longitude of [`Self::start_latitude`]
+    pub start_longitude: Option<f64>,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
     /// Record update timestamp

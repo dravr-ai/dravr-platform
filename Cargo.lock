@@ -3885,6 +3885,7 @@ version = "0.3.0"
 dependencies = [
  "axum",
  "chrono",
+ "pierre-fitness-compute",
  "serde",
  "serde_json",
  "sqlx",
