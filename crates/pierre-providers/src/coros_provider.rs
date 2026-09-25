@@ -441,7 +441,6 @@ impl FitnessProvider for CorosProvider {
                 client_secret: &credentials.client_secret,
                 refresh_token: &refresh_token,
                 provider_name: oauth_providers::COROS,
-                client_auth: utils::ClientAuth::FormFields,
                 extra_form: &[],
             },
         )

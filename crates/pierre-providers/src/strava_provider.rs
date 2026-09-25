@@ -611,7 +611,6 @@ impl FitnessProvider for StravaProvider {
                 client_secret: &credentials.client_secret,
                 refresh_token: &refresh_token,
                 provider_name: oauth_providers::STRAVA,
-                client_auth: utils::ClientAuth::FormFields,
                 extra_form: &[],
             },
         )

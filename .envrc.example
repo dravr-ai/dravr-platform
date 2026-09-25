@@ -163,18 +163,6 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # export PIERRE_GARMIN_SCOPES="wellness:read,activities:read"
 
 # ----------------------------------------------------------------------------
-# Fitbit Provider Configuration
-# ----------------------------------------------------------------------------
-# OAuth Credentials (required for Fitbit OAuth)
-# Code reads FITBIT_CLIENT_ID first, falls back to PIERRE_FITBIT_CLIENT_ID
-# export FITBIT_CLIENT_ID=your-fitbit-client-id
-# export FITBIT_CLIENT_SECRET=your-fitbit-client-secret
-# export FITBIT_REDIRECT_URI=http://localhost:8081/api/oauth/callback/fitbit
-# export PIERRE_FITBIT_CLIENT_ID=your-fitbit-client-id  # Alternative prefix
-# export PIERRE_FITBIT_CLIENT_SECRET=your-fitbit-client-secret
-# export PIERRE_FITBIT_SCOPES="activity profile sleep heartrate weight"
-
-# ----------------------------------------------------------------------------
 # WHOOP Provider Configuration
 # ----------------------------------------------------------------------------
 # export WHOOP_CLIENT_ID=your-whoop-client-id
@@ -472,10 +460,6 @@ export STRAVA_DEFAULT_ACTIVITIES_PER_PAGE="30"
 export STRAVA_MAX_ACTIVITIES_PER_REQUEST="200"
 export STRAVA_RATE_LIMIT_15MIN="100"
 export STRAVA_RATE_LIMIT_DAILY="15000"
-
-# Fitbit Provider Settings
-export FITBIT_RATE_LIMIT_HOURLY="150"
-export FITBIT_RATE_LIMIT_DAILY="1000"
 
 # Garmin Provider Settings
 export GARMIN_DEFAULT_ACTIVITIES_PER_PAGE="20"

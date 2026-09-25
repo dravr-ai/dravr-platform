@@ -9,7 +9,6 @@ use crate::protocol::token_writeback::persist_refreshed_token;
 use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
-use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
 use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 use pierre_auth::oauth2_client::client::whoop::refresh_whoop_token;
 use pierre_auth::strava_pool;
@@ -39,7 +38,7 @@ pub struct TokenData {
     pub expires_at: DateTime<Utc>,
     /// OAuth scopes as comma-separated string
     pub scopes: String,
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava", "whoop")
     pub provider: String,
     /// Provider-side user id for API-key providers (e.g. Intervals.icu
     /// `athlete_id`, used as the HTTP Basic username). `None` for OAuth
@@ -111,13 +110,12 @@ impl OAuthError {
 #[derive(Debug, Clone, Copy)]
 enum RefreshEndpoint {
     Strava,
-    Fitbit,
     Whoop,
 }
 
 impl RefreshEndpoint {
     fn of(provider: &str) -> Option<Self> {
-        [Self::Strava, Self::Fitbit, Self::Whoop]
+        [Self::Strava, Self::Whoop]
             .into_iter()
             .find(|endpoint| provider.eq_ignore_ascii_case(endpoint.provider()))
     }
@@ -125,7 +123,6 @@ impl RefreshEndpoint {
     const fn provider(self) -> &'static str {
         match self {
             Self::Strava => oauth_providers::STRAVA,
-            Self::Fitbit => oauth_providers::FITBIT,
             Self::Whoop => oauth_providers::WHOOP,
         }
     }
@@ -980,9 +977,6 @@ impl AuthService {
             RefreshEndpoint::Strava => {
                 refresh_strava_token(http_client, &client_id, &client_secret, refresh_token).await
             }
-            RefreshEndpoint::Fitbit => {
-                refresh_fitbit_token(http_client, &client_id, &client_secret, refresh_token).await
-            }
             RefreshEndpoint::Whoop => {
                 refresh_whoop_token(http_client, &client_id, &client_secret, refresh_token).await
             }
@@ -1012,7 +1006,7 @@ impl AuthService {
         }
 
         // Return the refreshed token data. The refresh endpoints of the bearer
-        // providers (strava/fitbit/whoop) return no owner id; the caller fills
+        // providers (strava/whoop) return no owner id; the caller fills
         // it from the stored row (`owner_id_after_refresh`).
         Ok(Some(TokenData {
             provider: provider.to_owned(),

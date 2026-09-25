@@ -751,21 +751,19 @@ impl ToolHandlers {
                 provider: String::new(),
                 strava_client_id: None,
                 strava_client_secret: None,
-                fitbit_client_id: None,
-                fitbit_client_secret: None,
             });
 
         let provider_name = params.provider.to_lowercase();
 
         // Validate provider
-        if provider_name.is_empty() || !["strava", "fitbit"].contains(&provider_name.as_str()) {
+        if provider_name != "strava" {
             return McpResponse {
                 jsonrpc: JSONRPC_VERSION.to_owned(),
                 id: Some(request_id),
                 result: Some(json!({
                     "content": [{
                         "type": "text",
-                        "text": format!("Invalid provider '{provider_name}'. Supported providers are: strava, fitbit")
+                        "text": format!("Invalid provider '{provider_name}'. Supported providers are: strava")
                     }],
                     "isError": true
                 })),

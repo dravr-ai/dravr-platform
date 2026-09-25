@@ -88,7 +88,7 @@ class MockMCPClient extends EventEmitter {
           }
 
           // Validate provider is valid
-          if (args.provider !== 'strava' && args.provider !== 'garmin' && args.provider !== 'fitbit') {
+          if (args.provider !== 'strava' && args.provider !== 'garmin' && args.provider !== 'whoop') {
             return {
               jsonrpc: '2.0',
               id: this.requestId,

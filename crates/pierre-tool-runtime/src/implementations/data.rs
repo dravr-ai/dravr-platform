@@ -106,7 +106,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
+                    "Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -547,7 +547,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // from the durable activity cache; on a cold cache, kick off a bounded
             // background backfill and tell the caller to ask again shortly. The gate
             // fires ONLY for scrape-backed mirror providers (sciotte) — OAuth API
-            // providers (Strava, Fitbit, …) fetch deep windows inline (fast API).
+            // providers (Strava, WHOOP, …) fetch deep windows inline (fast API).
             // `provider_name` is already canonicalized to the backend above, so
             // route on it directly: a deep window on a scrape-backed mirror
             // (sciotte / sciotte_garmin) goes to background backfill; a fast OAuth

@@ -108,7 +108,7 @@ describe('Response Validation E2E Tests', () => {
       const multiProviderResponse = {
         providers: {
           strava: { connected: true, status: 'connected' },
-          fitbit: { connected: false, status: 'disconnected' },
+          whoop: { connected: false, status: 'disconnected' },
         },
       };
 

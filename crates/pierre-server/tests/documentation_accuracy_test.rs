@@ -42,7 +42,6 @@ const PROVIDER_DISPLAY_NAMES: &[(&str, &str)] = &[
     ("provider-whoop", "Whoop"),
     ("provider-sciotte", "Sciotte"),
     ("provider-intervals-icu", "Intervals.icu"),
-    ("provider-fitbit", "Fitbit"),
     ("provider-terra", "Terra"),
     ("provider-coros", "Coros"),
 ];

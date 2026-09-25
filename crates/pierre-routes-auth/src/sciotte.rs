@@ -35,6 +35,8 @@ use pierre_providers::sciotte_remote::{
     shed_retry_after_secs, RemoteLoginOutcome, RemoteSciotteClient, RETRY_AFTER_SECS_DETAIL,
 };
 
+#[cfg(feature = "health-sync")]
+use crate::oauth::spawn_health_backfill;
 use crate::sciotte_session_reuse::try_reuse_existing_session;
 use crate::trainingpeaks_account::{spawn_login_probe, supersede_delegated_link};
 use crate::AuthRoutesContext;
@@ -376,6 +378,16 @@ async fn store_sciotte_session(
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
+
+    // The session also feeds the health sync (Garmin's and COROS's nights,
+    // resting heart rate, HRV, body metrics): read its window now rather than
+    // at the next scheduled cycle.
+    #[cfg(feature = "health-sync")]
+    spawn_health_backfill(
+        resources,
+        &user_id.to_string(),
+        backend_resolver::user_facing_name(provider_name),
+    );
 
     // Pre-fetch activities in background so the cache is warm when the user
     // chats. A TrainingPeaks coach account has no calendar of its own, so its

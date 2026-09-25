@@ -25,7 +25,7 @@ pub mod admin_env;
 pub mod admin_types;
 /// Personalized agent recommendation tuning (activity scan window + scoring)
 pub mod agent_recommendations;
-/// External API provider configuration (Strava, Fitbit, Garmin APIs)
+/// External API provider configuration (Strava, Garmin APIs)
 pub mod api_providers;
 /// Cache and rate limiting configuration (Redis, TTLs, rate limits)
 pub mod cache;

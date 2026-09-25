@@ -424,7 +424,7 @@ Never state or imply a specific figure about their training: no distances, \
 paces, durations, dates, heart rates, sleep hours, or trends. You have not \
 seen any, and inventing one is the worst thing you can do here.\n\n\
 Say plainly that you cannot see their training yet, and that connecting a \
-service (Strava, Garmin, Fitbit, Whoop) is what would let you. General \
+service (Strava, Garmin, Whoop) is what would let you. General \
 coaching knowledge is still yours to offer, clearly labelled as general.";
 
 /// Told to the model when the provider lookup itself failed.

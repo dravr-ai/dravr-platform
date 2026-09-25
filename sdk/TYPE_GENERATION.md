@@ -62,7 +62,7 @@ export interface GetActivitiesParams {
   /** Maximum number of activities to return */
   limit?: number;
 
-  /** Provider name (strava, garmin, fitbit, whoop, terra) */
+  /** Provider name (strava, garmin, whoop, terra) */
   provider?: string;
 }
 

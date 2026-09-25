@@ -169,12 +169,12 @@ describe('provider token callback authentication', () => {
   test('the flow secret in the query string is accepted for the same flow', async () => {
     const res = await httpRequest(port, {
       method: 'POST',
-      path: `/oauth/provider-callback/fitbit?callback_token=${callbackToken}`,
-      json: { access_token: 'fitbit-access-token', expires_in: 28800 },
+      path: `/oauth/provider-callback/whoop?callback_token=${callbackToken}`,
+      json: { access_token: 'whoop-access-token', expires_in: 28800 },
     });
 
     expect(res.status).toBe(200);
-    expect(provider.getProviderToken('fitbit').access_token).toBe('fitbit-access-token');
+    expect(provider.getProviderToken('whoop').access_token).toBe('whoop-access-token');
   });
 
   test('an authenticated payload without an access token stores nothing', async () => {

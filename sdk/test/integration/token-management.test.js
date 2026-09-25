@@ -160,8 +160,8 @@ describe('Token Storage - Secure Keychain Integration', () => {
           expires_at: Date.now() + 3600000,
           token_type: 'Bearer'
         },
-        fitbit: {
-          access_token: 'fitbit_access_token',
+        whoop: {
+          access_token: 'whoop_access_token',
           expires_at: Date.now() + 7200000
         }
       }
@@ -171,7 +171,7 @@ describe('Token Storage - Secure Keychain Integration', () => {
 
     const loaded = JSON.parse(fs.readFileSync(testTokenFilePath, 'utf-8'));
     expect(loaded.providers).toHaveProperty('strava');
-    expect(loaded.providers).toHaveProperty('fitbit');
+    expect(loaded.providers).toHaveProperty('whoop');
     expect(loaded.providers.strava.access_token).toBe('strava_access_token');
   });
 
@@ -442,7 +442,7 @@ describe('Provider Token Management', () => {
       },
       providers: {
         strava: { access_token: 'strava_token' },
-        fitbit: { access_token: 'fitbit_token' }
+        whoop: { access_token: 'whoop_token' }
       }
     };
 
@@ -450,7 +450,7 @@ describe('Provider Token Management', () => {
     delete tokens.providers.strava;
 
     expect(tokens.providers.strava).toBeUndefined();
-    expect(tokens.providers.fitbit).toBeDefined();
+    expect(tokens.providers.whoop).toBeDefined();
     expect(tokens.pierre).toBeDefined();
   });
 

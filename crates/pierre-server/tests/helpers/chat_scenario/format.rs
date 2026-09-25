@@ -112,7 +112,7 @@ fn default_locales() -> Vec<String> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderState {
     /// Per-provider activity lists. Key is the BCP-47 provider name
-    /// recognized by the fixture (`strava`, `fitbit`, `garmin`, etc.).
+    /// recognized by the fixture (`strava`, `garmin`, `whoop`, etc.).
     #[serde(default)]
     pub providers: BTreeMap<String, ProviderActivities>,
 }

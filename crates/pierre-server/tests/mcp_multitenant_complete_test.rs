@@ -16,11 +16,10 @@ use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-    ExternalServicesConfig, FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig,
-    HttpClientConfig, LogLevel, LoggingConfig, OAuth2ServerConfig, OAuthConfig,
-    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
-    SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
-    WeatherServiceConfig,
+    ExternalServicesConfig, GarminApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
+    ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -91,13 +90,6 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: Some("http://localhost:8081/oauth/callback/fitbit".to_owned()),
-                scopes: vec!["activity".to_owned()],
-                enabled: false,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -147,13 +139,6 @@ fn create_test_config(port: u16) -> Arc<ServerConfig> {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
@@ -223,7 +208,6 @@ impl MultiTenantMcpClient {
             password_hash,
             tier: UserTier::Starter,
             strava_token: None,
-            fitbit_token: None,
             is_active: true,
             user_status: UserStatus::Active, // Already active
             is_admin: false,
@@ -270,20 +254,6 @@ impl MultiTenantMcpClient {
         repos
             .tenants
             .store_oauth_credentials(&strava_credentials)
-            .await?;
-
-        let fitbit_credentials = TenantOAuthCredentials {
-            tenant_id: tenant_uuid,
-            provider: "fitbit".to_owned(),
-            client_id: "test_fitbit_client_id".to_owned(),
-            client_secret: "test_fitbit_client_secret".to_owned(),
-            redirect_uri: "http://localhost:3000/auth/callback".to_owned(),
-            scopes: vec!["activity".to_owned(), "profile".to_owned()],
-            rate_limit_per_day: 1000,
-        };
-        repos
-            .tenants
-            .store_oauth_credentials(&fitbit_credentials)
             .await?;
 
         // User and tenant are already created above
@@ -518,8 +488,6 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     // Set required environment variables for OAuth
     env::set_var("STRAVA_CLIENT_ID", "test_client_id");
     env::set_var("STRAVA_CLIENT_SECRET", "test_client_secret");
-    env::set_var("FITBIT_CLIENT_ID", "test_fitbit_client_id");
-    env::set_var("FITBIT_CLIENT_SECRET", "test_fitbit_client_secret");
 
     let (database, auth_manager, server_port, _temp_dir, stored_jwt_secret) =
         setup_test_environment().await?;
@@ -673,7 +641,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     );
     assert!(
         !providers.contains_key("fitbit"),
-        "fitbit is not compiled into server-full and must not be offered: {providers:?}"
+        "fitbit is not a provider and must not be offered: {providers:?}"
     );
     // Every entry carries the lifecycle state an MCP client reconnects on.
     for (name, entry) in providers {
@@ -1171,7 +1139,6 @@ async fn test_multitenant_server_config() -> Result<()> {
     // Verify configuration (port is dynamically allocated)
     assert!(config.http_port >= 30000 && config.http_port < 65535);
     assert!(config.oauth.strava.enabled);
-    assert!(!config.oauth.fitbit.enabled);
     assert_eq!(config.app_behavior.protocol.mcp_version, "2025-11-25");
     assert_eq!(
         config.app_behavior.protocol.server_name,

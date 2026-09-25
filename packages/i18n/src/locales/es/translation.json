@@ -753,7 +753,7 @@
     "brandCoros": "COROS",
     "corosAccount": "Cuenta de COROS",
     "corosEmail": "Correo de COROS",
-    "provCorosBlurb": "Actividades de los relojes COROS",
+    "provCorosBlurb": "Actividades y métricas de recuperación de los relojes COROS",
     "provCorosShort": "Actividades y vueltas"
   },
   "auth": {
@@ -2289,7 +2289,7 @@
     "synthTest": "Datos de prueba sintéticos para desarrollo",
     "whoop": "Métricas de recuperación, esfuerzo y sueño",
     "trainingpeaks": "Entrenamientos completados y su carga de entrenamiento desde TrainingPeaks",
-    "coros": "Actividades de relojes COROS"
+    "coros": "Actividades y métricas de recuperación de relojes COROS"
   },
   "providers": {
     "add": "Añadir proveedor",
@@ -2309,7 +2309,6 @@
     "failedConnectRetry": "No se pudo conectar el proveedor. Inténtalo de nuevo.",
     "failedLoadProviderStatus": "No se pudo cargar el estado de los proveedores",
     "failedToConnectReason": "Error al conectar: {{reason}}",
-    "fitbit": "Fitbit",
     "fitnessHint": "Conecta tus cuentas deportivas para sincronizar actividades, métricas de salud y más.",
     "fitnessTitle": "Proveedores de datos",
     "garmin": "Garmin",

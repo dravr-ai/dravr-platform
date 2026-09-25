@@ -9,7 +9,6 @@ use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 #[cfg(any(
     feature = "provider-strava",
     feature = "provider-garmin",
-    feature = "provider-fitbit",
     feature = "provider-terra",
     feature = "provider-whoop",
     feature = "provider-coros"
@@ -18,7 +17,6 @@ use pierre_auth::config::oauth::load_provider_env_config;
 #[cfg(any(
     feature = "provider-strava",
     feature = "provider-garmin",
-    feature = "provider-fitbit",
     feature = "provider-terra",
     feature = "provider-whoop",
     feature = "provider-coros",
@@ -39,8 +37,6 @@ use uuid::Uuid;
 // Conditional imports for provider-specific types
 #[cfg(feature = "provider-coros")]
 use crate::coros_provider::CorosProviderFactory;
-#[cfg(feature = "provider-fitbit")]
-use crate::fitbit_provider::FitbitProviderFactory;
 #[cfg(feature = "provider-garmin")]
 use crate::garmin_provider::GarminProviderFactory;
 #[cfg(feature = "provider-intervals-icu")]
@@ -56,8 +52,6 @@ use crate::sciotte_provider::{
 use crate::sciotte_remote::AthleteId;
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
-#[cfg(feature = "provider-fitbit")]
-use crate::spi::FitbitDescriptor;
 #[cfg(feature = "provider-garmin")]
 use crate::spi::GarminDescriptor;
 #[cfg(feature = "provider-intervals-icu")]
@@ -120,7 +114,6 @@ impl ProviderRegistry {
         // Register all enabled providers
         Self::register_strava(&mut registry);
         Self::register_garmin(&mut registry);
-        Self::register_fitbit(&mut registry);
         Self::register_terra(&mut registry);
         Self::register_whoop(&mut registry);
         Self::register_coros(&mut registry);
@@ -200,39 +193,6 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-garmin"))]
     fn register_garmin(_registry: &mut Self) {}
-
-    /// Register Fitbit provider with environment-based configuration
-    #[cfg(feature = "provider-fitbit")]
-    fn register_fitbit(registry: &mut Self) {
-        registry.register_factory(oauth_providers::FITBIT, Box::new(FitbitProviderFactory));
-        registry.register_descriptor(oauth_providers::FITBIT, Box::new(FitbitDescriptor));
-        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
-            load_provider_env_config(
-                oauth_providers::FITBIT,
-                "https://www.fitbit.com/oauth2/authorize",
-                "https://api.fitbit.com/oauth2/token",
-                "https://api.fitbit.com/1",
-                Some("https://api.fitbit.com/oauth2/revoke"),
-                &oauth_providers::FITBIT_DEFAULT_SCOPES
-                    .split(' ')
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>(),
-            );
-        registry.set_default_config(
-            oauth_providers::FITBIT,
-            ProviderConfig {
-                name: oauth_providers::FITBIT.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
-            },
-        );
-    }
-
-    #[cfg(not(feature = "provider-fitbit"))]
-    fn register_fitbit(_registry: &mut Self) {}
 
     /// Register Terra provider with environment-based configuration
     #[cfg(feature = "provider-terra")]

@@ -579,7 +579,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".to_owned()),
+                description: Some("Fitness provider name (e.g., 'strava', 'garmin')".to_owned()),
                 ..Default::default()
             },
         );

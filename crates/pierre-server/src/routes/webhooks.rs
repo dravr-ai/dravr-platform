@@ -93,7 +93,9 @@ impl WebhookRoutes {
     /// WHOOP webhook event handler (POST).
     ///
     /// The orchestrator's WHOOP provider verifies the `x-whoop-signature`
-    /// HMAC against `WHOOP_WEBHOOK_SECRET` and parses the body into events.
+    /// HMAC of the `x-whoop-signature-timestamp` and the body, keyed with
+    /// the WHOOP app's client secret (`WHOOP_WEBHOOK_SECRET`), refuses a
+    /// timestamp outside its replay window, and parses the body into events.
     /// Each event names the WHOOP-side user id; that id is mapped to the one
     /// platform user whose WHOOP token carries it (captured at token exchange
     /// and on refresh), and that user's health sync runs on the drain-tracked

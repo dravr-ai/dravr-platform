@@ -386,35 +386,6 @@ async fn test_connect_strava_tool() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_connect_fitbit_tool() -> Result<()> {
-    let resources = common::create_test_server_resources().await?;
-
-    // Create authenticated user
-    let (_user, token) = create_test_user_with_auth(&resources.agent.database).await?;
-
-    let request = McpRequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "tools/call".to_owned(),
-        params: Some(json!({
-            "name": "connect_fitbit",
-            "arguments": {}
-        })),
-        id: Some(json!(12)),
-        auth_token: Some(format!("Bearer {token}")),
-        headers: None,
-        metadata: HashMap::new(),
-    };
-
-    let _response = build_mcp_server(resources.clone())
-        .handle_request(request)
-        .await;
-
-    // Should either succeed or fail gracefully (OAuth might not be configured in test)
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_get_connection_status_tool() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
 
@@ -487,7 +458,7 @@ async fn test_provider_tools_without_connection() -> Result<()> {
     let provider_tools = [
         ("get_activities", "strava"),
         ("get_athlete_profile", "strava"),
-        ("get_profile", "fitbit"),
+        ("get_profile", "garmin"),
     ];
 
     for (i, (tool_name, provider)) in provider_tools.iter().enumerate() {

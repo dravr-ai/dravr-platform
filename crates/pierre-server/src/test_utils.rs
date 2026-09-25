@@ -19,7 +19,6 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         password_hash: "test_password_hash".to_owned(),
         tier: UserTier::Enterprise,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: true, // Admin user
@@ -50,7 +49,6 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         password_hash: "test_password_hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false, // Regular user
@@ -81,7 +79,6 @@ pub fn create_test_pending_user(email: &str, display_name: Option<String>) -> Us
         password_hash: "test_password_hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
         is_admin: false, // Regular user
@@ -119,7 +116,6 @@ pub fn create_test_user_with_fields(
         password_hash: "test_password_hash".to_owned(),
         tier,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: *user_status,
         is_admin,

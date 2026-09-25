@@ -244,7 +244,7 @@ You: Calculate my daily nutrition needs for marathon training
 │     ↓                                                           │
 │  MCP Tool Call (HTTP JSON-RPC)                                 │
 │     ↓                                                           │
-│  Pierre MCP Server ──→ Fitness Data (Strava/Garmin/Fitbit)    │
+│  Pierre MCP Server ──→ Fitness Data (Strava/Garmin/WHOOP)     │
 │     ↓                                                           │
 │  Results back to Gemini                                         │
 │     ↓                                                           │

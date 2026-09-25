@@ -150,6 +150,23 @@ pub fn serving_backends(provider: &str) -> Vec<String> {
     }
 }
 
+/// The backend whose token row the background health sync reads for a
+/// provider, by the name the sync knows it under (`garmin`, `coros`, `whoop`).
+///
+/// It is the first of the provider's [`serving_backends`], the same precedence
+/// [`resolve_backend`] routes by: a mirror-only provider (Garmin, COROS) is
+/// read through its mirror's browser session, and every other provider through
+/// its own backend. The sync stamps its rows with the provider name, so a
+/// stored night is `coros` whichever backend fed it, while the session lives
+/// on `sciotte_coros`.
+#[must_use]
+pub fn sync_backend(provider: &str) -> String {
+    serving_backends(provider)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| provider.to_owned())
+}
+
 /// Every backend that can serve a user-facing provider, mirror included.
 ///
 /// `get_connection_status` coalesces a provider and its mirror into ONE card,

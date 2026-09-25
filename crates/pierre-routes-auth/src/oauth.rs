@@ -285,15 +285,13 @@ pub async fn handle_oauth_status(
         }
     }
 
-    // Add default providers if not connected
-    for provider in ["strava", "fitbit"] {
-        if !providers_seen.contains(provider) {
-            provider_statuses.push(OAuthStatus {
-                provider: provider.to_owned(),
-                connected: false,
-                last_sync: None,
-            });
-        }
+    // Strava is always listed, connected or not
+    if !providers_seen.contains("strava") {
+        provider_statuses.push(OAuthStatus {
+            provider: "strava".to_owned(),
+            connected: false,
+            last_sync: None,
+        });
     }
 
     Ok((StatusCode::OK, Json(provider_statuses)).into_response())
@@ -572,7 +570,6 @@ pub async fn compute_providers_status(
         "sciotte_coros",
         "strava",
         "garmin",
-        "fitbit",
         "whoop",
         "coros",
         "terra",
@@ -914,7 +911,7 @@ pub async fn handle_oauth_authorize_redirect(
 ///
 /// DELETE /api/oauth/providers/:provider/disconnect
 ///
-/// Disconnects a fitness provider (e.g., Strava, Fitbit) by deleting the stored OAuth tokens.
+/// Disconnects a fitness provider (e.g., Strava, WHOOP) by deleting the stored OAuth tokens.
 /// Requires valid JWT authentication via cookie or Authorization header.
 #[tracing::instrument(
     skip(resources, headers),
@@ -1046,7 +1043,10 @@ pub async fn handle_sync_provider(
 ///
 /// Triggers a 30-day backfill via the sync orchestrator so the user gets
 /// historical data immediately after connecting a wearable provider, whether
-/// through OAuth or a pasted API key (intervals.icu).
+/// through OAuth, a pasted API key (intervals.icu) or a scrape login (Garmin,
+/// COROS). `provider` is the name the sync knows it under; a provider the
+/// sync does not manage (Strava's activities, read on demand) has nothing to
+/// backfill.
 #[cfg(feature = "health-sync")]
 pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
     const BACKFILL_DAYS: u32 = 30;
@@ -1054,6 +1054,13 @@ pub fn spawn_health_backfill(resources: &AuthRoutesContext, user_id: &str, provi
     let Some(orchestrator) = resources.sync_orchestrator.clone() else {
         return;
     };
+    if !orchestrator.provider_names().contains(&provider) {
+        tracing::debug!(
+            provider,
+            "No health sync for this provider; nothing to backfill"
+        );
+        return;
+    }
     let user_id = user_id.to_owned();
     let provider = provider.to_owned();
     tokio::spawn(async move {

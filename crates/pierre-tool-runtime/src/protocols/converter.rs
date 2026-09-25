@@ -1,5 +1,5 @@
 // ABOUTME: Protocol data conversion between different fitness platform formats
-// ABOUTME: Transforms data between Strava, Fitbit, and internal universal formats
+// ABOUTME: Transforms data between Strava and internal universal formats
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

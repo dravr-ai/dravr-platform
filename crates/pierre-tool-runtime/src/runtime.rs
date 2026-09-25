@@ -134,7 +134,7 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// Server configuration (immutable runtime settings).
     fn config(&self) -> &Arc<ServerConfig>;
 
-    /// Registry of fitness providers (Strava, Fitbit, …).
+    /// Registry of fitness providers (Strava, Garmin, …).
     fn provider_registry(&self) -> &Arc<ProviderRegistry>;
 
     /// Tenant-scoped OAuth client manager.

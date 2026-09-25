@@ -101,7 +101,7 @@ pub struct ActivitySummary {
     /// Average ambient temperature in Celsius when the provider reports it.
     /// Outdoor activities from Strava and Garmin OAuth surface this when the
     /// recording device captured ambient temp; Coros does too if its watch
-    /// reported it. Whoop / Fitbit / Terra don't expose ambient temperature
+    /// reported it. Whoop / Terra don't expose ambient temperature
     /// on workouts (skin temp on Whoop Recovery is recorded separately, on
     /// the recovery record, not the activity).
     #[serde(skip_serializing_if = "Option::is_none")]

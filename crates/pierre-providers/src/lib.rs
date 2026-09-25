@@ -1,4 +1,4 @@
-// ABOUTME: Fitness data provider implementations for Strava, Garmin, Fitbit, WHOOP, COROS, Terra
+// ABOUTME: Fitness data provider implementations for Strava, Garmin, WHOOP, COROS, Terra
 // ABOUTME: Core provider traits, circuit breaker, retry utilities, and streaming activity iteration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Fitness data provider implementations and core abstractions.
 //!
 //! This crate provides the unified provider system for integrating with external
-//! fitness data sources (Strava, Garmin, Fitbit, WHOOP, COROS, Terra).
+//! fitness data sources (Strava, Garmin, WHOOP, COROS, Terra).
 
 // Re-export pierre-core modules so moved files can keep `use crate::errors::*` etc.
 pub use pierre_core::constants;
@@ -40,9 +40,6 @@ pub mod utils;
 /// COROS provider for GPS sports watch data
 #[cfg(feature = "provider-coros")]
 pub mod coros_provider;
-/// Fitbit API provider implementation
-#[cfg(feature = "provider-fitbit")]
-pub mod fitbit_provider;
 /// Garmin Connect provider implementation
 #[cfg(feature = "provider-garmin")]
 pub mod garmin_provider;
@@ -94,8 +91,6 @@ pub use http_client::{initialize_shared_client, shared_client};
 pub use pierre_core::errors::provider::{ProviderError, ProviderResult};
 #[cfg(feature = "provider-coros")]
 pub use spi::CorosDescriptor;
-#[cfg(feature = "provider-fitbit")]
-pub use spi::FitbitDescriptor;
 #[cfg(feature = "provider-garmin")]
 pub use spi::GarminDescriptor;
 #[cfg(feature = "provider-sciotte")]

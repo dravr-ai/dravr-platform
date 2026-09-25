@@ -54,7 +54,6 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         password_hash: bcrypt::hash("password", bcrypt::DEFAULT_COST)?,
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -119,13 +118,6 @@ fn create_test_oauth_config() -> OAuthConfig {
             client_secret: Some("server_strava_secret".to_owned()),
             redirect_uri: Some("http://localhost:8080/callback/strava".to_owned()),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
-            enabled: true,
-        },
-        fitbit: OAuthProviderConfig {
-            client_id: Some("server_fitbit_id".to_owned()),
-            client_secret: Some("server_fitbit_secret".to_owned()),
-            redirect_uri: Some("http://localhost:8080/callback/fitbit".to_owned()),
-            scopes: vec!["activity".to_owned(), "profile".to_owned()],
             enabled: true,
         },
         garmin: OAuthProviderConfig::default(),
@@ -201,10 +193,10 @@ async fn test_list_user_oauth_apps() -> Result<()> {
         .oauth_tokens
         .store_user_oauth_app(
             user_id,
-            "fitbit",
-            "fitbit_id",
-            "fitbit_secret",
-            "http://app.com/fitbit",
+            "garmin",
+            "garmin_id",
+            "garmin_secret",
+            "http://app.com/garmin",
         )
         .await?;
     database
@@ -229,7 +221,7 @@ async fn test_list_user_oauth_apps() -> Result<()> {
 
     let providers: Vec<&str> = apps.iter().map(|a| a.provider.as_str()).collect();
     assert!(providers.contains(&"strava"));
-    assert!(providers.contains(&"fitbit"));
+    assert!(providers.contains(&"garmin"));
     assert!(providers.contains(&"whoop"));
 
     Ok(())
@@ -347,7 +339,7 @@ async fn test_all_supported_providers() -> Result<()> {
     let tenant_id = TenantId::generate();
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
-    let providers = ["strava", "fitbit", "garmin", "whoop", "terra"];
+    let providers = ["strava", "garmin", "whoop", "terra"];
 
     for provider in &providers {
         database
@@ -369,7 +361,7 @@ async fn test_all_supported_providers() -> Result<()> {
         .oauth_tokens
         .list_user_oauth_apps(user_id)
         .await?;
-    assert_eq!(apps.len(), 5, "All 5 providers should be stored");
+    assert_eq!(apps.len(), 4, "All 4 providers should be stored");
 
     for provider in &providers {
         let app = database
@@ -1071,7 +1063,6 @@ async fn test_all_provider_rate_limits() -> Result<()> {
     // Expected rate limits per provider (from src/constants/mod.rs)
     let expected_rate_limits = [
         ("strava", 15000), // STRAVA_DEFAULT_DAILY_RATE_LIMIT
-        ("fitbit", 1000),  // FITBIT_DEFAULT_DAILY_RATE_LIMIT
         ("garmin", 1000),  // GARMIN_DEFAULT_DAILY_RATE_LIMIT
         ("whoop", 1000),   // WHOOP_DEFAULT_DAILY_RATE_LIMIT
         ("terra", 1000),   // TERRA_DEFAULT_DAILY_RATE_LIMIT
@@ -1128,9 +1119,8 @@ async fn test_all_provider_default_scopes() -> Result<()> {
 
     // Expected scopes per provider (from src/tenant/oauth_manager.rs::default_scopes_for_provider)
     // Only checking key scopes, not exhaustive list
-    let expected_scopes: [(&str, Vec<&str>); 5] = [
+    let expected_scopes: [(&str, Vec<&str>); 4] = [
         ("strava", vec!["activity:read_all"]),
-        ("fitbit", vec!["activity", "profile", "heartrate", "sleep"]),
         ("garmin", vec!["wellness:read", "activities:read"]),
         ("whoop", vec!["offline", "read:profile", "read:sleep"]),
         ("terra", vec!["activity", "body", "daily", "sleep"]),
@@ -1184,7 +1174,7 @@ async fn test_valid_providers_accepted() -> Result<()> {
     let tenant_id = TenantId::generate();
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
-    let valid_providers = ["strava", "fitbit", "garmin", "whoop", "terra"];
+    let valid_providers = ["strava", "garmin", "whoop", "terra"];
 
     for provider in &valid_providers {
         let result = database
@@ -1375,7 +1365,7 @@ async fn test_user_with_all_providers() -> Result<()> {
     let oauth_config = Arc::new(OAuthConfig::default());
     let oauth_manager = TenantOAuthManager::new(oauth_config);
 
-    let providers = ["strava", "fitbit", "garmin", "whoop", "terra"];
+    let providers = ["strava", "garmin", "whoop", "terra"];
 
     // Store unique credentials for each provider
     for provider in &providers {
@@ -1411,13 +1401,13 @@ async fn test_user_with_all_providers() -> Result<()> {
         );
     }
 
-    // List should show all 5
+    // List should show all 4
     let apps = database
         .repositories()
         .oauth_tokens
         .list_user_oauth_apps(user_id)
         .await?;
-    assert_eq!(apps.len(), 5, "User should have all 5 providers");
+    assert_eq!(apps.len(), 4, "User should have all 4 providers");
 
     Ok(())
 }

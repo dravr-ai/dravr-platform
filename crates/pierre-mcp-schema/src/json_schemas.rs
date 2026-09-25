@@ -101,7 +101,7 @@ pub struct CheckOAuthNotificationsParams {
 /// Parameters for provider connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectProviderParams {
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava")
     pub provider: String,
 
     /// Optional Strava client ID
@@ -111,14 +111,6 @@ pub struct ConnectProviderParams {
     /// Optional Strava client secret
     #[serde(default)]
     pub strava_client_secret: Option<String>,
-
-    /// Optional Fitbit client ID
-    #[serde(default)]
-    pub fitbit_client_id: Option<String>,
-
-    /// Optional Fitbit client secret
-    #[serde(default)]
-    pub fitbit_client_secret: Option<String>,
 }
 
 /// Parameters for disconnecting a provider
@@ -150,7 +142,7 @@ pub struct GetNotificationsParams {
 /// Parameters for announcing OAuth success
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnnounceOAuthSuccessParams {
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava", "whoop")
     pub provider: String,
 
     /// Success message
@@ -475,7 +467,7 @@ pub struct ResourceReadParams {
 /// Parameters for provider-based tool calls
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderParams {
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava", "whoop")
     /// Optional because not all tools require a provider parameter
     #[serde(default)]
     pub provider: Option<String>,

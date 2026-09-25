@@ -30,7 +30,6 @@ async fn build_user(
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,

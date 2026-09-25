@@ -152,10 +152,10 @@ use axum::{routing::post, Form, Json, Router};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-    ExternalServicesConfig, FitbitApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
-    LoggingConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ExternalServicesConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel, LoggingConfig,
+    MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
+    ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::models::CoachingPersona;
@@ -216,13 +216,6 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,     // Missing credentials
-                client_secret: None, // Missing credentials
-                redirect_uri: Some("http://localhost:8081/oauth/callback/fitbit".to_owned()),
-                scopes: vec!["activity".to_owned(), "profile".to_owned()],
-                enabled: true,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -268,13 +261,6 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             geocoding: GeocodingServiceConfig {
@@ -336,13 +322,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: Some("test_fitbit_id".to_owned()),
-                client_secret: Some("test_fitbit_secret".to_owned()),
-                redirect_uri: Some("http://localhost:8081/oauth/callback/fitbit".to_owned()),
-                scopes: vec!["activity".to_owned(), "profile".to_owned()],
-                enabled: true,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -388,13 +367,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             geocoding: GeocodingServiceConfig {
@@ -591,7 +563,6 @@ async fn create_active_user(database: &Database, user_id: Uuid, email: &str) {
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -975,30 +946,6 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
     );
 }
 
-#[tokio::test]
-#[serial]
-async fn fitbit_expired_token_refreshes_exactly_once_and_persists() {
-    // Fitbit encodes expiry as a relative `expires_in` (seconds).
-    assert_refresh_once_and_persists(RefreshSeamCase {
-        provider: "fitbit",
-        token_url_env: "PIERRE_FITBIT_TOKEN_URL",
-        client_id_env: "FITBIT_CLIENT_ID",
-        client_secret_env: "FITBIT_CLIENT_SECRET",
-        mock_response: json!({
-            "access_token": "fitbit_new_access",
-            "refresh_token": "fitbit_new_refresh",
-            "token_type": "Bearer",
-            "expires_in": 28800,
-            "scope": "activity heartrate",
-            "user_id": "fitbit_user_123",
-        }),
-        expected_access: "fitbit_new_access",
-        expected_refresh: "fitbit_new_refresh",
-        email: "refresh-fitbit@example.com",
-    })
-    .await;
-}
-
 /// WHOOP refresh — BOTH cases in one test: the normal case (response carries a
 /// new refresh token, which must be rotated) and the omit case (no refresh token
 /// in the response, so the seeded input token must be preserved per
@@ -1074,7 +1021,6 @@ async fn test_connection_status_with_oauth_manager() {
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1102,8 +1048,6 @@ async fn test_connection_status_with_oauth_manager() {
     // Set up environment for OAuth providers
     env::set_var("STRAVA_CLIENT_ID", "test_client");
     env::set_var("STRAVA_CLIENT_SECRET", "test_secret");
-    env::set_var("FITBIT_CLIENT_ID", "test_fitbit");
-    env::set_var("FITBIT_CLIENT_SECRET", "test_fitbit_secret");
 
     // Create request for get_connection_status
     let request = UniversalRequest {
@@ -1168,7 +1112,6 @@ async fn test_analyze_activity_token_refresh() {
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1271,7 +1214,6 @@ async fn test_concurrent_token_operations() {
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1370,7 +1312,6 @@ async fn test_oauth_provider_init_failure() {
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

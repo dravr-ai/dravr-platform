@@ -16,11 +16,11 @@
 //!
 //! A Model Context Protocol (MCP) server for fitness data aggregation and analysis.
 //! This server provides a unified interface to access fitness data from various providers
-//! like Strava and Fitbit through the MCP protocol.
+//! like Strava and Garmin through the MCP protocol.
 //!
 //! ## Features
 //!
-//! - **Multi-provider support**: Connect to Strava, Fitbit, and more
+//! - **Multi-provider support**: Connect to Strava, Garmin, WHOOP, and more
 //! - **`OAuth2` authentication**: Secure authentication flow for fitness providers
 //! - **MCP protocol**: Standard interface for Claude and other AI assistants
 //! - **Real-time data**: Access to activities, athlete profiles, and statistics

@@ -15,6 +15,8 @@
 //!
 //! All tools use direct `SleepAnalyzer` and `RecoveryCalculator` access.
 
+/// The activity provider the recovery and sleep tools read training load from.
+mod activity_source;
 pub(crate) mod inner;
 
 /// The shapes the sleep tools answer with, and their derived schemas.
@@ -106,7 +108,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
         answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
             "Analyze last night's sleep to generate quality scores and insights. \
-             Fetches from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically",
+             Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)",
             schema,
             None,
         ))
@@ -165,8 +167,8 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch activities for training load (strava, garmin, fitbit, \
-                     whoop, terra). Omit to auto-select"
+                    "Provider to fetch activities for training load (strava, garmin, coros, \
+                     whoop, intervals_icu, terra). Omit to auto-select"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -277,8 +279,8 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch activities for training load (strava, garmin, fitbit, \
-                     whoop, terra). Omit to auto-select"
+                    "Provider to fetch activities for training load (strava, garmin, coros, \
+                     whoop, intervals_icu, terra). Omit to auto-select"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -425,7 +427,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
         answers_with::<Formatted<SleepTrendsResult>>(tool_definition(
             "track_sleep_trends",
             "Analyze sleep patterns over time to identify trends and insights. \
-             Fetches history from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically",
+             Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)",
             schema,
             None,
         ))

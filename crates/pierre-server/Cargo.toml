@@ -50,14 +50,13 @@ gcp-kms = ["pierre-auth/gcp-kms"]
 provider-strava = ["pierre-providers/provider-strava"]
 provider-garmin = ["pierre-providers/provider-garmin"]
 provider-terra = ["pierre-providers/provider-terra"]
-provider-fitbit = ["pierre-providers/provider-fitbit"]
 provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-intervals-icu = ["pierre-providers/provider-intervals-icu"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "pierre-routes-auth?/provider-sciotte"]
-health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-strava", "pierre-enforme/provider-intervals-icu", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
-all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
-production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
+health-sync = ["dep:pierre-enforme", "pierre-enforme/provider-whoop", "pierre-enforme/provider-garmin", "pierre-enforme/provider-coros", "pierre-enforme/provider-intervals-icu", "dep:dravr-equilibre-sync", "pierre-services/health-sync", "pierre-tool-runtime/health-sync", "pierre-routes-auth?/health-sync", "pierre-chat-pipeline?/health-sync"]
+all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
+production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-whoop", "provider-coros", "provider-intervals-icu", "provider-sciotte"]
 
 # Tool feature flags - enable/disable MCP tool categories
 # All tools (default)

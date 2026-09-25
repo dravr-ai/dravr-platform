@@ -194,7 +194,7 @@ export interface AnalyzeActivityParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Fitness provider name (e.g., 'strava', 'fitbit') */
+  /** Fitness provider name (e.g., 'strava', 'garmin') */
   provider: string;
 }
 
@@ -255,7 +255,7 @@ export interface AnalyzePerformanceTrendsParams {
 
 
 /**
- * Analyze last night's sleep to generate quality scores and insights. Fetches from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically
+ * Analyze last night's sleep to generate quality scores and insights. Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)
  */
 export interface AnalyzeSleepQualityParams {
 
@@ -426,7 +426,7 @@ export interface CalculatePersonalizedZonesParams {
  */
 export interface CalculateRecoveryScoreParams {
 
-  /** Provider to fetch activities for training load (strava, garmin, fitbit, whoop, terra). Omit to auto-select */
+  /** Provider to fetch activities for training load (strava, garmin, coros, whoop, intervals_icu, terra). Omit to auto-select */
   activity_provider?: string;
 
   /** User's baseline HRV */
@@ -517,11 +517,11 @@ export interface ComputeTrainingHistoryParams {
 
 
 /**
- * Initiate OAuth connection flow to connect a fitness data provider like Strava, Fitbit, or Garmin
+ * Initiate OAuth connection flow to connect a fitness data provider like Strava, Garmin, or WHOOP
  */
 export interface ConnectProviderParams {
 
-  /** Provider to connect (e.g., 'strava', 'fitbit', 'garmin') */
+  /** Provider to connect (e.g., 'strava', 'garmin', 'whoop') */
   provider: string;
 
   /** Optional redirect URL for mobile app OAuth flows (supports dravr://, exp://, http://localhost, https://) */
@@ -614,7 +614,7 @@ export interface DetectPatternsParams {
  */
 export interface DisconnectProviderParams {
 
-  /** Provider to disconnect (e.g., 'strava', 'fitbit', 'garmin') */
+  /** Provider to disconnect (e.g., 'strava', 'garmin', 'whoop') */
   provider: string;
 }
 
@@ -812,7 +812,7 @@ export interface GetActivitiesParams {
   /** Number of activities to skip for pagination. */
   offset?: number;
 
-  /** Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider. */
+  /** Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider. */
   provider?: string;
 
   /** Order of the returned list, applied BEFORE `limit` so the truncated set keeps the right activities. One of: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc' (shortest first), 'duration_desc' (longest time first), 'duration_asc' (shortest time first). Map the user's wording: 'de la plus longue à la plus courte' / 'longest to shortest' => distance_desc; 'oldest first' / 'du début' => date_asc. */
@@ -860,7 +860,7 @@ export interface GetAthleteParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider. */
+  /** Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider. */
   provider?: string;
 }
 
@@ -1064,7 +1064,7 @@ export interface GetStatsParams {
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider. */
+  /** Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider. */
   provider?: string;
 }
 
@@ -1491,7 +1491,7 @@ export interface RecommendPlanFlavourParams {
  */
 export interface RefreshProviderDataParams {
 
-  /** Provider to refresh: 'strava', 'garmin', 'whoop', 'fitbit', or 'all' to refresh all connected providers. */
+  /** Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' to refresh all connected providers. */
   provider: string;
 
   /** Why the refresh is needed (for logging). E.g., 'user asked about today's run but latest activity is from 3 days ago'. */
@@ -2000,7 +2000,7 @@ export interface SuggestGoalsParams {
  */
 export interface SuggestRestDayParams {
 
-  /** Provider to fetch activities for training load (strava, garmin, fitbit, whoop, terra). Omit to auto-select */
+  /** Provider to fetch activities for training load (strava, garmin, coros, whoop, intervals_icu, terra). Omit to auto-select */
   activity_provider?: string;
 
   /** User's baseline HRV */
@@ -2079,7 +2079,7 @@ export interface TrackProgressParams {
 
 
 /**
- * Analyze sleep patterns over time to identify trends and insights. Fetches history from a connected provider (WHOOP, Fitbit, Garmin, Terra) automatically
+ * Analyze sleep patterns over time to identify trends and insights. Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu)
  */
 export interface TrackSleepTrendsParams {
 

@@ -4,7 +4,7 @@ title: Endurance Agent
 category: training
 tags: [endurance, polarized, ctl, atl, tsb, acwr, foster-monotony, prescription, intervals_icu]
 prerequisites:
-  providers: [strava, garmin, fitbit, whoop, coros, terra]
+  providers: [strava, garmin, whoop, coros, terra]
   min_activities: 14
   activity_types: [Run, Ride]
 visibility: tenant

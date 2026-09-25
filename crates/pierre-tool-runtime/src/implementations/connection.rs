@@ -451,7 +451,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to connect (e.g., 'strava', 'fitbit', 'garmin')".to_owned(),
+                    "Provider to connect (e.g., 'strava', 'garmin', 'whoop')".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -471,7 +471,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
 
         answers_with::<ConnectProviderResult>(tool_definition(
             "connect_provider",
-            "Initiate OAuth connection flow to connect a fitness data provider like Strava, Fitbit, or Garmin",
+            "Initiate OAuth connection flow to connect a fitness data provider like Strava, Garmin, or WHOOP",
             schema,
             Some(open_world_annotations()),
         ))
@@ -804,7 +804,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to disconnect (e.g., 'strava', 'fitbit', 'garmin')".to_owned(),
+                    "Provider to disconnect (e.g., 'strava', 'garmin', 'whoop')".to_owned(),
                 ),
                 ..Default::default()
             },

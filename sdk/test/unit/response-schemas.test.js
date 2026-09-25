@@ -249,7 +249,7 @@ describe('Tool Response Schemas', () => {
       const response = {
         providers: {
           strava: { connected: true, status: 'connected' },
-          fitbit: { connected: false, status: 'disconnected' },
+          whoop: { connected: false, status: 'disconnected' },
         },
       };
       const result = GetConnectionStatusResponseSchema.safeParse(response);

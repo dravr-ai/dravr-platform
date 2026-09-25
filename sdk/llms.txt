@@ -109,7 +109,7 @@ PierreMcpClient (this SDK)
     ↓ Streamable HTTP, MCP 2026-07-28 (stateless, per-request _meta, Tasks)
 Pierre MCP Server
     ↓ OAuth
-Fitness Providers (Strava, Fitbit, Garmin, ...)
+Fitness Providers (Strava, Garmin, WHOOP, ...)
 ```
 
 ## Token Management
@@ -136,7 +136,7 @@ by its owner-only (0600) file mode.
 6. Exchange code for token: POST /oauth2/token
 7. Save the tokens
 
-### Provider Authentication (Strava, Fitbit, etc.)
+### Provider Authentication (Strava, WHOOP, etc.)
 
 1. `connect_provider` is called, or a tool needs a provider
 2. Bridge opens the server's provider authorization URL in the browser

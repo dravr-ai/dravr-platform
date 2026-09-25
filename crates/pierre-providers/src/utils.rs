@@ -4,9 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
-
 use crate::errors::{AppError, AppResult};
 use crate::http_client::SharedHttpClient;
 use chrono::{TimeZone, Utc};
@@ -215,13 +212,11 @@ pub fn api_error(status: StatusCode, text: &str, provider_name: &str) -> AppErro
 ///
 /// A `401` is mapped by [`auth_error_for_status`] before anything else reads
 /// the response, so every provider routing through here reaches the reconnect
-/// path and no hook can shadow it — Fitbit answers a 401 with an `errors[]`
-/// body its hook would otherwise claim as a plain external-service error.
+/// path and no hook can shadow it, whatever the vendor's 401 body says.
 /// `vendor_error` then reads any other non-success body before the generic
 /// mapping does, so a provider keeps its own error vocabulary (Strava's 404 →
-/// `NotFound`, Fitbit's `errors[].errorType`, Whoop's 404 →
-/// `NoDataAvailable`). Return `None` — or pass [`no_vendor_error`] — to take
-/// the generic mapping.
+/// `NotFound`, Whoop's 404 → `NoDataAvailable`). Return `None` — or pass
+/// [`no_vendor_error`] — to take the generic mapping.
 ///
 /// # Errors
 ///
@@ -302,17 +297,6 @@ pub const fn no_vendor_error(_status: StatusCode, _body: &str) -> Option<AppErro
     None
 }
 
-/// Where a token-refresh request carries its client credentials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClientAuth {
-    /// `client_id` and `client_secret` as fields of the form body — the
-    /// `OAuth2` default, and what Strava, Garmin and Coros expect.
-    FormFields,
-    /// `Authorization: Basic base64(client_id:client_secret)`, with the two
-    /// fields omitted from the body — what Fitbit requires.
-    BasicHeader,
-}
-
 /// One `OAuth2` refresh, with the vendor differences the standard flow leaves open.
 #[derive(Debug, Clone, Copy)]
 pub struct RefreshRequest<'a> {
@@ -326,8 +310,6 @@ pub struct RefreshRequest<'a> {
     pub refresh_token: &'a str,
     /// Provider slug, used for logs and for the error's `provider` field.
     pub provider_name: &'a str,
-    /// Where the client credentials travel.
-    pub client_auth: ClientAuth,
     /// Fields the vendor requires beyond the four standard ones.
     pub extra_form: &'a [(&'a str, &'a str)],
 }
@@ -349,8 +331,8 @@ pub struct TokenRefreshResponse {
 
 /// Refresh `OAuth2` access token using refresh token
 ///
-/// `client_auth` decides where the client credentials travel — in the form
-/// body, or as an HTTP Basic header — and `extra_form` carries the fields a
+/// The client credentials travel as fields of the form body, the `OAuth2`
+/// default every provider here expects, and `extra_form` carries the fields a
 /// vendor requires beyond the four standard ones (Whoop's `scope=offline`,
 /// without which it consumes the single-use refresh token and returns nothing
 /// to replace it, so the next refresh fails).
@@ -371,41 +353,29 @@ pub async fn refresh_oauth_token(
         client_secret,
         refresh_token,
         provider_name,
-        client_auth,
         extra_form,
     } = *request;
     info!("Refreshing {provider_name} access token");
 
-    let mut params: Vec<(&str, &str)> = match client_auth {
-        ClientAuth::FormFields => vec![
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-        ],
-        // The credentials travel in the header instead; repeating them in the
-        // body is what Fitbit rejects.
-        ClientAuth::BasicHeader => vec![
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-        ],
-    };
+    let mut params: Vec<(&str, &str)> = vec![
+        ("client_id", client_id),
+        ("client_secret", client_secret),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+    ];
     params.extend_from_slice(extra_form);
 
-    let mut post = client.post(token_url);
-    if matches!(client_auth, ClientAuth::BasicHeader) {
-        let encoded = Engine::encode(&BASE64_STANDARD, format!("{client_id}:{client_secret}"));
-        post = post
-            .header("Authorization", format!("Basic {encoded}"))
-            .header("Content-Type", "application/x-www-form-urlencoded");
-    }
-
-    let response = post.form(&params).send().await.map_err(|e| {
-        AppError::external_service(
-            provider_name,
-            format!("Failed to send token refresh request: {e}"),
-        )
-    })?;
+    let response = client
+        .post(token_url)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| {
+            AppError::external_service(
+                provider_name,
+                format!("Failed to send token refresh request: {e}"),
+            )
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();

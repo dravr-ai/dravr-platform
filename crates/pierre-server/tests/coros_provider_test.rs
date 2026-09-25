@@ -208,15 +208,17 @@ fn test_coros_provider_capabilities() {
     ensure_http_clients_initialized();
     let registry = global_registry();
 
-    // Sleep and recovery come from synced rows; COROS has no sync adapter
-    // (registre#513), so it advertises neither.
+    // Sleep and recovery come from synced rows. The COROS health sync reads
+    // the Training Hub session on `sciotte_coros`; the partner API this
+    // backend targets has no daily-push receiver (registre#509), so it
+    // advertises neither.
     assert!(
         !registry.supports_sleep(oauth_providers::COROS),
-        "COROS has no sleep sync yet"
+        "the partner-API backend syncs no sleep"
     );
     assert!(
         !registry.supports_recovery(oauth_providers::COROS),
-        "COROS has no recovery sync yet"
+        "the partner-API backend syncs no recovery"
     );
 
     // COROS should require OAuth

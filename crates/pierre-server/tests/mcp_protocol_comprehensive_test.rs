@@ -350,7 +350,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
     let params = json!({
         "name": "get_athlete",
         "arguments": {
-            "provider": "fitbit"
+            "provider": "garmin"
         }
     });
     let request = create_auth_mcp_request(
@@ -458,19 +458,6 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
     );
     assert_eq!(connect_request["params"]["name"], "connect_strava");
 
-    // Test connect_fitbit tool
-    let fitbit_params = json!({
-        "name": "connect_fitbit",
-        "arguments": {}
-    });
-    let fitbit_request = create_auth_mcp_request(
-        "tools/call",
-        Some(&fitbit_params),
-        &token,
-        Some(json!("oauth-2")),
-    );
-    assert_eq!(fitbit_request["params"]["name"], "connect_fitbit");
-
     // Test get_connection_status tool
     let status_params = json!({
         "name": "get_connection_status",
@@ -480,7 +467,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
         "tools/call",
         Some(&status_params),
         &token,
-        Some(json!("oauth-3")),
+        Some(json!("oauth-2")),
     );
     assert_eq!(status_request["params"]["name"], "get_connection_status");
 
@@ -495,7 +482,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
         "tools/call",
         Some(&disconnect_params),
         &token,
-        Some(json!("oauth-4")),
+        Some(json!("oauth-3")),
     );
     assert_eq!(disconnect_request["params"]["name"], "disconnect_provider");
 
@@ -621,7 +608,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
     // Test tools that require a provider
     let provider_tools = vec![
         ("get_activities", json!({"provider": "strava", "limit": 10})),
-        ("get_athlete", json!({"provider": "fitbit"})),
+        ("get_athlete", json!({"provider": "garmin"})),
         ("get_stats", json!({"provider": "strava"})),
         (
             "get_activity_intelligence",
@@ -633,7 +620,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
         ),
         (
             "calculate_metrics",
-            json!({"provider": "fitbit", "activity_ids": ["789"]}),
+            json!({"provider": "garmin", "activity_ids": ["789"]}),
         ),
         (
             "compare_activities",

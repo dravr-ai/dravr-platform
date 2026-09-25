@@ -9,7 +9,7 @@
 //! This module provides REST endpoints for users to manage their own OAuth
 //! application credentials. Users can configure per-provider OAuth apps to:
 //! - Avoid rate limits on shared tenant/server apps
-//! - Use their own Strava/Fitbit/Garmin/WHOOP/Terra API applications
+//! - Use their own Strava/Garmin/WHOOP/Terra API applications
 //!
 //! ## Endpoints
 //!
@@ -38,7 +38,7 @@ pub struct UserOAuthAppRoutes;
 /// Request to register a new OAuth app for a user
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterUserOAuthAppRequest {
-    /// OAuth provider name (strava, fitbit, garmin, whoop, terra)
+    /// OAuth provider name (strava, garmin, whoop, terra)
     pub provider: String,
     /// OAuth client ID from the provider
     pub client_id: String,
@@ -101,7 +101,7 @@ impl UserOAuthAppRoutes {
 
 /// Validate provider name against the supported list.
 fn validate_provider(provider: &str) -> Result<(), AppError> {
-    const VALID_PROVIDERS: &[&str] = &["strava", "fitbit", "garmin", "whoop", "terra", "sciotte"];
+    const VALID_PROVIDERS: &[&str] = &["strava", "garmin", "whoop", "terra", "sciotte"];
     if VALID_PROVIDERS.contains(&provider.to_lowercase().as_str()) {
         Ok(())
     } else {

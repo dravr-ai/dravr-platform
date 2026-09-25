@@ -20,8 +20,8 @@ use tracing::{info, warn};
 // Re-export types from sub-modules for convenience
 // API providers
 pub use crate::api_providers::{
-    ExternalServicesConfig, FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig,
-    StravaApiConfig, WeatherServiceConfig,
+    ExternalServicesConfig, GarminApiConfig, GeocodingServiceConfig, StravaApiConfig,
+    WeatherServiceConfig,
 };
 // Cache and rate limiting
 pub use crate::cache::{CacheConfig, CacheTtlConfig, RedisConnectionConfig};
@@ -213,12 +213,6 @@ impl ServerConfig {
         {
             warn!("Strava OAuth is enabled but missing client_id or client_secret");
         }
-
-        if self.oauth.fitbit.enabled
-            && (self.oauth.fitbit.client_id.is_none() || self.oauth.fitbit.client_secret.is_none())
-        {
-            warn!("Fitbit OAuth is enabled but missing client_id or client_secret");
-        }
     }
 
     /// Validate `OAuth2` issuer URL according to RFC 8414 security requirements
@@ -286,7 +280,6 @@ impl ServerConfig {
              - Database: {}\n\
              - Strava OAuth: {}\n\
              - Strava Redirect URI: {}\n\
-             - Fitbit OAuth: {}\n\
              - Weather Service: {}\n\
              - TLS: {}\n\
              - Rate Limiting: {}\n\
@@ -305,7 +298,6 @@ impl ServerConfig {
                 .redirect_uri
                 .as_ref()
                 .map_or("Not configured", |s| s.as_str()),
-            "API-Configured",
             if self.external_services.weather.enabled
                 && self.external_services.weather.api_key.is_some()
             {
@@ -335,12 +327,6 @@ impl ServerConfig {
     #[must_use]
     pub const fn strava_api_config(&self) -> &StravaApiConfig {
         &self.external_services.strava_api
-    }
-
-    /// Get Fitbit API configuration
-    #[must_use]
-    pub const fn fitbit_api_config(&self) -> &FitbitApiConfig {
-        &self.external_services.fitbit_api
     }
 
     /// Get Garmin API configuration

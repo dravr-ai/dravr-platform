@@ -96,8 +96,8 @@ pub struct OAuth2Token {
     /// Granted OAuth scopes
     pub scope: Option<String>,
     /// Provider-side user identifier captured from the token-exchange response
-    /// (Strava `athlete.id`, Fitbit `user_id`). `None` for providers that do not
-    /// return an owner id and for refresh responses. Used to map provider push
+    /// (Strava `athlete.id`). `None` for providers that do not return an owner
+    /// id and for refresh responses. Used to map provider push
     /// events (e.g. Strava webhooks) back to the single owning user.
     pub provider_user_id: Option<String>,
 }
@@ -350,12 +350,9 @@ impl OAuth2Client {
         });
 
         // Capture the provider-side owner id when the response carries one:
-        // Strava returns a nested `athlete.id` (number), Fitbit a top-level
-        // `user_id` (string). Other providers omit both, leaving this `None`.
-        let provider_user_id = response
-            .athlete
-            .map(|athlete| athlete.id.to_string())
-            .or(response.user_id);
+        // Strava returns a nested `athlete.id` (number). Other providers omit
+        // it, leaving this `None`.
+        let provider_user_id = response.athlete.map(|athlete| athlete.id.to_string());
 
         OAuth2Token {
             access_token: response.access_token,
@@ -384,8 +381,6 @@ struct TokenResponse {
     /// Strava returns the authenticated athlete inline in the token response;
     /// only its numeric id is needed to map webhook `owner_id` back to a user.
     athlete: Option<AthleteId>,
-    /// Fitbit returns the owner as a top-level `user_id` string (no `athlete`).
-    user_id: Option<String>,
 }
 
 /// Minimal projection of a provider's inline athlete object in the token
@@ -623,229 +618,6 @@ pub mod strava {
             scope: None,
             // Refresh responses do not carry the athlete object; the athlete id
             // already persisted at connect time is left untouched in storage.
-            provider_user_id: None,
-        })
-    }
-}
-
-/// Fitbit-specific `OAuth2` extensions and token handling
-pub mod fitbit {
-    use super::{Deserialize, Duration, OAuth2Token, PkceParams, Utc};
-    use pierre_core::errors::{AppError, AppResult};
-    use pierre_core::http_client::SharedHttpClient;
-    use serde_json;
-
-    /// Fitbit OAuth 2.0 token response with user information
-    #[derive(Debug, Deserialize)]
-    pub struct FitbitTokenResponse {
-        /// The access token
-        pub access_token: String,
-        /// Token lifetime in seconds
-        pub expires_in: i64,
-        /// Refresh token for obtaining new access tokens
-        pub refresh_token: String,
-        /// Space-separated list of granted scopes
-        pub scope: String,
-        /// Token type (usually "Bearer")
-        pub token_type: String,
-        /// Fitbit user ID
-        pub user_id: String,
-    }
-
-    /// Fitbit user information from token response
-    #[derive(Debug, Deserialize)]
-    pub struct FitbitUserInfo {
-        /// Fitbit user ID
-        pub user_id: String,
-    }
-
-    /// Exchange Fitbit authorization code for tokens
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the token exchange request fails or response is invalid
-    pub async fn exchange_fitbit_code(
-        client: &reqwest::Client,
-        client_id: &str,
-        client_secret: &str,
-        code: &str,
-        redirect_uri: &str,
-    ) -> AppResult<(OAuth2Token, Option<FitbitUserInfo>)> {
-        let params = [
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-            ("code", code),
-            ("grant_type", "authorization_code"),
-            ("redirect_uri", redirect_uri),
-        ];
-
-        let http_response = client
-            .post("https://api.fitbit.com/oauth2/token")
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("fitbit", format!("Failed to send token request: {e}"))
-            })?;
-
-        let status = http_response.status();
-        let body = http_response.text().await.map_err(|e| {
-            AppError::external_service("fitbit", format!("Failed to read token response body: {e}"))
-        })?;
-
-        if !status.is_success() {
-            return Err(AppError::external_service(
-                "fitbit",
-                format!("Token endpoint returned HTTP {status}: {body}"),
-            ));
-        }
-
-        let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
-            AppError::external_service(
-                "fitbit",
-                format!("Failed to parse token response ({} bytes): {e}", body.len()),
-            )
-        })?;
-
-        let token = OAuth2Token {
-            access_token: response.access_token,
-            token_type: response.token_type,
-            expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
-            refresh_token: Some(response.refresh_token),
-            scope: Some(response.scope),
-            provider_user_id: Some(response.user_id.clone()),
-        };
-
-        let user_info = FitbitUserInfo {
-            user_id: response.user_id,
-        };
-
-        Ok((token, Some(user_info)))
-    }
-
-    /// Exchange Fitbit authorization code with `PKCE` support
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the token exchange request fails or response is invalid
-    pub async fn exchange_fitbit_code_with_pkce(
-        client: &reqwest::Client,
-        client_id: &str,
-        client_secret: &str,
-        code: &str,
-        redirect_uri: &str,
-        pkce: &PkceParams,
-    ) -> AppResult<(OAuth2Token, Option<FitbitUserInfo>)> {
-        let params = [
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-            ("code", code),
-            ("grant_type", "authorization_code"),
-            ("redirect_uri", redirect_uri),
-            ("code_verifier", &pkce.code_verifier),
-        ];
-
-        let http_response = client
-            .post("https://api.fitbit.com/oauth2/token")
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("fitbit", format!("Failed to send token request: {e}"))
-            })?;
-
-        let status = http_response.status();
-        let body = http_response.text().await.map_err(|e| {
-            AppError::external_service("fitbit", format!("Failed to read token response body: {e}"))
-        })?;
-
-        if !status.is_success() {
-            return Err(AppError::external_service(
-                "fitbit",
-                format!("Token endpoint returned HTTP {status}: {body}"),
-            ));
-        }
-
-        let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
-            AppError::external_service(
-                "fitbit",
-                format!("Failed to parse token response ({} bytes): {e}", body.len()),
-            )
-        })?;
-
-        let token = OAuth2Token {
-            access_token: response.access_token,
-            token_type: response.token_type,
-            expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
-            refresh_token: Some(response.refresh_token),
-            scope: Some(response.scope),
-            provider_user_id: Some(response.user_id.clone()),
-        };
-
-        let user_info = FitbitUserInfo {
-            user_id: response.user_id,
-        };
-
-        Ok((token, Some(user_info)))
-    }
-
-    /// Refresh Fitbit access token
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the token refresh request fails or response is invalid
-    pub async fn refresh_fitbit_token(
-        client: &SharedHttpClient,
-        client_id: &str,
-        client_secret: &str,
-        refresh_token: &str,
-    ) -> AppResult<OAuth2Token> {
-        let params = [
-            ("client_id", client_id),
-            ("client_secret", client_secret),
-            ("refresh_token", refresh_token),
-            ("grant_type", "refresh_token"),
-        ];
-
-        let token_url = super::token_url_or(
-            "PIERRE_FITBIT_TOKEN_URL",
-            "https://api.fitbit.com/oauth2/token",
-        );
-        let http_response = client
-            .post(&token_url)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::external_service("fitbit", format!("Failed to send token request: {e}"))
-            })?;
-
-        let status = http_response.status();
-        let body = http_response.text().await.map_err(|e| {
-            AppError::external_service("fitbit", format!("Failed to read token response body: {e}"))
-        })?;
-
-        if !status.is_success() {
-            return Err(AppError::external_service(
-                "fitbit",
-                format!("Token endpoint returned HTTP {status}: {body}"),
-            ));
-        }
-
-        let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
-            AppError::external_service(
-                "fitbit",
-                format!("Failed to parse token response ({} bytes): {e}", body.len()),
-            )
-        })?;
-
-        Ok(OAuth2Token {
-            access_token: response.access_token,
-            token_type: response.token_type,
-            expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
-            refresh_token: Some(response.refresh_token),
-            scope: Some(response.scope),
-            // Refresh leaves the connect-time owner id in storage untouched.
             provider_user_id: None,
         })
     }

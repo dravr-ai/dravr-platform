@@ -113,7 +113,6 @@ async fn seed_user(db: &Database, role: &str) -> String {
         created_at: Utc::now(),
         last_active: Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

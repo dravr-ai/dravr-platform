@@ -1,5 +1,5 @@
 // ABOUTME: OAuth configuration types for fitness provider authentication
-// ABOUTME: Handles Strava, Fitbit, Garmin, WHOOP, Terra OAuth and Firebase auth settings
+// ABOUTME: Handles Strava, Garmin, WHOOP, Terra OAuth and Firebase auth settings
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,8 +16,6 @@ use tracing::{debug, info, warn};
 pub struct OAuthConfig {
     /// Strava OAuth configuration
     pub strava: OAuthProviderConfig,
-    /// Fitbit OAuth configuration
-    pub fitbit: OAuthProviderConfig,
     /// Garmin OAuth configuration
     pub garmin: OAuthProviderConfig,
     /// WHOOP OAuth configuration
@@ -32,7 +30,6 @@ impl OAuthConfig {
     pub fn from_env() -> Self {
         Self {
             strava: OAuthProviderConfig::load_strava(),
-            fitbit: OAuthProviderConfig::load_fitbit(),
             garmin: OAuthProviderConfig::load_garmin(),
             whoop: OAuthProviderConfig::load_whoop(),
             terra: OAuthProviderConfig::load_terra(),
@@ -156,25 +153,6 @@ impl OAuthProviderConfig {
             scopes: parse_scopes(STRAVA_SCOPES),
             enabled: env::var("STRAVA_CLIENT_ID").is_ok()
                 && env::var("STRAVA_CLIENT_SECRET").is_ok(),
-        }
-    }
-
-    /// Load Fitbit OAuth configuration from environment
-    #[must_use]
-    pub fn load_fitbit() -> Self {
-        // Default scopes inline to avoid feature-gated constant dependency
-        const FITBIT_SCOPES: &str = "activity profile sleep heartrate weight";
-        let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned());
-        Self {
-            client_id: env::var("FITBIT_CLIENT_ID").ok(),
-            client_secret: env::var("FITBIT_CLIENT_SECRET").ok(),
-            redirect_uri: Some(
-                env::var("FITBIT_REDIRECT_URI")
-                    .unwrap_or_else(|_| format!("{base_url}/api/oauth/callback/fitbit")),
-            ),
-            scopes: parse_scopes(FITBIT_SCOPES),
-            enabled: env::var("FITBIT_CLIENT_ID").is_ok()
-                && env::var("FITBIT_CLIENT_SECRET").is_ok(),
         }
     }
 
@@ -441,7 +419,7 @@ pub fn strava_oauth_seat_cap() -> u32 {
 /// For unknown providers, returns a default (empty) config.
 ///
 /// # Arguments
-/// * `provider_name` - The provider name (e.g., "strava", "garmin", "fitbit")
+/// * `provider_name` - The provider name (e.g., "strava", "garmin", "whoop")
 #[must_use]
 pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
     fn parse_scopes_with_defaults(env_value: Option<String>, defaults: Vec<String>) -> Vec<String> {
@@ -487,27 +465,6 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
                 client_id,
                 client_secret,
                 redirect_uri: env::var("GARMIN_REDIRECT_URI").ok(),
-                scopes,
-                enabled: true,
-            }
-        }
-        "fitbit" => {
-            let client_id = env::var("FITBIT_CLIENT_ID")
-                .ok()
-                .or_else(|| env::var("PIERRE_FITBIT_CLIENT_ID").ok());
-            let client_secret = env::var("FITBIT_CLIENT_SECRET")
-                .ok()
-                .or_else(|| env::var("PIERRE_FITBIT_CLIENT_SECRET").ok());
-            let scopes_env = env::var("PIERRE_FITBIT_SCOPES").ok();
-            let scopes = parse_scopes_with_defaults(
-                scopes_env,
-                vec!["activity".to_owned(), "sleep".to_owned()],
-            );
-
-            OAuthProviderConfig {
-                client_id,
-                client_secret,
-                redirect_uri: env::var("FITBIT_REDIRECT_URI").ok(),
                 scopes,
                 enabled: true,
             }

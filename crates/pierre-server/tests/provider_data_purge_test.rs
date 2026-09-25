@@ -302,6 +302,7 @@ async fn seed_provider_rows(
                 systolic_bp: None,
                 diastolic_bp: None,
                 blood_glucose: None,
+                vo2_max: None,
                 source_name: provider.to_owned(),
                 recorded_at: now,
             },

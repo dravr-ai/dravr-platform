@@ -314,7 +314,7 @@ describe('Provider Resilience - Timeout Handling', () => {
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Fire multiple requests concurrently
-    const requests = ['strava', 'garmin', 'fitbit'].map((provider, index) =>
+    const requests = ['strava', 'garmin', 'whoop'].map((provider, index) =>
       fetch(mcpEndpoint, {
         method: 'POST',
         headers: {
@@ -407,7 +407,7 @@ describe('Provider Resilience - Partial Response Handling', () => {
         method: 'tools/call',
         params: {
           name: 'get_activities',
-          arguments: { provider: 'fitbit' }
+          arguments: { provider: 'whoop' }
         }
       })
     });
@@ -562,7 +562,7 @@ describe('Provider Resilience - Graceful Multi-Provider Degradation', () => {
     const mcpEndpoint = `${serverUrl}/mcp`;
 
     // Sequential requests to different providers
-    const providers = ['strava', 'garmin', 'fitbit'];
+    const providers = ['strava', 'garmin', 'whoop'];
     const results = [];
 
     for (const provider of providers) {

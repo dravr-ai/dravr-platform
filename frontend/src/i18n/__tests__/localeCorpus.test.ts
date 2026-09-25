@@ -29,7 +29,6 @@ const SHARED_ACROSS_LANGUAGES = new Set([
   'settings.claudeDesktop',
   'providers.strava',
   'providers.garmin',
-  'providers.fitbit',
   'providers.polar',
 ]);
 
@@ -308,8 +307,10 @@ describe('client locale corpus', () => {
     // `providers.corosNotice` title, body and acceptance. +3.
     // 2467 once a reply the provider cut off or filtered carried a caveat:
     // `messaging.reply_stop.truncated` and `.filtered`. +2.
+    // 2466 once the legacy Fitbit Web API provider was deleted:
+    // `providers.fitbit`, a brand name nothing rendered, went with it. -1.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2467);
+    expect(reference).toHaveLength(2466);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

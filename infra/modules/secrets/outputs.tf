@@ -23,7 +23,6 @@ output "secret_ids" {
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.secret_id
     whoop_client_id                  = google_secret_manager_secret.whoop_client_id.secret_id
     whoop_client_secret              = google_secret_manager_secret.whoop_client_secret.secret_id
-    fitbit_client_secret             = google_secret_manager_secret.fitbit_client_secret.secret_id
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.secret_id
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.secret_id
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.secret_id
@@ -38,7 +37,6 @@ output "secret_ids" {
     slack_signing_secret             = google_secret_manager_secret.slack_signing_secret.secret_id
     telegram_bot_token               = google_secret_manager_secret.telegram_bot_token.secret_id
     telegram_webhook_secret          = google_secret_manager_secret.telegram_webhook_secret.secret_id
-    whoop_webhook_secret             = google_secret_manager_secret.whoop_webhook_secret.secret_id
     strava_webhook_verify_token      = google_secret_manager_secret.strava_webhook_verify_token.secret_id
     strava_webhook_subscription_id   = google_secret_manager_secret.strava_webhook_subscription_id.secret_id
     meta_whatsapp_app_secret         = google_secret_manager_secret.meta_whatsapp_app_secret.secret_id
@@ -64,7 +62,6 @@ output "secret_names" {
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.name
     whoop_client_id                  = google_secret_manager_secret.whoop_client_id.name
     whoop_client_secret              = google_secret_manager_secret.whoop_client_secret.name
-    fitbit_client_secret             = google_secret_manager_secret.fitbit_client_secret.name
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.name
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.name
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.name
@@ -79,7 +76,6 @@ output "secret_names" {
     slack_signing_secret             = google_secret_manager_secret.slack_signing_secret.name
     telegram_bot_token               = google_secret_manager_secret.telegram_bot_token.name
     telegram_webhook_secret          = google_secret_manager_secret.telegram_webhook_secret.name
-    whoop_webhook_secret             = google_secret_manager_secret.whoop_webhook_secret.name
     strava_webhook_verify_token      = google_secret_manager_secret.strava_webhook_verify_token.name
     strava_webhook_subscription_id   = google_secret_manager_secret.strava_webhook_subscription_id.name
     meta_whatsapp_app_secret         = google_secret_manager_secret.meta_whatsapp_app_secret.name

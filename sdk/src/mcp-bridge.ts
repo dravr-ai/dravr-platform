@@ -1241,7 +1241,7 @@ export class PierreMcpClient {
           content: [
             {
               type: "text",
-              text: "Already connected to Dravr! You can now use all fitness tools to access your Strava and Fitbit data.",
+              text: "Already connected to Dravr! You can now use all fitness tools to access your fitness data.",
             },
           ],
           isError: false,
@@ -1365,8 +1365,7 @@ export class PierreMcpClient {
               "Successfully connected to Dravr Fitness Server!\n\n" +
               "**Next step:** Connect to a fitness provider to access your activity data.\n\n" +
               "Available providers:\n" +
-              "- **Strava** - Connect your Strava account to access activities, stats, and athlete profile\n" +
-              "- **Fitbit** - Connect your Fitbit account (if you use Fitbit)\n\n" +
+              "- **Strava** - Connect your Strava account to access activities, stats, and athlete profile\n\n" +
               'To connect to Strava, say: "Connect to Strava"',
           },
         ],

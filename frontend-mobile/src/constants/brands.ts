@@ -24,6 +24,5 @@ export const PROVIDER_BRAND = {
   apple: 'Apple',
   whoop: 'WHOOP',
   intervalsIcu: 'Intervals.icu',
-  fitbit: 'Fitbit',
 } as const;
 

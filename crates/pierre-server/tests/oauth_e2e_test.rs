@@ -150,11 +150,11 @@ use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
     DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
-    FitbitApiConfig, GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig,
-    HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig,
-    OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig,
-    RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
-    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
+    GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
+    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
+    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
+    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
+    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
     WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
@@ -215,13 +215,6 @@ async fn test_oauth_flow_through_mcp() {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: Some("test_fitbit_id".to_owned()),
-                client_secret: Some("test_fitbit_secret".to_owned()),
-                redirect_uri: Some("http://localhost:3000/oauth/callback/fitbit".to_owned()),
-                scopes: vec!["activity".to_owned(), "profile".to_owned()],
-                enabled: true,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -267,13 +260,6 @@ async fn test_oauth_flow_through_mcp() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             geocoding: GeocodingServiceConfig {
@@ -381,7 +367,7 @@ async fn test_oauth_flow_through_mcp() {
     });
 
     // Verify response includes OAuth tools
-    // Expected tools: connect_strava, connect_fitbit, get_connection_status, disconnect_provider
+    // Expected tools: connect_strava, get_connection_status, disconnect_provider
 
     // 4. Test connect_strava tool
     let _connect_request = json!({
@@ -434,7 +420,6 @@ async fn test_oauth_callback_error_handling() {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,
@@ -486,7 +471,6 @@ async fn test_oauth_callback_error_handling() {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,
@@ -544,13 +528,6 @@ async fn test_oauth_callback_error_handling() {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -600,13 +577,6 @@ async fn test_oauth_callback_error_handling() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
@@ -780,7 +750,6 @@ async fn test_oauth_state_csrf_protection() {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,
@@ -874,13 +843,6 @@ async fn test_oauth_state_csrf_protection() {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -930,13 +892,6 @@ async fn test_oauth_state_csrf_protection() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {
@@ -1089,13 +1044,6 @@ async fn test_connection_status_tracking() {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -1125,13 +1073,6 @@ async fn test_connection_status_tracking() {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()

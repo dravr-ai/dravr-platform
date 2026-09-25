@@ -367,7 +367,6 @@ impl FitnessProvider for WhoopProvider {
                 client_secret: &credentials.client_secret,
                 refresh_token: &refresh_token,
                 provider_name: oauth_providers::WHOOP,
-                client_auth: utils::ClientAuth::FormFields,
                 extra_form: &[("scope", "offline")],
             },
         )

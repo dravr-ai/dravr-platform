@@ -627,13 +627,14 @@ module "backend" {
     RESEND_API_KEY            = module.secrets.secret_ids["resend_api_key"]
     POSTHOG_API_KEY           = module.secrets.secret_ids["posthog_api_key"]
 
-    # Provider webhook secrets: the WHOOP push endpoint verifies each event's
-    # HMAC against the first; Strava's subscription verification checks
-    # hub.verify_token against the second (the token `pierre-cli strava-webhook
-    # subscribe` registers), and every Strava event's subscription_id against
-    # the third (the id that subscribe returns). Values are set out-of-band in
-    # Secret Manager.
-    WHOOP_WEBHOOK_SECRET           = module.secrets.secret_ids["whoop_webhook_secret"]
+    # Provider webhook secrets. WHOOP signs every push with the app's client
+    # secret, so the WHOOP endpoint's WHOOP_WEBHOOK_SECRET reads that same
+    # secret; WHOOP issues no other. Strava's subscription verification checks
+    # hub.verify_token against STRAVA_WEBHOOK_VERIFY_TOKEN (the token
+    # `pierre-cli strava-webhook subscribe` registers), and every Strava
+    # event's subscription_id against STRAVA_WEBHOOK_SUBSCRIPTION_ID (the id
+    # that subscribe returns). Values are set out-of-band in Secret Manager.
+    WHOOP_WEBHOOK_SECRET           = module.secrets.secret_ids["whoop_client_secret"]
     STRAVA_WEBHOOK_VERIFY_TOKEN    = module.secrets.secret_ids["strava_webhook_verify_token"]
     STRAVA_WEBHOOK_SUBSCRIPTION_ID = module.secrets.secret_ids["strava_webhook_subscription_id"]
 

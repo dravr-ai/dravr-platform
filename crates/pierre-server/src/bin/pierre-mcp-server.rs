@@ -535,9 +535,8 @@ fn validate_oauth_providers(config: &ServerConfig) {
 /// Validate all OAuth providers and return combined result
 fn validate_all_providers(config: &ServerConfig) -> bool {
     let strava_valid = config.oauth.strava.validate_and_log("strava");
-    let fitbit_valid = config.oauth.fitbit.validate_and_log("fitbit");
     let garmin_valid = config.oauth.garmin.validate_and_log("garmin");
-    strava_valid && fitbit_valid && garmin_valid
+    strava_valid && garmin_valid
 }
 
 /// Log OAuth validation result

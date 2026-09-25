@@ -15,7 +15,7 @@ use uuid::Uuid;
 pub struct OAuthClientState {
     /// Unique state value sent through the OAuth flow
     pub state: String,
-    /// OAuth provider name (e.g., "strava", "fitbit")
+    /// OAuth provider name (e.g., "strava", "whoop")
     pub provider: String,
     /// User who initiated the OAuth flow
     pub user_id: Option<Uuid>,

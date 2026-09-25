@@ -16,7 +16,7 @@ pub struct ProviderApiContext<'a> {
     pub user_id: Uuid,
     /// Tenant ID for multi-tenant isolation
     pub tenant_id: TenantId,
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava", "whoop")
     pub provider: &'a str,
     /// API endpoint being called
     pub endpoint: &'a str,

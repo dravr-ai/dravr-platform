@@ -409,33 +409,6 @@ fn test_strava_token_response_without_athlete() {
 }
 
 // =============================================================================
-// Fitbit-Specific Tests
-// =============================================================================
-
-#[test]
-fn test_fitbit_token_response_deserialization() {
-    use pierre_auth::oauth2_client::client::fitbit::FitbitTokenResponse;
-
-    let json = r#"{
-        "access_token": "fitbit_access_token",
-        "expires_in": 28800,
-        "refresh_token": "fitbit_refresh_token",
-        "scope": "activity heartrate sleep",
-        "token_type": "Bearer",
-        "user_id": "FITBIT123"
-    }"#;
-
-    let response: FitbitTokenResponse = serde_json::from_str(json).unwrap();
-
-    assert_eq!(response.access_token, "fitbit_access_token");
-    assert_eq!(response.refresh_token, "fitbit_refresh_token");
-    assert_eq!(response.token_type, "Bearer");
-    assert_eq!(response.user_id, "FITBIT123");
-    assert_eq!(response.scope, "activity heartrate sleep");
-    assert_eq!(response.expires_in, 28800);
-}
-
-// =============================================================================
 // Edge Cases and Error Handling
 // =============================================================================
 

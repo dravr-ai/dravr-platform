@@ -437,8 +437,6 @@ pub struct User {
     pub tier: UserTier,
     /// Encrypted Strava tokens
     pub strava_token: Option<EncryptedToken>,
-    /// Encrypted Fitbit tokens
-    pub fitbit_token: Option<EncryptedToken>,
     /// When the user account was created
     pub created_at: DateTime<Utc>,
     /// Last time user accessed the system
@@ -542,7 +540,6 @@ impl User {
             password_hash,
             tier: UserTier::Starter, // Default to starter tier
             strava_token: None,
-            fitbit_token: None,
             created_at: now,
             last_active: now,
             is_active: true,
@@ -571,23 +568,12 @@ impl User {
             .is_some_and(|token| token.expires_at > Utc::now())
     }
 
-    /// Check if user has valid Fitbit token
-    #[must_use]
-    pub fn has_fitbit_access(&self) -> bool {
-        self.fitbit_token
-            .as_ref()
-            .is_some_and(|token| token.expires_at > Utc::now())
-    }
-
     /// Get list of available providers for this user
     #[must_use]
     pub fn available_providers(&self) -> Vec<String> {
-        let mut providers = Vec::with_capacity(2); // Typically Strava and Fitbit
+        let mut providers = Vec::with_capacity(1);
         if self.has_strava_access() {
             providers.push("strava".into());
-        }
-        if self.has_fitbit_access() {
-            providers.push("fitbit".into());
         }
         providers
     }

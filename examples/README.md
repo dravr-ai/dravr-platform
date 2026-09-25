@@ -415,7 +415,7 @@ pip install -r requirements.txt
 - Verify Pierre server is running
 
 **"No activities found"**
-- Connect a Strava or Fitbit account via Pierre web UI
+- Connect a Strava or WHOOP account via Pierre web UI
 - Ensure OAuth connection is active
 - Check server logs for provider API errors
 

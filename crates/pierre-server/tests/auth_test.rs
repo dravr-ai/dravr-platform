@@ -548,7 +548,7 @@ fn test_claims_serialization() {
         "exp": 1700003600,
         "iss": "pierre-mcp-server",
         "jti": "123e4567-e89b-12d3-a456-426614174001",
-        "providers": ["strava", "fitbit"],
+        "providers": ["strava", "whoop"],
         "aud": "mcp",
         "active_tenant_id": null
     }"#;

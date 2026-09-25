@@ -46,12 +46,12 @@ fn with_no_provider_connected_the_message_names_the_listed_ones() {
         "Connect Strava to unlock this agent"
     );
 
-    let many = check_prerequisites(&prereqs(&["strava", "garmin", "fitbit"]), &connected(&[]));
+    let many = check_prerequisites(&prereqs(&["strava", "garmin", "terra"]), &connected(&[]));
     assert_eq!(many.missing.len(), 1);
-    assert_eq!(many.missing[0].requirement, "strava, garmin, fitbit");
+    assert_eq!(many.missing[0].requirement, "strava, garmin, terra");
     assert_eq!(
         many.missing[0].message,
-        "Connect Strava, Garmin or Fitbit to unlock this agent"
+        "Connect Strava, Garmin or Terra to unlock this agent"
     );
 }
 

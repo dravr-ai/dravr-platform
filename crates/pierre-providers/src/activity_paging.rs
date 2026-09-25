@@ -7,15 +7,15 @@
 //! Shared paging policy for provider activity fetches.
 //!
 //! Every upstream answers a bounded number of activities per request — 200 for
-//! Strava and Intervals.icu, 100 for Garmin and Fitbit, 50 for COROS, 25 for
-//! WHOOP. A caller asking for a season therefore needs several requests, and
-//! the question "how many may I issue?" has to have the same answer for every
+//! Strava and Intervals.icu, 100 for Garmin, 50 for COROS, 25 for WHOOP. A
+//! caller asking for a season therefore needs several requests, and the
+//! question "how many may I issue?" has to have the same answer for every
 //! provider, or the shallow ones truncate while the deep ones do not.
 //!
 //! It did not. Strava and Garmin walked as many pages as the caller's limit
-//! implied, with no ceiling at all; WHOOP, COROS, Fitbit and Intervals.icu
-//! clamped the caller's limit to a single page and returned quietly. That
-//! difference was not local. The historical gate asks every provider for
+//! implied, with no ceiling at all; WHOOP, COROS and Intervals.icu clamped the
+//! caller's limit to a single page and returned quietly. That difference was
+//! not local. The historical gate asks every provider for
 //! `DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT` activities and then reads
 //! `fetched_count < fetch_limit` as proof the window was exhausted — so a
 //! provider that quietly answered 25 made the backfill record a depth it never
@@ -35,7 +35,7 @@ pub const MAX_ACTIVITY_PAGES_ENV: &str = "PIERRE_PROVIDER_MAX_ACTIVITY_PAGES";
 ///
 /// Chosen so it does not bind at the default backfill depth on any provider:
 /// two thousand activities is eighty pages at WHOOP's 25 per request, forty at
-/// COROS's 50, twenty at Garmin's and Fitbit's 100, ten at Strava's and
+/// COROS's 50, twenty at Garmin's 100, ten at Strava's and
 /// Intervals.icu's 200. That makes this a runaway backstop rather than a policy
 /// limit — the thing that stops a caller-supplied limit from turning into an
 /// unbounded walk — which is the only role a shared ceiling can honestly play
