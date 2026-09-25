@@ -102,30 +102,7 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Check if CHANGELOG exists
-        id: check_changelog
-        run: |
-          if [ -f "CHANGELOG.md" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Extract release notes from CHANGELOG
-        if: steps.check_changelog.outputs.exists == 'true'
-        run: |
-          VERSION="${{ needs.validate.outputs.version }}"
-          awk "/^## \[${VERSION#v}\]/ {flag=1; next} /^## \[/ {flag=0} flag" CHANGELOG.md > release-notes.md
-
-          if [ ! -s release-notes.md ]; then
-            echo "No release notes found in CHANGELOG.md for version ${VERSION}"
-            echo "## What's New" > release-notes.md
-            echo "" >> release-notes.md
-            echo "See [CHANGELOG.md](CHANGELOG.md) for details." >> release-notes.md
-          fi
-
-      - name: Create default release notes
-        if: steps.check_changelog.outputs.exists == 'false'
+      - name: Create release notes
         run: |
           VERSION="${{ needs.validate.outputs.version }}"
           cat > release-notes.md <<EOF

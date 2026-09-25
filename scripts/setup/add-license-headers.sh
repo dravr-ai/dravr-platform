@@ -207,28 +207,6 @@ add_header_python() {
     increment_modified
 }
 
-add_header_markdown() {
-    local file="$1"
-
-    # Check if file already has SPDX license header
-    if grep -q "SPDX-License-Identifier" "$file" 2>/dev/null; then
-        increment_skipped
-        return 0
-    fi
-
-    local tmpfile=$(mktemp)
-
-    # Markdown files use HTML comment format for license headers
-    echo "<!-- $LICENSE_SPDX -->" > "$tmpfile"
-    echo "<!-- $LICENSE_COPYRIGHT -->" >> "$tmpfile"
-    echo "" >> "$tmpfile"
-    cat "$file" >> "$tmpfile"
-
-    mv "$tmpfile" "$file"
-    echo "  ✓ $file"
-    increment_modified
-}
-
 echo "Adding SPDX license headers to source files..."
 echo ""
 echo "Format: $LICENSE_SPDX"
@@ -312,15 +290,6 @@ if [ -d "examples" ]; then
     while IFS= read -r -d '' file; do
         add_header_js "$file"
     done < <(find examples \( -name "*.js" -o -name "*.ts" \) ! -path "*/node_modules/*" -type f -print0)
-    echo ""
-fi
-
-# Process documentation markdown files
-if [ -d "docs" ]; then
-    echo "Processing docs/ (Markdown)..."
-    while IFS= read -r -d '' file; do
-        add_header_markdown "$file"
-    done < <(find docs -name "*.md" -type f -print0)
     echo ""
 fi
 

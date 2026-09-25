@@ -73,6 +73,20 @@ export const PROVIDER_LINK_POLL_INTERVAL_MS = 5000;
 export const CHANNEL_LINK_POLL_INTERVAL_MS = 3000;
 
 /**
+ * How long the Home page waits before asking once more for recent activities
+ * the server reported stale.
+ *
+ * A stale answer means the server served the cache and started a background
+ * refresh through the provider. Fifteen seconds covers a token provider's
+ * fetch, which returns in a few; a scraped provider can take longer, and the
+ * page then shows what it has with its sync time rather than asking again.
+ *
+ * One refetch, never an interval: whatever the second answer says, the page
+ * stops there, so an open Home screen costs one extra request, not a poll.
+ */
+export const HOME_STALE_REFETCH_DELAY_MS = 15000;
+
+/**
  * The query defaults that encode the focus contract.
  *
  * Spread into each client's `QueryClient` `defaultOptions.queries`, ahead of

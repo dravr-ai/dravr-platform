@@ -93,7 +93,7 @@ fn snippet_is_bounded_to_64_chars() {
     let outcome = scan(&very_long);
     if let SanitizationOutcome::Sanitized { matches, .. } = outcome {
         for m in matches {
-            assert!(m.snippet.chars().count() <= SNIPPET_MAX);
+            assert!(m.snippet.chars().count() <= 64);
         }
     }
 }

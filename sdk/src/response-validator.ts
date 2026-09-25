@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Runtime response validation for MCP tool calls
-// ABOUTME: Validates tool responses against Zod schemas for type safety
+// ABOUTME: Runtime response validation for MCP tool calls against each tool's advertised outputSchema
+// ABOUTME: Compiles the outputSchemas from tools/list with ajv and checks every result's structuredContent
 
-import {
-  validateToolResponse,
-  hasResponseSchema,
-  type ToolName,
-  type ValidationResult,
-} from "./response-schemas.js";
+import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 
 /**
  * MCP tool response structure from the SDK
@@ -21,7 +16,16 @@ interface McpToolResult {
     [key: string]: unknown;
   }>;
   isError?: boolean;
+  structuredContent?: unknown;
   [key: string]: unknown;
+}
+
+/**
+ * A tool as `tools/list` describes it — only the fields validation reads.
+ */
+export interface ToolWithOutputSchema {
+  name: string;
+  outputSchema?: Record<string, unknown>;
 }
 
 /**
@@ -58,6 +62,18 @@ const defaultConfig: ResponseValidatorConfig = {
 let globalConfig: ResponseValidatorConfig = { ...defaultConfig };
 
 /**
+ * The server derives every outputSchema from the Rust type the tool answers
+ * with (JSON Schema 2020-12, `$defs` for nested types), so the schema is the
+ * contract and there is no second copy to keep in step with it. Formats such
+ * as `uint32` or `double` are schemars annotations rather than string formats,
+ * so format validation is off; structure, types and required keys are checked.
+ */
+const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: false });
+
+/** Compiled validators, keyed by tool name, from the latest `tools/list`. */
+const validators = new Map<string, ValidateFunction>();
+
+/**
  * Configure the response validator
  */
 export function configureValidator(config: Partial<ResponseValidatorConfig>): void {
@@ -72,34 +88,35 @@ export function getValidatorConfig(): Readonly<ResponseValidatorConfig> {
 }
 
 /**
- * Extract the actual response data from MCP tool result.
- * MCP responses wrap data in content[].text as JSON string.
+ * Adopt the outputSchemas of a `tools/list` result, replacing the previous set.
+ *
+ * A schema that does not compile is logged and left out, so that tool's
+ * results go unvalidated rather than every result failing.
  */
-function extractResponseData(result: McpToolResult): unknown {
-  if (result.isError) {
-    // Don't validate error responses - they have a different structure
-    return null;
+export function registerToolOutputSchemas(tools: ToolWithOutputSchema[]): void {
+  const log = globalConfig.logger ?? console.warn;
+  validators.clear();
+  for (const tool of tools) {
+    if (!tool.outputSchema) {
+      continue;
+    }
+    try {
+      validators.set(tool.name, ajv.compile(tool.outputSchema));
+    } catch (error) {
+      log(
+        `[ResponseValidator] outputSchema of "${tool.name}" does not compile: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
+}
 
-  if (!result.content || result.content.length === 0) {
-    return {};
-  }
-
-  // Find the first text content item
-  const textContent = result.content.find(c => c.type === "text" && c.text);
-
-  if (!textContent?.text) {
-    // No text content - might be resource or other type
-    return result;
-  }
-
-  // Try to parse the text as JSON (most responses are JSON in text field)
-  try {
-    return JSON.parse(textContent.text);
-  } catch {
-    // Not JSON - return as-is
-    return { text: textContent.text };
-  }
+/**
+ * Whether the latest `tools/list` gave `toolName` an outputSchema to validate against
+ */
+export function hasResponseSchema(toolName: string): boolean {
+  return validators.has(toolName);
 }
 
 /**
@@ -112,7 +129,7 @@ export interface ValidatedToolResult<T = unknown> {
   /** Whether validation passed */
   valid: boolean;
 
-  /** The parsed and validated response data (if valid) */
+  /** The validated `structuredContent` (if valid) */
   data?: T;
 
   /** Validation errors (if invalid) */
@@ -122,26 +139,31 @@ export interface ValidatedToolResult<T = unknown> {
   toolName: string;
 }
 
+function describe(error: ErrorObject): string {
+  return `${error.instancePath || "/"}: ${error.message ?? error.keyword}`;
+}
+
 /**
- * Validate an MCP tool response against its Zod schema.
+ * Validate an MCP tool result against the tool's advertised outputSchema.
  *
- * This function:
- * 1. Extracts the response data from the MCP content wrapper
- * 2. Validates against the tool's Zod schema
- * 3. Returns the result with validation status
+ * The spec (2025-06-18 server/tools, Output Schema) requires a server that
+ * declares an outputSchema to return `structuredContent` conforming to it, so
+ * a successful result without `structuredContent` is itself a failure. Error
+ * results (`isError`) carry no structured part and are not validated, and a
+ * tool with no outputSchema cannot be.
  *
  * @param toolName - The name of the tool that was called
  * @param result - The MCP tool result from callTool()
- * @returns ValidatedToolResult with validation status and parsed data
+ * @returns ValidatedToolResult with validation status and the structured data
  */
 export function validateMcpToolResponse<T = unknown>(
   toolName: string,
   result: McpToolResult
 ): ValidatedToolResult<T> {
   const log = globalConfig.logger ?? console.warn;
+  const validate = validators.get(toolName);
 
-  // If validation is disabled, return result as-is
-  if (!globalConfig.enabled) {
+  if (!globalConfig.enabled || !validate || result.isError) {
     return {
       result,
       valid: true,
@@ -149,47 +171,21 @@ export function validateMcpToolResponse<T = unknown>(
     };
   }
 
-  // Check if we have a schema for this tool
-  if (!hasResponseSchema(toolName)) {
-    // No schema defined - can't validate, but don't fail
-    if (process.env.NODE_ENV !== "production") {
-      log(`[ResponseValidator] No schema defined for tool: ${toolName}`);
-    }
-    return {
-      result,
-      valid: true, // Pass by default when no schema
-      toolName,
-    };
-  }
+  const errorMessages =
+    result.structuredContent === undefined
+      ? ["has an output schema but did not return structured content"]
+      : validate(result.structuredContent)
+        ? []
+        : (validate.errors ?? []).map(describe);
 
-  // Extract response data from MCP wrapper
-  const responseData = extractResponseData(result);
-
-  // Skip validation for error responses
-  if (responseData === null) {
+  if (errorMessages.length === 0) {
     return {
       result,
       valid: true,
+      data: result.structuredContent as T,
       toolName,
     };
   }
-
-  // Validate against schema
-  const validation = validateToolResponse(toolName as ToolName, responseData);
-
-  if (validation.success) {
-    return {
-      result,
-      valid: true,
-      data: validation.data as T,
-      toolName,
-    };
-  }
-
-  // Validation failed
-  const errorMessages = validation.error!.issues.map(
-    issue => `${issue.path.join(".")}: ${issue.message}`
-  );
 
   const errorSummary = `[ResponseValidator] Tool "${toolName}" response validation failed:\n  - ${errorMessages.join("\n  - ")}`;
 
@@ -198,7 +194,7 @@ export function validateMcpToolResponse<T = unknown>(
   }
 
   // Log warning (non-strict mode)
-  log(errorSummary, globalConfig.logRawData ? responseData : undefined);
+  log(errorSummary, globalConfig.logRawData ? result.structuredContent : undefined);
 
   return {
     result,

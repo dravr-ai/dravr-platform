@@ -9,13 +9,13 @@ use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParam
 use chrono::Utc;
 use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_cache_ttl,
-    register_feature_flags, register_fitbit_provider, register_garmin_provider,
-    register_group_permissions, register_heart_rate_zones, register_llm_pricing,
-    register_llm_provider_config, register_mcp_network, register_monitoring, register_nutrition,
-    register_rate_limiting, register_recommendation_engine, register_sleep_recovery,
-    register_sqlx_pool, register_strava_provider, register_strava_seat_reclaim,
-    register_tokio_runtime, register_tool_execution, register_training_stress_balance,
-    register_usage_quotas, register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
+    register_feature_flags, register_garmin_provider, register_group_permissions,
+    register_heart_rate_zones, register_llm_pricing, register_llm_provider_config,
+    register_mcp_network, register_monitoring, register_nutrition, register_rate_limiting,
+    register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
+    register_strava_provider, register_strava_seat_reclaim, register_tokio_runtime,
+    register_tool_execution, register_training_stress_balance, register_usage_quotas,
+    register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
@@ -246,9 +246,6 @@ impl AdminConfigService {
 
         // Strava Provider Settings — see config::admin::definitions::register_strava_provider
         register_strava_provider(&mut defs);
-
-        // Fitbit Provider Settings — see config::admin::definitions::register_fitbit_provider
-        register_fitbit_provider(&mut defs);
 
         // Garmin Provider Settings — see config::admin::definitions::register_garmin_provider
         register_garmin_provider(&mut defs);

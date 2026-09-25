@@ -10,6 +10,8 @@ pub mod client_registration;
 pub mod endpoints;
 /// OAuth 2.0 data models and types
 pub mod models;
+/// PKCE (RFC 7636) challenge and verifier checks
+mod pkce;
 /// Rate limiting for OAuth 2.0 endpoints
 pub mod rate_limiting;
 /// Typestate pattern for compile-time OAuth flow safety

@@ -314,7 +314,6 @@ fn test_user_creation_with_required_fields() {
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -357,12 +356,6 @@ fn test_user_serialization_roundtrip() {
             refresh_token: "encrypted_refresh_token".to_owned(),
             expires_at: now + chrono::Duration::hours(1),
             scope: "read".to_owned(),
-        }),
-        fitbit_token: Some(EncryptedToken {
-            access_token: "encrypted_fitbit_access".to_owned(),
-            refresh_token: "encrypted_fitbit_refresh".to_owned(),
-            expires_at: now + chrono::Duration::hours(2),
-            scope: "read_all".to_owned(),
         }),
         is_active: true,
         user_status: UserStatus::Active,
@@ -516,12 +509,6 @@ fn test_user_with_encrypted_tokens() {
             expires_at: now + chrono::Duration::hours(6),
             scope: "read_all,activity:read".to_owned(),
         }),
-        fitbit_token: Some(EncryptedToken {
-            access_token: "fitbit_encrypted_access".to_owned(),
-            refresh_token: "fitbit_encrypted_refresh".to_owned(),
-            expires_at: now + chrono::Duration::hours(8),
-            scope: "activity,heartrate,sleep".to_owned(),
-        }),
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -541,18 +528,12 @@ fn test_user_with_encrypted_tokens() {
         theme: None,
     };
 
-    // Verify tokens are present
+    // Verify the token is present
     assert!(user.strava_token.is_some());
-    assert!(user.fitbit_token.is_some());
 
     if let Some(strava_token) = &user.strava_token {
         assert_eq!(strava_token.scope, "read_all,activity:read");
         assert!(strava_token.expires_at > now);
-    }
-
-    if let Some(fitbit_token) = &user.fitbit_token {
-        assert_eq!(fitbit_token.scope, "activity,heartrate,sleep");
-        assert!(fitbit_token.expires_at > now);
     }
 }
 

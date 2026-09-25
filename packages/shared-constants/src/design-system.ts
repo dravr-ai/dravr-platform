@@ -1,12 +1,12 @@
 // ABOUTME: Boreal Editorial design tokens shared across Dravr web and mobile
-// ABOUTME: Sourced from docs/design/boreal-design-system.md — dravr.ai canonical brand
+// ABOUTME: Vendored from the dravr-website global.css — dravr.ai canonical brand
 
 // ========== BOREAL LIGHT — MD3 TOKEN TREE ==========
 
 /**
  * Canonical MD3 light token set vendored from the dravr-website global.css.
  * Web reads this directly; mobile reads it via its theme context when the
- * system color scheme is light. Values mirror docs/design/boreal-tokens.reference.css.
+ * system color scheme is light.
  */
 export const BOREAL_LIGHT = {
   /** Sage-forest — the one accent, legible as text (4.7:1 on the darkest tier) and under white (7.4:1). */
@@ -361,7 +361,7 @@ export const SEMANTIC_COLORS_DARK = {
 /**
  * OAuth provider brand colors — third-party colours, not Boreal tokens. The
  * `sciotte*` keys are the captured Strava, Garmin, TrainingPeaks and COROS accounts,
- * so they carry the brand they capture. Legacy keys (fitbit/terra/google) are
+ * so they carry the brand they capture. Legacy keys (terra/google) are
  * retained for tests and any still-referencing call sites; they are not
  * surfaced by the API.
  *
@@ -380,7 +380,6 @@ export const PROVIDER_COLORS = {
   // Garmin blue as the integration shipped it; not traced — garmin.com's own
   // `theme-color` and tile colour are #ffffff.
   garmin: '#007CC3',
-  fitbit: '#00B0B9',
   // WHOOP green as the integration shipped it; not traced — whoop.com
   // publishes no `theme-color` and draws its own mark in black.
   whoop: '#00D46A',

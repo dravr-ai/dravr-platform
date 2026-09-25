@@ -559,8 +559,8 @@ then the thread with a back button in its header.
 
 | Region | Light | Dark | Notes |
 |---|---|---|---|
-| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px, one icon per destination (Chat, Discover, Notifications), gear + avatar at the bottom; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
-| Chat-tab header — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title, then the appearance toggle, the bell and the `+`. The other tabs keep their own titles. |
+| Icon rail (72px) — **web only** | `surface` | `surface` | Brand mark at 40px — a button to Home with no fill of its own, only the focus ring — then one icon per destination (Home, Chat, Discover, Notifications), gear + avatar at the bottom; the active item sits on the `primary-container` tint, and a hairline separates the rail from the list. No name or role text — the name lives at the top of Settings. |
+| Home and Chat tab headers — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title — on Chat followed by the appearance toggle, the bell and the `+`. The lockup is a button named Home (`nav.home`): from Chat it goes to Home, on Home it scrolls back to the top. It gains a press, not a look — no recolour, no badge, no pressed ink beyond a dimming. Discover and Settings keep their own titles. |
 | List column (320/340px) | `surface` | `surface` | A 52px title row with the `+` as an ink icon button, a quiet 32px search field (`SearchField`), text tabs (All / Unread / Groups / Agents) under a primary underline, then rows. A hairline on the right separates it from the thread. |
 | List row (60px) | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 36px initials avatar, title (13px, 600 when unread) + time on line 1, preview + unread pill on line 2, inset `ghost-border-faint` divider. Unread pill = `bg-primary text-on-primary`, 18px. |
 | Thread header (52px) | `surface` | `surface` | 28px avatar, title (the way into the info drawer) with the subtitle beside it on one line, `+`; a hairline below. |
@@ -570,11 +570,14 @@ then the thread with a back button in its header.
 **Mark only on web, mark plus name on the phone — because they are different
 shells.** The rail is a persistent 72px column that never leaves the screen, so
 a wordmark in it is repeated chrome and the mark alone is enough to say whose
-app this is. The phone has no rail: it has four unlabelled tab glyphs and one
+app this is. The phone has no rail: it has four labelled tab glyphs and one
 header per screen, so past the login screen there is nowhere else for identity
-to live. The chat tab's header is that place, and only that one — the wordmark
-on every screen would turn identity back into chrome. Set it the way §1 and §3
-define the lockup: Schibsted Grotesk 600, `letter-spacing: 0.15em`, `primary` ink.
+to live. The Home tab's header, where the app lands, and the chat tab's are
+those places, and only those two — the wordmark on every screen would turn
+identity back into chrome. On both clients the mark is also the way Home: the
+rail's mark is a button to it on the web, and the lockup is on the phone. Set
+it the way §1 and §3 define the lockup: Schibsted Grotesk 600,
+`letter-spacing: 0.15em`, `primary` ink.
 The mark carries no badge: `DravrLogo` draws it in forest ink on the paper
 canvas and swaps to mint under `.dark`, so it holds on both grounds without a
 plate of its own.
@@ -845,7 +848,7 @@ compared — an unread count, a token total, a time in a row — are
 | Sheet | one, `ui/Sheet`: `bg-scrim/60` behind a `rounded-t-3xl` panel on the secondary ground, no drag pill, content as sections; a dialog (`PromptDialog`, and the OAuth-credentials add form in `OAuthCredentialsSection`) keeps a centred panel on the secondary ground — `rounded-2xl` under its own 8/16 shadow for the prompt, `rounded-xl` and flat for the form |
 | Composer | a bar in the layout, never an overlay: hairline top, paper ground, the field 40 / radius 20 on `surface-container`, the left slot empty, the mic, a 32 send circle filled in `primary` only while there is text; the keyboard is met through `KeyboardAvoidingView`, so the list pays no clearance for it |
 | Rows | a chat row 72 with a 48 avatar and one count capsule (22, 13 / 600 mono, `@` prefixed for a mention), its hairline inset to the text; the title is the stored one, which the server names after the room, else the agent, else the moment the thread started, so a row reads who it is with and the `@handle` only appears beside a title that is not already the agent; a message's actions live behind a long-press action sheet, and only the time sits under the prose |
-| Empty state | `ui/EmptyState`: one 13 sentence on the secondary ink and, when there is something to do, one inline `primary` link — no icon, no card, no filled button |
+| Empty state | `ui/EmptyState`: one 13 sentence on the secondary ink and, when there is something to do, one inline `primary` link — no icon, no card, no filled button. One exception: Home's no-plan state carries a filled `primary` "Build my plan" button, because building a plan is that tab's one action and the page otherwise has none (ChefFamille, 2026-09-24) |
 | Settings row | `ui/Row`: 52 tall, 44 compact for a fact row; the title 16 on the left, the hint 13 tertiary inline on the right and truncated before the title gives, then an 18 chevron when the row navigates; the value slot `font-mono tabular-nums`; the faint hairline on the inner column so it insets to the text, none on the last row |
 | Section | `ui/Section`: a 13 / 600 title, an optional 13 secondary description, the content 12 below, no fill and no border; 32 between sections, paid by the parent |
 | Text tabs | `ui/TextTabs`: one horizontal row of 13 / 500 labels 20 apart over a hairline, the active one in the primary ink with a 2 px primary underline; the kind filter on Memory, the pickers in Notification preferences, Discover's categories |

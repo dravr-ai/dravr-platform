@@ -1,5 +1,5 @@
 // ABOUTME: OAuth configuration types for fitness provider authentication
-// ABOUTME: Handles Strava, Fitbit, Garmin, WHOOP, Terra OAuth and Firebase auth settings
+// ABOUTME: Handles Strava, Garmin, WHOOP, Terra OAuth and Firebase auth settings
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,8 +16,6 @@ use tracing::{debug, info, warn};
 pub struct OAuthConfig {
     /// Strava OAuth configuration
     pub strava: OAuthProviderConfig,
-    /// Fitbit OAuth configuration
-    pub fitbit: OAuthProviderConfig,
     /// Garmin OAuth configuration
     pub garmin: OAuthProviderConfig,
     /// WHOOP OAuth configuration
@@ -33,7 +31,6 @@ impl OAuthConfig {
     pub fn from_env() -> Self {
         Self {
             strava: get_oauth_config(oauth_providers::STRAVA),
-            fitbit: get_oauth_config(oauth_providers::FITBIT),
             garmin: get_oauth_config(oauth_providers::GARMIN),
             whoop: get_oauth_config(oauth_providers::WHOOP),
             terra: get_oauth_config(oauth_providers::TERRA),
@@ -46,7 +43,6 @@ impl OAuthConfig {
     pub fn provider(&self, provider: &str) -> Option<&OAuthProviderConfig> {
         match provider.to_lowercase().as_str() {
             p if p == oauth_providers::STRAVA => Some(&self.strava),
-            p if p == oauth_providers::FITBIT => Some(&self.fitbit),
             p if p == oauth_providers::GARMIN => Some(&self.garmin),
             p if p == oauth_providers::WHOOP => Some(&self.whoop),
             p if p == oauth_providers::TERRA => Some(&self.terra),
@@ -376,7 +372,7 @@ pub fn strava_oauth_seat_cap() -> u32 {
 /// An unknown provider gets the empty, disabled default.
 ///
 /// # Arguments
-/// * `provider_name` - The provider name (e.g., "strava", "garmin", "fitbit")
+/// * `provider_name` - The provider name (e.g., "strava", "garmin", "whoop")
 #[must_use]
 pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
     let (id_key, secret_key, default_scopes) = match provider_name {
@@ -384,11 +380,6 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
             "STRAVA_CLIENT_ID",
             "STRAVA_CLIENT_SECRET",
             oauth_providers::STRAVA_DEFAULT_SCOPES,
-        ),
-        p if p == oauth_providers::FITBIT => (
-            "FITBIT_CLIENT_ID",
-            "FITBIT_CLIENT_SECRET",
-            oauth_providers::FITBIT_DEFAULT_SCOPES,
         ),
         p if p == oauth_providers::GARMIN => (
             "GARMIN_CLIENT_ID",
@@ -499,7 +490,7 @@ pub fn load_provider_env_config(
 }
 
 /// Parse a scope list separated by commas or whitespace (Strava joins its
-/// scopes with commas, Fitbit and WHOOP with spaces)
+/// scopes with commas, WHOOP with spaces)
 #[must_use]
 pub fn parse_scopes(scopes_str: &str) -> Vec<String> {
     scopes_str

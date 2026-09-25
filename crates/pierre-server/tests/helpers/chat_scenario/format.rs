@@ -12,8 +12,7 @@
 //! of [`AssertionSpec`], so a YAML author cannot smuggle in arbitrary
 //! Rust expressions that would silently no-op against the framework.
 //!
-//! See `tests/scenarios/*.yaml` for canonical examples and
-//! `book/src/eval/scenario-authoring.md` for the contributor guide.
+//! See `tests/scenarios/*.yaml` for canonical examples.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -113,7 +112,7 @@ fn default_locales() -> Vec<String> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderState {
     /// Per-provider activity lists. Key is the BCP-47 provider name
-    /// recognized by the fixture (`strava`, `fitbit`, `garmin`, etc.).
+    /// recognized by the fixture (`strava`, `garmin`, `whoop`, etc.).
     #[serde(default)]
     pub providers: BTreeMap<String, ProviderActivities>,
 }

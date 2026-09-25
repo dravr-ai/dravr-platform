@@ -46,7 +46,6 @@ async fn create_test_client_with_window(
         password_hash: format!("test_hash_{unique_id}"),
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,

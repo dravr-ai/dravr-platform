@@ -13,6 +13,20 @@ crate whose dependency failed to compile: there is no ``rmeta`` to compile
 against. Those crates emit no diagnostics at all, which reads exactly like
 having none.
 
+Warnings are denied through ``build.warnings`` rather than ``-- -D warnings``.
+Under ``-D warnings`` a warn-level lint is an error, so its crate produces no
+``rmeta`` and every dependent goes dark. Under ``build.warnings = "deny"`` the
+lint stays a warning, the crate still builds, its dependents are linted in the
+same run, and cargo fails once at the end. Only a hard error — a compile
+failure or a lint the workspace sets to ``deny`` — still blocks a dependent,
+and that is what this report names.
+
+Cargo 1.98 does not apply ``build.warnings`` to its exit status when the
+output is ``--message-format=json``: the run exits 0 over any number of
+warnings, while the same run in human format exits 101. This wrapper reads the
+JSON stream, so it enforces the setting itself — a warning from a workspace
+package fails the run whatever status cargo returns.
+
 That reading cost three sessions an evening on 2026-08-26. A single
 ``too_long_first_doc_paragraph`` in ``pierre-services`` was the only error the
 job could reach; four more sat unevaluated in ``pierre-cli``,
@@ -38,7 +52,35 @@ import subprocess
 import sys
 
 # Mirrors the job's contract: every target, every feature, zero tolerance.
-CANONICAL_ARGS = ["--keep-going", "--all-targets", "--all-features"]
+CANONICAL_ARGS = [
+    "--keep-going",
+    "--all-targets",
+    "--all-features",
+    "--config",
+    'build.warnings="deny"',
+]
+
+
+# Cargo before 1.97 ignores an unknown config key without a word, so
+# build.warnings would be dropped and every warning would pass. Refuse to run
+# rather than report a clean tree that nothing checked.
+MIN_CARGO = (1, 97)
+
+
+def require_build_warnings():
+    out = subprocess.run(
+        ["cargo", "--version"], capture_output=True, text=True, check=True
+    ).stdout
+    parts = out.split()
+    if len(parts) < 2:
+        sys.exit(f"cannot read the cargo version from {out!r}")
+    major, minor = (int(x) for x in parts[1].split(".")[:2])
+    if (major, minor) < MIN_CARGO:
+        sys.exit(
+            f"{out.strip()} predates build.warnings (cargo 1.97); it would ignore"
+            " the setting and pass every warning. Run from the repository so"
+            " rust-toolchain.toml selects the pinned toolchain."
+        )
 
 
 def cargo_metadata():
@@ -60,10 +102,11 @@ def cargo_metadata():
 def run_clippy(extra_args):
     """Stream clippy, rendering diagnostics live; collect what it reached.
 
-    Returns ``(status, evaluated, failed)`` where ``evaluated`` is every package
-    that produced at least one artifact (fresh units included — cargo still
-    emits ``compiler-artifact`` for them, so a warm cache does not read as a
-    skipped crate) and ``failed`` is every package that emitted an error.
+    Returns ``(status, evaluated, failed, warned)`` where ``evaluated`` is every
+    package that produced at least one artifact (fresh units included — cargo
+    still emits ``compiler-artifact`` for them, so a warm cache does not read
+    as a skipped crate), ``failed`` is every package that emitted an error and
+    ``warned`` every package that emitted a warning.
     """
     cmd = [
         "cargo",
@@ -71,15 +114,12 @@ def run_clippy(extra_args):
         *CANONICAL_ARGS,
         *extra_args,
         "--message-format=json-diagnostic-rendered-ansi",
-        "--",
-        "-D",
-        "warnings",
     ]
     # stderr is inherited: cargo's own progress and summary lines keep flowing
     # to the log in real time, unchanged from a bare `cargo clippy` run.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
 
-    evaluated, failed = set(), set()
+    evaluated, failed, warned = set(), set(), set()
     for line in proc.stdout:
         line = line.rstrip("\n")
         if not line.startswith("{"):
@@ -100,10 +140,13 @@ def run_clippy(extra_args):
             rendered = body.get("rendered")
             if rendered:
                 print(rendered, end="", flush=True)
-            if body.get("level") == "error":
+            level = body.get("level")
+            if level == "error":
                 failed.add(msg.get("package_id"))
+            elif level == "warning":
+                warned.add(msg.get("package_id"))
 
-    return proc.wait(), evaluated, failed
+    return proc.wait(), evaluated, failed, warned
 
 
 def blockers_for(pid, deps, failed, memo):
@@ -130,6 +173,7 @@ def emit_summary(lines):
 
 
 def main(argv):
+    require_build_warnings()
     meta = cargo_metadata()
     members = set(meta["workspace_members"])
     name_of = {p["id"]: p["name"] for p in meta["packages"]}
@@ -138,7 +182,17 @@ def main(argv):
         for node in meta["resolve"]["nodes"]
     }
 
-    status, evaluated, failed = run_clippy(argv)
+    status, evaluated, failed, warned = run_clippy(argv)
+
+    label = lambda pid: name_of.get(pid, pid)  # noqa: E731 — one-line display helper
+
+    warned_members = sorted((label(p) for p in warned & members))
+    if warned_members and status == 0:
+        print(
+            f"\n❌ build.warnings = \"deny\": {len(warned_members)} workspace crate(s)"
+            f" emitted warnings: {', '.join(warned_members)}"
+        )
+        status = 1
 
     memo = {}
     blocked, unbuilt = {}, set()
@@ -152,8 +206,6 @@ def main(argv):
             # No failed dependency, no artifacts: cargo was never asked to build
             # it. Normal for a scoped run, so it is stated rather than warned.
             unbuilt.add(member)
-
-    label = lambda pid: name_of.get(pid, pid)  # noqa: E731 — one-line display helper
 
     if not blocked:
         if not unbuilt:
@@ -182,7 +234,8 @@ def main(argv):
     report.append("   Lint them directly before pushing the fix:")
     for member in sorted(blocked, key=label):
         report.append(
-            f"     cargo clippy -p {label(member)} --all-targets --all-features -- -D warnings"
+            f"     cargo clippy -p {label(member)} --all-targets --all-features"
+            " --config 'build.warnings=\"deny\"'"
         )
     report.append("")
 

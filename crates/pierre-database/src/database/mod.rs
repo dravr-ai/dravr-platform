@@ -12,6 +12,8 @@ pub mod a2a_task_reaper;
 pub mod activity_backfill_jobs;
 /// Provider-agnostic activity cache (stale-while-revalidate) persistence
 pub mod activity_cache_persistence;
+/// One stored route read per activity: a trimmed track or the reason there is none (`SQLite`)
+pub mod activity_route_tracks;
 /// Admin token management and authorization
 pub mod admin;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)

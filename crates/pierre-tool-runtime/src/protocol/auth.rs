@@ -38,7 +38,7 @@ pub struct TokenData {
     pub expires_at: DateTime<Utc>,
     /// OAuth scopes as comma-separated string
     pub scopes: String,
-    /// Provider name (e.g., "strava", "fitbit")
+    /// Provider name (e.g., "strava", "whoop")
     pub provider: String,
     /// Provider-side user id for API-key providers (e.g. Intervals.icu
     /// `athlete_id`, used as the HTTP Basic username). `None` for OAuth
@@ -110,13 +110,12 @@ impl OAuthError {
 #[derive(Debug, Clone, Copy)]
 enum RefreshEndpoint {
     Strava,
-    Fitbit,
     Whoop,
 }
 
 impl RefreshEndpoint {
     fn of(provider: &str) -> Option<Self> {
-        [Self::Strava, Self::Fitbit, Self::Whoop]
+        [Self::Strava, Self::Whoop]
             .into_iter()
             .find(|endpoint| provider.eq_ignore_ascii_case(endpoint.provider()))
     }
@@ -124,7 +123,6 @@ impl RefreshEndpoint {
     const fn provider(self) -> &'static str {
         match self {
             Self::Strava => oauth_providers::STRAVA,
-            Self::Fitbit => oauth_providers::FITBIT,
             Self::Whoop => oauth_providers::WHOOP,
         }
     }
@@ -138,10 +136,6 @@ impl RefreshEndpoint {
             Self::Strava => (
                 "PIERRE_STRAVA_TOKEN_URL",
                 "https://www.strava.com/oauth/token",
-            ),
-            Self::Fitbit => (
-                "PIERRE_FITBIT_TOKEN_URL",
-                "https://api.fitbit.com/oauth2/token",
             ),
             Self::Whoop => (
                 "PIERRE_WHOOP_TOKEN_URL",
@@ -168,9 +162,6 @@ impl RefreshEndpoint {
                 client_secret,
                 refresh_token,
             ),
-            Self::Fitbit => {
-                RefreshRequest::fitbit(token_url, client_id, client_secret, refresh_token)
-            }
             Self::Whoop => {
                 RefreshRequest::whoop(token_url, client_id, client_secret, refresh_token)
             }
@@ -1006,7 +997,7 @@ impl AuthService {
             ))
         })?;
         // A provider that sends no refresh token back leaves the stored one
-        // standing (Fitbit omits it when unchanged).
+        // standing: RFC 6749 section 6 makes issuing a new one optional.
         let new_refresh_token = refreshed
             .refresh_token
             .unwrap_or_else(|| inputs.refresh_token.to_owned());
@@ -1030,9 +1021,9 @@ impl AuthService {
         }
 
         // Return the refreshed token data. The refresh endpoints of the bearer
-        // providers (strava/fitbit/whoop) return no owner id; the caller fills
-        // it from the stored row (`owner_id_after_refresh`). A refresh does
-        // not re-issue scopes, so the stored set carries across.
+        // providers (strava/whoop) return no owner id; the caller fills it
+        // from the stored row (`owner_id_after_refresh`). A refresh does not
+        // re-issue scopes, so the stored set carries across.
         Ok(Some(TokenData {
             provider: provider.to_owned(),
             access_token: new_access_token,

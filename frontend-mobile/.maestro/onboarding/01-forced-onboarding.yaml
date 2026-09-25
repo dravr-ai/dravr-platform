@@ -31,9 +31,11 @@ tags:
 # guard against accidental renaming of the screen wrapper.
 - assertVisible: "(?i)Welcome|Bienvenue"
 
-# Chat is NOT reachable: testID="conversations-screen" is the chat tab's
-# landing screen and "chat-screen" a thread over it. Their absence proves
-# the guard fired.
+# The app is NOT reachable: testID="home-screen" is where it lands,
+# "conversations-screen" the chat tab's list and "chat-screen" a thread over
+# it. Their absence proves the guard fired.
+- assertNotVisible:
+    id: "home-screen"
 - assertNotVisible:
     id: "conversations-screen"
 - assertNotVisible:

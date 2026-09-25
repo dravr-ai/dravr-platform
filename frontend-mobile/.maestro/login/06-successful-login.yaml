@@ -57,9 +57,11 @@ appId: ai.dravr.app
       visible: "Save Password?"
     file: ../helpers/dismiss-save-password.yaml
 
-# Verify we landed on the chat tab: the conversation list.
-# 60s timeout for Expo Router transition and the list's mount.
+# Verify we landed on Home, the first tab: today's plan and the latest
+# activities. 60s timeout for Expo Router transition and the screen's mount.
 - extendedWaitUntil:
     visible:
-      id: "conversations-screen"
+      id: "home-screen"
     timeout: 60000
+- assertVisible:
+    id: "home-title"

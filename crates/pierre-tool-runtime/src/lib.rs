@@ -97,6 +97,8 @@ pub mod protocols;
 /// The served-without-a-provider signal and its per-turn store.
 pub mod reconnect;
 pub mod registry;
+/// Single-flight slots for background activity-cache revalidations.
+pub mod revalidation;
 pub mod runtime;
 pub mod schema_canonical;
 /// The capability -> OAuth scope derivation and the check the chokepoint reads.

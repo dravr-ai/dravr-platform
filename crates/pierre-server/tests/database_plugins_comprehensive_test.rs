@@ -226,13 +226,13 @@ async fn test_strava_token_operations() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_fitbit_token_operations() -> Result<()> {
+async fn test_whoop_token_operations() -> Result<()> {
     let encryption_key = generate_encryption_key().to_vec();
     let db = create_test_db_with_key(encryption_key).await?;
     db.migrate().await?;
 
     let user = User::new(
-        "fitbit_token_test@example.com".to_owned(),
+        "whoop_token_test@example.com".to_owned(),
         "password".to_owned(),
         None,
     );
@@ -245,7 +245,7 @@ async fn test_fitbit_token_operations() -> Result<()> {
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
-            oauth_providers::FITBIT,
+            oauth_providers::WHOOP,
         )
         .await?;
     assert!(initial_token.is_none());
@@ -255,11 +255,11 @@ async fn test_fitbit_token_operations() -> Result<()> {
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
-        oauth_providers::FITBIT.to_owned(),
-        "fitbit_access_token".to_owned(),
-        Some("fitbit_refresh_token".to_owned()),
+        oauth_providers::WHOOP.to_owned(),
+        "whoop_access_token".to_owned(),
+        Some("whoop_refresh_token".to_owned()),
         Some(expires_at),
-        Some("activity profile".to_owned()),
+        Some("read:workout read:profile".to_owned()),
     );
     db.repositories()
         .oauth_tokens
@@ -273,19 +273,16 @@ async fn test_fitbit_token_operations() -> Result<()> {
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
-            oauth_providers::FITBIT,
+            oauth_providers::WHOOP,
         )
         .await?;
     assert!(token.is_some());
     let token = token.unwrap();
-    assert_eq!(token.access_token, "fitbit_access_token");
-    assert_eq!(
-        token.refresh_token.as_ref().unwrap(),
-        "fitbit_refresh_token"
-    );
+    assert_eq!(token.access_token, "whoop_access_token");
+    assert_eq!(token.refresh_token.as_ref().unwrap(), "whoop_refresh_token");
     let scopes = token.scope.as_ref().unwrap();
-    assert!(scopes.contains(&"activity".to_owned()));
-    assert!(scopes.contains(&"profile".to_owned()));
+    assert!(scopes.contains(&"read:workout".to_owned()));
+    assert!(scopes.contains(&"read:profile".to_owned()));
 
     // Clear token
     db.repositories()
@@ -293,7 +290,7 @@ async fn test_fitbit_token_operations() -> Result<()> {
         .delete_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
-            oauth_providers::FITBIT,
+            oauth_providers::WHOOP,
         )
         .await?;
     let cleared_token = db
@@ -302,7 +299,7 @@ async fn test_fitbit_token_operations() -> Result<()> {
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
-            oauth_providers::FITBIT,
+            oauth_providers::WHOOP,
         )
         .await?;
     assert!(cleared_token.is_none());
@@ -595,33 +592,33 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
         assert_eq!(token.access_token, access_token);
         assert_eq!(token.refresh_token.as_ref().unwrap(), refresh_token);
 
-        // Store Fitbit token
-        let fitbit_oauth_token = UserOAuthToken::new(
+        // Store WHOOP token
+        let whoop_oauth_token = UserOAuthToken::new(
             user_id,
             "00000000-0000-0000-0000-000000000000".to_owned(),
-            oauth_providers::FITBIT.to_owned(),
+            oauth_providers::WHOOP.to_owned(),
             access_token.to_owned(),
             Some(refresh_token.to_owned()),
             Some(expires_at),
-            Some("activity".to_owned()),
+            Some("read:workout".to_owned()),
         );
         db.repositories()
             .oauth_tokens
-            .upsert_token(&fitbit_oauth_token)
+            .upsert_token(&whoop_oauth_token)
             .await?;
 
         // Retrieve and verify
-        let fitbit_token = db
+        let whoop_token = db
             .repositories()
             .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
-                oauth_providers::FITBIT,
+                oauth_providers::WHOOP,
             )
             .await?;
-        assert!(fitbit_token.is_some());
-        let token = fitbit_token.unwrap();
+        assert!(whoop_token.is_some());
+        let token = whoop_token.unwrap();
         assert_eq!(token.access_token, access_token);
         assert_eq!(token.refresh_token.as_ref().unwrap(), refresh_token);
     }
@@ -1076,36 +1073,36 @@ mod postgres_tests {
             "strava_refresh_token_postgres"
         );
 
-        // Test Fitbit token operations
-        let fitbit_oauth_token = UserOAuthToken::new(
+        // Test WHOOP token operations
+        let whoop_oauth_token = UserOAuthToken::new(
             user_id,
             "00000000-0000-0000-0000-000000000000".to_owned(),
-            oauth_providers::FITBIT.to_owned(),
-            "fitbit_access_token_postgres".to_owned(),
-            Some("fitbit_refresh_token_postgres".to_owned()),
+            oauth_providers::WHOOP.to_owned(),
+            "whoop_access_token_postgres".to_owned(),
+            Some("whoop_refresh_token_postgres".to_owned()),
             Some(expires_at),
-            Some("activity,profile".to_owned()),
+            Some("read:workout read:profile".to_owned()),
         );
         db.repositories()
             .oauth_tokens
-            .upsert_token(&fitbit_oauth_token)
+            .upsert_token(&whoop_oauth_token)
             .await?;
 
-        let fitbit_token = db
+        let whoop_token = db
             .repositories()
             .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
-                oauth_providers::FITBIT,
+                oauth_providers::WHOOP,
             )
             .await?;
-        assert!(fitbit_token.is_some());
-        let token = fitbit_token.unwrap();
-        assert_eq!(token.access_token, "fitbit_access_token_postgres");
+        assert!(whoop_token.is_some());
+        let token = whoop_token.unwrap();
+        assert_eq!(token.access_token, "whoop_access_token_postgres");
         assert_eq!(
             token.refresh_token.as_ref().unwrap(),
-            "fitbit_refresh_token_postgres"
+            "whoop_refresh_token_postgres"
         );
 
         // Test token encryption roundtrip with special characters

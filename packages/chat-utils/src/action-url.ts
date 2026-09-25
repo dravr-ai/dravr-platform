@@ -17,7 +17,6 @@
 const TRUSTED_ACTION_DOMAINS: readonly string[] = [
   'strava.com',
   'garmin.com',
-  'fitbit.com',
   'whoop.com',
   'tryterra.co',
   'dravr.ai',

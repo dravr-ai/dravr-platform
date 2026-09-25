@@ -73,7 +73,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Enterprise,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,
@@ -100,7 +99,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,
@@ -194,7 +192,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     // Step 6: Set up tenant OAuth client and configure credentials
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig::default(),
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
@@ -441,7 +438,6 @@ async fn setup_multitenant_scenario(
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,
@@ -501,7 +497,6 @@ async fn test_tenant_context_switching() -> Result<()> {
     // Set up different OAuth credentials for each tenant
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig::default(),
-        fitbit: OAuthProviderConfig::default(),
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
@@ -611,13 +606,6 @@ fn create_test_server_config() -> ServerConfig {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: Vec::new(),
-                enabled: false,
-            },
             ..Default::default()
         },
         security: SecurityConfig {
@@ -647,13 +635,6 @@ fn create_test_server_config() -> ServerConfig {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             ..Default::default()

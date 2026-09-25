@@ -707,14 +707,14 @@ async fn test_oauth_status_includes_all_providers() {
     let body: serde_json::Value = response.json();
     let statuses = body.as_array().unwrap();
 
-    // Should include common providers like strava and fitbit
+    // A user with no tokens sees Strava listed, disconnected, and nothing else
     let providers: Vec<String> = statuses
         .iter()
         .map(|s| s["provider"].as_str().unwrap().to_owned())
         .collect();
 
-    assert!(providers.contains(&"strava".to_owned()));
-    assert!(providers.contains(&"fitbit".to_owned()));
+    assert_eq!(providers, vec!["strava".to_owned()]);
+    assert_eq!(statuses[0]["connected"], false);
 }
 
 /// The third surface carnet#352 named. `/api/oauth/status` echoed every token

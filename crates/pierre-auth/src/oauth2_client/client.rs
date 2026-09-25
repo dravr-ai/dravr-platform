@@ -84,8 +84,8 @@ pub struct OAuth2Token {
     /// Granted OAuth scopes
     pub scope: Option<String>,
     /// Provider-side user identifier captured from the token-exchange response
-    /// (Strava `athlete.id`, Fitbit `user_id`). `None` for providers that do not
-    /// return an owner id and for refresh responses. Used to map provider push
+    /// (Strava `athlete.id`). `None` for providers that do not return an owner
+    /// id and for refresh responses. Used to map provider push
     /// events (e.g. Strava webhooks) back to the single owning user.
     pub provider_user_id: Option<String>,
 }
@@ -338,12 +338,9 @@ impl OAuth2Client {
         });
 
         // Capture the provider-side owner id when the response carries one:
-        // Strava returns a nested `athlete.id` (number), Fitbit a top-level
-        // `user_id` (string). Other providers omit both, leaving this `None`.
-        let provider_user_id = response
-            .athlete
-            .map(|athlete| athlete.id.to_string())
-            .or(response.user_id);
+        // Strava returns a nested `athlete.id` (number). Other providers omit
+        // it, leaving this `None`.
+        let provider_user_id = response.athlete.map(|athlete| athlete.id.to_string());
 
         OAuth2Token {
             access_token: response.access_token,
@@ -372,8 +369,6 @@ struct TokenResponse {
     /// Strava returns the authenticated athlete inline in the token response;
     /// only its numeric id is needed to map webhook `owner_id` back to a user.
     athlete: Option<AthleteId>,
-    /// Fitbit returns the owner as a top-level `user_id` string (no `athlete`).
-    user_id: Option<String>,
 }
 
 /// Minimal projection of a provider's inline athlete object in the token

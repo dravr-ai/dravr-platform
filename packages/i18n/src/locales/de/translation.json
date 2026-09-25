@@ -750,7 +750,7 @@
     "brandCoros": "COROS",
     "corosAccount": "COROS-Konto",
     "corosEmail": "COROS-E-Mail",
-    "provCorosBlurb": "Aktivitäten von COROS-Uhren",
+    "provCorosBlurb": "Aktivitäten und Erholungswerte von COROS-Uhren",
     "provCorosShort": "Aktivitäten und Runden"
   },
   "auth": {
@@ -1738,6 +1738,33 @@
     "weeklyReport": "Wochenbericht",
     "youSuffix": "(du)"
   },
+  "home": {
+    "plan": {
+      "tomorrow": "Morgen",
+      "phaseWeek": "{{phase}} · Woche {{week}}",
+      "notCovered": "Dein Plan deckt diesen Tag nicht ab.",
+      "emptyTitle": "Noch kein Trainingsplan",
+      "emptyBody": "Erzähl deinem Agenten von deinem Zielwettkampf, dann plant er deine Saison Woche für Woche.",
+      "buildCta": "Meinen Plan erstellen",
+      "buildDraft": "Erstelle mir einen Trainingsplan für meinen Zielwettkampf.",
+      "dayDraft": "Erklär mir meine Einheit am {{date}}: {{workout}}",
+      "restDayDraft": "Warum ist {{date}} in meinem Plan ein Ruhetag?",
+      "loadFailed": "Dein Plan konnte nicht geladen werden."
+    },
+    "activities": {
+      "heading": "Letzte Aktivitäten",
+      "noProvider": "Verbinde einen Fitness-Dienst, um hier deine letzten Aktivitäten zu sehen.",
+      "empty": "Noch keine Aktivitäten. Sie erscheinen hier, sobald dein Anbieter synchronisiert.",
+      "routeTooShort": "Diese Route ist zu kurz, um sie zu zeigen, ohne ihren Startpunkt preiszugeben.",
+      "mapLoading": "Karte wird geladen…",
+      "routeFailed": "Die Karte konnte nicht geladen werden.",
+      "loadFailed": "Deine letzten Aktivitäten konnten nicht geladen werden.",
+      "refreshing": "Dein Anbieter wird nach neuen Aktivitäten abgefragt…",
+      "syncedAt": "Zuletzt synchronisiert: {{time}}",
+      "analyzeDraft": "Analysiere meine Aktivität vom {{date}} ({{sport}})",
+      "sketchAlt": "Skizze der Route"
+    }
+  },
   "humanCoach": {
     "attached": "Menschlicher Coach zugeordnet",
     "attachedBadge": "Coach zugewiesen",
@@ -1904,6 +1931,10 @@
     "quota_burst": "Hinweis: Du hast das Limit von {1} deines Tarifs überschritten und nutzt die Reserve. Der Zähler wird am {2} zurückgesetzt.",
     "rate_limited": "Du sendest Nachrichten etwas schneller, als dein Tarif erlaubt. Warte einen Moment und versuch es dann noch einmal — ich bin hier.",
     "reply_withheld": "Meine Antwort ging nicht raus — sie enthielt technische Details, die hier nicht hingehören. Schick mir deine letzte Nachricht noch einmal und wir machen dort weiter, wo wir waren.",
+    "reply_stop": {
+      "truncated": "✂️ Meine Antwort wurde abgeschnitten, bevor ich fertig war. Bitte mich weiterzumachen, und ich setze dort an, wo ich aufgehört habe.",
+      "filtered": "⚠️ Ein Inhaltsfilter hat einen Teil meiner Antwort entfernt, sie ist also womöglich unvollständig. Versuch, deine Frage anders zu formulieren."
+    },
     "scope": {
       "carve_out": {
         "nutrition": "## Klarstellung für deine Rolle in der Ernährung\n\nDu bist auf Ernährung spezialisiert: Fragen zu Mahlzeiten, Abendessen, Frühstück, Snacks, Lebensmittelentscheidungen und trainingsbezogener Mahlzeitenplanung vollständig in deinem Bereich. Beantworte sie direkt, gestützt auf die Trainingsdaten der Nutzerin oder des Nutzers (Intensität, Dauer, Energieverbrauch). Die Regel oben zu „Essens-/Mahlzeitensuche außerhalb des Bereichs\" zielt ausschließlich auf Restaurantsuche, Lieferdienst-Apps und Online-Speisekarten — nicht auf evidenzbasierte Ernährungsberatung oder Mahlzeitenplanung, die sich auf Trainingsdaten stützt. Weise „Was soll ich nach meinem Lauf essen\", „Abendessen-Ideen nach dem Training\", „Snack nach der Einheit\" oder Ähnliches niemals zurück.",
@@ -1972,6 +2003,7 @@
     "dataProviders": "Anbieter",
     "discover": "Entdecken",
     "groups": "Gruppen",
+    "home": "Start",
     "notifications": "Benachrichtigungen",
     "settings": "Einstellungen",
     "usage": "Nutzung"
@@ -2282,7 +2314,7 @@
     "synthTest": "Synthetische Testdaten für die Entwicklung",
     "whoop": "Erholungs-, Belastungs- und Schlafwerte",
     "trainingpeaks": "Absolvierte Einheiten und ihre Trainingsbelastung aus TrainingPeaks",
-    "coros": "Aktivitäten von COROS-Uhren"
+    "coros": "Aktivitäten und Erholungswerte von COROS-Uhren"
   },
   "providers": {
     "add": "Anbieter hinzufügen",
@@ -2302,7 +2334,6 @@
     "failedConnectRetry": "Anbieter konnte nicht verbunden werden. Versuch es noch einmal.",
     "failedLoadProviderStatus": "Anbieterstatus konnte nicht geladen werden",
     "failedToConnectReason": "Verbindung fehlgeschlagen: {{reason}}",
-    "fitbit": "Fitbit",
     "fitnessHint": "Verbinde deine Sportkonten, um Aktivitäten, Gesundheitswerte und mehr zu synchronisieren.",
     "fitnessTitle": "Datenanbieter",
     "garmin": "Garmin",

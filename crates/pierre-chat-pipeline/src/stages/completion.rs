@@ -60,8 +60,7 @@ const fn topic_label_key(topic: CalibrationTopic) -> Option<&'static str> {
 /// `preference`, so several answers landing under it count once. The header
 /// therefore under-reports rather than over-reports — the honest direction for
 /// a message whose job is to admit gaps.
-#[must_use]
-pub fn assess(
+fn assess(
     landed: &[UserFact],
     asked: &[CalibrationTopic],
     started_at: DateTime<Utc>,
@@ -121,8 +120,7 @@ fn credit_by_kind(
 ///
 /// The calendar credits on a `goal` fact, whichever other kinds its turn
 /// produced (a corrected availability lands as `schedule`).
-#[must_use]
-pub fn assess_season(
+fn assess_season(
     landed: &[UserFact],
     asked: &[SeasonTopic],
     started_at: DateTime<Utc>,

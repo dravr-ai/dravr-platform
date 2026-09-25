@@ -82,7 +82,15 @@ fn the_registry_serves_sciotte_coros_as_coros() {
         .expect("sciotte_coros registers a descriptor");
     assert_eq!(descriptor.name(), "sciotte_coros");
     assert_eq!(descriptor.display_name(), "COROS");
-    assert_eq!(descriptor.capabilities(), ProviderCapabilities::ACTIVITIES);
+    // Activities are scraped on demand; resting HR, sleep HRV and VO2max are
+    // synced from the Training Hub's daily analysis, which holds no sleep.
+    assert_eq!(
+        descriptor.capabilities(),
+        ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::RECOVERY_METRICS)
+            .union(ProviderCapabilities::HEALTH_METRICS)
+    );
+    assert!(!descriptor.capabilities().supports_sleep());
     assert!(
         descriptor.oauth_endpoints().is_none(),
         "a scraped backend has no OAuth flow"

@@ -33,7 +33,8 @@
 //! A `route` block is the one kind the agent cannot write out: a recorded
 //! track is thousands of points, so the block names an activity and the
 //! platform reads its geometry ([`read_route_tracks`]) and carries it on the
-//! block ([`RouteTrack`]). Coordinates the model produced itself would be
+//! block ([`RouteTrack`](pierre_fitness_compute::route_track::RouteTrack)).
+//! Coordinates the model produced itself would be
 //! invented ones, which is why the schema gives it nowhere to put them.
 
 use std::borrow::Cow;

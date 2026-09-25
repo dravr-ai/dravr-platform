@@ -10,6 +10,8 @@ appId: ai.dravr.app
     file: ../helpers/login.yaml
 
 # The seeder files mobiletest a thread in the group alice@acme.com coaches.
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
 - extendedWaitUntil:
     visible:
       id: "conversations-screen"

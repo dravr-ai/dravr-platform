@@ -49,6 +49,24 @@ export const QUERY_KEYS = {
     status: () => ['providers-status'] as const,
   },
 
+  // ==================== HOME ====================
+  home: {
+    all: ['home'] as const,
+    /** The newest cached activities; `limit` omitted is the server's default of 5. */
+    recentActivities: (limit?: number) => ['home', 'recent-activities', limit ?? null] as const,
+    /**
+     * One activity's route. Keyed by provider as well as id, because an id is
+     * only unique within the provider that issued it.
+     */
+    activityRoute: (provider: string, activityId: string) =>
+      ['home', 'activity-route', provider, activityId] as const,
+    /**
+     * The active plan for today. Keyed by locale because the server names the
+     * plan's flavour in it — a language switch is a different card.
+     */
+    trainingPlan: (locale: string) => ['home', 'training-plan', locale] as const,
+  },
+
   // ==================== CHAT ====================
   chat: {
     all: ['chat'] as const,
@@ -63,6 +81,8 @@ export const QUERY_KEYS = {
      * bound to — the same athlete gets a different list in a group thread.
      */
     commands: (conversationId?: string | null) => ['chat-commands', conversationId ?? null] as const,
+    /** The claim-verification verdict rows of every reply in the conversation. */
+    verdicts: (conversationId: string | null) => ['chat', 'verdicts', conversationId] as const,
   },
 
   // ==================== COACHES ====================

@@ -43,13 +43,13 @@ async fn a_wedged_sync_is_capped_and_reads_as_one_sentence() {
 #[tokio::test]
 async fn a_sync_that_finishes_inside_the_budget_is_returned_untouched() {
     let completed = RefreshResult {
-        provider: "fitbit".to_owned(),
+        provider: "whoop".to_owned(),
         success: true,
         message: "Synced 42 activities".to_owned(),
         records_synced: 42,
     };
 
-    let result = bound_blocking_sync("fitbit", Duration::from_secs(30), ready(completed)).await;
+    let result = bound_blocking_sync("whoop", Duration::from_secs(30), ready(completed)).await;
 
     assert!(result.success);
     assert_eq!(result.records_synced, 42);

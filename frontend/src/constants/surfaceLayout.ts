@@ -38,6 +38,7 @@ export type SurfaceLayout = 'padded' | 'bleed';
  * `design-sweep.visual.spec.ts` measures whether the surface then honours it.
  */
 const BLEED_ROUTES: ReadonlySet<string> = new Set([
+  'home', // Home — TabHeader over its own reading-column scroller
   'chat', // ChatTab — composer pinned to the pane floor, own message scroller
   'discover', // StoreScreen — TabHeader over its own results scroller
   'notifications', // NotificationsPanel — sticky header over its own list scroller

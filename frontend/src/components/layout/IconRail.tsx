@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The athlete shell's left rail — the brand mark, one icon per destination, the settings gear and the avatar
+// ABOUTME: The athlete shell's left rail — the brand mark that leads Home, one icon per destination, the gear and the avatar
 // ABOUTME: Names stay accessible (aria-label, title and an sr-only span) so nav helpers and tests keep finding each tab
 
 import type { ReactNode } from 'react';
@@ -25,6 +25,8 @@ interface IconRailProps {
   onSelect: (id: string) => void;
   /** Settings is reached from the gear and from the avatar, never from the list of tabs. */
   onOpenSettings: () => void;
+  /** The brand mark is the way Home, as a messenger's logo is. */
+  onHome: () => void;
   settingsActive: boolean;
   userInitial: string;
 }
@@ -42,6 +44,7 @@ export function IconRail({
   activeTab,
   onSelect,
   onOpenSettings,
+  onHome,
   settingsActive,
   userInitial,
 }: IconRailProps) {
@@ -51,7 +54,18 @@ export function IconRail({
       data-testid="icon-rail"
       className="hidden md:flex fixed left-0 top-0 z-40 h-dvh w-[72px] flex-col items-center border-r ghost-border bg-surface py-4"
     >
-      <DravrLogo size={40} />
+      {/* The mark gains a button around it, never a new look (BRAND.md): no
+          fill, no hover tint, only the focus ring when the keyboard is on it. */}
+      <button
+        type="button"
+        onClick={onHome}
+        aria-label={t('nav.home')}
+        title={t('nav.home')}
+        data-testid="rail-logo-home"
+        className="flex h-11 w-11 items-center justify-center rounded-xl focus-ring"
+      >
+        <DravrLogo size={40} />
+      </button>
       <nav className="mt-4 flex-1" aria-label={t('shell.mobileNavPrimary')}>
         <ul className="flex flex-col items-center gap-1">
           {tabs.map((tab) => {

@@ -380,7 +380,7 @@ async fn assert_locally_disconnected(
 }
 
 /// The service under test, with the revocation endpoints the
-/// `ServerConfig` carries (Strava, Fitbit, Garmin) pointed wherever the
+/// `ServerConfig` carries (Strava, Garmin) pointed wherever the
 /// caller mutated them. The harness builds `ServerConfig::default()` and
 /// never reads `*_REVOKE_URL`, so this is the same knob the env var turns in
 /// a deployment.
@@ -398,13 +398,6 @@ fn client_credentials(client_id: &str, client_secret: &str) -> OAuth2Config {
         scopes: vec![],
         use_pkce: false,
     }
-}
-
-fn basic_auth_header(client_id: &str, client_secret: &str) -> String {
-    format!(
-        "Basic {}",
-        BASE64_STANDARD.encode(format!("{client_id}:{client_secret}"))
-    )
 }
 
 /// Disconnecting Strava must (1) revoke the grant upstream — the June-2026
@@ -801,58 +794,6 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
 
     env::remove_var("GARMIN_CLIENT_ID");
     env::remove_var("GARMIN_CLIENT_SECRET");
-}
-
-/// Fitbit revokes like Strava — `POST /oauth2/revoke`, HTTP Basic client
-/// credentials, the refresh token as `token` — except that Fitbit documents
-/// `token` alone, so no `token_type_hint` goes on the wire. The default test
-/// build does not register the Fitbit provider, so the arm is driven through
-/// `revoke_upstream_grant` with the shape the dispatch table produces.
-#[tokio::test]
-async fn fitbit_backend_revokes_with_basic_auth_and_token_only() {
-    let mut upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
-    let resources = create_test_server_resources().await.unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.fitbit_api.revoke_url = format!("{}/oauth2/revoke", upstream.base_url);
-    let service = oauth_service(&resources, config);
-
-    let shape = revocation_shape(&service, "fitbit").expect("fitbit revokes upstream");
-    assert_eq!(
-        shape,
-        RevocationShape::TokenRevocation {
-            revoke_url: format!("{}/oauth2/revoke", upstream.base_url),
-            token_type_hint: false,
-        },
-        "the Fitbit arm reads its endpoint from the Fitbit API config and sends no hint"
-    );
-
-    let (user_id, tenant_id) = seed_user_with_tenant(&resources).await;
-    let token = token_row(
-        user_id,
-        tenant_id,
-        "fitbit",
-        "fitbit-access-do-not-log",
-        Some("fitbit-refresh-do-not-log"),
-        Utc::now() + Duration::hours(8),
-    );
-    let creds = client_credentials("fitbit-test-client", "fitbit-test-secret");
-    revoke_upstream_grant(&shape, &creds, token, user_id, tenant_id, "fitbit").await;
-
-    let request = upstream.next_request("Fitbit revocation").await;
-    assert_eq!(request.method, "POST");
-    assert_eq!(request.target, "/oauth2/revoke");
-    assert_eq!(
-        request.header("authorization"),
-        Some(basic_auth_header("fitbit-test-client", "fitbit-test-secret").as_str())
-    );
-    assert_eq!(
-        request.header("content-type"),
-        Some("application/x-www-form-urlencoded")
-    );
-    assert_eq!(
-        request.body, "token=fitbit-refresh-do-not-log",
-        "Fitbit's body is the refresh token alone — no token_type_hint"
-    );
 }
 
 /// Terra deauthenticates per user: `DELETE /v2/auth/deauthenticateUser` with

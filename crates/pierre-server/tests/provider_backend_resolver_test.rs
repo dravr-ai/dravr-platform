@@ -136,7 +136,7 @@ fn user_facing_name_strips_mirror_backends() {
         "garmin"
     );
     assert_eq!(backend_resolver::user_facing_name("strava"), "strava");
-    assert_eq!(backend_resolver::user_facing_name("fitbit"), "fitbit");
+    assert_eq!(backend_resolver::user_facing_name("whoop"), "whoop");
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn mirror_backend_for_only_maps_the_scraped_providers() {
         backend_resolver::mirror_backend_for("trainingpeaks"),
         Some(oauth_providers::SCIOTTE_TRAININGPEAKS)
     );
-    assert_eq!(backend_resolver::mirror_backend_for("fitbit"), None);
+    assert_eq!(backend_resolver::mirror_backend_for("terra"), None);
     assert_eq!(backend_resolver::mirror_backend_for("whoop"), None);
 }
 
@@ -183,7 +183,7 @@ fn serving_backends_accepts_either_strava_backend() {
 fn serving_backends_falls_back_to_the_provider_itself() {
     // A provider with no mirror serves itself — returning an empty list here
     // would silently read every such provider as disconnected.
-    assert_eq!(backend_resolver::serving_backends("fitbit"), vec!["fitbit"]);
+    assert_eq!(backend_resolver::serving_backends("terra"), vec!["terra"]);
     assert_eq!(backend_resolver::serving_backends("whoop"), vec!["whoop"]);
 }
 

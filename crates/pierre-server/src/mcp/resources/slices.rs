@@ -245,7 +245,7 @@ pub struct AgentSlice {
 /// Fitness data and intelligence subsystem.
 #[derive(Clone)]
 pub struct FitnessSlice {
-    /// Registry of fitness data providers (Strava, Fitbit, Garmin, WHOOP, Terra).
+    /// Registry of fitness data providers (Strava, Garmin, WHOOP, Terra).
     pub provider_registry: Arc<ProviderRegistry>,
     /// AI-powered fitness activity analysis engine.
     pub activity_intelligence: Arc<ActivityIntelligence>,

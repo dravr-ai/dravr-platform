@@ -28,7 +28,6 @@ async fn test_strava_token_storage() {
         password_hash: "hashed".into(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -132,7 +131,7 @@ async fn test_strava_token_storage() {
 }
 
 #[tokio::test]
-async fn test_fitbit_token_storage() {
+async fn test_whoop_token_storage() {
     let db = create_test_db()
         .await
         .expect("Failed to create test database");
@@ -141,12 +140,11 @@ async fn test_fitbit_token_storage() {
     let user_id = Uuid::new_v4();
     let user = User {
         id: user_id,
-        email: format!("fitbit_{user_id}@example.com"),
+        email: format!("whoop_{user_id}@example.com"),
         display_name: None,
         password_hash: "hashed".into(),
         tier: UserTier::Professional,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,
@@ -177,17 +175,17 @@ async fn test_fitbit_token_storage() {
     let expires_at_truncated =
         chrono::DateTime::from_timestamp(expires_at.timestamp(), 0).expect("Valid timestamp");
     let token = DecryptedToken {
-        access_token: "fitbit_access_token".into(),
-        refresh_token: "fitbit_refresh_token".into(),
+        access_token: "whoop_access_token".into(),
+        refresh_token: "whoop_refresh_token".into(),
         expires_at: expires_at_truncated,
-        scope: "activity heartrate location".into(),
+        scope: "read:workout read:recovery read:sleep".into(),
     };
 
     // Store token
     let oauth_token = UserOAuthToken::new(
         user_id,
         TenantId::from_uuid(Uuid::nil()).to_string(),
-        oauth_providers::FITBIT.to_owned(),
+        oauth_providers::WHOOP.to_owned(),
         token.access_token.clone(),
         Some(token.refresh_token.clone()),
         Some(token.expires_at),
@@ -197,7 +195,7 @@ async fn test_fitbit_token_storage() {
         .oauth_tokens
         .upsert_token(&oauth_token)
         .await
-        .expect("Failed to update Fitbit token");
+        .expect("Failed to update WHOOP token");
 
     // Retrieve token
     let retrieved_oauth = db
@@ -206,10 +204,10 @@ async fn test_fitbit_token_storage() {
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
-            oauth_providers::FITBIT,
+            oauth_providers::WHOOP,
         )
         .await
-        .expect("Failed to get Fitbit token")
+        .expect("Failed to get WHOOP token")
         .expect("Token not found");
 
     let retrieved = DecryptedToken {

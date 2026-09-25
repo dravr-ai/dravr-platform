@@ -39,6 +39,7 @@ fn answered() -> ToolLoopResult {
         guardian_denied: None,
         guardian_confirm: None,
         capability_claim_unverified: false,
+        provider_warnings: Vec::new(),
     }
 }
 

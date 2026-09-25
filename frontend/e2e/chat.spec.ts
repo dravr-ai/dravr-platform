@@ -5,7 +5,7 @@
 // ABOUTME: Tests conversation list, message display, prompt suggestions, and CRUD operations.
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 
 // Mock conversations matching ConversationsResponse
 const mockConversations = {
@@ -273,6 +273,8 @@ test.describe('Chat - Empty pane', () => {
   test.beforeEach(async ({ page }) => {
     await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
+    // Sign-in lands on Home; every test here is about the chat pane.
+    await openChat(page);
   });
 
   test('shows one line, the "+" and the Commands button', async ({ page }) => {
@@ -295,6 +297,7 @@ test.describe('Chat - Conversation Sidebar', () => {
   test.beforeEach(async ({ page }) => {
     await setupChatMocks(page);
     await loginToDashboard(page);
+    await openChat(page);
   });
 
   test('pins a search box above one flat list of every conversation', async ({ page }) => {
@@ -397,6 +400,7 @@ test.describe('Chat - Messages Display', () => {
   test.beforeEach(async ({ page }) => {
     await setupChatMocks(page);
     await loginToDashboard(page);
+    await openChat(page);
   });
 
   test('clicking conversation loads messages', async ({ page }) => {
@@ -437,6 +441,7 @@ test.describe('Chat - Empty State', () => {
   test('shows welcome state when no conversations exist', async ({ page }) => {
     await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
+    await openChat(page);
 
     // The empty pane names what to do next
     await expect(page.getByTestId('chat-empty-state')).toBeVisible({ timeout: 10000 });
@@ -477,6 +482,7 @@ test.describe('Chat - Error Handling', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
 
     // Page should still render without crashing
     await page.waitForTimeout(1000);
@@ -498,6 +504,7 @@ test.describe('Chat - Provider Connection', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
 
     // ChatTab shows "No provider connected" when no provider is connected
     await expect(page.getByText('No provider connected')).toBeVisible({ timeout: 10000 });
@@ -542,6 +549,7 @@ test.describe('Chat - No provider connected', () => {
     });
 
     await loginToDashboard(page);
+    await openChat(page);
     // The composer belongs to an open thread — the chat pane with none open
     // shows the empty state, not a message box.
     await page.goto('/#chat/conv-1');

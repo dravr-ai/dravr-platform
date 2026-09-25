@@ -150,13 +150,26 @@ pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
 /// disagrees with production the moment the settings change — which is
 /// exactly what happened when this moved to the serialize contract, in 37
 /// tests at once. One function, no second opinion.
+///
+/// The root always carries `"type": "object"`. MCP types `Tool.outputSchema`
+/// as `{ type: "object"; … }`, and an answer that is an untagged enum —
+/// [`Formatted`], for one — derives to a bare `anyOf` whose root says nothing
+/// about type, which the official TypeScript SDK refuses for the whole
+/// `tools/list` reply (carnet#553). Every tool answers with an object, so the
+/// root type restates what each arm already says; the registry test
+/// `every_tool_schema_is_an_object_at_the_root` holds every arm to it.
 #[must_use]
 pub fn output_schema_for<T: schemars::JsonSchema>() -> Value {
     let schema = SchemaSettings::default()
         .for_serialize()
         .into_generator()
         .into_root_schema_for::<T>();
-    serde_json::to_value(schema).unwrap_or(Value::Null)
+    let mut schema = serde_json::to_value(schema).unwrap_or(Value::Null);
+    if let Some(root) = schema.as_object_mut() {
+        root.entry("type")
+            .or_insert_with(|| Value::String("object".to_owned()));
+    }
+    schema
 }
 
 /// Serialize a typed tool result into the payload the tool answers with.

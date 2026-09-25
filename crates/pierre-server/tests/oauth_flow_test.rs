@@ -177,3 +177,50 @@ fn test_oauth_return_url_uses_amp_when_query_present() {
         "must not introduce a second '?'"
     );
 }
+
+// carnet#556: each of these passed the prefix-matching allowlist.
+
+#[test]
+fn test_localhost_prefix_domain_rejected() {
+    assert!(!oauth_redirects::is_allowed_redirect_url(
+        "http://localhost.evil.com/",
+        "https://api.dravr.ai",
+        &[],
+    ));
+}
+
+#[test]
+fn test_localhost_userinfo_rejected() {
+    assert!(!oauth_redirects::is_allowed_redirect_url(
+        "http://localhost@evil.com/",
+        "https://api.dravr.ai",
+        &[],
+    ));
+}
+
+#[test]
+fn test_base_host_userinfo_rejected() {
+    assert!(!oauth_redirects::is_allowed_redirect_url(
+        "https://api.dravr.ai:@evil.com/",
+        "https://api.dravr.ai",
+        &[],
+    ));
+}
+
+#[test]
+fn test_https_other_port_on_base_host_rejected() {
+    assert!(!oauth_redirects::is_allowed_redirect_url(
+        "https://api.dravr.ai:8443/oauth/callback",
+        "https://api.dravr.ai",
+        &[],
+    ));
+}
+
+#[test]
+fn test_loopback_ip_allowed() {
+    assert!(oauth_redirects::is_allowed_redirect_url(
+        "http://127.0.0.1:8081/oauth/callback",
+        "https://api.dravr.ai",
+        &[],
+    ));
+}

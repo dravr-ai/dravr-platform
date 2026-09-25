@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Asserts the app lands on the chat tab once onboarding is complete, and that tab is the conversation list
+// ABOUTME: Asserts the app lands on the Home tab once onboarding is complete, and the chat tab is still the conversation list
 // ABOUTME: Drives the root layout's route guard with a finished onboarding context and renders the (chat) index route
 
 import React from 'react';
@@ -105,22 +105,24 @@ import RootLayout from '../app/_layout';
 import ChatIndexRoute from '../app/(app)/(tabs)/(chat)/index';
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { TAB_BAR_TABS } from '../src/navigation/tabs';
-import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
+import { CHAT_LIST_ROUTE, HOME_ROUTE } from '../src/navigation/routes';
 
-describe('chat-first landing', () => {
+describe('the landing after onboarding', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSegments = ['(auth)', 'login'];
   });
 
   // Turns red if the route guard sends a fully onboarded athlete anywhere but
-  // the chat tab — the "we land on that icon/page" clause of the cutover.
-  it('replaces the auth route with the chat tab once onboarding is complete', async () => {
+  // Home — today's session and the latest activities, the landing the web
+  // gives an athlete too.
+  it('replaces the auth route with the Home tab once onboarding is complete', async () => {
     render(<RootLayout />);
 
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/(app)/(tabs)/(chat)'));
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/(app)/(tabs)/(home)'));
     expect(mockRouter.replace).toHaveBeenCalledTimes(1);
-    expect(mockRouter.replace).toHaveBeenCalledWith(CHAT_LIST_ROUTE);
+    expect(mockRouter.replace).toHaveBeenCalledWith(HOME_ROUTE);
+    expect(mockRouter.replace).not.toHaveBeenCalledWith(CHAT_LIST_ROUTE);
   });
 
   it('leaves an athlete already in the app where they are', async () => {
@@ -170,7 +172,9 @@ describe('chat-first landing', () => {
   });
 
   it('keeps the registry, the tab bar and the landing route on one path', () => {
+    expect(USER_SURFACES.find((surface) => surface.id === 'home')?.mobile).toBe(HOME_ROUTE);
+    expect(HOME_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[0].route}`);
     expect(USER_SURFACES.find((surface) => surface.id === 'chat')?.mobile).toBe(CHAT_LIST_ROUTE);
-    expect(CHAT_LIST_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[0].route}`);
+    expect(CHAT_LIST_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[1].route}`);
   });
 });

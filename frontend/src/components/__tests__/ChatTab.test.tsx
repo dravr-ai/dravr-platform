@@ -334,11 +334,46 @@ describe('ChatTab verdict drawer', () => {
     getConversationMessages.mockResolvedValue({ messages: [] });
   });
 
-  it('re-reads the verdicts when a chip is clicked before its rows landed, then draws the card', async () => {
-    // The verdict rows are written right after the reply row, so the chip on
-    // a live turn can be clicked while the conversation's read still says
-    // "none". The drawer must open on a refetch and its loading line — never
-    // on an empty list read as "no verdicts".
+  it('re-reads the verdicts when the turn completes, so a supported-only live reply gets its chip', async () => {
+    // The stream's `verdicts` block names only flagged claims: a reply whose
+    // claims all held streams none. Its rail comes from the rows, which are
+    // written before `done` — the same rail a reload of the reply draws.
+    const row: ClaimVerdict = {
+      id: 'verdict-2',
+      conversation_id: CONVERSATION_ID,
+      message_id: 'm4',
+      agent_id: null,
+      claim_text: 'Your threshold pace is 4:10/km.',
+      category: 'training_prescription',
+      status: 'supported',
+      evidence_strength: 'strong',
+      confidence: 0.88,
+      layer_fired: 'deterministic',
+      explanation: null,
+      evidence_refs: null,
+      created_at: '2026-08-23T10:01:03Z',
+    };
+    getConversationVerdicts
+      .mockResolvedValueOnce({ verdicts: [] })
+      .mockResolvedValueOnce({ verdicts: [row] });
+    answerWith([{ type: 'prose', text: 'Hold 4:10/km on the threshold reps.' }]);
+
+    renderChatTab();
+    await send('What pace for threshold?');
+
+    const chip = await screen.findByTestId('verdict-chip');
+    expect(chip).toHaveTextContent('1 verdict · supported');
+    expect(getConversationVerdicts).toHaveBeenCalledTimes(2);
+    expect(getConversationVerdicts).toHaveBeenLastCalledWith(CONVERSATION_ID);
+    // One rail, not the rows' rail beside a streamed one.
+    expect(screen.getAllByTestId('verdict-chip')).toHaveLength(1);
+  });
+
+  it('opens the drawer on the in-flight re-read when a chip is clicked before its rows landed', async () => {
+    // The completed turn starts the verdict re-read, so the chip on a live
+    // turn can be clicked while that read is still out. The drawer must open
+    // on it and its loading line — never on an empty list read as "no
+    // verdicts" — and the click joins the read rather than starting another.
     const row: ClaimVerdict = {
       id: 'verdict-1',
       conversation_id: CONVERSATION_ID,
@@ -377,7 +412,7 @@ describe('ChatTab verdict drawer', () => {
     renderChatTab();
     const user = await send('What is my VO2max?');
 
-    // The chip previews the turn's two chips while the read has no row for them.
+    // The chip previews the turn's two chips while the re-read is still out.
     const chip = await screen.findByTestId('verdict-chip');
     expect(chip).toHaveTextContent('2 verdicts · contradicted');
     await user.click(chip);

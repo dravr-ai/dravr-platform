@@ -1,5 +1,5 @@
 // ABOUTME: Main entry point for @pierre/domain-utils package
-// ABOUTME: Re-exports all domain utilities for formatting, OAuth, and categories
+// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, and route sketches
 
 // Formatting utilities
 export {
@@ -18,6 +18,14 @@ export {
   getFriendlyUrlName,
   linkifyUrls,
 } from './oauth';
+
+// Route sketch geometry (encoded polyline decoding, SVG path projection)
+export {
+  type LatLon,
+  type SketchBox,
+  decodePolyline,
+  projectRouteToSvgPath,
+} from './route-sketch';
 
 // Category utilities
 export {

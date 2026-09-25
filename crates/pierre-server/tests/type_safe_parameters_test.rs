@@ -125,16 +125,6 @@ fn test_provider_params_valid_strava() {
 }
 
 #[test]
-fn test_provider_params_valid_fitbit() {
-    let json = json!({
-        "provider": "fitbit"
-    });
-
-    let params: json_schemas::ProviderParams = serde_json::from_value(json).unwrap();
-    assert_eq!(params.provider, Some("fitbit".to_owned()));
-}
-
-#[test]
 fn test_provider_params_case_sensitive() {
     let json = json!({
         "provider": "STRAVA"

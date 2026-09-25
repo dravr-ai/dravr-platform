@@ -28,7 +28,7 @@ You MUST adhere to ChefFamille's specific requirements:
 
 ### Critical Validation Requirements
 All workflows MUST enforce these zero-tolerance checks:
-- `cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery -D warnings` (zero warnings allowed)
+- `CARGO_BUILD_WARNINGS=deny cargo clippy -- -W clippy::all -W clippy::pedantic -W clippy::nursery` (zero warnings allowed)
 - Banned pattern detection for: `unwrap()`, `expect()`, `panic!()`, `anyhow!()` macros, `#[allow(clippy::)]` attributes (except type conversion casts), underscore-prefixed names
 - Binary size limits (<50MB for pierre_mcp_server)
 - Full test suite execution via `./scripts/ci/lint-and-test.sh`

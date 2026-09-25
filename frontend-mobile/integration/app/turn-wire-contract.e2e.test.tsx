@@ -15,6 +15,7 @@ import { useMessages } from '../../src/screens/chat/useMessages';
 import { useUsageStatus } from '../../src/screens/chat/useUsageStatus';
 
 const MESSAGES_URL = `/api/chat/conversations/${CONVERSATION_ID}/messages`;
+const VERDICTS_URL = `/api/chat/conversations/${CONVERSATION_ID}/verdicts`;
 
 /**
  * Headers the server stopped sending, at values that would be impossible to
@@ -121,6 +122,7 @@ describe('PHASE 2 — the mobile client does not read the removed wire fields', 
       'GET /api/usage/status': { data: usageStatus(92) },
       // A turn whose headers claim the athlete is out of messages entirely.
       [`POST ${MESSAGES_URL}`]: { data: assistantTurn(), headers: DEAD_USAGE_HEADERS },
+      [`GET ${VERDICTS_URL}`]: { data: [] },
     });
 
     const chat = renderHook(() => useMessages(), { wrapper: queryWrapper() });
@@ -137,7 +139,11 @@ describe('PHASE 2 — the mobile client does not read the removed wire fields', 
     expect(usage.result.current.message).toContain(
       "You've used 92% of your daily messages (92/100)"
     );
-    expect(stub.requestsFor('GET').map((request) => request.url)).toEqual(['/api/usage/status']);
+    // The usage read is the banner's only source; the other read is the
+    // finished turn's verdict rows, not a usage probe.
+    expect(stub.requestsFor('GET').map((request) => request.url).sort()).toEqual(
+      ['/api/usage/status', VERDICTS_URL].sort()
+    );
   });
 
   it('leaves no reference to the removed wire names anywhere the app compiles', () => {

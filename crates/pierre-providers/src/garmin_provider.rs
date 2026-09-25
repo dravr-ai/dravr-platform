@@ -630,7 +630,6 @@ impl FitnessProvider for GarminProvider {
                 client_secret: &credentials.client_secret,
                 refresh_token: &refresh_token,
                 provider_name: "Garmin",
-                client_auth: utils::ClientAuth::FormFields,
                 extra_form: &[],
             },
         )

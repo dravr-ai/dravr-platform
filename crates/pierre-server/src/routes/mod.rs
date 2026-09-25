@@ -22,7 +22,7 @@
 //! The composition root in `mcp::multitenant` mounts those routers via
 //! `pierre_routes_<area>::<RouterType>::routes(…)`. Modules in this
 //! directory are pierre-server-local (e.g. `mcp`, `health`, `chat`,
-//! `messaging`, `webhooks`, `endurance`, `onboarding`).
+//! `messaging`, `webhooks`, `endurance`, `athlete_home`, `onboarding`).
 
 // ═══════════════════════════════════════════════════════════════
 // ALWAYS ENABLED - Core infrastructure
@@ -117,6 +117,10 @@ pub mod contremaitre_webhook;
 /// Endurance Phase 1 read-side endpoints (`GET /api/v1/endurance/{latest,dossier}`).
 pub mod endurance;
 
+/// Athlete Home read-side endpoints (`GET /api/me/activities/recent`, one
+/// activity's route, `GET /api/me/training-plan`).
+pub mod athlete_home;
+
 /// User profile self-service routes (`/api/users/me/*`).
 ///
 /// Currently houses the `timezone` setter that web + mobile clients
@@ -140,6 +144,9 @@ pub mod surfaces;
 /// contremaitre string change reaches them without a client deploy.
 pub mod i18n;
 
+/// The subscription check and per-owner debounce a Strava push event passes.
+#[cfg(feature = "health-sync")]
+pub mod strava_webhook_gate;
 /// Chart images for messaging channels: signed short-TTL PNG URLs.
 pub mod viz;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).

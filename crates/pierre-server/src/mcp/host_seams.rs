@@ -42,6 +42,7 @@ use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
+use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_schema::McpResponse;
@@ -253,9 +254,10 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         };
 
         // The transport strips the `Bearer ` prefix; the auth middleware expects
-        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare `pk_live_<key>`
-        // for API keys — so reconstruct it from the stripped token.
-        let auth_header = if token.starts_with("pk_live_") {
+        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare API key — so
+        // reconstruct it from the stripped token with the classifier the
+        // middleware itself uses, so `/mcp` accepts every key format REST does.
+        let auth_header = if is_api_key_format(token) {
             token.to_owned()
         } else {
             format!("Bearer {token}")
@@ -1000,7 +1002,6 @@ fn generate_completions(req: &CompleteRequest) -> Completion {
                 return prefix_completion(
                     &[
                         "strava",
-                        "fitbit",
                         "garmin",
                         "whoop",
                         "terra",

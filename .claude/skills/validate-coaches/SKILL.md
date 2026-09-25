@@ -148,7 +148,7 @@ title: Marathon Training Agent
 category: training
 tags: [running, marathon, endurance, long-runs, race-strategy, 26.2]
 prerequisites:
-  providers: [strava, garmin, fitbit, whoop, coros, terra]
+  providers: [strava, garmin, whoop, coros, terra]
   min_activities: 10
   activity_types: [Run]
 visibility: tenant

@@ -117,7 +117,6 @@ pnpm-lock.yaml
 .claude/worktrees/
 data/
 logs/
-book/build/
 pierre_mcp_server-integration/
 
 # Terraform

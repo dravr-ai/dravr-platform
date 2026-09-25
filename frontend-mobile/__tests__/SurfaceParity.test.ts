@@ -37,8 +37,19 @@ describe('surface parity — mobile', () => {
     // floor moved from 14 to 13 when the Chat-First Cutover folded the Coaches
     // tab into Discover, to 12 when group management moved into the group's
     // own chat thread, and to 11 when the per-athlete AI-provider screen was
-    // removed from both clients: each one destination fewer by decision.
-    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(11);
+    // removed from both clients: each one destination fewer by decision. It
+    // rose to 12 when Home became the landing on both clients.
+    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('lands on Home, served by the first tab', () => {
+    // The registry's first row is the landing, and mobile serves it as a tab
+    // group whose index is a real screen, not only a layout.
+    const home = USER_SURFACES[0];
+    expect(home.id).toBe('home');
+    expect(home.mobile).toBe('/(app)/(tabs)/(home)');
+    expect(fs.existsSync(path.join(APP_DIR, '(app)', '(tabs)', '(home)', 'index.tsx'))).toBe(true);
+    expect(fs.existsSync(path.join(APP_DIR, '(app)', '(tabs)', '(home)', '_layout.tsx'))).toBe(true);
   });
 
   it('no longer declares the retired Coaches surface', () => {

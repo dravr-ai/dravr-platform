@@ -96,6 +96,28 @@ function headersOf(config: InternalAxiosRequestConfig): Record<string, string> {
   return flat;
 }
 
+/**
+ * The path as the server receives it: the domain's URL plus the query axios
+ * builds from `params`. A domain that passes `{ params: { locale } }` puts
+ * `?locale=` on the wire exactly as one that spells it into the path, so the
+ * route key names the query either way and a dropped parameter is a miss.
+ */
+function urlOf(config: InternalAxiosRequestConfig): string {
+  const url = config.url ?? '';
+  const params = (config.params ?? {}) as Record<string, unknown>;
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      query.append(key, String(value));
+    }
+  }
+  const serialized = query.toString();
+  if (serialized === '') {
+    return url;
+  }
+  return `${url}${url.includes('?') ? '&' : '?'}${serialized}`;
+}
+
 function bodyOf(config: InternalAxiosRequestConfig): unknown {
   if (typeof config.data !== 'string') {
     return config.data;
@@ -123,7 +145,7 @@ export function installHttpStub(routes: StubRoutes): HttpStub {
   const adapter: AxiosAdapter = async (config) => {
     const request: RecordedRequest = {
       method: (config.method ?? 'get').toUpperCase(),
-      url: config.url ?? '',
+      url: urlOf(config),
       headers: headersOf(config),
       body: bodyOf(config),
     };

@@ -15,7 +15,7 @@
 //!   persona, plus the unified `OAuth2` ROPC token endpoint at `/oauth/token`.
 //! - OAuth callback + provider connect/disconnect endpoints
 //!   (`/api/oauth/*`, `/api/providers/*`) — handles fitness provider OAuth
-//!   flows (Strava, Fitbit, Garmin, …) including mobile in-app browser
+//!   flows (Strava, Garmin, WHOOP, …) including mobile in-app browser
 //!   initiation, callback redirect to web/mobile, and explicit sync triggers.
 //! - Sciotte (Strava-mirror) credential-login endpoints
 //!   (`/api/providers/sciotte/*`) and the channel-initiated hosted-login UI

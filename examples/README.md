@@ -390,9 +390,7 @@ Pierre's MCP implementation follows the [official MCP specification](https://spe
 ## Learn More
 
 - **A2A Specification**: [github.com/google/A2A](https://github.com/google/A2A)
-- **Pierre A2A Documentation**: [book/src/protocols.md](../book/src/protocols.md)
 - **MCP Specification**: [modelcontextprotocol.io](https://modelcontextprotocol.io)
-- **Pierre MCP Documentation**: [book/src/architecture.md](../book/src/architecture.md)
 
 ---
 
@@ -417,7 +415,7 @@ pip install -r requirements.txt
 - Verify Pierre server is running
 
 **"No activities found"**
-- Connect a Strava or Fitbit account via Pierre web UI
+- Connect a Strava or WHOOP account via Pierre web UI
 - Ensure OAuth connection is active
 - Check server logs for provider API errors
 

@@ -7,11 +7,13 @@
 //! Sleep and recovery reads.
 //!
 //! Every sleep-scoring tool reads the same place: the sleep and recovery rows
-//! dravr-enforme syncs from each connected source (WHOOP, Garmin,
-//! intervals.icu), merged so one night — or one day — reported by two sources
-//! is one record carrying both sources' metrics. The chat pipeline refreshes a
-//! stale source before the turn runs, so the rows here are as current as the
-//! sources allow.
+//! dravr-enforme syncs from each connected source (WHOOP, Garmin and
+//! intervals.icu for nights and mornings; COROS for mornings only — its resting
+//! heart rate and sleep HRV, since the Training Hub records no night), merged
+//! so one night — or one day — reported by two sources is one record carrying
+//! both sources' metrics. The chat pipeline refreshes a stale API source
+//! before the turn runs; a scrape-backed source (Garmin, COROS) syncs when the
+//! athlete connects it and then at most every six hours, never inside a turn.
 //!
 //! A caller naming a source (the tools' `sleep_provider` argument) narrows the
 //! rows to that source before merging; otherwise every source contributes.

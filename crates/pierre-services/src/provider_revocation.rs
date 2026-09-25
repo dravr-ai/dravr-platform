@@ -1,4 +1,4 @@
-// ABOUTME: Upstream grant revocation + provider-data purge for the disconnect chokepoint and an app switch
+// ABOUTME: Upstream grant revocation, scrape-session drop + provider-data purge for the disconnect chokepoint
 // ABOUTME: Never blocks local deletion, and reports whether the provider confirmed the revocation
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -26,8 +26,11 @@ use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_core::models::{DelegationEndReason, TenantId, UserOAuthToken};
+use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
-use pierre_providers::utils::{refresh_oauth_token, ClientAuth, RefreshRequest};
+use pierre_providers::backend_resolver::is_mirror_backend;
+use pierre_providers::sciotte_remote::{AuthSession, RemoteSciotteClient, SessionRemoval};
+use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, info, warn};
@@ -106,21 +109,18 @@ impl RevocationOutcome {
 /// The wire shape a backend expects "this app no longer has my data" in.
 ///
 /// Endpoints come from where each provider's other endpoints already live:
-/// `pierre-config` for Strava, Fitbit and Garmin (`*_REVOKE_URL` env), the
+/// `pierre-config` for Strava and Garmin (`*_REVOKE_URL` env), the
 /// provider registry's default config for WHOOP and Terra
 /// (`PIERRE_<PROVIDER>_REVOKE_URL` env).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RevocationShape {
-    /// RFC 7009 token revocation (Strava, Fitbit): `POST` with the client
-    /// credentials as HTTP Basic auth and the stored refresh token (else the
+    /// RFC 7009 token revocation (Strava): `POST` with the client
+    /// credentials as HTTP Basic auth, the stored refresh token (else the
     /// access token) as the `token` form param — revoking either kills the
-    /// whole grant. Strava reads `token_type_hint`; Fitbit documents `token`
-    /// alone, so the hint is per-provider.
+    /// whole grant — and its `token_type_hint`.
     TokenRevocation {
         /// The provider's revocation endpoint.
         revoke_url: String,
-        /// Whether to send `token_type_hint` alongside `token`.
-        token_type_hint: bool,
     },
     /// Per-user deregistration (WHOOP `DELETE /v2/user/access`, Garmin
     /// Health API `DELETE /user/registration`): the user's access token as
@@ -151,7 +151,8 @@ pub enum RevocationShape {
 /// is no OAuth grant, so deleting the local row is the whole disconnect.
 /// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are scrape
 /// sessions: the credential is a browser cookie jar, and there is nothing
-/// upstream to revoke either.
+/// upstream to revoke either. The sciotte service's copy of that jar is
+/// dropped by [`drop_scrape_session`] instead.
 ///
 /// LIMITATION(registre#509): `revocation_shape` returns `None` for `coros`
 /// because the COROS provider's OAuth endpoints are placeholders and no COROS
@@ -163,11 +164,6 @@ pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<Revocat
     match backend {
         oauth_providers::STRAVA => Some(RevocationShape::TokenRevocation {
             revoke_url: config.strava_api_config().revoke_url.clone(),
-            token_type_hint: true,
-        }),
-        oauth_providers::FITBIT => Some(RevocationShape::TokenRevocation {
-            revoke_url: config.fitbit_api_config().revoke_url.clone(),
-            token_type_hint: false,
         }),
         oauth_providers::GARMIN => {
             let garmin = config.garmin_api_config();
@@ -305,19 +301,13 @@ pub async fn revoke_upstream_grant(
     backend: &str,
 ) -> RevocationOutcome {
     let result = match shape {
-        RevocationShape::TokenRevocation {
-            revoke_url,
-            token_type_hint,
-        } => {
+        RevocationShape::TokenRevocation { revoke_url } => {
             let Some((revoke_token, hint)) = revocation_material(token, user_id, backend) else {
                 return RevocationOutcome::Unconfirmed(
                     "the stored token row carries no token material".to_owned(),
                 );
             };
-            let mut form = vec![("token", revoke_token.as_str())];
-            if *token_type_hint {
-                form.push(("token_type_hint", hint));
-            }
+            let form = [("token", revoke_token.as_str()), ("token_type_hint", hint)];
             api_client()
                 .post(revoke_url)
                 .basic_auth(&creds.client_id, Some(&creds.client_secret))
@@ -363,6 +353,130 @@ pub async fn revoke_upstream_grant(
         }
     };
     revocation_outcome(result, user_id, tenant_id, backend)
+}
+
+/// Drop the scrape session a disconnected mirror backend's row names from the
+/// sciotte service's memory (`DELETE /auth/sessions/{id}`).
+///
+/// The platform is the session-of-record and deletes its row next, but the
+/// service keeps its own copy of the provider cookies until the session idles
+/// out, so a disconnect asks it to drop them now. Like the upstream
+/// revocation this is best-effort: a service that is unreachable or refuses
+/// never blocks the local deletion, and its idle lifetime drops the session
+/// then. A service that no longer holds the session is the state asked for.
+///
+/// The session id is the key to those cookies on the service, so no log line
+/// here carries it. A backend that is not a scrape mirror, or a user holding
+/// no row for it, has nothing to drop.
+pub async fn drop_scrape_session(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) {
+    if !is_mirror_backend(backend) {
+        return;
+    }
+    let Some(session_id) = stored_session_id(repos, user_id, tenant_id, backend).await else {
+        return;
+    };
+    let Some(remote) = sciotte_client(user_id, backend) else {
+        return;
+    };
+    let removal = remote.delete_session(&session_id).await;
+    log_session_removal(&removal, user_id, tenant_id, backend);
+}
+
+/// The sciotte client a session drop goes through, or `None` — logged — when
+/// the service is not configured (so holds no session to drop) or the client
+/// cannot be built.
+fn sciotte_client(user_id: Uuid, backend: &str) -> Option<RemoteSciotteClient> {
+    match RemoteSciotteClient::from_env() {
+        Ok(Some(remote)) => Some(remote),
+        Ok(None) => {
+            debug!(
+                user_id = %user_id,
+                backend = %backend,
+                "Sciotte service not configured; no scrape session held there to drop"
+            );
+            None
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                backend = %backend,
+                error = %e,
+                "Could not build the sciotte client to drop the scrape session; its idle lifetime drops it"
+            );
+            None
+        }
+    }
+}
+
+/// Log what the sciotte service said about a session drop: a removal at INFO,
+/// a session it no longer held at DEBUG, and a failure at WARN, never an
+/// error, since the local deletion proceeds regardless.
+fn log_session_removal(
+    removal: &AppResult<SessionRemoval>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) {
+    match removal {
+        Ok(SessionRemoval::Removed) => info!(
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            backend = %backend,
+            "Dropped the scrape session from the sciotte service"
+        ),
+        Ok(SessionRemoval::AlreadyGone) => debug!(
+            user_id = %user_id,
+            backend = %backend,
+            "The sciotte service no longer held the scrape session"
+        ),
+        Err(e) => warn!(
+            user_id = %user_id,
+            backend = %backend,
+            error = %e,
+            "Could not drop the scrape session on the sciotte service; its idle lifetime drops it"
+        ),
+    }
+}
+
+/// The session id a stored scrape-session row names, or `None` — logged at
+/// WARN when a row exists but cannot be read or parsed — when there is none
+/// to drop. The id itself is never logged.
+async fn stored_session_id(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> Option<String> {
+    let token = match repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, backend)
+        .await
+    {
+        Ok(token) => token?,
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                backend = %backend,
+                error = %e,
+                "Could not read the stored scrape session to drop it on the sciotte service; its idle lifetime drops it"
+            );
+            return None;
+        }
+    };
+    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
+        warn!(
+            user_id = %user_id,
+            backend = %backend,
+            "Stored scrape session does not parse; no session id to drop on the sciotte service"
+        );
+        return None;
+    };
+    Some(session.session_id)
 }
 
 /// Delete every row `backend` contributed for the user under `tenant_id`.
@@ -496,7 +610,6 @@ async fn live_access_token(
             client_secret: &creds.client_secret,
             refresh_token: &refresh,
             provider_name: backend,
-            client_auth: ClientAuth::FormFields,
             extra_form: &[],
         },
     )
@@ -617,8 +730,11 @@ pub async fn surviving_rows(
     survivors
 }
 
-/// Withdraw one backend completely: revoke upstream, then delete the token and
-/// connection rows in lockstep and purge every row the provider contributed.
+/// Withdraw one backend completely: revoke upstream, then delete its rows.
+///
+/// A scrape session is dropped from the sciotte service instead of revoked.
+/// The token and connection rows go in lockstep, and every row the provider
+/// contributed is purged.
 ///
 /// The two row types are separate sources of truth (`oauth_tokens` drives
 /// `resolve_backend` + the scrape session; `provider_connections` drives the
@@ -644,8 +760,9 @@ pub async fn clear_backend(
     backend: &str,
 ) -> AppResult<RevocationOutcome> {
     // Revoke BEFORE deleting — the stored token is the credential the
-    // revocation call spends.
+    // revocation call spends, and names the scrape session to drop.
     let outcome = revoke_for_disconnect(service, user_id, tenant_id, backend).await;
+    drop_scrape_session(data.repos(), user_id, tenant_id, backend).await;
 
     data.repos()
         .oauth_tokens

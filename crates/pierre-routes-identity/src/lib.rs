@@ -15,7 +15,7 @@
 //!   `/oauth2/token`) are rate-limited per client IP.
 //! - **Per-user OAuth-app management** (`/api/users/oauth-apps`) — endpoints
 //!   that let authenticated users register their own per-provider OAuth
-//!   client credentials (Strava, Fitbit, Garmin, …) to avoid the shared
+//!   client credentials (Strava, Garmin, WHOOP, …) to avoid the shared
 //!   tenant rate limits.
 //!
 //! Both groups are generic over [`pierre_runtime_context::IdentityCtx`].
@@ -36,6 +36,10 @@
 
 /// OAuth 2.0 authorization-server endpoints (RFC 6749 / 8414 / 7591 / 7636).
 pub mod oauth2;
+
+/// Where an authorization response goes: the code or an error, redirected to
+/// a verified client, or the error page for an untrusted one.
+mod authorize_redirect;
 
 /// Per-user OAuth-app credential management endpoints.
 pub mod user_oauth_apps;

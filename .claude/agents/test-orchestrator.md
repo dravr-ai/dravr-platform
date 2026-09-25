@@ -498,7 +498,7 @@ echo "✨ Code Quality Checks..."
 
 # Clippy with strict lints
 echo "1. Clippy (Zero Tolerance)..."
-cargo clippy --all-targets --all-features -- -D warnings
+CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features
 
 # Format check
 echo "2. Format Check..."
@@ -552,7 +552,7 @@ echo "🔄 CI Simulation (Local)..."
 # Rust CI workflow
 echo "=== Rust CI ==="
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
+CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features
 cargo test --all-features
 
 # Backend CI workflow

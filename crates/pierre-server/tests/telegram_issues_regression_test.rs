@@ -177,7 +177,7 @@ fn test_messaging_prompt_forbids_technical_details() {
 
     assert!(
         prompt.contains("NEVER tell the user to go check Strava"),
-        "Messaging prompt should forbid deflecting to Strava/Fitbit"
+        "Messaging prompt should forbid deflecting to Strava"
     );
 }
 

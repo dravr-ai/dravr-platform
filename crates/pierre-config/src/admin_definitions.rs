@@ -1301,58 +1301,6 @@ pub fn register_strava_provider<S: BuildHasher>(
     );
 }
 
-/// Register the `Fitbit Provider Settings` catalog entries.
-pub fn register_fitbit_provider<S: BuildHasher>(
-    defs: &mut HashMap<String, ParameterDefinition, S>,
-) {
-    // Fitbit Provider Settings
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "provider.fitbit_rate_limit_hourly".to_owned(),
-            display_name: "Fitbit Hourly Rate Limit".to_owned(),
-            description: "Maximum Fitbit API requests per hour".to_owned(),
-            category: "provider_fitbit".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(150),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(10),
-                max: serde_json::json!(500),
-                step: Some(10.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: Some("Fitbit API documentation".to_owned()),
-            env: boot_env("FITBIT_RATE_LIMIT_HOURLY"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "provider.fitbit_rate_limit_daily".to_owned(),
-            display_name: "Fitbit Daily Rate Limit".to_owned(),
-            description: "Maximum Fitbit API requests per day".to_owned(),
-            category: "provider_fitbit".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(2000),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(100),
-                max: serde_json::json!(10000),
-                step: Some(100.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: Some("Fitbit API documentation".to_owned()),
-            env: boot_env("FITBIT_RATE_LIMIT_DAILY"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
 /// Register the `Garmin Provider Settings` catalog entries.
 pub fn register_garmin_provider<S: BuildHasher>(
     defs: &mut HashMap<String, ParameterDefinition, S>,

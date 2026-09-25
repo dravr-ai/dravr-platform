@@ -17,6 +17,7 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
+use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
@@ -758,6 +759,86 @@ async fn test_tools_list_invalid_token_returns_401() {
     assert!(
         body["result"].get("tools").is_none(),
         "Invalid-token tools/list must not return any tools"
+    );
+}
+
+/// `/mcp` accepts every API key format `POST /api/keys` issues, exactly as
+/// REST does: a trial key (`pk_trial_`, the default) used to fail here with
+/// 401 while it worked on REST, because the transport rebuilt the header by
+/// recognising only `pk_live_`.
+#[tokio::test]
+async fn test_tools_list_accepts_every_issued_api_key_format() {
+    let setup = McpTestSetup::new().await.expect("Setup failed");
+    let mcp_request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    for (tier, prefix) in [
+        (ApiKeyTier::Trial, "pk_trial_"),
+        (ApiKeyTier::Starter, "pk_live_"),
+    ] {
+        let (api_key, full_key) = ApiKeyManager::new()
+            .create_api_key(
+                setup.user_id,
+                CreateApiKeyRequest {
+                    name: format!("{prefix} key"),
+                    description: None,
+                    tier,
+                    rate_limit_requests: None,
+                    expires_in_days: None,
+                },
+            )
+            .unwrap();
+        assert!(full_key.starts_with(prefix), "{prefix} key issued");
+        setup
+            .resources
+            .common
+            .repos
+            .api_keys
+            .create(&api_key)
+            .await
+            .unwrap();
+
+        let response = AxumTestRequest::post("/mcp")
+            .header("authorization", &format!("Bearer {full_key}"))
+            .json(&mcp_request)
+            .send(setup.routes())
+            .await;
+
+        assert_eq!(response.status(), 200, "a {prefix} key authenticates /mcp");
+        let body: serde_json::Value = response.json();
+        let tools = body["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{prefix} key: tools/list returns tools: {body}"));
+        assert!(
+            tools
+                .iter()
+                .filter_map(|t| t["name"].as_str())
+                .any(|n| n == "get_activities"),
+            "{prefix} key: the tool set includes get_activities"
+        );
+    }
+
+    // A key-shaped token of a format this server never issues is refused.
+    let response = AxumTestRequest::post("/mcp")
+        .header(
+            "authorization",
+            &format!("Bearer pk_test_{}", "a".repeat(32)),
+        )
+        .json(&mcp_request)
+        .send(setup.routes())
+        .await;
+    assert_eq!(response.status(), 401);
+    let challenge = response
+        .header("www-authenticate")
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        challenge.contains("error=\"invalid_token\""),
+        "an unknown key format is an invalid token: {challenge}"
     );
 }
 

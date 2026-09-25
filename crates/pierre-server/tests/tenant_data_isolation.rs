@@ -19,10 +19,10 @@ use pierre_auth::{
 };
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
-    ExternalServicesConfig, FitbitApiConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel,
-    LoggingConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
-    PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
+    ExternalServicesConfig, GeocodingServiceConfig, HttpClientConfig, LogLevel, LoggingConfig,
+    MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
+    ProtocolConfig, RouteTimeoutConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SseConfig, StravaApiConfig, TlsConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{User, UserStatus, UserTier};
@@ -72,13 +72,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: Some("test_fitbit_id".to_owned()),
-                client_secret: Some("test_fitbit_secret".to_owned()),
-                redirect_uri: Some("http://localhost:3000/oauth/callback/fitbit".to_owned()),
-                scopes: vec!["activity".to_owned(), "profile".to_owned()],
-                enabled: true,
-            },
             // Use defaults for providers not needed in this test
             garmin: OAuthProviderConfig::default(),
             whoop: OAuthProviderConfig::default(),
@@ -107,13 +100,6 @@ fn create_test_server_config() -> Arc<ServerConfig> {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             geocoding: GeocodingServiceConfig {
@@ -160,7 +146,6 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         password_hash: "test_hash".to_owned(),
         tier,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,

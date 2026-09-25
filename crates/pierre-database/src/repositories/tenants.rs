@@ -93,8 +93,6 @@ pub trait TenantRepository: Send + Sync {
     ) -> AppResult<Option<TenantOAuthCredentials>>;
     /// Create OAuth application for MCP clients
     async fn create_oauth_app(&self, app: &OAuthApp) -> AppResult<()>;
-    /// Get OAuth app by client ID
-    async fn get_oauth_app_by_client_id(&self, client_id: &str) -> AppResult<OAuthApp>;
     /// Get all tenants for key rotation check
     async fn get_all(&self) -> AppResult<Vec<Tenant>>;
     /// Get user role for a specific tenant
@@ -211,14 +209,6 @@ pub(crate) const CREATE_OAUTH_APP_SQL: &str = r"
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, $11)
             ";
 
-/// One live OAuth app by its client id.
-pub(crate) const GET_OAUTH_APP_BY_CLIENT_ID_SQL: &str = r"
-            SELECT id, client_id, client_secret, name, description, redirect_uris,
-                   scopes, app_type, owner_user_id, created_at, updated_at
-            FROM oauth_apps
-            WHERE client_id = $1 AND is_active = true
-            ";
-
 /// The agent a member has selected in a tenant.
 pub(crate) const GET_SELECTED_AGENT_SQL: &str =
     "SELECT selected_agent_id FROM tenant_users WHERE tenant_id = $1 AND user_id = $2";
@@ -316,53 +306,6 @@ where
             .map_err(|e| column("redirect_uri", e))?,
         scopes,
         rate_limit_per_day: u32::try_from(rate_limit).unwrap_or(0),
-    })
-}
-
-/// Decode one OAuth app row. The two uuid columns and the two list columns
-/// are read by the caller through its backend's codecs.
-///
-/// # Errors
-/// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn oauth_app_from_row<R>(
-    row: &R,
-    id: Uuid,
-    owner_user_id: Uuid,
-    redirect_uris: Vec<String>,
-    scopes: Vec<String>,
-) -> AppResult<OAuthApp>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let column = |col: &str, e: sqlx::Error| {
-        AppError::database(format!("Failed to get oauth_apps.{col}: {e}"))
-    };
-    Ok(OAuthApp {
-        id,
-        client_id: row
-            .try_get("client_id")
-            .map_err(|e| column("client_id", e))?,
-        client_secret: row
-            .try_get("client_secret")
-            .map_err(|e| column("client_secret", e))?,
-        name: row.try_get("name").map_err(|e| column("name", e))?,
-        description: row
-            .try_get("description")
-            .map_err(|e| column("description", e))?,
-        redirect_uris,
-        scopes,
-        app_type: row.try_get("app_type").map_err(|e| column("app_type", e))?,
-        owner_user_id,
-        created_at: row
-            .try_get("created_at")
-            .map_err(|e| column("created_at", e))?,
-        updated_at: row
-            .try_get("updated_at")
-            .map_err(|e| column("updated_at", e))?,
     })
 }
 
@@ -603,25 +546,6 @@ macro_rules! impl_tenant_repository {
                     .map_err(|e| AppError::database(format!("Failed to create OAuth app: {e}")))?;
 
                 Ok(())
-            }
-
-            async fn get_oauth_app_by_client_id(&self, client_id: &str) -> AppResult<OAuthApp> {
-                let row = sqlx::query(GET_OAUTH_APP_BY_CLIENT_ID_SQL)
-                    .bind(client_id)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to get OAuth app: {e}")))?;
-
-                match row {
-                    Some(row) => oauth_app_from_row(
-                        &row,
-                        $ids::read(&row, "id")?,
-                        $ids::read(&row, "owner_user_id")?,
-                        $lists::read_json(&row, "redirect_uris")?,
-                        $lists::read_json(&row, "scopes")?,
-                    ),
-                    None => Err(AppError::not_found(format!("OAuth app {client_id}"))),
-                }
             }
 
             async fn get_all(&self) -> AppResult<Vec<Tenant>> {

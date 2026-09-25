@@ -115,7 +115,7 @@ fi
 # 7. Rust clippy check
 print_check "Rust clippy"
 
-if cargo clippy --quiet -- -D warnings 2>/dev/null; then
+if CARGO_BUILD_WARNINGS=deny cargo clippy --quiet 2>/dev/null; then
     print_pass "Clippy check passed"
 else
     print_fail "Clippy has warnings/errors"
@@ -173,19 +173,6 @@ if [ -f "sdk/dist/index.js" ] && [ -f "sdk/dist/cli.js" ]; then
     print_pass "Required dist files exist"
 else
     print_fail "Missing dist files (run 'npm run build' in sdk/)"
-fi
-
-# 14. CHANGELOG check
-print_check "CHANGELOG entry"
-
-if [ -f "CHANGELOG.md" ]; then
-    if grep -q "## \[${SDK_VERSION}\]" CHANGELOG.md 2>/dev/null; then
-        print_pass "CHANGELOG entry found for ${SDK_VERSION}"
-    else
-        print_warn "No CHANGELOG entry for version ${SDK_VERSION}"
-    fi
-else
-    print_warn "CHANGELOG.md not found"
 fi
 
 # Summary

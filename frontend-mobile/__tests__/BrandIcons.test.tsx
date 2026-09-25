@@ -46,7 +46,7 @@ describe('providerGlyph', () => {
   });
 
   it('an unknown id resolves to null', () => {
-    expect(providerGlyph('fitbit')).toBeNull();
+    expect(providerGlyph('polar')).toBeNull();
     expect(providerGlyph('')).toBeNull();
     // Object prototype names are not providers either.
     expect(providerGlyph('constructor')).toBeNull();

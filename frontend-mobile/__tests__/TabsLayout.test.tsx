@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins the shell: three labelled system tabs in order, the unread badge on Chat, and no floating chrome in the tree
+// ABOUTME: Pins the shell: four labelled system tabs in order, Home first, the unread badge on Chat, and no floating chrome in the tree
 // ABOUTME: The glass pill and its "+" are gone; a bar drawn by hand, or a blur import anywhere, fails this
 
 import React from 'react';
@@ -22,7 +22,7 @@ jest.mock('../src/hooks/useServerStatus', () => ({
 
 import TabsLayout from '../app/(app)/(tabs)/_layout';
 import { TAB_BAR_TABS } from '../src/navigation/tabs';
-import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
+import { CHAT_LIST_ROUTE, HOME_ROUTE } from '../src/navigation/routes';
 
 function renderTabs() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -47,19 +47,50 @@ describe('the system tab bar', () => {
     mockGetConversations.mockResolvedValue({ conversations: [], total: 0, limit: 50, offset: 0 });
   });
 
-  it('offers exactly three labelled tabs, chat first', async () => {
+  it('offers exactly four labelled tabs, Home first', async () => {
     const { findAllByTestId, getAllByTestId } = renderTabs();
 
     const labels = (await findAllByTestId('tab-label')).map((node) => node.props.children);
     // The unit setup pins English.
-    expect(labels).toEqual(['Chat', 'Discover', 'Settings']);
-    expect(getAllByTestId(/^tab-(chat|discover|settings)$/).map((node) => node.props.testID)).toEqual([
+    expect(labels).toEqual(['Home', 'Chat', 'Discover', 'Settings']);
+    expect(getAllByTestId(/^tab-(home|chat|discover|settings)$/).map((node) => node.props.testID)).toEqual([
+      'tab-home',
       'tab-chat',
       'tab-discover',
       'tab-settings',
     ]);
-    expect(TAB_BAR_TABS.map((tab) => tab.route)).toEqual(['(chat)', '(discover)', '(settings)']);
-    expect(CHAT_LIST_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[0].route}`);
+    expect(TAB_BAR_TABS.map((tab) => tab.route)).toEqual(['(home)', '(chat)', '(discover)', '(settings)']);
+    // The app lands on the first tab, and the registry's Home route is it.
+    expect(HOME_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[0].route}`);
+    expect(CHAT_LIST_ROUTE).toBe(`/(app)/(tabs)/${TAB_BAR_TABS[1].route}`);
+  });
+
+  it('draws Home with the house glyph on both platforms', () => {
+    const home = TAB_BAR_TABS[0];
+    expect(home).toEqual({
+      route: '(home)',
+      labelKey: 'nav.home',
+      sf: { default: 'house', selected: 'house.fill' },
+      md: 'home',
+      testID: 'tab-home',
+    });
+  });
+
+  it('wears no badge on Home, whatever is unread', async () => {
+    mockGetConversations.mockResolvedValue({
+      conversations: [
+        { id: 'c1', title: 'A', unread_count: 4, message_count: 4, created_at: '2026-08-20T10:00:00Z', updated_at: '2026-08-25T10:00:00Z' },
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    const { findByTestId, getByTestId } = renderTabs();
+
+    expect(await findByTestId('tab-badge')).toHaveTextContent('4');
+    // The one badge sits on the chat tab's trigger, not on Home's.
+    expect(getByTestId('tab-chat')).toContainElement(getByTestId('tab-badge'));
+    expect(getByTestId('tab-home')).not.toContainElement(getByTestId('tab-badge'));
   });
 
   it('wears the unread total on the chat tab, and nothing when there is none', async () => {

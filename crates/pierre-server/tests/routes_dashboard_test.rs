@@ -160,13 +160,12 @@ use pierre_auth::{
 };
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
-    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, FitbitApiConfig,
-    GarminApiConfig, GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel,
-    LoggingConfig, McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig,
-    OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig,
-    SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig,
-    SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
+    GeocodingServiceConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig,
+    McpConfig, MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    PostgresPoolConfig, ProtocolConfig, RateLimitConfig, RouteTimeoutConfig, SecurityConfig,
+    SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig,
+    StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
@@ -215,13 +214,6 @@ impl DashboardTestSetup {
             },
             oauth: OAuthConfig {
                 strava: OAuthProviderConfig {
-                    client_id: None,
-                    client_secret: None,
-                    redirect_uri: None,
-                    scopes: vec![],
-                    enabled: false,
-                },
-                fitbit: OAuthProviderConfig {
                     client_id: None,
                     client_secret: None,
                     redirect_uri: None,
@@ -277,13 +269,6 @@ impl DashboardTestSetup {
                     auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                     token_url: "https://www.strava.com/oauth/token".to_owned(),
                     revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                    ..Default::default()
-                },
-                fitbit_api: FitbitApiConfig {
-                    base_url: "https://api.fitbit.com".to_owned(),
-                    auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                    token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                    revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                     ..Default::default()
                 },
                 garmin_api: GarminApiConfig {
@@ -495,7 +480,7 @@ impl DashboardTestSetup {
                         timestamp: timestamp + Duration::minutes(i64::from(j) * 2),
                         tool_name: match j % 4 {
                             0 => "strava_activities".to_owned(),
-                            1 => "fitbit_data".to_owned(),
+                            1 => "whoop_data".to_owned(),
                             2 => "weather_info".to_owned(),
                             _ => "analytics".to_owned(),
                         },
@@ -698,13 +683,6 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
                 scopes: vec![],
                 enabled: false,
             },
-            fitbit: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
             garmin: OAuthProviderConfig {
                 client_id: None,
                 client_secret: None,
@@ -754,13 +732,6 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
                 token_url: "https://www.strava.com/oauth/token".to_owned(),
                 revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
-            fitbit_api: FitbitApiConfig {
-                base_url: "https://api.fitbit.com".to_owned(),
-                auth_url: "https://www.fitbit.com/oauth2/authorize".to_owned(),
-                token_url: "https://api.fitbit.com/oauth2/token".to_owned(),
-                revoke_url: "https://api.fitbit.com/oauth2/revoke".to_owned(),
                 ..Default::default()
             },
             garmin_api: GarminApiConfig {

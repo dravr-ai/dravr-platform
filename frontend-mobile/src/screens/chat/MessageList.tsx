@@ -28,6 +28,7 @@ import {
   isSameMessageGroup,
   localDayKey,
   transcriptBlocks,
+  withVerdictRows,
 } from '@pierre/chat-utils';
 import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
@@ -638,7 +639,9 @@ export function MessageList({
     const rows = (verdicts ?? []).filter((verdict) => verdict.message_id === item.id);
     // One list, whatever the turn's age: the server's own blocks when it just
     // landed, the same shape decoded from the persisted row when it did not.
-    const blocks = messageBlocks?.[item.id] ?? transcriptBlocks(item, rows);
+    // Either way the verdict rows, once read, are the reply's one chip rail.
+    const streamed = messageBlocks?.[item.id];
+    const blocks = streamed ? withVerdictRows(streamed, rows) : transcriptBlocks(item, rows);
     const sceneBlock = blocks.find((block) => block.type === 'scene');
     const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
     const context = { isUser, messageId: item.id, scenes, rows };

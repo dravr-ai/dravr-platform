@@ -10,7 +10,10 @@ appId: ai.dravr.app
 - runFlow:
     file: ../helpers/login.yaml
 
-# The bell sits in the chat list's header (NotificationBellButton).
+# The bell sits in the chat list's header (NotificationBellButton); the app
+# lands on Home, so take the chat tab first.
+- runFlow:
+    file: ../helpers/navigate-to-chat.yaml
 - assertVisible:
     id: "notification-bell"
 - tapOn:

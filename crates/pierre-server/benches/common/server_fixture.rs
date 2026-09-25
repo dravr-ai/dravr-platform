@@ -65,8 +65,6 @@ pub fn init_bench_env() {
         env::set_var("PIERRE_STRAVA_CLIENT_SECRET", "bench_strava_client_secret");
         env::set_var("PIERRE_GARMIN_CLIENT_ID", "bench_garmin_client_id");
         env::set_var("PIERRE_GARMIN_CLIENT_SECRET", "bench_garmin_client_secret");
-        env::set_var("PIERRE_FITBIT_CLIENT_ID", "bench_fitbit_client_id");
-        env::set_var("PIERRE_FITBIT_CLIENT_SECRET", "bench_fitbit_client_secret");
 
         if env::var("PIERRE_LLM_MODEL").is_err() {
             env::set_var("PIERRE_LLM_MODEL", "mock-model");

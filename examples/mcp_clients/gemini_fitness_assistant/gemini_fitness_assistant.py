@@ -143,7 +143,7 @@ class GeminiFitnessAssistant:
             When the user asks about their fitness data, use the available tools to fetch and analyze
             the information. Be specific, data-driven, and provide actionable insights.
 
-            Available data sources: Strava, Garmin, Fitbit (depending on user's connections).
+            Available data sources: Strava, Garmin, WHOOP (depending on user's connections).
             """
         )
 

@@ -23,7 +23,7 @@ use reqwest::StatusCode;
 /// be the signal that re-authentication is needed, independent of the expiry.
 #[test]
 fn unauthorized_maps_to_provider_auth_required() {
-    for slug in ["strava", "fitbit", "whoop", "coros", "garmin"] {
+    for slug in ["strava", "whoop", "coros", "garmin"] {
         let err = auth_error_for_status(StatusCode::UNAUTHORIZED, slug)
             .unwrap_or_else(|| panic!("401 must produce an auth error for {slug}"));
 

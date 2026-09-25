@@ -37,12 +37,14 @@ mod common;
 use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use chrono::Utc;
 use dravr_equilibre_sync::ContinuousMetricBatch;
 use hmac::{Hmac, Mac};
@@ -54,6 +56,7 @@ use pierre_enforme::error::{EnformeError, EnformeResult};
 use pierre_enforme::models::connection::ProviderCredentials;
 use pierre_enforme::models::cursor::{SyncBatch, SyncCursor};
 use pierre_enforme::models::webhook::{WebhookAlgorithm, WebhookConfig, WebhookEvent};
+use pierre_enforme::providers::whoop::verify_whoop_signature;
 use pierre_enforme::traits::sync_provider::{DataType, SyncProvider};
 use pierre_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -73,6 +76,11 @@ const SECRET: &str = "whoop-webhook-secret-for-tests";
 
 /// The WHOOP user id the seeded token carries and the events name.
 const WHOOP_USER_ID: u64 = 12_345;
+
+/// The `X-WHOOP-Signature-Timestamp` every test request carries: the time
+/// the test binary first signs, well inside the provider's replay window for
+/// the few seconds the tests run.
+static TIMESTAMP: LazyLock<String> = LazyLock::new(|| Utc::now().timestamp_millis().to_string());
 
 /// Environment set for the duration of one test and removed after it.
 struct EnvGuard {
@@ -98,12 +106,22 @@ impl Drop for EnvGuard {
     }
 }
 
-/// Hex HMAC-SHA256 of `body` under `secret` — the signature shape enforme's
-/// WHOOP provider verifies on `x-whoop-signature`.
+/// A WHOOP signature as WHOOP documents it: base64 of the HMAC-SHA256 of
+/// [`TIMESTAMP`] followed by `body`, under `secret`, computed here with the
+/// `hmac` crate rather than enforme's own helper.
 fn sign(secret: &str, body: &[u8]) -> String {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(TIMESTAMP.as_str().as_bytes());
     mac.update(body);
-    hex::encode(mac.finalize().into_bytes())
+    BASE64.encode(mac.finalize().into_bytes())
+}
+
+/// Headers of a request signed with `signature` at [`TIMESTAMP`].
+fn signed_headers(signature: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("x-whoop-signature", signature.parse().unwrap());
+    headers.insert("x-whoop-signature-timestamp", TIMESTAMP.parse().unwrap());
+    headers
 }
 
 fn whoop_payload(event_type: &str, user_id: u64, id: &str) -> Vec<u8> {
@@ -236,26 +254,22 @@ impl SyncProvider for MockWhoop {
     }
 
     async fn validate_webhook(&self, headers: &HeaderMap, body: &[u8]) -> EnformeResult<bool> {
-        let signature = headers
-            .get("x-whoop-signature")
-            .and_then(|value| value.to_str().ok())
-            .ok_or_else(|| EnformeError::WebhookValidationFailed {
-                provider: "whoop".to_owned(),
-                reason: "missing x-whoop-signature header".to_owned(),
-            })?;
-        let mut mac = HmacSha256::new_from_slice(self.secret.as_bytes()).unwrap();
-        mac.update(body);
-        let expected =
-            hex::decode(signature).map_err(|e| EnformeError::WebhookValidationFailed {
-                provider: "whoop".to_owned(),
-                reason: format!("invalid hex signature: {e}"),
-            })?;
-        mac.verify_slice(&expected).map(|()| true).map_err(|_| {
-            EnformeError::WebhookValidationFailed {
-                provider: "whoop".to_owned(),
-                reason: "HMAC signature mismatch".to_owned(),
-            }
-        })
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| EnformeError::WebhookValidationFailed {
+                    provider: "whoop".to_owned(),
+                    reason: format!("missing {name} header"),
+                })
+        };
+        // The real WHOOP check, so the route is exercised against it.
+        verify_whoop_signature(
+            self.secret.as_bytes(),
+            header("x-whoop-signature-timestamp")?,
+            body,
+            header("x-whoop-signature")?,
+        )
     }
 
     // WHOOP's own shape is one object per body; a JSON array of them is
@@ -425,7 +439,9 @@ async fn post_signed(
         .uri("/webhooks/whoop")
         .header("content-type", "application/json");
     if let Some(signature) = signature {
-        request = request.header("x-whoop-signature", signature);
+        request = request
+            .header("x-whoop-signature", signature)
+            .header("x-whoop-signature-timestamp", TIMESTAMP.as_str());
     }
     WebhookRoutes::routes(Arc::clone(resources))
         .oneshot(request.body(Body::from(body)).unwrap())
@@ -482,8 +498,7 @@ async fn real_whoop_provider_returns_the_validated_event_and_refuses_a_forgery()
     );
 
     let body = whoop_payload("workout.updated", WHOOP_USER_ID, "9d3c1b2a");
-    let mut headers = HeaderMap::new();
-    headers.insert("x-whoop-signature", sign(SECRET, &body).parse().unwrap());
+    let headers = signed_headers(&sign(SECRET, &body));
 
     let events = orchestrator
         .handle_webhook("whoop", &headers, &body)
@@ -499,22 +514,45 @@ async fn real_whoop_provider_returns_the_validated_event_and_refuses_a_forgery()
     );
     assert_eq!(events[0].resource_id, "9d3c1b2a");
 
-    let mut forged = HeaderMap::new();
-    forged.insert(
-        "x-whoop-signature",
-        sign("another-secret", &body).parse().unwrap(),
-    );
+    let forged = signed_headers(&sign("another-secret", &body));
     let err = orchestrator
         .handle_webhook("whoop", &forged, &body)
         .await
         .unwrap_err();
-    // enforme's shared HMAC helper labels a mismatch `provider: "unknown"`
-    // (it does not know which provider called it), so only the variant is
-    // pinned here.
     assert!(
         matches!(err, EnformeError::WebhookValidationFailed { .. }),
         "a forged signature is refused, got {err:?}"
     );
+
+    // A hex HMAC of the body alone is not how WHOOP signs, and is refused.
+    let mut body_only = HmacSha256::new_from_slice(SECRET.as_bytes()).unwrap();
+    body_only.update(&body);
+    let wrong_scheme = signed_headers(&hex::encode(body_only.finalize().into_bytes()));
+    assert!(orchestrator
+        .handle_webhook("whoop", &wrong_scheme, &body)
+        .await
+        .is_err());
+
+    // A capture replayed ten minutes later is refused however well signed.
+    let stale = (Utc::now() - chrono::Duration::minutes(10))
+        .timestamp_millis()
+        .to_string();
+    let mut replay_mac = HmacSha256::new_from_slice(SECRET.as_bytes()).unwrap();
+    replay_mac.update(stale.as_bytes());
+    replay_mac.update(&body);
+    let mut replayed = HeaderMap::new();
+    replayed.insert(
+        "x-whoop-signature",
+        BASE64
+            .encode(replay_mac.finalize().into_bytes())
+            .parse()
+            .unwrap(),
+    );
+    replayed.insert("x-whoop-signature-timestamp", stale.parse().unwrap());
+    assert!(orchestrator
+        .handle_webhook("whoop", &replayed, &body)
+        .await
+        .is_err());
 }
 
 /// A signed event for a linked user runs that user's sync: the mock fetch is

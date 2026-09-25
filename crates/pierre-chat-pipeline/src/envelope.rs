@@ -421,6 +421,12 @@ pub struct TurnTelemetry {
     /// logs. Nothing breaks visibly if this stops arriving, so it is carried
     /// by name and asserted on in `turn_envelope_test.rs`.
     pub identity_leak: Option<IdentityLeakMatch>,
+    /// Request parameters the serving LLM provider reported ignoring this
+    /// turn — a temperature it has no knob for, tools it simulated in text, an
+    /// image it could not see. Empty when it honored all of them. Rides the
+    /// in-app turn response so a degraded turn is visible beside the model
+    /// and provider that served it.
+    pub provider_warnings: Vec<String>,
 }
 
 /// A provider re-auth offer the turn carries out.

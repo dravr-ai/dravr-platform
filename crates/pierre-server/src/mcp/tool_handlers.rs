@@ -7,12 +7,9 @@
 use super::multitenant::ProviderToolRouter;
 use super::resources::ServerContext;
 use crate::constants::{
-    errors::{
-        ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND,
-        ERROR_RATE_LIMIT_EXCEEDED,
-    },
+    errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND, ERROR_RATE_LIMIT_EXCEEDED},
     protocol::JSONRPC_VERSION,
-    tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES},
+    tools::GET_ACTIVITIES,
 };
 use crate::mcp::audit::record_tool_call;
 use dravr_tronc::mcp::schema::ToolResponse;
@@ -24,18 +21,15 @@ use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::NotificationRepository;
-use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse};
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
-use pierre_services::usage_counter::{increment_counter, UsageCounterService};
+use pierre_services::usage_counter::UsageCounterService;
 use pierre_tool_runtime::context::GRANTED_SCOPES;
-use pierre_tool_runtime::guardian::{self, DenyReason, GateOutcome, TurnKey};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::security::SecurityLabels;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;
@@ -300,16 +294,9 @@ impl ToolHandlers {
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = user_id.to_string();
 
-        // The charge for a REGISTRY tool is levied at the dispatch chokepoint
-        // in `UniversalExecutor::execute_tool`, which every transport passes
-        // through; charging again here billed an ACP turn twice for one tool.
-        // The two OAuth carve-outs above never reach that chokepoint, so
-        // their charge is still owed here — same two constants the router
-        // matches on, so the two cannot drift into disagreement.
-        if matches!(tool_name, CONNECT_PROVIDER | DISCONNECT_PROVIDER) {
-            Self::charge_carve_out_tool_call(resources, &tenant_id_str, &user_id_str, tool_name)
-                .await;
-        }
+        // The charge is levied at the dispatch chokepoint in
+        // `UniversalExecutor::execute_tool`, which every `/mcp` tool call
+        // passes through; charging again here billed a call twice.
         Self::insert_tool_llm_usage(
             resources,
             &tenant_id_str,
@@ -318,24 +305,6 @@ impl ToolHandlers {
             duration_ms,
         )
         .await;
-    }
-
-    /// Charge one tool call for a carve-out tool, which bypasses the executor.
-    ///
-    /// Fire-and-forget: a counter write must never fail a tool the caller has
-    /// already been answered by.
-    async fn charge_carve_out_tool_call(
-        resources: &Arc<ServerContext>,
-        tenant_id: &str,
-        user_id: &str,
-        tool_name: &str,
-    ) {
-        let repo = resources.common.repos.usage_counters.as_ref();
-        for counter_type in ["daily_tool_calls", "weekly_tool_calls"] {
-            if let Err(e) = increment_counter(repo, tenant_id, user_id, counter_type, 1).await {
-                warn!(tool_name, counter_type, "failed to charge tool call: {e}");
-            }
-        }
     }
 
     /// Record MCP tool execution in `llm_usage` table for analytics (fire-and-forget)
@@ -641,8 +610,9 @@ impl ToolHandlers {
 
     /// Route tool calls to appropriate handlers based on tool type and tenant context
     ///
-    /// Uses the `ToolRegistry` for tool execution. OAuth connection tools are handled
-    /// specially due to their complex flow requirements.
+    /// Every registry tool, the OAuth connection tools included, runs through
+    /// the unified executor, so `/mcp` answers with the same implementation,
+    /// Guardian gate, billing and `structuredContent` as every other surface.
     pub async fn route_tool_call(
         tool_name: &str,
         args: &Value,
@@ -650,35 +620,7 @@ impl ToolHandlers {
         user_id: Uuid,
         ctx: &ToolRoutingContext<'_>,
     ) -> McpResponse {
-        // `connect_provider` is handled specially — minting a hosted-login URL
-        // and shaping the MCP request id doesn't fit McpTool.
-        //
-        // S4 CARVE-OUT: this path bypasses `UniversalExecutor::execute_tool`.
-        // `connect_provider` is non-destructive (empty Guardian labels), so
-        // bypassing the chokepoint is a no-op for it. `disconnect_provider`
-        // IS `IRREVERSIBLE`; its carve-out handler and the registry
-        // `DisconnectProviderTool` both delegate to the same domain chokepoint
-        // (`OAuthService::disconnect_provider`), so the carve-out exists only
-        // for MCP response shaping and the Guardian confirm degradation (deny,
-        // where the executor would park — /mcp cannot resolve a parked
-        // action). It runs the SAME shared `guardian::guardian_gate` inline
-        // (#1), so taint→irreversible + the per-turn destructive budget fire
-        // on this /mcp path exactly as at the chokepoint.
-        //
-        // `get_connection_status` deliberately has NO carve-out: it routes to
-        // the registry tool like every other read, so `/mcp` and the rest of
-        // the product answer the same shape from one implementation.
-        match tool_name {
-            CONNECT_PROVIDER => {
-                return Self::handle_connect_provider(args, request_id);
-            }
-            DISCONNECT_PROVIDER => {
-                return Self::guarded_disconnect_provider(args, request_id, ctx).await;
-            }
-            _ => {}
-        }
-
-        // Try the registry first for all other tools
+        // Try the registry first
         if ctx.resources.mcp.tool_registry.contains(tool_name) {
             // Route through the unified executor so every registry tool call
             // passes the Guardian chokepoint and resolves identity/admin/tenant
@@ -742,176 +684,6 @@ impl ToolHandlers {
             }),
             id: Some(request_id),
         }
-    }
-
-    /// Handle `connect_provider` OAuth tool
-    fn handle_connect_provider(args: &Value, request_id: Value) -> McpResponse {
-        let params = serde_json::from_value::<json_schemas::ConnectProviderParams>(args.clone())
-            .unwrap_or_else(|_| json_schemas::ConnectProviderParams {
-                provider: String::new(),
-                strava_client_id: None,
-                strava_client_secret: None,
-                fitbit_client_id: None,
-                fitbit_client_secret: None,
-            });
-
-        let provider_name = params.provider.to_lowercase();
-
-        // Validate provider
-        if provider_name.is_empty() || !["strava", "fitbit"].contains(&provider_name.as_str()) {
-            return McpResponse {
-                jsonrpc: JSONRPC_VERSION.to_owned(),
-                id: Some(request_id),
-                result: Some(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": format!("Invalid provider '{provider_name}'. Supported providers are: strava, fitbit")
-                    }],
-                    "isError": true
-                })),
-                error: None,
-            };
-        }
-
-        // Return unified auth flow response
-        McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_owned(),
-            id: Some(request_id),
-            result: Some(json!({
-                "content": [{
-                    "type": "text",
-                    "text": format!(
-                        "Starting unified authentication for {}. This will:\n\n1. First authenticate you with Dravr\n2. Then connect you to {} for your fitness data\n\nOpening browser for secure authentication...",
-                        provider_name.to_uppercase(),
-                        provider_name.to_uppercase()
-                    )
-                }],
-                "isError": false,
-                "requiresAuth": true,
-                "authUrl": "oauth2/authorize",
-                "unifiedFlow": true,
-                "provider": provider_name,
-                "message": format!("Please complete unified authentication with Dravr and {} in your browser.", provider_name.to_uppercase())
-            })),
-            error: None,
-        }
-    }
-
-    /// Gate `disconnect_provider` through the shared Guardian decision before the
-    /// carve-out handler runs (#1).
-    ///
-    /// `disconnect_provider` is dispatched here instead of through
-    /// `execute_tool`, so without this it would skip the taint→irreversible +
-    /// per-turn destructive budget gate every chokepoint dispatch enforces.
-    /// Labels are `IRREVERSIBLE` + `WRITES_DATA`, matching
-    /// `declare_security!(DisconnectProviderTool => IRREVERSIBLE)` and its
-    /// capabilities (pinned by `disconnect_provider_gate_labels_match_registry`);
-    /// the reserved budget is refunded if the disconnect itself fails, mirroring
-    /// the chokepoint's post-execution refund.
-    async fn guarded_disconnect_provider(
-        args: &Value,
-        request_id: Value,
-        ctx: &ToolRoutingContext<'_>,
-    ) -> McpResponse {
-        let labels = SecurityLabels::IRREVERSIBLE;
-        let writes_data = true;
-        let tenant_uuid = Uuid::parse_str(&ctx.tenant_context.tenant_id.to_string()).ok();
-        // Same turn key the chokepoint uses: the per-turn/session token so taint
-        // and budgets accumulate across ONE turn's calls (a fresh nonce for a
-        // token-less call makes it its own bucket).
-        let turn_token = ctx
-            .tenant_context
-            .session_id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let turn_key = TurnKey::new(tenant_uuid, turn_token);
-        let (outcome, reserved) = guardian::guardian_gate(
-            &ctx.resources.guardian(),
-            ctx.resources.guardian_turns(),
-            &turn_key,
-            DISCONNECT_PROVIDER,
-            labels,
-            writes_data,
-            tenant_uuid,
-        );
-        // Exhaustive on purpose: an `if let Blocked` here let `ConfirmRequired`
-        // fall through and execute the disconnect. One-shot MCP-direct calls each
-        // get their own turn bucket so they never reach that decision, but the
-        // Copilot-headless `/mcp` loopback threads a real ACP turn token — taint
-        // accumulates there, so a parked disconnect would have run. Matching every
-        // variant makes the compiler catch the next one.
-        match outcome {
-            GateOutcome::Proceed => {}
-            GateOutcome::Blocked(reason) => {
-                return Self::guardian_denied_mcp(reason, request_id);
-            }
-            // `/mcp` is a protocol transport with no in-band way to ask a human
-            // and no slash commands to resolve a parked action, so Confirm takes
-            // its documented degradation — deny where no human is present. The
-            // chat surfaces park and prompt instead.
-            GateOutcome::ConfirmRequired => {
-                return Self::guardian_denied_mcp(DenyReason::TaintedSink, request_id);
-            }
-        }
-        let response = Self::handle_disconnect_provider(args, request_id, ctx).await;
-        if reserved && Self::mcp_response_is_error(&response) {
-            ctx.resources
-                .guardian_turns()
-                .refund(&turn_key, labels, writes_data);
-        }
-        response
-    }
-
-    /// Build the MCP-direct response for a Guardian-blocked carve-out tool.
-    ///
-    /// Shaped like a normal tool `isError` result (via
-    /// [`Self::tool_response_to_mcp_response`]) carrying the machine `guardian_reason`
-    /// so an MCP client sees a policy block, not a tool crash. (The chat transport
-    /// localizes via `KEY_GUARDIAN_DENIED`; a raw MCP client gets the code.)
-    fn guardian_denied_mcp(reason: DenyReason, request_id: Value) -> McpResponse {
-        let response = ToolResponse::error(format!(
-            "Blocked by the Guardian safety policy ({}).",
-            reason.as_str()
-        ));
-        Self::tool_response_to_mcp_response(&response, request_id)
-    }
-
-    /// Whether an `McpResponse` represents a failed call (JSON-RPC error or an
-    /// `isError` tool result) — used to decide whether to refund reserved budget.
-    fn mcp_response_is_error(response: &McpResponse) -> bool {
-        response.error.is_some()
-            || response
-                .result
-                .as_ref()
-                .and_then(|r| r.get("isError"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-    }
-
-    /// Handle `disconnect_provider` OAuth tool
-    async fn handle_disconnect_provider(
-        args: &Value,
-        request_id: Value,
-        ctx: &ToolRoutingContext<'_>,
-    ) -> McpResponse {
-        let params =
-            match serde_json::from_value::<json_schemas::DisconnectProviderParams>(args.clone()) {
-                Ok(p) => p,
-                Err(e) => {
-                    return McpResponse {
-                        jsonrpc: JSONRPC_VERSION.to_owned(),
-                        result: None,
-                        error: Some(McpError {
-                            code: ERROR_INVALID_PARAMS,
-                            message: format!("Invalid disconnect_provider parameters: {e}"),
-                            data: None,
-                        }),
-                        id: Some(request_id),
-                    };
-                }
-            };
-
-        ProviderToolRouter::route_disconnect_tool(&params.provider, request_id, ctx).await
     }
 
     /// Build notification text from a list of OAuth notifications

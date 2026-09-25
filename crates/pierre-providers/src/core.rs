@@ -8,7 +8,7 @@
 //!
 //! This module defines the shared request/response contract that all fitness providers
 //! must implement. The `FitnessProvider` trait serves as the unified interface for
-//! accessing fitness data from multiple providers (Strava, Garmin, Fitbit, Synthetic).
+//! accessing fitness data from multiple providers (Strava, Garmin, WHOOP, Synthetic).
 //!
 //! ## Shared Request/Response Pattern
 //!
@@ -202,7 +202,7 @@ pub struct OAuth2Credentials {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
-    /// Provider name (e.g., "strava", "fitbit", "garmin", "synthetic")
+    /// Provider name (e.g., "strava", "whoop", "garmin", "synthetic")
     pub name: String,
     /// OAuth authorization endpoint URL
     pub auth_url: String,
@@ -267,7 +267,7 @@ impl ActivityQueryParams {
 /// Core fitness data provider trait - Shared Request/Response Interface for all providers
 ///
 /// This trait defines the complete contract for fitness data providers. All providers
-/// (Strava, Garmin, Fitbit, Synthetic) implement this trait, ensuring consistent
+/// (Strava, Garmin, WHOOP, Synthetic) implement this trait, ensuring consistent
 /// request/response patterns across the entire system.
 ///
 /// # Shared Request/Response Contract
@@ -290,7 +290,7 @@ impl ActivityQueryParams {
 /// All implementations must be `Send + Sync` for concurrent access across async tasks.
 #[async_trait]
 pub trait FitnessProvider: Send + Sync {
-    /// Get provider name (e.g., "strava", "fitbit", "garmin", "synthetic")
+    /// Get provider name (e.g., "strava", "whoop", "garmin", "synthetic")
     fn name(&self) -> &'static str;
 
     /// Get provider configuration (endpoints, scopes, etc.)
@@ -500,7 +500,7 @@ pub trait FitnessProvider: Send + Sync {
     //
     // The four methods below are the whole write surface a provider with a
     // training calendar offers. They default to an unsupported-capability
-    // error: the read-side providers (Strava/Garmin/Fitbit/Whoop) have no
+    // error: the read-side providers (Strava/Garmin/Whoop) have no
     // planned-workout write API and inherit the defaults; Intervals.icu
     // overrides all four, and a future calendar provider (TrainingPeaks)
     // implements the same four. The reconciler in

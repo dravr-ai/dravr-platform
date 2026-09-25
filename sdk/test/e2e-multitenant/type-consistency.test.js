@@ -101,7 +101,7 @@ describe('Multi-Tenant Type Consistency', () => {
         }
     }, 30000);
 
-    test('Generated TypeScript types match all tenant schemas', async () => {
+    test('Every tool a tenant sees carries an outputSchema the SDK can validate against', async () => {
         clients = await setupMultiTenantClients(1, { port: 8081 });
         expect(clients).toHaveLength(1);
 
@@ -109,10 +109,6 @@ describe('Multi-Tenant Type Consistency', () => {
         const result = await fetchToolsList(clients[0].serverUrl, clients[0].token);
         expect(result).toBeDefined();
         expect(result.tools).toBeDefined();
-
-        // Load SDK types and verify tool names match
-        const sdk = require('../../dist/index.js');
-        const sdkToolNames = sdk.getValidatedToolNames();
 
         const serverToolNames = result.tools.map(t => t.name);
 
@@ -134,16 +130,19 @@ describe('Multi-Tenant Type Consistency', () => {
             expect(serverToolNames).toContain(tool);
         }
 
-        // SDK must expose validated tool names (subset with Zod response schemas)
-        expect(sdkToolNames.length).toBeGreaterThan(0);
+        // The SDK validates results against the outputSchemas this listing
+        // carries, not against a copy of its own: every tool the tenant sees
+        // must arrive with a schema the SDK can compile.
+        const sdk = require('../../dist/index.js');
+        const compileErrors = [];
+        sdk.configureValidator({ logger: (message) => compileErrors.push(message) });
+        sdk.registerToolOutputSchemas(result.tools);
+        sdk.configureValidator({ logger: undefined });
 
-        // SDK and server must share a significant number of tool names
-        const overlap = sdkToolNames.filter(name => serverToolNames.includes(name));
-        expect(overlap.length).toBeGreaterThan(0);
-
-        // Overlap should cover a reasonable portion of server tools
-        const coverageRatio = overlap.length / serverToolNames.length;
-        expect(coverageRatio).toBeGreaterThan(0.3);
+        expect(compileErrors).toEqual([]);
+        const unvalidatable = serverToolNames.filter(name => !sdk.hasResponseSchema(name));
+        expect(unvalidatable).toEqual([]);
+        sdk.registerToolOutputSchemas([]);
     }, 30000);
 
     test('Tool schemas remain consistent across tenant lifecycle', async () => {

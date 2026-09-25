@@ -24,7 +24,7 @@ import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 import { useOnboardingContext } from '../src/hooks/useOnboardingContext';
 import { currentOnboardingStep, type OnboardingStepId } from '@pierre/shared-constants';
 import { bootMobileAnalytics, shutdownMobileAnalytics, trackMobile } from '../src/services/analytics';
-import { CHAT_LIST_ROUTE } from '../src/navigation/routes';
+import { HOME_ROUTE } from '../src/navigation/routes';
 import { initI18n } from '@pierre/i18n';
 import { persistLocale } from '../src/i18n/localePersister';
 import { i18nApi } from '../src/services/api';
@@ -150,7 +150,7 @@ function RootLayoutNav() {
 
   // Decide the onboarding route from the SHARED step registry (single source with
   // web): ask the registry for the current step of the onboarding context, and
-  // map it to its `(onboarding)` route — or route to chat when none remain.
+  // map it to its `(onboarding)` route — or route to Home when none remain.
   React.useEffect(() => {
     if (isLoading) return;
 
@@ -179,9 +179,10 @@ function RootLayoutNav() {
       return;
     }
 
-    // Onboarding complete → the chat tab, which lands on the conversation list.
+    // Onboarding complete → the Home tab: today's session, the week around
+    // it and the latest activities, the same landing the web gives an athlete.
     if (inAuthGroup || inOnboardingGroup) {
-      router.replace(CHAT_LIST_ROUTE);
+      router.replace(HOME_ROUTE);
     }
   }, [
     isAuthenticated,

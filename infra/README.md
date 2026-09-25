@@ -144,9 +144,6 @@ The OAuth secrets are created as placeholders. Update them with real values:
 # Strava
 echo -n "your-strava-client-secret" | gcloud secrets versions add pierre-mcp-server-strava-client-secret --data-file=-
 
-# Fitbit
-echo -n "your-fitbit-client-secret" | gcloud secrets versions add pierre-mcp-server-fitbit-client-secret --data-file=-
-
 # Garmin
 echo -n "your-garmin-client-secret" | gcloud secrets versions add pierre-mcp-server-garmin-client-secret --data-file=-
 

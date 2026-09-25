@@ -616,7 +616,6 @@ impl AuthService {
             password_hash: "!firebase-auth-only!".to_owned(),
             tier: UserTier::Starter,
             strava_token: None,
-            fitbit_token: None,
             created_at: now,
             last_active: now,
             is_active: true,

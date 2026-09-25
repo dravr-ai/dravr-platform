@@ -569,8 +569,7 @@ impl UniversalExecutor {
 
         // Taint / budget / egress — mode-gated (observe logs, enforce blocks).
         // The decision + atomic budget-reserve is the shared `guardian_gate`
-        // (also called by the server's `/mcp` OAuth carve-out) so no dispatch
-        // path can bypass it. decide + reserve run under one store lock so
+        // so no dispatch path can bypass it. decide + reserve run under one store lock so
         // concurrent same-turn dispatch (headless loopback / A2A pipelining
         // sharing one turn token) cannot both read a pre-state and both pass a
         // cap (the E2 TOCTOU fix).

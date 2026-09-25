@@ -17,7 +17,8 @@
 //!   `health_snapshots`, the `data_point_series` points and their daily
 //!   `data_point_series_archive` rollups, and the `data_sources` rows naming
 //!   the provider's devices;
-//! - its activities: `cached_activities`;
+//! - its activities: `cached_activities`, and the route each one drew in
+//!   `activity_route_tracks`;
 //! - the sync state that describes those rows: `sync_state` cursors,
 //!   `activity_fetch_freshness` marks, `activity_backfill_coverage` depth and
 //!   owed `activity_backfill_jobs`. Left behind, they would tell a reconnect
@@ -88,7 +89,7 @@ macro_rules! provider_sources {
 
 /// What a user's disconnect deletes, in order: `(table, statement)`, each
 /// statement binding `$1` user id, `$2` tenant id and `$3` provider.
-pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 11] = [
+pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -119,6 +120,10 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 11] = [
     (
         "cached_activities",
         concat!("DELETE FROM cached_activities WHERE ", user_rows!()),
+    ),
+    (
+        "activity_route_tracks",
+        concat!("DELETE FROM activity_route_tracks WHERE ", user_rows!()),
     ),
     (
         "sync_state",
@@ -155,7 +160,7 @@ pub(crate) const USER_PROVIDER_PURGE_SQL: [(&str, &str); 11] = [
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 11] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 12] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -186,6 +191,10 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 11] = [
     (
         "cached_activities",
         concat!("DELETE FROM cached_activities WHERE ", provider_rows!()),
+    ),
+    (
+        "activity_route_tracks",
+        concat!("DELETE FROM activity_route_tracks WHERE ", provider_rows!()),
     ),
     (
         "sync_state",

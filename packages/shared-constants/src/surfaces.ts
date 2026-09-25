@@ -73,6 +73,17 @@ const NO_BLOCKS: readonly ReplyBlockKind[] = [];
 export const USER_SURFACES: readonly UserSurface[] = [
   // ---- primary destinations ----
   {
+    // Where an athlete lands after sign-in on both platforms, and where the
+    // Dravr logo leads: today's session from the plan, the week around it,
+    // and the latest activities with their routes.
+    id: 'home',
+    label: 'Home',
+    web: 'home',
+    mobile: '/(app)/(tabs)/(home)',
+    webNav: 'Home',
+    blocks: NO_BLOCKS,
+  },
+  {
     id: 'chat',
     label: 'Chat',
     web: 'chat',

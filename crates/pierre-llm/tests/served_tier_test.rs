@@ -30,14 +30,28 @@ struct Scripted {
     label: &'static str,
     answer: &'static str,
     models: Vec<String>,
+    capabilities: LlmCapabilities,
 }
+
+/// What every scripted tier supports unless a test says otherwise.
+const BASE_CAPABILITIES: LlmCapabilities =
+    LlmCapabilities::FUNCTION_CALLING.union(LlmCapabilities::SYSTEM_MESSAGES);
 
 impl Scripted {
     fn new(label: &'static str, answer: &'static str) -> Self {
+        Self::with_capabilities(label, answer, BASE_CAPABILITIES)
+    }
+
+    fn with_capabilities(
+        label: &'static str,
+        answer: &'static str,
+        capabilities: LlmCapabilities,
+    ) -> Self {
         Self {
             label,
             answer,
             models: vec![format!("{label}-model")],
+            capabilities,
         }
     }
 }
@@ -53,7 +67,7 @@ impl EmbacleLlmProvider for Scripted {
     }
 
     fn capabilities(&self) -> LlmCapabilities {
-        LlmCapabilities::FUNCTION_CALLING | LlmCapabilities::SYSTEM_MESSAGES
+        self.capabilities
     }
 
     fn default_model(&self) -> &str {
@@ -123,6 +137,7 @@ async fn a_fallback_is_attributed_to_the_tier_that_answered() {
         Some(ServedTier {
             provider: "secondary",
             position: 1,
+            capabilities: BASE_CAPABILITIES,
         }),
         "the tier that answered is the one a caller must record"
     );
@@ -146,6 +161,7 @@ async fn a_primary_that_answers_is_reported_at_position_zero() {
         Some(ServedTier {
             provider: "primary",
             position: 0,
+            capabilities: BASE_CAPABILITIES,
         })
     );
     assert_eq!(response.model, "primary-model");
@@ -179,4 +195,83 @@ async fn a_tier_reported_outside_an_observed_call_does_not_panic() {
         .await
         .expect("the primary answers");
     assert_eq!(response.model, "primary-model");
+}
+
+/// Two tiers where only the primary honors `temperature`.
+fn temperature_chain(primary_answer: &'static str) -> ChatProvider {
+    ChatProvider::Embacle(
+        EmbacleProvider::chain(vec![
+            EmbacleProvider::from_runner(
+                Box::new(Scripted::with_capabilities(
+                    "primary",
+                    primary_answer,
+                    BASE_CAPABILITIES | LlmCapabilities::TEMPERATURE,
+                )),
+                "primary",
+            ),
+            EmbacleProvider::from_runner(
+                Box::new(Scripted::new("secondary", "Tu as couru 42 km ce mois-ci.")),
+                "secondary",
+            ),
+        ])
+        .expect("two tiers"),
+    )
+}
+
+#[tokio::test]
+async fn a_fallback_tier_reports_the_parameter_it_ignored() {
+    // The head honors temperature, so checking the chain by its name would
+    // report nothing; the tier that actually answered did not.
+    let chain = temperature_chain("");
+    let request = request().with_temperature(0.2);
+
+    let (response, served) = observe_served_tier(chain.complete_with_tools(&request, None)).await;
+    let response = response.expect("the secondary answers");
+
+    assert_eq!(served.map(|tier| tier.provider), Some("secondary"));
+    let warnings = response
+        .warnings
+        .expect("an ignored temperature is reported");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("secondary") && w.contains("temperature")),
+        "the warning names the serving tier and the dropped parameter: {warnings:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_tier_that_honors_every_parameter_reports_no_warning() {
+    let chain = temperature_chain("Belle semaine.");
+    let request = request().with_temperature(0.2);
+
+    let (response, served) = observe_served_tier(chain.complete_with_tools(&request, None)).await;
+    let response = response.expect("the primary answers");
+
+    assert_eq!(served.map(|tier| tier.provider), Some("primary"));
+    assert_eq!(response.warnings, None);
+}
+
+#[tokio::test]
+async fn a_provider_outside_a_chain_is_checked_against_its_own_capabilities() {
+    let single = ChatProvider::Embacle(EmbacleProvider::from_runner(
+        Box::new(Scripted::new("solo", "Bonjour.")),
+        "solo",
+    ));
+    let request = request().with_temperature(0.2);
+
+    let response = single
+        .complete_with_tools(&request, None)
+        .await
+        .expect("the provider answers");
+
+    let warnings = response
+        .warnings
+        .expect("an ignored temperature is reported");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("solo") && w.contains("temperature")),
+        "{warnings:?}"
+    );
 }

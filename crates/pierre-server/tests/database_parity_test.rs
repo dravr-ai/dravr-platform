@@ -1023,6 +1023,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
             systolic_bp: None,
             diastolic_bp: None,
             blood_glucose: None,
+            vo2_max: None,
             source_name: "whoop".to_owned(),
             recorded_at: Utc::now(),
         };
@@ -1099,6 +1100,7 @@ async fn test_parity_health_snapshot_roundtrip() {
             systolic_bp: Some(120),
             diastolic_bp: Some(80),
             blood_glucose: Some(5.2),
+            vo2_max: Some(52.0),
             source_name: "whoop".to_owned(),
             recorded_at: Utc::now(),
         };
@@ -1128,6 +1130,7 @@ async fn test_parity_health_snapshot_roundtrip() {
         assert_eq!(read.weight_kg, Some(70.5), "{backend}: weight_kg");
         assert_eq!(read.body_fat_pct, Some(12.5), "{backend}: body_fat_pct");
         assert_eq!(read.blood_glucose, Some(5.2), "{backend}: blood_glucose");
+        assert_eq!(read.vo2_max, Some(52.0), "{backend}: vo2_max");
         assert_eq!(read.user_id, user_id.to_string(), "{backend}: user_id");
     }
 }
@@ -1492,7 +1495,6 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         created_at: Utc::now(),
         last_active: Utc::now(),
         strava_token: None,
-        fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,

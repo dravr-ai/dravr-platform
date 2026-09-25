@@ -329,9 +329,9 @@ fn per_turn_keys_do_not_share_budget_or_taint() {
     assert!(!peek(&store, &k2, TurnState::is_tainted));
 }
 
-// `guardian_gate` is the SINGLE gate shared by the chokepoint executor and the
-// server's `/mcp` OAuth carve-out (disconnect_provider). These pin that shared
-// gate so the carve-out (#1) cannot silently diverge from the chokepoint.
+// `guardian_gate` is the SINGLE gate every dispatch path calls — the
+// chokepoint executor, which `/mcp` routes every registry tool through. These
+// pin that shared gate's decisions.
 
 #[test]
 fn guardian_gate_blocks_second_destructive_in_enforce() {
@@ -475,9 +475,9 @@ fn headless_block_flag_records_takes_once_and_clears() {
 
 /// Every `GateOutcome` a caller can see must be one it explicitly handles.
 ///
-/// Regression guard for a live-stack finding: the `/mcp` disconnect carve-out
-/// matched only `Blocked` with an `if let`, so when `ConfirmRequired` was added
-/// the parked call fell through and **executed** — turning a refusal into an
+/// Regression guard for a live-stack finding: a dispatch path that matched
+/// only `Blocked` with an `if let` let the parked call fall through and
+/// **execute** when `ConfirmRequired` was added — turning a refusal into an
 /// allow on that transport. `decide` is the source of those outcomes, so pin
 /// that a tainted destructive call under `Confirm` yields the confirm outcome
 /// (never `Proceed`) and that enforce mode surfaces it as a non-`Proceed` gate

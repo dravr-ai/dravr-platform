@@ -1,5 +1,5 @@
 // ABOUTME: App-wide rate limiter for external fitness provider APIs
-// ABOUTME: Prevents exceeding Strava/Fitbit/Garmin/WHOOP rate limits across all tenants
+// ABOUTME: Prevents exceeding Strava/Garmin/WHOOP/Terra rate limits across all tenants
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,11 +47,6 @@ impl ProviderRateLimiter {
         limits.insert(
             "strava".to_owned(),
             (rate_limits::STRAVA_DEFAULT_DAILY_RATE_LIMIT, ONE_DAY),
-        );
-        // Fitbit: 1k requests per day
-        limits.insert(
-            "fitbit".to_owned(),
-            (rate_limits::FITBIT_DEFAULT_DAILY_RATE_LIMIT, ONE_DAY),
         );
         // Garmin: 1k requests per day
         limits.insert(

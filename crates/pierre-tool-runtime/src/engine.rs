@@ -155,7 +155,9 @@ impl ToolEngine {
             "get_goals" => Some("Get all user goals"),
             "suggest_goals" => Some("AI-suggested goals based on activity history"),
             "get_weather_for_activity" => Some("Get weather conditions for a specific activity"),
-            "connect_provider" => Some("Connect to a fitness data provider (Strava, Fitbit)"),
+            "connect_provider" => {
+                Some("Connect to a fitness data provider (Strava, Garmin, WHOOP)")
+            }
             "disconnect_provider" => Some("Disconnect from a fitness data provider"),
             "get_connection_status" => Some("Check connection status for all providers"),
             "predict_performance" => Some("Predict future performance based on training data"),
@@ -181,7 +183,7 @@ impl ToolEngine {
                     "provider": {
                         "type": "string",
                         "description": "Fitness provider to query",
-                        "enum": ["strava", "fitbit"],
+                        "enum": ["strava"],
                         "default": "strava"
                     }
                 }

@@ -382,6 +382,7 @@ impl TurnEgress {
                 tool_calls_count: 0,
                 tools_called: Vec::new(),
                 execution_time_ms: 0,
+                provider_warnings: Vec::new(),
             },
         }
     }

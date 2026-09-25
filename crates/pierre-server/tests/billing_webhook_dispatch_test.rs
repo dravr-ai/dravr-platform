@@ -61,7 +61,6 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
         password_hash: bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap(),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         is_active: true,
         user_status: UserStatus::Active,
         is_admin: false,

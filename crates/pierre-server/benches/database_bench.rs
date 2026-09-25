@@ -43,7 +43,6 @@ fn generate_test_user() -> User {
         display_name: Some(format!("Bench User {counter}")),
         tier: UserTier::Starter,
         strava_token: None,
-        fitbit_token: None,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
         is_active: true,

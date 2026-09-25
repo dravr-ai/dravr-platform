@@ -49,7 +49,7 @@ A cancelled run is not a verdict either.
 ### Step 3: If CI fails
 Fix the cause locally, validate the crate you touched, commit, and push again:
 ```bash
-cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # the crate you changed
+CARGO_BUILD_WARNINGS=deny cargo clippy -p <crate> --all-targets --all-features   # the crate you changed
 cargo test --test <file> <name>                                        # the test that failed
 git add <the files you changed>
 git commit

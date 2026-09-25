@@ -7,8 +7,9 @@
 // Test files: allow missing_docs (rustc lint) and unwrap/expect/panic (valid in tests per CLAUDE.md).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
-use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteTrack, RouteTracks};
+use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteTracks};
 use pierre_core::models::TimeSeriesData;
+use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use serde_json::{json, Value};
 
 /// Points in the fixture track.
@@ -330,8 +331,11 @@ fn a_ride_that_never_leaves_its_own_doorstep_is_refused() {
 
     let reason = RouteTrack::from_streams(&streams)
         .expect_err("a ride that never leaves the block cannot be drawn");
+    assert_eq!(reason, RouteTrackError::TooShort);
     assert!(
-        reason.contains("without publishing that address"),
+        reason
+            .to_string()
+            .contains("without publishing that address"),
         "the refusal must say why there is no map: {reason}"
     );
 }
@@ -343,8 +347,11 @@ fn a_single_point_is_not_a_route() {
     streams.altitude = Some(vec![100.0]);
 
     let reason = RouteTrack::from_streams(&streams).expect_err("one point is a pin, not a route");
+    assert_eq!(reason, RouteTrackError::TooShort);
     assert!(
-        reason.contains("without publishing that address"),
+        reason
+            .to_string()
+            .contains("without publishing that address"),
         "one point cannot be trimmed into a line: {reason}"
     );
 }
@@ -356,8 +363,9 @@ fn an_activity_with_no_gps_refuses_the_block() {
 
     let reason =
         RouteTrack::from_streams(&streams).expect_err("a treadmill session has no track to draw");
+    assert_eq!(reason, RouteTrackError::NoGps);
     assert!(
-        reason.contains("no recorded GPS track"),
+        reason.to_string().contains("no recorded GPS track"),
         "the refusal must name the missing channel: {reason}"
     );
 }

@@ -11,15 +11,15 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
-use pierre_core::constants::oauth_providers;
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::repositories::SyncCursorRow;
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_enforme::error::{EnformeError, EnformeResult};
 use pierre_enforme::models::connection::{ConnectedUser, ProviderCredentials};
 use pierre_enforme::models::cursor::SyncCursor;
 use pierre_enforme::models::deletion::DeletionPolicy;
-use pierre_enforme::providers::build_provider_registry;
+use pierre_enforme::providers::build_provider_registry_with_reader;
+use pierre_enforme::providers::sciotte_reader::DailySummaryReader;
 use pierre_enforme::traits::connection_store::UserConnectionStore;
 use pierre_enforme::traits::credential_store::CredentialStore;
 use pierre_enforme::traits::cursor_store::SyncCursorStore;
@@ -28,8 +28,10 @@ use pierre_enforme::traits::health_store::HealthStore;
 use pierre_enforme::traits::recovery_store::RecoveryStore;
 use pierre_enforme::traits::sleep_store::SleepStore;
 use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
+use pierre_providers::backend_resolver::sync_backend;
 use uuid::Uuid;
 
+use crate::sciotte_health_reader::SciotteServiceReader;
 use crate::whoop_terms;
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -45,6 +47,12 @@ use crate::whoop_terms;
 /// in the workspace `Cargo.toml` redirects the crates.io alias used by
 /// enforme to the same git tag pierre-core consumes), so the model types
 /// flow through this adapter without any cross-version translation.
+///
+/// The sync knows a provider by its own name (`garmin`, `coros`), while a
+/// scrape-backed connection's session lives on its mirror backend's token row
+/// (`sciotte_garmin`, `sciotte_coros`). Every lookup here — the roster, the
+/// credentials, the tenant a row is written under — goes through
+/// [`sync_backend`], the one mapping between the two.
 ///
 /// Every WHOOP sleep and recovery record passes through
 /// [`whoop_terms`] before it is written, so WHOOP's own scores
@@ -137,8 +145,21 @@ impl PierreSyncStorage {
     /// Takes `&Arc<Self>` (not `self`) so the caller keeps a handle to the
     /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
+    /// The scrape-backed providers read their daily summaries on the dedicated
+    /// sciotte service (ADR-021): no browser runs in this pod.
     #[must_use]
     pub fn build_orchestrator(self: &Arc<Self>) -> Arc<pierre_enforme::SyncOrchestrator> {
+        let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader);
+        self.build_orchestrator_with_reader(&reader)
+    }
+
+    /// Build a `SyncOrchestrator` backed by this adapter whose scrape-backed
+    /// providers read their daily summaries through `reader`.
+    #[must_use]
+    pub fn build_orchestrator_with_reader(
+        self: &Arc<Self>,
+        reader: &Arc<dyn DailySummaryReader>,
+    ) -> Arc<pierre_enforme::SyncOrchestrator> {
         let storage = Arc::clone(self);
         let deps = Arc::new(pierre_enforme::SyncDeps {
             sleep: storage.clone(),
@@ -152,57 +173,54 @@ impl PierreSyncStorage {
         });
 
         let config = pierre_enforme::SyncConfig::from_env();
-        let providers = build_provider_registry();
+        let providers = build_provider_registry_with_reader(reader);
 
         Arc::new(pierre_enforme::SyncOrchestrator::new(
             deps, providers, config,
         ))
     }
 
-    /// Resolve `tenant_id` for a user by querying OAuth tokens for the given provider.
-    ///
-    /// Falls back to querying all tokens if provider-specific lookup yields
-    /// nothing — except for WHOOP. A WHOOP record is written only under the
-    /// tenant of the athlete's own WHOOP grant: once a disconnect has deleted
-    /// that grant and purged the athlete's WHOOP rows, a sync still in flight
-    /// must fail rather than write them again under another provider's tenant.
-    async fn resolve_tenant_id(&self, user_id: &str, provider: &str) -> EnformeResult<TenantId> {
-        let user_uuid = user_id
-            .parse::<Uuid>()
-            .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
-
-        // Look up tenant from the user's OAuth token for this provider
+    /// The token row that serves `provider` for this user: the row of its
+    /// [`sync_backend`], or `None` when the user holds none.
+    async fn serving_token(
+        &self,
+        user_uuid: Uuid,
+        provider: &str,
+    ) -> EnformeResult<Option<UserOAuthToken>> {
+        let backend = sync_backend(provider);
         let tokens = self
             .auth
             .oauth_tokens
             .get_tokens(user_uuid, None)
             .await
             .map_err(|e| EnformeError::store(format!("Failed to look up user tokens: {e}")))?;
+        Ok(tokens.into_iter().find(|t| t.provider == backend))
+    }
 
-        // Find token matching this provider
-        let matching = tokens.iter().find(|t| t.provider == provider).or_else(|| {
-            if whoop_terms::is_whoop(provider) {
-                None
-            } else {
-                tokens.first()
-            }
-        });
+    /// Resolve the tenant a user's `provider` rows are written under: the
+    /// tenant of the token row that serves that provider.
+    ///
+    /// There is no fallback to another provider's token. A record is written
+    /// only under the tenant of the athlete's own connection to its provider:
+    /// once a disconnect has deleted that connection and purged its rows, a
+    /// sync still in flight must fail rather than write them again under
+    /// another provider's tenant.
+    async fn resolve_tenant_id(&self, user_id: &str, provider: &str) -> EnformeResult<TenantId> {
+        let user_uuid = user_id
+            .parse::<Uuid>()
+            .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        matching.map_or_else(
-            || {
-                Err(EnformeError::store(format!(
-                    "No OAuth token found for user '{user_id}' provider '{provider}'"
-                )))
-            },
-            |token| {
-                TenantId::parse_str(&token.tenant_id).map_err(|e| {
-                    EnformeError::store(format!(
-                        "Invalid tenant_id UUID '{}': {e}",
-                        token.tenant_id
-                    ))
-                })
-            },
-        )
+        let token = self
+            .serving_token(user_uuid, provider)
+            .await?
+            .ok_or_else(|| {
+                EnformeError::store(format!(
+                    "No token serves provider '{provider}' for user '{user_id}'"
+                ))
+            })?;
+        TenantId::parse_str(&token.tenant_id).map_err(|e| {
+            EnformeError::store(format!("Invalid tenant_id UUID '{}': {e}", token.tenant_id))
+        })
     }
 }
 
@@ -443,13 +461,14 @@ impl CredentialStore for PierreSyncStorage {
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
         let tenant_id = self.resolve_tenant_id(user_id, provider).await?;
+        let backend = sync_backend(provider);
 
         // The injected refresher routes through AuthService::get_valid_token,
         // which transparently refreshes near-expiry tokens and persists the
         // result — the same path live tool calls use.
         if let Some(refresher) = self.refresher.get() {
             return refresher
-                .valid_credentials(user_uuid, &tenant_id.to_string(), provider)
+                .valid_credentials(user_uuid, &tenant_id.to_string(), &backend)
                 .await;
         }
 
@@ -458,7 +477,7 @@ impl CredentialStore for PierreSyncStorage {
         let token = self
             .auth
             .oauth_tokens
-            .get_token(user_uuid, tenant_id, provider)
+            .get_token(user_uuid, tenant_id, &backend)
             .await
             .map_err(|e| EnformeError::store(format!("Failed to get OAuth token: {e}")))?;
 
@@ -495,7 +514,7 @@ impl CredentialStore for PierreSyncStorage {
                 .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
             let tenant_id = self.resolve_tenant_id(user_id, provider).await?;
             return refresher
-                .force_refresh(user_uuid, &tenant_id.to_string(), provider)
+                .force_refresh(user_uuid, &tenant_id.to_string(), &sync_backend(provider))
                 .await?
                 .ok_or_else(expired);
         }
@@ -518,29 +537,17 @@ impl UserConnectionStore for PierreSyncStorage {
         let rows = self
             .fitness
             .sync_cursors
-            .list_connected_provider_users(provider)
+            .list_connected_provider_users(&sync_backend(provider))
             .await
             .map_err(|e| EnformeError::store(format!("Failed to list connected users: {e}")))?;
 
         // dravr-enforme's ConnectedUser.user_id is `String` (leaf-dep API).
         // ConnectedUserRow.user_id is the UserId newtype, so we render to the
-        // canonical hyphenated form via Display at the boundary.
-        //
-        // enforme's Strava provider is the sciotte TSB scraper: it restores
-        // the stored access token as a browser session, which only exists on
-        // rows the sciotte connect flow wrote (`token_type = "session"`).
-        // OAuth-connected Strava rows hold an opaque Bearer token the scraper
-        // can never use — a sync for them is a guaranteed no-op that stamps
-        // `last_sync` and logs a misleading "Scheduled sync completed", so
-        // they are excluded from the sync roster here (their activities are
-        // fetched on demand via `get_activities`; freshness comes from the
-        // activity cache).
+        // canonical hyphenated form via Display at the boundary. The roster
+        // names the provider as the sync knows it, whichever backend row
+        // served the user.
         Ok(rows
             .into_iter()
-            .filter(|r| {
-                provider != oauth_providers::STRAVA
-                    || r.token_type == oauth_providers::TOKEN_TYPE_SESSION
-            })
             .map(|r| ConnectedUser {
                 user_id: r.user_id.to_string(),
                 provider: provider.to_owned(),

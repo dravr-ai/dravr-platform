@@ -4,6 +4,14 @@
 appId: host.exp.Exponent
 
 ---
+# The app lands on Home; the "+" lives on the chat tab's list, so a flow that
+# starts here from Home takes the chat tab first.
+- runFlow:
+    when:
+      visible:
+        id: "home-screen"
+    file: navigate-to-chat.yaml
+
 # The header "+" and the empty list's "Start a discussion" link present the
 # same menu. On a non-empty list only the header one exists; on an empty list
 # the mid-screen link is preferred because Expo Go's floating dev-tools button

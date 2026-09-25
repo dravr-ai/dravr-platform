@@ -303,7 +303,7 @@ Backend, if touched — always target the file, never bare `cargo test`:
 
 ```bash
 cargo test --test <file> -- --nocapture
-cargo clippy -p <crate> --all-targets --all-features -- -D warnings
+CARGO_BUILD_WARNINGS=deny cargo clippy -p <crate> --all-targets --all-features
 ```
 
 **Confirm tests actually ran.** `running N tests` with N > 0 and `N passed`. `running 0

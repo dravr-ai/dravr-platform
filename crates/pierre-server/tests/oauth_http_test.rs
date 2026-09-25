@@ -1,11 +1,12 @@
 // ABOUTME: OAuth HTTP endpoint tests for callback handling
 // ABOUTME: Tests OAuth HTTP callback endpoints in single-tenant mode
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![allow(missing_docs)]
-#![allow(clippy::if_not_else, clippy::unused_async)]
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+#![allow(clippy::if_not_else, clippy::unused_async)]
 
 //! # OAuth HTTP Endpoint Tests
 //!
@@ -156,7 +157,7 @@ async fn test_oauth_callback_error_html() {
     assert!(String::from_utf8_lossy(&resp.bytes()).contains("OAuth Authorization Failed"));
 }
 
-/// Test both Strava and Fitbit callback endpoints exist
+/// Test both Strava and WHOOP callback endpoints exist
 #[tokio::test]
 async fn test_multiple_provider_endpoints() {
     // Create routes for both providers
@@ -166,8 +167,8 @@ async fn test_multiple_provider_endpoints() {
             get(|| async { Html("Strava callback") }),
         )
         .route(
-            "/oauth/callback/fitbit",
-            get(|| async { Html("Fitbit callback") }),
+            "/oauth/callback/whoop",
+            get(|| async { Html("WHOOP callback") }),
         );
 
     // Test Strava endpoint
@@ -177,10 +178,10 @@ async fn test_multiple_provider_endpoints() {
     assert_eq!(resp.status(), 200);
     assert!(String::from_utf8_lossy(&resp.bytes()).contains("Strava callback"));
 
-    // Test Fitbit endpoint
-    let resp = AxumTestRequest::get("/oauth/callback/fitbit")
+    // Test WHOOP endpoint
+    let resp = AxumTestRequest::get("/oauth/callback/whoop")
         .send(routes)
         .await;
     assert_eq!(resp.status(), 200);
-    assert!(String::from_utf8_lossy(&resp.bytes()).contains("Fitbit callback"));
+    assert!(String::from_utf8_lossy(&resp.bytes()).contains("WHOOP callback"));
 }

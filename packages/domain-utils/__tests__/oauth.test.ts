@@ -14,10 +14,6 @@ describe('detectOAuthProvider', () => {
     expect(detectOAuthProvider('https://www.strava.com/oauth/authorize?client_id=123')).toBe('strava');
   });
 
-  it('detects Fitbit OAuth URLs', () => {
-    expect(detectOAuthProvider('https://www.fitbit.com/oauth2/authorize?response_type=code')).toBe('fitbit');
-  });
-
   it('detects Garmin OAuth URLs', () => {
     expect(detectOAuthProvider('https://connect.garmin.com/oauthConfirm?token=abc')).toBe('garmin');
   });
@@ -49,10 +45,10 @@ describe('detectOAuthProvider', () => {
 });
 
 describe('OAUTH_PROVIDERS', () => {
-  it('has configuration for all three providers', () => {
+  it('has configuration for both providers', () => {
     expect(OAUTH_PROVIDERS.strava.displayName).toBe('Strava');
-    expect(OAUTH_PROVIDERS.fitbit.displayName).toBe('Fitbit');
     expect(OAUTH_PROVIDERS.garmin.displayName).toBe('Garmin');
+    expect(Object.keys(OAUTH_PROVIDERS)).toEqual(['strava', 'garmin']);
   });
 });
 
@@ -62,9 +58,9 @@ describe('getFriendlyUrlName', () => {
       .toBe('Connect to Strava →');
   });
 
-  it('returns "Connect to Fitbit →" for Fitbit OAuth URLs', () => {
-    expect(getFriendlyUrlName('https://www.fitbit.com/oauth2/authorize'))
-      .toBe('Connect to Fitbit →');
+  it('returns "Connect to Garmin →" for Garmin OAuth URLs', () => {
+    expect(getFriendlyUrlName('https://connect.garmin.com/oauthConfirm?token=abc'))
+      .toBe('Connect to Garmin →');
   });
 
   it('returns domain for non-OAuth URLs', () => {

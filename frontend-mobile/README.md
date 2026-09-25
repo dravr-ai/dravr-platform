@@ -5,7 +5,7 @@ React Native mobile app for Pierre Fitness Platform, providing a conversational 
 ## Features
 
 - **AI Chat Interface**: Conversational UI with markdown rendering and real-time streaming
-- **Fitness Provider Integration**: Connect to Strava, Garmin, Fitbit, WHOOP, COROS via OAuth
+- **Fitness Provider Integration**: Connect to Strava, Garmin, WHOOP, COROS via OAuth
 - **Activity Tracking**: View and analyze your fitness activities
 - **Training Insights**: Get AI-powered training recommendations and analysis
 - **Offline Support**: Secure token storage with AsyncStorage and SecureStore
@@ -278,10 +278,6 @@ cd android && ./gradlew clean && cd ..
 2. For physical devices, use your machine's IP instead of localhost
 3. Check firewall allows connections on port 8081
 
-## Contributing
-
-See [Contributing Guide](../CONTRIBUTING.md) and [Mobile Development Guide](../book/src/mobile-development.md).
-
 ## License
 
-See root [LICENSE](../LICENSE) file.
+See [LICENSE.md](../LICENSE.md).

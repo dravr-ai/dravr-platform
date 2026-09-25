@@ -111,8 +111,6 @@ pub fn init_server_config() {
         env::set_var("PIERRE_STRAVA_CLIENT_SECRET", "test_strava_client_secret");
         env::set_var("PIERRE_GARMIN_CLIENT_ID", "test_garmin_client_id");
         env::set_var("PIERRE_GARMIN_CLIENT_SECRET", "test_garmin_client_secret");
-        env::set_var("PIERRE_FITBIT_CLIENT_ID", "test_fitbit_client_id");
-        env::set_var("PIERRE_FITBIT_CLIENT_SECRET", "test_fitbit_client_secret");
 
         // The messaging session resolver reads PIERRE_LLM_MODEL when
         // creating chat_conversations rows. Local dev sources this from

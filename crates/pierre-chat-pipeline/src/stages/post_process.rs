@@ -21,6 +21,9 @@ use pierre_contremaitre::persona_contracts::PersonaContractsSnapshot;
 use pierre_core::narration::{
     scrub_internal_narration, scrub_ungrounded_data_appeals, IdentityLeakMatch,
 };
+use pierre_llm::provider_stop::ProviderStop;
+
+use super::provider_stop;
 
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::guardrails::apply_text_guardrails;
@@ -72,6 +75,12 @@ pub(crate) struct PostProcessedReply {
     /// surface renders chips, which is exactly when the verification stage left
     /// the caveat banner out of `content`.
     pub verdict_chips: Vec<VerdictChip>,
+    /// How the provider stopped generating `content`, when `content` is still
+    /// the model's reply. [`ProviderStop::Complete`] whenever it is platform
+    /// text instead — a withheld reply, an emptied scrub, a deterministic
+    /// short-circuit — since a provider's truncation says nothing about a
+    /// string the platform wrote.
+    pub provider_stop: ProviderStop,
 }
 
 /// Borrowed inputs to [`post_process_assistant_reply`], bundled to stay within
@@ -107,6 +116,11 @@ pub(crate) struct PostProcessInputs<'a> {
     /// ACP pool does — a mismatch discards the warm subprocess and pays a cold
     /// spawn on every repair turn.
     pub active_model: &'a str,
+    /// How the provider stopped generating the reply handed in —
+    /// [`ProviderStop::Complete`] when recovery already replaced it. Passed
+    /// through to [`PostProcessedReply::provider_stop`] while the reply stays
+    /// the model's, and dropped the moment it is withheld.
+    pub provider_stop: ProviderStop,
 }
 
 /// Resolve the chatting coach's roster — the live members of the active groups
@@ -412,6 +426,7 @@ pub(crate) async fn post_process_assistant_reply(
         tools_called,
         turn_was_grounded,
         active_model,
+        provider_stop,
     } = inputs;
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits. A canary
     // hit is conclusive exfiltration — withhold the reply and return a canned
@@ -439,6 +454,7 @@ pub(crate) async fn post_process_assistant_reply(
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
+            provider_stop: ProviderStop::Complete,
         };
     }
 
@@ -465,6 +481,7 @@ pub(crate) async fn post_process_assistant_reply(
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
             verdict_chips: Vec::new(),
+            provider_stop: ProviderStop::Complete,
         };
     }
 
@@ -507,6 +524,7 @@ pub(crate) async fn post_process_assistant_reply(
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
+            provider_stop: ProviderStop::Complete,
         };
     }
     // An untouched reply passes through byte-identical; only a fired scrub
@@ -525,14 +543,21 @@ pub(crate) async fn post_process_assistant_reply(
         locale,
     );
 
+    // A stage that swapped the model's words for platform text, or re-asked
+    // for new ones, leaves the provider's stop describing nothing delivered.
+    let provider_stop = provider_stop::kept_through(provider_stop, &raw_content, &content);
+
     // Stages 16a-16b: acronym gloss, then per-persona output-format conformance.
+    // Cloned for the one comparison below — a few KB once per turn.
+    let before_style = content.clone();
     content = apply_style_stages(ctx, input, content, locale, active_model).await;
+    let provider_stop = provider_stop::kept_through(provider_stop, &before_style, &content);
 
     // Stage 17: claim verification (gated behind tools-verification).
     #[cfg(not(feature = "tools-verification"))]
     let verdict_chips: Vec<VerdictChip> = Vec::new();
     #[cfg(feature = "tools-verification")]
-    let (pending_verdicts, verdict_chips) = {
+    let (pending_verdicts, verdict_chips, provider_stop) = {
         let verification_config = agent_ctx
             .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
             .unwrap_or_default();
@@ -550,8 +575,9 @@ pub(crate) async fn post_process_assistant_reply(
             tenant_id: input.conversation_tenant_id,
         })
         .await;
+        let provider_stop = provider_stop::kept_through(provider_stop, &content, &verified_content);
         content = verified_content;
-        (pending_verdicts, chips)
+        (pending_verdicts, chips, provider_stop)
     };
 
     // Stage 18: ResponsePostProcess hook.
@@ -591,5 +617,6 @@ pub(crate) async fn post_process_assistant_reply(
         leak_replaced: false,
         identity_leak: None,
         verdict_chips,
+        provider_stop,
     }
 }

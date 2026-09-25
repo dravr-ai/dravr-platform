@@ -70,7 +70,7 @@ static EXTRACTION_PERMITS: LazyLock<Semaphore> =
 
 /// How long a spawned extraction holds its job row.
 ///
-/// One LLM call, queued behind at most [`MAX_CONCURRENT_EXTRACTIONS`]
+/// One LLM call, queued behind at most `MAX_CONCURRENT_EXTRACTIONS`
 /// others, is well inside this; a row still leased past it belongs to an
 /// instance that is gone, and the resume sweep may take it over.
 pub const EXTRACTION_JOB_LEASE: Duration = Duration::from_mins(5);
@@ -79,40 +79,37 @@ pub const EXTRACTION_JOB_LEASE: Duration = Duration::from_mins(5);
 /// `memory_extraction.md` plus the platform-appended provenance field (see
 /// [`PROVENANCE_ADDENDUM`]).
 #[derive(Debug, Deserialize)]
-pub struct RawFact {
-    /// The fact kind as the model named it; validated against [`FactKind`].
-    pub kind: String,
+struct RawFact {
+    kind: String,
     /// The closed predicate code the current prompt asks for.
     #[serde(default)]
-    pub predicate_code: Option<String>,
+    predicate_code: Option<String>,
     /// The free-text verb phrase the pre-code prompt produced. The prompt is
     /// live config synced from contremaitre main, so a deployed binary and
     /// the prompt it reads never change together; whichever is older must
     /// still parse. A phrase folds into the object under
     /// [`PredicateCode::States`] so nothing is lost.
     #[serde(default)]
-    pub predicate: Option<String>,
+    predicate: Option<String>,
     /// The pre-code prompt's subject phrase; kept only to fold a third-party
     /// subject into the object of a legacy fact.
     #[serde(default)]
-    pub subject: Option<String>,
-    /// The fact itself, in the athlete's words.
-    pub object: String,
-    /// The model's confidence in the fact, 0.0 to 1.0; gated by `MIN_CONFIDENCE`.
-    pub confidence: f32,
+    subject: Option<String>,
+    object: String,
+    confidence: f32,
     /// Who asserted the fact: `"user"` or `"coach"`. Absent on responses
     /// from a stale prompt; the schedule gate treats absent as not-user.
     #[serde(default)]
-    pub stated_by: Option<String>,
+    stated_by: Option<String>,
     /// The 1-based number of the existing fact this one restates, from the
-    /// list the prompt showed (see `MERGE_ADDENDUM`).
+    /// list the prompt showed (see [`MERGE_ADDENDUM`]).
     ///
     /// Absent means "nothing here says this", which is also what a stale
     /// prompt with no such field produces — so a mixed rollout degrades to
     /// insert-only rather than to a wrong merge. A number naming nothing in
     /// the list is discarded for the same reason.
     #[serde(default)]
-    pub same_as: Option<usize>,
+    same_as: Option<usize>,
 }
 
 /// Platform-appended provenance instruction for the extraction prompt.
@@ -125,18 +122,17 @@ pub struct RawFact {
 /// provenance field and [`is_agent_prescription`] enforces it structurally:
 /// agent prescriptions now live in `training_plans` (saved explicitly via
 /// `save_training_plan`), never in `user_facts`.
-pub const PROVENANCE_ADDENDUM: &str = r#"
+const PROVENANCE_ADDENDUM: &str = r#"
 
 ## Provenance (required)
 
 Each fact object MUST also carry a "stated_by" field: "user" when the USER stated or confirmed the fact in their own words, "coach" when it originates in the coach's reply (a prescription, suggestion, or plan detail). Training prescriptions the coach makes — what to do on which day, session targets, weekly structure — are stated_by "coach" and are stored elsewhere; still label them honestly.
 "#;
 
-/// The kinds the base prompt lets the model choose, in the order it lists them.
-///
-/// `north_star` and `medical` are never the model's to pick: the onboarding
-/// walk and the PAR-Q screen write those with their own codes.
-pub const EXTRACTABLE_KINDS: [FactKind; 7] = [
+/// The kinds the base prompt lets the model choose, in the order it lists
+/// them. `north_star` and `medical` are never the model's to pick: the
+/// onboarding walk and the PAR-Q screen write those with their own codes.
+const EXTRACTABLE_KINDS: [FactKind; 7] = [
     FactKind::Goal,
     FactKind::Preference,
     FactKind::Physiology,
@@ -169,12 +165,12 @@ If it is, add "same_as": <number> to that fact object, naming the line it restat
 /// Platform-appended vocabulary for the `predicate_code` field.
 ///
 /// Generated from [`PredicateCode`], so the list the model reads is the list
-/// `code_from_prompt` accepts: the prompt can neither name a code the
+/// [`code_from_prompt`] accepts: the prompt can neither name a code the
 /// parser rejects nor miss one it takes. The base `memory_extraction.md`
 /// (dravr-contremaitre, live config) teaches the shape and the "athlete's
 /// own words" rule and points here for the codes; the codes are schema and
 /// ship with the binary that validates them.
-pub static PREDICATE_CODES_ADDENDUM: LazyLock<String> = LazyLock::new(predicate_codes_addendum);
+static PREDICATE_CODES_ADDENDUM: LazyLock<String> = LazyLock::new(predicate_codes_addendum);
 
 fn predicate_codes_addendum() -> String {
     let mut out = String::from(
@@ -224,7 +220,7 @@ pub struct ExtractionRequest<'a> {
     ///
     /// The agent-prescription filter drops schedule facts *because* plans are
     /// supposed to persist through that tool. When it did not run, the drop
-    /// deletes the only copy — see [`is_agent_prescription`].
+    /// deletes the only copy — see `is_agent_prescription`.
     pub plan_was_saved: bool,
 }
 
@@ -335,8 +331,7 @@ impl ExtractionOutcome {
 /// plan existed only in a conversation whose history was being raw-dropped
 /// every turn, and by the end of the session it was unrecoverable from either
 /// store (registre#203).
-#[must_use]
-pub fn is_agent_prescription(
+fn is_agent_prescription(
     kind: FactKind,
     stated_by: Option<&str>,
     source: FactSource,
@@ -412,7 +407,7 @@ fn gate_fact(fact: &RawFact, req: &ExtractionRequest<'_>) -> Option<(FactKind, f
 /// old `subject predicate object` sentence folded into the object — the
 /// athlete's words survive, nothing pretends to be structured, and the log
 /// says which branch fired so the prompt switch-over can be verified.
-pub fn resolve_predicate(fact: &RawFact, kind: FactKind) -> (PredicateCode, String) {
+fn resolve_predicate(fact: &RawFact, kind: FactKind) -> (PredicateCode, String) {
     if let Some(code) = code_from_prompt(fact, kind) {
         return (code, fact.object.clone());
     }
@@ -629,7 +624,6 @@ fn restated_fact_id(
     anchor_of(&group).map(|row| row.id.clone())
 }
 
-/// Call the extraction LLM and parse the response into [`RawFact`] records.
 /// Stand-in for the agent reply on a turn whose reply was withheld by the
 /// identity-leak detector.
 ///
@@ -668,6 +662,7 @@ fn existing_facts_block(existing: &[UserFact]) -> String {
     out
 }
 
+/// Call the extraction LLM and parse the response into [`RawFact`] records.
 async fn run_llm_extraction(
     provider: &ChatProvider,
     system_prompt: &str,
@@ -707,7 +702,7 @@ async fn run_llm_extraction(
 /// Accepts the bare JSON array that the prompt asks for, plus a couple of
 /// lenient variants — fenced code blocks and leading prose — so occasional
 /// model drift doesn't drop perfectly good facts on the floor.
-pub fn parse_raw_facts(response: &str) -> Vec<RawFact> {
+fn parse_raw_facts(response: &str) -> Vec<RawFact> {
     // Try the raw response first.
     if let Ok(parsed) = serde_json::from_str::<Vec<RawFact>>(response) {
         return parsed;
@@ -808,7 +803,7 @@ pub struct SpawnedExtractionRequest {
 
 /// Run one owed extraction to the end, inside the process-wide bound.
 ///
-/// Waits for a permit when [`MAX_CONCURRENT_EXTRACTIONS`] runs are already
+/// Waits for a permit when `MAX_CONCURRENT_EXTRACTIONS` runs are already
 /// in flight, then extracts and persists. This is the one body both the
 /// turn-spawned run and the resume sweep execute, so a job runs the same
 /// way whichever instance picks it up.

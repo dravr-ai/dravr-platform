@@ -14,6 +14,7 @@ import { statusForProgress } from '@pierre/chat-utils';
 import fr from '@pierre/i18n/locales/fr/translation.json';
 
 const MESSAGES_URL = `/api/chat/conversations/${CONVERSATION_ID}/messages`;
+const VERDICTS_URL = `/api/chat/conversations/${CONVERSATION_ID}/verdicts`;
 const QUESTION = 'Comment se presente ma semaine ?';
 
 describe('PHASE 5 — one stream, and a progress strip that finally renders', () => {
@@ -120,6 +121,7 @@ describe('PHASE 5 — one stream, and a progress strip that finally renders', ()
   it('sends the message and nothing else — no run id to correlate a second stream with', async () => {
     stub = installHttpStub({
       [`POST ${MESSAGES_URL}`]: { data: sseTurn(assistantTurn()) },
+      [`GET ${VERDICTS_URL}`]: { data: [] },
     });
 
     const { result } = renderHook(() => useMessages());
@@ -130,7 +132,9 @@ describe('PHASE 5 — one stream, and a progress strip that finally renders', ()
     const posts = stub.requestsFor('POST');
     expect(posts).toHaveLength(1);
     expect(Object.keys(posts[0].body as Record<string, unknown>)).toEqual(['content']);
-    // And exactly one request in total: no parallel subscription was opened.
-    expect(stub.requests).toHaveLength(1);
+    // And no parallel subscription was opened: the only other request is the
+    // read of the finished turn's verdict rows.
+    expect(stub.requestsFor('GET').map((request) => request.url)).toEqual([VERDICTS_URL]);
+    expect(stub.requests).toHaveLength(2);
   });
 });

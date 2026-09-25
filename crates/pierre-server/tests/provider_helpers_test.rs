@@ -76,7 +76,7 @@ fn test_auth_error_response_metadata() {
 
 #[test]
 fn test_extract_provider_different_providers() {
-    let providers = vec!["strava", "garmin", "fitbit", "synthetic"];
+    let providers = vec!["strava", "garmin", "whoop", "synthetic"];
 
     for provider in providers {
         let mut params = serde_json::Map::new();

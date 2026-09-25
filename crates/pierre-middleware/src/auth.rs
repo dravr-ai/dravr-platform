@@ -13,7 +13,7 @@ use pierre_auth::config::RateLimitConfig;
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
-use pierre_core::constants::key_prefixes;
+use pierre_core::auth_header::is_api_key_format;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -232,8 +232,7 @@ impl McpAuthMiddleware {
             // Security: Do not log auth header content to prevent token leakage
             debug!(
                 "Authentication attempt with header type: {}",
-                if header.starts_with(key_prefixes::LIVE) || header.starts_with(key_prefixes::TRIAL)
-                {
+                if is_api_key_format(header) {
                     "API_KEY"
                 } else if header.starts_with("Bearer ") {
                     "JWT_TOKEN"
@@ -248,7 +247,7 @@ impl McpAuthMiddleware {
         };
 
         // Try API key authentication first (starts with pk_live_ or pk_trial_)
-        if auth_str.starts_with(key_prefixes::LIVE) || auth_str.starts_with(key_prefixes::TRIAL) {
+        if is_api_key_format(auth_str) {
             tracing::Span::current().record("auth_method", "API_KEY");
             debug!("Attempting API key authentication");
             match self.authenticate_api_key(auth_str).await {
@@ -297,8 +296,8 @@ impl McpAuthMiddleware {
             tracing::Span::current()
                 .record("auth_method", "INVALID")
                 .record("success", false);
-            warn!("Authentication failed: Invalid authorization header format (expected 'Bearer ...' or 'pk_live_...')");
-            Err(AppError::auth_invalid("Invalid authorization header format - must be 'Bearer <token>' or 'pk_live_<api_key>'"))
+            warn!("Authentication failed: Invalid authorization header format (expected 'Bearer ...', 'pk_live_...' or 'pk_trial_...')");
+            Err(AppError::auth_invalid("Invalid authorization header format - must be 'Bearer <token>' or an API key ('pk_live_<key>' or 'pk_trial_<key>')"))
         }
     }
 

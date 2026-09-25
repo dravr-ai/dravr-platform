@@ -340,17 +340,17 @@ async fn test_tenant_data_isolation() -> Result<()> {
         );
         repos.oauth_tokens.upsert_token(&strava_token).await?;
 
-        // Store Fitbit tokens
-        let fitbit_token = UserOAuthToken::new(
+        // Store WHOOP tokens
+        let whoop_token = UserOAuthToken::new(
             *user_id,
             "00000000-0000-0000-0000-000000000000".to_owned(),
-            oauth_providers::FITBIT.to_string(),
-            format!("fitbit_access_{i}"),
-            Some(format!("fitbit_refresh_{i}")),
+            oauth_providers::WHOOP.to_string(),
+            format!("whoop_access_{i}"),
+            Some(format!("whoop_refresh_{i}")),
             Some(expires_at),
-            Some("activity heartrate profile".to_owned()),
+            Some("read:workout read:recovery read:profile".to_owned()),
         );
-        repos.oauth_tokens.upsert_token(&fitbit_token).await?;
+        repos.oauth_tokens.upsert_token(&whoop_token).await?;
     }
 
     // Verify data isolation
@@ -366,16 +366,16 @@ async fn test_tenant_data_isolation() -> Result<()> {
             .unwrap();
         assert_eq!(strava_token.access_token, format!("strava_access_{i}"));
 
-        let fitbit_token = repos
+        let whoop_token = repos
             .oauth_tokens
             .get_token(
                 *user_id,
                 TenantId::from_uuid(Uuid::nil()),
-                oauth_providers::FITBIT,
+                oauth_providers::WHOOP,
             )
             .await?
             .unwrap();
-        assert_eq!(fitbit_token.access_token, format!("fitbit_access_{i}"));
+        assert_eq!(whoop_token.access_token, format!("whoop_access_{i}"));
     }
 
     // Verify users cannot access each other's data
@@ -869,7 +869,7 @@ async fn test_user_provider_storage_concept() -> Result<()> {
         for (user_id, _email, _token) in &users {
             let mut user_map = HashMap::new();
             user_map.insert("strava".to_owned(), format!("strava_provider_{user_id}"));
-            user_map.insert("fitbit".to_owned(), format!("fitbit_provider_{user_id}"));
+            user_map.insert("whoop".to_owned(), format!("whoop_provider_{user_id}"));
             providers.insert(user_id.to_string(), user_map);
         }
     }
@@ -884,8 +884,8 @@ async fn test_user_provider_storage_concept() -> Result<()> {
                 &format!("strava_provider_{user_id}")
             );
             assert_eq!(
-                user_providers_map.get("fitbit").unwrap(),
-                &format!("fitbit_provider_{user_id}")
+                user_providers_map.get("whoop").unwrap(),
+                &format!("whoop_provider_{user_id}")
             );
         }
     }

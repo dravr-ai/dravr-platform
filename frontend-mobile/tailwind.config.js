@@ -124,7 +124,6 @@ module.exports = {
         providers: {
           strava: '#FC4C02',
           garmin: '#007CC3',
-          fitbit: '#00B0B9',
           whoop: '#00D46A',
           terra: '#6366F1',
         },

@@ -4,7 +4,7 @@
 /**
  * Supported OAuth providers
  */
-export type OAuthProvider = 'strava' | 'fitbit' | 'garmin';
+export type OAuthProvider = 'strava' | 'garmin';
 
 /**
  * Provider display configuration
@@ -23,11 +23,6 @@ export const OAUTH_PROVIDERS: Record<OAuthProvider, ProviderConfig> = {
     name: 'strava',
     domain: 'strava.com',
     displayName: 'Strava',
-  },
-  fitbit: {
-    name: 'fitbit',
-    domain: 'fitbit.com',
-    displayName: 'Fitbit',
   },
   garmin: {
     name: 'garmin',

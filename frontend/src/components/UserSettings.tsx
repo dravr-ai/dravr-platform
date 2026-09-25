@@ -487,7 +487,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The one-line blurb for each fitness provider (matching mobile). After the
   // 2026-Q2 provider cleanup the API surfaces only sciotte / sciotte_garmin /
   // sciotte_trainingpeaks / whoop / intervals_icu (plus the synthetic dev
-  // providers); fitbit/coros/terra are feature-gated off until we ship
+  // providers); coros/terra are feature-gated off until we ship
   // dedicated integrations. `strava` is retained so legacy rows still display
   // correctly when surfaced through the disconnect flow. The letter's colour
   // is not here: it comes from `PROVIDER_GLYPH_INK`, per scheme.

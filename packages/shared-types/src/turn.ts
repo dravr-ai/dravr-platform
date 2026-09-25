@@ -84,6 +84,8 @@ export interface TurnTelemetry {
   tool_calls_count: number;
   tools_called: string[];
   execution_time_ms: number;
+  /** Request parameters the serving provider reported ignoring; absent when it honored all of them. */
+  provider_warnings?: string[];
 }
 
 /** The assistant side of a turn. */

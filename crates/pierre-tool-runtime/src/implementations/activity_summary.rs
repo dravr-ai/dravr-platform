@@ -29,6 +29,10 @@ const MAX_COMMENTS: usize = 10;
 /// Longest comment author name, in characters.
 const MAX_AUTHOR_CHARS: usize = 60;
 
+/// The serialized [`Activity`] key holding the provider's encoded route
+/// overview, which [`detail_json`] never hands the model.
+const ROUTE_OVERVIEW_KEY: &str = "summary_polyline";
+
 /// Activity summary with scalar sensor fields for efficient list queries.
 ///
 /// Used when `mode=summary`. Carries the full set of scalar fields every
@@ -101,7 +105,7 @@ pub struct ActivitySummary {
     /// Average ambient temperature in Celsius when the provider reports it.
     /// Outdoor activities from Strava and Garmin OAuth surface this when the
     /// recording device captured ambient temp; Coros does too if its watch
-    /// reported it. Whoop / Fitbit / Terra don't expose ambient temperature
+    /// reported it. Whoop / Terra don't expose ambient temperature
     /// on workouts (skin temp on Whoop Recovery is recorded separately, on
     /// the recovery record, not the activity).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,6 +194,12 @@ pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> 
 /// flattened, defanged and capped ([`display_line`]) rather than fenced. The
 /// thread keeps its newest [`MAX_COMMENTS`] entries.
 ///
+/// The route overview (`summary_polyline`) is left out. It is an encoded
+/// polyline — hundreds of characters a model cannot read as a route — and it
+/// is the provider's untrimmed line, starting and ending at the athlete's
+/// door. Geometry leaves the server only through the privacy-trimmed route
+/// track, never as the provider sent it.
+///
 /// # Errors
 ///
 /// Returns the serialization error when an activity cannot be encoded.
@@ -198,6 +208,7 @@ pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
     if let Some(rows) = value.as_array_mut() {
         for row in rows.iter_mut().filter_map(Value::as_object_mut) {
             fence_self_report(row);
+            row.remove(ROUTE_OVERVIEW_KEY);
         }
     }
     Ok(value)

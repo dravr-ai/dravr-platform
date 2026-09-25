@@ -10,6 +10,7 @@ const mockGetConversationMessages = jest.fn();
 const mockSendTurn = jest.fn();
 const mockSubmitMessageFeedback = jest.fn();
 const mockDeleteMessageFeedback = jest.fn();
+const mockGetConversationVerdicts = jest.fn().mockResolvedValue({ verdicts: [] });
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
@@ -17,6 +18,7 @@ jest.mock('../src/services/api', () => ({
     sendTurn: (...args: unknown[]) => mockSendTurn(...args),
     submitMessageFeedback: (...args: unknown[]) => mockSubmitMessageFeedback(...args),
     deleteMessageFeedback: (...args: unknown[]) => mockDeleteMessageFeedback(...args),
+    getConversationVerdicts: (...args: unknown[]) => mockGetConversationVerdicts(...args),
   },
 }));
 
@@ -281,6 +283,50 @@ describe('useMessages', () => {
       expect(result.current.progressText).toBeNull();
     });
 
+    it('reads the conversation\'s verdict rows once the turn completes', async () => {
+      // The stream's `verdicts` block names only flagged claims, so a reply
+      // whose claims all held streams none; its chip rail comes from the rows.
+      const supported = {
+        id: 'v1',
+        conversation_id: 'conv-1',
+        message_id: 'asst-1',
+        agent_id: null,
+        claim_text: 'Your threshold pace is 4:10/km.',
+        category: 'training_prescription',
+        status: 'supported',
+        evidence_strength: 'strong',
+        confidence: 0.9,
+        layer_fired: 'deterministic',
+        explanation: null,
+        evidence_refs: null,
+        created_at: '2024-01-01T00:00:02Z',
+      };
+      mockGetConversationVerdicts.mockResolvedValueOnce({ verdicts: [supported] });
+      mockSendTurn.mockImplementation(
+        (_conversationId: string, _content: string, options: { onDone?: (turn: unknown) => void }) => {
+          options.onDone?.({
+            user_message: { id: 'user-1', role: 'user', content: 'Hello', created_at: '2024-01-01T00:00:00Z' },
+            assistant: {
+              message: { id: 'asst-1', role: 'assistant', content: 'Hold 4:10/km.', created_at: '2024-01-01T00:00:01Z' },
+              blocks: [],
+              finish_reason: 'stop',
+            },
+            telemetry: { model: 'm', provider_name: 'p', tool_calls_count: 0, tools_called: [], execution_time_ms: 1 },
+          });
+          return Promise.resolve();
+        },
+      );
+
+      const { result } = renderHook(() => useMessages());
+
+      await act(async () => {
+        await result.current.sendTurn('conv-1', 'Hello');
+      });
+
+      expect(mockGetConversationVerdicts).toHaveBeenCalledWith('conv-1');
+      expect(result.current.verdicts).toEqual([supported]);
+    });
+
     it('shows what the turn is doing while it is still in flight, then clears it', async () => {
       // The progress strip is the whole reason the AG-UI subscription existed.
       // It is now fed by the turn's own body, so the text must appear while
@@ -534,6 +580,8 @@ describe('useMessages conversation rotation', () => {
     });
 
     expect(rotatedTo).toBe('conv-fresh');
+    // The thread it left is no longer on screen; opening the new one reads its rows.
+    expect(mockGetConversationVerdicts).not.toHaveBeenCalled();
   });
 
   it('answers with null for an ordinary turn that moved nobody', async () => {

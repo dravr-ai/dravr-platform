@@ -750,7 +750,7 @@
     "brandCoros": "COROS",
     "corosAccount": "COROS Account",
     "corosEmail": "COROS email",
-    "provCorosBlurb": "Activities from COROS watches",
+    "provCorosBlurb": "Activities and recovery metrics from COROS watches",
     "provCorosShort": "Activities & laps"
   },
   "auth": {
@@ -1738,6 +1738,33 @@
     "weeklyReport": "Weekly report",
     "youSuffix": "(you)"
   },
+  "home": {
+    "plan": {
+      "tomorrow": "Tomorrow",
+      "phaseWeek": "{{phase}} · week {{week}}",
+      "notCovered": "Your plan doesn't cover this day.",
+      "emptyTitle": "No training plan yet",
+      "emptyBody": "Tell your agent about your goal race and it will lay out your season, week by week.",
+      "buildCta": "Build my plan",
+      "buildDraft": "Build me a training plan for my goal race.",
+      "dayDraft": "Walk me through my session on {{date}}: {{workout}}",
+      "restDayDraft": "Why is {{date}} a rest day in my plan?",
+      "loadFailed": "Your plan couldn't be loaded."
+    },
+    "activities": {
+      "heading": "Recent activities",
+      "noProvider": "Connect a fitness provider to see your recent activities here.",
+      "empty": "No activities yet. They show up here once your provider syncs.",
+      "routeTooShort": "This route is too short to draw without showing where it starts.",
+      "mapLoading": "Loading the map…",
+      "routeFailed": "The map couldn't be loaded.",
+      "loadFailed": "Your recent activities couldn't be loaded.",
+      "refreshing": "Checking your provider for new activities…",
+      "syncedAt": "Last synced: {{time}}",
+      "analyzeDraft": "Analyze my activity from {{date}} ({{sport}})",
+      "sketchAlt": "Sketch of the route"
+    }
+  },
   "humanCoach": {
     "attached": "Human coach attached",
     "attachedBadge": "Coach attached",
@@ -1904,6 +1931,10 @@
     "quota_burst": "Heads-up: you're past your plan's limit of {1} and running on reserve. The counter resets on {2}.",
     "rate_limited": "You're sending messages a little faster than your plan allows. Give it a moment and try again — I'll be here.",
     "reply_withheld": "My reply didn't go through — it mixed in technical details that don't belong here. Send your last message again and we'll pick up where we left off.",
+    "reply_stop": {
+      "truncated": "✂️ My reply was cut off before I finished. Ask me to continue and I'll pick up where I stopped.",
+      "filtered": "⚠️ Part of my reply was removed by a content filter, so it may be incomplete. Try rephrasing your question."
+    },
     "scope": {
       "carve_out": {
         "nutrition": "## Clarification for your nutrition role\n\nYou specialise in nutrition, so questions about meals, dinner, breakfast, snacks, food choices, and training-linked meal planning are fully within your scope. Answer these directly, grounded in the user's training data (intensity, duration, energy expenditure). The \"food/meal finders out-of-scope\" rule above targets restaurant search, delivery apps, and online menu lookups only — it does not cover evidence-based nutrition advice or meal planning built on the user's training. Never refuse \"what should I eat after my run\", \"dinner ideas after my workout\", \"post-workout snack\" or equivalent.",
@@ -1972,6 +2003,7 @@
     "dataProviders": "Data Providers",
     "discover": "Discover",
     "groups": "Groups",
+    "home": "Home",
     "notifications": "Notifications",
     "settings": "Settings",
     "usage": "Usage"
@@ -2282,7 +2314,7 @@
     "synthTest": "Synthetic test data for development",
     "whoop": "Recovery, strain, and sleep metrics",
     "trainingpeaks": "Completed workouts and their training load from TrainingPeaks",
-    "coros": "Activities from COROS watches"
+    "coros": "Activities and recovery metrics from COROS watches"
   },
   "providers": {
     "add": "Add Provider",
@@ -2302,7 +2334,6 @@
     "failedConnectRetry": "Failed to connect provider. Please try again.",
     "failedLoadProviderStatus": "Failed to load provider status",
     "failedToConnectReason": "Failed to connect: {{reason}}",
-    "fitbit": "Fitbit",
     "fitnessHint": "Connect your fitness accounts to sync activities, health metrics, and more.",
     "fitnessTitle": "Fitness Providers",
     "garmin": "Garmin",

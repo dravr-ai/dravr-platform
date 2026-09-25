@@ -7,8 +7,8 @@
 //! Weather backfill orchestrator.
 //!
 //! Many providers don't surface ambient temperature on workouts —
-//! sciotte (Strava Mirror scraper), Whoop, Fitbit, Terra all leave the
-//! field empty. For activities that have GPS coordinates and a start
+//! sciotte (Strava Mirror scraper), Whoop, Terra all leave the field
+//! empty. For activities that have GPS coordinates and a start
 //! time, we can fill the gap post-hoc by hitting a historical weather
 //! provider keyed on `(lat, lng, hour)`.
 //!

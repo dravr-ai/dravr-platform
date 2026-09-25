@@ -48,6 +48,8 @@ export const notificationsApi = api.notifications;
 export const groupsApi = api.groups;
 // Effective feature flags for the calling user — the gate both clients read.
 export const featureFlagsApi = api.featureFlags;
+// The Home tab's reads: recent activities, one activity's route, the plan for today.
+export const athleteApi = api.athlete;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const personasApi = api.personas;
 export const i18nApi = api.i18n;

@@ -82,7 +82,7 @@ pub struct OAuthEndpoints {
 /// OAuth flow parameters specific to each provider
 #[derive(Debug, Clone)]
 pub struct OAuthParams {
-    /// Scope separator character ("," for Strava, " " for Fitbit)
+    /// Scope separator character ("," for Strava, " " for WHOOP)
     pub scope_separator: &'static str,
     /// Whether to use PKCE (Proof Key for Code Exchange)
     pub use_pkce: bool,
@@ -140,7 +140,7 @@ impl ProviderCapabilities {
             .union(Self::CHEAP_ACTIVITY_DETAIL)
     }
 
-    /// Create capabilities for a full health provider (like Garmin, Fitbit)
+    /// Create capabilities for a full health provider (like Garmin)
     #[must_use]
     pub const fn full_health() -> Self {
         Self::OAUTH
@@ -443,52 +443,6 @@ impl ProviderDescriptor for GarminDescriptor {
     }
 }
 
-/// Fitbit provider descriptor
-#[cfg(feature = "provider-fitbit")]
-pub struct FitbitDescriptor;
-
-#[cfg(feature = "provider-fitbit")]
-impl ProviderDescriptor for FitbitDescriptor {
-    fn name(&self) -> &'static str {
-        "fitbit"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Fitbit"
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        // LIMITATION(registre#513): `FitbitDescriptor::capabilities` advertises activities
-        // only: sleep and recovery are read from dravr-enforme's synced rows, and Fitbit has
-        // no enforme adapter yet.
-        ProviderCapabilities::activity_only()
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        Some(OAuthEndpoints {
-            auth_url: "https://www.fitbit.com/oauth2/authorize",
-            token_url: "https://api.fitbit.com/oauth2/token",
-            revoke_url: Some("https://api.fitbit.com/oauth2/revoke"),
-        })
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        Some(OAuthParams {
-            scope_separator: " ", // Fitbit uses space-separated scopes
-            use_pkce: true,
-            additional_auth_params: &[],
-        })
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        "https://api.fitbit.com/1"
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &["activity", "profile", "sleep", "heartrate", "weight"]
-    }
-}
-
 /// WHOOP provider descriptor
 ///
 /// WHOOP is a full health provider supporting sleep, recovery, workouts,
@@ -546,8 +500,8 @@ impl ProviderDescriptor for WhoopDescriptor {
 
 /// COROS provider descriptor
 ///
-/// COROS is a GPS sports watch manufacturer supporting activities, sleep,
-/// and daily health summaries through their API.
+/// COROS is a GPS sports watch manufacturer whose partner API offers
+/// activities and daily health summaries.
 ///
 /// Note: COROS API documentation is private. OAuth endpoints are placeholders
 /// until official documentation is received. Apply for access at:
@@ -566,9 +520,10 @@ impl ProviderDescriptor for CorosDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // LIMITATION(registre#513): `CorosDescriptor::capabilities` advertises activities
-        // only: sleep and recovery are read from dravr-enforme's synced rows, and COROS has
-        // no enforme adapter yet.
+        // LIMITATION(registre#509): `CorosDescriptor::capabilities` advertises activities
+        // only: health data is read from dravr-enforme's synced rows, and the COROS health
+        // sync reads the Training Hub session on `sciotte_coros`; the partner API's signed
+        // daily push has no receiver.
         ProviderCapabilities::OAUTH.union(ProviderCapabilities::ACTIVITIES)
     }
 
@@ -655,8 +610,14 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
         "Garmin"
     }
 
+    /// Activities are scraped on demand; the night's sleep, resting heart
+    /// rate, overnight HRV, stress, Body Battery, body metrics and `VO2max`
+    /// are synced from the same session's daily summary by the health sync.
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::SLEEP_TRACKING)
+            .union(ProviderCapabilities::RECOVERY_METRICS)
+            .union(ProviderCapabilities::HEALTH_METRICS)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
@@ -730,8 +691,13 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
         "COROS"
     }
 
+    /// Activities are scraped on demand; the resting heart rate, sleep HRV
+    /// and `VO2max` are synced from the Training Hub's daily analysis by the
+    /// health sync. The Training Hub carries no sleep sessions.
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::ACTIVITIES
+            .union(ProviderCapabilities::RECOVERY_METRICS)
+            .union(ProviderCapabilities::HEALTH_METRICS)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

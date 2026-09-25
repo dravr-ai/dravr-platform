@@ -174,6 +174,10 @@ pub struct TurnTelemetryResponse {
     pub tools_called: Vec<String>,
     /// Wall time from handler entry to reply, in milliseconds.
     pub execution_time_ms: u64,
+    /// Request parameters the serving provider reported ignoring; omitted
+    /// when it honored all of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provider_warnings: Vec<String>,
 }
 
 impl TurnResponse {
@@ -314,6 +318,7 @@ fn telemetry_response(telemetry: TurnTelemetry, execution_time_ms: u64) -> TurnT
         tool_calls_count: telemetry.tool_calls_count,
         tools_called: telemetry.tools_called,
         execution_time_ms,
+        provider_warnings: telemetry.provider_warnings,
     }
 }
 

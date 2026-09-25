@@ -10,7 +10,7 @@ import type {
   GroupStatsResponse,
   GroupWeeklyReportResponse,
 } from '@pierre/shared-types';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openChat } from './test-helpers';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 
 // ============================================================================
@@ -464,6 +464,8 @@ async function openGroupInfo(
   if (extraRoutes) await extraRoutes(page);
   await loginToDashboard(page);
   await page.waitForSelector('aside', { timeout: 10000 });
+  // Sign-in lands on Home; the group's thread is in Chat.
+  await openChat(page);
 
   // The group row carries its kind glyph, and opens the thread.
   const row = page.locator('[data-testid="conversation-row"]', {
@@ -839,6 +841,7 @@ test.describe('Group info — layout', () => {
     await setupGroupMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
+    await openChat(page);
 
     expect(describeLayoutFailures('chat/group', await measurePageLayout(page))).toEqual([]);
   });

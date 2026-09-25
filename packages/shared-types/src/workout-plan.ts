@@ -58,6 +58,11 @@ export interface PlanStep {
   distance_meters?: number;
   target_zone: string;
   repeat?: number;
+  /**
+   * Which set the step belongs to, numbered in step order, when the producer
+   * numbers its sets — keeps apart two adjacent sets with the same `repeat`.
+   */
+  repeat_group?: number;
   note?: string;
 }
 
@@ -65,6 +70,8 @@ export interface PlanFueling {
   carbs_g_per_h: number;
   fluid_ml_per_h: number;
   sodium_mg_per_h?: number;
+  /** Carbohydrate source when the rate depends on it, e.g. "glucose:fructose 1:0.8". */
+  carb_source?: string;
 }
 
 export interface PlanDay {
@@ -107,6 +114,24 @@ export interface WorkoutPlan {
 }
 
 /**
+ * Whether a decoded value has the shape of a card: a named goal race, and
+ * phase and week arrays. The one check both the chat block and the Home read
+ * make, so the two cannot disagree about what counts as a plan.
+ */
+export function isWorkoutPlan(value: unknown): value is WorkoutPlan {
+  const candidate = value as Partial<WorkoutPlan> | null;
+  return (
+    typeof candidate === 'object' &&
+    candidate !== null &&
+    typeof candidate.goal_race === 'object' &&
+    candidate.goal_race !== null &&
+    typeof candidate.goal_race.name === 'string' &&
+    Array.isArray(candidate.phases) &&
+    Array.isArray(candidate.weeks)
+  );
+}
+
+/**
  * Parse a `workout_plan` block's `plan` JSON into a `WorkoutPlan`.
  * Returns `null` when the payload is absent or not a well-formed card, so
  * callers render nothing rather than a broken card.
@@ -116,18 +141,8 @@ export function parseWorkoutPlan(planJson: string | undefined): WorkoutPlan | nu
     return null;
   }
   try {
-    const parsed = JSON.parse(planJson) as Partial<WorkoutPlan>;
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      parsed.goal_race &&
-      typeof parsed.goal_race.name === 'string' &&
-      Array.isArray(parsed.phases) &&
-      Array.isArray(parsed.weeks)
-    ) {
-      return parsed as WorkoutPlan;
-    }
-    return null;
+    const parsed: unknown = JSON.parse(planJson);
+    return isWorkoutPlan(parsed) ? parsed : null;
   } catch {
     return null;
   }

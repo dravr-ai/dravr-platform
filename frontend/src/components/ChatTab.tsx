@@ -223,10 +223,11 @@ export default function ChatTab({
   }, [messagesData]);
 
   // Claim verdicts attached to messages in the selected conversation.
-  // Refetched alongside messages so an agent reply that triggers verification
-  // surfaces its chip without a manual reload.
+  // Re-read when a turn completes, so a reply that was verified surfaces its
+  // chip rail without a manual reload — the stream itself carries only the
+  // flagged claims.
   const { data: verdictsData, isFetching: verdictsFetching, refetch: refetchVerdicts } = useQuery({
-    queryKey: ['chat', 'verdicts', selectedConversation],
+    queryKey: QUERY_KEYS.chat.verdicts(selectedConversation),
     queryFn: () => chatApi.getConversationVerdicts(selectedConversation!),
     enabled: !!selectedConversation,
   });
@@ -274,7 +275,8 @@ export default function ChatTab({
 
   // The message whose verdicts the drawer shows. The rows are written right
   // after the reply row, so a chip that landed before the read did opens the
-  // drawer on a refetch rather than on nothing.
+  // drawer on a refetch rather than on nothing — joining the read a completed
+  // turn already started instead of cancelling it.
   const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
   const drawerVerdicts = useMemo(
     () => (verdictMessageId ? verdicts.filter((v) => v.message_id === verdictMessageId) : []),
@@ -283,7 +285,7 @@ export default function ChatTab({
   const handleShowVerdict = useCallback(
     (_rows: ClaimVerdict[], messageId: string) => {
       setVerdictMessageId(messageId);
-      if (!verdicts.some((v) => v.message_id === messageId)) void refetchVerdicts();
+      if (!verdicts.some((v) => v.message_id === messageId)) void refetchVerdicts({ cancelRefetch: false });
     },
     [verdicts, refetchVerdicts],
   );
@@ -593,6 +595,12 @@ export default function ChatTab({
         }
 
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+
+        // The turn's verdict rows are written before `done`, and the stream's
+        // `verdicts` block names only the flagged claims — a reply whose claims
+        // all held streams no chip. Re-reading the rows gives the live reply
+        // the same rail a reload draws.
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.verdicts(selectedConversation) });
 
         // A slash command is the one turn that can rewrite what the header and
         // the info panel draw — `/agent add` binds an agent, `/agent remove`

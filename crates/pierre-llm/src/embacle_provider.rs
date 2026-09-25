@@ -17,11 +17,11 @@ use embacle::quota_http::{AnthropicUsageChecker, GithubHeadroomChecker};
 use embacle::router::{Backend, PreferInOrder, RouterProvider};
 use embacle::types::LlmProvider as EmbacleLlmProvider;
 use embacle::{
-    ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
-    CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner, CopilotSdkConfig,
-    CopilotSdkRunner, CursorAgentRunner, FallbackProvider, GeminiCliRunner, GooseCliRunner,
-    HeadlessTurnProvider, KiloCliRunner, KiroCliRunner, OpenAiApiConfig, OpenAiApiRunner,
-    OpenCodeRunner, ResponsePolicy, RunnerConfig, WarpCliRunner,
+    validate_capabilities, ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner,
+    ContinueCliRunner, CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner,
+    CopilotSdkConfig, CopilotSdkRunner, CursorAgentRunner, FallbackProvider, GeminiCliRunner,
+    GooseCliRunner, HeadlessTurnProvider, KiloCliRunner, KiroCliRunner, OpenAiApiConfig,
+    OpenAiApiRunner, OpenCodeRunner, ResponsePolicy, RunnerConfig, WarpCliRunner,
 };
 use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
@@ -33,6 +33,7 @@ use crate::config::{LlmProviderType, ProviderConstruction};
 use crate::errors::AppError;
 use crate::http_env;
 use crate::provider::ChatProvider;
+use crate::served_tier::{observe_served_tier, record_served_tier};
 
 /// The platform's one facade over an embacle runner.
 ///
@@ -535,10 +536,23 @@ impl LlmProvider for EmbacleProvider {
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        EmbacleLlmProvider::complete(&*self.runner, request)
-            .instrument(self.request_span("complete", request))
-            .await
-            .map_err(AppError::from)
+        let (result, served) = observe_served_tier(
+            EmbacleLlmProvider::complete(&*self.runner, request)
+                .instrument(self.request_span("complete", request)),
+        )
+        .await;
+        // The inner scope above shadows the caller's own `observe_served_tier`,
+        // so the tier it saw is handed on — the caller still learns who served.
+        if let Some(tier) = served {
+            record_served_tier(tier);
+        }
+        let mut response = result.map_err(AppError::from)?;
+        let (provider, capabilities) = served.map_or_else(
+            || (self.head.name(), self.head.capabilities()),
+            |tier| (tier.provider, tier.capabilities),
+        );
+        attach_capability_warnings(&mut response, provider, capabilities, request);
+        Ok(response)
     }
 
     async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
@@ -579,6 +593,31 @@ impl EmbacleProvider {
                 .unwrap_or_else(|| self.default_model()),
             op,
         )
+    }
+}
+
+/// Record on `response` every request parameter the provider that served it
+/// silently dropped.
+///
+/// embacle's runners never fill [`ChatResponse::warnings`] themselves; its
+/// capability guard is what names an ignored temperature, a text-simulated
+/// tool list or a dropped image. Checked against the tier that answered, not
+/// the chain's head: a fallback can honor less than the primary it replaced.
+fn attach_capability_warnings(
+    response: &mut ChatResponse,
+    provider: &str,
+    capabilities: LlmCapabilities,
+    request: &ChatRequest,
+) {
+    // Permissive mode never fails; it only lists what was dropped.
+    let Ok(dropped) = validate_capabilities(provider, capabilities, request, false) else {
+        return;
+    };
+    if !dropped.is_empty() {
+        response
+            .warnings
+            .get_or_insert_with(Vec::new)
+            .extend(dropped);
     }
 }
 

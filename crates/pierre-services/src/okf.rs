@@ -28,7 +28,7 @@ use pierre_core::untrusted::{cap, flatten_line};
 
 /// Soft token budget for the rendered bundle. A little above the flat-recall
 /// budget because the bundle now spans North Star + up to six pillars + medical.
-pub const DEFAULT_TOKEN_BUDGET: u32 = 600;
+const DEFAULT_TOKEN_BUDGET: u32 = 600;
 
 /// Hard cap on a single fact's object text before fencing — bounds the
 /// injection surface and keeps the token budget predictable.

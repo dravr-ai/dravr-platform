@@ -131,6 +131,25 @@ export type {
 } from './workout-plan.js';
 export { parseWorkoutPlan } from './workout-plan.js';
 
+// Civil-date reads over a plan card: session, rest day, or a date the plan does not cover
+export type { PlanDayLookup } from './plan-calendar.js';
+export { addCivilDays, mondayOf, planDayOn, phaseWeekOn } from './plan-calendar.js';
+
+// The athlete Home page's reads: recent activities, one activity's route, the plan for today
+export type {
+  HomeActivity,
+  RecentActivitiesResponse,
+  ActivityRouteUnavailableReason,
+  ActivityRouteResponse,
+  TrainingPlanResponse,
+} from './home.js';
+export {
+  ACTIVITY_ROUTE_UNAVAILABLE_REASONS,
+  parseRecentActivitiesResponse,
+  parseActivityRouteResponse,
+  parseTrainingPlanResponse,
+} from './home.js';
+
 // Notification types (push notifications, device tokens, preferences)
 export type {
   NotificationCategory,

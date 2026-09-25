@@ -77,92 +77,6 @@ export { PierreError, PierreErrorCode } from './errors';
 export * from './types';
 
 /**
- * Export Zod response schemas for runtime validation
- *
- * These schemas validate tool responses at runtime, ensuring type safety
- * between the SDK and server. Use these to validate responses manually
- * or enable automatic validation via BridgeConfig.responseValidation.
- *
- * Note: ToolName is exported from types.ts (input params), so we export
- * ResponseToolName from response-schemas for the output side.
- */
-export {
-  // Base schemas
-  UuidSchema,
-  TimestampSchema,
-  QualityRatingSchema,
-  ConnectionStatusSchema,
-  GoalStatusSchema,
-  ConfidenceLevelSchema,
-  ScoreSchema,
-  InsightsArraySchema,
-  RecommendationsArraySchema,
-
-  // Common patterns
-  ResponseMetadataSchema,
-  PaginationInfoSchema,
-  ScoreBasedResponseSchema,
-  ValidationResponseSchema,
-  McpContentItemSchema,
-  McpToolResponseBaseSchema,
-
-  // All tool response schemas
-  ConnectProviderResponseSchema,
-  GetConnectionStatusResponseSchema,
-  DisconnectProviderResponseSchema,
-  GetActivitiesResponseSchema,
-  GetAthleteResponseSchema,
-  GetStatsResponseSchema,
-  GetActivityIntelligenceResponseSchema,
-  AnalyzeActivityResponseSchema,
-  CalculateMetricsResponseSchema,
-  AnalyzePerformanceTrendsResponseSchema,
-  CompareActivitiesResponseSchema,
-  DetectPatternsResponseSchema,
-  GenerateRecommendationsResponseSchema,
-  CalculateFitnessScoreResponseSchema,
-  PredictPerformanceResponseSchema,
-  AnalyzeTrainingLoadResponseSchema,
-  SetGoalResponseSchema,
-  TrackProgressResponseSchema,
-  SuggestGoalsResponseSchema,
-  AnalyzeGoalFeasibilityResponseSchema,
-  GetConfigurationCatalogResponseSchema,
-  GetConfigurationProfilesResponseSchema,
-  GetUserConfigurationResponseSchema,
-  UpdateUserConfigurationResponseSchema,
-  CalculatePersonalizedZonesResponseSchema,
-  ValidateConfigurationResponseSchema,
-  GetFitnessConfigResponseSchema,
-  SetFitnessConfigResponseSchema,
-  ListFitnessConfigsResponseSchema,
-  DeleteFitnessConfigResponseSchema,
-  CalculateDailyNutritionResponseSchema,
-  GetNutrientTimingResponseSchema,
-  SearchFoodResponseSchema,
-  GetFoodDetailsResponseSchema,
-  AnalyzeMealNutritionResponseSchema,
-  AnalyzeSleepQualityResponseSchema,
-  CalculateRecoveryScoreResponseSchema,
-  SuggestRestDayResponseSchema,
-  TrackSleepTrendsResponseSchema,
-  OptimizeSleepScheduleResponseSchema,
-
-  // Schema map and utilities
-  ToolResponseSchemaMap,
-  validateToolResponse,
-  validateToolResponseStrict,
-  hasResponseSchema,
-  getValidatedToolNames,
-
-  // Response types (inferred from schemas)
-  type ToolName as ResponseToolName,
-  type AnyToolResponse,
-  type ToolResponseMap,
-  type ValidationResult,
-} from './response-schemas';
-
-/**
  * Export response validation utilities
  *
  * Use these to configure validation behavior, check validation stats,
@@ -170,6 +84,8 @@ export {
  */
 export {
   validateMcpToolResponse,
+  registerToolOutputSchemas,
+  hasResponseSchema,
   configureValidator,
   getValidatorConfig,
   createValidatedToolCall,
@@ -180,6 +96,7 @@ export {
   type ResponseValidatorConfig,
   type ValidatedToolResult,
   type ValidationStats,
+  type ToolWithOutputSchema,
 } from './response-validator';
 
 /**

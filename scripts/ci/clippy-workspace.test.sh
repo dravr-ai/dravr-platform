@@ -10,17 +10,23 @@
 # exact confusion it exists to remove — so the failing case is tested by making
 # it happen: three crates, one broken, one downstream of the break, one beside
 # it. The downstream crate must be named and the independent one must not.
+# A plain warning in the same crate must NOT hide the downstream one: warnings
+# are denied through build.warnings, which leaves the crate compiled.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNDER_TEST="$SCRIPT_DIR/clippy-workspace.py"
+# The fixture lives outside the repository, where rustup would pick its default
+# toolchain; carry the pin over so the fixture runs the cargo the job runs.
+TOOLCHAIN_FILE="$SCRIPT_DIR/../../rust-toolchain.toml"
 
 failures=0
 pass() { echo "  ✅ $1"; }
 fail() { echo "  ❌ $1"; failures=$((failures + 1)); }
 
 # leaf <- dependent, and island beside them with no relationship to either.
-# $1 = "broken" to give leaf a denied warning, anything else for a clean tree.
+# $1 = "broken" for a hard error in leaf, "warned" for a plain warning,
+# anything else for a clean tree.
 make_workspace() {
   local dir state
   dir="$(mktemp -d)"
@@ -33,6 +39,7 @@ members = ["leaf", "dependent", "island"]
 EOF
 
   mkdir -p "$dir/leaf/src" "$dir/dependent/src" "$dir/island/src"
+  cp "$TOOLCHAIN_FILE" "$dir/rust-toolchain.toml"
 
   cat >"$dir/leaf/Cargo.toml" <<'EOF'
 [package]
@@ -42,9 +49,21 @@ edition = "2021"
 EOF
 
   if [ "$state" = "broken" ]; then
-    # An unused import is a warning; `-D warnings` makes it an error, the lib
-    # produces no rmeta, and `dependent` becomes uncompilable through no fault
-    # of its own. That is the exact shape this reporter has to describe.
+    # A lint set to deny is a hard error, like the workspace's own deny-level
+    # lints: the lib produces no rmeta, and `dependent` becomes uncompilable
+    # through no fault of its own. That is the exact shape this reporter has
+    # to describe.
+    cat >"$dir/leaf/src/lib.rs" <<'EOF'
+#![deny(unused_imports)]
+use std::collections::HashMap;
+
+pub fn value() -> u8 {
+    7
+}
+EOF
+  elif [ "$state" = "warned" ]; then
+    # A warn-level lint: build.warnings fails the run, but the lib still
+    # compiles, so `dependent` is linted in the same pass.
     cat >"$dir/leaf/src/lib.rs" <<'EOF'
 use std::collections::HashMap;
 
@@ -128,6 +147,34 @@ if grep -q "cargo clippy -p dependent" <<<"$out"; then
   pass "broken leaf: prints the command that lints the hidden crate"
 else
   fail "broken leaf: expected a per-crate clippy command for 'dependent'"
+fi
+rm -rf "$dir"
+
+# ---- Case 1b: a plain warning fails the run but hides nothing --------------
+dir="$(make_workspace warned)"
+set +e
+out="$(cd "$dir" && python3 "$UNDER_TEST" 2>&1)"
+status=$?
+set -e
+
+if [ "$status" -ne 0 ]; then
+  pass "warned leaf: exits non-zero"
+else
+  fail "warned leaf: expected non-zero exit, got $status"
+fi
+
+if grep -q 'build.warnings = "deny": 1 workspace crate(s) emitted warnings: leaf' <<<"$out"; then
+  pass "warned leaf: names the crate build.warnings denied"
+else
+  fail "warned leaf: expected the build.warnings denial naming 'leaf'"
+  echo "$out"
+fi
+
+if grep -q "evaluated all 3 workspace crates" <<<"$out"; then
+  pass "warned leaf: 'dependent' was still linted"
+else
+  fail "warned leaf: expected all 3 crates evaluated despite the warning"
+  echo "$out"
 fi
 rm -rf "$dir"
 
