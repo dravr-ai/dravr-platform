@@ -31,6 +31,7 @@ import type { SciotteTarget } from '@pierre/shared-types';
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
+import { describeApiError } from '@pierre/ui-logic';
 
 export function ConnectionsScreen() {
   const { t } = useTranslation();
@@ -64,7 +65,7 @@ export function ConnectionsScreen() {
       const response = await oauthApi.getProvidersStatus();
       setProviders(response.providers || []);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadConnections');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadConnections' });
       setError(errorMessage);
       console.error('Failed to load connection status:', err);
       // Don't show alert on auth errors - screen will reload when auth is ready
@@ -150,7 +151,7 @@ export function ConnectionsScreen() {
         console.log('OAuth cancelled by user');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedToConnect');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });
       // Couldn't start the OAuth flow at all. For Strava this also covers the
       // platform Strava app being unconfigured — fall back to the Sciotte
       // credential login rather than bouncing to the BYO-credentials sheet or

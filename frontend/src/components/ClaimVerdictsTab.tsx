@@ -16,6 +16,8 @@ import VerdictDrawer from './chat/VerdictDrawer';
 import VerdictTriagePanel from './VerdictTriagePanel';
 import type { DispositionInput } from './VerdictTriagePanel';
 import { useAuth } from '../hooks/useAuth';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All statuses' },
@@ -220,6 +222,7 @@ function HealthCard({
 }
 
 export default function ClaimVerdictsTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
   const queryClient = useQueryClient();
@@ -445,7 +448,7 @@ export default function ClaimVerdictsTab() {
         {lookupMessageId && lookupQuery.isError ? (
           <p className="mt-2 text-xs text-error">
             Lookup failed:{' '}
-            {lookupQuery.error instanceof Error ? lookupQuery.error.message : String(lookupQuery.error)}
+            {describeApiError(lookupQuery.error, { t, fallbackKey: 'errors.unknown' })}
           </p>
         ) : null}
         {lookupMessageId && lookupVerdicts && lookupVerdicts.length === 0 ? (
@@ -498,7 +501,7 @@ export default function ClaimVerdictsTab() {
           </div>
         ) : isError ? (
           <div className="p-6 text-sm text-error">
-            Failed to load verdicts: {error instanceof Error ? error.message : String(error)}
+            Failed to load verdicts: {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </div>
         ) : verdicts.length === 0 ? (
           <div className="p-12 text-center">

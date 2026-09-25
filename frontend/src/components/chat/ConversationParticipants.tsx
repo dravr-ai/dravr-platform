@@ -12,6 +12,7 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Input, useErrorToast, useSuccessToast } from '../ui';
 import type { ConversationParticipant } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface ConversationParticipantsProps {
   conversationId: string;
@@ -67,7 +68,7 @@ export default function ConversationParticipants({
       successToast(t('app.participantAdded'));
     },
     onError: (error: unknown) => {
-      errorToast(error instanceof Error ? error.message : t('chat.addParticipantFailed'));
+      errorToast(describeApiError(error, { t, fallbackKey: 'chat.addParticipantFailed' }));
     },
   });
 
@@ -78,7 +79,7 @@ export default function ConversationParticipants({
       successToast(t('app.participantRemoved'));
     },
     onError: (error: unknown) => {
-      errorToast(error instanceof Error ? error.message : t('chat.removeParticipantFailed'));
+      errorToast(describeApiError(error, { t, fallbackKey: 'chat.removeParticipantFailed' }));
     },
   });
 

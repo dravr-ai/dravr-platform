@@ -13,6 +13,8 @@ import {
   type LocaleGuardrails,
 } from '../services/api/admin';
 import { Card, Button, Badge, Textarea, Input } from './ui';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 const HARNESS_CONFIG_QUERY_KEY = ['admin', 'harness-config'] as const;
 
@@ -167,6 +169,7 @@ function validate(doc: HarnessConfigDocument): ValidationError[] {
 }
 
 export default function HarnessConfigTab() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: HARNESS_CONFIG_QUERY_KEY,
@@ -210,7 +213,7 @@ export default function HarnessConfigTab() {
       queryClient.setQueryData(HARNESS_CONFIG_QUERY_KEY, resp);
     },
     onError: (err: unknown) => {
-      setServerError(err instanceof Error ? err.message : String(err));
+      setServerError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
     },
   });
 
@@ -228,7 +231,7 @@ export default function HarnessConfigTab() {
     return (
       <Card className="p-6">
         <p className="text-sm text-error">
-          Failed to load harness config: {error instanceof Error ? error.message : String(error)}
+          Failed to load harness config: {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
         </p>
       </Card>
     );

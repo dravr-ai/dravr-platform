@@ -15,6 +15,7 @@ import { Button, FormScrollView, Input } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 export function ForgotPasswordScreen() {
   const { t } = useTranslation();
@@ -44,11 +45,10 @@ export function ForgotPasswordScreen() {
       await authApi.forgotPassword(email.trim());
       router.push({ pathname: '/(auth)/reset-password', params: { email: email.trim() } });
     } catch (error) {
-      let message = t('app.somethingWentWrongRetry');
-      if (error instanceof Error) {
-        message = error.message;
-      }
-      Alert.alert(t('common.error'), message);
+      Alert.alert(
+        t('common.error'),
+        describeApiError(error, { t, fallbackKey: 'app.somethingWentWrongRetry' }),
+      );
     } finally {
       setIsLoading(false);
     }

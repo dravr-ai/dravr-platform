@@ -39,6 +39,43 @@ export const reactHooksRules = {
   'react-hooks/exhaustive-deps': 'warn',
 };
 
+const RAW_ERROR_MESSAGE =
+  "Render a failed call with describeApiError(err, { t, fallbackKey }) from @pierre/ui-logic. A thrown error's own message is axios's English prose ('Request failed with status code 500', 'Network Error'), and it reaches the athlete untranslated.";
+
+/**
+ * `no-restricted-syntax` entries that refuse reading a thrown error's own text
+ * as the sentence to show.
+ *
+ * `err instanceof Error ? err.message : fallback` looks like a safe fallback,
+ * but for a failed request the message is axios's, in English, whatever
+ * language the interface is in. The shared classifier reads status and
+ * transport instead and answers from the catalogue, so the raw read is refused
+ * here rather than caught site by site in review. The three shapes are the
+ * ternary, the ternary guarded by a truthiness check, and the `if` that
+ * assigns the message to what the screen shows.
+ *
+ * Exported as entries rather than as a rule setting because
+ * `no-restricted-syntax` takes one list per file: a client that restricts
+ * other syntax spreads these into the same list.
+ */
+export const rawErrorMessageRestrictions = [
+  {
+    selector:
+      "ConditionalExpression[test.operator='instanceof'][test.right.name='Error'][consequent.property.name='message']",
+    message: RAW_ERROR_MESSAGE,
+  },
+  {
+    selector:
+      "ConditionalExpression[test.type='LogicalExpression'][test.left.operator='instanceof'][test.left.right.name='Error'][consequent.property.name='message']",
+    message: RAW_ERROR_MESSAGE,
+  },
+  {
+    selector:
+      "IfStatement[test.operator='instanceof'][test.right.name='Error'] AssignmentExpression[right.property.name='message']",
+    message: RAW_ERROR_MESSAGE,
+  },
+];
+
 /**
  * Relaxed rules for test files
  */
@@ -53,5 +90,6 @@ export default {
   baseTypeScriptRules,
   baseReactRules,
   reactHooksRules,
+  rawErrorMessageRestrictions,
   testFileRules,
 };

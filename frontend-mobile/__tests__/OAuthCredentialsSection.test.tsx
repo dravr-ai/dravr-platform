@@ -6,6 +6,7 @@ import { render, waitFor, act, fireEvent } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { OAuthCredentialsSection } from '../src/components/OAuthCredentialsSection';
 import { userApi } from '../src/services/api';
+import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
 // Mock the api service
 jest.mock('../src/services/api', () => ({
@@ -271,7 +272,7 @@ describe('OAuthCredentialsSection', () => {
     it('should handle save error', async () => {
       (userApi.getOAuthApps as jest.Mock).mockResolvedValue({ apps: [] });
       (userApi.registerOAuthApp as jest.Mock).mockRejectedValue(
-        new Error('Invalid credentials')
+        apiRefusal(400, { message: 'Invalid credentials' })
       );
 
       const { getByText, getByPlaceholderText } = render(<OAuthCredentialsSection />);

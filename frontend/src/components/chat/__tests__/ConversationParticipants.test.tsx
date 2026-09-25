@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ConversationParticipants from '../ConversationParticipants';
 import { ToastProvider } from '../../ui';
 import type { ConversationParticipant } from '@pierre/shared-types';
+import { apiRefusal } from '../../../test/apiRefusal';
 
 const listParticipants = vi.fn();
 const addParticipant = vi.fn();
@@ -104,7 +105,9 @@ describe('ConversationParticipants', () => {
   });
 
   it('surfaces the server refusal when an add is rejected', async () => {
-    addParticipant.mockRejectedValue(new Error('Cannot add a user who is not a member of this tenant'));
+    addParticipant.mockRejectedValue(
+      apiRefusal(403, { message: 'Cannot add a user who is not a member of this tenant' }),
+    );
     renderComponent();
     await screen.findByText('Participants (2)');
     fireEvent.click(screen.getByRole('button', { name: /participants/i }));
@@ -116,5 +119,19 @@ describe('ConversationParticipants', () => {
       await screen.findByText('Cannot add a user who is not a member of this tenant'),
     ).toBeInTheDocument();
     expect(listParticipants).toHaveBeenCalledTimes(1);
+  });
+
+  it('words a server failure from the catalogue, never from axios or the server internals', async () => {
+    addParticipant.mockRejectedValue(apiRefusal(500, { message: 'pool timed out after 30s' }));
+    renderComponent();
+    await screen.findByText('Participants (2)');
+    fireEvent.click(screen.getByRole('button', { name: /participants/i }));
+
+    fireEvent.change(screen.getByLabelText('User id to add'), { target: { value: NEWCOMER_ID } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText('Server error. Try again a bit later.')).toBeInTheDocument();
+    expect(screen.queryByText('Request failed with status code 500')).not.toBeInTheDocument();
+    expect(screen.queryByText('pool timed out after 30s')).not.toBeInTheDocument();
   });
 });

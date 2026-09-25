@@ -13,6 +13,8 @@ import {
 } from '../services/api/admin';
 import { Card, Button, Badge } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 type BadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'secondary';
 
@@ -30,6 +32,7 @@ function formatScore(score: number): string {
 }
 
 export default function CoachGradingTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
 
@@ -110,7 +113,7 @@ export default function CoachGradingTab() {
         ) : isError ? (
           <div className="p-6 text-sm text-error">
             Failed to load agent grading summary:{' '}
-            {error instanceof Error ? error.message : String(error)}
+            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </div>
         ) : !data || data.grades.length === 0 ? (
           <div className="p-12 text-center">

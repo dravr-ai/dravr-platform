@@ -11,6 +11,7 @@ import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import type { VerdictKnob } from '../services/api/admin';
 import { Button, Select, Textarea } from './ui';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** What an admin records about one verdict. */
 export interface DispositionInput {
@@ -96,7 +97,7 @@ function DispositionControl({
 }) {
   // The panel's copy is English by decision (operator chrome); the date still
   // follows the viewer's locale, as every other timestamp in the shell does.
-  const { language } = useTranslation();
+  const { t, language } = useTranslation();
   const [disposition, setDisposition] = useState<VerdictDisposition | ''>(verdict.disposition ?? '');
   const [reason, setReason] = useState<DispositionReason | ''>(verdict.disposition_reason ?? '');
   const [note, setNote] = useState<string>(verdict.disposition_note ?? '');
@@ -114,7 +115,7 @@ function DispositionControl({
         note: note.trim() || undefined,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeApiError(e, { t, fallbackKey: 'errors.unknown' }));
     } finally {
       setSaving(false);
     }

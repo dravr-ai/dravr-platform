@@ -133,6 +133,7 @@ vi.mock('../../services/api', () => ({
 }));
 
 import { storeApi, coachesApi, chatApi } from '../../services/api';
+import { networkFailure } from '../../test/apiRefusal';
 
 // A coach installed from the store is a personal copy: fresh id, `forked_from`
 // pointing at the store listing. Mirrors GET /api/agents on a live server.
@@ -409,7 +410,7 @@ describe('StoreScreen', () => {
 
   describe('failed store fetch', () => {
     it('should show a retry error state instead of the empty-store copy', async () => {
-      vi.mocked(storeApi.browse).mockRejectedValueOnce(new Error('Network Error'));
+      vi.mocked(storeApi.browse).mockRejectedValueOnce(networkFailure());
 
       renderStoreScreen();
 
@@ -420,7 +421,9 @@ describe('StoreScreen', () => {
       // The confident-but-wrong empty state must not be shown for a failure.
       expect(screen.queryByText('Store is empty')).not.toBeInTheDocument();
       expect(screen.queryByText('No published agents available yet')).not.toBeInTheDocument();
-      expect(screen.getByText('Network Error')).toBeInTheDocument();
+      // The catalogue's sentence, never axios's own English message.
+      expect(screen.getByText('Network error. Check your connection.')).toBeInTheDocument();
+      expect(screen.queryByText('Network Error')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Try Again' })).toBeInTheDocument();
     });
 

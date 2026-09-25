@@ -16,6 +16,7 @@ import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 import { useTranslation } from '@pierre/i18n';
 import { formatCompactNumber, formatDate } from '@pierre/chat-utils';
+import { describeApiError } from '@pierre/ui-logic';
 
 function formatCurrency(amount: number | undefined, currency: string | undefined): string {
   if (amount == null) return '—';
@@ -69,7 +70,7 @@ export default function BillingPage() {
     onSuccess: (data) => {
       window.location.href = data.checkout_url;
     },
-    onError: (e) => setError(e instanceof Error ? e.message : t('shell.billingCheckoutFailed')),
+    onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'shell.billingCheckoutFailed' })),
   });
 
   const portalMutation = useMutation({
@@ -83,7 +84,7 @@ export default function BillingPage() {
     onSuccess: (data) => {
       window.location.href = data.portal_url;
     },
-    onError: (e) => setError(e instanceof Error ? e.message : t('shell.billingPortalOpenFailed')),
+    onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'shell.billingPortalOpenFailed' })),
   });
 
   const sub = subscriptionQuery.data;

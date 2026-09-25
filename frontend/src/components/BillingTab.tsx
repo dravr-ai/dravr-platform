@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { adminApi } from '../services/api';
 import { Button, Card } from './ui';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 function defaultPeriod(): string {
   const now = new Date();
@@ -41,7 +42,7 @@ export default function BillingTab() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('shell.billingExportFailed'));
+      setError(describeApiError(e, { t, fallbackKey: 'shell.billingExportFailed' }));
     } finally {
       setBusy(false);
     }

@@ -44,6 +44,7 @@ jest.mock('expo-router', () =>
 
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { threadHref } from '../src/navigation/routes';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 /** The list is the chat tab's landing screen; its header bell and its rows read a react-query cache. */
 function render(ui: React.ReactElement) {
@@ -351,10 +352,10 @@ describe('ConversationsScreen — one flat list', () => {
   });
 
   it('shows the load error with a Retry that re-reads', async () => {
-    mockGetConversations.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(page([makeConv({ id: 'c1', title: 'Back' })]));
+    mockGetConversations.mockRejectedValueOnce(networkFailure()).mockResolvedValueOnce(page([makeConv({ id: 'c1', title: 'Back' })]));
 
     const { findByTestId, findByText, getByTestId } = render(<ConversationsScreen />);
-    expect(await findByText('offline')).toBeTruthy();
+    expect(await findByText('Network error. Check your connection.')).toBeTruthy();
 
     await act(async () => {
       fireEvent.press(getByTestId('conversations-retry'));

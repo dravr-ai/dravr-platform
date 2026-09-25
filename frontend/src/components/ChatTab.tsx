@@ -60,6 +60,7 @@ import type {
 import type { MessageFeedbackEntry } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
+import { describeApiError } from '@pierre/ui-logic';
 
 /**
  * The id prefix of the user row appended to the transcript while a turn is in
@@ -776,7 +777,7 @@ export default function ChatTab({
         else newMap.delete(messageId);
         return newMap;
       });
-      setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
+      setErrorMessage(describeApiError(error, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
     }
   }, [selectedConversation, messageFeedback, t]);
 
@@ -807,7 +808,7 @@ export default function ChatTab({
         trimmed || undefined,
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
+      setErrorMessage(describeApiError(error, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
     }
   }, [selectedConversation, t]);
 

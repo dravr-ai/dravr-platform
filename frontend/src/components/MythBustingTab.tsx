@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type MythBustingSummary } from '../services/api/admin';
 import { Card, Button } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
@@ -24,6 +26,7 @@ function humanizeCategory(cat: string): string {
 }
 
 export default function MythBustingTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
   const queryClient = useQueryClient();
@@ -128,7 +131,7 @@ export default function MythBustingTab() {
         <Card className="p-6">
           <p className="text-sm text-error">
             Failed to load myth-busting summary:{' '}
-            {error instanceof Error ? error.message : String(error)}
+            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </p>
         </Card>
       ) : data && data.flagged_total === 0 ? (
@@ -187,9 +190,7 @@ export default function MythBustingTab() {
             ) : promoteMutation.isError ? (
               <div className="border-t border-error px-6 py-3 text-xs text-error">
                 Failed to promote topic:{' '}
-                {promoteMutation.error instanceof Error
-                  ? promoteMutation.error.message
-                  : 'unknown error'}
+                {describeApiError(promoteMutation.error, { t, fallbackKey: 'errors.unknown' })}
               </div>
             ) : null}
           </Card>

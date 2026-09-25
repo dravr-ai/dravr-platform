@@ -13,6 +13,8 @@ import {
 } from '../services/api/admin';
 import { Card, Button } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 const KIND_LABELS: Record<string, string> = {
   preference: 'Preferences',
@@ -124,6 +126,7 @@ const STATUS_CLASS: Record<ReturnType<typeof healthStatus>['variant'], string> =
 };
 
 export default function MemoryExtractionMonitorTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
 
@@ -195,7 +198,7 @@ export default function MemoryExtractionMonitorTab() {
         <Card className="p-6">
           <p className="text-sm text-error">
             Failed to load memory worker metrics:{' '}
-            {error instanceof Error ? error.message : String(error)}
+            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </p>
         </Card>
       ) : metrics ? (

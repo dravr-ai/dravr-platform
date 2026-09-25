@@ -17,6 +17,7 @@ import type {
   GroupInviteKind,
   CreateInviteRequest,
 } from '@pierre/shared-types';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface InviteManagerProps {
   groupId: string;
@@ -101,7 +102,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       showSuccess(t('app.inviteCreated'), detail);
       setShowCreateForm(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.inviteCreateFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.inviteCreateFailed' });
       showError(t('app.creationFailed'), message);
     }
   };
@@ -133,7 +134,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       showSuccess(t('app.inviteDeactivated'), t('app.inviteLinkStopsWorking'));
       setConfirmDeactivate(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.inviteDeactivateFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.inviteDeactivateFailed' });
       showError(t('app.deactivationFailed'), message);
     }
   };

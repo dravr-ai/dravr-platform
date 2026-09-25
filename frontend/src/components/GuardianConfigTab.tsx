@@ -16,6 +16,8 @@ import {
   type GuardianFieldSources,
 } from '../services/api/admin';
 import { Card, Button, Badge, Input, Select } from './ui';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 const GUARDIAN_CONFIG_QUERY_KEY = ['admin', 'guardian-config'] as const;
 
@@ -64,6 +66,7 @@ function externalSendLabel(value: GuardianExternalSend): string {
 }
 
 export default function GuardianConfigTab() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: GUARDIAN_CONFIG_QUERY_KEY,
@@ -94,7 +97,7 @@ export default function GuardianConfigTab() {
       queryClient.setQueryData(GUARDIAN_CONFIG_QUERY_KEY, resp);
     },
     onError: (err: unknown) => {
-      setServerError(err instanceof Error ? err.message : String(err));
+      setServerError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
     },
   });
 
@@ -112,7 +115,7 @@ export default function GuardianConfigTab() {
     return (
       <Card className="p-6">
         <p className="text-sm text-error">
-          Failed to load guardian config: {error instanceof Error ? error.message : String(error)}
+          Failed to load guardian config: {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
         </p>
       </Card>
     );

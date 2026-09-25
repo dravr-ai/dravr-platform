@@ -35,6 +35,7 @@ import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import { sciotteTargetForBackend } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** The brand each credential-login target is named by once it connects. */
 const SCIOTTE_BRAND_KEY: Record<SciotteTarget, string> = {
@@ -180,7 +181,7 @@ export function OnboardingConnectScreen() {
         // that's a deliberate choice, so we do NOT push the Sciotte fallback.
       } catch (err) {
         setAwaitingOAuthFor(null);
-        const message = err instanceof Error ? err.message : t('app.failedToConnect');
+        const message = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });
         console.error('Onboarding OAuth flow failed:', err);
         if (providerId === 'whoop') {
           // No BYO app registered yet — open the in-place setup modal so the

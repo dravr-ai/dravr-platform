@@ -40,6 +40,7 @@ import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface OAuthApp {
   provider: string;
@@ -479,7 +480,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       setProviderToDisconnect(null);
       setProviderMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : t('settingsErr.disconnectFailed'),
+        text: describeApiError(error, { t, fallbackKey: 'settingsErr.disconnectFailed' }),
       });
     }
   };
@@ -1509,9 +1510,10 @@ Authorization: Bearer <your-token-here>`}
                           </div>
                         ) : connectedAppsError ? (
                           <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
-                            {connectedAppsError instanceof Error
-                              ? connectedAppsError.message
-                              : t('settingsErr.loadAppsFailed')}
+                            {describeApiError(connectedAppsError, {
+                              t,
+                              fallbackKey: 'settingsErr.loadAppsFailed',
+                            })}
                           </div>
                         ) : connectedApps && connectedApps.length > 0 ? (
                           <div>

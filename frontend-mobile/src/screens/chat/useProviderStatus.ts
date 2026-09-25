@@ -10,6 +10,7 @@ import { oauthApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 export interface ProviderStatusState {
   connectedProviders: ExtendedProviderStatus[];
@@ -54,7 +55,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       setProvidersLoaded(true);
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : t('providers.failedLoadProviderStatus');
+        describeApiError(err, { t, fallbackKey: 'providers.failedLoadProviderStatus' });
       setError(errorMessage);
       console.error('Failed to load provider status:', err);
     }
@@ -140,7 +141,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     } catch (err) {
       setConnectingProvider(null);
       const errorMessage =
-        err instanceof Error ? err.message : t('providers.failedConnectProvider');
+        describeApiError(err, { t, fallbackKey: 'providers.failedConnectProvider' });
 
       // Detect missing OAuth credentials — show credential entry instead of error
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')

@@ -24,6 +24,7 @@ import {
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
+import { describeApiError } from '@pierre/ui-logic';
 
 export interface MessagesState {
   messages: Message[];
@@ -250,7 +251,7 @@ export function useMessages(): MessagesState & MessagesActions {
       const response = await chatApi.getConversationMessages(conversationId);
       await showTranscript(conversationId, response);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMessages');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadMessages' });
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
@@ -571,7 +572,7 @@ export function useMessages(): MessagesState & MessagesActions {
         }
       } catch (err) {
         setMessageFeedback(prev => ({ ...prev, [messageId]: previous }));
-        setError(err instanceof Error ? err.message : t('chat.feedbackSaveFailed'));
+        setError(describeApiError(err, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
       }
     },
     [messageFeedback]
@@ -601,7 +602,7 @@ export function useMessages(): MessagesState & MessagesActions {
           trimmed || undefined
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : t('chat.feedbackSaveFailed'));
+        setError(describeApiError(err, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
       }
     },
     []
