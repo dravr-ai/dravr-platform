@@ -181,6 +181,19 @@ import { createI18nApi } from './domains/i18n';
 export { createUsageApi } from './domains/usage';
 export type { UsageApi, LimitCheckResult, UsageStatusResponse } from './domains/usage';
 import { createUsageApi } from './domains/usage';
+export { createBillingApi } from './domains/billing';
+export type {
+  BillingApi,
+  CheckoutRequest,
+  CheckoutResponse,
+  InvoicesResponse,
+  MyQuotaResponse,
+  PlansResponse,
+  PortalRequest,
+  PortalResponse,
+  SubscriptionView,
+} from './domains/billing';
+import { createBillingApi } from './domains/billing';
 
 /**
  * Complete API service combining all domain APIs.
@@ -213,6 +226,8 @@ export interface PierreApiService {
   i18n: ReturnType<typeof createI18nApi>;
   /** The calling user's quota counters, read by the chat banner and the settings usage cards */
   usage: ReturnType<typeof createUsageApi>;
+  /** Subscription, invoices, plans, the quota snapshot, hosted checkout and portal */
+  billing: ReturnType<typeof createBillingApi>;
   /** Underlying axios instance for custom requests */
   axios: AxiosInstance;
   /** Platform adapter */
@@ -260,6 +275,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     personas: createPersonasApi(axios),
     i18n: createI18nApi(axios),
     usage: createUsageApi(axios),
+    billing: createBillingApi(axios),
     axios,
     adapter,
   };

@@ -306,8 +306,11 @@ describe('client locale corpus', () => {
     // the phone's connections and onboarding lines. +9.
     // 2465 once COROS carried its own exposure notice, as TrainingPeaks does:
     // `providers.corosNotice` title, body and acceptance. +3.
+    // 2462 once both plan pages named a tier through one key set: mobile's
+    // `app.planStarter`, `app.planProfessional` and `app.planEnterprise`
+    // carried the same words as web's `plan.*`, which both now read. −3.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2465);
+    expect(reference).toHaveLength(2462);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

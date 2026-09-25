@@ -133,6 +133,15 @@ export type { NotificationDestination, NotificationNavTarget } from './notificat
 // Memory fact kinds (the server's FactKind wire values and their label keys)
 export { MEMORY_KIND_LABEL_KEY } from './memory';
 
+// Billing vocabulary both plan pages print (tier names as corpus keys, and the
+// subscription statuses that ask the athlete to fix their payment)
+export {
+  PLAN_TIER_LABEL_KEY,
+  planTierLabelKey,
+  PAYMENT_PROBLEM_STATUSES,
+  hasPaymentProblem,
+} from './billing';
+
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
 export {
