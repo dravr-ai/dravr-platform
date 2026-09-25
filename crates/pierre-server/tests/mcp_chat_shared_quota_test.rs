@@ -1,5 +1,5 @@
 // ABOUTME: One quota policy, two doors — /mcp and a chat turn refuse the same user at the same number
-// ABOUTME: Driven through both real entry points, at the exact counter value where the verdict flips
+// ABOUTME: Driven through both real entry points at the flip value; an /mcp refusal reaches the client with its data
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,6 +27,9 @@ mod common;
 mod shared_quota_tests {
     use crate::common;
     use anyhow::Result;
+    use axum::body::{to_bytes, Body};
+    use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+    use axum::http::{Request, StatusCode};
     use chrono::{Duration, Utc};
     use dravr_tronc::mcp::tool::ToolContext;
     use pierre_chat_pipeline::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
@@ -34,6 +37,7 @@ mod shared_quota_tests {
     use pierre_core::models::{TenantId, STARTER};
     use pierre_core::permissions::scopes::OAuthScope;
     use pierre_database::backends::factory::Database;
+    use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::mcp::tool_handlers::ToolHandlers;
     use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
@@ -42,6 +46,7 @@ mod shared_quota_tests {
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
     use std::sync::Arc;
+    use tower::ServiceExt;
 
     use uuid::Uuid;
 
@@ -72,11 +77,12 @@ mod shared_quota_tests {
         Ok((Arc::clone(&resources), user_id, tenant.id))
     }
 
-    /// Set `daily_messages` to exactly `target` for this user/tenant.
-    async fn set_daily_messages(
+    /// Set the `counter` usage counter to exactly `target` for this user/tenant.
+    async fn set_counter(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
         tenant_id: TenantId,
+        counter: &str,
         target: i64,
     ) {
         let svc = UsageCounterService::new(
@@ -85,16 +91,11 @@ mod shared_quota_tests {
         );
         let tenant = tenant_id.to_string();
         let user = user_id.to_string();
-        let current = svc
-            .get_current(&tenant, &user, "daily_messages")
-            .await
-            .unwrap();
+        let current = svc.get_current(&tenant, &user, counter).await.unwrap();
         let delta = target - current;
         assert!(delta >= 0, "the counter only moves forward in this test");
         if delta > 0 {
-            svc.increment(&tenant, &user, "daily_messages", delta)
-                .await
-                .unwrap();
+            svc.increment(&tenant, &user, counter, delta).await.unwrap();
         }
     }
 
@@ -170,6 +171,50 @@ mod shared_quota_tests {
         serde_json::to_value(&response).unwrap()
     }
 
+    /// `POST /mcp` `tools/call` of [`HARMLESS_TOOL`] with the athlete's JWT,
+    /// through the app the server serves, and the JSON-RPC body it answers.
+    /// A refused tool call is still a served call: HTTP 200, answered in-band.
+    async fn tools_call_over_http(resources: &Arc<ServerContext>, user_id: Uuid) -> Value {
+        let user = resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .expect("the athlete exists");
+        let token = common::generate_test_token(resources, &user).await;
+        let request = Request::post("/mcp")
+            .header(CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::from(
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": { "name": HARMLESS_TOOL, "arguments": {} }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let response = ProviderToolRouter::build_http_app(resources)
+            .oneshot(request)
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "a refused tools/call is answered in-band, not as an HTTP error"
+        );
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            body.get("error").is_none(),
+            "a tool refusal is an isError result, not a JSON-RPC error: {body}"
+        );
+        body
+    }
+
     /// The seconds from now to the next UTC midnight, when a daily counter
     /// resets, and that instant as the counter names it.
     fn to_next_utc_midnight() -> (i64, String) {
@@ -197,7 +242,14 @@ mod shared_quota_tests {
         );
 
         // One below the hard limit: both surfaces allow.
-        set_daily_messages(&resources, user_id, tenant_id, hard_limit - 1).await;
+        set_counter(
+            &resources,
+            user_id,
+            tenant_id,
+            "daily_messages",
+            hard_limit - 1,
+        )
+        .await;
         assert_eq!(
             chat_verdict(&resources, user_id, tenant_id).await?,
             None,
@@ -212,7 +264,7 @@ mod shared_quota_tests {
 
         // At the hard limit: both surfaces refuse, and the chat side names the
         // same counter and the same number the shared policy read.
-        set_daily_messages(&resources, user_id, tenant_id, hard_limit).await;
+        set_counter(&resources, user_id, tenant_id, "daily_messages", hard_limit).await;
         assert_eq!(
             chat_verdict(&resources, user_id, tenant_id).await?,
             Some(("daily_messages".to_owned(), STARTER.daily_messages)),
@@ -233,7 +285,7 @@ mod shared_quota_tests {
         let (resources, user_id, tenant_id) = setup().await?;
         #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         let hard_limit = (STARTER.daily_messages as f64 * BURST_MULTIPLIER) as i64;
-        set_daily_messages(&resources, user_id, tenant_id, hard_limit).await;
+        set_counter(&resources, user_id, tenant_id, "daily_messages", hard_limit).await;
 
         let ctx = resources.chat_pipeline_context();
         let refusal =
@@ -317,11 +369,96 @@ mod shared_quota_tests {
 
         #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         let hard_limit = (STARTER.daily_messages as f64 * BURST_MULTIPLIER) as i64;
-        set_daily_messages(&resources, user_id, tenant_id, hard_limit).await;
+        set_counter(&resources, user_id, tenant_id, "daily_messages", hard_limit).await;
 
         assert!(
             mcp_refused(&resources, user_id, tenant_id).await,
             "an admin is subject to the same caps on /mcp as on chat"
+        );
+        Ok(())
+    }
+
+    /// A spent tool-call budget reaches an MCP client as data it can back off
+    /// on: the `isError` result of `POST /mcp` `tools/call` carries the
+    /// refusal's counter, numbers, reset instant and wait as
+    /// `structuredContent`, and the same JSON as a second text block for a
+    /// client that reads only `content`. Rendering the refusal as its message
+    /// alone left the client with "Rate limit exceeded" and no wait.
+    #[tokio::test]
+    async fn spent_tool_quota_reaches_the_mcp_client_as_structured_data() -> Result<()> {
+        let (resources, user_id, tenant_id) = setup().await?;
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+        let hard_limit = (STARTER.daily_tool_calls as f64 * BURST_MULTIPLIER) as i64;
+        assert_eq!(
+            hard_limit, 300,
+            "Starter allows 200 daily tool calls with a 1.5x burst"
+        );
+        set_counter(
+            &resources,
+            user_id,
+            tenant_id,
+            "daily_tool_calls",
+            hard_limit,
+        )
+        .await;
+
+        let body = tools_call_over_http(&resources, user_id).await;
+        let (to_midnight, resets_at) = to_next_utc_midnight();
+        let result = &body["result"];
+        assert_eq!(result["isError"], true, "the refusal is an error: {body}");
+
+        let data = &result["structuredContent"];
+        assert_eq!(data["limit_type"], "daily_tool_calls", "{body}");
+        assert_eq!(data["limit"], STARTER.daily_tool_calls, "{body}");
+        assert_eq!(data["current"], hard_limit, "{body}");
+        assert_eq!(data["resets_at"].as_str(), Some(resets_at.as_str()));
+        let wait = data["retry_after_secs"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("the refusal names its wait: {body}"));
+        assert!(wait >= 1, "a refusal in force never reads as retry now");
+        assert!(
+            (wait - to_midnight).abs() <= 2,
+            "the refusal waits {wait}s, midnight is {to_midnight}s away"
+        );
+
+        let content = result["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2, "message, then the data as JSON: {body}");
+        assert_eq!(content[0]["text"], "Rate limit exceeded");
+        let text_data: Value = serde_json::from_str(content[1]["text"].as_str().unwrap())?;
+        assert_eq!(
+            &text_data, data,
+            "the text block carries the same data as structuredContent"
+        );
+        Ok(())
+    }
+
+    /// A refusal that carries no data renders as its message alone: a tool
+    /// disabled for the tenant answers `isError` with one text block and no
+    /// `structuredContent`.
+    #[tokio::test]
+    async fn refusal_without_data_reaches_the_mcp_client_as_its_message() -> Result<()> {
+        let (resources, user_id, tenant_id) = setup().await?;
+        resources
+            .mcp
+            .tool_selection
+            .set_tool_override(tenant_id, HARMLESS_TOOL, false, user_id, None)
+            .await?;
+
+        let body = tools_call_over_http(&resources, user_id).await;
+        let result = &body["result"];
+        assert_eq!(result["isError"], true, "the refusal is an error: {body}");
+        assert!(
+            result.get("structuredContent").is_none(),
+            "no data, no structuredContent: {body}"
+        );
+        let content = result["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1, "the message alone: {body}");
+        assert_eq!(
+            content[0]["text"],
+            format!(
+                "Tool '{HARMLESS_TOOL}' is not available for your tenant. \
+                 Contact your administrator to enable it."
+            )
         );
         Ok(())
     }
