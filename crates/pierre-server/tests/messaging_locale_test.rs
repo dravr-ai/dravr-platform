@@ -28,6 +28,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_LIST_EMPTY, KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_SLASH_ANSWERED_PRIVATELY,
     KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
 };
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -417,6 +418,29 @@ async fn resolve_locale_prefers_channel_link_override() {
     assert_eq!(
         resolved, "es",
         "cleared override must fall through to users.locale"
+    );
+}
+
+/// Setting a locale on a channel the user never linked updates no row, and that
+/// is reported as a `NotFound` naming the user and the channel rather than as a
+/// silent success.
+#[tokio::test]
+async fn set_channel_link_locale_without_link_is_not_found() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id) = seed_user_and_tenant(&resources).await;
+
+    let error = resources
+        .common
+        .repos
+        .messaging
+        .set_channel_link_locale(tenant_id, &user_id.to_string(), "telegram", Some("de"))
+        .await
+        .expect_err("no channel link exists, so no row is updated");
+
+    assert_eq!(error.code, ErrorCode::ResourceNotFound);
+    assert_eq!(
+        error.message,
+        format!("Channel link for user {user_id} on telegram not found")
     );
 }
 

@@ -104,9 +104,11 @@ impl StravaProvider {
 
     /// Validate that an access token appears to be legitimate
     fn validate_access_token(token: &str) -> AppResult<()> {
-        (!token.starts_with("at_") && token.len() >= 40).ok_or_else(|| AppError::internal(
-                "Invalid Strava access token. Please authenticate with Strava first to access real data."
-            ))
+        (!token.starts_with("at_") && token.len() >= 40).ok_or_else(|| {
+            AppError::internal(
+                "Invalid Strava access token. Please authenticate with Strava first to access real data.",
+            )
+        })
     }
 
     /// Extract resource details from Strava 404 error response

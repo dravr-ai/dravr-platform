@@ -383,14 +383,13 @@ impl A2AServer {
                 ))
             })?;
 
-        if !owned_ids.iter().any(|id| id == client_id) {
-            // Do not reveal whether the task exists for another principal.
-            return Err(Box::new(Self::spec_error(
+        // Do not reveal whether the task exists for another principal.
+        owned_ids.iter().any(|id| id == client_id).ok_or_else(|| {
+            Box::new(Self::spec_error(
                 A2ASpecError::TaskNotFound,
                 request_id.cloned(),
-            )));
-        }
-        Ok(())
+            ))
+        })
     }
 
     /// Load a task and verify the principal may access it.
