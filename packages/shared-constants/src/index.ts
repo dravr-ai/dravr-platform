@@ -89,8 +89,8 @@ export {
 export type { MentionDraft, MentionCandidate } from './mentions';
 
 // User-facing surface registry (what the product offers, and where per platform)
-export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels, webRouteFor } from './surfaces';
-export type { UserSurface } from './surfaces';
+export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels } from './surfaces';
+export type { DestinationRoutes, UserSurface } from './surfaces';
 
 // Settings menu grouping (which panes, in what order, holding what)
 export {
@@ -99,6 +99,8 @@ export {
   settingsPanesFor,
   settingsPane,
   settingsPaneSections,
+  settingsPaneWebRoute,
+  settingsSectionScreen,
   HELP_URL,
   LEGAL_URL,
   APP_VERSION,

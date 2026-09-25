@@ -4,7 +4,13 @@
 // ABOUTME: The expo-router paths the Home and chat tabs and the agent edit sheet live at, in one place
 // ABOUTME: Screens, the tab bar, deep links and tests read these so a moved route changes one line
 
-import { MOBILE_THREAD_PATHNAME, surfaceById } from '@pierre/shared-constants';
+import {
+  MOBILE_THREAD_PATHNAME,
+  settingsPane,
+  settingsSectionScreen,
+  surfaceById,
+  type SettingsPaneId,
+} from '@pierre/shared-constants';
 
 /** The chat tab: the conversation list. */
 export const CHAT_LIST_ROUTE = '/(app)/(tabs)/(chat)' as const;
@@ -85,16 +91,30 @@ function mobileRouteOf(id: string): string {
 export const HOME_ROUTE = mobileRouteOf('home');
 
 /**
+ * The mobile route of a settings pane, from the shared pane declaration.
+ * Throws at module load for the same reason {@link mobileRouteOf} does:
+ * `SettingsPaneParity.test.ts` fails when a pane declared for mobile has no
+ * screen, so a missing route is a build error.
+ */
+function paneRouteOf(id: SettingsPaneId): string {
+  const route = settingsPane(id).mobile;
+  if (route === null) {
+    throw new Error('settings pane declares no mobile route for ' + id);
+  }
+  return route;
+}
+
+/**
  * The connected-apps screen — the external MCP clients the athlete approved.
  * Account's connected-apps row and the Connections pane's section both push
- * it, and both read the path from the surface registry, so the route a screen
- * opens and the route the registry declares for mobile cannot differ.
+ * it, and both read the path from the Account pane's declaration, so the
+ * route a screen opens and the route the registry declares cannot differ.
  */
-export const CONNECTED_APPS_ROUTE = mobileRouteOf('connected-apps');
+export const CONNECTED_APPS_ROUTE = settingsSectionScreen('connected-mcp-apps');
 
 /**
  * The connections pane — the athlete's fitness providers. Group info sends a
  * coach here when their own TrainingPeaks is missing, dead or behind the
  * current notice, the three things only that pane fixes.
  */
-export const CONNECTIONS_ROUTE = mobileRouteOf('data-providers');
+export const CONNECTIONS_ROUTE = paneRouteOf('connections');

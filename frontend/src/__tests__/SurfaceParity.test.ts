@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
-import { SETTINGS_PANES, SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
+import { SURFACE_CAPABILITIES, USER_SURFACES, surfacesFor } from '@pierre/shared-constants';
 import { defaultI18nConfig } from '@pierre/i18n';
 
 /**
@@ -29,19 +29,12 @@ const chatRendererSource = fs.readFileSync(CHAT_RENDERER, 'utf8');
 
 /**
  * A web route exists when the Dashboard either declares it as a sidebar tab or
- * renders something for it. Both count: settings sub-surfaces are reachable
- * through the gear rather than the sidebar, so requiring a `TabDefinition`
- * would fail six surfaces that genuinely work.
+ * renders something for it. Both count: the admin console is reached without a
+ * sidebar entry of its own. Settings panes are not surfaces; the settings rail
+ * test checks those against `SETTINGS_PANES`.
  */
 function dashboardServes(route: string): boolean {
-  const [tab, section] = route.split('/');
-  const servesTab =
-    dashboardSource.includes(`id: '${tab}'`) || dashboardSource.includes(`activeTab === '${tab}'`);
-  if (section === undefined) return servesTab;
-  // A `settings/<section>` route is served when the Dashboard serves `settings`
-  // and the pane registry declares that section — the shape the connections
-  // pane uses now that it is no longer also a top-level tab of its own.
-  return servesTab && SETTINGS_PANES.some((pane) => pane.id === section);
+  return dashboardSource.includes(`id: '${route}'`) || dashboardSource.includes(`activeTab === '${route}'`);
 }
 
 describe('surface parity — web', () => {
@@ -52,8 +45,9 @@ describe('surface parity — web', () => {
     // floor dropped from 14 when the Chat-First Cutover retired Insights and
     // folded the Coach tab into Discover, and again to 12 when group
     // management moved into the group's own chat thread — each one surface
-    // fewer by decision.
-    expect(webSurfaces.length).toBeGreaterThanOrEqual(12);
+    // fewer by decision. It dropped to 6 when the settings destinations left
+    // this registry for SETTINGS_PANES, their one declaration.
+    expect(webSurfaces.length).toBeGreaterThanOrEqual(6);
   });
 
   it('no longer declares the retired Groups surface', () => {
