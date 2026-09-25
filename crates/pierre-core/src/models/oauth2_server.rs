@@ -34,6 +34,21 @@ pub struct OAuth2Client {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
+/// What one retention sweep of the RFC 7591 client registrations deleted.
+///
+/// A client's authorization codes, refresh tokens and CSRF states go with it
+/// through their `ON DELETE CASCADE` foreign keys; its consent grants carry no
+/// foreign key and are deleted explicitly, and counted here.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OAuth2ClientSweep {
+    /// Registrations deleted because their `expires_at` passed the grace cutoff
+    pub expired: u64,
+    /// Registrations deleted because no user authorized them before the cutoff
+    pub abandoned: u64,
+    /// Consent grants deleted because the client they name no longer exists
+    pub orphaned_grants: u64,
+}
+
 /// A pending RFC 8628 Device Authorization for `pierre-cli auth login`.
 ///
 /// Created when the CLI calls `/admin/device/authorization`, flipped to

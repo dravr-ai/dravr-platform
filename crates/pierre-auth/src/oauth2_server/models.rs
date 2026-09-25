@@ -5,8 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// The error code a throttled OAuth endpoint answers with, alongside HTTP 429.
+const TOO_MANY_REQUESTS: &str = "too_many_requests";
 
 /// OAuth 2.0 Client Registration Request (RFC 7591)
 #[derive(Debug, Deserialize)]
@@ -122,10 +126,35 @@ pub struct OAuth2Error {
     /// Human-readable error description
     pub error_description: Option<String>,
     /// URI for error information
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_uri: Option<String>,
 }
 
 impl OAuth2Error {
+    /// Create a `too_many_requests` error: the refusal of a throttled request,
+    /// answered with HTTP 429 — by the per-address rate limiter, and by client
+    /// registration once the pending-registration ceiling is reached. The body
+    /// keeps the RFC 7591 §3.2.2 shape, `error` plus `error_description`.
+    #[must_use]
+    pub fn too_many_requests(description: &str) -> Self {
+        Self {
+            error: TOO_MANY_REQUESTS.to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: None,
+        }
+    }
+
+    /// The HTTP status `POST /oauth2/register` answers this refusal with:
+    /// 429 for a throttled request, 400 for every other (RFC 7591 §3.2.2).
+    #[must_use]
+    pub fn registration_status(&self) -> StatusCode {
+        if self.error == TOO_MANY_REQUESTS {
+            StatusCode::TOO_MANY_REQUESTS
+        } else {
+            StatusCode::BAD_REQUEST
+        }
+    }
+
     /// Create an `invalid_request` error
     #[must_use]
     pub fn invalid_request(description: &str) -> Self {

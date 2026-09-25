@@ -62,6 +62,9 @@ pub mod coros_self_report;
 /// HTTP client for the dedicated dravr-sciotte scraper service (ADR-021 remote path)
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_remote;
+/// How a request to the sciotte scraper failed when no HTTP response came back: timeout, unreachable, closed mid-request.
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_transport;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;

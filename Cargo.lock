@@ -4158,6 +4158,7 @@ dependencies = [
  "dravr-tronc",
  "futures-util",
  "hex",
+ "hyper",
  "num-traits",
  "pierre-auth",
  "pierre-cache",

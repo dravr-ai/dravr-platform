@@ -12,6 +12,7 @@ use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     models::{ClientRegistrationRequest, OAuth2State},
 };
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_database::{
     backends::factory::Database,
     database::{generate_encryption_key, test_utils::create_test_db_with_key},
@@ -42,7 +43,7 @@ async fn create_test_client(
     };
 
     let response = registration_manager
-        .register_client(registration)
+        .register_client(registration, MAX_PENDING_REGISTRATIONS)
         .await
         .map_err(|e| format!("Failed to register OAuth2 client: {e:?}"))?;
 

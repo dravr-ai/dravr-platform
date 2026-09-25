@@ -4,6 +4,5 @@
 # ABOUTME: Tests here require external LLM services not available in CI
 
 files = [
-    "crates/pierre-server/tests/llm_openai_compatible_test.rs",
     "crates/pierre-server/tests/llm_local_integration_test.rs",
 ]

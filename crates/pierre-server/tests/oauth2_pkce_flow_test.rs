@@ -18,6 +18,7 @@ use pierre_auth::{
         models::{AuthorizeRequest, ClientRegistrationRequest, TokenRequest},
     },
 };
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
@@ -64,7 +65,7 @@ async fn setup_test_env() -> (
     };
 
     let registration_response = registration_manager
-        .register_client(registration_request)
+        .register_client(registration_request, MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap();
 
@@ -373,7 +374,7 @@ async fn test_auth_code_client_binding() {
         scope: None,
     };
     let second_client_response = registration_manager
-        .register_client(second_client_request)
+        .register_client(second_client_request, MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap();
 

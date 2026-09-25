@@ -1,17 +1,40 @@
-# ABOUTME: Daily cron that runs the live-Ollama LLM integration tests
-# ABOUTME: Provisions Ollama + qwen2.5 model, sets RUN_LOCAL_LLM_TESTS=1
+# ABOUTME: Daily live run of llm_local_integration_test against an Ollama this job provisions (qwen2.5:14b-instruct)
+# ABOUTME: Covers the platform's local OpenAI-compatible provider path with the real tool registry and coaching prompts
+#
+# WHAT RUNS HERE, AND WHY IT STILL SHIPS
+#
+# Ollama is not a tier of the deployed fallback chain and will not become one
+# (JF, 2026-09-22, carnet#480; dev runs claude_code -> copilot_sdk -> gemini).
+# It is still a provider the platform ships: a user's own Local LLM credential
+# (`/api/user/llm-settings`, provider `local`) and `PIERRE_LLM_PROVIDER=local`
+# both build their provider through `http_env::local_provider` and the
+# `EmbacleProvider` facade. `llm_local_integration_test` drives exactly that
+# path against a real model: completion, streaming, tool calling with schemas
+# pulled from the live `ToolRegistry`, the coaching persona prompts, group
+# attribution, concurrency, and the missing-model / dead-server errors. A tool
+# rename or schema change that a function-calling model can no longer act on
+# shows up here and nowhere else in this repository.
+#
+# What is deliberately not here:
+#   - the OpenAI-compatible provider's own tests, which moved with the provider
+#     into dravr-embacle (tests/openai_compatible.rs, 5a20567bb);
+#   - llm_chain_guard_test and llm_health_probe_test, which drive mock runners,
+#     need no model, and run in the full server suite on every push to main.
+#
+# The build runs before the model pull, so a renamed or moved test target
+# (the failure mode of carnet#474) fails in minutes rather than after a 9 GB
+# download. scripts/ci/check-workflow-test-targets.sh catches that before push.
 
 name: "Monitor: LLM Live Integration"
 
 on:
   schedule:
-    # Every day at 06:30 UTC (after Copilot + Claude probes; cheap when LLM API is quiet)
+    # Every day at 06:30 UTC; the cost is runner minutes, never tokens.
     - cron: "30 6 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
   issues: write
 
 concurrency:
@@ -26,64 +49,16 @@ env:
 
 jobs:
   live-llm:
-    name: Live Ollama integration tests
+    name: Live local-LLM integration (Ollama qwen2.5:14b-instruct)
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: pierre
-          POSTGRES_PASSWORD: ci_test_password
-          POSTGRES_DB: pierre_mcp_server
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U pierre -d pierre_mcp_server"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
-      - name: Free up runner disk space
-        run: |
-          # Runner has ~14GB free; qwen2.5:7b (~4GB) + qwen2.5:14b (~9GB) + a
-          # full debug build of pierre_mcp_server pushes it over the edge.
-          # Drop the preinstalled tooling we don't use to reclaim ~25GB.
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
-            "$AGENT_TOOLSDIRECTORY" || true
-          sudo apt-get clean
-          df -h /
-
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Ollama
-        run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          # Start Ollama in background
-          ollama serve > /tmp/ollama.log 2>&1 &
-          # Wait for the server to come up (max 30s)
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:11434/api/tags > /dev/null 2>&1; then
-              echo "Ollama ready after ${i}s"
-              break
-            fi
-            sleep 1
-          done
-
-      - name: Pull qwen2.5 models
-        run: |
-          # The live integration tests use both qwen2.5:7b (small) and
-          # qwen2.5:14b-instruct (tool-calling). 7b is ~4GB, 14b is ~9GB.
-          # GitHub-hosted runners have ~14GB disk; tight but workable.
-          ollama pull qwen2.5:7b
-          ollama pull qwen2.5:14b-instruct
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.98.1
@@ -93,23 +68,54 @@ jobs:
         with:
           shared-key: "llm-live-cron"
 
-      - name: Run live LLM integration tests
+      - name: Build the live test
+        run: cargo test --test llm_local_integration_test --no-run
+
+      # The installer starts Ollama as its own systemd unit on 127.0.0.1:11434
+      # (run 35340398372: "Creating ollama systemd service"), so that unit is
+      # the server the tests reach and its journal is the server's log.
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Ollama did not answer on :11434 after 30s" >&2
+          exit 1
+
+      - name: Pull qwen2.5:14b-instruct
+        # The one model the test names (create_ollama_provider); ~9 GB.
+        run: ollama pull qwen2.5:14b-instruct
+
+      # The verdict is the exit status, then two markers — never the absence of
+      # a finding. With RUN_LOCAL_LLM_TESTS unset every live case prints
+      # "skipping" and PASSES, so a green run must show that none skipped and
+      # that the binary ran tests at all. The vLLM case skips on purpose: it
+      # has its own switch and no server here.
+      - name: Run the live local-LLM tests
         env:
           RUN_LOCAL_LLM_TESTS: "1"
-          DATABASE_URL: "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server"
-          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-          PIERRE_RSA_KEY_SIZE: "2048"
         run: |
-          cargo test --test llm_local_integration_test --test llm_openai_compatible_test \
-            --test llm_chain_guard_test --test llm_health_probe_test \
-            -- --test-threads=1 --nocapture
+          log="$RUNNER_TEMP/llm-live.log"
+          status=0
+          # tee, not a redirect: a run killed by the job's wall clock must still
+          # show which test it died in. pipefail keeps cargo's status, not tee's.
+          set -o pipefail
+          cargo test --test llm_local_integration_test -- --test-threads=1 --nocapture 2>&1 | tee "$log" || status=$?
+          [ "$status" -eq 0 ] || { echo "::error::the live local-LLM tests failed (exit $status)" >&2; exit 1; }
+          if grep -q 'skipping: set RUN_LOCAL_LLM_TESTS' "$log"; then
+            echo "::error::a live test skipped — RUN_LOCAL_LLM_TESTS never reached the test process" >&2
+            exit 1
+          fi
+          grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log" || { echo "::error::the test binary ran nothing" >&2; exit 1; }
 
       - name: Dump Ollama log on failure
         if: failure()
-        run: |
-          echo "=== ollama.log (tail 200) ==="
-          tail -200 /tmp/ollama.log || true
+        run: sudo journalctl -u ollama --no-pager -n 200 || true
 
       - name: Open tracking issue on failure
         if: failure() && github.event_name == 'schedule'
@@ -118,7 +124,16 @@ jobs:
           script: |
             const today = new Date().toISOString().slice(0, 10);
             const title = `LLM Live Integration failed on ${today}`;
-            const body = `The daily live-Ollama integration tests failed.\n\nWorkflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\nLikely causes: Ollama model schema changed, llm provider implementation drift, GitHub runner disk pressure. See the run log + dumped ollama.log.`;
+            const body = [
+              'The daily live local-LLM lane failed: `llm_local_integration_test` against Ollama (qwen2.5:14b-instruct), through the platform\'s local provider path (`http_env::local_provider`, `EmbacleProvider`) with the real tool registry schemas.',
+              '',
+              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Read which step failed first:',
+              '- **Build the live test**: the test target was renamed, moved or no longer compiles.',
+              '- **Install Ollama / Pull**: the installer or the model registry was unreachable; nothing of ours ran.',
+              '- **Run the live local-LLM tests**: a tool schema or prompt the model no longer acts on, drift in embacle\'s OpenAI-compatible provider, or a gated test that skipped. The "Dump Ollama log on failure" step shows the server side.',
+            ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,

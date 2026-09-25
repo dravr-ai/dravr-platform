@@ -11,6 +11,7 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
 };
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use std::sync::Arc;
@@ -37,7 +38,7 @@ async fn test_redirect_uri_https_enforcement() {
     };
 
     let result = registration_manager
-        .register_client(https_registration)
+        .register_client(https_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_ok());
 
@@ -52,7 +53,7 @@ async fn test_redirect_uri_https_enforcement() {
     };
 
     let result = registration_manager
-        .register_client(http_non_localhost_registration)
+        .register_client(http_non_localhost_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result
@@ -72,7 +73,7 @@ async fn test_redirect_uri_https_enforcement() {
     };
 
     let result = registration_manager
-        .register_client(localhost_registration)
+        .register_client(localhost_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_ok());
 
@@ -87,7 +88,7 @@ async fn test_redirect_uri_https_enforcement() {
     };
 
     let result = registration_manager
-        .register_client(loopback_registration)
+        .register_client(loopback_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_ok());
 }
@@ -114,7 +115,7 @@ async fn test_redirect_uri_fragment_rejection() {
     };
 
     let result = registration_manager
-        .register_client(fragment_registration)
+        .register_client(fragment_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result
@@ -146,7 +147,7 @@ async fn test_redirect_uri_wildcard_rejection() {
     };
 
     let result = registration_manager
-        .register_client(wildcard_registration)
+        .register_client(wildcard_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result
@@ -177,7 +178,9 @@ async fn test_redirect_uri_oob_urn() {
         scope: None,
     };
 
-    let result = registration_manager.register_client(oob_registration).await;
+    let result = registration_manager
+        .register_client(oob_registration, MAX_PENDING_REGISTRATIONS)
+        .await;
     assert!(result.is_ok());
 }
 
@@ -202,7 +205,7 @@ async fn test_argon2id_client_secret_hashing() {
     };
 
     let registration_response = registration_manager
-        .register_client(registration_request)
+        .register_client(registration_request, MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap();
 
@@ -255,7 +258,7 @@ async fn test_client_secret_validation() {
     };
 
     let registration_response = registration_manager
-        .register_client(registration_request)
+        .register_client(registration_request, MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap();
 
@@ -304,7 +307,7 @@ async fn test_empty_redirect_uri_rejection() {
     };
 
     let result = registration_manager
-        .register_client(empty_uri_registration)
+        .register_client(empty_uri_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result
@@ -335,7 +338,7 @@ async fn test_malformed_uri_rejection() {
     };
 
     let result = registration_manager
-        .register_client(malformed_uri_registration)
+        .register_client(malformed_uri_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result
@@ -366,7 +369,7 @@ async fn test_unsupported_grant_type_rejection() {
     };
 
     let result = registration_manager
-        .register_client(unsupported_grant_registration)
+        .register_client(unsupported_grant_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result
@@ -397,7 +400,7 @@ async fn test_unsupported_response_type_rejection() {
     };
 
     let result = registration_manager
-        .register_client(unsupported_response_registration)
+        .register_client(unsupported_response_registration, MAX_PENDING_REGISTRATIONS)
         .await;
     assert!(result.is_err());
     assert!(result

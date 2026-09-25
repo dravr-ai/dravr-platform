@@ -26,6 +26,13 @@
 //! refresh token is rotated at most once, and a CSRF state is redeemed at
 //! most once (RFC 6749 §10.12).
 //!
+//! Client registrations are reclaimed, not only gated by their expiry.
+//! `store_refresh_token` stamps the client's `last_authorized_at` in the same
+//! transaction as the token, which is what separates a client a user connected
+//! from a registration nobody finished; `store_client_within_ceiling` holds the
+//! unfinished ones to a ceiling, and `delete_stale_clients` deletes them once
+//! abandoned, along with every registration past its expiry grace.
+//!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
@@ -40,10 +47,47 @@ use pierre_core::models::{
 };
 use uuid::Uuid;
 
-/// Register an RFC 7591 client. The list columns hold JSON arrays as text.
-pub(crate) const STORE_OAUTH2_CLIENT_SQL: &str = r"
+/// Register an RFC 7591 client unless `$12` registrations are already
+/// pending — carrying an expiry and never issued a refresh token. The count
+/// and the insert are one statement, so no second round trip separates the
+/// check from the write. The list columns hold JSON arrays as text.
+pub(crate) const STORE_OAUTH2_CLIENT_WITHIN_CEILING_SQL: &str = r"
             INSERT INTO oauth2_clients (id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+            WHERE (
+                SELECT COUNT(*) FROM oauth2_clients
+                WHERE expires_at IS NOT NULL AND last_authorized_at IS NULL
+            ) < $12
+            ";
+
+/// Registrations whose expiry passed before `$1`, the grace cutoff. A row
+/// without an expiry was not written by dynamic registration and never matches.
+pub(crate) const DELETE_EXPIRED_OAUTH2_CLIENTS_SQL: &str = r"
+            DELETE FROM oauth2_clients
+            WHERE expires_at IS NOT NULL AND expires_at < $1
+            ";
+
+/// Pending registrations created before `$1`: registered, and no refresh
+/// token ever issued through them, so no user finished authorizing them.
+pub(crate) const DELETE_ABANDONED_OAUTH2_CLIENTS_SQL: &str = r"
+            DELETE FROM oauth2_clients
+            WHERE expires_at IS NOT NULL AND last_authorized_at IS NULL AND created_at < $1
+            ";
+
+/// Consent grants naming a client that no longer exists. `oauth_client_grants`
+/// has no foreign key to `oauth2_clients`, so deleting a client cascades to its
+/// codes, refresh tokens and states but not to these.
+pub(crate) const DELETE_ORPHANED_CLIENT_GRANTS_SQL: &str = r"
+            DELETE FROM oauth_client_grants
+            WHERE NOT EXISTS (
+                SELECT 1 FROM oauth2_clients c WHERE c.client_id = oauth_client_grants.client_id
+            )
+            ";
+
+/// Record that a refresh token was issued through client `$1` at `$2`. Only a
+/// user-bound grant issues one, so this is what marks a registration authorized.
+pub(crate) const STAMP_OAUTH2_CLIENT_AUTHORIZED_SQL: &str = r"
+            UPDATE oauth2_clients SET last_authorized_at = $2 WHERE client_id = $1
             ";
 
 /// One client by its public `client_id`.
@@ -462,8 +506,15 @@ macro_rules! impl_oauth2_server_repository {
     ($ty:ty) => {
         #[async_trait::async_trait]
         impl OAuth2ServerRepository for $ty {
-            async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
-                sqlx::query(STORE_OAUTH2_CLIENT_SQL)
+            async fn store_client_within_ceiling(
+                &self,
+                client: &OAuth2Client,
+                ceiling: u64,
+            ) -> AppResult<bool> {
+                // COUNT(*) is a signed 64-bit value on both engines; a ceiling
+                // past its range is no ceiling at all.
+                let ceiling = i64::try_from(ceiling).unwrap_or(i64::MAX);
+                let result = sqlx::query(STORE_OAUTH2_CLIENT_WITHIN_CEILING_SQL)
                     .bind(&client.id)
                     .bind(&client.client_id)
                     .bind(&client.client_secret_hash)
@@ -475,13 +526,51 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(&client.scope)
                     .bind(client.created_at)
                     .bind(client.expires_at)
+                    .bind(ceiling)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to store OAuth2 client: {e}"))
                     })?;
 
-                Ok(())
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn delete_stale_clients(
+                &self,
+                expired_before: DateTime<Utc>,
+                unauthorized_before: DateTime<Utc>,
+            ) -> AppResult<OAuth2ClientSweep> {
+                let sweep_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to sweep OAuth2 clients: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(sweep_error)?;
+
+                let expired = sqlx::query(DELETE_EXPIRED_OAUTH2_CLIENTS_SQL)
+                    .bind(expired_before)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(sweep_error)?
+                    .rows_affected();
+                let abandoned = sqlx::query(DELETE_ABANDONED_OAUTH2_CLIENTS_SQL)
+                    .bind(unauthorized_before)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(sweep_error)?
+                    .rows_affected();
+                let orphaned_grants = sqlx::query(DELETE_ORPHANED_CLIENT_GRANTS_SQL)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(sweep_error)?
+                    .rows_affected();
+
+                tx.commit().await.map_err(sweep_error)?;
+
+                Ok(OAuth2ClientSweep {
+                    expired,
+                    abandoned,
+                    orphaned_grants,
+                })
             }
 
             async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
@@ -523,6 +612,10 @@ macro_rules! impl_oauth2_server_repository {
                 refresh_token: &OAuth2RefreshToken,
             ) -> AppResult<()> {
                 let token_hash = HasEncryption::hash_token_for_storage(self, &refresh_token.token)?;
+                let store_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to store OAuth2 refresh token: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(store_error)?;
 
                 sqlx::query(STORE_OAUTH2_REFRESH_TOKEN_SQL)
                     .bind(&token_hash)
@@ -533,13 +626,17 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(refresh_token.created_at)
                     .bind(refresh_token.expires_at)
                     .bind(refresh_token.revoked)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to store OAuth2 refresh token: {e}"))
-                    })?;
+                    .map_err(store_error)?;
+                sqlx::query(STAMP_OAUTH2_CLIENT_AUTHORIZED_SQL)
+                    .bind(&refresh_token.client_id)
+                    .bind(refresh_token.created_at)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(store_error)?;
 
-                Ok(())
+                tx.commit().await.map_err(store_error)
             }
 
             async fn consume_auth_code(

@@ -327,9 +327,11 @@ impl RecoveryTrigger {
 /// starves the model; it only means this best-effort repair pass does not run
 /// on a turn where it might have helped. A lossy trigger for an extra check is
 /// tolerable in a way that a lossy gate on the athlete's own data never was.
-/// LIMITATION(registre#202): `DATA_ASK_TERMS` matches no phrasing of a factual correction, and
-/// the reasoning above holds only while a bound agent grounds the turn — with no agent bound this
-/// list is again the sole gate on the athlete's own data.
+///
+/// No phrasing of a factual correction matches a term here, and none needs to:
+/// a correction is caught by [`RecoveryTrigger::DisputedClaims`], which reads
+/// no vocabulary. Nor is a coachless turn left to this list — it is grounded on
+/// the default activity window before this pass runs (registre#201).
 const DATA_ASK_TERMS: &[&str] = &[
     // Planning / prescription — needs the real training history to be specific.
     "plan",

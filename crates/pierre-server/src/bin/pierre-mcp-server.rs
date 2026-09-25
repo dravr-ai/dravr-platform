@@ -938,6 +938,19 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         );
     }
 
+    // Start the OAuth 2.0 client registration sweeper. `/oauth2/register` is
+    // anonymous (RFC 7591) and every row it wrote used to be kept forever; this
+    // deletes registrations past their expiry grace and the ones no user ever
+    // authorized, under the retention policy in the OAuth2 server config.
+    {
+        use pierre_mcp_server::start_oauth2_client_sweeper;
+        start_oauth2_client_sweeper(
+            Arc::clone(&resources.common.repos.oauth2_server),
+            Arc::clone(&resources.common.repos.worker_runs),
+            resources.common.config.oauth2_server.client_retention,
+        );
+    }
+
     // Start the Strava seat reclaimer (carnet#505): an hourly pass that frees
     // the OAuth seats of athletes idle past `strava_seat_reclaim.idle_days`,
     // warning each one first. The policy is runtime configuration

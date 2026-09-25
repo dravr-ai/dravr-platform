@@ -251,7 +251,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, mobile e2e batch, cron lane monitor, workflow test targets)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -272,7 +272,16 @@ jobs:
           ./scripts/ci/satellite-bump-gate.test.sh
           ./scripts/ci/mobile-e2e-batch.test.sh
           ./scripts/ci/monitor-scheduled-lanes.test.sh
+          ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline
+
+      # A `cargo test --test <name>` in a workflow whose target a push moved or
+      # deleted fails cargo's whole command, and for a cron lane nobody sees it
+      # until the next morning (carnet#474: six red nights of llm-live-cron).
+      # The pre-push Tier 1m runs the same script, but a worktree without
+      # core.hooksPath skips it; this is the backstop on every crates/ push.
+      - name: Workflow test targets
+        run: ./scripts/ci/check-workflow-test-targets.sh
 
       # The dev scripts decide which processes a stop may kill and which files a
       # tunnel may rewrite, so a quoting or word-splitting slip there reaches a

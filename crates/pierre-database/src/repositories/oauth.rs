@@ -10,9 +10,10 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole, ProviderConnection,
-    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole,
+    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp,
+    UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -204,13 +205,44 @@ pub trait OAuthTokenRepository: Send + Sync {
 /// OAuth 2.0 server repository (RFC 7591)
 #[async_trait]
 pub trait OAuth2ServerRepository: Send + Sync {
-    /// Store OAuth 2.0 client registration
-    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()>;
+    /// Store an OAuth 2.0 client registration unless `ceiling` registrations
+    /// are already pending.
+    ///
+    /// A registration is pending while it carries an `expires_at` (every row
+    /// dynamic registration writes does) and no refresh token has ever been
+    /// issued through it. The count and the insert are one statement: exact on
+    /// `SQLite`, whose writers are serialized; on `PostgreSQL` registrations
+    /// racing for the last slot can each see it free, so the ceiling can be
+    /// passed by at most the number of registrations in flight at once.
+    /// Returns `false`, storing nothing, when the ceiling is reached; a
+    /// ceiling of `0` therefore refuses every registration.
+    async fn store_client_within_ceiling(
+        &self,
+        client: &OAuth2Client,
+        ceiling: u64,
+    ) -> AppResult<bool>;
+    /// Delete the client registrations retention no longer keeps: those whose
+    /// `expires_at` is before `expired_before`, and those still pending (see
+    /// [`store_client_within_ceiling`](Self::store_client_within_ceiling))
+    /// that were created before `unauthorized_before`. A row without an
+    /// `expires_at` was not written by dynamic registration and is never
+    /// deleted here. Codes, refresh tokens and states go with their client by
+    /// cascade; consent grants naming a client that no longer exists are
+    /// deleted in the same transaction.
+    async fn delete_stale_clients(
+        &self,
+        expired_before: DateTime<Utc>,
+        unauthorized_before: DateTime<Utc>,
+    ) -> AppResult<OAuth2ClientSweep>;
     /// Get OAuth 2.0 client by `client_id`
     async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>>;
     /// Store OAuth 2.0 authorization code
     async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()>;
-    /// Store OAuth 2.0 refresh token
+    /// Store OAuth 2.0 refresh token, and stamp its client's
+    /// `last_authorized_at` with the token's `created_at` in the same
+    /// transaction — a refresh token is only ever issued for a user, so this is
+    /// the record that a user authorized the client, and what takes the client
+    /// out of the pending set.
     async fn store_refresh_token(&self, refresh_token: &OAuth2RefreshToken) -> AppResult<()>;
     /// Atomically consume OAuth 2.0 authorization code (check-and-set in single operation)
     async fn consume_auth_code(

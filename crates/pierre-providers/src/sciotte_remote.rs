@@ -31,10 +31,23 @@
 //! the live token, so minting is a lock read on all but the first call each
 //! hour. A scraper on this machine's own loopback is the one exemption: only a
 //! developer's own process can be there, so it is called unauthenticated.
+//!
+//! ## Failures without an answer
+//!
+//! Every request carries a fresh `x-request-id`, which the service's
+//! request guard adopts, echoes and logs the request under, so one id finds a
+//! request in both services' logs. A request that ends without a response —
+//! the client's own timeout, a service it cannot reach, a connection closed
+//! mid-request — and a response in which the service reports it could not
+//! finish ([`service_failure_error`](crate::sciotte_remote::service_failure_error))
+//! surface as `ExternalServiceUnavailable`, naming the request id, how long
+//! the request ran and the transport's own cause. An idempotent `GET` whose
+//! connection closed before any response is re-sent once.
 
+use std::convert::identity;
 use std::env;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::NaiveDate;
 /// One athlete on a coach account's roster, as the scraper lists it.
@@ -48,10 +61,13 @@ use dravr_sciotte::models::{
 };
 use dravr_tronc::iam::IdTokenSource;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use reqwest::{Client, StatusCode};
+use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use tracing::{debug, warn};
+use uuid::Uuid;
+
+use crate::sciotte_transport::{transport_error, TransportFailure, REQUEST_ID_HEADER};
 
 /// Environment variable holding the remote scraper's base URL. Required since
 /// the Phase 4 cutover — unset makes `require_from_env` error (no fallback).
@@ -82,6 +98,23 @@ pub const RETRY_AFTER_SECS_DETAIL: &str = "retry_after_secs";
 /// its permit, so an over-long hint parks the caller on a service that is
 /// already free again.
 const SHED_RETRY_AFTER_FALLBACK_SECS: u64 = 30;
+
+/// `error.type` the service's request guard answers a handler panic with, on a
+/// `500`: dravr-tronc's `request_guard::HANDLER_PANIC`.
+const HANDLER_PANIC_MARKER: &str = "handler_panic";
+
+/// `error.type` the service's request guard answers a request still running at
+/// its deadline with, on a `504`: dravr-tronc's `request_guard::REQUEST_TIMEOUT`.
+const REQUEST_TIMEOUT_MARKER: &str = "request_timeout";
+
+/// How many times an idempotent `GET` is re-sent after its connection closed
+/// before any response arrived.
+///
+/// One: that failure is the signature of a pooled keep-alive connection the
+/// service closed just as the request went out, or of an instance that dropped
+/// the request, and a read is safe to repeat. A second consecutive close is no
+/// longer a race, and each attempt can hold a browser for a whole scrape.
+const CLOSED_CONNECTION_GET_RETRIES: u32 = 1;
 
 /// Outcome of an interactive-login step, mirroring the scraper service's
 /// `{status, ...}` login response.
@@ -262,7 +295,11 @@ pub fn shed_retry_after_secs(error: &AppError) -> Option<u64> {
 /// token answer (audience mismatch, expired token), an operator
 /// misconfiguration that must keep alerting as an internal fault instead of
 /// sending the athlete on a pointless re-login.
-const SESSION_AUTH_ERROR_MARKERS: &[&str] = &["session_not_found", "session_expired"];
+const SESSION_AUTH_ERROR_MARKERS: &[&str] = &[SESSION_NOT_FOUND_MARKER, "session_expired"];
+
+/// Body `error` marker of the scraper's `401` for a session id it holds no
+/// session under.
+const SESSION_NOT_FOUND_MARKER: &str = "session_not_found";
 
 /// The auth-shaped error for a scraper-service `401` whose body carries a
 /// session-death marker, or `None` for anything else.
@@ -367,24 +404,141 @@ pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
         .as_str()
 }
 
+/// The transient-unavailability error for a response in which the service, or
+/// the gateway in front of it, says the request could not be finished — or
+/// `None` for any other response:
+///
+/// - `504`: the request outlived a deadline — the service's request guard
+///   (`request_timeout`) or the gateway's own;
+/// - `502`: the gateway got no usable answer from the service;
+/// - `500` with a `handler_panic` body: a service handler panicked and the
+///   request guard answered for it.
+///
+/// None of these is the athlete's doing, and the same request can succeed a
+/// moment later, so each is [`ErrorCode::ExternalServiceUnavailable`] — the
+/// provider is temporarily unavailable. Every other `500` keeps its internal
+/// classification: a scraper error the service chose to report.
+///
+/// The message names `request_id`, the `x-request-id` the request was
+/// sent under and the service logged it under.
+#[must_use]
+pub fn service_failure_error(
+    http_status: StatusCode,
+    body: &Value,
+    request_id: &str,
+) -> Option<AppError> {
+    let guard_type = body
+        .get("error")
+        .and_then(|error| error.get("type"))
+        .and_then(Value::as_str);
+    let what = match (http_status, guard_type) {
+        (StatusCode::GATEWAY_TIMEOUT, Some(REQUEST_TIMEOUT_MARKER)) => {
+            "outlived the service's request deadline"
+        }
+        (StatusCode::GATEWAY_TIMEOUT, _) => "outlived the gateway's deadline",
+        (StatusCode::BAD_GATEWAY, _) => "got no usable answer through the gateway",
+        (StatusCode::INTERNAL_SERVER_ERROR, Some(HANDLER_PANIC_MARKER)) => {
+            "failed in a service handler that panicked"
+        }
+        _ => return None,
+    };
+    let detail = body
+        .get("error")
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("no detail");
+    Some(AppError::new(
+        ErrorCode::ExternalServiceUnavailable,
+        format!(
+            "sciotte request ({REQUEST_ID_HEADER} {request_id}) {what} ({http_status}): {detail}"
+        ),
+    ))
+}
+
+/// The unavailability error for a `401 session_not_found` answering a read
+/// that was re-sent after its first connection closed, or `None` for any other
+/// answer.
+///
+/// The platform imports the session before every read, so a service that does
+/// not hold it right after a connection closed mid-request lost it along with
+/// that connection: the instance went down — a crash, an out-of-memory kill —
+/// and the re-send reached its replacement. The athlete's session is intact and
+/// the next read imports it again, so this is the provider being unavailable
+/// for a moment, never the re-login [`auth_required_error`] would send the
+/// athlete through.
+fn session_lost_with_connection(
+    http_status: StatusCode,
+    body: &Value,
+    request_id: &str,
+) -> Option<AppError> {
+    let marker = body.get("error").and_then(Value::as_str)?;
+    (http_status == StatusCode::UNAUTHORIZED && marker == SESSION_NOT_FOUND_MARKER).then(|| {
+        AppError::new(
+            ErrorCode::ExternalServiceUnavailable,
+            format!(
+                "sciotte no longer held the session when the read was re-sent \
+                 ({REQUEST_ID_HEADER} {request_id}): the instance that held it went down \
+                 with the connection that closed"
+            ),
+        )
+    })
+}
+
 /// Map a non-success scrape response to an error, classifying the service's
-/// designed load-shed as retryable backpressure, its session-death `401` as
-/// an auth-shaped failure, and its athlete refusals as the typed errors
+/// designed load-shed as retryable backpressure, a request it could not finish
+/// as [`service_failure_error`] names, a session lost with a closed connection
+/// as [`session_lost_with_connection`] names, its session-death `401` as an
+/// auth-shaped failure, and its athlete refusals as the typed errors
 /// [`athlete_refusal_error`] names, rather than any of them as a system
 /// failure. Backpressure wins over the status match: a shed carries its own
 /// body marker and must not be misread as anything else.
 ///
 /// `operation` names the endpoint in the internal message only — the
 /// internal message never reaches a client verbatim.
-async fn scrape_failure(operation: &str, resp: reqwest::Response) -> AppError {
-    let status = resp.status();
-    let body = resp.json::<Value>().await.unwrap_or_default();
+async fn scrape_failure(operation: &str, sent: Sent) -> AppError {
+    let status = sent.response.status();
+    let body = sent.response.json::<Value>().await.unwrap_or_default();
     if let Some(shed) = backpressure_error(status, &body) {
         return shed;
     }
-    auth_required_error(status, &body)
+    let lost_session = if sent.resent {
+        session_lost_with_connection(status, &body, &sent.request_id)
+    } else {
+        None
+    };
+    lost_session
+        .or_else(|| service_failure_error(status, &body, &sent.request_id))
+        .or_else(|| auth_required_error(status, &body))
         .or_else(|| athlete_refusal_error(status, &body))
-        .unwrap_or_else(|| AppError::internal(format!("sciotte {operation} returned {status}")))
+        .unwrap_or_else(|| {
+            AppError::internal(format!(
+                "sciotte {operation} returned {status} ({REQUEST_ID_HEADER} {})",
+                sent.request_id
+            ))
+        })
+}
+
+/// Map a non-success response from a session-transfer endpoint (export,
+/// import): a request the service could not finish as
+/// [`service_failure_error`] names, anything else as an internal fault.
+async fn transfer_failure(operation: &str, sent: Sent) -> AppError {
+    let status = sent.response.status();
+    let body = sent.response.json::<Value>().await.unwrap_or_default();
+    service_failure_error(status, &body, &sent.request_id).unwrap_or_else(|| {
+        AppError::internal(format!(
+            "sciotte {operation} returned {status} ({REQUEST_ID_HEADER} {})",
+            sent.request_id
+        ))
+    })
+}
+
+/// A response from the service, with the request id it was sent under.
+struct Sent {
+    response: Response,
+    request_id: String,
+    /// Whether this answers a re-send: the first attempt's connection closed
+    /// before any response.
+    resent: bool,
 }
 
 /// Client for the dedicated `dravr-sciotte-server`.
@@ -443,6 +597,10 @@ impl RemoteSciotteClient {
             // The 2FA flow parks a live browser across this one request; the HTTP
             // timeout must outlast the scraper's own login window (300s) plus
             // headroom so the platform doesn't cut the call before the scraper does.
+            // It also outlasts the service's REST request deadline
+            // (DRAVR_SCIOTTE_REQUEST_TIMEOUT, 320s by default), so a request that
+            // overruns arrives as the service's `request_timeout` 504, which
+            // `service_failure_error` classifies, rather than as this timeout.
             .timeout(Duration::from_secs(330))
             .build()
             .map_err(|e| AppError::internal(format!("build sciotte http client: {e}")))?;
@@ -499,11 +657,7 @@ impl RemoteSciotteClient {
     /// constructor refuses a non-loopback URL without an audience — so having
     /// no source means a developer's scraper on 127.0.0.1, which takes the
     /// request unauthenticated.
-    async fn request(
-        &self,
-        method: reqwest::Method,
-        path: &str,
-    ) -> AppResult<reqwest::RequestBuilder> {
+    async fn request(&self, method: Method, path: &str) -> AppResult<RequestBuilder> {
         let mut req = self
             .http
             .request(method, format!("{}{path}", self.base_url));
@@ -517,6 +671,65 @@ impl RemoteSciotteClient {
             req = req.bearer_auth(token);
         }
         Ok(req)
+    }
+
+    /// Send one request to the service under a fresh [`REQUEST_ID_HEADER`],
+    /// `decorate` adding its headers, query and body.
+    ///
+    /// A `GET` whose connection closed before any response is re-sent under a
+    /// new id, [`CLOSED_CONNECTION_GET_RETRIES`] time(s). Nothing else is
+    /// retried: a timeout has already spent the client's whole budget, and a
+    /// `POST` — a login step, a session import — may have acted on the
+    /// service before the connection went.
+    ///
+    /// # Errors
+    ///
+    /// [`transport_error`] when no response arrives; the token error when the
+    /// identity token cannot be minted.
+    async fn send<F>(
+        &self,
+        operation: &str,
+        method: Method,
+        path: &str,
+        decorate: F,
+    ) -> AppResult<Sent>
+    where
+        F: Fn(RequestBuilder) -> RequestBuilder + Send + Sync,
+    {
+        let retries = if method == Method::GET {
+            CLOSED_CONNECTION_GET_RETRIES
+        } else {
+            0
+        };
+        let mut attempt = 0;
+        loop {
+            let request_id = Uuid::new_v4().to_string();
+            let request = decorate(self.request(method.clone(), path).await?)
+                .header(REQUEST_ID_HEADER, request_id.as_str());
+            let started = Instant::now();
+            let error = match request.send().await {
+                Ok(response) => {
+                    return Ok(Sent {
+                        response,
+                        request_id,
+                        resent: attempt > 0,
+                    })
+                }
+                Err(error) => error,
+            };
+            let failure = TransportFailure::of(&error);
+            let error = transport_error(operation, &request_id, started, failure, error);
+            if failure != TransportFailure::ClosedBeforeResponse || attempt >= retries {
+                return Err(error);
+            }
+            attempt += 1;
+            warn!(
+                operation,
+                request_id = %request_id,
+                error = %error.message,
+                "sciotte closed the connection before responding; re-sending the GET once"
+            );
+        }
     }
 
     /// POST `/auth/login-with-credentials` — start an interactive login on
@@ -539,14 +752,15 @@ impl RemoteSciotteClient {
             "method": method,
             "provider": provider,
         });
-        let resp = self
-            .request(reqwest::Method::POST, "/auth/login-with-credentials")
-            .await?
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte login request: {e}")))?;
-        Self::parse_login_outcome(resp).await
+        let sent = self
+            .send(
+                "login",
+                Method::POST,
+                "/auth/login-with-credentials",
+                |req| req.json(&body),
+            )
+            .await?;
+        Self::parse_login_outcome(sent).await
     }
 
     /// POST `/auth/submit-otp` — continue an interactive login with an OTP/2FA
@@ -561,14 +775,13 @@ impl RemoteSciotteClient {
         code: &str,
         flow_id: Option<&str>,
     ) -> AppResult<RemoteLoginOutcome> {
-        let resp = self
-            .request(reqwest::Method::POST, "/auth/submit-otp")
-            .await?
-            .json(&serde_json::json!({ "code": code, "flow_id": flow_id }))
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte submit-otp request: {e}")))?;
-        Self::parse_login_outcome(resp).await
+        let body = serde_json::json!({ "code": code, "flow_id": flow_id });
+        let sent = self
+            .send("submit-otp", Method::POST, "/auth/submit-otp", |req| {
+                req.json(&body)
+            })
+            .await?;
+        Self::parse_login_outcome(sent).await
     }
 
     /// POST `/auth/select-2fa` — pick a 2FA method during an interactive login.
@@ -583,14 +796,13 @@ impl RemoteSciotteClient {
         option_id: &str,
         flow_id: Option<&str>,
     ) -> AppResult<RemoteLoginOutcome> {
-        let resp = self
-            .request(reqwest::Method::POST, "/auth/select-2fa")
-            .await?
-            .json(&serde_json::json!({ "option_id": option_id, "flow_id": flow_id }))
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte select-2fa request: {e}")))?;
-        Self::parse_login_outcome(resp).await
+        let body = serde_json::json!({ "option_id": option_id, "flow_id": flow_id });
+        let sent = self
+            .send("select-2fa", Method::POST, "/auth/select-2fa", |req| {
+                req.json(&body)
+            })
+            .await?;
+        Self::parse_login_outcome(sent).await
     }
 
     /// GET `/auth/sessions/{id}/export` — retrieve the full `AuthSession` so the
@@ -607,22 +819,19 @@ impl RemoteSciotteClient {
         struct ExportResponse {
             session: AuthSession,
         }
-        let resp = self
-            .request(
-                reqwest::Method::GET,
+        let sent = self
+            .send(
+                "export",
+                Method::GET,
                 &format!("/auth/sessions/{session_id}/export"),
+                identity,
             )
-            .await?
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte export request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(AppError::internal(format!(
-                "sciotte export returned {}",
-                resp.status()
-            )));
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(transfer_failure("export", sent).await);
         }
-        Ok(resp
+        Ok(sent
+            .response
             .json::<ExportResponse>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte export decode: {e}")))?
@@ -643,20 +852,17 @@ impl RemoteSciotteClient {
         struct ImportResponse {
             session_id: String,
         }
-        let resp = self
-            .request(reqwest::Method::POST, "/auth/import-session")
-            .await?
-            .json(&serde_json::json!({ "provider": provider, "session": session }))
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte import request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(AppError::internal(format!(
-                "sciotte import returned {}",
-                resp.status()
-            )));
+        let body = serde_json::json!({ "provider": provider, "session": session });
+        let sent = self
+            .send("import", Method::POST, "/auth/import-session", |req| {
+                req.json(&body)
+            })
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(transfer_failure("import", sent).await);
         }
-        Ok(resp
+        Ok(sent
+            .response
             .json::<ImportResponse>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte import decode: {e}")))?
@@ -680,10 +886,6 @@ impl RemoteSciotteClient {
         session_id: &str,
         query: &RemoteActivityQuery,
     ) -> AppResult<RemoteActivityList> {
-        let mut req = self
-            .request(reqwest::Method::GET, "/api/activities")
-            .await?
-            .header("X-Session-Id", session_id);
         let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(l) = query.limit {
             params.push(("limit", l.to_string()));
@@ -706,17 +908,21 @@ impl RemoteSciotteClient {
         if let Some(athlete) = &query.athlete {
             params.push(("athlete", athlete.as_str().to_owned()));
         }
-        if !params.is_empty() {
-            req = req.query(&params);
+        let sent = self
+            .send("activities", Method::GET, "/api/activities", |req| {
+                let req = req.header("X-Session-Id", session_id);
+                if params.is_empty() {
+                    req
+                } else {
+                    req.query(&params)
+                }
+            })
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(scrape_failure("activities", sent).await);
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte activities request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(scrape_failure("activities", resp).await);
-        }
-        resp.json::<RemoteActivityList>()
+        sent.response
+            .json::<RemoteActivityList>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activities decode: {e}")))
     }
@@ -748,18 +954,19 @@ impl RemoteSciotteClient {
         if let Some(athlete) = athlete {
             params.push(("athlete", athlete.as_str().to_owned()));
         }
-        let resp = self
-            .request(reqwest::Method::GET, "/api/planned-workouts")
-            .await?
-            .header("X-Session-Id", session_id)
-            .query(&params)
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte planned-workouts request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(scrape_failure("planned-workouts", resp).await);
+        let sent = self
+            .send(
+                "planned-workouts",
+                Method::GET,
+                "/api/planned-workouts",
+                |req| req.header("X-Session-Id", session_id).query(&params),
+            )
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(scrape_failure("planned-workouts", sent).await);
         }
-        let list = resp
+        let list = sent
+            .response
             .json::<RemotePlannedWorkoutList>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte planned-workouts decode: {e}")))?;
@@ -784,17 +991,16 @@ impl RemoteSciotteClient {
     /// Returns an error on transport failure, a non-success status, or an
     /// unparseable body.
     pub async fn get_athlete(&self, session_id: &str) -> AppResult<AthleteProfile> {
-        let resp = self
-            .request(reqwest::Method::GET, "/api/athlete")
-            .await?
-            .header("X-Session-Id", session_id)
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte athlete request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(scrape_failure("athlete", resp).await);
+        let sent = self
+            .send("athlete", Method::GET, "/api/athlete", |req| {
+                req.header("X-Session-Id", session_id)
+            })
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(scrape_failure("athlete", sent).await);
         }
-        resp.json::<AthleteProfile>()
+        sent.response
+            .json::<AthleteProfile>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte athlete decode: {e}")))
     }
@@ -813,20 +1019,19 @@ impl RemoteSciotteClient {
         session_id: &str,
         activity_id: &str,
     ) -> AppResult<SciotteActivity> {
-        let resp = self
-            .request(
-                reqwest::Method::GET,
+        let sent = self
+            .send(
+                "activity",
+                Method::GET,
                 &format!("/api/activities/{activity_id}"),
+                |req| req.header("X-Session-Id", session_id),
             )
-            .await?
-            .header("X-Session-Id", session_id)
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte activity request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(scrape_failure("activity", resp).await);
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(scrape_failure("activity", sent).await);
         }
-        resp.json::<SciotteActivity>()
+        sent.response
+            .json::<SciotteActivity>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte activity decode: {e}")))
     }
@@ -848,34 +1053,51 @@ impl RemoteSciotteClient {
         session_id: &str,
         date: NaiveDate,
     ) -> AppResult<DailySummary> {
-        let resp = self
-            .request(reqwest::Method::GET, "/api/daily-summary")
-            .await?
-            .header("X-Session-Id", session_id)
-            .query(&[("date", date.format("%Y-%m-%d").to_string())])
-            .send()
-            .await
-            .map_err(|e| AppError::internal(format!("sciotte daily-summary request: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(scrape_failure("daily-summary", resp).await);
+        let day = [("date", date.format("%Y-%m-%d").to_string())];
+        let sent = self
+            .send("daily-summary", Method::GET, "/api/daily-summary", |req| {
+                req.header("X-Session-Id", session_id).query(&day)
+            })
+            .await?;
+        if !sent.response.status().is_success() {
+            return Err(scrape_failure("daily-summary", sent).await);
         }
-        resp.json::<DailySummary>()
+        sent.response
+            .json::<DailySummary>()
             .await
             .map_err(|e| AppError::internal(format!("sciotte daily-summary decode: {e}")))
     }
 
     /// Parse a login-step response body into a [`RemoteLoginOutcome`], or into
     /// the retryable backpressure error a load-shed maps to (see
-    /// [`backpressure_error`]).
-    async fn parse_login_outcome(resp: reqwest::Response) -> AppResult<RemoteLoginOutcome> {
-        let http_status = resp.status();
-        let body = resp.json::<Value>().await.map_err(|e| {
-            AppError::internal(format!("sciotte login decode (HTTP {http_status}): {e}"))
-        })?;
+    /// [`backpressure_error`]), or the unavailability a request the service
+    /// could not finish maps to (see [`service_failure_error`]).
+    async fn parse_login_outcome(sent: Sent) -> AppResult<RemoteLoginOutcome> {
+        let http_status = sent.response.status();
+        let request_id = sent.request_id;
+        let body = match sent.response.json::<Value>().await {
+            Ok(body) => body,
+            // A gateway's own 502/503/504 need not be JSON; it is still the
+            // service shedding or failing to finish, not a login the platform
+            // misread.
+            Err(e) => {
+                return Err(backpressure_error(http_status, &Value::Null)
+                    .or_else(|| service_failure_error(http_status, &Value::Null, &request_id))
+                    .unwrap_or_else(|| {
+                        AppError::internal(format!(
+                            "sciotte login decode (HTTP {http_status}, \
+                             {REQUEST_ID_HEADER} {request_id}): {e}"
+                        ))
+                    }));
+            }
+        };
         // A load-shed body carries no login `status` at all, so it has to be
         // recognised ahead of the match below or it lands in the catch-all and
-        // is reported as a system failure.
-        if let Some(error) = backpressure_error(http_status, &body) {
+        // is reported as a system failure. So does a request the service
+        // could not finish — a handler panic, a deadline.
+        if let Some(error) = backpressure_error(http_status, &body)
+            .or_else(|| service_failure_error(http_status, &body, &request_id))
+        {
             return Err(error);
         }
         let status = body.get("status").and_then(Value::as_str).unwrap_or("");
@@ -930,7 +1152,8 @@ impl RemoteSciotteClient {
             // credentials — which is exactly what bit the first e2e run.
             _ => Err(AppError::internal(format!(
                 "sciotte returned HTTP {http_status} with no recognizable login status \
-                 (body: {body}); check DRAVR_SCIOTTE_AUDIENCE / IAM / service health"
+                 ({REQUEST_ID_HEADER} {request_id}, body: {body}); check \
+                 DRAVR_SCIOTTE_AUDIENCE / IAM / service health"
             ))),
         }
     }

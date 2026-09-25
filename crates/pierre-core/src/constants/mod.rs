@@ -746,6 +746,39 @@ pub mod oauth_rate_limiting {
     pub const DEFAULT_RETRY_AFTER_SECS: u64 = 60;
 }
 
+/// Retention of RFC 7591 dynamic client registrations.
+///
+/// `POST /oauth2/register` is anonymous, so the rows it writes are bounded by
+/// these rather than by who calls it. A registration no user has authorized is
+/// "pending": at most [`MAX_PENDING_REGISTRATIONS`] exist at once, and each is
+/// deleted [`ABANDONED_AFTER_SECS`] after it was made. An expired registration
+/// is deleted [`EXPIRED_GRACE_SECS`] after its `expires_at`.
+pub mod oauth2_client_retention {
+    /// How long an expired registration is kept before the sweep deletes it: 30 days.
+    ///
+    /// `validate_client` already refuses it the moment it expires; the grace
+    /// keeps the row readable to an operator asking why a client stopped
+    /// working, without holding it for another year.
+    pub const EXPIRED_GRACE_SECS: u64 = 30 * 24 * 60 * 60;
+    /// Age at which a registration no user has authorized is deleted: 24 hours.
+    ///
+    /// An MCP client registers and opens the consent screen in one motion, so a
+    /// registration still unauthorized a day later is one nobody finished.
+    pub const ABANDONED_AFTER_SECS: u64 = 24 * 60 * 60;
+    /// How often the retention sweep runs: hourly.
+    ///
+    /// Pending rows live a day, so an hourly pass holds each within an hour of
+    /// its deadline.
+    pub const SWEEP_INTERVAL_SECS: u64 = 60 * 60;
+    /// Registrations no user has authorized that may exist at once: 10,000.
+    ///
+    /// At a few hundred bytes a row that bounds the anonymous part of the table
+    /// to a few megabytes. Holding it full takes about 7 registrations a minute
+    /// sustained (10,000 per day-long pending lifetime), within the 10 a minute
+    /// the register rate limit already grants a single address.
+    pub const MAX_PENDING_REGISTRATIONS: u64 = 10_000;
+}
+
 /// Cache configuration constants
 pub mod cache_config {
     /// Default cache capacity for LRU cache
