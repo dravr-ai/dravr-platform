@@ -501,6 +501,33 @@ resource "google_secret_manager_secret_version" "strava_webhook_verify_token" {
   secret_data = random_password.strava_webhook_verify_token.result
 }
 
+# STRAVA_WEBHOOK_SUBSCRIPTION_ID — the id Strava returns to `pierre-cli
+# strava-webhook subscribe`. Strava does not sign push events, so
+# `/webhooks/strava` refuses every event whose subscription_id is not this one.
+# The id exists only after subscribing, so the secret starts as the placeholder
+# (every event is refused, which is the safe state) until ChefFamille runs the
+# `gcloud secrets versions add` line the CLI prints; ignore_changes keeps the
+# real value once it lands.
+resource "google_secret_manager_secret" "strava_webhook_subscription_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-strava-webhook-subscription-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "strava_webhook_subscription_id_placeholder" {
+  secret      = google_secret_manager_secret.strava_webhook_subscription_id.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 resource "google_secret_manager_secret" "meta_whatsapp_app_secret" {
   project   = var.project_id
   secret_id = "${var.service_name}-meta-whatsapp-app-secret"

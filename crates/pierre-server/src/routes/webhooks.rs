@@ -28,6 +28,7 @@ use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
+use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
 ///
@@ -154,10 +155,12 @@ impl WebhookRoutes {
         let challenge = query.get("hub.challenge").cloned().unwrap_or_default();
         let verify_token = query.get("hub.verify_token").cloned().unwrap_or_default();
 
-        // Validate the verify token against our configured secret
+        // Validate the verify token against our configured secret. An unset
+        // token refuses every handshake: an empty expected value would
+        // otherwise let anyone register a subscription against this route.
         let expected_token = env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_default();
 
-        if mode != "subscribe" || (!expected_token.is_empty() && verify_token != expected_token) {
+        if mode != "subscribe" || expected_token.is_empty() || verify_token != expected_token {
             warn!(
                 mode = %mode,
                 "Strava webhook verification failed: invalid mode or verify_token"
@@ -189,6 +192,10 @@ impl WebhookRoutes {
     /// the drain-tracked spawner (see [`sync_strava_owner`]); the fetch writes
     /// through to the activity cache with the freshness mark. Deletes and
     /// athlete events are acknowledged and not fetched.
+    ///
+    /// An event whose `subscription_id` is not one this deployment
+    /// registered is refused with 403, and every event with 503 while
+    /// `STRAVA_WEBHOOK_SUBSCRIPTION_ID` is unset (see `strava_webhook_gate`).
     fn strava_event(resources: &Arc<ServerContext>, body: &[u8]) -> StatusCode {
         let event: StravaWebhookEvent = match serde_json::from_slice(body) {
             Ok(e) => e,
@@ -207,6 +214,12 @@ impl WebhookRoutes {
             event_time = %event.event_time,
             "Received Strava webhook event"
         );
+
+        // Strava does not sign events: the registered subscription id is the
+        // one thing a genuine event carries that a forger must guess.
+        if let Some(refusal) = subscription_refusal(event.subscription_id) {
+            return refusal;
+        }
 
         if !event.is_activity_write() {
             return StatusCode::OK;
@@ -341,11 +354,22 @@ async fn notify_owner(resources: &ServerContext, user_id: Uuid, provider: &str, 
 /// through to the activity cache with the freshness mark. A successful fetch
 /// stamps `last_sync`; the athlete is notified only when the window held at
 /// least one activity.
+///
+/// Fetches go through [`STRAVA_OWNER_FETCH_GATE`]: an event arriving within
+/// the debounce window of the owner's last fetch waits for one trailing fetch
+/// at the window's end, or folds into the one already pending. A trailing
+/// fetch still waiting when the drain signal fires is dropped; the next sync
+/// picks its activity up.
 async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhookEvent) {
     let owner_id = event.owner_id.to_string();
     let Some((user_id, tenant_id)) = resolve_owner(resources, "strava", &owner_id).await else {
         return;
     };
+
+    let drain = resources.common.turns.drain_token();
+    if !STRAVA_OWNER_FETCH_GATE.wait_for_turn(user_id, drain).await {
+        return;
+    }
 
     let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
     let params = ActivityQueryParams {
@@ -477,7 +501,8 @@ struct StravaWebhookEvent {
     aspect_type: String,
     /// Strava athlete ID who owns the object
     owner_id: u64,
-    /// Subscription ID (for verification)
+    /// The subscription the event was delivered for; must be one of
+    /// `strava_webhook_gate::registered_subscription_ids`
     subscription_id: u64,
     /// Unix timestamp of the event
     event_time: u64,

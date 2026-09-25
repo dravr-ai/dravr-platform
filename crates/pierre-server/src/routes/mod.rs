@@ -140,6 +140,9 @@ pub mod surfaces;
 /// contremaitre string change reaches them without a client deploy.
 pub mod i18n;
 
+/// The subscription check and per-owner debounce a Strava push event passes.
+#[cfg(feature = "health-sync")]
+pub mod strava_webhook_gate;
 /// Chart images for messaging channels: signed short-TTL PNG URLs.
 pub mod viz;
 /// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).

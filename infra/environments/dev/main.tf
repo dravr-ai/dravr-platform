@@ -630,9 +630,12 @@ module "backend" {
     # Provider webhook secrets: the WHOOP push endpoint verifies each event's
     # HMAC against the first; Strava's subscription verification checks
     # hub.verify_token against the second (the token `pierre-cli strava-webhook
-    # subscribe` registers). Values are set out-of-band in Secret Manager.
-    WHOOP_WEBHOOK_SECRET        = module.secrets.secret_ids["whoop_webhook_secret"]
-    STRAVA_WEBHOOK_VERIFY_TOKEN = module.secrets.secret_ids["strava_webhook_verify_token"]
+    # subscribe` registers), and every Strava event's subscription_id against
+    # the third (the id that subscribe returns). Values are set out-of-band in
+    # Secret Manager.
+    WHOOP_WEBHOOK_SECRET           = module.secrets.secret_ids["whoop_webhook_secret"]
+    STRAVA_WEBHOOK_VERIFY_TOKEN    = module.secrets.secret_ids["strava_webhook_verify_token"]
+    STRAVA_WEBHOOK_SUBSCRIPTION_ID = module.secrets.secret_ids["strava_webhook_subscription_id"]
 
     # Messaging channel credentials (seeded into DB on startup)
     SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]

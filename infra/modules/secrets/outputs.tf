@@ -40,6 +40,7 @@ output "secret_ids" {
     telegram_webhook_secret          = google_secret_manager_secret.telegram_webhook_secret.secret_id
     whoop_webhook_secret             = google_secret_manager_secret.whoop_webhook_secret.secret_id
     strava_webhook_verify_token      = google_secret_manager_secret.strava_webhook_verify_token.secret_id
+    strava_webhook_subscription_id   = google_secret_manager_secret.strava_webhook_subscription_id.secret_id
     meta_whatsapp_app_secret         = google_secret_manager_secret.meta_whatsapp_app_secret.secret_id
     meta_whatsapp_access_token       = google_secret_manager_secret.meta_whatsapp_access_token.secret_id
     meta_messenger_app_secret        = google_secret_manager_secret.meta_messenger_app_secret.secret_id
@@ -80,6 +81,7 @@ output "secret_names" {
     telegram_webhook_secret          = google_secret_manager_secret.telegram_webhook_secret.name
     whoop_webhook_secret             = google_secret_manager_secret.whoop_webhook_secret.name
     strava_webhook_verify_token      = google_secret_manager_secret.strava_webhook_verify_token.name
+    strava_webhook_subscription_id   = google_secret_manager_secret.strava_webhook_subscription_id.name
     meta_whatsapp_app_secret         = google_secret_manager_secret.meta_whatsapp_app_secret.name
     meta_whatsapp_access_token       = google_secret_manager_secret.meta_whatsapp_access_token.name
     meta_messenger_app_secret        = google_secret_manager_secret.meta_messenger_app_secret.name

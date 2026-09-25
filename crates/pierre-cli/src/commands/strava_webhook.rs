@@ -20,6 +20,11 @@
 //! - `list` shows the app's subscription, if any.
 //! - `delete` removes one by id.
 //!
+//! The id `subscribe` prints is what the server checks every event against:
+//! Strava does not sign events, so `/webhooks/strava` refuses any whose
+//! `subscription_id` is not in `STRAVA_WEBHOOK_SUBSCRIPTION_ID`, and refuses
+//! them all while that variable is unset.
+//!
 //! Credentials come from `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` and
 //! `STRAVA_WEBHOOK_VERIFY_TOKEN` — the same variables the server reads — and
 //! are never printed. `PIERRE_STRAVA_API_BASE_URL` redirects the API base,
@@ -251,7 +256,15 @@ async fn subscribe(api_base: &str, base_url: &str) -> AppResult<()> {
         return Err(rejected(status, &body));
     }
     match body.get("id").and_then(Value::as_u64) {
-        Some(id) => println!("  Subscribed: id={id}"),
+        Some(id) => {
+            println!("  Subscribed: id={id}");
+            println!(
+                "  The server refuses every event until STRAVA_WEBHOOK_SUBSCRIPTION_ID holds this id:"
+            );
+            println!(
+                "    printf {id} | gcloud secrets versions add <service>-strava-webhook-subscription-id --data-file=-"
+            );
+        }
         None => println!("  Subscribed: {body}"),
     }
     Ok(())

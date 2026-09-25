@@ -36,6 +36,9 @@ use axum::{Json, Router};
 use chrono::Utc;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::routes::strava_webhook_gate::{
+    FetchTiming, OwnerFetchGate, SUBSCRIPTION_ID_VAR,
+};
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use serde_json::{json, Value};
 use serial_test::serial;
@@ -47,6 +50,9 @@ use uuid::Uuid;
 
 /// The Strava athlete id the seeded token carries and the events name.
 const OWNER_ID: u64 = 4_242_424;
+
+/// The subscription id the test deployment registered with Strava.
+const REGISTERED_SUBSCRIPTION_ID: u64 = 77;
 
 /// One week, mirroring the route's lookback: the fetch window must open
 /// this far before the event, not at it.
@@ -127,6 +133,7 @@ async fn context_pointed_at(api_base: &str) -> (Arc<ServerContext>, EnvGuard) {
         ("PIERRE_STRAVA_API_BASE_URL", api_base.to_owned()),
         ("STRAVA_CLIENT_ID", "test_client".to_owned()),
         ("STRAVA_CLIENT_SECRET", "test_secret".to_owned()),
+        (SUBSCRIPTION_ID_VAR, REGISTERED_SUBSCRIPTION_ID.to_string()),
     ]);
     let resources = common::create_test_server_resources().await.unwrap();
     (resources, guard)
@@ -174,7 +181,7 @@ fn strava_event(aspect_type: &str, owner_id: u64, event_time: i64) -> Value {
         "object_id": 9_001,
         "aspect_type": aspect_type,
         "owner_id": owner_id,
-        "subscription_id": 77,
+        "subscription_id": REGISTERED_SUBSCRIPTION_ID,
         "event_time": event_time
     })
 }
@@ -434,6 +441,139 @@ async fn verification_echoes_the_challenge_only_for_the_configured_token() {
         .oneshot(
             Request::builder()
                 .uri("/webhooks/strava?hub.mode=subscribe&hub.challenge=abc123&hub.verify_token=forged")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+}
+
+/// carnet#557: an event for a subscription this deployment did not register
+/// is refused, and nothing is fetched or spawned. Strava does not sign
+/// events, so before this check any parseable body spent the owner's token.
+#[tokio::test]
+#[serial]
+async fn event_for_another_subscription_is_refused() {
+    let (api_base, mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
+
+    let mut forged = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    forged["subscription_id"] = json!(REGISTERED_SUBSCRIPTION_ID + 1);
+    assert_eq!(post_event(&resources, &forged).await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        resources.common.turns.len(),
+        0,
+        "a refused event spawns no fetch"
+    );
+    assert_eq!(mock.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(cached_strava_rows(&resources, user_id, &tenant_id).await, 0);
+}
+
+/// carnet#557: with no registered subscription id, no event can be told from
+/// a forgery, so every one is refused rather than accepted.
+#[tokio::test]
+#[serial]
+async fn events_are_refused_while_no_subscription_is_registered() {
+    let (api_base, mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    seed_linked_athlete(&resources).await;
+    env::remove_var(SUBSCRIPTION_ID_VAR);
+
+    let status = post_event(
+        &resources,
+        &strava_event("create", OWNER_ID, Utc::now().timestamp()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(resources.common.turns.len(), 0);
+    assert_eq!(mock.hits.load(Ordering::SeqCst), 0);
+}
+
+/// carnet#557: a second event for the same owner inside the debounce window
+/// does not fetch at once; it waits as one trailing fetch.
+#[tokio::test]
+#[serial]
+async fn second_event_inside_the_window_is_deferred_not_fetched() {
+    let (api_base, mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    seed_linked_athlete(&resources).await;
+
+    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
+    await_spawned_turns(&resources).await;
+    assert_eq!(
+        mock.hits.load(Ordering::SeqCst),
+        1,
+        "the first event fetches"
+    );
+
+    assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
+    assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
+    sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        mock.hits.load(Ordering::SeqCst),
+        1,
+        "events inside the window do not fetch again"
+    );
+    assert_eq!(
+        resources.common.turns.len(),
+        1,
+        "one trailing fetch waits for the window's end; the third event folded into it"
+    );
+}
+
+/// The gate's schedule: one fetch now, one trailing fetch at the window's
+/// end, everything between folded in, and a fresh window after it.
+#[test]
+fn owner_fetch_gate_allows_one_fetch_per_window_plus_one_trailing() {
+    let window = Duration::from_secs(60);
+    let gate = OwnerFetchGate::new(window);
+    let owner = Uuid::new_v4();
+    let start = Instant::now();
+
+    assert_eq!(gate.claim(owner, start), FetchTiming::Now);
+    assert_eq!(
+        gate.claim(owner, start + Duration::from_secs(20)),
+        FetchTiming::After(Duration::from_secs(40))
+    );
+    assert_eq!(
+        gate.claim(owner, start + Duration::from_secs(30)),
+        FetchTiming::Coalesced
+    );
+    assert_eq!(
+        gate.claim(Uuid::new_v4(), start + Duration::from_secs(30)),
+        FetchTiming::Now,
+        "owners are debounced independently"
+    );
+
+    gate.trailing_started(owner);
+    assert_eq!(
+        gate.claim(owner, start + Duration::from_secs(70)),
+        FetchTiming::After(Duration::from_secs(50)),
+        "the window reopens from the trailing fetch, not the first one"
+    );
+    gate.trailing_started(owner);
+    assert_eq!(
+        gate.claim(owner, start + Duration::from_secs(200)),
+        FetchTiming::Now
+    );
+}
+
+/// carnet#557: the handshake used to succeed for any token while
+/// `STRAVA_WEBHOOK_VERIFY_TOKEN` was unset.
+#[tokio::test]
+#[serial]
+async fn verification_is_refused_while_no_verify_token_is_configured() {
+    let (api_base, _mock) = mock_strava().await;
+    let (resources, _env) = context_pointed_at(&api_base).await;
+    env::remove_var("STRAVA_WEBHOOK_VERIFY_TOKEN");
+
+    let refused = WebhookRoutes::routes(Arc::clone(&resources))
+        .oneshot(
+            Request::builder()
+                .uri("/webhooks/strava?hub.mode=subscribe&hub.challenge=abc123&hub.verify_token=")
                 .body(Body::empty())
                 .unwrap(),
         )
