@@ -61,7 +61,6 @@ import type {
 import type { MessageFeedbackEntry } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
-import { describeApiError } from '@pierre/ui-logic';
 
 /**
  * The id prefix of the user row appended to the transcript while a turn is in
