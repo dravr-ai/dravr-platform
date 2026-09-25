@@ -57,6 +57,9 @@ const harness = vi.hoisted(() => {
     remove: vi.fn(),
   };
 
+  /** Every setWorkerUrl and map construction, in the order they happened. */
+  const calls: string[] = [];
+
   return {
     instance,
     sources,
@@ -64,12 +67,14 @@ const harness = vi.hoisted(() => {
     handlers,
     constructed,
     controls,
+    calls,
     reset() {
       sources.clear();
       layers.length = 0;
       handlers.clear();
       constructed.length = 0;
       controls.length = 0;
+      calls.length = 0;
     },
   };
 });
@@ -77,9 +82,13 @@ const harness = vi.hoisted(() => {
 vi.mock('maplibre-gl', () => ({
   Map: class {
     constructor(options: Record<string, unknown>) {
+      harness.calls.push('map');
       harness.constructed.push(options);
       return harness.instance;
     }
+  },
+  setWorkerUrl: (url: string) => {
+    harness.calls.push(`worker:${url}`);
   },
   AttributionControl: class {
     constructor(options: { compact?: boolean }) {
@@ -91,6 +100,11 @@ vi.mock('maplibre-gl', () => ({
       harness.controls.push(['navigation', String(options.showCompass)]);
     }
   },
+}));
+
+// The bundler's `?worker&url` import resolves to the emitted worker's URL.
+vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({
+  default: '/assets/maplibre-gl-worker.js',
 }));
 
 /** A Mont Royal loop: five fixes, one three-point climb and one that is a point. */
@@ -233,6 +247,19 @@ describe('RouteView', () => {
       'route-climb',
     ]);
     expect(paintFor('route-line')['line-color']).toBe(BOREAL.dark.primary);
+  });
+
+  it('points MapLibre at the bundled tile worker before it builds the map', async () => {
+    render(
+      <ThemeProvider>
+        <RouteView view={ROUTE} />
+      </ThemeProvider>
+    );
+
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+    // Without the URL, MapLibre asks for a worker beside its own module; a
+    // bundle has none there, so the worker loads index.html and no tile draws.
+    expect(harness.calls).toEqual(['worker:/assets/maplibre-gl-worker.js', 'map']);
   });
 
   it('repaints on the light basemap in the light scheme, in the light inks', async () => {

@@ -18,6 +18,7 @@ use pierre_auth::{
         models::{AuthorizeRequest, ClientRegistrationRequest, TokenRequest},
     },
 };
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{
@@ -64,7 +65,7 @@ async fn setup_test_env() -> (
     };
 
     let registration_response = registration_manager
-        .register_client(registration_request)
+        .register_client(registration_request, MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap();
 
@@ -244,6 +245,56 @@ async fn test_pkce_invalid_code_verifier() {
     assert!(error.error_description.unwrap().contains("code_verifier"));
 }
 
+/// Test PKCE - a `code_verifier` of valid length carrying a character outside
+/// the RFC 7636 unreserved set is refused on its format, before any challenge
+/// comparison
+#[tokio::test]
+async fn test_pkce_code_verifier_with_invalid_characters() {
+    let (database, _auth_manager, oauth_server, client_id, client_secret) = setup_test_env().await;
+
+    let user = create_test_user_with_tenant(&database, "test@example.com").await;
+
+    let code_verifier = generate_code_verifier();
+    let code_challenge = generate_code_challenge(&code_verifier);
+
+    let auth_request = AuthorizeRequest {
+        response_type: "code".to_owned(),
+        client_id: client_id.clone(),
+        redirect_uri: "https://example.com/callback".to_owned(),
+        scope: Some("fitness:read".to_owned()),
+        state: Some("test_state".to_owned()),
+        code_challenge: Some(code_challenge),
+        code_challenge_method: Some("S256".to_owned()),
+    };
+
+    let auth_response = oauth_server
+        .authorize(auth_request, Some(user.id), None)
+        .await
+        .unwrap();
+
+    // 43 characters, the minimum length, ending in '+', which is not unreserved
+    let malformed_verifier = format!("{}+", "a".repeat(42));
+    let token_request = TokenRequest {
+        grant_type: "authorization_code".to_owned(),
+        code: Some(auth_response.code),
+        redirect_uri: Some("https://example.com/callback".to_owned()),
+        client_id,
+        client_secret,
+        scope: None,
+        refresh_token: None,
+        code_verifier: Some(malformed_verifier),
+    };
+
+    let error = oauth_server.token(token_request).await.unwrap_err();
+    assert_eq!(error.error, "invalid_grant");
+    assert_eq!(
+        error.error_description.as_deref(),
+        Some(
+            "code_verifier contains invalid characters (RFC 7636: only [A-Z], [a-z], [0-9], -, ., _, ~ allowed)"
+        )
+    );
+}
+
 /// Test PKCE - missing `code_verifier` when `code_challenge` was provided
 #[tokio::test]
 async fn test_pkce_missing_code_verifier() {
@@ -373,7 +424,7 @@ async fn test_auth_code_client_binding() {
         scope: None,
     };
     let second_client_response = registration_manager
-        .register_client(second_client_request)
+        .register_client(second_client_request, MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap();
 

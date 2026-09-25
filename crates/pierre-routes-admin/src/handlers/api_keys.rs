@@ -175,20 +175,19 @@ fn parse_provision_request(
 fn check_provision_permission(
     admin_token: &ValidatedAdminToken,
 ) -> Result<(), (StatusCode, Json<AdminResponse>)> {
-    if !admin_token
+    admin_token
         .permissions
         .has_permission(&AdminPerm::ProvisionKeys)
-    {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(AdminResponse {
-                success: false,
-                message: "Permission denied: ProvisionKeys required".to_owned(),
-                data: None,
-            }),
-        ));
-    }
-    Ok(())
+        .ok_or_else(|| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(AdminResponse {
+                    success: false,
+                    message: "Permission denied: ProvisionKeys required".to_owned(),
+                    data: None,
+                }),
+            )
+        })
 }
 
 /// Validate tier string and return appropriate response on error

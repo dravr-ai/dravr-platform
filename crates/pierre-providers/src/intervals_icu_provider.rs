@@ -1060,13 +1060,12 @@ impl FitnessProvider for IntervalsIcuProvider {
             .map_err(|e| {
                 AppError::external_service("intervals_icu", format!("update_planned_session: {e}"))
             })?;
-        if !response.status().is_success() {
-            return Err(AppError::external_service(
+        response.status().is_success().ok_or_else(|| {
+            AppError::external_service(
                 "intervals_icu",
                 format!("update_planned_session returned {}", response.status()),
-            ));
-        }
-        Ok(())
+            )
+        })
     }
 
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {

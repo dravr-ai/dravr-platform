@@ -31,6 +31,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 use url::Url;
@@ -60,14 +61,17 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
 
 async fn register(resources: &Arc<ServerContext>, redirect_uri: &str) -> String {
     ClientRegistrationManager::new(resources.common.repos.oauth2_server.clone())
-        .register_client(ClientRegistrationRequest {
-            redirect_uris: vec![redirect_uri.to_owned()],
-            client_name: Some("Error redirect client".to_owned()),
-            client_uri: None,
-            grant_types: None,
-            response_types: None,
-            scope: None,
-        })
+        .register_client(
+            ClientRegistrationRequest {
+                redirect_uris: vec![redirect_uri.to_owned()],
+                client_name: Some("Error redirect client".to_owned()),
+                client_uri: None,
+                grant_types: None,
+                response_types: None,
+                scope: None,
+            },
+            MAX_PENDING_REGISTRATIONS,
+        )
         .await
         .unwrap()
         .client_id

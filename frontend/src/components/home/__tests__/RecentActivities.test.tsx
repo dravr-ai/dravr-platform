@@ -53,6 +53,7 @@ vi.mock('maplibre-gl', () => {
     },
     AttributionControl: class {},
     NavigationControl: class {},
+    setWorkerUrl: vi.fn(),
   };
 });
 
@@ -217,5 +218,35 @@ describe('RecentActivities', () => {
 
     expect(await screen.findByText(/^Last synced: /)).toBeInTheDocument();
     expect(screen.queryByText('Checking your provider for new activities…')).toBeNull();
+  });
+
+  it('heads its section at the level of Today and This week', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse());
+    renderSection();
+
+    expect(await screen.findByRole('heading', { level: 3, name: 'Recent activities' })).toBeInTheDocument();
+  });
+
+  it('keeps a sketch column only when a row can fill it', async () => {
+    api.getRecentActivities.mockResolvedValue(recentResponse());
+    renderSection();
+
+    await screen.findByTestId('home-activity-latest');
+    // The fixture's four earlier rows mix GPS and indoor, so every row keeps
+    // the column and their text stays on one line.
+    expect(screen.getAllByTestId('home-sketch-slot')).toHaveLength(4);
+  });
+
+  it('drops the sketch column when every earlier row was recorded indoors', async () => {
+    const indoor = [1, 2, 3, 4, 5].map((n) =>
+      activity({ id: `indoor-${n}`, has_gps: false, summary_polyline: null, start_date: `2026-09-1${n}T08:00:00Z` }),
+    );
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: indoor }));
+    renderSection();
+
+    await screen.findByTestId('home-activity-latest');
+    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
+    expect(screen.queryByTestId('home-sketch-slot')).toBeNull();
+    expect(api.getActivityRoute).not.toHaveBeenCalled();
   });
 });

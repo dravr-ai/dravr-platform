@@ -719,6 +719,31 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
     echo ""
 fi
 
+# ----------------------------------------------------------------------------
+# Tier 1m: workflow test targets (compile-free, ~1s)
+# ----------------------------------------------------------------------------
+#
+# A workflow names test binaries by `cargo test --test <name>`, and cargo
+# refuses the whole command when one name has no target. The push that moves
+# or renames a test file does not run the cron lanes that name it, so the break
+# surfaces the next morning and every morning after: llm-live-cron.yml went red
+# on six scheduled runs over a file 5a20567bb moved to dravr-embacle
+# (carnet#474). This resolves every static `--test` in .github/workflows
+# against the workspace's test targets, honouring each command's -p selection.
+# It runs when either side can change: a workflow, a test file, or a manifest.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-workflow-test-targets.sh" ]] \
+    && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+       | grep -qE '^\.github/workflows/|^crates/[^/]+/tests/|(^|/)Cargo\.toml$|^scripts/ci/check-workflow-test-targets\.sh$'; then
+    echo "Tier 1m: Workflow test targets"
+    echo "------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-workflow-test-targets.sh"; then
+        echo ""
+        echo "FAIL: a workflow runs a cargo test target the workspace does not have!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

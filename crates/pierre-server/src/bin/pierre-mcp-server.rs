@@ -511,8 +511,8 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
         "COPILOT_GITHUB_TOKEN prefix detected"
     );
 
-    if prefix_kind.ends_with("_REJECTED") {
-        return Err(AppError::config(format!(
+    (!prefix_kind.ends_with("_REJECTED")).ok_or_else(|| {
+        AppError::config(format!(
             "COPILOT_GITHUB_TOKEN has unsupported prefix ({prefix_kind}); Copilot CLI accepts \
              github_pat_v2 fine-grained PATs (with Copilot Requests permission), gh_ OAuth \
              tokens, or ghu_ Copilot OAuth tokens. Classic ghp_ PATs and ghr_ refresh tokens \
@@ -520,9 +520,8 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
              fine-grained PAT at https://github.com/settings/personal-access-tokens/new with \
              Account permissions → Copilot Requests (the Rust runtime behind copilot_sdk \
              needs it; the ACP transport also accepts Copilot Chat: Read)."
-        )));
-    }
-    Ok(())
+        ))
+    })
 }
 
 /// Validate OAuth provider credentials at startup
@@ -935,6 +934,19 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_oauth_launch_sweeper(
             Arc::clone(&resources.common.repos.oauth_client_state),
             Arc::clone(&resources.common.repos.worker_runs),
+        );
+    }
+
+    // Start the OAuth 2.0 client registration sweeper. `/oauth2/register` is
+    // anonymous (RFC 7591) and every row it wrote used to be kept forever; this
+    // deletes registrations past their expiry grace and the ones no user ever
+    // authorized, under the retention policy in the OAuth2 server config.
+    {
+        use pierre_mcp_server::start_oauth2_client_sweeper;
+        start_oauth2_client_sweeper(
+            Arc::clone(&resources.common.repos.oauth2_server),
+            Arc::clone(&resources.common.repos.worker_runs),
+            resources.common.config.oauth2_server.client_retention,
         );
     }
 

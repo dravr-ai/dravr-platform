@@ -248,8 +248,7 @@ fn base_locale(locale: &str) -> String {
 #[must_use]
 pub fn sport_code(label: &str) -> String {
     label
-        .strip_prefix("Other(\"")
-        .and_then(|rest| rest.strip_suffix("\")"))
+        .strip_circumfix("Other(\"", "\")")
         .unwrap_or(label)
         .to_owned()
 }
@@ -480,13 +479,12 @@ async fn verify_tenant_membership<DB: TenantRepository + ?Sized>(
         ))
     })?;
 
-    if !user_tenants.iter().any(|t| t.id == tenant_id) {
-        return Err(AppError::auth_invalid(format!(
-            "User {user_id} does not belong to this tenant"
-        )));
-    }
-
-    Ok(())
+    user_tenants
+        .iter()
+        .any(|t| t.id == tenant_id)
+        .ok_or_else(|| {
+            AppError::auth_invalid(format!("User {user_id} does not belong to this tenant"))
+        })
 }
 
 /// Capitalize provider name for user-friendly display

@@ -27,6 +27,7 @@ use pierre_auth::oauth2_server::models::{
     AuthorizeRequest, ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Client,
     OAuth2RefreshToken, TokenRequest,
 };
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
@@ -83,7 +84,7 @@ fn registration_request(scope: Option<&str>) -> ClientRegistrationRequest {
 
 async fn register(env: &Env, scope: Option<&str>) -> ClientRegistrationResponse {
     env.registration
-        .register_client(registration_request(scope))
+        .register_client(registration_request(scope), MAX_PENDING_REGISTRATIONS)
         .await
         .unwrap()
 }
@@ -191,7 +192,7 @@ async fn registration_refuses_admin_and_names_outside_the_vocabulary() {
     ] {
         let refused = env
             .registration
-            .register_client(registration_request(Some(scope)))
+            .register_client(registration_request(Some(scope)), MAX_PENDING_REGISTRATIONS)
             .await
             .expect_err("the registration must be refused");
         assert_eq!(refused.error, "invalid_client_metadata", "for {scope}");
@@ -241,23 +242,27 @@ async fn admin_is_never_authorized_even_for_a_row_registered_before_the_check() 
             Some("fitness:read fitness:write profile:read profile:write admin"),
         ),
     ] {
-        repos
+        let stored = repos
             .oauth2_server
-            .store_client(&OAuth2Client {
-                id: uuid::Uuid::new_v4().to_string(),
-                client_id: client_id.to_owned(),
-                client_secret_hash: "unused".to_owned(),
-                redirect_uris: vec![REDIRECT.to_owned()],
-                grant_types: vec!["authorization_code".to_owned()],
-                response_types: vec!["code".to_owned()],
-                client_name: None,
-                client_uri: None,
-                scope: scope.map(str::to_owned),
-                created_at: Utc::now(),
-                expires_at: None,
-            })
+            .store_client_within_ceiling(
+                &OAuth2Client {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    client_id: client_id.to_owned(),
+                    client_secret_hash: "unused".to_owned(),
+                    redirect_uris: vec![REDIRECT.to_owned()],
+                    grant_types: vec!["authorization_code".to_owned()],
+                    response_types: vec!["code".to_owned()],
+                    client_name: None,
+                    client_uri: None,
+                    scope: scope.map(str::to_owned),
+                    created_at: Utc::now(),
+                    expires_at: None,
+                },
+                u64::MAX,
+            )
             .await
             .unwrap();
+        assert!(stored, "no ceiling can refuse a client under u64::MAX");
 
         let refused = env
             .server

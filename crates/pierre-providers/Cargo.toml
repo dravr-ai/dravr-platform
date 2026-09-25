@@ -17,7 +17,7 @@ provider-garmin = []
 provider-terra = []
 provider-whoop = []
 provider-coros = []
-provider-sciotte = ["dep:dravr-sciotte", "dep:dravr-tronc"]
+provider-sciotte = ["dep:dravr-sciotte", "dep:dravr-tronc", "dep:hyper"]
 provider-intervals-icu = []
 all-providers = [
     "provider-strava",
@@ -55,6 +55,10 @@ hex = "0.4"
 dravr-equilibre = { workspace = true }
 dravr-sciotte = { workspace = true, optional = true }
 dravr-tronc = { workspace = true, features = ["google-iam"], optional = true }
+# Only its error type: the remote sciotte client tells a connection closed
+# before any response (`hyper::Error::is_incomplete_message`) from a timeout.
+# Already in the tree through reqwest, which it unifies with.
+hyper = { version = "1", default-features = false, optional = true }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }
 
 [dev-dependencies]

@@ -16,6 +16,7 @@ use pierre_auth::{
     },
     rate_limiting::OAuth2RateLimitConfig,
 };
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use std::{
@@ -89,7 +90,7 @@ async fn test_rate_limit_client_registration() {
         };
 
         let result = registration_manager
-            .register_client(registration_request)
+            .register_client(registration_request, MAX_PENDING_REGISTRATIONS)
             .await;
         assert!(result.is_ok(), "Registration {i} should succeed");
     }

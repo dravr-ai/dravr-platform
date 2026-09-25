@@ -310,6 +310,7 @@ pub mod recipes;
 
 /// Short-link table hygiene: periodic sweep of expired reconnect/connect links
 pub mod mcp_task_sweeper;
+pub mod oauth2_client_sweeper;
 pub mod oauth_launch_sweeper;
 pub mod short_link_sweeper;
 

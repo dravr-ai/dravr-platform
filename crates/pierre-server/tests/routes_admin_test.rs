@@ -622,6 +622,60 @@ async fn test_provision_api_key_invalid_tier() -> Result<()> {
     Ok(())
 }
 
+/// A valid admin token that lacks `ProvisionKeys` is refused at the handler's
+/// permission gate, with the exact 403 body that gate builds.
+#[tokio::test]
+async fn test_provision_api_key_without_provision_permission() -> Result<()> {
+    let setup = AdminTestSetup::new().await?;
+    let routes = setup.routes();
+
+    let list_only_token = setup
+        .context
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "list_only_service".to_owned(),
+                service_description: Some("Token without ProvisionKeys".to_owned()),
+                permissions: Some(vec![AdminPermission::ListKeys]),
+                expires_in_days: Some(30),
+                is_super_admin: false,
+                tenant_id: None,
+            },
+            &setup.context.admin_jwt_secret,
+            &*setup.context.jwks_manager,
+        )
+        .await?;
+
+    let request_body = json!({
+        "user_email": setup.user.email.clone(),
+        "tier": "starter",
+        "description": "Test API key",
+        "expires_in_days": 30,
+        "rate_limit_requests": 1000,
+        "rate_limit_period": "day"
+    });
+
+    let response = AxumTestRequest::post("/admin/provision")
+        .header(
+            "authorization",
+            &setup.auth_header(&list_only_token.jwt_token),
+        )
+        .header("content-type", "application/json")
+        .json(&request_body)
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(response.status(), 403);
+
+    let body: Value = serde_json::from_slice(&response.bytes())?;
+    assert_eq!(body["success"], false);
+    assert_eq!(body["message"], "Permission denied: ProvisionKeys required");
+    assert!(body["data"].is_null());
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_provision_api_key_invalid_rate_limit_period() -> Result<()> {
     let setup = AdminTestSetup::new().await?;

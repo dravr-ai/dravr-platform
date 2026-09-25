@@ -155,14 +155,10 @@ async fn run_agent_passes(
 }
 
 fn finalize_stats(stats: &SeedStats) -> AppResult<()> {
-    if stats.errors.is_empty() {
-        Ok(())
-    } else {
-        Err(AppError::config(format!(
-            "{} coach(es) failed to seed",
-            stats.errors.len()
-        )))
-    }
+    stats
+        .errors
+        .is_empty()
+        .ok_or_else(|| AppError::config(format!("{} coach(es) failed to seed", stats.errors.len())))
 }
 
 /// Sync all agents to the database (Pass 1)

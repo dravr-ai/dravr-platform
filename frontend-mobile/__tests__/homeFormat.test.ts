@@ -49,6 +49,8 @@ describe('durations and figures', () => {
   it('names a sport the vocabulary knows, and shows the provider spelling of one it does not', () => {
     expect(sportLabel(t, 'virtual_ride')).toBe('Indoor ride');
     expect(sportLabel(t, 'Underwater Hockey')).toBe('Underwater Hockey');
+    // A plan day's sport goes through the same label, so a French athlete reads Course.
+    expect(sportLabel(tFr, 'run')).toBe('Course');
   });
 });
 

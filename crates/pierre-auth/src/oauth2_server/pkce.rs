@@ -47,16 +47,14 @@ fn validate_verifier_format(verifier: &str) -> Result<(), OAuth2Error> {
     }
 
     // Characters: Only unreserved characters allowed: [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"
-    if !verifier
+    verifier
         .chars()
         .all(|c| matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~'))
-    {
-        return Err(OAuth2Error::invalid_grant(
-            "code_verifier contains invalid characters (RFC 7636: only [A-Z], [a-z], [0-9], -, ., _, ~ allowed)",
-        ));
-    }
-
-    Ok(())
+        .ok_or_else(|| {
+            OAuth2Error::invalid_grant(
+                "code_verifier contains invalid characters (RFC 7636: only [A-Z], [a-z], [0-9], -, ., _, ~ allowed)",
+            )
+        })
 }
 
 /// Compute PKCE challenge from verifier using S256 method

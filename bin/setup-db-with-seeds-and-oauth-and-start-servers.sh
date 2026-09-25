@@ -423,7 +423,11 @@ cd "$PROJECT_ROOT"
 print_step 7 "Starting Web Frontend (port $FRONTEND_PORT)..."
 if [ -d "$PROJECT_ROOT/frontend" ]; then
     cd "$PROJECT_ROOT/frontend"
-    dev_spawn vite "$FRONTEND_LOG" bun run dev
+    # Vite proxies /api to VITE_BACKEND_URL, whose default is 8081: without
+    # this, a checkout moved off the shared port with HTTP_PORT serves its own
+    # page against whichever server holds 8081 — a peer's, or nothing.
+    VITE_BACKEND_URL="${VITE_BACKEND_URL:-http://127.0.0.1:$SERVER_PORT}" \
+        dev_spawn vite "$FRONTEND_LOG" bun run dev
     FRONTEND_PID=$DEV_SPAWNED_PID
     cd "$PROJECT_ROOT"
     echo "    Frontend starting (PID: $FRONTEND_PID)"
@@ -465,8 +469,15 @@ if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
                 uninstall host.exp.exponent >/dev/null 2>&1 || true
             EXPO_PUBLIC_API_URL="http://10.0.2.2:$SERVER_PORT" \
                 dev_spawn expo "$EXPO_LOG" npx expo start --android --go --port "$EXPO_PORT"
-        else
+        elif [ "$START_TUNNEL" = "true" ]; then
+            # The tunnel wrote its public URL into frontend-mobile/.env, and a
+            # process-level EXPO_PUBLIC_API_URL would beat it.
             dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
+        else
+            # The app's own default is localhost:8081, so the simulator is told
+            # this checkout's port, as the Android branch does.
+            EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://localhost:$SERVER_PORT}" \
+                dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
         fi
         EXPO_PID=$DEV_SPAWNED_PID
     fi

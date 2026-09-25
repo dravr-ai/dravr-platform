@@ -424,10 +424,9 @@ fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<()> {
         relationships.insert("threshold_hr".to_owned(), json!(lthr_bpm));
     }
     validate_parameter_relationships(&relationships, &mut errors);
-    if !errors.is_empty() {
-        return Err(AppError::invalid_input(errors.join("; ")));
-    }
-    Ok(())
+    errors
+        .is_empty()
+        .ok_or_else(|| AppError::invalid_input(errors.join("; ")))
 }
 
 /// Render a profile for the tool response.

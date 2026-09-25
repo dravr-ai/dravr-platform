@@ -67,19 +67,6 @@ pub trait McpTaskRepository: Send + Sync {
         now_ms: i64,
     ) -> AppResult<Option<McpTaskRow>>;
 
-    /// List an owner's unexpired tasks at `now_ms` (unix milliseconds).
-    ///
-    /// Scoped by `(tenant_id, user_id)` like [`Self::get_task`], so it can
-    /// never surface another owner's work. Ordered by `task_id` so a caller
-    /// diffing successive snapshots sees a stable sequence rather than
-    /// whatever order the backend happens to return.
-    async fn active_tasks(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        now_ms: i64,
-    ) -> AppResult<Vec<McpTaskRow>>;
-
     /// Delete tasks whose expiry has passed at `now_ms` (unix milliseconds),
     /// returning how many rows were removed.
     async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<u64>;
@@ -131,16 +118,6 @@ pub(crate) const GET_TASK_SQL: &str = concat!(
     " FROM mcp_tasks \
      WHERE task_id = $1 AND tenant_id = $2 AND user_id = $3 \
        AND (expires_at_ms IS NULL OR expires_at_ms >= $4)"
-);
-
-/// Every unexpired task one owner holds.
-pub(crate) const ACTIVE_TASKS_SQL: &str = concat!(
-    "SELECT ",
-    task_columns!(),
-    " FROM mcp_tasks \
-     WHERE tenant_id = $1 AND user_id = $2 \
-       AND (expires_at_ms IS NULL OR expires_at_ms >= $3) \
-     ORDER BY task_id"
 );
 
 /// Storage hygiene: drop every handle whose TTL has elapsed.
@@ -216,13 +193,12 @@ macro_rules! impl_mcp_task_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to upsert MCP task: {e}")))?;
 
-                if outcome.rows_affected() == 0 {
-                    return Err(AppError::database(format!(
+                (outcome.rows_affected() > 0).ok_or_else(|| {
+                    AppError::database(format!(
                         "MCP task '{}' exists under a different owner",
                         row.task_id
-                    )));
-                }
-                Ok(())
+                    ))
+                })
             }
 
             async fn get_task(
@@ -241,22 +217,6 @@ macro_rules! impl_mcp_task_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to fetch MCP task: {e}")))?;
                 row.as_ref().map(task_from_row).transpose()
-            }
-
-            async fn active_tasks(
-                &self,
-                tenant_id: &str,
-                user_id: &str,
-                now_ms: i64,
-            ) -> AppResult<Vec<McpTaskRow>> {
-                let rows = sqlx::query(ACTIVE_TASKS_SQL)
-                    .bind(tenant_id)
-                    .bind(user_id)
-                    .bind(now_ms)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to list MCP tasks: {e}")))?;
-                rows.iter().map(task_from_row).collect()
             }
 
             async fn delete_expired_tasks(&self, now_ms: i64) -> AppResult<u64> {

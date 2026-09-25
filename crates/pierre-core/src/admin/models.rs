@@ -523,14 +523,12 @@ impl ValidatedAdminToken {
     /// # Errors
     /// Returns `AppError` with `PermissionDenied` code if the permission is not granted.
     pub fn require_permission(&self, permission: &AdminPermission) -> AppResult<()> {
-        if self.is_super_admin || self.permissions.has_permission(permission) {
-            Ok(())
-        } else {
-            Err(AppError::new(
+        (self.is_super_admin || self.permissions.has_permission(permission)).ok_or_else(|| {
+            AppError::new(
                 ErrorCode::PermissionDenied,
                 format!("Permission required: {permission}"),
-            ))
-        }
+            )
+        })
     }
 
     /// Verify the token is allowed to access the given tenant.

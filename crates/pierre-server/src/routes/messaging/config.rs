@@ -94,14 +94,12 @@ async fn require_tenant_owner_or_admin(
         .as_deref()
         .is_some_and(|r| r == "owner" || r == "admin");
 
-    if !is_owner_or_admin {
-        return Err(AppError::new(
+    is_owner_or_admin.ok_or_else(|| {
+        AppError::new(
             ErrorCode::PermissionDenied,
             "Only tenant owners or administrators can manage messaging channel configuration",
-        ));
-    }
-
-    Ok(())
+        )
+    })
 }
 
 /// List all channel configurations for the authenticated tenant

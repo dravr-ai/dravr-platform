@@ -590,6 +590,8 @@ fn build_activity(
         index + 1
     );
 
+    let (start_latitude, start_longitude) = start_point(sport, distance, index);
+
     SeedSyntheticActivity {
         id: Uuid::new_v4(),
         user_id,
@@ -608,9 +610,50 @@ fn build_activity(
         city: "Montreal".to_owned(),
         region: "Quebec".to_owned(),
         country: "Canada".to_owned(),
+        start_latitude,
+        start_longitude,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
+}
+
+/// Montreal's centre, where every seeded activity says it took place.
+const MONTREAL: (f64, f64) = (45.5017, -73.5673);
+
+/// The golden angle in radians, which spreads successive points evenly.
+const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
+
+/// How far from Montreal's centre a start may fall, in degrees of latitude.
+const MAX_OFFSET_DEGREES: f64 = 0.07;
+
+/// Sports recorded indoors, on an erg or in a pool: a watch logs no GPS track
+/// for them, so they carry no start point.
+fn records_gps(sport_type: &str) -> bool {
+    !matches!(
+        sport_type,
+        "virtual_ride" | "swim" | "weight_training" | "yoga" | "workout" | "rowing"
+    )
+}
+
+/// Where an outdoor activity started: a point within about 8 km of Montreal's
+/// centre, spread by the golden angle so no two neighbouring activities share
+/// a start. Derived from the index, not the RNG, so seeding with `--seed`
+/// produces the same activities it did before start points existed.
+fn start_point(
+    sport: &SportConfig,
+    distance: Option<f64>,
+    index: u32,
+) -> (Option<f64>, Option<f64>) {
+    if distance.is_none() || !records_gps(sport.sport_type) {
+        return (None, None);
+    }
+    let step = f64::from(index);
+    let angle = step * GOLDEN_ANGLE;
+    let reach = MAX_OFFSET_DEGREES * (f64::from(index % 10) + 1.0) / 10.0;
+    let latitude = MONTREAL.0 + reach * angle.sin();
+    // A degree of longitude is shorter than one of latitude at 45°N.
+    let longitude = MONTREAL.1 + reach * angle.cos() / MONTREAL.0.to_radians().cos();
+    (Some(latitude), Some(longitude))
 }
 
 /// Register the seeded user as a connected `provider` (strava/garmin) athlete:

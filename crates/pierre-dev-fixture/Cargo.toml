@@ -23,6 +23,7 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 
 [lints]
 workspace = true

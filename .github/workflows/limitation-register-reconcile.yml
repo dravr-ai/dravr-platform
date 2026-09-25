@@ -1,0 +1,59 @@
+# ABOUTME: Weekly reconciliation of every LIMITATION marker against the private register (dravr-carnet)
+# ABOUTME: Red when a marker names an issue that is closed, never filed, a pull request, or unlabelled
+#
+# The push gates check a marker's SHAPE — `LIMITATION(registre#<n>):` — and nothing else. They
+# run on every developer machine and in every push lane, where no token for the private tracker
+# exists, so they cannot ask it anything. A marker whose issue was closed therefore kept exempting
+# its prose from the confession gate, and `rg "LIMITATION\(registre#"` kept listing the gap as
+# tracked: on 2026-09-17 four markers in shipped code cited closed issues and every gate was green
+# (carnet#378).
+#
+# This lane is the other half of the pair. llm-registre's gate 6 (`--verify-tracker`) lists the
+# register's `limitation` issues in one paginated REST call and requires every marker in the scope
+# registre.toml declares (scan_dirs) to name one that exists, is open, and carries the label. It
+# fails closed: a token that cannot read dravr-carnet, or an answer it cannot parse, reds the lane
+# instead of passing it. The same run re-runs the offline gates, which are green on main whenever
+# the push lanes are.
+#
+# Nobody is attached to a cron verdict, so a red here is read by monitor-scheduled-lanes.yml,
+# which files it on the register. The remedy is in the log, per marker: a fixed gap loses its
+# marker; a real one is refiled through the register-limitation skill and its marker repointed.
+#
+# Test fixtures that cite unfiled numbers on purpose (scripts/ci/*.test.sh, the bilan suite) are
+# outside the register's scope — shell files outside scan_dirs — so they are never judged here,
+# with no exemption list.
+name: "Monitor: Limitation Register Reconciliation"
+
+on:
+  schedule:
+    # Mondays 09:29 UTC: off :00, and in before the 11:43 lane-health read.
+    - cron: "29 9 * * 1"
+  workflow_dispatch: {}
+
+concurrency:
+  group: limitation-register-reconcile
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    name: Every marker names an open limitation issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate is .build/vendor/llm-registre, a submodule nested in .build. Both repos are
+          # public, so the checkout needs no token; the tracker read below does.
+          submodules: recursive
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Reconcile markers with dravr-carnet
+        env:
+          # Read access to the private register — the secret the lane-health monitor files with.
+          GH_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+        run: .build/vendor/llm-registre/limitation-gates.sh --verify-tracker

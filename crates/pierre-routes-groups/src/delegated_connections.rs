@@ -220,14 +220,12 @@ impl DelegatedConnectionRoutes {
 
     /// Refuse anyone but the group's coach.
     fn require_coach(group: &CoachingGroup, caller: Uuid) -> Result<(), AppError> {
-        if group.coach_user_id == Some(caller) {
-            Ok(())
-        } else {
-            Err(AppError::new(
+        (group.coach_user_id == Some(caller)).ok_or_else(|| {
+            AppError::new(
                 ErrorCode::PermissionDenied,
                 "Only the group's coach can link TrainingPeaks athletes",
-            ))
-        }
+            )
+        })
     }
 
     fn connection_id(raw: &str) -> Result<Uuid, AppError> {

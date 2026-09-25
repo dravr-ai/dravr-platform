@@ -131,6 +131,7 @@ pub use pierre_services::mcp_task_sweeper::start_mcp_task_sweeper;
 pub use pierre_services::messaging_outbound::start_outbound_worker;
 #[cfg(feature = "client-messaging")]
 pub use pierre_services::messaging_seed;
+pub use pierre_services::oauth2_client_sweeper::start_oauth2_client_sweeper;
 pub use pierre_services::oauth_launch_sweeper::start_oauth_launch_sweeper;
 pub use pierre_services::short_link_sweeper::start_short_link_sweeper;
 #[cfg(feature = "client-messaging")]

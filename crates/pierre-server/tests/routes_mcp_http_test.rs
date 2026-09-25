@@ -377,13 +377,10 @@ async fn test_mcp_request_invalid_json() {
         .send(routes)
         .await;
 
-    // The tronc Streamable-HTTP transport renders a parse failure as a JSON-RPC
-    // error object (code -32700) carried in the HTTP body, returned with a 200
-    // status. This is JSON-RPC-conformant: the MCP Streamable-HTTP spec mandates
-    // HTTP 400 only for an invalid `MCP-Protocol-Version`, a required-but-missing
-    // session id, or a notification/response the server cannot accept — not for a
-    // malformed request body, which is surfaced as a JSON-RPC error response.
-    assert_eq!(response.status(), 200);
+    // A body the server cannot accept is an HTTP 400 (Streamable HTTP), and the
+    // body still carries the JSON-RPC parse error: text that is not JSON is
+    // -32700.
+    assert_eq!(response.status(), 400);
     let body: serde_json::Value = response.json();
     assert_eq!(
         body["error"]["code"], -32700,
@@ -407,16 +404,14 @@ async fn test_mcp_request_invalid_jsonrpc_format() {
         .send(routes)
         .await;
 
-    // A body that is valid JSON but not a JSON-RPC envelope is missing the
-    // required `jsonrpc`/`method` fields, so it fails to deserialize into the
-    // request type. The tronc transport surfaces that as a JSON-RPC parse error
-    // (-32700) in the HTTP body with a 200 status — the same JSON-RPC-conformant
-    // posture as a syntactically malformed body (see test_mcp_request_invalid_json).
-    assert_eq!(response.status(), 200);
+    // Valid JSON that is not a JSON-RPC request is -32600 (Invalid Request), not
+    // the parse error: the text parsed, the envelope did not. Like any body the
+    // server cannot accept, it is an HTTP 400.
+    assert_eq!(response.status(), 400);
     let body: serde_json::Value = response.json();
     assert_eq!(
-        body["error"]["code"], -32700,
-        "invalid JSON-RPC envelope must carry the parse-error code: {:?}",
+        body["error"]["code"], -32600,
+        "an invalid JSON-RPC envelope must carry the invalid-request code: {:?}",
         body["error"]
     );
 }
@@ -453,12 +448,10 @@ async fn test_mcp_request_with_notification() {
         .send(routes)
         .await;
 
-    // A notification (no `id`) yields no JSON-RPC response, so the tronc transport
-    // returns an empty-body success. tronc renders this as 204 No Content; the MCP
-    // Streamable-HTTP spec's letter is 202 Accepted for an accepted notification.
-    // Both are empty-body 2xx accept codes; the 204-vs-202 gap is a tronc transport
-    // detail (it cannot be changed from the platform — flagged for the tronc engine).
-    assert_eq!(response.status(), 204);
+    // A notification (no `id`) yields no JSON-RPC response: Streamable HTTP
+    // answers an accepted notification 202 Accepted with no body.
+    assert_eq!(response.status(), 202);
+    assert!(response.bytes().is_empty(), "a notification gets no body");
 }
 
 #[tokio::test]

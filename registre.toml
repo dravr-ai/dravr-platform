@@ -15,3 +15,8 @@ require_ledger = true
 # `limitation-gates.sh --list-files` for the same set when it decides whether a marker
 # credits an issue — two tools, one list.
 scan_dirs = "crates,frontend/src,frontend-mobile/src,packages"
+
+# verify_tracker stays off: pre-push runs on machines that hold no dravr-carnet token. The weekly
+# `Monitor: Limitation Register Reconciliation` lane runs the online check instead
+# (`limitation-gates.sh --verify-tracker`): every marker in the scope above must name an open
+# issue labelled `limitation`.

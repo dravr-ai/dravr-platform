@@ -116,12 +116,11 @@ pub fn validate_document(doc: &GuardianConfigDocument) -> AppResult<()> {
             doc.schema_version, GUARDIAN_CONFIG_SCHEMA_VERSION
         )));
     }
-    if doc.max_writes_per_turn == Some(0) {
-        return Err(AppError::invalid_input(
+    (doc.max_writes_per_turn != Some(0)).ok_or_else(|| {
+        AppError::invalid_input(
             "max_writes_per_turn must be >= 1 (0 would deny every write-tool dispatch)",
-        ));
-    }
-    Ok(())
+        )
+    })
 }
 
 /// Which resolution layer supplied a policy field's effective value.

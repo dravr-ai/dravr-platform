@@ -43,7 +43,12 @@ async fn fresh_client(repos: &RepositoryRegistry) -> OAuth2Client {
         created_at: Utc::now(),
         expires_at: None,
     };
-    repos.oauth2_server.store_client(&client).await.unwrap();
+    let stored = repos
+        .oauth2_server
+        .store_client_within_ceiling(&client, u64::MAX)
+        .await
+        .unwrap();
+    assert!(stored, "no ceiling can refuse a client under u64::MAX");
     client
 }
 

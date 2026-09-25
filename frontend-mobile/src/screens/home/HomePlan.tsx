@@ -28,6 +28,7 @@ import {
   civilWeekdayLong,
   civilWeekdayNarrow,
   planDayDraft,
+  sportLabel,
   type Translate,
 } from './homeFormat';
 
@@ -93,11 +94,12 @@ export function buildHomeCalendar(plan: WorkoutPlan, today: string): HomeCalenda
   };
 }
 
-/** "Tempo run · run · 50 min · Z3" — a session in one line, its figure in mono. */
+/** "Run · 50 min · Z3" — a session in one line, its sport in the app language, its figure in mono. */
 function SessionSummary({ day }: { day: PlanDay }) {
+  const { t } = useTranslation();
   return (
     <Text className="text-sm text-text-secondary">
-      {day.sport}
+      {sportLabel(t, day.sport)}
       {day.duration_min !== undefined ? (
         <Text>
           {' · '}

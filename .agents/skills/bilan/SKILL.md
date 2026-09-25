@@ -48,7 +48,7 @@ stands. The registered-limitation exemption was one, until 2026-09-21.
 | carnet issue claimed by this session, neither closed nor released | **6** |
 | carnet issue **filed** by this session and still open (unless a registered limitation) | **6** |
 | background task or subagent still running | **7** |
-| `LIMITATION(registre#…)` marker added in source naming no live issue | **6** |
+| `LIMITATION(registre#…)` marker added in source naming no live issue — missing, closed, a pull request, or not labelled `limitation` (full run only) | **6** |
 | tracked files modified and uncommitted | **7** |
 | commits not pushed | **8** |
 | todo still `pending` or `in_progress` | **7** |

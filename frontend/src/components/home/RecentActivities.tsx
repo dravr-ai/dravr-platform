@@ -146,7 +146,16 @@ function LatestActivity({ activity, onOpenChatDraft }: { activity: HomeActivity;
  * comes from the summary polyline when the activity carries one, else from
  * the route endpoint's coordinates when it recorded GPS, else there is none.
  */
-function ActivityRow({ activity, onOpenChatDraft }: { activity: HomeActivity; onOpenChatDraft: (text: string) => void }) {
+function ActivityRow({
+  activity,
+  sketchSlot,
+  onOpenChatDraft,
+}: {
+  activity: HomeActivity;
+  /** Whether the list keeps a sketch column — false when no row can draw one. */
+  sketchSlot: boolean;
+  onOpenChatDraft: (text: string) => void;
+}) {
   const { t } = useTranslation();
   const draft = useAnalyzeDraft(activity);
   const decoded = useMemo(() => polylinePoints(activity), [activity]);
@@ -160,9 +169,11 @@ function ActivityRow({ activity, onOpenChatDraft }: { activity: HomeActivity; on
         className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-container-low/60 focus-ring touch-target"
       >
         {/* The slot keeps every row's text on one column, sketch or not. */}
-        <span className="flex h-12 w-16 shrink-0 items-center justify-center">
-          {points !== null && <RouteSketch points={points} label={t('home.activities.sketchAlt')} />}
-        </span>
+        {sketchSlot && (
+          <span className="flex h-12 w-16 shrink-0 items-center justify-center" data-testid="home-sketch-slot">
+            {points !== null && <RouteSketch points={points} label={t('home.activities.sketchAlt')} />}
+          </span>
+        )}
         <ActivitySummary activity={activity} />
       </button>
     </li>
@@ -215,6 +226,9 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
     body = noProvider ? connectPrompt : <EmptyState>{t('home.activities.empty')}</EmptyState>;
   } else {
     const [latest, ...earlier] = activities;
+    // A column no row can fill is only an indent: an indoor-only list keeps
+    // its text flush with the latest row instead.
+    const sketchSlot = earlier.some((activity) => activity.has_gps || activity.summary_polyline !== null);
     body = (
       <>
         {noProvider && connectPrompt}
@@ -224,6 +238,7 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
             <ActivityRow
               key={`${activity.provider}:${activity.id}`}
               activity={activity}
+              sketchSlot={sketchSlot}
               onOpenChatDraft={onOpenChatDraft}
             />
           ))}
@@ -233,7 +248,7 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
   }
 
   return (
-    <Section title={t('home.activities.heading')} description={status} data-testid="home-activities">
+    <Section title={t('home.activities.heading')} headingLevel={3} description={status} data-testid="home-activities">
       {body}
     </Section>
   );

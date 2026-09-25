@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::oauth_providers;
 use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
+use pierre_core::constants::{oauth2_client_retention, oauth_providers};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::env;
@@ -162,6 +162,9 @@ pub struct OAuth2ServerConfig {
     pub default_login_email: Option<String>,
     /// Default password for OAuth login page (dev/test only - NEVER use in production!)
     pub default_login_password: Option<String>,
+    /// How long RFC 7591 dynamic client registrations are kept, and how many
+    /// no user has authorized may exist at once
+    pub client_retention: ClientRetentionConfig,
 }
 
 impl Default for OAuth2ServerConfig {
@@ -170,6 +173,82 @@ impl Default for OAuth2ServerConfig {
             issuer_url: "http://localhost:8081".to_owned(),
             default_login_email: None,
             default_login_password: None,
+            client_retention: ClientRetentionConfig::default(),
+        }
+    }
+}
+
+/// Retention of RFC 7591 dynamic client registrations.
+///
+/// `POST /oauth2/register` is anonymous, so what it stores is bounded here
+/// rather than by who calls it. A registration is *pending* until a refresh
+/// token is issued through it — that is, until a user authorizes it. Pending
+/// registrations are capped at [`max_pending_registrations`] and deleted
+/// [`abandoned_after_secs`] after they were made; any registration is deleted
+/// [`expired_grace_secs`] after its `expires_at`. The sweep that deletes them
+/// runs every [`sweep_interval_secs`].
+///
+/// [`max_pending_registrations`]: Self::max_pending_registrations
+/// [`abandoned_after_secs`]: Self::abandoned_after_secs
+/// [`expired_grace_secs`]: Self::expired_grace_secs
+/// [`sweep_interval_secs`]: Self::sweep_interval_secs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientRetentionConfig {
+    /// Seconds an expired registration is kept past its `expires_at`
+    /// (`OAUTH2_CLIENT_EXPIRED_GRACE_SECS`, default 30 days)
+    pub expired_grace_secs: u64,
+    /// Seconds after which a registration no user has authorized is deleted
+    /// (`OAUTH2_CLIENT_ABANDONED_AFTER_SECS`, default 24 hours)
+    pub abandoned_after_secs: u64,
+    /// Seconds between retention sweeps (`OAUTH2_CLIENT_SWEEP_INTERVAL_SECS`,
+    /// default 1 hour)
+    pub sweep_interval_secs: u64,
+    /// Registrations no user has authorized that may exist at once; the next is
+    /// refused with 429 (`OAUTH2_MAX_PENDING_CLIENT_REGISTRATIONS`, default
+    /// 10,000). `0` refuses every registration.
+    pub max_pending_registrations: u64,
+}
+
+impl Default for ClientRetentionConfig {
+    fn default() -> Self {
+        Self {
+            expired_grace_secs: oauth2_client_retention::EXPIRED_GRACE_SECS,
+            abandoned_after_secs: oauth2_client_retention::ABANDONED_AFTER_SECS,
+            sweep_interval_secs: oauth2_client_retention::SWEEP_INTERVAL_SECS,
+            max_pending_registrations: oauth2_client_retention::MAX_PENDING_REGISTRATIONS,
+        }
+    }
+}
+
+impl ClientRetentionConfig {
+    /// Load the retention policy from the environment; an unset or unparsable
+    /// variable keeps its default.
+    #[must_use]
+    pub fn from_env() -> Self {
+        let read = |name: &str, default: u64| {
+            env::var(name)
+                .ok()
+                .and_then(|value| value.trim().parse().ok())
+                .unwrap_or(default)
+        };
+        let defaults = Self::default();
+        Self {
+            expired_grace_secs: read(
+                "OAUTH2_CLIENT_EXPIRED_GRACE_SECS",
+                defaults.expired_grace_secs,
+            ),
+            abandoned_after_secs: read(
+                "OAUTH2_CLIENT_ABANDONED_AFTER_SECS",
+                defaults.abandoned_after_secs,
+            ),
+            sweep_interval_secs: read(
+                "OAUTH2_CLIENT_SWEEP_INTERVAL_SECS",
+                defaults.sweep_interval_secs,
+            ),
+            max_pending_registrations: read(
+                "OAUTH2_MAX_PENDING_CLIENT_REGISTRATIONS",
+                defaults.max_pending_registrations,
+            ),
         }
     }
 }
@@ -222,6 +301,7 @@ impl OAuth2ServerConfig {
             ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
             default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
+            client_retention: ClientRetentionConfig::from_env(),
         }
     }
 }

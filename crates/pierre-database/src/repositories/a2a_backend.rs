@@ -378,10 +378,8 @@ macro_rules! impl_a2a_repository {
                     .map_err(|e| {
                         AppError::database(format!("Failed to deactivate A2A client: {e}"))
                     })?;
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!("A2A client: {client_id}")));
-                }
-                Ok(())
+                (result.rows_affected() > 0)
+                    .ok_or_else(|| AppError::not_found(format!("A2A client: {client_id}")))
             }
 
             async fn get_client_credentials(

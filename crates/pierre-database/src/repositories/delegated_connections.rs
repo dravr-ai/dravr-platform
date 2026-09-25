@@ -410,13 +410,9 @@ pub(crate) fn require_fresh_proposal(link: &DelegatedConnection) -> AppResult<()
         && link.revoked_at.is_none()
         && link.revoked_by.is_none()
         && link.revoke_reason.is_none();
-    if fresh {
-        Ok(())
-    } else {
-        Err(AppError::invalid_input(
-            "Only a fresh proposal can be stored as a delegated connection",
-        ))
-    }
+    fresh.ok_or_else(|| {
+        AppError::invalid_input("Only a fresh proposal can be stored as a delegated connection")
+    })
 }
 
 /// Emit the whole [`DelegatedConnectionRepository`] implementation for one

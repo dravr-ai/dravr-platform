@@ -194,9 +194,12 @@ git -C "$R" add -A && git -C "$R" commit -qm "the register" && git -C "$R" push 
 STUB=$(mktemp -d "${TMPDIR:-/tmp}/bilan-gh.XXXXXX") || die "mktemp -d failed for the gh stub"
 cat > "$STUB/gh" <<'GH'
 #!/usr/bin/env bash
-# Smallest gh that can answer the filed-issue path. Every issue is OPEN; only 2001 is labelled
-# `limitation`. Anything else (run list, api) fails, so CI reads as absent — which is why the
-# assertions below are on the presence of a CAP, never on the score.
+# Smallest gh that can answer the filed-issue and marker paths. On the `issue view` path every
+# issue is OPEN and only 2001 is labelled `limitation`. The REST path the marker check reads,
+# `api repos/<tracker>/issues/<n> --jq <filter>`, answers from the same register plus a closed
+# entry (2003) and a pull request (2004), applying the caller's filter with the real jq; any other
+# number is a 404. Everything else (run list, check-runs) fails, so CI reads as absent — which is
+# why the assertions below are on the presence of a CAP, never on the score.
 want=""
 for a in "$@"; do case "$a" in labels) want=labels;; state) want=state;; esac; done
 if [ "${1:-}" = issue ] && [ "${2:-}" = view ]; then
@@ -204,6 +207,17 @@ if [ "${1:-}" = issue ] && [ "${2:-}" = view ]; then
         state)  echo OPEN; exit 0 ;;
         labels) if [ "${3:-}" = 2001 ]; then echo limitation; else echo bug; fi; exit 0 ;;
     esac
+fi
+if [ "${1:-}" = api ] && [ "${3:-}" = --jq ]; then
+    case "${2:-}" in
+        repos/dravr-ai/dravr-carnet/issues/2001) issue='{"state":"open","labels":[{"name":"limitation"}]}' ;;
+        repos/dravr-ai/dravr-carnet/issues/2002) issue='{"state":"open","labels":[{"name":"bug"}]}' ;;
+        repos/dravr-ai/dravr-carnet/issues/2003) issue='{"state":"closed","labels":[{"name":"limitation"}]}' ;;
+        repos/dravr-ai/dravr-carnet/issues/2004) issue='{"state":"open","labels":[{"name":"limitation"}],"pull_request":{}}' ;;
+        *) echo 'gh: Not Found (HTTP 404)' >&2; exit 1 ;;
+    esac
+    printf '%s' "$issue" | jq -r "$4"
+    exit
 fi
 exit 1
 GH
@@ -263,6 +277,41 @@ check "--cheap credits a limitation carnet recorded, with a marker in scope" 0 "
 check "--cheap and the full run agree on it" "$(filed_caps "$(run_full "$R" --json)")" "$(filed_caps "$out")"
 git -C "$R" checkout -q -- src/lib.rs
 check "--cheap still wants the marker, not the label alone" 1 "$(filed_caps "$(run "$R")")"
+rm -f "$CFG/carnet-claims/$SID.jsonl"
+
+# ---- a marker this session added must name an open, labelled issue
+#
+# A closed issue keeps a marker exempting its prose after the gap stopped being tracked, and on
+# 2026-09-17 four markers in shipped code did exactly that (carnet#378). The weekly
+# reconciliation lane catches every such marker in the tree; this is the same three conditions,
+# asked of the session's own markers before it reports a number. Only the full run asks.
+dead_marker() { # <bilan --json output> <reason> -> how many marker caps carry that reason
+    printf '%s' "$1" | jq --arg r "$2" \
+        '[.caps[] | select(.evidence | test("naming no live issue")) | select(.evidence | contains($r))] | length'
+}
+echo '// LIMITATION(registre#2001): the width this names' >> "$R/src/lib.rs"
+check "a marker naming an open limitation issue is not capped" 0 \
+    "$(run_full "$R" --json | jq '[.caps[] | select(.evidence | test("naming no live issue"))] | length')"
+git -C "$R" checkout -q -- src/lib.rs
+echo '// LIMITATION(registre#2003): the width this names' >> "$R/src/lib.rs"
+out=$(run_full "$R" --json)
+check "a marker naming a closed issue caps at 6" 1 "$(dead_marker "$out" "#2003(closed)")"
+check "…and the remedy says to delete a fixed gap's marker" 1 \
+    "$(printf '%s' "$out" | jq '[.caps[] | select(.remedy | test("delete the marker"))] | length')"
+git -C "$R" checkout -q -- src/lib.rs
+echo '// LIMITATION(registre#2002): the width this names' >> "$R/src/lib.rs"
+check "a marker naming an open issue without the label caps" 1 \
+    "$(dead_marker "$(run_full "$R" --json)" "#2002(not labelled limitation)")"
+git -C "$R" checkout -q -- src/lib.rs
+echo '// LIMITATION(registre#2004): the width this names' >> "$R/src/lib.rs"
+check "a marker naming a pull request caps" 1 "$(dead_marker "$(run_full "$R" --json)" "#2004(a pull request)")"
+git -C "$R" checkout -q -- src/lib.rs
+echo '// LIMITATION(registre#9999): the width this names' >> "$R/src/lib.rs"
+check "a marker naming no issue on the tracker caps" 1 \
+    "$(dead_marker "$(run_full "$R" --json)" "#9999(not found on the tracker)")"
+check "--cheap asks nothing, so it does not judge the marker" 0 \
+    "$(run "$R" | jq '[.caps[] | select(.evidence | test("naming no live issue"))] | length')"
+git -C "$R" checkout -q -- src/lib.rs
 
 rm -rf "$STUB"
 rm -f "$CFG/carnet-claims/$SID.jsonl"

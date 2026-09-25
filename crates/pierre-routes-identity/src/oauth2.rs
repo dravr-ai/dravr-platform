@@ -246,21 +246,18 @@ impl OAuth2Routes {
         let rate_status = context.rate_limiter.check_rate_limit("register", client_ip);
 
         if rate_status.is_limited {
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(serde_json::json!({
-                    "error": "too_many_requests",
-                    "error_description": "Rate limit exceeded"
-                })),
-            )
-                .into_response();
+            let refusal = OAuth2Error::too_many_requests("Rate limit exceeded");
+            return (StatusCode::TOO_MANY_REQUESTS, Json(refusal)).into_response();
         }
 
+        // Registrations no user has authorized yet are capped; past the cap the
+        // refusal is a 429 like the rate limiter's, in the same body shape.
+        let ceiling = context.config.client_retention.max_pending_registrations;
         let client_manager = ClientRegistrationManager::new(context.oauth2_server.clone());
 
-        match client_manager.register_client(request).await {
+        match client_manager.register_client(request, ceiling).await {
             Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-            Err(error) => (StatusCode::BAD_REQUEST, Json(error)).into_response(),
+            Err(error) => (error.registration_status(), Json(error)).into_response(),
         }
     }
 
@@ -278,11 +275,8 @@ impl OAuth2Routes {
             .check_rate_limit("authorize", client_ip);
 
         if rate_status.is_limited {
-            return Self::render_oauth_error_response(&OAuth2Error {
-                error: "too_many_requests".to_owned(),
-                error_description: Some("Rate limit exceeded".to_owned()),
-                error_uri: None,
-            });
+            let refusal = OAuth2Error::too_many_requests("Rate limit exceeded");
+            return Self::render_oauth_error_response(&refusal);
         }
 
         // Parse query parameters into AuthorizeRequest
@@ -583,16 +577,8 @@ impl OAuth2Routes {
         let rate_status = context.rate_limiter.check_rate_limit("token", client_ip);
 
         if rate_status.is_limited {
-            Some(
-                (
-                    StatusCode::TOO_MANY_REQUESTS,
-                    Json(serde_json::json!({
-                        "error": "too_many_requests",
-                        "error_description": "Rate limit exceeded"
-                    })),
-                )
-                    .into_response(),
-            )
+            let refusal = OAuth2Error::too_many_requests("Rate limit exceeded");
+            Some((StatusCode::TOO_MANY_REQUESTS, Json(refusal)).into_response())
         } else {
             None
         }

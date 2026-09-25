@@ -152,15 +152,8 @@ pub async fn enforce_conversation_quota(
         return Ok(());
     }
     let current = repos.chat.count_conversations(user_id, tenant_id).await?;
-    if current >= cap {
-        return Err(AppError::quota_exceeded(
-            "max_active_conversations",
-            current,
-            cap,
-            "",
-        ));
-    }
-    Ok(())
+    (current < cap)
+        .ok_or_else(|| AppError::quota_exceeded("max_active_conversations", current, cap, ""))
 }
 
 /// Create the conversation and return its id.

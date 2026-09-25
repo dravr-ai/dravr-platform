@@ -7,13 +7,15 @@
 use super::models::{
     ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Client, OAuth2Error,
 };
+use crate::config::oauth::ClientRetentionConfig;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::OAuth2ClientSweep;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -36,11 +38,17 @@ impl ClientRegistrationManager {
 
     /// Register a new OAuth 2.0 client (RFC 7591)
     ///
+    /// `max_pending_registrations` caps the registrations no user has
+    /// authorized yet; at the cap this one is refused with `too_many_requests`
+    /// (see [`OAuth2Error::registration_status`]) and nothing is stored.
+    ///
     /// # Errors
-    /// Returns an error if client registration validation fails or database storage fails
+    /// Returns an error if client registration validation fails, the pending
+    /// ceiling is reached, or database storage fails
     pub async fn register_client(
         &self,
         request: ClientRegistrationRequest,
+        max_pending_registrations: u64,
     ) -> Result<ClientRegistrationResponse, OAuth2Error> {
         // Validate request
         Self::validate_registration_request(&request)?;
@@ -71,10 +79,10 @@ impl ClientRegistrationManager {
             .unwrap_or_else(|| vec!["code".to_owned()]);
 
         let created_at = Utc::now();
-        // LIMITATION(registre#483): `expires_at` gates use, never storage — `check_client_expiry`
-        // refuses an expired client at `validate_client`, and no sweep deletes the row. Anonymous
-        // registration is rate limited per IP (`REGISTER_RPM`), so the row count grows at
-        // 10/minute/IP with no ceiling and no reclamation.
+        // Every registration carries an expiry: it is what marks a row as written
+        // here, and the retention sweep and the pending ceiling touch no other.
+        // `check_client_expiry` refuses the client from this instant on; the
+        // sweep deletes the row once the configured grace has passed as well.
         let expires_at = Some(created_at + Duration::days(365)); // 1 year expiry
 
         // Create client record
@@ -92,13 +100,24 @@ impl ClientRegistrationManager {
             expires_at,
         };
 
-        // Store in database
-        self.store_client(&client)
+        // Store in database, unless the pending ceiling is already reached
+        let stored = self
+            .oauth2
+            .store_client_within_ceiling(&client, max_pending_registrations)
             .await
             .map_err(|e| {
                 error!(error = %e, client_id = %client_id, "Failed to store OAuth2 client registration in database");
                 OAuth2Error::invalid_request("Failed to store client registration")
             })?;
+        if !stored {
+            warn!(
+                ceiling = max_pending_registrations,
+                "OAuth2 client registration refused: the pending-registration ceiling is reached"
+            );
+            return Err(OAuth2Error::too_many_requests(
+                "Too many registered clients are awaiting authorization; retry later",
+            ));
+        }
 
         // Return registration response
         // Build default client_uri from actual server configuration (if initialized)
@@ -201,9 +220,26 @@ impl ClientRegistrationManager {
             .ok_or_else(|| AppError::not_found("OAuth2 client not found"))
     }
 
-    /// Store client in database
-    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
-        self.oauth2.store_client(client).await
+    /// Delete the registrations the retention policy no longer keeps, as of `now`.
+    ///
+    /// Two kinds go: a registration whose `expires_at` is more than
+    /// `expired_grace_secs` before `now`, and one no user ever authorized that
+    /// was made more than `abandoned_after_secs` before `now`. An age reaching
+    /// back past the Unix epoch keeps every row of its kind.
+    ///
+    /// # Errors
+    /// Returns an error if the database delete fails; nothing is deleted then.
+    pub async fn sweep_stale_clients(
+        &self,
+        retention: &ClientRetentionConfig,
+        now: DateTime<Utc>,
+    ) -> AppResult<OAuth2ClientSweep> {
+        self.oauth2
+            .delete_stale_clients(
+                retention_cutoff(now, retention.expired_grace_secs),
+                retention_cutoff(now, retention.abandoned_after_secs),
+            )
+            .await
     }
 
     /// Validate registration request
@@ -383,4 +419,19 @@ impl ClientRegistrationManager {
 
         Ok(hash.to_string())
     }
+}
+
+/// The instant `age_secs` before `now`, floored at the Unix epoch.
+///
+/// No registration is stamped before the epoch, and the epoch is inside the
+/// range both engines' timestamps accept — `PostgreSQL` refuses a year before
+/// 4713 BC outright — so an age reaching back past it keeps every row rather
+/// than failing the sweep or deleting everything.
+fn retention_cutoff(now: DateTime<Utc>, age_secs: u64) -> DateTime<Utc> {
+    i64::try_from(age_secs)
+        .ok()
+        .and_then(Duration::try_seconds)
+        .and_then(|age| now.checked_sub_signed(age))
+        .unwrap_or(DateTime::UNIX_EPOCH)
+        .max(DateTime::UNIX_EPOCH)
 }

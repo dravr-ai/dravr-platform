@@ -27,11 +27,14 @@ use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
 
+use std::f64::consts::TAU;
+
 use axum::extract::{Query, State};
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::{serve, Json, Router};
+use pierre_fitness_compute::polyline::encode_polyline;
 use serde_json::{json, Value};
 use sqlx::sqlite::{SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, SqlitePool};
@@ -319,9 +322,21 @@ fn row_to_strava_activity(row: &SqliteRow) -> Value {
     let id: String = row.try_get("id").unwrap_or_default();
     let lat: Option<f64> = row.try_get("start_latitude").ok().flatten();
     let lng: Option<f64> = row.try_get("start_longitude").ok().flatten();
-    let start_latlng = match (lat, lng) {
-        (Some(lat), Some(lng)) => json!([lat, lng]),
-        _ => Value::Null,
+    let distance: Option<f64> = row
+        .try_get::<Option<f64>, _>("distance_meters")
+        .ok()
+        .flatten();
+    let (start_latlng, map) = match (lat, lng) {
+        (Some(lat), Some(lng)) => (
+            json!([lat, lng]),
+            json!({
+                "id": format!("a{}", stable_id(&id)),
+                "summary_polyline": loop_route((lat, lng), distance.unwrap_or(0.0), stable_id(&id)),
+                "resource_state": 2,
+            }),
+        ),
+        // Strava sends an empty polyline for an activity recorded without GPS.
+        _ => (Value::Null, json!({ "summary_polyline": "" })),
     };
 
     json!({
@@ -329,7 +344,7 @@ fn row_to_strava_activity(row: &SqliteRow) -> Value {
         "name": row.try_get::<String, _>("name").unwrap_or_default(),
         "type": row.try_get::<String, _>("sport_type").unwrap_or_else(|_| "Workout".to_owned()),
         "start_date": rfc3339_z(&row.try_get::<String, _>("start_date").unwrap_or_default()),
-        "distance": row.try_get::<Option<f64>, _>("distance_meters").ok().flatten(),
+        "distance": distance,
         "elapsed_time": row.try_get::<Option<i64>, _>("duration_seconds").ok().flatten(),
         "total_elevation_gain": row.try_get::<Option<f64>, _>("elevation_gain").ok().flatten(),
         "average_speed": row.try_get::<Option<f64>, _>("average_speed").ok().flatten(),
@@ -338,10 +353,49 @@ fn row_to_strava_activity(row: &SqliteRow) -> Value {
         "max_heartrate": row.try_get::<Option<f64>, _>("max_heart_rate").ok().flatten(),
         "calories": row.try_get::<Option<f64>, _>("calories").ok().flatten(),
         "start_latlng": start_latlng,
+        "map": map,
         "location_city": row.try_get::<Option<String>, _>("city").ok().flatten(),
         "location_state": row.try_get::<Option<String>, _>("region").ok().flatten(),
         "location_country": row.try_get::<Option<String>, _>("country").ok().flatten(),
     })
+}
+
+/// Points on a seeded route's loop: enough to read as a route on a map card
+/// and a sketch, few enough that the polyline stays the size Strava's are.
+const ROUTE_POINTS: u32 = 72;
+
+/// A seeded route's loop is never wider than this, so a long ride still fits
+/// the map around its start.
+const MAX_LOOP_RADIUS_METERS: f64 = 12_000.0;
+
+/// Metres in one degree of latitude.
+const METERS_PER_DEGREE: f64 = 111_320.0;
+
+/// A seeded activity's route: a closed loop that leaves from and returns to
+/// its start, its length about the activity's distance, bent by a wave whose
+/// phase comes from the activity id so no two routes share a shape. Encoded
+/// the way Strava's `map.summary_polyline` is, so the real provider reads it.
+fn loop_route(start: (f64, f64), distance_meters: f64, seed: u64) -> String {
+    let radius = (distance_meters / TAU).clamp(150.0, MAX_LOOP_RADIUS_METERS);
+    let degrees = u32::try_from(seed % 360).unwrap_or(0);
+    let phase = f64::from(degrees) / 360.0 * TAU;
+    let meters_per_degree_longitude = METERS_PER_DEGREE * start.0.to_radians().cos();
+    // The loop's centre sits one radius from the start, so the loop passes
+    // through the start at angle zero.
+    let (centre_north, centre_east) = (radius * phase.sin(), radius * phase.cos());
+    let points: Vec<(f64, f64)> = (0..=ROUTE_POINTS)
+        .map(|step| {
+            let angle = f64::from(step) / f64::from(ROUTE_POINTS) * TAU;
+            let wave = (0.18 * 3.0_f64.mul_add(angle, phase).sin()).mul_add(angle.sin(), 1.0);
+            let north = (radius * wave).mul_add(-(phase + angle).sin(), centre_north);
+            let east = (radius * wave).mul_add(-(phase + angle).cos(), centre_east);
+            (
+                start.0 + north / METERS_PER_DEGREE,
+                start.1 + east / meters_per_degree_longitude,
+            )
+        })
+        .collect();
+    encode_polyline(&points)
 }
 
 /// Normalize a stored `start_date` to `RFC3339` with an explicit `Z` offset,

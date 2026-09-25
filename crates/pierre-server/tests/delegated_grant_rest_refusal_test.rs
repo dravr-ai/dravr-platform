@@ -33,6 +33,7 @@ use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -485,14 +486,17 @@ async fn a_delegated_grant_cannot_stand_in_for_the_session_on_the_consent_screen
     let resources = create_test_server_resources().await.unwrap();
     let athlete = athlete(&resources, "delegation-consent@example.com", UserRole::User).await;
     let client = ClientRegistrationManager::new(resources.common.repos.oauth2_server.clone())
-        .register_client(ClientRegistrationRequest {
-            redirect_uris: vec!["https://app.example.com/callback".to_owned()],
-            client_name: Some("Second application".to_owned()),
-            client_uri: None,
-            grant_types: None,
-            response_types: None,
-            scope: None,
-        })
+        .register_client(
+            ClientRegistrationRequest {
+                redirect_uris: vec!["https://app.example.com/callback".to_owned()],
+                client_name: Some("Second application".to_owned()),
+                client_uri: None,
+                grant_types: None,
+                response_types: None,
+                scope: None,
+            },
+            MAX_PENDING_REGISTRATIONS,
+        )
         .await
         .unwrap();
     let authorize = format!(

@@ -49,7 +49,7 @@ require_fixture() {
 # guard and a `bun` on PATH for the two scripts it runs.
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
-pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh"
+pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh"
 
 make_repo() {
   local dir
@@ -198,6 +198,7 @@ expect_absent "Rust diff pays no frontend tier" "Tier 5: Frontend Validation"
 expect_absent "Rust diff pays no SDK tier" "Tier 6: SDK Validation"
 expect_absent "Rust diff pays no mobile tier" "Tier 7: Mobile Validation"
 expect_absent "Rust diff names no changed package" "Changed packages:"
+expect_absent "Rust source outside tests/ pays no workflow-target tier" "Tier 1m: Workflow test targets"
 expect_exit "Rust diff passes" 0
 
 # 7. One base for every tier. The validator resolves its base through
@@ -224,6 +225,24 @@ rm -rf "$dir/.build"
 run_change "$dir" src/lib.rs "$(printf 'pub fn probe() {}\n\npub fn probe_three() {}')"
 expect_contains "a missing validate.sh names the fix" "validate.sh missing — run: git submodule update --init --recursive"
 expect_exit "a missing validate.sh fails the push" 1
+
+# 8. A workflow-only diff. No Rust, client or package flag is set, so the
+#    workflow-target tier is the only thing that reads it: a --test flag naming
+#    a moved test file must be caught here, before the cron lane that runs it.
+echo "  case 8: .github/workflows only"
+dir="$(make_repo)"
+run_change "$dir" .github/workflows/probe.yml "name: probe"
+expect_contains "workflow diff runs the workflow-target tier" "Tier 1m: Workflow test targets"
+expect_absent "workflow diff pays no frontend tier" "Tier 5: Frontend Validation"
+expect_exit "workflow diff passes" 0
+
+# 9. The tier's verdict reaches the push: a failing check fails the validator.
+echo "  case 9: workflow diff, check reports a dead target"
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "UNRESOLVED probe"\nexit 1\n' >"$dir/scripts/ci/check-workflow-test-targets.sh"
+run_change "$dir" .github/workflows/probe.yml "name: probe"
+expect_contains "a dead target names the failure" "FAIL: a workflow runs a cargo test target the workspace does not have!"
+expect_exit "a dead target fails the push" 1
 
 echo ""
 if [ "$failures" -ne 0 ]; then

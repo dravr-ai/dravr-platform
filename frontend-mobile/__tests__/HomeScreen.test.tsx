@@ -111,7 +111,8 @@ describe('today and tomorrow', () => {
 
     const today = await screen.findByTestId('home-today');
     expect(within(today).getByText('Tempo run')).toBeTruthy();
-    expect(within(today).getByText(/run · 50 min · Z3/)).toBeTruthy();
+    // The plan's sport reads in the app language, as an activity row's does.
+    expect(within(today).getByText(/Run · 50 min · Z3/)).toBeTruthy();
     // 2026-09-24 is day 17 of a build phase that started 2026-09-07: week 3.
     expect(screen.getByTestId('home-today-phase')).toHaveTextContent('Build · week 3');
     expect(screen.getByTestId('home-tomorrow')).toHaveTextContent(/^Tomorrow/);

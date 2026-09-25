@@ -504,8 +504,8 @@ pub(crate) const INSERT_SYNTHETIC_ACTIVITY_SQL: &str = "INSERT INTO synthetic_ac
              (id, user_id, tenant_id, name, sport_type, start_date, duration_seconds, \
               distance_meters, elevation_gain, average_heart_rate, max_heart_rate, \
               average_speed, max_speed, calories, city, region, country, \
-              created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)";
+              start_latitude, start_longitude, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)";
 
 /// Insert or refresh a provider connection; every id column is text on both.
 pub(crate) const UPSERT_PROVIDER_CONNECTION_SQL: &str = "INSERT INTO provider_connections \

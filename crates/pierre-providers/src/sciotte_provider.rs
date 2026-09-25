@@ -346,11 +346,7 @@ impl SciotteProvider {
             .is_some_and(|workout| {
                 !workout.is_empty() && workout.bytes().all(|b| b.is_ascii_digit())
             });
-        if in_scope {
-            Ok(())
-        } else {
-            Err(AppError::not_found("Activity"))
-        }
+        in_scope.ok_or_else(|| AppError::not_found("Activity"))
     }
 }
 

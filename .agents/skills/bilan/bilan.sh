@@ -554,12 +554,32 @@ marker_in_scope() { # <issue-number> -> 0 when a marker in a scanned file names 
         | xargs -0 grep -l -F "LIMITATION(registre#$1):" 2>/dev/null | grep -q . )
 }
 
-# The gate's own format check already fails a malformed marker; what no gate does is ask the
-# tracker whether the issue a marker names exists. That is this check, and it asks only about the
-# markers this session added. The loose `[^)]*` is kept so a marker naming no issue at all is
-# reported here too, in the session that wrote it.
+# What is wrong with the issue a marker names, or nothing when it is a live register entry: it
+# exists, is open, and carries the `limitation` label. Those are the three conditions
+# llm-registre's gate 6 requires of every marker on the weekly reconciliation run; this asks them
+# only of the markers this session added, so the session that wrote a bad one hears about it
+# before the week does. REST, not `gh issue view`: GraphQL is refused where some sessions run, and
+# a refusal here would read as a missing issue.
+marker_issue_problem() { # <issue-number> -> a reason on stdout, or nothing
+    local answer tab
+    tab=$(printf '\t')
+    answer=$(gh api "repos/${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}/issues/$1" \
+        --jq '[.state, ((.labels | map(.name) | index("limitation")) != null), (.pull_request != null)] | @tsv' \
+        2>/dev/null) || { printf 'not found on the tracker'; return 0; }
+    case "$answer" in
+        "open${tab}true${tab}false") : ;;
+        *"${tab}true") printf 'a pull request' ;;
+        closed*) printf 'closed' ;;
+        *) printf 'not labelled limitation' ;;
+    esac
+}
+
+# The gate's own format check already fails a malformed marker; the gate's online pass runs
+# weekly. This check asks the tracker about the markers this session added, now. The loose
+# `[^)]*` is kept so a marker naming no issue at all is reported here too, in the session that
+# wrote it.
 check_limitation_markers() {
-    local upstream changed files=() p added marker n bad=""
+    local upstream changed files=() p added marker n why bad=""
     upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo origin/main)
     # Both halves of the session's work: committed but unpushed, and still in the tree.
     changed=$( { git diff --name-only "$upstream..HEAD"; git diff --name-only HEAD; } 2>/dev/null | sort -u )
@@ -588,13 +608,13 @@ check_limitation_markers() {
         if [ -z "$n" ] || [ "$n" = 0 ]; then
             bad="$bad $marker"
         elif [ "$CHEAP" = 0 ] && command -v gh >/dev/null 2>&1; then
-            gh issue view "$n" -R "${REGISTRE_TRACKER:-dravr-ai/dravr-carnet}" --json number \
-                >/dev/null 2>&1 || bad="$bad #$n(no such issue)"
+            why=$(marker_issue_problem "$n")
+            [ -z "$why" ] || bad="$bad #$n($why)"
         fi
     done <<< "$added"
     [ -n "${bad// /}" ] || return 0
     cap 6 "❌" "LIMITATION marker(s) naming no live issue:${bad}" \
-          "run the register-limitation skill — an unregistered gap is invisible debt"
+          "a fixed gap: delete the marker; a real one: run the register-limitation skill and point the marker at an open limitation issue — an unregistered gap is invisible debt"
 }
 
 # ------------------------------------------------------------------ checks · in-flight work
