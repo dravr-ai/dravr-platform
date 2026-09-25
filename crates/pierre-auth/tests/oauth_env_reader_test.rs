@@ -63,7 +63,10 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
     // Default scopes are the provider's, whichever way they are read.
     assert_eq!(server.strava.scopes, vec!["activity:read_all"]);
     assert_eq!(server.strava.scopes, runtime.scopes);
-    assert_eq!(server.garmin.scopes, vec!["wellness:read", "activities:read"]);
+    assert_eq!(
+        server.garmin.scopes,
+        vec!["wellness:read", "activities:read"]
+    );
     assert_eq!(server.garmin.scopes, get_oauth_config("garmin").scopes);
     assert_eq!(
         server.whoop.scopes,
