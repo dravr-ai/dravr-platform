@@ -331,11 +331,8 @@ macro_rules! impl_user_mcp_token_repository {
                         AppError::database(format!("Failed to revoke user MCP token: {e}"))
                     })?;
 
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found("MCP token not found or unauthorized"));
-                }
-
-                Ok(())
+                (result.rows_affected() > 0)
+                    .ok_or_else(|| AppError::not_found("MCP token not found or unauthorized"))
             }
 
             async fn get_token(

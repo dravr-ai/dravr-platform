@@ -37,14 +37,12 @@ use pierre_tool_runtime::tool_selection::ToolSelectionService;
 /// prove they belong to the target tenant. Only super-admin tokens can safely
 /// perform cross-tenant operations.
 fn require_super_admin_for_tenant_access(admin_token: &ValidatedAdminToken) -> AppResult<()> {
-    if admin_token.is_super_admin {
-        Ok(())
-    } else {
-        Err(AppError::new(
+    admin_token.is_super_admin.ok_or_else(|| {
+        AppError::new(
             ErrorCode::PermissionDenied,
             "Tenant-scoped tool operations require super-admin privileges",
-        ))
-    }
+        )
+    })
 }
 
 /// Context for tool selection routes

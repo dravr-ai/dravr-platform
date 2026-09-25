@@ -276,13 +276,11 @@ impl CacheProvider for RedisCache {
                 AppError::internal(format!("Cache error: {e}"))
             })?;
 
-        if response == "PONG" {
-            Ok(())
-        } else {
-            Err(AppError::internal(format!(
+        (response == "PONG").ok_or_else(|| {
+            AppError::internal(format!(
                 "Cache error: unexpected PING response '{response}'"
-            )))
-        }
+            ))
+        })
     }
 
     async fn clear_all(&self) -> AppResult<()> {

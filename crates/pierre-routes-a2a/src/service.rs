@@ -164,11 +164,8 @@ impl A2ARoutes {
             .await?
             .ok_or_else(|| A2AError::ResourceNotFound(format!("Client {client_id}")))?;
 
-        if client.user_id != *user_id {
-            return Err(A2AError::ResourceNotFound(format!("Client {client_id}")));
-        }
-
-        Ok(())
+        (client.user_id == *user_id)
+            .ok_or_else(|| A2AError::ResourceNotFound(format!("Client {client_id}")))
     }
 
     /// Creates a new A2A routes instance.

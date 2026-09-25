@@ -287,13 +287,9 @@ impl FeatureConfig {
         }
 
         // REST protocol requires HTTP transport
-        if Self::protocol_rest() && !Self::transport_http() {
-            return Err(AppError::config(
-                "protocol-rest requires transport-http feature for HTTP endpoints",
-            ));
-        }
-
-        Ok(())
+        (!Self::protocol_rest() || Self::transport_http()).ok_or_else(|| {
+            AppError::config("protocol-rest requires transport-http feature for HTTP endpoints")
+        })
     }
 
     /// Validate OAuth dependencies and warn if missing

@@ -116,13 +116,14 @@ async fn verify_user_tenant_membership(
             ))
         })?;
 
-    if !user_tenants.iter().any(|t| t.id == tenant_id) {
-        return Err(AppError::invalid_input(format!(
-            "User {target_user_id} does not belong to this tenant"
-        )));
-    }
-
-    Ok(())
+    user_tenants
+        .iter()
+        .any(|t| t.id == tenant_id)
+        .ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "User {target_user_id} does not belong to this tenant"
+            ))
+        })
 }
 
 // ============================================================================

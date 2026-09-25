@@ -70,13 +70,11 @@ pub fn validate_tenant_slug(slug: &str) -> AppResult<()> {
         ));
     }
 
-    if RESERVED_SLUGS.contains(&slug) {
-        return Err(AppError::invalid_input(format!(
+    (!RESERVED_SLUGS.contains(&slug)).ok_or_else(|| {
+        AppError::invalid_input(format!(
             "Tenant slug '{slug}' is reserved and cannot be used",
-        )));
-    }
-
-    Ok(())
+        ))
+    })
 }
 
 /// Create a default tenant for a user with validated slug

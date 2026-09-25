@@ -179,13 +179,12 @@ fn share_in_unit(field: &str, share: Share) -> AppResult<()> {
             )));
         }
     }
-    if share.min > share.max {
-        return Err(AppError::invalid_input(format!(
+    (share.min <= share.max).ok_or_else(|| {
+        AppError::invalid_input(format!(
             "{field}.min {} is above {field}.max {}",
             share.min, share.max
-        )));
-    }
-    Ok(())
+        ))
+    })
 }
 
 /// A day's template reference: a rest day has no session to build from a

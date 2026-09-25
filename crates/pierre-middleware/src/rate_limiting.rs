@@ -38,29 +38,26 @@ pub fn create_rate_limit_headers(rate_limit_info: &UnifiedRateLimitInfo) -> Head
 
     // Add rate limit headers if we have the information
     if let Some(limit) = rate_limit_info.limit {
-        if let Ok(header_value) = HeaderValue::from_str(&limit.to_string()) {
-            headers.insert(headers::X_RATE_LIMIT_LIMIT, header_value);
-        }
+        headers.insert(headers::X_RATE_LIMIT_LIMIT, HeaderValue::from(limit));
     }
 
     if let Some(remaining) = rate_limit_info.remaining {
-        if let Ok(header_value) = HeaderValue::from_str(&remaining.to_string()) {
-            headers.insert(headers::X_RATE_LIMIT_REMAINING, header_value);
-        }
+        headers.insert(
+            headers::X_RATE_LIMIT_REMAINING,
+            HeaderValue::from(remaining),
+        );
     }
 
     if let Some(reset_at) = rate_limit_info.reset_at {
         // Add reset timestamp as Unix epoch
-        let reset_timestamp = reset_at.timestamp();
-        if let Ok(header_value) = HeaderValue::from_str(&reset_timestamp.to_string()) {
-            headers.insert(headers::X_RATE_LIMIT_RESET, header_value);
-        }
+        headers.insert(
+            headers::X_RATE_LIMIT_RESET,
+            HeaderValue::from(reset_at.timestamp()),
+        );
 
         // Add Retry-After header (seconds until reset)
         let retry_after = (reset_at - chrono::Utc::now()).num_seconds().max(0);
-        if let Ok(header_value) = HeaderValue::from_str(&retry_after.to_string()) {
-            headers.insert(headers::RETRY_AFTER, header_value);
-        }
+        headers.insert(headers::RETRY_AFTER, HeaderValue::from(retry_after));
     }
 
     // Add tier and authentication method information
@@ -103,9 +100,5 @@ pub fn create_rate_limit_error(rate_limit_info: &UnifiedRateLimitInfo) -> AppErr
 pub fn check_rate_limit_and_respond(
     rate_limit_info: &UnifiedRateLimitInfo,
 ) -> Result<(), AppError> {
-    if rate_limit_info.is_rate_limited {
-        Err(create_rate_limit_error(rate_limit_info))
-    } else {
-        Ok(())
-    }
+    (!rate_limit_info.is_rate_limited).ok_or_else(|| create_rate_limit_error(rate_limit_info))
 }

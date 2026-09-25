@@ -112,12 +112,10 @@ impl SecurityConfig {
     ///
     /// Returns an error if TLS is enabled but certificate or key path is missing
     pub fn validate_tls(&self) -> AppResult<()> {
-        if self.tls.enabled && (self.tls.cert_path.is_none() || self.tls.key_path.is_none()) {
-            return Err(AppError::invalid_input(
-                "TLS is enabled but cert_path or key_path is missing",
-            ));
-        }
-        Ok(())
+        (!self.tls.enabled || (self.tls.cert_path.is_some() && self.tls.key_path.is_some()))
+            .ok_or_else(|| {
+                AppError::invalid_input("TLS is enabled but cert_path or key_path is missing")
+            })
     }
 }
 

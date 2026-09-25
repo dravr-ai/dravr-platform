@@ -367,12 +367,11 @@ macro_rules! impl_prescribed_workout_repository {
                     .map_err(|e| {
                         AppError::database(format!("set_prescribed_workout_status: {e}"))
                     })?;
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!(
+                (result.rows_affected() > 0).ok_or_else(|| {
+                    AppError::not_found(format!(
                         "prescribed workout {id} not found in tenant {tenant_id}"
-                    )));
-                }
-                Ok(())
+                    ))
+                })
             }
         }
     };

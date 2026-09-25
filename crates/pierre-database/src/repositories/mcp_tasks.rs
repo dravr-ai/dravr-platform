@@ -216,13 +216,12 @@ macro_rules! impl_mcp_task_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to upsert MCP task: {e}")))?;
 
-                if outcome.rows_affected() == 0 {
-                    return Err(AppError::database(format!(
+                (outcome.rows_affected() > 0).ok_or_else(|| {
+                    AppError::database(format!(
                         "MCP task '{}' exists under a different owner",
                         row.task_id
-                    )));
-                }
-                Ok(())
+                    ))
+                })
             }
 
             async fn get_task(

@@ -808,9 +808,9 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
     error.details = Some(Box::new(Value::Object(details)));
 
     let mut response = error.into_response();
-    if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
-        response.headers_mut().insert(RETRY_AFTER, value);
-    }
+    response
+        .headers_mut()
+        .insert(RETRY_AFTER, HeaderValue::from(retry_after_secs));
     response
 }
 

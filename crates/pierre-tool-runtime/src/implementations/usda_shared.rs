@@ -39,13 +39,12 @@ pub const MAX_USDA_INGREDIENTS: usize = 30;
 ///
 /// Returns [`AppError::invalid_input`] naming the length and the cap.
 pub fn check_ingredient_count(ingredients: &[Value]) -> AppResult<()> {
-    if ingredients.len() > MAX_USDA_INGREDIENTS {
-        return Err(AppError::invalid_input(format!(
+    (ingredients.len() <= MAX_USDA_INGREDIENTS).ok_or_else(|| {
+        AppError::invalid_input(format!(
             "too many ingredients ({}; max {MAX_USDA_INGREDIENTS})",
             ingredients.len()
-        )));
-    }
-    Ok(())
+        ))
+    })
 }
 
 static SHARED_USDA_CLIENT: OnceLock<Arc<UsdaClient>> = OnceLock::new();

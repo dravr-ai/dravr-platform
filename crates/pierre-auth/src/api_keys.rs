@@ -98,11 +98,8 @@ impl ApiKeyManager {
             40 // pk_live_ (8) + 32 chars
         };
 
-        if api_key.len() != expected_len {
-            return Err(AppError::invalid_input("Invalid API key length"));
-        }
-
-        Ok(())
+        (api_key.len() == expected_len)
+            .ok_or_else(|| AppError::invalid_input("Invalid API key length"))
     }
 
     /// Extract key prefix from full key

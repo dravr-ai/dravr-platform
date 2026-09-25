@@ -342,14 +342,12 @@ impl ToolExecutionContext {
     ///
     /// Returns `AppError` with `PermissionDenied` if user is not an admin
     pub async fn require_admin(&self) -> AppResult<()> {
-        if self.is_admin().await? {
-            Ok(())
-        } else {
-            Err(AppError::new(
+        self.is_admin().await?.ok_or_else(|| {
+            AppError::new(
                 ErrorCode::PermissionDenied,
                 "Admin privileges required for this operation",
-            ))
-        }
+            )
+        })
     }
 
     /// Get a reference to the database

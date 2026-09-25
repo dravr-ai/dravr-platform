@@ -102,15 +102,15 @@ impl UserOAuthAppRoutes {
 /// Validate provider name against the supported list.
 fn validate_provider(provider: &str) -> Result<(), AppError> {
     const VALID_PROVIDERS: &[&str] = &["strava", "garmin", "whoop", "terra", "sciotte"];
-    if VALID_PROVIDERS.contains(&provider.to_lowercase().as_str()) {
-        Ok(())
-    } else {
-        Err(AppError::invalid_input(format!(
-            "Invalid provider '{}'. Valid providers: {}",
-            provider,
-            VALID_PROVIDERS.join(", ")
-        )))
-    }
+    VALID_PROVIDERS
+        .contains(&provider.to_lowercase().as_str())
+        .ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "Invalid provider '{}'. Valid providers: {}",
+                provider,
+                VALID_PROVIDERS.join(", ")
+            ))
+        })
 }
 
 /// Handle registering a new OAuth app

@@ -81,8 +81,7 @@ fn minted_chart_theme(render: &RenderCapabilities, pinned: Option<&str>, secret:
     assert_eq!(media.len(), 1, "one spec mints one chart URL");
     let raw = media[0]
         .url
-        .strip_prefix("https://dravr.test/api/viz/")
-        .and_then(|rest| rest.strip_suffix(".png"))
+        .strip_circumfix("https://dravr.test/api/viz/", ".png")
         .expect("minted URL is a signed viz token");
     VizToken::verify(raw, secret)
         .expect("the minted token verifies")

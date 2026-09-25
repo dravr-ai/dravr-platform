@@ -278,14 +278,12 @@ pub async fn verify_admin_tenant_access(
 
     let belongs_to_tenant = admin_tenants.iter().any(|t| t.id == target_tenant_id);
 
-    if belongs_to_tenant {
-        Ok(())
-    } else {
-        Err(AppError::new(
+    belongs_to_tenant.ok_or_else(|| {
+        AppError::new(
             ErrorCode::PermissionDenied,
             "Admin does not belong to the target tenant",
-        ))
-    }
+        )
+    })
 }
 
 // =========================================================================

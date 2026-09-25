@@ -507,16 +507,12 @@ impl GroupRoutes {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> Result<(), AppError> {
-        if resources
+        resources
             .repos()
             .groups
             .admits_member_or_coach(group_id, user_id, tenant_id)
             .await?
-        {
-            Ok(())
-        } else {
-            Err(AppError::not_found("You are not a member of this group"))
-        }
+            .ok_or_else(|| AppError::not_found("You are not a member of this group"))
     }
 
     // ========================================================================

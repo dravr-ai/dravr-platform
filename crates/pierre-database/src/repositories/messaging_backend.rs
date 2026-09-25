@@ -718,12 +718,9 @@ macro_rules! impl_messaging_repository {
                     .map_err(|e| {
                         AppError::database(format!("Failed to set channel link locale: {e}"))
                     })?;
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!(
+                (result.rows_affected() > 0).ok_or_else(|| AppError::not_found(format!(
                         "Channel link for user {user_id} on {channel_type}"
-                    )));
-                }
-                Ok(())
+                    )))
             }
 
             async fn agent_proposal_sent(

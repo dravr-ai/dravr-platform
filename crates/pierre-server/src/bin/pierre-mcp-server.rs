@@ -511,8 +511,8 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
         "COPILOT_GITHUB_TOKEN prefix detected"
     );
 
-    if prefix_kind.ends_with("_REJECTED") {
-        return Err(AppError::config(format!(
+    (!prefix_kind.ends_with("_REJECTED")).ok_or_else(|| {
+        AppError::config(format!(
             "COPILOT_GITHUB_TOKEN has unsupported prefix ({prefix_kind}); Copilot CLI accepts \
              github_pat_v2 fine-grained PATs (with Copilot Requests permission), gh_ OAuth \
              tokens, or ghu_ Copilot OAuth tokens. Classic ghp_ PATs and ghr_ refresh tokens \
@@ -520,9 +520,8 @@ fn validate_copilot_token_format(provider: LlmProviderType, required: bool) -> A
              fine-grained PAT at https://github.com/settings/personal-access-tokens/new with \
              Account permissions → Copilot Requests (the Rust runtime behind copilot_sdk \
              needs it; the ACP transport also accepts Copilot Chat: Read)."
-        )));
-    }
-    Ok(())
+        ))
+    })
 }
 
 /// Validate OAuth provider credentials at startup

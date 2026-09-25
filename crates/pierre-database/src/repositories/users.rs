@@ -766,10 +766,8 @@ macro_rules! impl_user_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to update user: {e}")))?;
 
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!("User {}", user.id)));
-                }
-                Ok(())
+                (result.rows_affected() > 0)
+                    .ok_or_else(|| AppError::not_found(format!("User {}", user.id)))
             }
 
             async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
@@ -1061,10 +1059,8 @@ macro_rules! impl_user_repository {
                         AppError::database(format!("Failed to update user password: {e}"))
                     })?;
 
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!("User with ID: {user_id}")));
-                }
-                Ok(())
+                (result.rows_affected() > 0)
+                    .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))
             }
 
             async fn update_display_name(

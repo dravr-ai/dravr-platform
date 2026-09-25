@@ -34,10 +34,8 @@ use pierre_core::errors::{AppError, AppResult};
 /// assert!(validate_email("@").is_err());
 /// ```
 pub fn validate_email(email: &str) -> AppResult<()> {
-    if !email.contains('@') || email.len() < 3 {
-        return Err(AppError::invalid_input("Invalid email format"));
-    }
-    Ok(())
+    (email.contains('@') && email.len() >= 3)
+        .ok_or_else(|| AppError::invalid_input("Invalid email format"))
 }
 
 /// Validate that entity belongs to specified tenant (authorization check)
@@ -67,12 +65,11 @@ pub fn validate_tenant_ownership(
     expected_tenant_id: &str,
     entity_type: &str,
 ) -> AppResult<()> {
-    if entity_tenant_id != expected_tenant_id {
-        return Err(AppError::auth_invalid(format!(
+    (entity_tenant_id == expected_tenant_id).ok_or_else(|| {
+        AppError::auth_invalid(format!(
             "{entity_type} does not belong to the specified tenant"
-        )));
-    }
-    Ok(())
+        ))
+    })
 }
 
 /// Validate expiration timestamp (OAuth codes, tokens, sessions)
@@ -107,12 +104,7 @@ pub fn validate_not_expired(
     now: DateTime<Utc>,
     entity_type: &str,
 ) -> AppResult<()> {
-    if expires_at <= now {
-        return Err(AppError::invalid_input(format!(
-            "{entity_type} has expired"
-        )));
-    }
-    Ok(())
+    (expires_at > now).ok_or_else(|| AppError::invalid_input(format!("{entity_type} has expired")))
 }
 
 /// Validate scope authorization (A2A, `OAuth2`)

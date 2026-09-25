@@ -265,14 +265,10 @@ pub fn verify_github_signature(
         return Err(ContremaitreError::SignatureVerification);
     }
 
-    if hex_sig
+    (hex_sig
         .as_bytes()
         .ct_eq(expected_hex.as_bytes())
         .unwrap_u8()
-        == 1
-    {
-        Ok(())
-    } else {
-        Err(ContremaitreError::SignatureVerification)
-    }
+        == 1)
+        .ok_or(ContremaitreError::SignatureVerification)
 }

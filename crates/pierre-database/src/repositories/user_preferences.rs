@@ -73,10 +73,8 @@ macro_rules! impl_user_preferences {
     ($db:ty, $bind_id:path) => {
         /// Turn "no row matched" into the `NotFound` the callers contract on.
         fn ensure_updated(rows_affected: u64, user_id: Uuid) -> AppResult<()> {
-            if rows_affected == 0 {
-                return Err(AppError::not_found(format!("User with ID: {user_id}")));
-            }
-            Ok(())
+            (rows_affected > 0)
+                .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))
         }
 
         /// Update the user's analytics-consent preference, stamping the

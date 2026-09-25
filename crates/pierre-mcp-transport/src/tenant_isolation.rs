@@ -257,23 +257,17 @@ impl TenantIsolation {
 
         match action {
             "read_oauth_credentials" | "store_oauth_credentials" => {
-                if matches!(user_role, TenantRole::Owner | TenantRole::Member) {
-                    Ok(())
-                } else {
-                    Err(AppError::auth_invalid(format!(
+                matches!(user_role, TenantRole::Owner | TenantRole::Member).ok_or_else(|| {
+                    AppError::auth_invalid(format!(
                         "User {user_id} does not have permission to {action} for tenant {tenant_id}"
-                    )))
-                }
+                    ))
+                })
             }
-            "modify_tenant_settings" => {
-                if matches!(user_role, TenantRole::Owner) {
-                    Ok(())
-                } else {
-                    Err(AppError::auth_invalid(format!(
-                        "User {user_id} does not have owner permission for tenant {tenant_id}"
-                    )))
-                }
-            }
+            "modify_tenant_settings" => matches!(user_role, TenantRole::Owner).ok_or_else(|| {
+                AppError::auth_invalid(format!(
+                    "User {user_id} does not have owner permission for tenant {tenant_id}"
+                ))
+            }),
             _ => {
                 warn!("Unknown action for validation: {}", action);
                 Err(AppError::invalid_input(format!("Unknown action: {action}")))

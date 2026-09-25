@@ -148,14 +148,13 @@ fn assert_reply_contains(
     needle: &str,
     spec: &AssertionSpec,
 ) -> Result<(), AssertionFailure> {
-    if ctx.reply.to_lowercase().contains(&needle.to_lowercase()) {
-        Ok(())
-    } else {
-        Err(AssertionFailure {
+    ctx.reply
+        .to_lowercase()
+        .contains(&needle.to_lowercase())
+        .ok_or_else(|| AssertionFailure {
             spec: spec.clone(),
             reason: format!("reply does not contain {needle:?}"),
         })
-    }
 }
 
 fn assert_no_substring(
@@ -168,14 +167,10 @@ fn assert_no_substring(
         .iter()
         .filter(|s| lower.contains(&s.to_lowercase()))
         .collect();
-    if hits.is_empty() {
-        Ok(())
-    } else {
-        Err(AssertionFailure {
-            spec: spec.clone(),
-            reason: format!("reply contains forbidden substring(s): {hits:?}"),
-        })
-    }
+    hits.is_empty().ok_or_else(|| AssertionFailure {
+        spec: spec.clone(),
+        reason: format!("reply contains forbidden substring(s): {hits:?}"),
+    })
 }
 
 /// The floor below which a reply is refused without consulting whatlang.
@@ -339,16 +334,10 @@ fn assert_tool_called(
     spec: &AssertionSpec,
 ) -> Result<(), AssertionFailure> {
     let actual = ctx.tools_called.iter().filter(|t| t == &tool_name).count();
-    if (actual as u32) >= min_calls {
-        Ok(())
-    } else {
-        Err(AssertionFailure {
-            spec: spec.clone(),
-            reason: format!(
-                "tool {tool_name:?} was called {actual} time(s), expected >= {min_calls}"
-            ),
-        })
-    }
+    ((actual as u32) >= min_calls).ok_or_else(|| AssertionFailure {
+        spec: spec.clone(),
+        reason: format!("tool {tool_name:?} was called {actual} time(s), expected >= {min_calls}"),
+    })
 }
 
 fn assert_vocabulary_contract(
@@ -370,17 +359,13 @@ fn assert_vocabulary_contract(
         .terms
         .iter()
         .any(|t| lower.contains(&t.to_lowercase()));
-    if hit {
-        Ok(())
-    } else {
-        Err(AssertionFailure {
-            spec: spec.clone(),
-            reason: format!(
-                "reply for coach {agent_id:?} contains none of the declared vocabulary terms ({:?})",
-                contract.terms
-            ),
-        })
-    }
+    hit.ok_or_else(|| AssertionFailure {
+        spec: spec.clone(),
+        reason: format!(
+            "reply for coach {agent_id:?} contains none of the declared vocabulary terms ({:?})",
+            contract.terms
+        ),
+    })
 }
 
 fn assert_any_of(
@@ -389,14 +374,13 @@ fn assert_any_of(
     spec: &AssertionSpec,
 ) -> Result<(), AssertionFailure> {
     let lower = ctx.reply.to_lowercase();
-    if values.iter().any(|v| lower.contains(&v.to_lowercase())) {
-        Ok(())
-    } else {
-        Err(AssertionFailure {
+    values
+        .iter()
+        .any(|v| lower.contains(&v.to_lowercase()))
+        .ok_or_else(|| AssertionFailure {
             spec: spec.clone(),
             reason: format!("reply contains none of {values:?}"),
         })
-    }
 }
 
 #[cfg(test)]

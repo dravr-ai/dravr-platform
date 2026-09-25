@@ -268,9 +268,6 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
     // and no comparison has anything to compare against, so every restatement
     // becomes a new row while the setting reads as configured.
     let m = &doc.memory;
-    if m.dedup_candidate_limit == 0 {
-        return Err(AppError::invalid_input("dedup_candidate_limit must be > 0"));
-    }
-
-    Ok(())
+    (m.dedup_candidate_limit > 0)
+        .ok_or_else(|| AppError::invalid_input("dedup_candidate_limit must be > 0"))
 }

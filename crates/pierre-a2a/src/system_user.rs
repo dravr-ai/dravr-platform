@@ -131,7 +131,10 @@ impl A2ASystemUserService {
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
         {
             // System users have emails following the pattern a2a-system-{client_id}@pierre.ai
-            Ok(user.email.starts_with("a2a-system-") && user.email.ends_with("@pierre.ai"))
+            Ok(user
+                .email
+                .strip_circumfix("a2a-system-", "@pierre.ai")
+                .is_some())
         } else {
             Ok(false)
         }
@@ -150,13 +153,9 @@ impl A2ASystemUserService {
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
         {
-            if user.email.starts_with("a2a-system-") && user.email.ends_with("@pierre.ai") {
-                // Extract client ID from email: a2a-system-{client_id}@pierre.ai
-                let email_part = user
-                    .email
-                    .strip_prefix("a2a-system-")
-                    .and_then(|s| s.strip_suffix("@pierre.ai"));
-                return Ok(email_part.map(str::to_owned));
+            // Extract client ID from email: a2a-system-{client_id}@pierre.ai
+            if let Some(client_id) = user.email.strip_circumfix("a2a-system-", "@pierre.ai") {
+                return Ok(Some(client_id.to_owned()));
             }
         }
         Ok(None)

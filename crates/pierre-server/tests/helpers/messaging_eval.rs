@@ -573,14 +573,13 @@ pub fn assert_tool_called(
         })
         .unwrap_or_default();
 
-    if actual.iter().any(|name| name == expected_tool) {
-        Ok(())
-    } else {
-        Err(ToolNotCalled {
+    actual
+        .iter()
+        .any(|name| name == expected_tool)
+        .ok_or_else(|| ToolNotCalled {
             expected: expected_tool.to_owned(),
             actual,
         })
-    }
 }
 
 /// Verify the turn's end-to-end latency stayed within `budget_ms`.
@@ -606,14 +605,10 @@ pub fn assert_latency_ms_at_most(
         return Ok(());
     };
     let budget_i64 = i64::try_from(budget_ms).unwrap_or(i64::MAX);
-    if observed > budget_i64 {
-        Err(LatencyOverBudget {
-            observed_ms: observed,
-            budget_ms,
-        })
-    } else {
-        Ok(())
-    }
+    (observed <= budget_i64).ok_or(LatencyOverBudget {
+        observed_ms: observed,
+        budget_ms,
+    })
 }
 
 /// Verify the turn's total token usage stayed within `budget`.
@@ -637,11 +632,7 @@ pub fn assert_tokens_at_most(
         return Ok(());
     };
     let budget_i64 = i64::try_from(budget).unwrap_or(i64::MAX);
-    if observed > budget_i64 {
-        Err(TokensOverBudget { observed, budget })
-    } else {
-        Ok(())
-    }
+    (observed <= budget_i64).ok_or(TokensOverBudget { observed, budget })
 }
 
 /// Verify the reply contains the expected guardrail string after
@@ -660,14 +651,10 @@ pub fn assert_tokens_at_most(
 pub fn assert_guardrail(reply: &str, expected: &str) -> Result<(), GuardrailMismatch> {
     let n_reply = normalize(reply);
     let n_expected = normalize(expected);
-    if n_reply.contains(&n_expected) {
-        Ok(())
-    } else {
-        Err(GuardrailMismatch {
-            reply: n_reply,
-            expected: n_expected,
-        })
-    }
+    n_reply.contains(&n_expected).ok_or(GuardrailMismatch {
+        reply: n_reply,
+        expected: n_expected,
+    })
 }
 
 // ============================================================================
@@ -797,15 +784,11 @@ pub fn assert_has_framework_citation_per_numeric(
         return Ok(());
     }
     let observed = cited_count as f64 / numeric_count as f64;
-    if observed >= min_ratio {
-        Ok(())
-    } else {
-        Err(UncitedNumerics {
-            numeric_count,
-            cited_count,
-            min_ratio,
-        })
-    }
+    (observed >= min_ratio).ok_or(UncitedNumerics {
+        numeric_count,
+        cited_count,
+        min_ratio,
+    })
 }
 
 /// Splits a reply into sentences without breaking decimal numbers.
@@ -931,14 +914,10 @@ fn is_dated_pipe_line(line: &str) -> bool {
 /// length when the reply is too long.
 pub fn assert_word_count_under(reply: &str, max_words: usize) -> Result<(), WordCountOver> {
     let actual_words = reply.split_whitespace().count();
-    if actual_words <= max_words {
-        Ok(())
-    } else {
-        Err(WordCountOver {
-            max_words,
-            actual_words,
-        })
-    }
+    (actual_words <= max_words).ok_or(WordCountOver {
+        max_words,
+        actual_words,
+    })
 }
 
 #[cfg(test)]

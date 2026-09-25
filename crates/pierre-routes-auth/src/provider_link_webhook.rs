@@ -165,11 +165,7 @@ async fn post_event(
         .await
         .map_err(|e| format!("HTTP request failed: {e}"))?;
 
-    if !resp.status().is_success() {
-        return Err(format!(
-            "Webhook returned non-success status: {}",
-            resp.status()
-        ));
-    }
-    Ok(())
+    resp.status()
+        .is_success()
+        .ok_or_else(|| format!("Webhook returned non-success status: {}", resp.status()))
 }

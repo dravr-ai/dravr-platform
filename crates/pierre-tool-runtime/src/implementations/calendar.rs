@@ -64,12 +64,9 @@ pub(super) const MAX_STEP_DISTANCE_METERS: f64 = 1_000_000.0;
 /// Reject a text field longer than `max` Unicode scalar values.
 pub(super) fn bounded(field: &str, value: &str, max: usize) -> AppResult<()> {
     let len = value.chars().count();
-    if len > max {
-        return Err(AppError::invalid_input(format!(
-            "{field} is too long ({len} chars; max {max})"
-        )));
-    }
-    Ok(())
+    (len <= max).ok_or_else(|| {
+        AppError::invalid_input(format!("{field} is too long ({len} chars; max {max})"))
+    })
 }
 
 /// Reject a text field that is blank or over-long.
