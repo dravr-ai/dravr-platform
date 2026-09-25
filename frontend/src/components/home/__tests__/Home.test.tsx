@@ -38,6 +38,7 @@ vi.mock('maplibre-gl', () => ({
   },
   AttributionControl: class {},
   NavigationControl: class {},
+  setWorkerUrl: () => {},
 }));
 
 function renderHome() {

@@ -105,11 +105,20 @@ export default function RouteView({ view }: { view: RouteViewData }) {
       // and eighty kilobytes of control chrome — and a thread that has never
       // been sent a route must not pay for either. The stylesheet is awaited
       // alongside the code so the zoom stack is never painted unstyled.
-      const [{ AttributionControl, Map, NavigationControl }] = await Promise.all([
-        import('maplibre-gl'),
-        import('maplibre-gl/dist/maplibre-gl.css'),
-      ]);
+      const [{ AttributionControl, Map, NavigationControl, setWorkerUrl }, { default: workerUrl }] =
+        await Promise.all([
+          import('maplibre-gl'),
+          // MapLibre 6 looks for its tile worker beside its own module, and a
+          // bundle has no such sibling: dev pre-bundles MapLibre into
+          // `.vite/deps` and the build renames it into `assets/`, so the
+          // request falls through to index.html, the worker dies on its first
+          // `<`, and no tile is ever drawn. Vite bundles the worker with its
+          // shared chunk and hands back its URL.
+          import('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'),
+          import('maplibre-gl/dist/maplibre-gl.css'),
+        ]);
       if (!live) return;
+      setWorkerUrl(workerUrl);
 
       const created = new Map({
         container: node,
