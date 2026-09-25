@@ -459,6 +459,8 @@ https://example.com/callback?
 - `invalid_scope` - requested scope invalid or not allowed
 - `server_error` - internal server error
 
+An unknown `client_id`, or a `redirect_uri` not registered for the client, is never redirected: nothing vouches for where the redirect would go, so Pierre shows an error page instead (RFC 6749 §4.1.2.1). Every other error is checked before the login and consent screens and redirected with the request's `state`.
+
 ### Token Errors
 
 Returned as json in response body:

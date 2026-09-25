@@ -10,8 +10,8 @@
 
 use super::client_registration::ClientRegistrationManager;
 use super::models::{
-    AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client, OAuth2Error, TokenRequest,
-    TokenResponse,
+    AuthorizeRejection, AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client,
+    OAuth2Error, TokenRequest, TokenResponse,
 };
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
@@ -143,17 +143,23 @@ impl OAuth2AuthorizationServer {
         }
     }
 
-    /// Handle authorization request (GET /oauth/authorize)
+    /// Check an authorization request and resolve the scope it is granted,
+    /// before the user is asked anything.
+    ///
+    /// The client and its `redirect_uri` are checked first because they decide
+    /// where every later error goes (RFC 6749 Section 4.1.2.1): an unknown
+    /// client or an unregistered `redirect_uri` is
+    /// [`AuthorizeRejection::ShownToUser`], and any error after both are
+    /// verified (`response_type`, scope, PKCE) is
+    /// [`AuthorizeRejection::RedirectedToClient`].
     ///
     /// # Errors
-    /// Returns an error if client validation fails, invalid parameters, or authorization code generation fails
-    pub async fn authorize(
+    /// Returns the rejection when the client, `redirect_uri`, `response_type`,
+    /// scope or PKCE parameters are refused.
+    pub async fn check_authorize_request(
         &self,
-        request: AuthorizeRequest,
-        user_id: Option<Uuid>,     // From authentication
-        tenant_id: Option<String>, // From JWT claims
-    ) -> Result<AuthorizeResponse, OAuth2Error> {
-        // Validate client
+        request: &AuthorizeRequest,
+    ) -> Result<String, AuthorizeRejection> {
         let client = self
             .client_manager
             .get_client(&request.client_id)
@@ -163,8 +169,31 @@ impl OAuth2AuthorizationServer {
                     "Client lookup failed for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_client()
+                AuthorizeRejection::ShownToUser(OAuth2Error::invalid_client())
             })?;
+
+        // Exact match against the client's registration (RFC 6749 Section 3.1.2.3).
+        if !client.redirect_uris.contains(&request.redirect_uri) {
+            return Err(AuthorizeRejection::ShownToUser(
+                OAuth2Error::invalid_request("Invalid redirect_uri"),
+            ));
+        }
+
+        Self::check_verified_client_request(&client, request)
+            .map_err(AuthorizeRejection::RedirectedToClient)
+    }
+
+    /// The checks that follow a verified client and `redirect_uri`: the
+    /// response type, the scope and PKCE. Returns the granted scope.
+    fn check_verified_client_request(
+        client: &OAuth2Client,
+        request: &AuthorizeRequest,
+    ) -> Result<String, OAuth2Error> {
+        if request.response_type.is_empty() {
+            return Err(OAuth2Error::invalid_request(
+                "Missing response_type parameter",
+            ));
+        }
 
         // Validate response type is supported by the server
         if request.response_type != "code" {
@@ -182,35 +211,55 @@ impl OAuth2AuthorizationServer {
 
         // The grant this authorization issues (RFC 6749 Section 3.3), inside
         // the client's registered scope.
-        let scope = Self::authorized_scope(&client, request.scope.as_deref())?;
+        let scope = Self::authorized_scope(client, request.scope.as_deref())?;
 
-        // Validate redirect URI
-        if !client.redirect_uris.contains(&request.redirect_uri) {
-            return Err(OAuth2Error::invalid_request("Invalid redirect_uri"));
-        }
+        Self::check_pkce_challenge(request)?;
+        Ok(scope)
+    }
 
-        // Validate PKCE parameters (RFC 7636)
-        if let Some(ref code_challenge) = request.code_challenge {
-            // Validate code_challenge format (base64url-encoded, 43-128 characters)
-            if code_challenge.len() < 43 || code_challenge.len() > 128 {
-                return Err(OAuth2Error::invalid_request(
-                    "code_challenge must be between 43 and 128 characters",
-                ));
-            }
-
-            // Validate code_challenge_method - only S256 is allowed (RFC 7636 security best practice)
-            let method = request.code_challenge_method.as_deref().unwrap_or("S256");
-            if method != "S256" {
-                return Err(OAuth2Error::invalid_request(
-                    "code_challenge_method must be 'S256' (plain method is not supported for security reasons)",
-                ));
-            }
-        } else {
+    /// Validate the PKCE parameters of an authorization request (RFC 7636).
+    fn check_pkce_challenge(request: &AuthorizeRequest) -> Result<(), OAuth2Error> {
+        let Some(code_challenge) = &request.code_challenge else {
             // PKCE is required for authorization code flow
             return Err(OAuth2Error::invalid_request(
                 "code_challenge is required for authorization_code flow (PKCE)",
             ));
+        };
+
+        // Validate code_challenge format (base64url-encoded, 43-128 characters)
+        if code_challenge.len() < 43 || code_challenge.len() > 128 {
+            return Err(OAuth2Error::invalid_request(
+                "code_challenge must be between 43 and 128 characters",
+            ));
         }
+
+        // Validate code_challenge_method - only S256 is allowed (RFC 7636 security best practice)
+        let method = request.code_challenge_method.as_deref().unwrap_or("S256");
+        if method != "S256" {
+            return Err(OAuth2Error::invalid_request(
+                "code_challenge_method must be 'S256' (plain method is not supported for security reasons)",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Handle authorization request (GET /oauth/authorize)
+    ///
+    /// The request is checked by [`Self::check_authorize_request`]; its
+    /// rejection is returned as the error it carries.
+    ///
+    /// # Errors
+    /// Returns an error if client validation fails, invalid parameters, or authorization code generation fails
+    pub async fn authorize(
+        &self,
+        request: AuthorizeRequest,
+        user_id: Option<Uuid>,     // From authentication
+        tenant_id: Option<String>, // From JWT claims
+    ) -> Result<AuthorizeResponse, OAuth2Error> {
+        let scope = self
+            .check_authorize_request(&request)
+            .await
+            .map_err(AuthorizeRejection::into_error)?;
 
         // Consent is enforced at the route layer (`OAuth2Routes::execute_authorization`
         // shows the consent screen and records the grant) before this code-minting

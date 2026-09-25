@@ -23,7 +23,7 @@ use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager,
     endpoints::OAuth2AuthorizationServer,
     models::{
-        AuthorizeRequest, ClientRegistrationRequest, OAuth2Error, TokenRequest,
+        AuthorizeRejection, AuthorizeRequest, ClientRegistrationRequest, OAuth2Error, TokenRequest,
         ValidateRefreshRequest,
     },
     rate_limiting::OAuth2RateLimiter,
@@ -60,6 +60,22 @@ fn escape_html_attribute(input: &str) -> String {
         }
     }
     output
+}
+
+/// `redirect_uri` with `params` appended as query parameters, each value
+/// percent-encoded, keeping any query the registered URI already carries
+/// (RFC 6749 Section 3.1.2).
+fn client_redirect_url(redirect_uri: &str, params: &[(&str, &str)]) -> String {
+    let mut url = redirect_uri.to_owned();
+    let mut separator = if redirect_uri.contains('?') { '&' } else { '?' };
+    for (name, value) in params {
+        url.push(separator);
+        url.push_str(name);
+        url.push('=');
+        url.push_str(&urlencoding::encode(value));
+        separator = '&';
+    }
+    url
 }
 
 /// OAuth 2.0 server context shared across all handlers
@@ -289,6 +305,15 @@ impl OAuth2Routes {
             Err(error) => return Self::render_oauth_error_response(&error),
         };
 
+        // Check the request before the user is asked to log in or consent, so
+        // a refusal reaches the client the way RFC 6749 Section 4.1.2.1 sends it.
+        if let Err(rejection) = Self::authorization_server(&context)
+            .check_authorize_request(&request)
+            .await
+        {
+            return Self::authorization_rejection_response(rejection, &request);
+        }
+
         let redirect_uri = request.redirect_uri.clone();
 
         // Check if user is authenticated via session cookie
@@ -429,7 +454,62 @@ impl OAuth2Routes {
             .and_then(|tenants| tenants.first().map(|t| t.id.to_string()))
     }
 
+    /// The authorization server the authorize and consent routes check and
+    /// mint through.
+    fn authorization_server(context: &OAuth2Context) -> OAuth2AuthorizationServer {
+        OAuth2AuthorizationServer::new(
+            context.oauth2_server.clone(),
+            context.tenants.clone(),
+            context.users.clone(),
+            context.auth_manager.clone(),
+            context.jwks_manager.clone(),
+        )
+    }
+
+    /// Deliver a refused authorization request where RFC 6749 Section 4.1.2.1
+    /// sends it: an unknown client or unregistered `redirect_uri` to the user
+    /// as a page, anything else back to the client's `redirect_uri`.
+    fn authorization_rejection_response(
+        rejection: AuthorizeRejection,
+        request: &AuthorizeRequest,
+    ) -> Response {
+        match rejection {
+            AuthorizeRejection::ShownToUser(error) => Self::render_oauth_error_response(&error),
+            AuthorizeRejection::RedirectedToClient(error) => Self::redirect_error_to_client(
+                &request.redirect_uri,
+                request.state.as_deref(),
+                &error,
+            ),
+        }
+    }
+
+    /// Return an authorization error to the client (RFC 6749 Section 4.1.2.1):
+    /// a redirect to its verified `redirect_uri` carrying `error`,
+    /// `error_description` and the request's `state`.
+    fn redirect_error_to_client(
+        redirect_uri: &str,
+        state: Option<&str>,
+        error: &OAuth2Error,
+    ) -> Response {
+        let mut params = vec![("error", error.error.as_str())];
+        if let Some(description) = error.error_description.as_deref() {
+            params.push(("error_description", description));
+        }
+        if let Some(state) = state {
+            params.push(("state", state));
+        }
+        info!(
+            error = %error.error,
+            "OAuth authorization refused, returning the error to the client"
+        );
+        Redirect::to(&client_redirect_url(redirect_uri, &params)).into_response()
+    }
+
     /// Mint an authorization code and redirect back to the client.
+    ///
+    /// Reached only with a request [`OAuth2AuthorizationServer::check_authorize_request`]
+    /// accepted, so the client and `redirect_uri` are verified and a failure
+    /// here goes back to the client too.
     async fn mint_authorization_code(
         context: &OAuth2Context,
         request: AuthorizeRequest,
@@ -437,32 +517,15 @@ impl OAuth2Routes {
         tenant_id: Option<String>,
         redirect_uri: String,
     ) -> Response {
-        let auth_server = OAuth2AuthorizationServer::new(
-            context.oauth2_server.clone(),
-            context.tenants.clone(),
-            context.users.clone(),
-            context.auth_manager.clone(),
-            context.jwks_manager.clone(),
-        );
-
-        match auth_server
+        let state = request.state.clone();
+        match Self::authorization_server(context)
             .authorize(request, Some(authenticated_user_id), tenant_id)
             .await
         {
             Ok(response) => {
-                let mut final_redirect_url = format!(
-                    "{}?code={}",
-                    redirect_uri,
-                    urlencoding::encode(&response.code)
-                );
-                if let Some(state) = response.state {
-                    use std::fmt::Write;
-                    write!(
-                        &mut final_redirect_url,
-                        "&state={}",
-                        urlencoding::encode(&state)
-                    )
-                    .ok();
+                let mut params = vec![("code", response.code.as_str())];
+                if let Some(state) = response.state.as_deref() {
+                    params.push(("state", state));
                 }
 
                 info!(
@@ -470,14 +533,14 @@ impl OAuth2Routes {
                     authenticated_user_id
                 );
 
-                Redirect::to(&final_redirect_url).into_response()
+                Redirect::to(&client_redirect_url(&redirect_uri, &params)).into_response()
             }
             Err(error) => {
                 error!(
                     "OAuth authorization failed for user {}: {:?}",
                     authenticated_user_id, error
                 );
-                Self::render_oauth_error_response(&error)
+                Self::redirect_error_to_client(&redirect_uri, state.as_deref(), &error)
             }
         }
     }
@@ -496,6 +559,15 @@ impl OAuth2Routes {
             Ok(req) => req,
             Err(error) => return Self::render_oauth_error_response(&error),
         };
+        // The form echoes the request the consent screen was rendered for, so
+        // it is checked again: only a verified client and redirect_uri may be
+        // redirected to, whether the user approves or denies.
+        if let Err(rejection) = Self::authorization_server(&context)
+            .check_authorize_request(&request)
+            .await
+        {
+            return Self::authorization_rejection_response(rejection, &request);
+        }
         let redirect_uri = request.redirect_uri.clone();
 
         // The consent decision must belong to the authenticated user.
@@ -510,7 +582,11 @@ impl OAuth2Routes {
             .get("decision")
             .is_some_and(|decision| decision == "approve");
         if !approved {
-            return Self::deny_authorization(&context, &request, &redirect_uri).await;
+            return Self::redirect_error_to_client(
+                &redirect_uri,
+                request.state.as_deref(),
+                &OAuth2Error::access_denied("The user denied the authorization request"),
+            );
         }
 
         // Record the grant; a duplicate active grant is a no-op at the storage layer.
@@ -531,31 +607,6 @@ impl OAuth2Routes {
         }
 
         Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri).await
-    }
-
-    /// Bounce an `access_denied` error to the client, guarding against open redirect.
-    async fn deny_authorization(
-        context: &OAuth2Context,
-        request: &AuthorizeRequest,
-        redirect_uri: &str,
-    ) -> Response {
-        // Only redirect to a redirect_uri actually registered for the client.
-        let registered = context
-            .tenants
-            .get_oauth_app_by_client_id(&request.client_id)
-            .await
-            .is_ok_and(|app| app.redirect_uris.iter().any(|u| u == redirect_uri));
-        if !registered {
-            return Self::render_oauth_error_response(&OAuth2Error::invalid_request(
-                "Invalid redirect_uri",
-            ));
-        }
-        let mut url = format!("{redirect_uri}?error=access_denied");
-        if let Some(state) = &request.state {
-            use std::fmt::Write;
-            write!(&mut url, "&state={}", urlencoding::encode(state)).ok();
-        }
-        Redirect::to(&url).into_response()
     }
 
     /// Handle token request (POST /oauth2/token)
@@ -1356,10 +1407,9 @@ impl OAuth2Routes {
             params.len()
         );
 
-        let response_type = params
-            .get("response_type")
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing response_type parameter"))?
-            .clone(); // Safe: String ownership required for OAuth2 request struct
+        // A missing response_type is refused by `check_authorize_request`, once
+        // the client and redirect_uri are known, so it can reach the client.
+        let response_type = params.get("response_type").cloned().unwrap_or_default();
 
         let client_id = params
             .get("client_id")
