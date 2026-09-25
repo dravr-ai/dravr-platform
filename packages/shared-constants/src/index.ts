@@ -92,8 +92,8 @@ export {
 export type { MentionDraft, MentionCandidate } from './mentions';
 
 // User-facing surface registry (what the product offers, and where per platform)
-export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels, webRouteFor } from './surfaces';
-export type { UserSurface } from './surfaces';
+export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels } from './surfaces';
+export type { DestinationRoutes, UserSurface } from './surfaces';
 
 // Settings menu grouping (which panes, in what order, holding what)
 export {
@@ -102,6 +102,8 @@ export {
   settingsPanesFor,
   settingsPane,
   settingsPaneSections,
+  settingsPaneWebRoute,
+  settingsSectionScreen,
   HELP_URL,
   LEGAL_URL,
   APP_VERSION,
@@ -148,12 +150,15 @@ export {
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
 export {
+  PROVIDER_NOTICES,
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
+  noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
+  syncAuthorizationOwed,
 } from './providers';
-export type { ProviderScope } from './providers';
+export type { ProviderNoticeKeys, ProviderScope } from './providers';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

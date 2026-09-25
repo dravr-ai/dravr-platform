@@ -38,8 +38,10 @@ describe('surface parity — mobile', () => {
     // tab into Discover, to 12 when group management moved into the group's
     // own chat thread, and to 11 when the per-athlete AI-provider screen was
     // removed from both clients: each one destination fewer by decision. It
-    // rose to 12 when Home became the landing on both clients.
-    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(12);
+    // rose to 12 when Home became the landing on both clients, and dropped to
+    // 4 when the settings destinations left this registry for SETTINGS_PANES,
+    // their one declaration, which SettingsPaneParity.test.ts checks.
+    expect(mobileSurfaces.length).toBeGreaterThanOrEqual(4);
   });
 
   it('lands on Home, served by the first tab', () => {

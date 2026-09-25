@@ -252,7 +252,7 @@ function generateToolsTypeScript(tools) {
 // Tool count: ${sortedTools.length}
 // To regenerate: bun run generate (from packages/mcp-types)
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
 
 // ============================================================================
 // TOOL PARAMETER TYPES

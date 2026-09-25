@@ -10,6 +10,7 @@ import { oauthApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 export interface ProviderStatusState {
   connectedProviders: ExtendedProviderStatus[];
@@ -30,9 +31,14 @@ export interface ProviderStatusActions {
   hasConnectedProvider: () => boolean;
   setSelectedProvider: (provider: string | null) => void;
   setNeedsCredentialsProvider: (provider: string | null) => void;
+  /**
+   * Start `provider`'s OAuth flow. `tosConsent` carries the provider notice
+   * the athlete just accepted (WHOOP's owner authorization).
+   */
   handleConnectProvider: (
     provider: string,
-    onSuccess?: () => Promise<void>
+    onSuccess?: () => Promise<void>,
+    tosConsent?: boolean
   ) => Promise<void>;
   getCachedConnectedProvider: () => ExtendedProviderStatus | undefined;
 }
@@ -54,7 +60,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       setProvidersLoaded(true);
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : t('providers.failedLoadProviderStatus');
+        describeApiError(err, { t, fallbackKey: 'providers.failedLoadProviderStatus' });
       setError(errorMessage);
       console.error('Failed to load provider status:', err);
     }
@@ -86,13 +92,14 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
 
   const handleConnectProvider = useCallback(async (
     provider: string,
-    onSuccess?: () => Promise<void>
+    onSuccess?: () => Promise<void>,
+    tosConsent = false
   ) => {
     setConnectingProvider(provider);
     setError(null);
     try {
       const returnUrl = getOAuthCallbackUrl();
-      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl);
+      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent });
 
       // The connecting state ends once the OAuth URL is ready and the browser is about to open
       setConnectingProvider(null);
@@ -140,7 +147,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     } catch (err) {
       setConnectingProvider(null);
       const errorMessage =
-        err instanceof Error ? err.message : t('providers.failedConnectProvider');
+        describeApiError(err, { t, fallbackKey: 'providers.failedConnectProvider' });
 
       // Detect missing OAuth credentials — show credential entry instead of error
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')

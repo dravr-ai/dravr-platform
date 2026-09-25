@@ -30,14 +30,16 @@ use std::num::TryFromIntError;
 
 use serde::de::Error as SerdeDeError;
 use serde::{Deserialize, Serialize};
-use serde_json::Error as JsonError;
+use serde_json::{Error as JsonError, Map, Value};
 use thiserror::Error as ThisError;
 use tracing::warn;
 use uuid::Error as UuidError;
 
 #[cfg(feature = "http-response")]
 use axum::response::{IntoResponse, Response};
-use chrono::{ParseError as ChronoParseError, Utc};
+use chrono::{DateTime, ParseError as ChronoParseError, Utc};
+#[cfg(feature = "http-response")]
+use http::{header::RETRY_AFTER, HeaderValue};
 #[cfg(feature = "crypto-errors")]
 use ring::error::Unspecified as RingUnspecified;
 
@@ -50,6 +52,14 @@ use database::DatabaseError;
 use protocol::ProtocolError;
 use provider::ProviderError;
 use tool::ToolError;
+
+/// Key under which a refusal's retry window, in whole seconds, travels in
+/// [`AppError::details`].
+///
+/// It is the field clients read the wait from, and the value
+/// `impl IntoResponse for AppError` renders as the `Retry-After` header, so the
+/// header and the body always carry the same number.
+pub const RETRY_AFTER_SECS_DETAIL: &str = "retry_after_secs";
 
 /// Standard error codes used throughout the application
 #[non_exhaustive]
@@ -375,10 +385,19 @@ impl IntoResponse for AppError {
 
         let status = StatusCode::from_u16(self.code.http_status())
             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        // Read before `ErrorResponse::from` consumes the error. Only a refusal
+        // that waiting lifts carries the header: a 429 or a 503.
+        let retry_after = self.retry_after_secs().filter(|_| {
+            status == StatusCode::TOO_MANY_REQUESTS || status == StatusCode::SERVICE_UNAVAILABLE
+        });
 
-        let response = ErrorResponse::from(self);
-
-        (status, Json(response)).into_response()
+        let mut response = (status, Json(ErrorResponse::from(self))).into_response();
+        if let Some(secs) = retry_after {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(secs));
+        }
+        response
     }
 }
 
@@ -489,8 +508,11 @@ impl AppError {
     /// Rate limit exceeded — a request-pacing breach, as opposed to a consumed
     /// budget ([`Self::quota_exceeded`]). Carries the same details shape so
     /// both render as one 429 wire format with a usable retry window.
+    ///
+    /// The wait is floored at one second, in the message as in `details`.
     #[must_use]
     pub fn rate_limit_exceeded(current: i64, limit: i64, retry_after_secs: u64) -> Self {
+        let retry_after_secs = retry_after_secs.max(1);
         let mut err = Self::new(
             ErrorCode::RateLimitExceeded,
             format!(
@@ -501,9 +523,55 @@ impl AppError {
             "limit_type": "requests",
             "current": current,
             "limit": limit,
-            "retry_after_secs": retry_after_secs,
         })));
-        err
+        err.with_retry_after(retry_after_secs)
+    }
+
+    /// Attach the wait, in seconds, after which the same request can succeed.
+    ///
+    /// Merged into `details` under [`RETRY_AFTER_SECS_DETAIL`] and floored at
+    /// one second, so a refusal still in force never reads as "retry now".
+    /// The producer attaches it once; `impl IntoResponse for AppError` renders
+    /// the same value as `Retry-After` on a 429 or a 503, and anything that
+    /// forwards `details` forwards the same number with them.
+    #[must_use]
+    pub fn with_retry_after(mut self, secs: u64) -> Self {
+        let mut details = match self.details.take().map(|details| *details) {
+            Some(Value::Object(details)) => details,
+            _ => Map::new(),
+        };
+        details.insert(RETRY_AFTER_SECS_DETAIL.to_owned(), Value::from(secs.max(1)));
+        self.details = Some(Box::new(Value::Object(details)));
+        self
+    }
+
+    /// The wait [`Self::with_retry_after`] attached, if any.
+    #[must_use]
+    pub fn retry_after_secs(&self) -> Option<u64> {
+        self.details
+            .as_ref()?
+            .get(RETRY_AFTER_SECS_DETAIL)?
+            .as_u64()
+    }
+
+    /// The error an authentication failure surfaces as at a route boundary.
+    ///
+    /// A spent request budget ([`ErrorCode::RateLimitExceeded`]) is returned
+    /// unchanged, keeping its 429 and its retry window: "slow down" and "bad
+    /// credentials" demand opposite client reactions, and a 401 signs a web
+    /// or mobile client out. A server-side failure raised while
+    /// authenticating (any 5xx, such as a database error reading the user or
+    /// the usage counter) is returned unchanged for the same reason: it says
+    /// nothing about the credential. Everything else is a refused credential
+    /// and becomes [`ErrorCode::AuthInvalid`], prefixed with `context`.
+    #[must_use]
+    pub fn into_auth_refusal(self, context: &str) -> Self {
+        if self.code == ErrorCode::RateLimitExceeded || self.http_status() >= INTERNAL_SERVER_ERROR
+        {
+            self
+        } else {
+            Self::auth_invalid(format!("{context}: {self}"))
+        }
     }
 
     /// Resource not found
@@ -599,6 +667,13 @@ impl AppError {
     /// Usage quota exceeded with limit details for 429 response.
     /// Includes structured `details` with `limit_type`, `current`, `limit`, and `resets_at`
     /// so frontends can parse quota information without string manipulation.
+    ///
+    /// A time-windowed quota names the instant its window resets as an RFC 3339
+    /// `resets_at`; the seconds until then are attached once, here, as the
+    /// retry window. A fixed cap (`max_active_conversations`,
+    /// `max_coaches_per_user`) passes an empty `resets_at`, since waiting does
+    /// not lift it, and carries no retry window. `resets_at` itself is kept
+    /// byte for byte: it is the counter window's identity.
     #[must_use]
     pub fn quota_exceeded(limit_type: &str, current: i64, limit: i64, resets_at: &str) -> Self {
         let mut err = Self::new(
@@ -611,7 +686,24 @@ impl AppError {
             "limit": limit,
             "resets_at": resets_at,
         })));
-        err
+        if resets_at.is_empty() {
+            return err;
+        }
+        match DateTime::parse_from_rfc3339(resets_at) {
+            Ok(reset) => {
+                let wait = (reset.with_timezone(&Utc) - Utc::now()).num_seconds();
+                err.with_retry_after(u64::try_from(wait).unwrap_or(0))
+            }
+            Err(e) => {
+                warn!(
+                    limit_type,
+                    resets_at,
+                    error = %e,
+                    "Quota reset instant is not RFC 3339; the refusal carries no retry window"
+                );
+                err
+            }
+        }
     }
 
     /// Resource already exists (conflict)

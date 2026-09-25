@@ -1,10 +1,10 @@
-// ABOUTME: Single registry of the user-facing surfaces Dravr offers, per platform
-// ABOUTME: Each client asserts it implements this list — the registry is the source, not a mirror
+// ABOUTME: The destinations Dravr offers, per platform: top-level surfaces and the settings panes
+// ABOUTME: Each client asserts it implements both lists — the registry is the source, not a mirror
 
 import { SURFACE_CAPABILITIES, type ReplyBlockKind } from './surface-capabilities.generated';
 
 /**
- * The user-facing surfaces of the product, and where each is reachable.
+ * The top-level surfaces of the product, and where each is reachable.
  *
  * This exists because web and mobile drifted silently: mobile shipped rows for
  * Profile, Privacy and Personal Information whose destinations were never
@@ -22,6 +22,11 @@ import { SURFACE_CAPABILITIES, type ReplyBlockKind } from './surface-capabilitie
  * `web` and `mobile` hold the route each platform serves the surface at, or
  * `null` when the surface is deliberately absent there — with `why` recording
  * the reason, so a null is a decision rather than an oversight.
+ *
+ * Settings destinations are not rows here: each one is a pane in
+ * {@link SETTINGS_PANES}, which holds its route on both platforms. The two
+ * lists share one id space — {@link destinationRoutes} resolves an id in
+ * either — so no id appears in both.
  */
 export interface UserSurface {
   /** Stable id for the surface, independent of either platform's routing. */
@@ -100,7 +105,10 @@ export const USER_SURFACES: readonly UserSurface[] = [
     blocks: NO_BLOCKS,
   },
   {
-    id: 'notifications',
+    // The notification feed. Its id is not `notifications`: that id is the
+    // settings pane for notification preferences, and the two lists share
+    // one id space.
+    id: 'notification-center',
     label: 'Notifications',
     web: 'notifications',
     mobile: '/(app)/notifications',
@@ -108,73 +116,15 @@ export const USER_SURFACES: readonly UserSurface[] = [
     blocks: NO_BLOCKS,
   },
 
-  // ---- account & settings ----
-  {
-    id: 'profile',
-    label: 'Profile',
-    web: 'settings',
-    mobile: '/(app)/(tabs)/(settings)/profile',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'data-providers',
-    label: 'Data Providers',
-    web: 'settings/connections',
-    mobile: '/(app)/(tabs)/(settings)/connections',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'coaching-style',
-    label: 'Coaching Style',
-    web: 'settings',
-    mobile: '/(app)/(tabs)/(settings)/coaching-style',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'messaging',
-    label: 'Messaging',
-    web: 'settings',
-    mobile: '/(app)/(tabs)/(settings)/messaging',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'connected-apps',
-    label: 'Connected Apps',
-    web: 'settings',
-    mobile: '/(app)/(tabs)/(settings)/connected-apps',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'privacy',
-    label: 'Privacy',
-    web: 'settings',
-    mobile: '/(app)/(tabs)/(settings)/privacy',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-  {
-    id: 'memory',
-    label: 'Memory',
-    web: 'settings',
-    mobile: '/(app)/memory',
-    webNav: null,
-    blocks: NO_BLOCKS,
-  },
-
   // ---- deliberately asymmetric ----
   {
-    id: 'billing',
-    label: 'Billing',
+    id: 'usage',
+    label: 'Usage',
     web: 'usage',
-    mobile: '/(app)/billing',
+    mobile: null,
     webNav: 'Usage',
     blocks: NO_BLOCKS,
-    why: 'Both gate on BILLING_ENABLED, which ships false for the first release.',
+    why: 'Mobile serves plan and usage as the billing settings pane in SETTINGS_PANES. Both gate on BILLING_ENABLED, which ships false for the first release.',
   },
   {
     id: 'admin-console',
@@ -190,17 +140,6 @@ export const USER_SURFACES: readonly UserSurface[] = [
 /** The registry row for a surface id, or null when the registry has no such row. */
 export function surfaceById(id: string): UserSurface | null {
   return USER_SURFACES.find((surface) => surface.id === id) ?? null;
-}
-
-/**
- * The web route that opens a surface, or null when the registry has no row.
- *
- * The registry is the source: a client that spells a route itself is a second
- * answer to "where does this live", which is how `#data-providers` and
- * `#settings/connections` both came to open the connections pane.
- */
-export function webRouteFor(id: string): string | null {
-  return surfaceById(id)?.web ?? null;
 }
 
 /** Surfaces a platform is expected to implement (i.e. not deliberately absent). */
@@ -269,6 +208,12 @@ export interface SettingsPane {
    */
   holds?: readonly SettingsSectionId[];
   /**
+   * Mobile: the held sections served as a screen of their own, pushed from
+   * the pane's row, by section id. Web renders every section inline, so this
+   * is the one place such a screen's route is declared.
+   */
+  mobileScreens?: Partial<Record<SettingsSectionId, string>>;
+  /**
    * The gate the pane rides on: the `api_tokens` server feature flag, the
    * build-time billing toggle, or nothing.
    */
@@ -278,15 +223,18 @@ export interface SettingsPane {
 }
 
 /**
- * Every settings pane, in menu order — the one declaration of how settings are
- * grouped, read by the web tab rail and the mobile settings list alike.
+ * Every settings pane, in menu order — the one declaration of the settings
+ * destinations: how they are grouped, under which name, holding what, and the
+ * route each platform serves them at. The web tab rail and the mobile settings
+ * list both read it, and so does every link into settings — the connect-a-
+ * provider banners, a provider-reauth notification.
  *
- * Distinct from {@link USER_SURFACES}, which answers a different question:
- * that registry says whether a destination EXISTS on a platform, this one says
- * what the settings menu LISTS, in what order, under which name, holding what.
- * They overlap on the settings destinations by design; neither derives the
- * other, because a surface can exist without being a pane — `connected-apps`
- * is a screen of its own on mobile and a section of the Account pane on web.
+ * {@link USER_SURFACES} used to repeat the settings destinations under ids of
+ * its own (`data-providers` for `connections`, `coaching-style` for
+ * `coaching`, a bare `settings` web route for most of the rest), and both
+ * clients navigated through both. A settings destination is declared here
+ * only. A section with a phone screen of its own, as connected apps has, is
+ * declared on its pane through `mobileScreens`.
  *
  * It exists because the grouping drifted with nothing to catch it: usage sat
  * inside Account on web and stood alone on mobile, MCP apps likewise, and the
@@ -376,6 +324,7 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     web: 'account',
     mobile: '/(app)/(tabs)/(settings)/account',
     holds: ['account-status', 'usage', 'security', 'connected-mcp-apps', 'sign-out'],
+    mobileScreens: { 'connected-mcp-apps': '/(app)/(tabs)/(settings)/connected-apps' },
     flag: null,
   },
   {
@@ -411,6 +360,71 @@ export function settingsPane(id: SettingsPaneId): SettingsPane {
     throw new Error(`No settings pane declared for id "${id}"`);
   }
   return pane;
+}
+
+/** A pane's Dashboard hash on web, or null when web serves it elsewhere. */
+function paneWebRoute(pane: SettingsPane): string | null {
+  return pane.web === null ? null : `settings/${pane.web}`;
+}
+
+/**
+ * The web route that opens a settings pane: the `settings/<pane>` hash the
+ * Dashboard parses.
+ *
+ * Throws for a pane web serves elsewhere: the registry is static data in this
+ * monorepo, so asking for one is a wrong id, not a runtime state to branch on.
+ */
+export function settingsPaneWebRoute(id: SettingsPaneId): string {
+  const route = paneWebRoute(settingsPane(id));
+  if (route === null) {
+    throw new Error(`Settings pane "${id}" has no web route`);
+  }
+  return route;
+}
+
+/**
+ * The phone screen a held section is served at, from the pane that holds it.
+ * Throws when no pane declares one, for the same reason as
+ * {@link settingsPaneWebRoute}.
+ */
+export function settingsSectionScreen(section: SettingsSectionId): string {
+  for (const pane of SETTINGS_PANES) {
+    const route = pane.mobileScreens?.[section];
+    if (route !== undefined) {
+      return route;
+    }
+  }
+  throw new Error(`No settings pane serves section "${section}" as a screen of its own`);
+}
+
+/** Where one destination is served on each platform; null where it is not. */
+export interface DestinationRoutes {
+  /** The web Dashboard route. */
+  web: string | null;
+  /** The mobile expo-router path. */
+  mobile: string | null;
+}
+
+/**
+ * The routes a destination id opens, on both platforms: a top-level surface
+ * from {@link USER_SURFACES}, or a settings pane from {@link SETTINGS_PANES}.
+ * Null when neither declares the id.
+ *
+ * The two lists share one id space — no id is declared in both — so an id
+ * names exactly one row. That is what lets a server-side declaration, such as
+ * the screen a notification opens, name a destination without knowing which
+ * list holds it.
+ */
+export function destinationRoutes(id: string): DestinationRoutes | null {
+  const surface = surfaceById(id);
+  if (surface !== null) {
+    return { web: surface.web, mobile: surface.mobile };
+  }
+  const pane = SETTINGS_PANES.find((candidate) => candidate.id === id);
+  if (pane !== undefined) {
+    return { web: paneWebRoute(pane), mobile: pane.mobile };
+  }
+  return null;
 }
 
 /**

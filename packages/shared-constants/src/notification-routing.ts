@@ -8,7 +8,7 @@ import {
   NOTIFICATION_SCREEN_SURFACES,
   type NotificationScreen,
 } from './surface-capabilities.generated';
-import { surfaceById, type UserSurface } from './surfaces';
+import { destinationRoutes, type DestinationRoutes } from './surfaces';
 
 /**
  * The surface a notification opens.
@@ -22,12 +22,12 @@ import { surfaceById, type UserSurface } from './surfaces';
  *
  * There is one map now and the server writes it: `NOTIFICATION_SCREEN_SURFACES`
  * is generated from the server's own `NotificationScreen` enum, and it names a
- * surface rather than a route, because `USER_SURFACES` already holds each
- * platform's route for a surface.
+ * destination rather than a route — a top-level surface or a settings pane —
+ * because the registry already holds each platform's route for either.
  */
 export interface NotificationDestination {
-  /** The registry surface the notification points at. */
-  surface: UserSurface;
+  /** Where the destination the notification points at is served. */
+  routes: DestinationRoutes;
   /**
    * Conversation to preselect, for an agent message that carries one.
    *
@@ -62,17 +62,17 @@ export function resolveNotificationDestination(
   const screen = asScreen(data?.screen) ?? asScreen(actionId);
   if (!screen) return null;
 
-  const surface = surfaceById(NOTIFICATION_SCREEN_SURFACES[screen]);
-  if (!surface) return null;
+  const routes = destinationRoutes(NOTIFICATION_SCREEN_SURFACES[screen]);
+  if (!routes) return null;
 
   // Only the coach screen names a conversation in `id`. Every training screen
   // (activity, recovery, stats …) also opens the chat surface now that the
   // Insights tab is gone, but their `id` is the activity or alert itself —
   // reading it as a thread would open a conversation that does not exist.
   if (screen === 'coach' && typeof data?.id === 'string') {
-    return { surface, conversationId: data.id };
+    return { routes, conversationId: data.id };
   }
-  return { surface };
+  return { routes };
 }
 
 /**
@@ -84,12 +84,12 @@ export function webNotificationRoute(
   actionId?: string,
 ): string | null {
   const destination = resolveNotificationDestination(data, actionId);
-  if (!destination?.surface.web) return null;
+  const web = destination?.routes.web;
+  if (!web) return null;
 
-  const { surface, conversationId } = destination;
-  return conversationId
-    ? `${surface.web}/${encodeURIComponent(conversationId)}`
-    : (surface.web as string);
+  return destination.conversationId
+    ? `${web}/${encodeURIComponent(destination.conversationId)}`
+    : web;
 }
 
 /**
@@ -125,12 +125,12 @@ export function mobileNotificationTarget(
   actionId?: string,
 ): NotificationNavTarget | null {
   const destination = resolveNotificationDestination(data, actionId);
-  if (!destination?.surface.mobile) return null;
+  const pathname = destination?.routes.mobile;
+  if (!pathname) return null;
 
-  const { surface, conversationId } = destination;
-  const pathname = surface.mobile as string;
   // The chat tab lands on the conversation list since the Chat-First Cutover;
   // a named conversation opens the thread route, not the list.
+  const { conversationId } = destination;
   return conversationId
     ? { pathname: MOBILE_THREAD_PATHNAME, params: { conversationId } }
     : { pathname };

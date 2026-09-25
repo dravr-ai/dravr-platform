@@ -41,11 +41,11 @@ use pierre_middleware::provider_link_token::{
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_services::oauth_flow::OAuthService;
+use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use uuid::Uuid;
 
 use crate::connect_hosted_templates;
-use crate::oauth::compute_providers_status;
+use crate::oauth::{compute_providers_status, require_oauth_start_notice};
 use crate::AuthRoutesContext;
 
 /// Bare OAuth provider rows that the connect picker hides — Strava is the
@@ -72,6 +72,10 @@ pub struct ConnectPageQuery {
 pub struct ConnectOAuthInitQuery {
     /// The signed connect link-token authorizing the OAuth start.
     pub token: Option<String>,
+    /// The athlete ticked the provider's notice on the picker (WHOOP's owner
+    /// authorization) before this start.
+    #[serde(default)]
+    pub tos_consent: bool,
 }
 
 /// Query parameters for the connect success page.
@@ -97,12 +101,12 @@ struct ConnectProviderCard {
     kind: &'static str,
     /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"); empty for OAuth cards.
     target: String,
-    /// The page must show the provider's exposure notice, with a required
-    /// checkbox, before the credentials form (TrainingPeaks and COROS, until
-    /// accepted).
+    /// The page must show the provider's notice, with a required checkbox,
+    /// before the credentials form (TrainingPeaks and COROS) or before the
+    /// OAuth redirect (WHOOP), until accepted.
     consent_required: bool,
-    /// The provider's exposure notice, which the page fills its notice block
-    /// with when the card is picked. Absent for a provider with none.
+    /// The provider's notice, which the page fills its notice block with when
+    /// the card is picked. Absent for a provider with none.
     #[serde(skip_serializing_if = "Option::is_none")]
     notice: Option<ExposureNotice>,
     /// What the provider's own login asks for: `"username"` (TrainingPeaks)
@@ -195,7 +199,7 @@ async fn build_connect_providers(
                 kind: "oauth",
                 target: String::new(),
                 consent_required: p.consent_required,
-                notice: None,
+                notice: exposure_notice(&provider_name).cloned(),
                 login_identifier: "email",
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
@@ -259,9 +263,11 @@ pub async fn handle_connect_hosted_page(
 /// GET `/api/providers/connect/oauth-init/{provider}?token=...`
 ///
 /// Link-token-authed OAuth initiation: recovers `user_id` + `tenant_id` from the
-/// connect token (no session cookie), mints the authorize URL via the shared
-/// [`OAuthService`], and 302-redirects the browser to the provider's consent
-/// screen. The existing session-less callback completes the exchange.
+/// connect token (no session cookie), applies the provider's notice
+/// precondition (`&tos_consent=true` carries the acceptance the picker took),
+/// mints the authorize URL via the shared [`OAuthService`], and 302-redirects
+/// the browser to the provider's consent screen. The existing session-less
+/// callback completes the exchange.
 pub async fn handle_connect_oauth_init(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
@@ -282,6 +288,20 @@ pub async fn handle_connect_oauth_init(
     };
     let tenant_id = TenantId::from_uuid(tenant_uuid);
 
+    // The picker shows the provider's notice before this redirect; a start
+    // without its acceptance goes back to the picker rather than on to the
+    // provider.
+    if let Err(e) =
+        require_oauth_start_notice(&resources, user_id, tenant_id, &provider, query.tos_consent)
+            .await
+    {
+        warn!(provider = %provider, user_id = %user_id, error = %e, "Hosted connect: OAuth start refused");
+        return Html(connect_hosted_templates::render_connect_error_page(
+            "Connecting this provider needs its notice accepted first. Please go back, tick the notice and try again.",
+        ))
+        .into_response();
+    }
+
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     // On return from the provider's consent screen, bounce back to THIS hosted
@@ -298,7 +318,15 @@ pub async fn handle_connect_oauth_init(
     );
 
     match oauth_service
-        .get_auth_url_with_return(user_id, tenant_id, &provider, Some(&return_url))
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                return_redirect: Some(&return_url),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await
     {
         Ok(auth_response) => {

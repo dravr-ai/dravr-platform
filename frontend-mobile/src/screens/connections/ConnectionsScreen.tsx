@@ -22,15 +22,17 @@ import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
+import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-import { sciotteTargetForBackend } from '@pierre/shared-constants';
+import { noticeRequired, sciotteTargetForBackend, syncAuthorizationOwed } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
+import { describeApiError } from '@pierre/ui-logic';
 
 export function ConnectionsScreen() {
   const { t } = useTranslation();
@@ -52,6 +54,12 @@ export function ConnectionsScreen() {
   // provider-aware setup sheet in-place so first-touch users never need to
   // navigate elsewhere. Mirrors the web onboarding flow.
   const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // The OAuth provider whose notice is on screen before its flow starts
+  // (WHOOP, until the account accepts its owner authorization).
+  const [noticeFor, setNoticeFor] = useState<ExtendedProviderStatus | null>(null);
+  // Whether the athlete accepted WHOOP's owner authorization before the
+  // setup sheet; the OAuth start after it carries that acceptance.
+  const [whoopTosConsent, setWhoopTosConsent] = useState(false);
   // Tracks the "Connected!" state shown after a successful OAuth completes.
   // Replaces the legacy Alert.alert success dialog and lines the UX up with
   // the web onboarding screen.
@@ -64,7 +72,7 @@ export function ConnectionsScreen() {
       const response = await oauthApi.getProvidersStatus();
       setProviders(response.providers || []);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadConnections');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadConnections' });
       setError(errorMessage);
       console.error('Failed to load connection status:', err);
       // Don't show alert on auth errors - screen will reload when auth is ready
@@ -89,7 +97,7 @@ export function ConnectionsScreen() {
     return () => clearTimeout(timer);
   }, [justConnected]);
 
-  const handleConnect = async (providerId: string, providerName: string) => {
+  const handleConnect = async (providerId: string, providerName: string, tosConsent = false) => {
     try {
       setConnectingProvider(providerId);
 
@@ -100,7 +108,7 @@ export function ConnectionsScreen() {
 
       // Call the mobile OAuth init endpoint which returns the authorization URL
       // and includes the redirect URL in the OAuth state for callback handling
-      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl);
+      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent });
 
       // Open OAuth in an in-app browser (ASWebAuthenticationSession on iOS)
       // The returnUrl is watched for redirects to close the browser automatically
@@ -150,7 +158,7 @@ export function ConnectionsScreen() {
         console.log('OAuth cancelled by user');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedToConnect');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });
       // Couldn't start the OAuth flow at all. For Strava this also covers the
       // platform Strava app being unconfigured — fall back to the Sciotte
       // credential login rather than bouncing to the BYO-credentials sheet or
@@ -216,6 +224,17 @@ export function ConnectionsScreen() {
    * users a speculative attempt and its "Configuration error" toast.
    */
   const startConnect = (provider: ExtendedProviderStatus) => {
+    // An OAuth provider whose notice the account has not accepted (WHOOP's
+    // owner authorization) states it first; its Continue resumes here.
+    if (noticeRequired(provider.provider, provider.consent_required) && !sciotteTargetForBackend(provider.provider)) {
+      setNoticeFor(provider);
+      return;
+    }
+    continueConnect(provider, false);
+  };
+
+  /** The connect `startConnect` resumes once any OAuth notice is accepted. */
+  const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
     const target = sciotteTargetForBackend(provider.provider);
     if (target) {
       if (target === 'strava' && provider.recommended_backend === 'oauth') {
@@ -227,9 +246,10 @@ export function ConnectionsScreen() {
     } else if (provider.provider === 'intervals_icu') {
       setIntervalsModalVisible(true);
     } else if (provider.provider === 'whoop') {
+      setWhoopTosConsent(tosConsent);
       setShowWhoopSetup(true);
     } else {
-      handleConnect(provider.provider, provider.display_name);
+      handleConnect(provider.provider, provider.display_name, tosConsent);
     }
   };
 
@@ -257,6 +277,9 @@ export function ConnectionsScreen() {
     // refresh): the row says "Expiré" and its action reconnects, instead of a
     // healthy-looking "Connecté" with only a disconnect affordance.
     const needsReauth = provider.connected && provider.needs_reauth;
+    // A connected WHOOP that owes its owner authorization has stopped
+    // syncing: the row asks for it instead of reading "Connecté".
+    const owesAuthorization = syncAuthorizationOwed(id, provider.connected, provider.consent_required);
     const isConnecting = connectingProvider === id;
     const canConnect = provider.requires_oauth || id.startsWith('sciotte') || id === 'intervals_icu';
     const hasMenu = isConnected && canConnect;
@@ -284,7 +307,9 @@ export function ConnectionsScreen() {
     const delegation = provider.delegation;
     const isDelegated = isConnected && delegation?.status === 'confirmed';
     let subtitle = providerBlurb(id);
-    if (isDelegated) {
+    if (owesAuthorization) {
+      subtitle = t('providers.authorizeToKeepSyncing', { provider: provider.display_name });
+    } else if (isDelegated) {
       subtitle = delegation.coach_needs_reauth
         ? t('delegation.coachReconnectNeeded', { coach: delegation.coach_display_name })
         : t('providers.connectedThrough', { coach: delegation.coach_display_name });
@@ -305,6 +330,13 @@ export function ConnectionsScreen() {
         <>
           <StatusDot tone={delegation.coach_needs_reauth ? 'warning' : 'success'} />
           {action(t('delegation.unlink'), disconnect)}
+        </>
+      );
+    } else if (owesAuthorization) {
+      trailing = (
+        <>
+          <StatusDot tone="warning" />
+          {action(t('providers.authorizeAction'), reconnect)}
         </>
       );
     } else if (needsReauth) {
@@ -338,7 +370,7 @@ export function ConnectionsScreen() {
                 presentProviderMenu(
                   {
                     providerName: provider.display_name,
-                    canReconnect: needsReauth,
+                    canReconnect: needsReauth || owesAuthorization,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
@@ -476,6 +508,16 @@ export function ConnectionsScreen() {
         <OAuthCredentialsSection />
       </Sheet>
 
+      <ProviderNoticeSheet
+        provider={noticeFor?.provider ?? null}
+        onCancel={() => setNoticeFor(null)}
+        onAccept={() => {
+          const accepted = noticeFor;
+          setNoticeFor(null);
+          if (accepted) continueConnect(accepted, true);
+        }}
+      />
+
       <OAuthAppSetupModal
         visible={showWhoopSetup}
         onClose={() => setShowWhoopSetup(false)}
@@ -484,7 +526,7 @@ export function ConnectionsScreen() {
           // BYO credentials are persisted; now kick off the standard OAuth
           // dance. handleConnect() will set justConnected on success which
           // surfaces the post-connect spinner.
-          void handleConnect('whoop', 'WHOOP');
+          void handleConnect('whoop', 'WHOOP', whoopTosConsent);
         }}
         provider="whoop"
         displayName="WHOOP"

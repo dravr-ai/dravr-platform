@@ -28,9 +28,11 @@ import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
-import { Checkbox } from './ui';
+import { ProviderNotice } from './ProviderNotice';
+import { PROVIDER_NOTICES, type ProviderNoticeKeys } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
+import { describeApiError } from '@pierre/ui-logic';
 
 type LoginPhase =
   | 'choose'
@@ -174,7 +176,7 @@ interface TargetPreset {
   /** No Google/Apple choice to make: straight to the provider's form. */
   directCredentials: boolean;
   /** The exposure notice shown while the account has not accepted it. */
-  notice?: { titleKey: string; bodyKey: string; consentKey: string };
+  notice?: ProviderNoticeKeys;
 }
 
 const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
@@ -204,11 +206,7 @@ const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
     placeholderKey: 'app.trainingpeaksUsername',
     identifier: 'username',
     directCredentials: true,
-    notice: {
-      titleKey: 'providers.trainingpeaksNotice.title',
-      bodyKey: 'providers.trainingpeaksNotice.body',
-      consentKey: 'providers.trainingpeaksNotice.consent',
-    },
+    notice: PROVIDER_NOTICES.sciotte_trainingpeaks,
   },
   coros: {
     brandKey: 'app.brandCoros',
@@ -218,11 +216,7 @@ const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
     placeholderKey: 'app.corosEmail',
     identifier: 'email',
     directCredentials: true,
-    notice: {
-      titleKey: 'providers.corosNotice.title',
-      bodyKey: 'providers.corosNotice.body',
-      consentKey: 'providers.corosNotice.consent',
-    },
+    notice: PROVIDER_NOTICES.sciotte_coros,
   },
 };
 
@@ -317,7 +311,7 @@ export function SciotteLoginModal({
       }
       // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('app.stravaOauthLaunchFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'app.stravaOauthLaunchFailed' });
       Alert.alert(t('app.connectionFailed'), message);
     }
   }, [onConnected, onClose, t]);
@@ -362,7 +356,7 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('auth.loginFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'auth.loginFailed' });
       setError(message);
       setPhase('error');
     } finally {
@@ -397,7 +391,7 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('app.verificationFailed'));
+      setError(describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }));
       setPhase('error');
     } finally {
       setIsLoading(false);
@@ -438,7 +432,7 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('app.verificationFailed'));
+      setError(describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }));
       setPhase('error');
     } finally {
       setIsLoading(false);
@@ -572,21 +566,13 @@ export function SciotteLoginModal({
           {/* The exposure comes before the credentials: the account is told
               what connecting risks, and accepts it, before typing anything. */}
           {notice && (
-            <View
-              className="mb-4 rounded-xl border border-warning/40 bg-warning/10 p-3"
+            <ProviderNotice
+              notice={notice}
+              accepted={consentAccepted}
+              onAcceptedChange={setConsentAccepted}
               testID="sciotte-tos-notice"
-            >
-              {/* Text on the amber tint takes the amber's bound ink. */}
-              <Text className="text-sm font-semibold text-on-warning-container mb-1">{t(notice.titleKey)}</Text>
-              <Text className="text-sm text-on-warning-container mb-2">{t(notice.bodyKey)}</Text>
-              <Checkbox
-                checked={consentAccepted}
-                onChange={setConsentAccepted}
-                label={t(notice.consentKey)}
-                labelClassName="text-on-warning-container"
-                testID="sciotte-tos-consent"
-              />
-            </View>
+              consentTestID="sciotte-tos-consent"
+            />
           )}
 
           <View className="mb-3">

@@ -104,7 +104,9 @@ impl McpRoutes {
     /// what JSON-RPC `tools/list` returns for the same bearer: global admins get
     /// the whole registry, tenant members get their tenant-filtered set minus
     /// `ADMIN_ONLY` tools, and callers with no valid bearer get a 401 carrying
-    /// the RFC 9728 `WWW-Authenticate` challenge instead of the catalog.
+    /// the RFC 9728 `WWW-Authenticate` challenge instead of the catalog. A
+    /// credential over its request budget gets the 429 and `Retry-After`
+    /// `POST /mcp` answers with.
     async fn handle_tools(State(state): State<McpRoutesState>, headers: HeaderMap) -> Response {
         // Yield to scheduler for cooperative multitasking
         yield_now().await;
@@ -151,6 +153,34 @@ impl McpRoutes {
                     StatusCode::FORBIDDEN,
                     [(header::WWW_AUTHENTICATE, www_authenticate)],
                     Json(json!({ "error": "insufficient_scope", "error_description": reason })),
+                )
+                    .into_response();
+            }
+            // A valid credential over its budget: the same 429 and wait
+            // `POST /mcp` answers with, never a 401 that sends the client to
+            // re-authorize.
+            Err(AuthError::RateLimited {
+                retry_after_secs,
+                reason,
+            }) => {
+                let retry_after_secs = retry_after_secs.max(1);
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, retry_after_secs.to_string())],
+                    Json(json!({
+                        "error": "rate_limited",
+                        "error_description": reason,
+                        "retry_after_secs": retry_after_secs,
+                    })),
+                )
+                    .into_response();
+            }
+            // A server-side failure while authenticating says nothing about
+            // the credential.
+            Err(AuthError::Internal { reason }) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "server_error", "error_description": reason })),
                 )
                     .into_response();
             }

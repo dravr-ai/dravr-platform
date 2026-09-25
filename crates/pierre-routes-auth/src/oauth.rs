@@ -16,6 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
@@ -29,10 +30,11 @@ use pierre_providers::backend_resolver;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
-    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, OAuthService,
+    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, AuthUrlOptions,
+    BridgeCallbackToken, OAuthService, BRIDGE_CALLBACK_TOKEN_HEADER,
 };
 use pierre_services::oauth_redirects;
-use pierre_services::provider_notice::notice_in_force;
+use pierre_services::provider_notice::{asks_for_notice, require_notice_accepted};
 use pierre_services::provider_refresh::RefreshService;
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -359,34 +361,20 @@ fn provider_delegation(delegation: MemberDelegation) -> ProviderDelegation {
     }
 }
 
-/// Whether `provider` asks for an exposure notice this account has not
-/// accepted in its current version. A provider with no notice, or an account
-/// the `provider_exposure_notice` flag leaves off, asks for none; so does a
-/// session with no active tenant, which the login refuses outright. A failed
-/// acceptance read asks again: showing the notice twice costs a tick,
-/// skipping it costs the precondition.
+/// Whether `provider` asks for a notice this account has not accepted.
+///
+/// [`asks_for_notice`] for the session's tenant. A session with no active
+/// tenant asks for none: the connect refuses it outright.
 async fn notice_outstanding(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
     provider: &str,
 ) -> bool {
-    let Some(tenant_id) = tenant_id else {
-        return false;
-    };
-    let Some(current) = notice_in_force(&resources.repos, tenant_id, user_id, provider).await
-    else {
-        return false;
-    };
-    resources
-        .repos
-        .users
-        .provider_terms_version(user_id, provider)
-        .await
-        .ok()
-        .flatten()
-        .as_deref()
-        != Some(current)
+    match tenant_id {
+        Some(tenant_id) => asks_for_notice(&resources.repos, tenant_id, user_id, provider).await,
+        None => false,
+    }
 }
 
 /// Compute the provider catalogue + connection status for a user.
@@ -590,6 +578,76 @@ pub async fn compute_providers_status(
     }
 }
 
+/// The acceptance a client carries on an OAuth start request.
+///
+/// `tos_consent` is `true` once the athlete ticked the provider's notice
+/// (WHOOP's owner authorization) on this attempt. The launch routes are
+/// browser navigations, so it rides the query string where the credential
+/// login sends it in the JSON body.
+#[derive(Debug, Default, Deserialize)]
+pub struct OAuthStartQuery {
+    /// The athlete accepted the provider's notice on this attempt.
+    #[serde(default)]
+    pub tos_consent: bool,
+}
+
+/// The per-flow token of the SDK bridge listener that starts this flow, when
+/// a bridge starts it: sent in [`BRIDGE_CALLBACK_TOKEN_HEADER`], never in the
+/// URL, and presented on the flow's success notification, the only POST that
+/// listener accepts provider tokens from. Checked before the flow starts, so
+/// a malformed token is refused rather than stored.
+///
+/// # Errors
+/// Returns an invalid-input error when the header is present but malformed.
+fn presented_callback_token(headers: &HeaderMap) -> Result<Option<BridgeCallbackToken>, AppError> {
+    headers
+        .get(BRIDGE_CALLBACK_TOKEN_HEADER)
+        .map(|value| {
+            value.to_str().map_or_else(
+                |_| {
+                    Err(AppError::invalid_input(format!(
+                        "{BRIDGE_CALLBACK_TOKEN_HEADER} must be visible ASCII"
+                    )))
+                },
+                BridgeCallbackToken::parse,
+            )
+        })
+        .transpose()
+}
+
+/// Refuse to begin `provider`'s OAuth flow until the account has accepted the
+/// notice in force for it, recording the acceptance this start carries.
+///
+/// The OAuth-start face of [`require_notice_accepted`], shared by every route
+/// that mints an authorization URL — the web launch and initiate routes, the
+/// mobile init and the hosted connect picker's init — so none can hand out a
+/// URL the precondition has not passed. The refusal names the provider by its
+/// registered display name.
+///
+/// # Errors
+/// Returns the precondition's refusal, or the store's error.
+pub async fn require_oauth_start_notice(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    tos_consent: bool,
+) -> Result<(), AppError> {
+    let brand = resources
+        .provider_registry
+        .get_descriptor(provider)
+        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned());
+    require_notice_accepted(
+        &resources.repos,
+        tenant_id.as_uuid(),
+        user_id,
+        provider,
+        &brand,
+        tos_consent,
+    )
+    .await
+}
+
 /// Handle OAuth authorization initiation
 ///
 /// Requires authentication and verifies that the authenticated user matches
@@ -606,6 +664,7 @@ pub async fn compute_providers_status(
 pub async fn handle_oauth_auth_initiate(
     State(resources): State<AuthRoutesContext>,
     Path((provider, user_id_str)): Path<(String, String)>,
+    Query(start): Query<OAuthStartQuery>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     // Authenticate the request before proceeding
@@ -615,6 +674,7 @@ pub async fn handle_oauth_auth_initiate(
         .await?;
 
     let user_id = parse_user_id(&user_id_str)?;
+    let bridge_callback_token = presented_callback_token(&headers)?;
 
     // Verify authenticated user matches the requested user_id
     if auth_result.user_id != user_id {
@@ -636,11 +696,21 @@ pub async fn handle_oauth_auth_initiate(
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
+        .await?;
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     let auth_response = oauth_service
-        .get_auth_url(user_id, tenant_id, &provider)
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                bridge_callback_token: bridge_callback_token.as_ref(),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await
         .map_err(|e| {
             error!(
@@ -696,6 +766,7 @@ pub async fn handle_mobile_oauth_init(
 
     // Get optional redirect_uri from query parameters (mobile app's deep link)
     let redirect_url = query.get("redirect_uri");
+    let bridge_callback_token = presented_callback_token(&headers)?;
 
     // Validate redirect URL against allowlist to prevent open-redirect attacks
     if let Some(url) = redirect_url {
@@ -711,6 +782,8 @@ pub async fn handle_mobile_oauth_init(
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    let tos_consent = query.get("tos_consent").is_some_and(|v| v == "true");
+    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, tos_consent).await?;
 
     // Build OAuth state with optional redirect URL
     let state = redirect_url.map_or_else(
@@ -797,6 +870,7 @@ pub async fn handle_mobile_oauth_init(
         pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
         // The shared-pool app the URL names, so the exchange uses its client.
         oauth_app_client_id: authorization.oauth_app_client_id,
+        bridge_callback_token: bridge_callback_token.map(|token| token.as_str().to_owned()),
         created_at: now,
         expires_at: now + chrono::Duration::minutes(10),
         used: false,
@@ -859,9 +933,13 @@ pub async fn handle_mobile_oauth_init(
 /// which does the same for channel-initiated links; the two differ only in how
 /// the caller proves identity (session cookie here, connect link-token there).
 ///
+/// A provider whose notice is outstanding for the account (WHOOP's owner
+/// authorization) is refused until `?tos_consent=true` accepts it.
+///
 /// # Errors
 /// Returns an error if the session is invalid, the caller has no active tenant,
-/// or the provider's authorize URL cannot be built.
+/// the provider's notice is outstanding and not accepted, or the provider's
+/// authorize URL cannot be built.
 #[tracing::instrument(
     skip(resources, headers),
     fields(
@@ -874,6 +952,7 @@ pub async fn handle_mobile_oauth_init(
 pub async fn handle_oauth_authorize_redirect(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
+    Query(start): Query<OAuthStartQuery>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth_result = resources
@@ -882,16 +961,27 @@ pub async fn handle_oauth_authorize_redirect(
         .await?;
     let user_id = auth_result.user_id;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    let bridge_callback_token = presented_callback_token(&headers)?;
 
     let span = Span::current();
     span.record("user_id", field::display(&user_id));
     span.record("tenant_id", field::display(&tenant_id));
 
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
+    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
+        .await?;
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let authorization = oauth_service
-        .get_auth_url(user_id, tenant_id, &provider)
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                bridge_callback_token: bridge_callback_token.as_ref(),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await?;
 
     info!(

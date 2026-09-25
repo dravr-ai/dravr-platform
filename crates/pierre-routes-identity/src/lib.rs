@@ -41,6 +41,9 @@ pub mod oauth2;
 /// a verified client, or the error page for an untrusted one.
 mod authorize_redirect;
 
+/// The 429 the OAuth 2.0 endpoints answer a per-IP rate limit with.
+mod oauth2_rate_limited;
+
 /// Per-user OAuth-app credential management endpoints.
 pub mod user_oauth_apps;
 

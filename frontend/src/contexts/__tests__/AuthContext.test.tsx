@@ -128,6 +128,52 @@ describe('AuthContext', () => {
     expect(localStorage.getItem('pierre_user')).toBeNull()
   })
 
+  it('keeps the athlete signed in when session restore is rate limited', async () => {
+    const mockUser = { id: '1', email: 'test@example.com', display_name: 'Test User' }
+    localStorage.setItem('pierre_user', JSON.stringify(mockUser))
+
+    const { authApi } = await import('../../services/api')
+
+    // A spent request budget: the cookie is valid, the server says "wait".
+    vi.mocked(authApi.getSession).mockRejectedValue({
+      response: {
+        status: 429,
+        data: {
+          code: 'RateLimitExceeded',
+          message: 'Rate limit exceeded: 10000/10000 requests, retry after 3600s',
+          details: { limit_type: 'requests', current: 10000, limit: 10000, retry_after_secs: 3600 },
+        },
+      },
+    })
+
+    renderWithAuth()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading')).toHaveTextContent('Not Loading')
+    })
+    expect(authApi.getSession).toHaveBeenCalled()
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('Authenticated')
+    expect(screen.getByTestId('user-email')).toHaveTextContent('test@example.com')
+    expect(localStorage.getItem('pierre_user')).toBe(JSON.stringify(mockUser))
+  })
+
+  it('still signs out when session restore is refused as unauthorized', async () => {
+    const mockUser = { id: '1', email: 'test@example.com', display_name: 'Test User' }
+    localStorage.setItem('pierre_user', JSON.stringify(mockUser))
+
+    const { authApi } = await import('../../services/api')
+    vi.mocked(authApi.getSession).mockRejectedValue({
+      response: { status: 401, data: { code: 'AuthInvalid', message: 'Authentication failed' } },
+    })
+
+    renderWithAuth()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('Not Authenticated')
+    })
+    expect(localStorage.getItem('pierre_user')).toBeNull()
+  })
+
   it('should login successfully', async () => {
     const user = userEvent.setup()
     const mockUser = { id: '1', email: 'test@example.com', display_name: 'Test User' }

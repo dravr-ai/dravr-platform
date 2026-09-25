@@ -1,5 +1,5 @@
 // ABOUTME: What health sync may keep of a WHOOP record: measurements, never WHOOP's own scores
-// ABOUTME: Drops recovery %, strain and sleep performance at ingestion; sleep efficiency is computed in-house
+// ABOUTME: Drops WHOOP scores at ingestion, computes sleep efficiency in-house, and keeps nothing without owner authorization
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,17 +24,32 @@
 //!
 //! WHOOP workouts reach the activity cache through the platform's own WHOOP
 //! provider, which never maps a workout's strain to begin with.
+//!
+//! The measurements themselves are kept only under the owner's authorization:
+//! the WHOOP notice ([`provider_terms_version`]) an account accepts before the
+//! WHOOP OAuth flow begins. For an account the `provider_exposure_notice`
+//! flag arms that has not accepted the current version,
+//! [`owner_authorization_outstanding`] answers true and health sync keeps
+//! none of that account's WHOOP records — the same rule, read through the
+//! same [`outstanding_notice`], as the connect that asks for it.
+//!
+//! [`provider_terms_version`]: pierre_core::constants::oauth_providers::provider_terms_version
 
 use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth_providers;
+use pierre_core::errors::AppResult;
 use pierre_core::models::{StoredRecoveryMetrics, StoredSleepSession};
+use pierre_database::RepositoryRegistry;
+use uuid::Uuid;
+
+use crate::provider_notice::outstanding_notice;
 
 /// Whether a synced record came from WHOOP, by the source name the sync
 /// adapter stamps on it.
 #[must_use]
-fn is_whoop(source_name: &str) -> bool {
+pub fn is_whoop(source_name: &str) -> bool {
     source_name.eq_ignore_ascii_case(oauth_providers::WHOOP)
 }
 
@@ -103,4 +118,25 @@ pub fn recovery_metrics_to_store(
     kept.body_battery = None;
     kept.daily_strain = None;
     Cow::Owned(kept)
+}
+
+/// Whether `user_id` still owes WHOOP's owner authorization in this tenant.
+///
+/// True while the WHOOP notice is in force for the account and its current
+/// version is not the one the account accepted; health sync then keeps none
+/// of the account's WHOOP records.
+///
+/// # Errors
+/// Returns the store's error when the acceptance cannot be read; the caller
+/// keeps nothing it could not clear.
+pub async fn owner_authorization_outstanding(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+) -> AppResult<bool> {
+    Ok(
+        outstanding_notice(repos, tenant_id, user_id, oauth_providers::WHOOP)
+            .await?
+            .is_some(),
+    )
 }

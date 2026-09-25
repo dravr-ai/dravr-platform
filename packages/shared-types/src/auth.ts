@@ -178,11 +178,12 @@ export interface ExtendedProviderStatus {
    */
   seats_left?: number;
   /**
-   * Connecting this provider first needs the account to accept its exposure
-   * notice — TrainingPeaks, until the current notice version is accepted. The
-   * client shows the notice with a required checkbox before the credentials
-   * and sends `tos_consent: true` with the login; the login is refused
-   * without it.
+   * Connecting this provider first needs the account to accept its notice —
+   * TrainingPeaks' and COROS' exposure notice, WHOOP's owner authorization —
+   * until the current notice version is accepted. The client shows the notice
+   * with a required checkbox before the credentials (and sends
+   * `tos_consent: true` with the login) or before the OAuth start (and sends
+   * `tos_consent=true` on it); either is refused without it.
    */
   consent_required: boolean;
   /**

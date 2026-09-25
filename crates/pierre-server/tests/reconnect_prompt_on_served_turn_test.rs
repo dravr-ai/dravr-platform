@@ -1,5 +1,5 @@
 // ABOUTME: A turn a sibling connection served must still hand the athlete a real reconnect link
-// ABOUTME: Pins that on both loops — the one holding the tool payloads and the ACP one holding none
+// ABOUTME: Pins that on both loops, and that a reconnect owing a provider notice offers the hosted picker
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -56,10 +56,12 @@ use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
     KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::errors::AppError;
+use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{
     ActivityBuilder, ConnectionType, ConversationRecord, ConversationTurnId, MessageRecord,
-    SportType, TenantId, CHANNEL_TYPE_WEB,
+    SportType, TenantId, TenantOAuthCredentials, CHANNEL_TYPE_WEB,
 };
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotHeadlessConfig,
@@ -67,7 +69,7 @@ use pierre_llm::{
     ObservedToolCall, StreamChunk, Tool,
 };
 use pierre_mcp_server::context::ServerContext;
-use pierre_middleware::provider_link_token::verify_link_token;
+use pierre_middleware::provider_link_token::{verify_link_token, CONNECT_PROVIDER};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -1171,5 +1173,94 @@ async fn a_headless_turn_drains_the_offer_it_consumed() {
     assert_eq!(
         second.content, AGENT_ANSWER,
         "and answers exactly as it was written"
+    );
+}
+
+// ============================================================================
+// A reconnect that owes the provider's notice
+// ============================================================================
+
+/// A WHOOP reconnect for an account that owes WHOOP's owner authorization
+/// hands out no WHOOP authorization URL: a chat link cannot carry the
+/// acceptance, so the offer is the hosted connect picker, which shows the
+/// notice with its box. Once the account has accepted it, the offer is WHOOP's
+/// own authorization page again.
+#[tokio::test]
+async fn a_whoop_reconnect_owing_the_owner_authorization_offers_the_hosted_picker() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let repos = &resources.common.repos;
+    let tenant = repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()
+        .first()
+        .expect("user has a tenant")
+        .id;
+    repos
+        .tenants
+        .store_oauth_credentials(&TenantOAuthCredentials {
+            tenant_id: tenant,
+            provider: "whoop".to_owned(),
+            client_id: "whoop-reconnect-test-client".to_owned(),
+            client_secret: "whoop-reconnect-test-secret".to_owned(),
+            redirect_uri: "http://localhost/api/oauth/callback/whoop".to_owned(),
+            scopes: vec!["read:recovery".to_owned()],
+            rate_limit_per_day: 1000,
+        })
+        .await
+        .unwrap();
+    repos
+        .feature_flags
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+        .await
+        .unwrap();
+
+    let mut result = loop_result(Some("whoop"), None);
+    let prompt = recover(&resources, user_id, tenant, &mut result)
+        .await
+        .prompt
+        .expect("the athlete still gets a reconnect control");
+    let code = prompt
+        .url
+        .strip_prefix(&format!("{TEST_BASE_URL}/r/"))
+        .unwrap_or_else(|| panic!("the offer is a short link on this server: {}", prompt.url));
+    let target = repos
+        .short_links
+        .resolve_short_link(code)
+        .await
+        .unwrap()
+        .expect("the short link resolves");
+    let token = target
+        .strip_prefix(&format!("{TEST_BASE_URL}/providers/connect?token="))
+        .unwrap_or_else(|| panic!("the offer opens the hosted connect picker: {target}"));
+    let token = urlencoding::decode(token).unwrap();
+    let claims = verify_link_token(
+        &token,
+        "test-admin-jwt-secret-for-reconnect-minting",
+        CONNECT_PROVIDER,
+    )
+    .expect("a connect-scoped token for the picker");
+    assert_eq!(claims.sub, user_id.to_string());
+
+    repos
+        .users
+        .record_provider_terms(user_id, "whoop", provider_terms_version("whoop").unwrap())
+        .await
+        .unwrap();
+    let mut result = loop_result(Some("whoop"), None);
+    let prompt = recover(&resources, user_id, tenant, &mut result)
+        .await
+        .prompt
+        .expect("a reconnect control");
+    assert!(
+        prompt
+            .url
+            .starts_with("https://api.prod.whoop.com/oauth/oauth2/auth"),
+        "an account that accepted reconnects on WHOOP's page: {}",
+        prompt.url
     );
 }

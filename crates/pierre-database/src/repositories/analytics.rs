@@ -35,7 +35,7 @@
 
 use std::fmt::{Display, Write};
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Datelike, Months, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::RequestLog;
 
@@ -75,10 +75,13 @@ macro_rules! record_jwt_usage_sql {
 }
 pub(crate) use record_jwt_usage_sql;
 
-/// A key's calls after `$2`: its current usage against its own rate-limit
-/// window.
-pub(crate) const API_KEY_CURRENT_USAGE_SQL: &str =
-    "SELECT COUNT(*) AS count FROM api_key_usage WHERE api_key_id = $1 AND timestamp > $2";
+/// A key's calls after `$2` and the earliest of them: its usage inside its
+/// own sliding rate-limit window, and the instant the window's first slot
+/// frees. One statement, so both describe the same rows; served by the
+/// `(api_key_id, timestamp)` index.
+pub(crate) const API_KEY_WINDOW_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
+            MIN(timestamp) AS oldest \
+     FROM api_key_usage WHERE api_key_id = $1 AND timestamp > $2";
 
 /// A key's totals over `[$5, $6]`. `$1..=$3` are the success band and the
 /// failure floor: a 2xx is successful, 400 and up failed, so a 3xx is in
@@ -256,6 +259,23 @@ pub fn current_utc_month_start() -> DateTime<Utc> {
         .map_or(now, |midnight| midnight.and_utc())
 }
 
+/// The first instant of the UTC month after the one `now` falls in: when
+/// the window [`current_utc_month_start`] opens closes, and the monthly
+/// request budget resets.
+///
+/// Built from the first of `now`'s month, so a 29th, 30th or 31st never
+/// names a day the next month lacks. Every argument has a next month inside
+/// chrono's range except the last month it can represent, where `now` is
+/// returned unchanged.
+#[must_use]
+pub fn next_utc_month_start(now: DateTime<Utc>) -> DateTime<Utc> {
+    now.date_naive()
+        .with_day(1)
+        .and_then(|first| first.checked_add_months(Months::new(1)))
+        .and_then(|next| next.and_hms_opt(0, 0, 0))
+        .map_or(now, |midnight| midnight.and_utc())
+}
+
 /// A request-log row projected by [`request_logs_sql`].
 ///
 /// # Errors
@@ -331,27 +351,31 @@ macro_rules! impl_usage_repository {
                 Ok(())
             }
 
-            async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32> {
-                // The key's own sliding rate-limit window; a system-level
-                // lookup with no user scoping, as the rate limiter has only
-                // the key in hand.
-                let api_key = ApiKeyRepository::get_by_id(self, api_key_id, None)
-                    .await?
-                    .ok_or_else(|| AppError::not_found("API key"))?;
-                let window_start =
-                    Utc::now() - Duration::seconds(i64::from(api_key.rate_limit_window_seconds));
-                let row = sqlx::query(API_KEY_CURRENT_USAGE_SQL)
+            async fn get_api_key_window_usage(
+                &self,
+                api_key_id: &str,
+                window_start: DateTime<Utc>,
+            ) -> AppResult<ApiKeyWindowUsage> {
+                // A system-level lookup with no user scoping: the rate
+                // limiter has only the key in hand.
+                let row = sqlx::query(API_KEY_WINDOW_USAGE_SQL)
                     .bind(api_key_id)
                     .bind(window_start)
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to get API key current usage: {e}"))
+                        AppError::database(format!("Failed to get API key window usage: {e}"))
                     })?;
                 let count: i64 = row
                     .try_get("count")
                     .map_err(|e| usage_column_error("count", e))?;
-                u32_from_count(count, "count")
+                let oldest: Option<DateTime<Utc>> = row
+                    .try_get("oldest")
+                    .map_err(|e| usage_column_error("oldest", e))?;
+                Ok(ApiKeyWindowUsage {
+                    count: u32_from_count(count, "count")?,
+                    oldest,
+                })
             }
 
             async fn get_api_key_stats(

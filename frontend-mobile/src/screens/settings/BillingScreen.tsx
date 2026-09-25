@@ -23,6 +23,7 @@ import { billingApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 export function BillingScreen(): React.ReactElement {
   const { t } = useTranslation();
@@ -66,7 +67,7 @@ export function BillingScreen(): React.ReactElement {
     onSuccess: ({ checkout_url }) => {
       void Linking.openURL(checkout_url);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : t('app.checkoutFailed')),
+    onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'app.checkoutFailed' })),
   });
 
   const portalMutation = useMutation({
@@ -77,7 +78,7 @@ export function BillingScreen(): React.ReactElement {
     onSuccess: ({ portal_url }) => {
       void Linking.openURL(portal_url);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : t('app.portalOpenFailed')),
+    onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'app.portalOpenFailed' })),
   });
 
   const sub = subscriptionQuery.data;

@@ -8,6 +8,7 @@ import { userApi } from '../services/api';
 import { useThemeColors } from '../constants/theme';
 import type { OAuthApp } from '../types';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface OAuthAppSetupModalProps {
   visible: boolean;
@@ -118,11 +119,14 @@ export function OAuthAppSetupModal({
       });
       onSaved();
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : t('app.failedSaveOauthApp', { provider: displayName });
-      setError(message);
+      // The fallback sentence names the provider, so the translator handed to
+      // the classifier fills it in; every other key ignores the extra value.
+      setError(
+        describeApiError(err, {
+          t: (key, params) => t(key, { provider: displayName, ...params }),
+          fallbackKey: 'app.failedSaveOauthApp',
+        }),
+      );
     } finally {
       setIsSaving(false);
     }

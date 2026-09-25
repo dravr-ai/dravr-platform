@@ -20,7 +20,6 @@ use anyhow::Result;
 use chrono::{Duration, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, init_server_config};
 use pierre_auth::auth::{AuthMethod, AuthResult};
-use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::seed_models::SeedLlmUsageRecord;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -140,14 +139,6 @@ impl AnalyticsFixture {
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
-            },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),
-                remaining: Some(1000),
-                reset_at: None,
-                tier: "premium".to_owned(),
-                auth_method: "jwt".to_owned(),
             },
             active_tenant_id: Some(self.tenant_id),
         }

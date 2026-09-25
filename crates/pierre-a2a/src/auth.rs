@@ -13,7 +13,6 @@ use crate::client::{A2AClientManager, ClientRegistrationRequest};
 use crate::client_types::A2AToken;
 use crate::A2AError;
 use pierre_auth::auth::{AuthMethod, AuthResult};
-use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 use pierre_core::errors::provider::ProviderError;
 use pierre_core::errors::{AppError, AppResult};
 pub use pierre_core::models::a2a::A2AClient;
@@ -234,14 +233,6 @@ impl A2AAuthenticator {
             auth_method: AuthMethod::ApiKey {
                 key_id: format!("oauth2_a2a_{client_id}"),
                 tier: "A2A-OAuth2".into(),
-            },
-            rate_limit: UnifiedRateLimitInfo {
-                is_rate_limited: false,
-                limit: Some(1000),     // Default A2A OAuth2 limit
-                remaining: Some(1000), // Start with full limit
-                reset_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
-                tier: "A2A-OAuth2".into(),
-                auth_method: "oauth2".into(),
             },
             active_tenant_id,
             // An A2A client is a third party acting for the user, so its grant

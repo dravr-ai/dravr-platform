@@ -17,6 +17,7 @@ import PostInstallHint from './discover/PostInstallHint';
 import { useTranslation } from '@pierre/i18n';
 import { initialsFor } from '@pierre/chat-utils';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
+import { describeApiError } from '@pierre/ui-logic';
 
 // Category filter options
 // Built at import time, where `t` does not exist: the table carries the key
@@ -447,9 +448,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
               {searchQuery ? t('frag.couldntSearchAgents') : t('frag.couldntLoadStore')}
             </h3>
             <p className="mt-0.5 text-xs text-on-surface-variant">
-              {listError instanceof Error && listError.message
-                ? listError.message
-                : t('discover.storeListMissing')}
+              {describeApiError(listError, { t, fallbackKey: 'discover.storeListMissing' })}
             </p>
             <button onClick={handleRetryList} className="btn-base btn-tertiary btn-sm mt-2 px-0">
               {t('discover.tryAgain')}

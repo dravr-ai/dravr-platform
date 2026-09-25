@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
@@ -29,6 +30,7 @@ use pierre_enforme::traits::recovery_store::RecoveryStore;
 use pierre_enforme::traits::sleep_store::SleepStore;
 use pierre_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use pierre_providers::backend_resolver::sync_backend;
+use tracing::info;
 use uuid::Uuid;
 
 use crate::sciotte_health_reader::SciotteServiceReader;
@@ -58,10 +60,13 @@ use crate::whoop_terms;
 /// [`whoop_terms`] before it is written, so WHOOP's own scores
 /// (recovery %, strain, sleep performance, WHOOP's sleep efficiency) are
 /// never stored; a disconnect deletes the rest through the chokepoint's
-/// provider data purge.
+/// provider data purge. No WHOOP sleep, recovery or health record is written
+/// at all for an account that owes WHOOP's owner authorization
+/// ([`whoop_terms::owner_authorization_outstanding`]); each store call logs
+/// how many it withheld. WHOOP exposes no continuous series, so the
+/// time-series store receives none of its data.
 ///
-/// LIMITATION(registre#539): `PierreSyncStorage` still persists the WHOOP measurements it keeps with no
-/// owner-authorization record taken at connect, persists WHOOP-classified physiology (HRV rMSSD, sleep
+/// LIMITATION(registre#539): `PierreSyncStorage` persists WHOOP-classified physiology (HRV rMSSD, sleep
 /// stage durations) instead of holding it in memory within the cache header, and applies no AI-clause
 /// hygiene (WHOOP-derived turns kept out of evals, tuning sets and cross-athlete analytics); derived rows
 /// with no provider column (`training_history`, `user_facts`) cannot be attributed to WHOOP by a purge.
@@ -79,6 +84,85 @@ pub struct PierreSyncStorage {
     /// injection, credential reads fall back to the stored token row (startup
     /// window before the first scheduled sync tick, and storage-only tests).
     refresher: OnceLock<Arc<dyn SyncCredentialRefresher>>,
+    /// The full registry, for the WHOOP owner-authorization read: the notice
+    /// flag and the account's acceptance live outside both views. Shared with
+    /// the server's own handle to the same pools.
+    registry: Arc<RepositoryRegistry>,
+}
+
+/// Which users' WHOOP records one store call withholds, decided once per
+/// user, and how many it withheld.
+struct OwnerAuthorizationGate<'a> {
+    registry: &'a RepositoryRegistry,
+    decided: HashMap<(TenantId, String), bool>,
+    withheld: u64,
+}
+
+impl<'a> OwnerAuthorizationGate<'a> {
+    fn new(registry: &'a RepositoryRegistry) -> Self {
+        Self {
+            registry,
+            decided: HashMap::new(),
+            withheld: 0,
+        }
+    }
+
+    /// Whether a record from `source_name` for `user_id` must not be kept.
+    ///
+    /// True when it is WHOOP's and the account owes the owner authorization
+    /// in `tenant_id`, the tenant it would be written under. Counts what it
+    /// withholds.
+    async fn withholds(
+        &mut self,
+        tenant_id: TenantId,
+        user_id: &str,
+        source_name: &str,
+    ) -> EnformeResult<bool> {
+        if !whoop_terms::is_whoop(source_name) {
+            return Ok(false);
+        }
+        let key = (tenant_id, user_id.to_owned());
+        let outstanding = if let Some(decided) = self.decided.get(&key) {
+            *decided
+        } else {
+            let user_uuid = user_id
+                .parse::<Uuid>()
+                .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
+            let outstanding = whoop_terms::owner_authorization_outstanding(
+                self.registry,
+                tenant_id.as_uuid(),
+                user_uuid,
+            )
+            .await
+            .map_err(|e| {
+                EnformeError::store(format!("Failed to read the WHOOP owner authorization: {e}"))
+            })?;
+            self.decided.insert(key, outstanding);
+            outstanding
+        };
+        if outstanding {
+            self.withheld += 1;
+        }
+        Ok(outstanding)
+    }
+
+    /// Log what this call withheld, per user it withheld for.
+    fn report(&self, data_type: &str) {
+        if self.withheld == 0 {
+            return;
+        }
+        for ((tenant_id, user_id), outstanding) in &self.decided {
+            if *outstanding {
+                info!(
+                    %tenant_id,
+                    user_id = %user_id,
+                    data_type,
+                    withheld_in_call = self.withheld,
+                    "WHOOP records not persisted: the account has not accepted the current WHOOP owner-authorization notice"
+                );
+            }
+        }
+    }
 }
 
 /// Bridge to the platform's OAuth token-refresh infrastructure.
@@ -129,6 +213,7 @@ impl PierreSyncStorage {
             fitness: repos.fitness_repos(),
             auth: repos.auth_repos(),
             refresher: OnceLock::new(),
+            registry: Arc::clone(repos),
         }
     }
 
@@ -241,10 +326,17 @@ impl SleepStore for PierreSyncStorage {
         sessions: &[dravr_equilibre_sync::StoredSleepSession],
     ) -> EnformeResult<u64> {
         let mut count = 0u64;
+        let mut gate = OwnerAuthorizationGate::new(&self.registry);
         for session in sessions {
             let tenant_id = self
                 .resolve_tenant_id(&session.user_id, &session.source_name)
                 .await?;
+            if gate
+                .withholds(tenant_id, &session.user_id, &session.source_name)
+                .await?
+            {
+                continue;
+            }
             let session = whoop_terms::sleep_session_to_store(session);
             self.fitness
                 .sleep
@@ -253,6 +345,7 @@ impl SleepStore for PierreSyncStorage {
                 .map_err(|e| EnformeError::store(format!("Failed to upsert sleep session: {e}")))?;
             count += 1;
         }
+        gate.report("sleep");
         Ok(count)
     }
 
@@ -294,10 +387,17 @@ impl RecoveryStore for PierreSyncStorage {
         metrics: &[dravr_equilibre_sync::StoredRecoveryMetrics],
     ) -> EnformeResult<u64> {
         let mut count = 0u64;
+        let mut gate = OwnerAuthorizationGate::new(&self.registry);
         for metric in metrics {
             let tenant_id = self
                 .resolve_tenant_id(&metric.user_id, &metric.source_name)
                 .await?;
+            if gate
+                .withholds(tenant_id, &metric.user_id, &metric.source_name)
+                .await?
+            {
+                continue;
+            }
             let metric = whoop_terms::recovery_metrics_to_store(metric);
             self.fitness
                 .recovery
@@ -308,6 +408,7 @@ impl RecoveryStore for PierreSyncStorage {
                 })?;
             count += 1;
         }
+        gate.report("recovery");
         Ok(count)
     }
 
@@ -347,10 +448,17 @@ impl HealthStore for PierreSyncStorage {
         snapshots: &[dravr_equilibre_sync::StoredHealthMetrics],
     ) -> EnformeResult<u64> {
         let mut count = 0u64;
+        let mut gate = OwnerAuthorizationGate::new(&self.registry);
         for snapshot in snapshots {
             let tenant_id = self
                 .resolve_tenant_id(&snapshot.user_id, &snapshot.source_name)
                 .await?;
+            if gate
+                .withholds(tenant_id, &snapshot.user_id, &snapshot.source_name)
+                .await?
+            {
+                continue;
+            }
             self.fitness
                 .health_snapshots
                 .upsert_health_snapshot(&tenant_id, snapshot)
@@ -360,6 +468,7 @@ impl HealthStore for PierreSyncStorage {
                 })?;
             count += 1;
         }
+        gate.report("health");
         Ok(count)
     }
 

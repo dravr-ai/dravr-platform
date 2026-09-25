@@ -6,12 +6,12 @@
 
 use crate::pricing::cost_for_record;
 use chrono::{DateTime, Duration, Utc};
-use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::models::{Tenant, TenantPlan, User, UserStatus, UserTier};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
+use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
 use pierre_runtime_context::DataContext;
@@ -1138,7 +1138,7 @@ pub async fn compute_user_rate_limits(
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
-    let monthly_reset = UnifiedRateLimitCalculator::calculate_monthly_reset();
+    let monthly_reset = next_utc_month_start(now);
 
     Ok(UserRateLimits {
         user_id: target_user_id.to_string(),

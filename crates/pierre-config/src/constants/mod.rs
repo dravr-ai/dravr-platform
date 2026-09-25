@@ -156,10 +156,9 @@ pub use pierre_core::constants::{
     api_provider_limits, api_tier_limits, cache, cache_config, configuration_system, crypto,
     database, defaults, endpoints, error_messages, errors, goal_management, http_status,
     json_fields, key_prefixes, limits, mcp_transport, messages, oauth, oauth_config,
-    oauth_rate_limiting, physiology, ports, project, protocols, rate_limit_headers,
-    rate_limiting_bursts, rate_limits, redis, routes, security, service_names, sleep_recovery,
-    status, system_config, system_monitoring, tiers, time, time_constants, timeouts, tools, units,
-    user_defaults,
+    oauth_rate_limiting, physiology, ports, project, protocols, rate_limits, redis, routes,
+    security, service_names, sleep_recovery, status, system_config, system_monitoring, tiers, time,
+    time_constants, timeouts, tools, units, user_defaults,
 };
 // Note: `protocol` (local server-runtime helpers) and `protocols` (compile-time
 // re-export from pierre-core) are kept as modules to avoid identifier conflicts.

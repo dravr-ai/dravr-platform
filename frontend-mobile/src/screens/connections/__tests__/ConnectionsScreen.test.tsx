@@ -112,7 +112,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     const connect = await screen.findByText('Connect');
     fireEvent.press(connect);
 
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('strava', 'dravr://oauth-callback'));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('strava', 'dravr://oauth-callback', { tosConsent: false }));
     expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
   });
 

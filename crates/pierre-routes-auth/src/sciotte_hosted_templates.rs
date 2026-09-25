@@ -35,11 +35,14 @@ const ERROR_TEMPLATE: &str = include_str!("../templates/sciotte_link_error.html"
 /// notice: the one text, never a copy of it.
 const EN_CATALOGUE: &str = include_str!("../../../packages/i18n/src/locales/en/translation.json");
 
-/// The catalogue entry (under `providers`) holding each hosted-login target's
-/// exposure notice. A target with no row asks for no notice.
-const NOTICE_KEYS: [(&str, &str); 2] = [
+/// The catalogue entry (under `providers`) holding each provider's notice, by
+/// the hosted-login target (TrainingPeaks, COROS) or the OAuth provider id
+/// (WHOOP) the hosted pages name it by. A provider with no row asks for no
+/// notice.
+const NOTICE_KEYS: [(&str, &str); 3] = [
     ("trainingpeaks", "trainingpeaksNotice"),
     ("coros", "corosNotice"),
+    ("whoop", "whoopNotice"),
 ];
 
 /// A provider's exposure notice as the web and mobile modals show it: a
@@ -82,8 +85,8 @@ static NOTICES: LazyLock<Vec<(&'static str, ExposureNotice)>> = LazyLock::new(||
         .collect()
 });
 
-/// The exposure notice a hosted-login target shows, or `None` when it asks
-/// for none.
+/// The notice a hosted-login target or an OAuth provider shows, or `None`
+/// when it asks for none.
 #[must_use]
 pub fn exposure_notice(target: &str) -> Option<&'static ExposureNotice> {
     NOTICES

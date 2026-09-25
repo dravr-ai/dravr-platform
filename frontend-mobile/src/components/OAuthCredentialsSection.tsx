@@ -10,6 +10,7 @@ import { ProviderGlyph } from './ProviderGlyph';
 import { userApi } from '../services/api';
 import type { OAuthApp } from '../types';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** A provider an athlete can register their own OAuth app for. */
 interface ByoProvider {
@@ -103,7 +104,7 @@ export function OAuthCredentialsSection() {
       handleCloseModal();
       await loadOAuthApps();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('app.failedToSaveCredentials');
+      const message = describeApiError(error, { t, fallbackKey: 'app.failedToSaveCredentials' });
       Alert.alert(t('common.error'), message);
     } finally {
       setIsSaving(false);

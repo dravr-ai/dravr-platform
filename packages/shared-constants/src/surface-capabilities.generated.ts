@@ -3,7 +3,7 @@
 //
 // Surfaces: 7 · Reply-block kinds: 9 · Notification screens: 7
 // capability-digest: 6100756fdd790e2f
-// content-digest: 86210aa2d2dc4396
+// content-digest: 2a040f027848ebab
 // To regenerate: bun run generate (from packages/shared-constants)
 
 /**
@@ -156,11 +156,11 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
 };
 
 /**
- * The notification `data.screen` vocabulary, paired with the `USER_SURFACES`
- * id each token opens.
+ * The notification `data.screen` vocabulary, paired with the destination id
+ * each token opens: a `USER_SURFACES` surface or a `SETTINGS_PANES` pane.
  *
- * The server declares this once; a client turns the surface id into its own
- * route through the registry rather than keeping a map of its own.
+ * The server declares this once; a client turns the destination id into its
+ * own route through the registry rather than keeping a map of its own.
  */
 export const NOTIFICATION_SCREEN_SURFACES = {
   'activity': 'chat',
@@ -169,7 +169,7 @@ export const NOTIFICATION_SCREEN_SURFACES = {
   'stats': 'chat',
   'coach': 'chat',
   'settings': 'profile',
-  'connections': 'data-providers',
+  'connections': 'connections',
 } as const;
 
 /** A screen name a notification's `data.screen` field can carry. */

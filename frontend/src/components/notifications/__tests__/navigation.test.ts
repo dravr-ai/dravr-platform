@@ -34,15 +34,17 @@ describe('webNotificationRoute', () => {
     expect(webNotificationRoute({ screen: 'social', action: 'friend_request', id: 'req-1' })).toBeNull();
   });
 
-  it('routes settings deep links to the settings tab', () => {
-    expect(webNotificationRoute({ screen: 'settings' })).toBe('settings');
+  it('routes settings deep links to the profile pane', () => {
+    // The server names the profile pane for `settings`; the phone opens that
+    // screen, and web opens the same pane rather than the bare menu.
+    expect(webNotificationRoute({ screen: 'settings' })).toBe('settings/profile');
   });
 
   it('routes a provider-reauth notification to the connections pane', () => {
     // `connections` is what pierre-tool-runtime emits on provider_needs_reauth.
     // Neither client's hand-written map handled it, so the tap went nowhere.
-    // The registry maps that screen to the `data-providers` surface, whose one
-    // web route is the settings section — it used to be a top-level tab too.
+    // The server maps that screen to the `connections` settings pane, whose
+    // one web route is the settings section — it used to be a top-level tab too.
     expect(webNotificationRoute({ screen: 'connections', provider: 'whoop' })).toBe(
       'settings/connections',
     );
@@ -76,7 +78,7 @@ describe('webNotificationRoute', () => {
   });
 
   it('resolves via the action id when the payload has no usable screen', () => {
-    expect(webNotificationRoute({}, 'settings')).toBe('settings');
+    expect(webNotificationRoute({}, 'settings')).toBe('settings/profile');
   });
 
   it('returns null when neither screen nor action id maps anywhere', () => {

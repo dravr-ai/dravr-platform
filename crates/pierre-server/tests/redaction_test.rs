@@ -43,6 +43,21 @@ fn test_redact_cookie_header() {
 }
 
 #[test]
+fn test_redact_bridge_callback_token_header() {
+    let config = RedactionConfig::default();
+    let headers = [
+        ("X-Callback-Token", "a1b2c3d4e5f60718293a4b5c6d7e8f90"),
+        ("Accept", "application/json"),
+    ];
+
+    let redacted = redact_headers(headers.iter().map(|(k, v)| (*k, *v)), &config);
+
+    assert_eq!(redacted[0].0, "X-Callback-Token");
+    assert_eq!(redacted[0].1, "[REDACTED]");
+    assert_eq!(redacted[1].1, "application/json");
+}
+
+#[test]
 fn test_redact_json_fields() {
     let config = RedactionConfig::default();
     let json = r#"{"username":"testuser","client_secret":"secret123","password":"pass456"}"#;

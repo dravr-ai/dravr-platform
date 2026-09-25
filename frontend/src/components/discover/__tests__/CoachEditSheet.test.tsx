@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Agent } from '@pierre/shared-types';
 import CoachEditSheet from '../CoachEditSheet';
 import { DEFAULT_COACH_FORM_DATA, formDataToUpdateRequest, type AgentFormData } from '../coachForm';
+import { apiRefusal } from '../../../test/apiRefusal';
 
 const getCoach = vi.fn();
 const updateCoach = vi.fn();
@@ -132,7 +133,7 @@ describe('CoachEditSheet', () => {
   });
 
   it('shows the load failure instead of an empty form', async () => {
-    getCoach.mockRejectedValueOnce(new Error('Coach coach-tempo not found'));
+    getCoach.mockRejectedValueOnce(apiRefusal(404, { message: 'Coach coach-tempo not found' }));
     renderSheet();
 
     expect(await screen.findByText("Couldn't load this agent")).toBeInTheDocument();

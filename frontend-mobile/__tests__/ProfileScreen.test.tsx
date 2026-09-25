@@ -26,6 +26,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { ProfileScreen } from '../src/screens/settings/ProfileScreen';
+import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
 const baseUser: Partial<User> = {
   id: 'user-1',
@@ -93,7 +94,7 @@ describe('ProfileScreen', () => {
 
   it('surfaces a failed save instead of silently returning', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
-    mockUpdateProfile.mockRejectedValueOnce(new Error('Display name already taken'));
+    mockUpdateProfile.mockRejectedValueOnce(apiRefusal(409, { message: 'Display name already taken' }));
 
     const { getByTestId } = render(<ProfileScreen />);
     fireEvent.changeText(getByTestId('profile-display-name-input'), 'Renamed Athlete');

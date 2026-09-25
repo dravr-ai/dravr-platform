@@ -273,7 +273,6 @@ impl ServerContext {
             (*auth_manager_arc).clone(),
             repos.clone(),
             jwks_manager_arc.clone(),
-            config.rate_limiting.clone(),
         ));
 
         // Create OAuth2 rate limiter once for shared use

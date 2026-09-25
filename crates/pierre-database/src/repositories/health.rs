@@ -240,4 +240,14 @@ pub trait SyncCursorRepository: Send + Sync {
         &self,
         provider: &str,
     ) -> AppResult<Vec<ConnectedUserRow>>;
+
+    /// Delete every cursor `user_id` holds for `provider` under `tenant_id`,
+    /// so the next sync reads the provider from its newest page again.
+    /// Returns how many cursors were deleted.
+    async fn reset_sync_cursors(
+        &self,
+        user_id: &str,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<u64>;
 }

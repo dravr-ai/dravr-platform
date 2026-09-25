@@ -33,13 +33,20 @@ import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { providerScopeLabelKey, sciotteTargetForBackend } from '@pierre/shared-constants';
+import {
+  noticeRequired,
+  providerScopeLabelKey,
+  sciotteTargetForBackend,
+  syncAuthorizationOwed,
+} from '@pierre/shared-constants';
 import { formatCompactNumber, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
+import { ProviderNoticeDialog } from './ProviderNotice';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface OAuthApp {
   provider: string;
@@ -155,6 +162,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
   // Whether the chosen card still needs its exposure notice accepted.
   const [sciotteConsentRequired, setSciotteConsentRequired] = useState(false);
+  // The OAuth provider whose notice is on screen before its authorization
+  // page opens (WHOOP, until the account accepts its owner authorization).
+  const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
   const [intervalsModalOpen, setIntervalsModalOpen] = useState(false);
   const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
@@ -404,12 +414,14 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     return false;
   };
 
-  const handleConnectProvider = (providerId: string) => {
+  const handleConnectProvider = (providerId: string, tosConsent = false) => {
     // Open the server's launch route, which 302s to the provider. A real
     // same-origin URL opens synchronously inside Safari's user-gesture stack,
     // so no window is ever left blank and no popup handle has to be threaded
-    // through callers that already burned the gesture.
-    const url = oauthApi.authorizeUrl(providerId);
+    // through callers that already burned the gesture. `tosConsent` carries
+    // the provider notice the athlete just accepted (WHOOP's owner
+    // authorization).
+    const url = oauthApi.authorizeUrl(providerId, { tosConsent });
     const popup = window.open(url, '_blank');
 
     setConnectingProvider(providerId);
@@ -479,7 +491,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       setProviderToDisconnect(null);
       setProviderMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : t('settingsErr.disconnectFailed'),
+        text: describeApiError(error, { t, fallbackKey: 'settingsErr.disconnectFailed' }),
       });
     }
   };
@@ -766,7 +778,15 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     : t('providers.connectedThrough', { coach: delegation.coach_display_name })}
                                 </span>
                               ) : provider.connected && (
-                                provider.needs_reauth ? (
+                                syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required) ? (
+                                  <span
+                                    className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
+                                    data-testid={`provider-authorization-owed-${provider.provider}`}
+                                  >
+                                    <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
+                                    {t('providers.authorizeToKeepSyncing', { provider: provider.display_name })}
+                                  </span>
+                                ) : provider.needs_reauth ? (
                                   <span className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
                                     <span aria-hidden="true" className="h-2 w-2 rounded-full bg-warning" />
                                     {t('providers.reconnectNeeded')}
@@ -812,7 +832,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                             {/* A connected-but-dead session (needs_reauth) falls through to the
                                 connect flow below, relabelled t('app.reconnect'), so the user can revive
                                 it rather than being stuck looking at a healthy-seeming row. */}
-                            {provider.connected && !provider.needs_reauth ? (
+                            {/* A connected WHOOP that owes its owner authorization falls through
+                                the same way, to the connect button that shows the notice first. */}
+                            {provider.connected && !provider.needs_reauth
+                              && !syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required) ? (
                               (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu') && (
                                 <Button
                                   variant="tertiary"
@@ -868,11 +891,23 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  if (!checkProviderConflict(provider.provider)) handleConnectProvider(provider.provider);
+                                  if (checkProviderConflict(provider.provider)) return;
+                                  // WHOOP asks for its owner authorization first
+                                  // while the account has not accepted it.
+                                  if (noticeRequired(provider.provider, provider.consent_required)) {
+                                    setNoticeProvider(provider.provider);
+                                    return;
+                                  }
+                                  handleConnectProvider(provider.provider);
                                 }}
                                 loading={isConnecting}
+                                data-testid={`provider-connect-${provider.provider}`}
                               >
-                                {provider.needs_reauth ? t('settingsUi.reconnect') : t('shell.intervalsConnectAction')}
+                                {syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required)
+                                  ? t('providers.authorizeAction')
+                                  : provider.needs_reauth
+                                    ? t('settingsUi.reconnect')
+                                    : t('shell.intervalsConnectAction')}
                               </Button>
                             ) : (
                               <Badge variant="secondary">{t('settingsUi.manual')}</Badge>
@@ -1509,9 +1544,10 @@ Authorization: Bearer <your-token-here>`}
                           </div>
                         ) : connectedAppsError ? (
                           <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
-                            {connectedAppsError instanceof Error
-                              ? connectedAppsError.message
-                              : t('settingsErr.loadAppsFailed')}
+                            {describeApiError(connectedAppsError, {
+                              t,
+                              fallbackKey: 'settingsErr.loadAppsFailed',
+                            })}
                           </div>
                         ) : connectedApps && connectedApps.length > 0 ? (
                           <div>
@@ -1722,6 +1758,16 @@ Authorization: Bearer <your-token-here>`}
         message={t('app.providerConflictWarning', { connecting: providerConflict?.connecting ?? '', disconnecting: providerConflict?.disconnecting ?? '' })}
         confirmLabel={t('app.switch')}
         variant="danger"
+      />
+
+      <ProviderNoticeDialog
+        provider={noticeProvider}
+        onCancel={() => setNoticeProvider(null)}
+        onAccept={() => {
+          const accepted = noticeProvider;
+          setNoticeProvider(null);
+          if (accepted) handleConnectProvider(accepted, true);
+        }}
       />
 
       {/* Sciotte login modal */}

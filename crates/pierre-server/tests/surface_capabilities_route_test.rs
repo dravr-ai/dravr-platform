@@ -167,8 +167,9 @@ async fn block_kinds_and_screens_are_published_whole() -> Result<(), Box<dyn Err
         .iter()
         .find(|row| row["screen"] == "connections")
         .expect("the provider-reauth screen is catalogued");
-    // The screen neither client's hand-written map handled.
-    assert_eq!(connections["surface"], "data-providers");
+    // The screen neither client's hand-written map handled. It opens the
+    // connections settings pane, the one declaration of that destination.
+    assert_eq!(connections["surface"], "connections");
     let agent = screens
         .iter()
         .find(|row| row["screen"] == "coach")

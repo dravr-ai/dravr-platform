@@ -27,6 +27,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { ResetPasswordScreen } from '../src/screens/auth/ResetPasswordScreen';
+import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
 describe('ResetPasswordScreen', () => {
   // A valid reset code is a `<selector>.<verifier>` token: 16 + 32 alphanumeric
@@ -172,8 +173,9 @@ describe('ResetPasswordScreen', () => {
     });
 
     it('should show expired code error on 404', async () => {
+      // What the server answers an unknown, expired or spent code with.
       mockResetPassword.mockRejectedValueOnce(
-        new Error('Request failed with status 404: not found'),
+        apiRefusal(404, { message: 'Password reset token is invalid, expired, or already used' }),
       );
       const { getByTestId } = renderComponent();
 
@@ -191,7 +193,7 @@ describe('ResetPasswordScreen', () => {
     });
 
     it('should show generic error for other failures', async () => {
-      mockResetPassword.mockRejectedValueOnce(new Error('Server error'));
+      mockResetPassword.mockRejectedValueOnce(apiRefusal(500));
       const { getByTestId } = renderComponent();
 
       fireEvent.changeText(getByTestId('reset-code-input'), validCode);
@@ -200,7 +202,7 @@ describe('ResetPasswordScreen', () => {
       fireEvent.press(getByTestId('reset-password-button'));
 
       await waitFor(() => {
-        expect(Alert.alert).toHaveBeenCalledWith('Reset Failed', 'Server error');
+        expect(Alert.alert).toHaveBeenCalledWith('Reset Failed', 'Server error. Try again a bit later.');
       });
     });
   });

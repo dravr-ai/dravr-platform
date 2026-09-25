@@ -86,7 +86,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       setConversations(sorted);
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : t('app.failedLoadConversations');
+        describeApiError(err, { t, fallbackKey: 'app.failedLoadConversations' });
       setError(errorMessage);
       console.error('Failed to load conversations:', err);
     } finally {
@@ -128,7 +128,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       invalidateConversationList();
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : t('app.failedDeleteConversation');
+        describeApiError(err, { t, fallbackKey: 'app.failedDeleteConversation' });
       setError(errorMessage);
       Alert.alert(t('common.error'), t('app.failedDeleteConversation'));
     }
@@ -156,7 +156,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       invalidateConversationList();
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : t('app.failedRenameConversation');
+        describeApiError(err, { t, fallbackKey: 'app.failedRenameConversation' });
       setError(errorMessage);
       console.error('Failed to rename conversation:', err);
       Alert.alert(t('common.error'), t('app.failedRenameConversation'));

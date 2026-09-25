@@ -27,6 +27,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { ForgotPasswordScreen } from '../src/screens/auth/ForgotPasswordScreen';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 describe('ForgotPasswordScreen', () => {
   beforeEach(() => {
@@ -121,14 +122,14 @@ describe('ForgotPasswordScreen', () => {
     });
 
     it('should show alert on API error', async () => {
-      mockForgotPassword.mockRejectedValueOnce(new Error('Network error'));
+      mockForgotPassword.mockRejectedValueOnce(networkFailure());
       const { getByTestId } = renderComponent();
 
       fireEvent.changeText(getByTestId('forgot-email-input'), 'test@example.com');
       fireEvent.press(getByTestId('send-code-button'));
 
       await waitFor(() => {
-        expect(Alert.alert).toHaveBeenCalledWith('Error', 'Network error');
+        expect(Alert.alert).toHaveBeenCalledWith('Error', 'Network error. Check your connection.');
       });
     });
   });

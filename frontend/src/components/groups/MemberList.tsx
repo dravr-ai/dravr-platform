@@ -12,6 +12,7 @@ import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { formatDate } from '@pierre/chat-utils';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface MemberListProps {
   groupId: string;
@@ -86,7 +87,7 @@ export default function MemberList({
       showSuccess(t('app.memberRemoved'), t('app.memberRemovedFrom', { member: confirmRemove.display_name ?? t('groups.member') }));
       setConfirmRemove(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.removeFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.removeFailed' });
       showError(t('app.removeFailed'), message);
     }
   };
@@ -97,7 +98,7 @@ export default function MemberList({
       await updateRole({ userId: member.user_id, role: newRole });
       showSuccess(t('app.roleUpdated'), t('app.memberIsNowRole', { member: member.display_name ?? t('groups.member'), role: newRole }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.roleUpdateFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.roleUpdateFailed' });
       showError(t('app.updateFailed'), message);
     }
   };

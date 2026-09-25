@@ -12,6 +12,7 @@ import { spacing, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
 // promise different things about what leaves the device.
@@ -60,7 +61,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
     },
     onError: (err: unknown, value) => {
       setAnalyticsConsent(!value);
-      const message = err instanceof Error ? err.message : t('app.failedAnalyticsConsent');
+      const message = describeApiError(err, { t, fallbackKey: 'app.failedAnalyticsConsent' });
       Alert.alert(t('app.couldNotSavePreference'), message);
     },
   });

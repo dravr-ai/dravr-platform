@@ -23,12 +23,12 @@ use crate::constants::time::HOUR_SECONDS;
 use crate::system_user::A2ASystemUserService;
 use crate::{map_db_error, A2AError};
 use chrono::Timelike;
-use chrono::{DateTime, Datelike, TimeZone, Utc};
+use chrono::Utc;
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::crypto::A2AKeyManager;
-use pierre_core::errors::{AppError, AppResult};
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
 // Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
+use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -565,16 +565,11 @@ impl A2AClientManager {
             let remaining = limit.saturating_sub(current_usage);
             let is_rate_limited = current_usage >= limit;
 
-            // Calculate reset time (beginning of next month)
-            let reset_at = Self::calculate_next_month_start().map_err(|e| {
-                A2AError::InternalError(format!("Failed to calculate reset time: {e}"))
-            })?;
-
             Ok(A2ARateLimitStatus {
                 is_rate_limited,
                 limit: Some(limit),
                 remaining: Some(remaining),
-                reset_at: Some(reset_at),
+                reset_at: Some(next_utc_month_start(Utc::now())),
                 tier,
             })
         }
@@ -606,22 +601,6 @@ impl A2AClientManager {
         // Default to trial tier - tier information stored in database
         let tier = A2AClientTier::Trial;
         self.calculate_rate_limit_status(client_id, tier).await
-    }
-
-    /// Calculate the start of next month for rate limit reset
-    fn calculate_next_month_start() -> AppResult<DateTime<Utc>> {
-        let now = Utc::now();
-
-        // Use chrono's built-in date construction to avoid edge cases
-        let next_month_start = if now.month() == 12 {
-            Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 0, 0, 0)
-        } else {
-            Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0)
-        };
-
-        next_month_start
-            .single()
-            .ok_or_else(|| AppError::internal("Failed to create valid date for next month start"))
     }
 
     /// Get client credentials for authentication

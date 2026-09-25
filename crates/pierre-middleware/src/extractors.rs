@@ -21,7 +21,7 @@ use pierre_runtime_context::MiddlewareCtx;
 /// Axum extractor that authenticates a user from the `Authorization` header or `auth_token` cookie.
 ///
 /// Tries the `Authorization` header first, then falls back to the `auth_token` cookie.
-/// Returns the full [`AuthResult`] including `user_id`, `auth_method`, `rate_limit`,
+/// Returns the full [`AuthResult`] including `user_id`, `auth_method`,
 /// and `active_tenant_id`. A delegated OAuth grant is refused with 403: see
 /// [`extract_auth_from_headers`].
 ///
@@ -81,6 +81,9 @@ impl<C: MiddlewareCtx> FromRequestParts<Arc<C>> for AuthenticatedUser {
 /// - The token is invalid or expired
 /// - The token is a delegated OAuth grant (403 `PermissionDenied`, passed through unchanged)
 /// - The user lookup or rate limit check fails
+///
+/// A spent request budget stays a 429 and a server-side failure keeps its
+/// 5xx ([`AppError::into_auth_refusal`]); every other failure is a 401.
 pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
     headers: &HeaderMap,
     resources: &Arc<C>,
@@ -107,7 +110,7 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
             if e.code == ErrorCode::PermissionDenied {
                 e
             } else {
-                AppError::auth_invalid(format!("Authentication failed: {e}"))
+                e.into_auth_refusal("Authentication failed")
             }
         })
 }

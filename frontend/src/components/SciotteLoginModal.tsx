@@ -14,8 +14,9 @@ import { describeApiError } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
-import { Button, Checkbox, RevealButton } from './ui';
-import { providerGlyphInk } from '@pierre/shared-constants';
+import { Button, RevealButton } from './ui';
+import { ProviderNotice } from './ProviderNotice';
+import { PROVIDER_NOTICES, providerGlyphInk, type ProviderNoticeKeys } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
@@ -61,7 +62,7 @@ interface TargetPreset {
   /** No Google/Apple choice to make: straight to the provider's form. */
   directCredentials: boolean;
   /** The exposure notice shown while the account has not accepted it. */
-  notice?: { titleKey: string; bodyKey: string; consentKey: string };
+  notice?: ProviderNoticeKeys;
 }
 
 const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
@@ -88,11 +89,7 @@ const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
     placeholderKey: 'shell.trainingpeaksUsername',
     identifier: 'username',
     directCredentials: true,
-    notice: {
-      titleKey: 'providers.trainingpeaksNotice.title',
-      bodyKey: 'providers.trainingpeaksNotice.body',
-      consentKey: 'providers.trainingpeaksNotice.consent',
-    },
+    notice: PROVIDER_NOTICES.sciotte_trainingpeaks,
   },
   coros: {
     providerId: 'sciotte_coros',
@@ -101,11 +98,7 @@ const TARGET_PRESETS: Record<SciotteTarget, TargetPreset> = {
     placeholderKey: 'shell.corosEmail',
     identifier: 'email',
     directCredentials: true,
-    notice: {
-      titleKey: 'providers.corosNotice.title',
-      bodyKey: 'providers.corosNotice.body',
-      consentKey: 'providers.corosNotice.consent',
-    },
+    notice: PROVIDER_NOTICES.sciotte_coros,
   },
 };
 
@@ -500,17 +493,12 @@ export default function SciotteLoginModal({
               {/* The exposure comes before the credentials: the account is told
                   what connecting risks, and accepts it, before typing anything. */}
               {notice && (
-                <div role="note" className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3">
-                  <p className="text-sm font-medium text-on-warning-container mb-1">{t(notice.titleKey)}</p>
-                  <p className="text-sm text-on-warning-container mb-3">{t(notice.bodyKey)}</p>
-                  <Checkbox
-                    id="sciotte-tos-consent"
-                    label={t(notice.consentKey)}
-                    checked={consentAccepted}
-                    onChange={(e) => setConsentAccepted(e.target.checked)}
-                    labelClassName="text-on-warning-container"
-                  />
-                </div>
+                <ProviderNotice
+                  notice={notice}
+                  id="sciotte-tos-consent"
+                  accepted={consentAccepted}
+                  onAcceptedChange={setConsentAccepted}
+                />
               )}
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div>

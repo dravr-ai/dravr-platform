@@ -13,6 +13,7 @@ import { formatDateTime } from '@pierre/chat-utils';
 import { userApi } from '../../services/api';
 import { Section, Button, Badge, ConfirmDialog } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
@@ -137,7 +138,7 @@ export default function MemoryPanel() {
       ) : isError ? (
         <p className="text-sm text-error">
           {t('frag.failedLoadMemory')}{' '}
-          {error instanceof Error ? error.message : String(error)}
+          {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
         </p>
       ) : facts.length === 0 ? (
         // Two different absences. `facts` is the FILTERED list, so a type with

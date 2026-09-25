@@ -29,6 +29,7 @@ use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::{AuthService, OAuthService, RegisterRequest};
+use pierre_services::oauth_flow::AuthUrlOptions;
 use pierre_services::provider_revocation::DisconnectReason;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
@@ -292,7 +293,7 @@ async fn test_oauth_authorization_url_generation() {
 
     // Test Strava OAuth URL generation
     let strava_auth = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await
         .unwrap();
 
@@ -313,13 +314,21 @@ async fn test_oauth_authorization_url_generation() {
         "plain get_auth_url state must have exactly two segments"
     );
 
-    // get_auth_url_with_return embeds the post-OAuth return URL as the third
+    // A `return_redirect` option embeds the post-OAuth return URL as the third
     // (base64) state segment so the session-less callback bounces success/
     // failure there — the channel-initiated hosted connect flow relies on this
     // to send a failed Strava OAuth back to the picker's Sciotte fallback.
     let return_url = "http://localhost:8081/providers/connect?token=abc.def";
     let with_return = oauth_routes
-        .get_auth_url_with_return(user_id, tenant_id, "strava", Some(return_url))
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            "strava",
+            AuthUrlOptions {
+                return_redirect: Some(return_url),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await
         .unwrap();
     let segments: Vec<&str> = with_return.state.split(':').collect();
@@ -915,7 +924,12 @@ async fn test_invalid_provider_error() {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
     let result = oauth_routes
-        .get_auth_url(user_id, tenant_id, "invalid_provider")
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            "invalid_provider",
+            AuthUrlOptions::default(),
+        )
         .await;
 
     assert!(result.is_err());
@@ -1412,7 +1426,7 @@ async fn test_oauth_urls_contain_required_parameters() {
 
     // Test Strava URL parameters
     let strava_auth = oauth_routes
-        .get_auth_url(user_id, tenant_id, "strava")
+        .get_auth_url(user_id, tenant_id, "strava", AuthUrlOptions::default())
         .await
         .unwrap();
     let strava_url = url::Url::parse(&strava_auth.authorization_url).unwrap();

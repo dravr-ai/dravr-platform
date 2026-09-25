@@ -40,8 +40,10 @@ import { describeLoginFailure } from '@pierre/ui-logic';
  * error — falls back to the generic wording rather than leaking its text.
  */
 function googleFailureKey(error: unknown): string {
-  const code = error instanceof Error ? error.message : '';
-  switch (code) {
+  if (!(error instanceof Error)) {
+    return 'auth.googleSignInFailed';
+  }
+  switch (error.message) {
     case GOOGLE_SIGNIN_UNAVAILABLE:
       return 'errors.googleSignInUnavailable';
     case FIREBASE_NOT_CONFIGURED:

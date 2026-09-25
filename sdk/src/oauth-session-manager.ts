@@ -17,6 +17,7 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { createSecureStorage, SecureTokenStorage } from "./secure-storage.js";
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { OAuthServerError, PierreError, PierreErrorCode } from "./errors.js";
+import { CALLBACK_TOKEN_HEADER } from "./provider-oauth-start.js";
 
 // Load OAuth HTML templates from dist/templates/ (copied during build)
 // Templates are self-contained in the SDK bundle for portability
@@ -1400,7 +1401,9 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   /**
    * Per-flow secret a provider token callback must present on the local endpoint.
    * Available as soon as the callback server is created, so the flow initiator can hand
-   * it to the party that will post the provider tokens back.
+   * it to the party that will post the provider tokens back: the bridge sends it to Dravr
+   * in the `X-Callback-Token` header when it starts a provider flow, and Dravr presents it
+   * in the same header on that flow's completion POST.
    */
   public get callbackAuthToken(): string | undefined {
     return this.callbackSessionToken;
@@ -1558,7 +1561,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       return;
     }
 
-    const presentedToken = this.readCallbackToken(req, parsedUrl);
+    const presentedToken = this.readCallbackToken(req);
     if (
       !this.callbackSessionToken ||
       !presentedToken ||
@@ -1631,14 +1634,15 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     });
   }
 
-  private readCallbackToken(req: any, parsedUrl: any): string | undefined {
-    const headerToken = req.headers["x-callback-token"];
+  /**
+   * The per-flow token a provider token callback presents, read from the header Dravr
+   * sends it in. A query string is never read: it is the part of a request line that
+   * proxies and access logs record.
+   */
+  private readCallbackToken(req: any): string | undefined {
+    const headerToken = req.headers[CALLBACK_TOKEN_HEADER.toLowerCase()];
     if (typeof headerToken === "string" && headerToken.length > 0) {
       return headerToken;
-    }
-    const queryToken = parsedUrl.query?.callback_token;
-    if (typeof queryToken === "string" && queryToken.length > 0) {
-      return queryToken;
     }
     return undefined;
   }

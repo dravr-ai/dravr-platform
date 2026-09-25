@@ -38,6 +38,7 @@ jest.mock('@pierre/chat-utils', () => ({
 
 import { useMessages } from '../src/screens/chat/useMessages';
 import type { Message } from '../src/types';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 /**
  * The hook invalidates the conversation-list query after a turn, so it needs
@@ -491,7 +492,7 @@ describe('useMessages', () => {
     });
 
     it('reverts the optimistic rating when the API call fails', async () => {
-      mockSubmitMessageFeedback.mockRejectedValue(new Error('offline'));
+      mockSubmitMessageFeedback.mockRejectedValue(networkFailure());
       const { result } = renderHook(() => useMessages());
 
       await act(async () => {
@@ -499,7 +500,7 @@ describe('useMessages', () => {
       });
 
       expect(result.current.messageFeedback['asst-1']).toBeNull();
-      expect(result.current.error).toBe('offline');
+      expect(result.current.error).toBe('Network error. Check your connection.');
     });
 
     it('hydrates feedback state from the messages-list response on load', async () => {

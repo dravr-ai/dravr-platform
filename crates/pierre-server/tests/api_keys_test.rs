@@ -7,9 +7,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Datelike, Duration, Timelike, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
+use pierre_auth::rate_limiting::{calculate_api_key_rate_limit, RequestBudget};
+use pierre_core::models::ApiKeyWindowUsage;
 use uuid::Uuid;
+
+/// `count` calls in the key's window, the oldest a day before `now`.
+fn used(count: u32, now: DateTime<Utc>) -> ApiKeyWindowUsage {
+    ApiKeyWindowUsage {
+        count,
+        oldest: Some(now - Duration::days(1)),
+    }
+}
 
 #[test]
 fn test_api_key_generation() {
@@ -76,8 +86,6 @@ fn test_tier_limits() {
 
 #[test]
 fn test_rate_limit_calculation() {
-    let manager = ApiKeyManager::new();
-
     let api_key = ApiKey {
         id: "test".into(),
         user_id: Uuid::new_v4(),
@@ -94,19 +102,18 @@ fn test_rate_limit_calculation() {
         created_at: Utc::now(),
     };
 
-    let status = manager.rate_limit_status(&api_key, 5000);
-    assert!(!status.is_rate_limited);
-    assert_eq!(status.remaining, Some(5000));
+    let now = Utc::now();
+    let budget = calculate_api_key_rate_limit(&api_key, &used(5000, now), now);
+    assert!(!budget.is_exceeded());
+    assert_eq!(budget.remaining_after_this_request(), Some(4999));
 
-    let status = manager.rate_limit_status(&api_key, 10_000);
-    assert!(status.is_rate_limited);
-    assert_eq!(status.remaining, Some(0));
+    let budget = calculate_api_key_rate_limit(&api_key, &used(10_000, now), now);
+    assert!(budget.is_exceeded());
+    assert_eq!(budget.remaining_after_this_request(), Some(0));
 }
 
 #[test]
 fn test_rate_limit_enterprise_unlimited() {
-    let manager = ApiKeyManager::new();
-
     let enterprise_key = ApiKey {
         id: "enterprise".into(),
         user_id: Uuid::new_v4(),
@@ -124,23 +131,17 @@ fn test_rate_limit_enterprise_unlimited() {
     };
 
     // Enterprise tier should never be rate limited
-    let status = manager.rate_limit_status(&enterprise_key, 0);
-    assert!(!status.is_rate_limited);
-    assert_eq!(status.limit, None);
-    assert_eq!(status.remaining, None);
-    assert_eq!(status.reset_at, None);
-
-    let status = manager.rate_limit_status(&enterprise_key, 1_000_000);
-    assert!(!status.is_rate_limited);
-    assert_eq!(status.limit, None);
-    assert_eq!(status.remaining, None);
-    assert_eq!(status.reset_at, None);
+    let now = Utc::now();
+    for count in [0, 1_000_000] {
+        let budget = calculate_api_key_rate_limit(&enterprise_key, &used(count, now), now);
+        assert_eq!(budget, RequestBudget::Unlimited);
+        assert!(!budget.is_exceeded());
+        assert_eq!(budget.remaining_after_this_request(), None);
+    }
 }
 
 #[test]
 fn test_rate_limit_professional_tier() {
-    let manager = ApiKeyManager::new();
-
     let professional_key = ApiKey {
         id: "professional".into(),
         user_id: Uuid::new_v4(),
@@ -157,30 +158,35 @@ fn test_rate_limit_professional_tier() {
         created_at: Utc::now(),
     };
 
+    let now = Utc::now();
+    let resets_at = now - Duration::days(1) + Duration::days(30);
+
     // Under limit
-    let status = manager.rate_limit_status(&professional_key, 50_000);
-    assert!(!status.is_rate_limited);
-    assert_eq!(status.limit, Some(100_000));
-    assert_eq!(status.remaining, Some(50_000));
-    assert!(status.reset_at.is_some());
+    let budget = calculate_api_key_rate_limit(&professional_key, &used(50_000, now), now);
+    assert_eq!(
+        budget,
+        RequestBudget::Metered {
+            limit: 100_000,
+            used: 50_000,
+            resets_at,
+        }
+    );
+    assert!(!budget.is_exceeded());
+    assert_eq!(budget.remaining_after_this_request(), Some(49_999));
 
     // At limit
-    let status = manager.rate_limit_status(&professional_key, 100_000);
-    assert!(status.is_rate_limited);
-    assert_eq!(status.limit, Some(100_000));
-    assert_eq!(status.remaining, Some(0));
+    let budget = calculate_api_key_rate_limit(&professional_key, &used(100_000, now), now);
+    assert!(budget.is_exceeded());
+    assert_eq!(budget.remaining_after_this_request(), Some(0));
 
     // Over limit
-    let status = manager.rate_limit_status(&professional_key, 150_000);
-    assert!(status.is_rate_limited);
-    assert_eq!(status.limit, Some(100_000));
-    assert_eq!(status.remaining, Some(0)); // Should be 0, not negative
+    let budget = calculate_api_key_rate_limit(&professional_key, &used(150_000, now), now);
+    assert!(budget.is_exceeded());
+    assert_eq!(budget.remaining_after_this_request(), Some(0)); // Should be 0, not negative
 }
 
 #[test]
 fn test_rate_limit_reset_time_calculation() {
-    let manager = ApiKeyManager::new();
-
     let api_key = ApiKey {
         id: "reset_test".into(),
         user_id: Uuid::new_v4(),
@@ -197,25 +203,42 @@ fn test_rate_limit_reset_time_calculation() {
         created_at: Utc::now(),
     };
 
-    let status = manager.rate_limit_status(&api_key, 5000);
-
-    // Reset time should be beginning of next month
-    if let Some(reset_at) = status.reset_at {
-        let now = Utc::now();
-
-        // Reset should be in the future
-        assert!(reset_at > now);
-
-        // Reset should be at beginning of day (hour 0, minute 0, second 0)
-        assert_eq!(reset_at.hour(), 0);
-        assert_eq!(reset_at.minute(), 0);
-        assert_eq!(reset_at.second(), 0);
-
-        // Reset should be on the 1st day of some month
-        assert_eq!(reset_at.day(), 1);
-    } else {
+    // A key's window slides: it frees its first slot when the oldest call in
+    // it leaves, not at the start of a calendar month.
+    let now = Utc::now();
+    let oldest = now - Duration::days(10);
+    let budget = calculate_api_key_rate_limit(
+        &api_key,
+        &ApiKeyWindowUsage {
+            count: 5000,
+            oldest: Some(oldest),
+        },
+        now,
+    );
+    let RequestBudget::Metered { resets_at, .. } = budget else {
         panic!("Reset time should be set for non-enterprise tiers");
-    }
+    };
+    assert_eq!(resets_at, oldest + Duration::days(30));
+    assert!(resets_at > now);
+
+    // With no call in the window yet, the first one would leave it a full
+    // window from now.
+    let empty = calculate_api_key_rate_limit(
+        &api_key,
+        &ApiKeyWindowUsage {
+            count: 0,
+            oldest: None,
+        },
+        now,
+    );
+    assert_eq!(
+        empty,
+        RequestBudget::Metered {
+            limit: 10_000,
+            used: 0,
+            resets_at: now + Duration::days(30),
+        }
+    );
 }
 
 #[test]

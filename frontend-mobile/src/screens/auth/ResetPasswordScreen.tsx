@@ -16,6 +16,7 @@ import { Button, FormScrollView, Input } from '../../components/ui';
 import { spacing } from '../../constants/theme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { classifyApiError, describeApiError } from '@pierre/ui-logic';
 
 export function ResetPasswordScreen() {
   const { t } = useTranslation();
@@ -74,14 +75,12 @@ export function ResetPasswordScreen() {
         [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }],
       );
     } catch (error) {
-      let message = t('app.resetFailedRetry');
-      if (error instanceof Error) {
-        if (error.message.includes('404') || error.message.includes('not found')) {
-          message = t('app.codeInvalidOrExpired');
-        } else {
-          message = error.message;
-        }
-      }
+      // The server answers an unknown, expired or spent code with a 404; read
+      // from the status, since the prose it was matched on is English.
+      const message =
+        classifyApiError(error).kind === 'notFound'
+          ? t('app.codeInvalidOrExpired')
+          : describeApiError(error, { t, fallbackKey: 'app.resetFailedRetry' });
       Alert.alert(t('app.resetFailed'), message);
     } finally {
       setIsLoading(false);

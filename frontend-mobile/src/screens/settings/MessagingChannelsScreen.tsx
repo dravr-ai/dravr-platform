@@ -9,6 +9,7 @@ import type { AvailableChannel, ChannelLink } from '@pierre/api-client';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { messagingApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 /**
  * Manage which chat apps are linked to the account.
@@ -42,7 +43,7 @@ export function MessagingChannelsScreen() {
       // Surface the failure rather than rendering an empty list, which would
       // read as "no channels linked" and invite someone to re-link one they
       // already have.
-      setError(err instanceof Error ? err.message : t('app.failedLoadChannels'));
+      setError(describeApiError(err, { t, fallbackKey: 'app.failedLoadChannels' }));
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +75,7 @@ export function MessagingChannelsScreen() {
         const link = await messagingApi.initLink(channel.channel);
         await Linking.openURL(link.linking_url);
       } catch (err) {
-        const message = err instanceof Error ? err.message : t('app.failedLoadChannels');
+        const message = describeApiError(err, { t, fallbackKey: 'app.failedLoadChannels' });
         Alert.alert(
           t('app.couldNotStartConnection', { channel: channel.display_name }),
           message,
@@ -102,7 +103,7 @@ export function MessagingChannelsScreen() {
                 await messagingApi.deleteLink(link.channel);
                 await load();
               } catch (err) {
-                const message = err instanceof Error ? err.message : t('app.failedUnlinkChannel');
+                const message = describeApiError(err, { t, fallbackKey: 'app.failedUnlinkChannel' });
                 Alert.alert(t('app.couldNotUnlink'), message);
               } finally {
                 setBusyChannel(null);

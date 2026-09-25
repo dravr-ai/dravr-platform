@@ -14,17 +14,19 @@
 //! saturated response time; the case-insensitive tool filter; the JWT
 //! month-to-date window against a row from last month; the counter's
 //! `updated_at` shape; an `llm_usage` row reading back exactly as its
-//! insert returned it; and a `since` given as a bare day or as garbage.
+//! insert returned it; a key's window count and its oldest call; and a
+//! `since` given as a bare day or as garbage.
 //! These run on `SQLite` and on `PostgreSQL`: `create_test_db` opens
 //! whichever `DATABASE_URL` names, so the same assertions cover both.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, SubsecRound, Utc};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
-    ApiKey, ApiKeyTier, ApiKeyUsage, ConversationTurnId, JwtUsage, TenantId, User,
+    ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyWindowUsage, ConversationTurnId, JwtUsage, TenantId,
+    User,
 };
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::RepositoryRegistry;
@@ -188,28 +190,43 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     let user_id = fresh_user(&repos).await;
     let api_key = fresh_api_key(&repos, user_id).await;
     let repo = &repos.usage;
+    // Whole seconds, so the oldest call reads back equal on Postgres, whose
+    // TIMESTAMPTZ keeps microseconds, as on SQLite.
+    let now = Utc::now().trunc_subsecs(0);
+    let oldest_in_window = now - Duration::minutes(2);
 
     for (tool, status, at) in [
-        ("get_activities", 200, Utc::now() - Duration::minutes(2)),
-        ("get_activities", 200, Utc::now() - Duration::minutes(1)),
-        ("get_athlete", 500, Utc::now()),
-        ("get_athlete", 200, Utc::now() - Duration::hours(2)),
+        ("get_activities", 200, oldest_in_window),
+        ("get_activities", 200, now - Duration::minutes(1)),
+        ("get_athlete", 500, now),
+        ("get_athlete", 200, now - Duration::hours(2)),
     ] {
         repo.record_api_key(&api_call(&api_key.id, tool, status, at))
             .await
             .unwrap();
     }
 
+    let window_start = now - Duration::seconds(i64::from(api_key.rate_limit_window_seconds));
     assert_eq!(
-        repo.get_api_key_current(&api_key.id).await.unwrap(),
-        3,
-        "the call two hours ago is outside the key's one-hour window"
+        repo.get_api_key_window_usage(&api_key.id, window_start)
+            .await
+            .unwrap(),
+        ApiKeyWindowUsage {
+            count: 3,
+            oldest: Some(oldest_in_window),
+        },
+        "the call two hours ago is outside the key's one-hour window, and the oldest inside it frees the first slot"
     );
-    let missing = repo.get_api_key_current("no-such-key").await;
+    let unused_key = fresh_api_key(&repos, user_id).await;
     assert_eq!(
-        missing.as_ref().err().map(|e| e.code),
-        Some(ErrorCode::ResourceNotFound),
-        "an unknown key is not found, got {missing:?}"
+        repo.get_api_key_window_usage(&unused_key.id, window_start)
+            .await
+            .unwrap(),
+        ApiKeyWindowUsage {
+            count: 0,
+            oldest: None,
+        },
+        "a key with no calls has an empty window"
     );
 
     let stats = repo

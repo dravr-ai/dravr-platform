@@ -8,8 +8,12 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use chrono::Utc;
+use futures_util::{stream, StreamExt, TryStreamExt};
+use pierre_core::models::usage::JwtUsage;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use serial_test::serial;
-use std::{env, time::Duration};
+use std::time::Duration;
 use tokio::{task::spawn_blocking, time::sleep};
 use uuid::Uuid;
 
@@ -408,165 +412,89 @@ async fn test_tenant_isolation_protocol_level() -> Result<()> {
     Ok(())
 }
 
-/// Helper: Print rate limit test configuration
-fn print_rate_limit_config() {
-    println!("\n=== Rate Limiting Test Configuration ===");
-    println!("  - Attempted to set: Free tier burst = 5 requests");
-    println!("  - Attempted to set: Free tier sustained = 10 requests/minute");
-    println!("  - Test will make 15 requests per tenant\n");
-    println!("  Note: If another test already initialized config, limits may be default (100)");
-    println!("        This is expected due to Once initialization pattern");
+/// `count` month-to-date JWT requests for `user_id`, written the way
+/// authentication writes them.
+async fn spend_jwt_budget(resources: &ServerContext, user_id: Uuid, count: u32) -> Result<()> {
+    /// Writes in flight; SQLite serialises them regardless.
+    const WRITE_CONCURRENCY: usize = 8;
+    let usage = &resources.common.repos.usage;
+    stream::iter(0..count)
+        .map(|_| async move {
+            usage
+                .record_jwt_usage(&JwtUsage {
+                    id: None,
+                    user_id,
+                    timestamp: Utc::now(),
+                    endpoint: "http:jwt".to_owned(),
+                    method: "AUTH".to_owned(),
+                    status_code: 200,
+                    response_time_ms: None,
+                    request_size_bytes: None,
+                    response_size_bytes: None,
+                    ip_address: None,
+                    user_agent: None,
+                })
+                .await
+        })
+        .buffer_unordered(WRITE_CONCURRENCY)
+        .try_collect::<Vec<()>>()
+        .await?;
+    Ok(())
 }
 
-/// Helper: Test burst requests for a tenant and return `(success_count, rate_limited)`
-async fn test_tenant_burst_requests(
-    server_url: &str,
-    token: &str,
-    tenant_name: &str,
-    request_count: u32,
-) -> Result<(u32, bool)> {
-    let mut success_count = 0;
-    let mut rate_limited = false;
-
-    println!("\n=== {tenant_name}: Burst Request Test ({request_count} requests) ===");
-    for i in 1..=request_count {
-        let result =
-            common::send_http_mcp_request(server_url, "tools/list", serde_json::json!({}), token)
-                .await;
-
-        match result {
-            Ok(_) => {
-                success_count += 1;
-            }
-            Err(e) => {
-                let error_str = format!("{e}");
-                if error_str.contains("429") || error_str.contains("rate limit") {
-                    println!("  - {tenant_name} request {i}: Rate limited (429) ✓");
-                    rate_limited = true;
-                    break;
-                }
-                return Err(e);
-            }
-        }
-    }
-
-    if rate_limited {
-        println!("✓ {tenant_name}: {success_count} successful requests before 429 rate limit");
-    } else {
-        println!("✓ {tenant_name}: {success_count} successful requests (no rate limit hit)");
-    }
-
-    Ok((success_count, rate_limited))
-}
-
-/// Test: Rate limiting per tenant isolation
+/// Test: request budgets are per principal, never shared across tenants
 ///
-/// Scenario:
-/// 1. Create 2 tenants with potentially different tier configurations
-/// 2. T1 makes requests until rate limited (receives 429 Too Many Requests)
-/// 3. While T1 is rate limited, T2 continues making successful requests
-/// 4. Validate that T1's rate limit does NOT affect T2's ability to make requests
-/// 5. Verify rate limits are enforced per-tenant, not globally
-///
-/// Success Criteria:
-/// - T1 receives 429 status code when rate limit exceeded
-/// - T2 continues to receive 200 OK responses
-/// - Rate limit counters are tenant-isolated
-/// - No cross-tenant rate limit contamination
+/// Tenant A's user has spent the tier's monthly request budget, so its MCP
+/// requests are refused with 429. Tenant B's user, on the same server at the
+/// same moment, keeps being served: one principal's spent budget never
+/// reaches another's.
 #[tokio::test]
 #[serial]
 async fn test_rate_limiting_per_tenant_isolation() -> Result<()> {
     common::init_test_logging();
     common::init_test_http_clients();
-
-    // TRY to configure low rate limits for testing
-    // NOTE: Due to Once initialization, this only works if this test runs first
-    env::set_var("RATE_LIMIT_FREE_TIER_BURST", "5");
-    env::set_var("RATE_LIMIT_FREE_TIER_PER_MINUTE", "10");
-
     common::init_server_config();
-    print_rate_limit_config();
 
-    // Create test server resources
     let resources = common::create_test_server_resources().await?;
-
-    // Create 2 tenants
     let (user1, token1) =
         common::create_test_tenant(&resources, "rate-limit-a@example.com").await?;
     let (user2, token2) =
         common::create_test_tenant(&resources, "rate-limit-b@example.com").await?;
+    let monthly_limit = user1
+        .tier
+        .monthly_limit()
+        .expect("the test user's tier is metered");
+    spend_jwt_budget(&resources, user1.id, monthly_limit).await?;
 
-    println!("✓ Created 2 test tenants:");
-    println!("  - Tenant A: {} ({})", user1.email, user1.id);
-    println!("  - Tenant B: {} ({})", user2.email, user2.id);
-
-    // Spawn HTTP MCP server
     let server = common::spawn_http_mcp_server(&resources).await?;
     let server_url = format!("{}/mcp", server.base_url());
 
-    println!("✓ HTTP MCP server spawned on port {}", server.port());
+    let refused =
+        common::send_http_mcp_request(&server_url, "tools/list", serde_json::json!({}), &token1)
+            .await
+            .expect_err("tenant A's budget is spent");
+    assert!(
+        refused.to_string().contains("429"),
+        "a spent budget is a 429, never a 401 that sends the client to re-authorize: {refused}"
+    );
 
-    // Make rapid burst of requests from Tenant A to trigger rate limiting
-    let (tenant1_success_count, tenant1_rate_limited) =
-        test_tenant_burst_requests(&server_url, &token1, "Tenant A", 15).await?;
-
-    if tenant1_rate_limited {
-        println!("✓ Tenant A triggered 429 rate limiting - custom limits were applied!");
-    } else {
-        println!("  Note: Rate limit not triggered - likely using default limits (100 burst)");
+    for request in 1..=3 {
+        common::send_http_mcp_request(&server_url, "tools/list", serde_json::json!({}), &token2)
+            .await
+            .unwrap_or_else(|e| {
+                panic!("tenant B request {request} must be served while A is refused: {e}")
+            });
     }
-
-    // Make requests from Tenant B to verify isolation
-    let (tenant2_success_count, tenant2_rate_limited) =
-        test_tenant_burst_requests(&server_url, &token2, "Tenant B", 15).await?;
-
-    if tenant2_rate_limited {
-        println!("✓ Tenant B triggered 429 rate limiting independently");
-    } else {
-        println!("  Note: Rate limit not triggered - likely using default limits (100 burst)");
-    }
-
-    // Tenant isolation is enforced via user_tenants table
-    // Each user belongs to their own tenant(s) after multi-tenant enhancement
-
-    println!("\n=== Rate Limiting Test Results ===");
-
-    if tenant1_rate_limited && tenant2_rate_limited {
-        // Both hit rate limits - ideal case
-        println!("  ✓ Tenant A: {tenant1_success_count} successful, then 429 rate limited");
-        println!("  ✓ Tenant B: {tenant2_success_count} successful, then 429 rate limited");
-        println!("  ✓ Rate limits triggered and isolated per tenant");
-        println!("  ✓ Both tenants hit their independent burst limits");
-
-        // Validate they hit limits at similar counts
-        assert!(
-            (4..=6).contains(&tenant1_success_count),
-            "Tenant A should succeed ~5 times before rate limit (got {tenant1_success_count})"
-        );
-        assert!(
-            (4..=6).contains(&tenant2_success_count),
-            "Tenant B should succeed ~5 times before rate limit (got {tenant2_success_count})"
-        );
-    } else {
-        // Rate limits not triggered - still validate infrastructure
-        println!("  ✓ Tenant A: {tenant1_success_count} requests completed");
-        println!("  ✓ Tenant B: {tenant2_success_count} requests completed");
-        println!("  ✓ Rate limiting infrastructure validated (per-tenant isolation)");
-        println!("  ✓ Tenant A's usage does NOT affect Tenant B's quota");
-        println!();
-        println!("  Note: 429 rate limiting not triggered in this run");
-        println!("        - Default burst limit is 100 requests (test made 15 per tenant)");
-        println!(
-            "        - Rate limiting configuration uses Once pattern (may be pre-initialized)"
-        );
-        println!("        - Per-tenant isolation is still validated via separate quotas");
-        println!();
-        println!("  To guarantee 429 testing:");
-        println!("        1. Run this test in isolation: cargo test test_rate_limiting_per_tenant_isolation");
-        println!("        2. Or set env vars before any test runs");
-    }
-
-    println!("  ✓ Per-tenant rate limit isolation: VALIDATED");
+    let used_by_b = resources
+        .common
+        .repos
+        .usage
+        .get_jwt_current_usage(user2.id)
+        .await?;
+    assert_eq!(
+        used_by_b, 3,
+        "tenant B's budget counts only its own requests"
+    );
 
     Ok(())
 }

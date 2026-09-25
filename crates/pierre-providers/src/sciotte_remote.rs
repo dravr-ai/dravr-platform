@@ -61,7 +61,7 @@ use dravr_sciotte::models::{
 };
 use dravr_tronc::iam::IdTokenSource;
 use dravr_tronc::server::request_guard::{HANDLER_PANIC, REQUEST_ID_HEADER, REQUEST_TIMEOUT};
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode, RETRY_AFTER_SECS_DETAIL};
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -86,13 +86,6 @@ pub const ENV_AUDIENCE: &str = "DRAVR_SCIOTTE_AUDIENCE";
 /// `503 {"error":"scraper_busy","reason":…,"retry_after_secs":N}` plus a
 /// `Retry-After` header.
 const SHED_ERROR_MARKER: &str = "scraper_busy";
-
-/// Key the shed's wait window travels under.
-///
-/// It is both the field name in the service's body and the
-/// [`AppError::details`] entry [`shed_retry_after_secs`] reads back out, so a
-/// route layer can echo it as `Retry-After`.
-pub const RETRY_AFTER_SECS_DETAIL: &str = "retry_after_secs";
 
 /// Wait advertised when a shed response carries no `retry_after_secs`.
 /// Deliberately short: a shed clears as soon as one in-flight scrape releases
@@ -245,7 +238,8 @@ const SCIOTTE_REFUSAL_DETAIL: &str = "sciotte_refusal";
 ///
 /// [`ErrorCode::ResourceUnavailable`] renders as `503` and keeps the technical
 /// reason out of the client's reach; the wait the service computed rides in
-/// `details` so a route layer can hand it back as `Retry-After`.
+/// `details` ([`AppError::with_retry_after`]), which renders it as
+/// `Retry-After` wherever the error reaches a response.
 #[must_use]
 pub fn backpressure_error(http_status: StatusCode, body: &Value) -> Option<AppError> {
     let shed = http_status == StatusCode::SERVICE_UNAVAILABLE
@@ -254,6 +248,8 @@ pub fn backpressure_error(http_status: StatusCode, body: &Value) -> Option<AppEr
         return None;
     }
 
+    // The service's body names its wait under the same key the platform's
+    // own refusals carry it under.
     let retry_after_secs = body
         .get(RETRY_AFTER_SECS_DETAIL)
         .and_then(Value::as_u64)
@@ -263,16 +259,12 @@ pub fn backpressure_error(http_status: StatusCode, body: &Value) -> Option<AppEr
         .and_then(Value::as_str)
         .unwrap_or(SHED_ERROR_MARKER);
 
-    let mut error = AppError::resource_unavailable(format!(
-        "sciotte shed the request ({reason}); retry after {retry_after_secs}s"
-    ));
-    let mut details = Map::new();
-    details.insert(
-        RETRY_AFTER_SECS_DETAIL.to_owned(),
-        Value::from(retry_after_secs),
-    );
-    error.details = Some(Box::new(Value::Object(details)));
-    Some(error)
+    Some(
+        AppError::resource_unavailable(format!(
+            "sciotte shed the request ({reason}); retry after {retry_after_secs}s"
+        ))
+        .with_retry_after(retry_after_secs),
+    )
 }
 
 /// The wait window a load-shed advertises, or `None` when `error` is anything
@@ -285,11 +277,7 @@ pub fn shed_retry_after_secs(error: &AppError) -> Option<u64> {
     if !matches!(error.code, ErrorCode::ResourceUnavailable) {
         return None;
     }
-    error
-        .details
-        .as_ref()?
-        .get(RETRY_AFTER_SECS_DETAIL)?
-        .as_u64()
+    error.retry_after_secs()
 }
 
 /// Body `error` markers on a scraper-service `401` that mean the ATHLETE's

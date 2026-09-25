@@ -20,7 +20,7 @@
     "test:integration": "playwright test --config=integration/config/playwright.integration.config.ts",
     "test:integration:ui": "playwright test --config=integration/config/playwright.integration.config.ts --ui",
     "test:integration:headed": "playwright test --config=integration/config/playwright.integration.config.ts --headed",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc -b"
   },
   "dependencies": {
     "@pierre/api-client": "*",

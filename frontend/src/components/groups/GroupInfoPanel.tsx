@@ -38,6 +38,7 @@ import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import type { GroupDigestMode, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 import { oneDecimal } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface GroupInfoPanelProps {
   /** The group this conversation is scoped to. */
@@ -180,7 +181,7 @@ export default function GroupInfoPanel({
           : t('groups.sharingOffNotice'),
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.consentFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
       showError(t('app.updateFailed'), message);
     }
   };
@@ -202,7 +203,7 @@ export default function GroupInfoPanel({
       );
       showSuccess(t('app.settingsSaved'), t('app.groupSettingsUpdated'));
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.saveFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.saveFailed' });
       showError(t('app.saveFailed'), message);
     }
   };
@@ -213,7 +214,7 @@ export default function GroupInfoPanel({
       showSuccess(t('humanCoach.removed'), t('humanCoach.detached'));
       setConfirmRemoveCoach(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('humanCoach.removeFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'humanCoach.removeFailed' });
       showError(t('app.removeFailed'), message);
     }
   };
@@ -224,7 +225,7 @@ export default function GroupInfoPanel({
       showSuccess(t('app.leftGroup'), t('app.youLeftGroup'));
       onMembershipEnded();
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.leaveFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.leaveFailed' });
       showError(t('app.leaveFailed'), message);
     }
   };
@@ -235,7 +236,7 @@ export default function GroupInfoPanel({
       showSuccess(t('app.groupDeleted'), t('app.groupArchivedPermanently'));
       onMembershipEnded();
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.deleteFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.deleteFailed' });
       showError(t('app.deleteFailed'), message);
     }
   };

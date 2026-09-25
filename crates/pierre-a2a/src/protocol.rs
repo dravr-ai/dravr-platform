@@ -32,11 +32,12 @@ use pierre_core::models::a2a::A2APushNotificationConfig;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
+use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
-use serde_json::{from_value, json, to_value, Map, Number, Value};
+use serde_json::{from_value, json, to_value, Map, Value};
 use std::cmp::Reverse;
 use std::future::{ready, Future};
 use std::pin::Pin;
@@ -44,6 +45,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
+
+mod principal;
 
 /// Default `ListTasks` page size (spec §9: default 50, range 1..=100).
 const LIST_TASKS_DEFAULT_PAGE_SIZE: u32 = 50;
@@ -60,17 +63,21 @@ const NO_TOOL_INTENT_MESSAGE: &str =
 
 /// Bundle of runtime handles required for full A2A protocol operation.
 ///
-/// [`A2ACtx`] supplies the auth/repos/base-url slice; `tool_runtime` is held
-/// separately to avoid forcing `pierre-runtime-context` to depend on
-/// `pierre-tool-runtime`. The bundle keeps `A2AServer`'s field count
-/// manageable and groups the two handles that must always be wired together
-/// when the server runs against real infrastructure.
+/// [`A2ACtx`] supplies the auth/repos/base-url slice; `tool_runtime` and
+/// `auth_middleware` are held separately to avoid forcing
+/// `pierre-runtime-context` to depend on `pierre-tool-runtime` and
+/// `pierre-middleware`. The bundle keeps `A2AServer`'s field count manageable
+/// and groups the handles that must always be wired together when the server
+/// runs against real infrastructure.
 pub struct A2AResources {
     /// Narrow runtime-context slice: auth manager, JWKS, repos, base URL.
     pub ctx: Arc<dyn A2ACtx>,
     /// Tool runtime façade — dispatches `SendMessage` tool intents into the
     /// shared `ToolRegistry`.
     pub tool_runtime: Arc<dyn ToolRuntime>,
+    /// The auth pipeline every other route admits a user credential through:
+    /// account status, request budget, usage row and budget report.
+    pub auth_middleware: Arc<McpAuthMiddleware>,
 }
 
 /// A2A Protocol Server implementation
@@ -128,9 +135,17 @@ impl A2AServer {
 
     /// Create a new A2A server with server resources
     #[must_use]
-    pub fn new_with_resources(ctx: Arc<dyn A2ACtx>, tool_runtime: Arc<dyn ToolRuntime>) -> Self {
+    pub fn new_with_resources(
+        ctx: Arc<dyn A2ACtx>,
+        tool_runtime: Arc<dyn ToolRuntime>,
+        auth_middleware: Arc<McpAuthMiddleware>,
+    ) -> Self {
         Self {
-            resources: Some(A2AResources { ctx, tool_runtime }),
+            resources: Some(A2AResources {
+                ctx,
+                tool_runtime,
+                auth_middleware,
+            }),
         }
     }
 
@@ -232,194 +247,6 @@ impl A2AServer {
             Ok(principal) => handler(self, request, principal).await,
             Err(err_response) => *err_response,
         }
-    }
-
-    /// Authenticate the A2A request and resolve the acting principal.
-    ///
-    /// Two token shapes are accepted, matching the card's `securitySchemes`:
-    /// user JWTs (`sub` = user UUID), and `OAuth2` client-credentials JWTs
-    /// (`sub` = `client:{id}`, minted by `/a2a/auth`). A client token
-    /// acts as the client's registering user — the same semantics as
-    /// `A2AAuthenticator::authenticate_oauth2` — with the client identity
-    /// kept on the principal for task keying and scoping.
-    ///
-    /// Authentication is transport-level per the spec; failures carry the
-    /// `AUTHENTICATION_REQUIRED` reason so the HTTP layer can surface 401.
-    async fn authenticate_request(
-        request: &A2ARequest,
-        resources: &A2AResources,
-    ) -> Result<AuthPrincipal, Box<A2AResponse>> {
-        let request_id = request
-            .id
-            .clone() // Safe: JSON value ownership for request ID
-            .unwrap_or_else(|| Value::Number(Number::from(0)));
-
-        // Extract auth token from request
-        let auth_token = request.auth_token.as_deref().ok_or_else(|| {
-            Box::new(Self::auth_error(
-                "Authentication token required",
-                Some(request_id.clone()),
-            ))
-        })?;
-
-        // Validate token signature/expiry
-        let claims = resources
-            .ctx
-            .auth_manager()
-            .validate_token(auth_token, resources.ctx.jwks_manager())
-            .map_err(|_| {
-                Box::new(Self::auth_error(
-                    "Invalid authentication token",
-                    Some(request_id.clone()),
-                ))
-            })?;
-
-        // User JWT: subject is the user UUID.
-        if let Ok(user_id) = Uuid::parse_str(&claims.sub) {
-            return Ok(AuthPrincipal {
-                user_id,
-                client_id: None,
-                scopes: OAuthScope::parse_granted(&claims.scope),
-            });
-        }
-
-        // Client-credentials JWT: subject is client:{id} (the shape
-        // /a2a/auth mints via generate_client_credentials_token).
-        let Some(client_id) = claims.sub.strip_prefix("client:") else {
-            return Err(Box::new(Self::auth_error(
-                "Invalid principal in authentication token",
-                Some(request_id),
-            )));
-        };
-
-        let granted = OAuthScope::parse_granted(&claims.scope);
-        Self::resolve_client_principal(client_id, granted, resources, request_id).await
-    }
-
-    /// Resolve a client-credentials subject into its acting principal: the
-    /// client must exist and be active; the principal acts as the client's
-    /// registering user with the client identity kept for task scoping.
-    async fn resolve_client_principal(
-        client_id: &str,
-        scopes: Vec<OAuthScope>,
-        resources: &A2AResources,
-        request_id: Value,
-    ) -> Result<AuthPrincipal, Box<A2AResponse>> {
-        let client = match resources.ctx.repos().a2a.get_client(client_id).await {
-            Ok(Some(client)) => client,
-            Ok(None) => {
-                return Err(Box::new(Self::auth_error(
-                    "Unknown A2A client in authentication token",
-                    Some(request_id),
-                )))
-            }
-            Err(e) => {
-                error!("Failed to resolve A2A client during authentication: {e}");
-                return Err(Box::new(Self::a2a_error(
-                    -32000,
-                    "Failed to resolve A2A client",
-                    Some(request_id),
-                )));
-            }
-        };
-        if !client.is_active {
-            return Err(Box::new(Self::auth_error(
-                "A2A client is deactivated",
-                Some(request_id),
-            )));
-        }
-
-        Ok(AuthPrincipal {
-            user_id: client.user_id,
-            client_id: Some(client.id),
-            scopes,
-        })
-    }
-
-    /// Get client IDs owned by a user
-    async fn get_owned_client_ids(
-        user_id: &Uuid,
-        resources: &A2AResources,
-    ) -> Result<Vec<String>, String> {
-        resources
-            .ctx
-            .repos()
-            .a2a
-            .list_clients(user_id)
-            .await
-            .map(|clients| clients.into_iter().map(|c| c.id).collect())
-            .map_err(|e| format!("Failed to list A2A clients: {e}"))
-    }
-
-    /// Verify the principal may access tasks keyed to `client_id`.
-    ///
-    /// Client-credentials principals are confined to their own client; user
-    /// principals may access any client they registered.
-    async fn verify_client_access(
-        client_id: &str,
-        principal: &AuthPrincipal,
-        resources: &A2AResources,
-        request_id: Option<&Value>,
-    ) -> Result<(), Box<A2AResponse>> {
-        if let Some(acting_client) = &principal.client_id {
-            if acting_client == client_id {
-                return Ok(());
-            }
-            // Do not reveal whether the task exists for another principal.
-            return Err(Box::new(Self::spec_error(
-                A2ASpecError::TaskNotFound,
-                request_id.cloned(),
-            )));
-        }
-
-        let owned_ids = Self::get_owned_client_ids(&principal.user_id, resources)
-            .await
-            .map_err(|e| {
-                error!("Failed to resolve client ownership: {e}");
-                Box::new(Self::a2a_error(
-                    -32000,
-                    "Failed to resolve client ownership",
-                    request_id.cloned(),
-                ))
-            })?;
-
-        // Do not reveal whether the task exists for another principal.
-        owned_ids.iter().any(|id| id == client_id).ok_or_else(|| {
-            Box::new(Self::spec_error(
-                A2ASpecError::TaskNotFound,
-                request_id.cloned(),
-            ))
-        })
-    }
-
-    /// Load a task and verify the principal may access it.
-    async fn load_owned_task(
-        resources: &A2AResources,
-        task_id: &str,
-        principal: &AuthPrincipal,
-        request_id: Option<&Value>,
-    ) -> Result<A2ATask, Box<A2AResponse>> {
-        let task = match resources.ctx.repos().a2a.get_task(task_id).await {
-            Ok(Some(task)) => task,
-            Ok(None) => {
-                return Err(Box::new(Self::spec_error(
-                    A2ASpecError::TaskNotFound,
-                    request_id.cloned(),
-                )))
-            }
-            Err(e) => {
-                error!("A2A task lookup database error: {e}");
-                return Err(Box::new(Self::a2a_error(
-                    -32000,
-                    "Database error",
-                    request_id.cloned(),
-                )));
-            }
-        };
-
-        Self::verify_client_access(&task.client_id, principal, resources, request_id).await?;
-
-        Ok(task)
     }
 
     /// Create a standard A2A JSON-RPC error response

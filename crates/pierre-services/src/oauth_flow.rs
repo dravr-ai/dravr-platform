@@ -32,9 +32,28 @@ use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::database::repositories::UserRepository;
 use pierre_mcp_transport::OAuthCallbackResponse;
 
+pub use crate::oauth_bridge_notify::{BridgeCallbackToken, BRIDGE_CALLBACK_TOKEN_HEADER};
 pub use crate::oauth_state_redeem::ParsedOAuthState;
 use pierre_providers::backend_resolver;
 use pierre_runtime_context::DataContext;
+
+/// What a flow's starter asks of it beyond the authorization itself.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AuthUrlOptions<'a> {
+    /// A post-OAuth return URL, embedded as the third (base64) state segment —
+    /// the same channel the mobile deep-link flow uses. The session-less
+    /// callback decodes it and redirects success/failure there instead of the
+    /// SPA. The channel-initiated hosted connect flow passes its picker URL so
+    /// a failed Strava OAuth bounces the user back to the picker (which opens
+    /// the Sciotte credential fallback) rather than stranding them on the SPA
+    /// error page. The URL is validated against the redirect allowlist by the
+    /// callback before it is honored.
+    pub return_redirect: Option<&'a str>,
+    /// The per-flow token of the SDK bridge listener that started the flow.
+    /// Stored with the state and presented on the success notification, the
+    /// only one this flow sends: a flow without it notifies no bridge.
+    pub bridge_callback_token: Option<&'a BridgeCallbackToken>,
+}
 
 // ---------------------------------------------------------------------------
 // OAuthService — core business logic for OAuth flows
@@ -112,6 +131,7 @@ impl OAuthService {
         // token so refresh uses that app's secret. `None` = env-default app.
         let oauth_app_client_id = parsed_state.oauth_app_client_id;
         let mobile_redirect_url = parsed_state.mobile_redirect_url;
+        let bridge_callback_token = parsed_state.bridge_callback_token;
         let flow_label = if mobile_redirect_url.is_some() {
             " (mobile flow)"
         } else {
@@ -178,6 +198,17 @@ impl OAuthService {
                 return Err(error);
             }
         };
+        // The bridge that started this flow, if one did, learns it completed;
+        // its listener accepts the POST only with the flow's own token.
+        if let Some(callback_token) = bridge_callback_token.as_deref() {
+            oauth_bridge_notify::notify_bridge_oauth_success(
+                &self.config,
+                provider,
+                &token,
+                callback_token,
+            )
+            .await;
+        }
         // Now that the token is durable, a move onto another Strava app
         // withdraws the grants it supersedes.
         replaced.revoke_superseded(self, attribution).await;
@@ -206,9 +237,9 @@ impl OAuthService {
 
     /// Persist the OAuth token and dispatch all post-connection side effects.
     ///
-    /// Stores the token and sends the UI/bridge notifications. The
-    /// `provider.connected` notify event is raised by the caller, after this
-    /// returns, so a Slack ping only goes out for a link that actually persisted.
+    /// Stores the token and the UI notification. The bridge notification and
+    /// the `provider.connected` notify event are raised by the caller, after
+    /// this returns, so neither goes out for a link that did not persist.
     async fn finalize_oauth_connection(
         &self,
         user_id: uuid::Uuid,
@@ -230,7 +261,6 @@ impl OAuthService {
             .await?;
         self.store_oauth_notification(user_id, provider, &expires_at)
             .await?;
-        oauth_bridge_notify::notify_bridge_oauth_success(&self.config, provider, token).await;
 
         // Health data backfill is triggered by the callback handler after this returns.
         // The scheduler will also auto-detect this user on subsequent cycles.
@@ -593,7 +623,9 @@ impl OAuthService {
     /// - Single-tenant: Falls back to server-level configuration
     ///
     /// Stores the OAuth state server-side with TTL for CSRF protection, and generates
-    /// PKCE parameters when the provider declares `use_pkce=true`.
+    /// PKCE parameters when the provider declares `use_pkce=true`. What else the
+    /// flow's starter asks of it — a post-OAuth return URL, a bridge to notify —
+    /// rides [`AuthUrlOptions`].
     ///
     /// # Errors
     /// Returns error if provider is unsupported or OAuth credentials not configured
@@ -602,29 +634,7 @@ impl OAuthService {
         user_id: uuid::Uuid,
         tenant_id: TenantId,
         provider: &str,
-    ) -> AppResult<OAuthAuthorizationResponse> {
-        self.get_auth_url_with_return(user_id, tenant_id, provider, None)
-            .await
-    }
-
-    /// Like [`Self::get_auth_url`] but embeds an optional post-OAuth return URL.
-    ///
-    /// The URL goes in the third (base64) state segment — the same channel the
-    /// mobile deep-link flow uses. The session-less callback decodes it and
-    /// redirects success/failure there instead of the SPA. The channel-initiated
-    /// hosted connect flow passes its picker URL so a failed Strava OAuth bounces
-    /// the user back to the picker (which opens the Sciotte credential fallback)
-    /// rather than stranding them on the SPA error page. The URL is validated
-    /// against the redirect allowlist by the callback before it is honored.
-    ///
-    /// # Errors
-    /// Returns error if provider is unsupported or OAuth credentials not configured
-    pub async fn get_auth_url_with_return(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        return_redirect: Option<&str>,
+        options: AuthUrlOptions<'_>,
     ) -> AppResult<OAuthAuthorizationResponse> {
         // Get provider descriptor from registry
         let descriptor = self
@@ -657,7 +667,7 @@ impl OAuthService {
         // Embed the optional return URL as the third state segment (base64), so
         // the callback bounces success/failure there. base64 URL_SAFE_NO_PAD
         // never emits ':' so the segment split stays unambiguous.
-        let state = return_redirect.map_or_else(
+        let state = options.return_redirect.map_or_else(
             || format!("{}:{}", user_id, uuid::Uuid::new_v4()),
             |url| {
                 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -758,6 +768,9 @@ impl OAuthService {
             scope: Some(scope),
             pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
             oauth_app_client_id: oauth_app_attribution,
+            bridge_callback_token: options
+                .bridge_callback_token
+                .map(|token| token.as_str().to_owned()),
             created_at: now,
             expires_at: now + chrono::Duration::minutes(10),
             used: false,

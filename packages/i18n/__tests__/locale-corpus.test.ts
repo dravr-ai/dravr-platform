@@ -318,8 +318,12 @@ describe('client locale corpus', () => {
     // 2485 once both plan pages named a tier through one key set: mobile's
     // `app.planStarter`, `app.planProfessional` and `app.planEnterprise`
     // carried the same words as web's `plan.*`, which both now read. -3.
+    // 2488 once WHOOP asked for its owner authorization before its OAuth
+    // flow: `providers.whoopNotice` title, body and authorization. +3.
+    // 2490 once a connected WHOOP that owes it says so:
+    // `providers.authorizeToKeepSyncing` and its `authorizeAction`. +2.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2485);
+    expect(reference).toHaveLength(2490);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

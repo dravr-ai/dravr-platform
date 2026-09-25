@@ -236,17 +236,17 @@ pub struct ApiKeyUsageStats {
     pub tool_usage: serde_json::Value,
 }
 
-/// Rate limit status
-#[derive(Debug, Serialize)]
-pub struct RateLimitStatus {
-    /// Whether the key is currently rate limited
-    pub is_rate_limited: bool,
-    /// Maximum requests allowed in the window
-    pub limit: Option<u32>,
-    /// Remaining requests in the current window
-    pub remaining: Option<u32>,
-    /// When the rate limit window resets
-    pub reset_at: Option<DateTime<Utc>>,
+/// An API key's calls inside its own sliding rate-limit window.
+///
+/// Read in one statement, so the count and the oldest call describe the same
+/// rows: the window frees its first slot at `oldest` plus the key's
+/// `rate_limit_window_seconds`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApiKeyWindowUsage {
+    /// Calls recorded inside the window
+    pub count: u32,
+    /// The earliest of those calls; `None` when the window holds none
+    pub oldest: Option<DateTime<Utc>>,
 }
 
 /// Generated API key data

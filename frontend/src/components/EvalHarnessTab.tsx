@@ -15,6 +15,8 @@ import {
 } from '../services/api/admin';
 import { useAuth } from '../hooks/useAuth';
 import { Card, Button, Badge, ConfirmDialog, Textarea } from './ui';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 function totalAssertions(fixture: EvalFixtureSummary): number {
   return fixture.cases.reduce(
@@ -48,6 +50,7 @@ function verdictTotalCount(totals: VerdictStatusBreakdown): number {
 }
 
 export default function EvalHarnessTab() {
+  const { t } = useTranslation();
   const [expandedFixture, setExpandedFixture] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<FixtureEditorState | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null);
@@ -180,7 +183,7 @@ export default function EvalHarnessTab() {
         <Card className="p-6">
           <p className="text-sm text-error">
             Failed to load eval fixtures:{' '}
-            {error instanceof Error ? error.message : String(error)}
+            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </p>
           <p className="mt-2 text-xs text-on-surface-variant">
             Make sure the server was started with <code>tools-verification</code>{' '}
@@ -253,7 +256,7 @@ export default function EvalHarnessTab() {
                             mode: 'edit',
                             name: fixture.name,
                             body: '',
-                            error: e instanceof Error ? e.message : String(e),
+                            error: describeApiError(e, { t, fallbackKey: 'errors.unknown' }),
                           });
                         }
                       }}
@@ -363,6 +366,7 @@ function FixtureEditorModal({
   onSaved,
   onStateChange,
 }: FixtureEditorModalProps) {
+  const { t } = useTranslation();
   const [isSaving, setIsSaving] = useState(false);
 
   // Allow Escape to close when the user isn't mid-save.
@@ -384,7 +388,7 @@ function FixtureEditorModal({
       await adminApi.putEvalFixture(state.name.trim(), state.body);
       onSaved();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = describeApiError(e, { t, fallbackKey: 'errors.unknown' });
       onStateChange({ ...state, error: message });
     } finally {
       setIsSaving(false);

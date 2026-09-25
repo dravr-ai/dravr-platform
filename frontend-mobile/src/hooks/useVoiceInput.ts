@@ -266,7 +266,9 @@ export function useVoiceInput(): UseVoiceInputResult {
     } catch (error) {
       // The platform's own words, matched for a permission refusal. They are
       // the recognizer's, not ours, so they classify the failure and then ride
-      // along as `detail` rather than becoming the wording.
+      // along as `detail` rather than becoming the wording. Not an API
+      // failure, so the shared classifier has nothing to read here.
+      // eslint-disable-next-line no-restricted-syntax -- the recognizer's words, documented on VoiceError.detail
       const platformMessage = error instanceof Error ? error.message : '';
       const isPermissionError =
         platformMessage.toLowerCase().includes('permission') ||

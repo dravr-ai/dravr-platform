@@ -49,6 +49,12 @@ pub(crate) const UPSERT_SYNC_CURSOR_SQL: &str = r"
                 updated_at = EXCLUDED.updated_at
             ";
 
+/// Every cursor one user holds for one provider under one tenant.
+pub(crate) const RESET_SYNC_CURSORS_SQL: &str = r"
+            DELETE FROM sync_state
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+            ";
+
 /// Every user holding a credential for a provider, with the credential kind.
 ///
 /// `$tenant_col` is the one backend-specific clause on this table.
@@ -203,6 +209,25 @@ macro_rules! impl_sync_cursor_repository {
                     })?;
 
                 rows.iter().map(connected_user_from_row).collect()
+            }
+
+            async fn reset_sync_cursors(
+                &self,
+                user_id: &str,
+                tenant_id: &TenantId,
+                provider: &str,
+            ) -> AppResult<u64> {
+                let result = sqlx::query(RESET_SYNC_CURSORS_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to reset sync cursors: {e}"))
+                    })?;
+
+                Ok(result.rows_affected())
             }
         }
     };

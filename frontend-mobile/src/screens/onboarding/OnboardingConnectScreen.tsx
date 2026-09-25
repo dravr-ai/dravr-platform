@@ -25,6 +25,7 @@ import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
+import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
@@ -33,8 +34,9 @@ import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
-import { sciotteTargetForBackend } from '@pierre/shared-constants';
+import { noticeRequired, sciotteTargetForBackend } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** The brand each credential-login target is named by once it connects. */
 const SCIOTTE_BRAND_KEY: Record<SciotteTarget, string> = {
@@ -81,6 +83,12 @@ export function OnboardingConnectScreen() {
   // run. Open the setup modal in-place so first-touch users never need to
   // leave the onboarding gate.
   const [showWhoopSetup, setShowWhoopSetup] = useState(false);
+  // The OAuth provider whose notice is on screen before its flow starts
+  // (WHOOP, until the account accepts its owner authorization).
+  const [noticeFor, setNoticeFor] = useState<ExtendedProviderStatus | null>(null);
+  // Whether the athlete accepted WHOOP's owner authorization before the
+  // setup sheet; the OAuth start after it carries that acceptance.
+  const [whoopTosConsent, setWhoopTosConsent] = useState(false);
   // Tracks an in-flight OAuth in ASWebAuthenticationSession. Shows an
   // "awaiting consent" overlay with a Cancel button so the user is never
   // stranded if they background the app mid-flow.
@@ -138,13 +146,13 @@ export function OnboardingConnectScreen() {
   // the platform (currently only WHOOP once the user has registered a BYO
   // app). Sciotte providers handle their own credential flow via the modal.
   const launchOAuth = useCallback(
-    async (providerId: string, providerName: string) => {
+    async (providerId: string, providerName: string, tosConsent = false) => {
       try {
         setConnectingProvider(providerId);
         setConnectError(null);
         setAwaitingOAuthFor(providerId);
         const returnUrl = getOAuthCallbackUrl();
-        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl);
+        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent });
         const result = await WebBrowser.openAuthSessionAsync(
           oauthResponse.authorization_url,
           returnUrl,
@@ -180,7 +188,7 @@ export function OnboardingConnectScreen() {
         // that's a deliberate choice, so we do NOT push the Sciotte fallback.
       } catch (err) {
         setAwaitingOAuthFor(null);
-        const message = err instanceof Error ? err.message : t('app.failedToConnect');
+        const message = describeApiError(err, { t, fallbackKey: 'app.failedToConnect' });
         console.error('Onboarding OAuth flow failed:', err);
         if (providerId === 'whoop') {
           // No BYO app registered yet — open the in-place setup modal so the
@@ -205,6 +213,17 @@ export function OnboardingConnectScreen() {
 
   const handleConnect = (provider: ExtendedProviderStatus) => {
     setConnectError(null);
+    // An OAuth provider whose notice the account has not accepted (WHOOP's
+    // owner authorization) states it first; its Continue resumes below.
+    if (noticeRequired(provider.provider, provider.consent_required) && !sciotteTargetForBackend(provider.provider)) {
+      setNoticeFor(provider);
+      return;
+    }
+    continueConnect(provider, false);
+  };
+
+  /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
+  const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
     // The Sciotte card is the user-facing t('app.brandStrava') card. While shared-app OAuth
     // seats remain the server recommends `oauth`, so connect via the official
     // Strava OAuth flow. Once the athlete cap is reached the server recommends
@@ -233,10 +252,11 @@ export function OnboardingConnectScreen() {
       // Skip the speculative OAuth init for Whoop — open the setup modal
       // directly. Modal pre-populates from any existing app, so returning
       // users only need to re-enter the secret (which we never persist).
+      setWhoopTosConsent(tosConsent);
       setShowWhoopSetup(true);
       return;
     }
-    void launchOAuth(provider.provider, provider.display_name);
+    void launchOAuth(provider.provider, provider.display_name, tosConsent);
   };
 
   // The API surfaces `sciotte` (Strava-branded), `sciotte_garmin`
@@ -440,6 +460,16 @@ export function OnboardingConnectScreen() {
         }}
       />
 
+      <ProviderNoticeSheet
+        provider={noticeFor?.provider ?? null}
+        onCancel={() => setNoticeFor(null)}
+        onAccept={() => {
+          const accepted = noticeFor;
+          setNoticeFor(null);
+          if (accepted) continueConnect(accepted, true);
+        }}
+      />
+
       <OAuthAppSetupModal
         visible={showWhoopSetup}
         onClose={() => setShowWhoopSetup(false)}
@@ -447,7 +477,7 @@ export function OnboardingConnectScreen() {
           setShowWhoopSetup(false);
           // BYO credentials are persisted; kick off the standard OAuth dance.
           // launchOAuth handles success → finalizeConnection.
-          void launchOAuth('whoop', 'WHOOP');
+          void launchOAuth('whoop', 'WHOOP', whoopTosConsent);
         }}
         provider="whoop"
         displayName="WHOOP"

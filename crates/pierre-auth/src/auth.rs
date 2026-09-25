@@ -28,7 +28,6 @@ use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::admin::jwks::JwksManager;
-use crate::rate_limiting::UnifiedRateLimitInfo;
 use pierre_core::constants::{
     limits::{OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, USER_SESSION_EXPIRY_HOURS},
     service_names::{MCP, PIERRE_MCP_SERVER},
@@ -225,15 +224,17 @@ impl Claims {
     }
 }
 
-/// Authentication result with user context and rate limiting info
+/// Authentication result with user context
+///
+/// The caller's request budget is not carried here: the auth middleware
+/// gates on it and reports it to the response's `X-RateLimit-*` headers at
+/// the site that computes it.
 #[derive(Debug)]
 pub struct AuthResult {
     /// Authenticated user `ID`
     pub user_id: Uuid,
     /// Authentication method used
     pub auth_method: AuthMethod,
-    /// Rate limit information (always provided for both `API` keys and `JWT` tokens)
-    pub rate_limit: UnifiedRateLimitInfo,
     /// Active tenant ID from JWT claims (for multi-tenant user tenant selection)
     /// Users can belong to multiple tenants and this field indicates which tenant
     /// should be used for the current request. Extracted from JWT `active_tenant_id` claim.
@@ -285,8 +286,8 @@ pub enum AuthMethod {
         /// Channel-side sender id (`Telegram` chat id, `WhatsApp` phone, …).
         channel_user_id: String,
         /// User tier for rate limiting (mirrors the `JWT` variant's field
-        /// so [`crate::rate_limiting::UnifiedRateLimitCalculator`] can apply
-        /// the user-tier policy uniformly).
+        /// so [`crate::rate_limiting::calculate_jwt_rate_limit`] applies the
+        /// user-tier policy uniformly).
         tier: String,
     },
 }
