@@ -6,7 +6,13 @@
 import React from 'react';
 import { renderHook as rtlRenderHook, act, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { IDLE_STOP_AFTER_MS, IdleWatch } from '@pierre/shared-constants';
+import {
+  IDLE_STOP_AFTER_MS,
+  IdleWatch,
+  idleAbort,
+  registerIdleWatch,
+  resetIdleAbort,
+} from '@pierre/shared-constants';
 
 const mockGetConversationMessages = jest.fn();
 const mockGetConversationVerdicts = jest.fn();
@@ -23,7 +29,6 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';
-import { idleAbort, registerIdleWatch, resetIdleAbort } from '../src/services/idleSignal';
 import type { Message } from '../src/types';
 import { TurnIdleAbortedError } from '@pierre/api-client';
 import { i18n } from '@pierre/i18n';

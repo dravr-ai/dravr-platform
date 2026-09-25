@@ -168,6 +168,18 @@ export {
 } from './query-policy';
 export type { IdleWatchOptions } from './query-policy';
 
+// The send path's side of that contract: the abort signal an open turn rides,
+// and the registered watch it holds active and asks whether the athlete left.
+export {
+  idleSignal,
+  idleAbort,
+  resetIdleAbort,
+  registerIdleWatch,
+  holdIdleWhileBusy,
+  trackAbsence,
+  whenAthleteReturns,
+} from './idle-signal';
+
 // Claim-verdict vocabulary: the status and evidence words both chat surfaces
 // print, as corpus keys resolved with each client's own t()
 export {
