@@ -13,6 +13,7 @@ use super::models::{
     AuthorizeRejection, AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client,
     OAuth2Error, TokenRequest, TokenResponse,
 };
+use super::pkce::{check_code_challenge, verify_challenge};
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
 use base64::{engine::general_purpose, Engine as _};
@@ -22,9 +23,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -38,74 +37,6 @@ struct AuthCodeParams<'a> {
     state: Option<&'a str>,
     code_challenge: Option<&'a str>,
     code_challenge_method: Option<&'a str>,
-}
-
-/// Validate PKCE `code_verifier` format per RFC 7636 Section 4.1
-fn validate_pkce_verifier_format(verifier: &str) -> Result<(), OAuth2Error> {
-    // Length: 43-128 characters
-    if verifier.len() < 43 || verifier.len() > 128 {
-        return Err(OAuth2Error::invalid_grant(
-            "code_verifier must be between 43 and 128 characters",
-        ));
-    }
-
-    // Characters: Only unreserved characters allowed: [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"
-    if !verifier
-        .chars()
-        .all(|c| matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~'))
-    {
-        return Err(OAuth2Error::invalid_grant(
-            "code_verifier contains invalid characters (RFC 7636: only [A-Z], [a-z], [0-9], -, ., _, ~ allowed)",
-        ));
-    }
-
-    Ok(())
-}
-
-/// Compute PKCE challenge from verifier using S256 method
-fn compute_pkce_challenge(verifier: &str, method: &str) -> Result<String, OAuth2Error> {
-    if method != "S256" {
-        return Err(OAuth2Error::invalid_grant(
-            "Only S256 code_challenge_method is supported (plain method is not allowed for security reasons)",
-        ));
-    }
-
-    let mut hasher = Sha256::new();
-    hasher.update(verifier.as_bytes());
-    let hash = hasher.finalize();
-    Ok(general_purpose::URL_SAFE_NO_PAD.encode(hash))
-}
-
-/// Verify PKCE challenge using constant-time comparison
-fn verify_pkce_challenge(
-    stored_challenge: &str,
-    code_verifier: Option<&str>,
-    code_challenge_method: Option<&str>,
-    client_id: &str,
-) -> Result<(), OAuth2Error> {
-    let verifier = code_verifier
-        .ok_or_else(|| OAuth2Error::invalid_grant("code_verifier is required (PKCE)"))?;
-
-    validate_pkce_verifier_format(verifier)?;
-
-    let method = code_challenge_method.unwrap_or("S256");
-    let computed_challenge = compute_pkce_challenge(verifier, method)?;
-
-    // Constant-time comparison to prevent timing attacks
-    if computed_challenge
-        .as_bytes()
-        .ct_eq(stored_challenge.as_bytes())
-        .into()
-    {
-        debug!("PKCE verification successful for client {}", client_id);
-        Ok(())
-    } else {
-        warn!(
-            "PKCE verification failed for client {} - code_verifier does not match code_challenge",
-            client_id
-        );
-        Err(OAuth2Error::invalid_grant("Invalid code_verifier"))
-    }
 }
 
 /// OAuth 2.0 Authorization Server
@@ -213,34 +144,8 @@ impl OAuth2AuthorizationServer {
         // the client's registered scope.
         let scope = Self::authorized_scope(client, request.scope.as_deref())?;
 
-        Self::check_pkce_challenge(request)?;
+        check_code_challenge(request)?;
         Ok(scope)
-    }
-
-    /// Validate the PKCE parameters of an authorization request (RFC 7636).
-    fn check_pkce_challenge(request: &AuthorizeRequest) -> Result<(), OAuth2Error> {
-        let Some(code_challenge) = &request.code_challenge else {
-            // PKCE is required for authorization code flow
-            return Err(OAuth2Error::invalid_request(
-                "code_challenge is required for authorization_code flow (PKCE)",
-            ));
-        };
-
-        // Validate code_challenge format (base64url-encoded, 43-128 characters)
-        if code_challenge.len() < 43 || code_challenge.len() > 128 {
-            return Err(OAuth2Error::invalid_request(
-                "code_challenge must be between 43 and 128 characters",
-            ));
-        }
-
-        // Validate code_challenge_method - only S256 is allowed (RFC 7636 security best practice)
-        let method = request.code_challenge_method.as_deref().unwrap_or("S256");
-        if method != "S256" {
-            return Err(OAuth2Error::invalid_request(
-                "code_challenge_method must be 'S256' (plain method is not supported for security reasons)",
-            ));
-        }
-        Ok(())
     }
 
     /// Handle authorization request (GET /oauth/authorize)
@@ -705,7 +610,7 @@ impl OAuth2AuthorizationServer {
         // Verify PKCE code_verifier (RFC 7636)
         // Note: PKCE verification happens AFTER atomic consumption to prevent code reuse on verification failure
         if let Some(stored_challenge) = &auth_code.code_challenge {
-            verify_pkce_challenge(
+            verify_challenge(
                 stored_challenge,
                 code_verifier,
                 auth_code.code_challenge_method.as_deref(),

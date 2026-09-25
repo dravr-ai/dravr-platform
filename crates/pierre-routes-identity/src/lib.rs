@@ -37,6 +37,10 @@
 /// OAuth 2.0 authorization-server endpoints (RFC 6749 / 8414 / 7591 / 7636).
 pub mod oauth2;
 
+/// Where an authorization response goes: the code or an error, redirected to
+/// a verified client, or the error page for an untrusted one.
+mod authorize_redirect;
+
 /// Per-user OAuth-app credential management endpoints.
 pub mod user_oauth_apps;
 
