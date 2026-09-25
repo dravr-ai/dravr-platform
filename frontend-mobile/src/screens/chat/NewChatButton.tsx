@@ -9,7 +9,7 @@ import { TouchableOpacity } from 'react-native';
 import { Plus } from 'lucide-react-native';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
-import { presentChatPlusMenu } from './presentChatPlusMenu';
+import { presentMenu } from '../../utils/presentMenu';
 import type { ChatPlusAction } from './useChatPlusActions';
 
 interface NewChatButtonProps {
@@ -25,9 +25,7 @@ export function NewChatButton({ actions, size = 24, testID = 'new-chat-button' }
   return (
     <TouchableOpacity
       className="w-10 h-10 items-center justify-center"
-      onPress={() =>
-        presentChatPlusMenu({ actions, cancelLabel: t('common.cancel'), title: t('app.convNewAria') })
-      }
+      onPress={() => presentMenu(actions, { title: t('app.convNewAria'), cancelLabel: t('common.cancel') })}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
       accessibilityLabel={t('app.convNewAria')}

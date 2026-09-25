@@ -46,7 +46,7 @@ jest.mock('../src/services/api', () => ({
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
 import { ChatHeaderTitle } from '../src/screens/chat/ChatHeaderTitle';
 import { ChatPlusFlows } from '../src/screens/chat/ChatPlusFlows';
-import { presentChatPlusMenu } from '../src/screens/chat/presentChatPlusMenu';
+import { presentMenu } from '../src/utils/presentMenu';
 import { useChatPlusActions } from '../src/screens/chat/useChatPlusActions';
 import { CHAT_THREAD_ROUTE } from '../src/navigation/routes';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
@@ -75,7 +75,7 @@ function presentedMenu() {
 function ThreadPlus({ conversationId }: { conversationId: string }) {
   const chatPlus = useChatPlusActions(conversationId);
   React.useEffect(() => {
-    presentChatPlusMenu({ actions: chatPlus.actions, cancelLabel: 'Cancel', title: 'New' });
+    presentMenu(chatPlus.actions, { title: 'New', cancelLabel: 'Cancel' });
   }, [chatPlus.actions]);
   return <ChatPlusFlows flows={chatPlus.flows} />;
 }

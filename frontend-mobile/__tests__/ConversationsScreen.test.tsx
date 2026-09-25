@@ -14,12 +14,12 @@ const mockDeleteConversation = jest.fn();
 const mockMarkConversationRead = jest.fn();
 const mockMarkConversationUnread = jest.fn();
 const mockPush = jest.fn();
-const mockPresentChatPlusMenu = jest.fn();
+const mockPresentMenu = jest.fn();
 
 // The "+" menu is the platform's action sheet; what this file proves is that
 // the empty state's link opens it with the same actions the header's "+" has.
-jest.mock('../src/screens/chat/presentChatPlusMenu', () => ({
-  presentChatPlusMenu: (...args: unknown[]) => mockPresentChatPlusMenu(...args),
+jest.mock('../src/utils/presentMenu', () => ({
+  presentMenu: (...args: unknown[]) => mockPresentMenu(...args),
 }));
 
 jest.mock('../src/services/api', () => ({
@@ -137,12 +137,10 @@ describe('ConversationsScreen — one flat list', () => {
     // The violet circle is gone; the link is the one way in from here.
     expect(queryByTestId('conversations-empty-plus')).toBeNull();
     fireEvent.press(getByTestId('conversations-empty-start'));
-    expect(mockPresentChatPlusMenu).toHaveBeenCalledTimes(1);
-    expect(mockPresentChatPlusMenu).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'New chat or new group chat',
-        actions: expect.arrayContaining([expect.objectContaining({ label: expect.any(String), onPress: expect.any(Function) })]),
-      }),
+    expect(mockPresentMenu).toHaveBeenCalledTimes(1);
+    expect(mockPresentMenu).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ label: expect.any(String), onPress: expect.any(Function) })]),
+      expect.objectContaining({ title: 'New chat or new group chat', cancelLabel: 'Cancel' }),
     );
     // The list asks for its first page, and only that.
     expect(mockGetConversations).toHaveBeenCalledTimes(1);
