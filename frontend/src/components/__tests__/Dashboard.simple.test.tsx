@@ -81,6 +81,8 @@ vi.mock('../../services/api', () => ({
     ]),
     getStoreStats: vi.fn().mockResolvedValue({ pending_count: 0, total_count: 5, approved_count: 5 }),
   },
+  // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
+  featureFlagsApi: {},
 }));
 
 function renderDashboard() {

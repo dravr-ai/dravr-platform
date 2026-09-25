@@ -33,6 +33,8 @@ vi.mock('../../services/api', () => ({
   },
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
   providersApi: { getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a) },
+  // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
+  groupsApi: {},
 }));
 
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));

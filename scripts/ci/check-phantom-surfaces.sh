@@ -157,8 +157,14 @@ else
     # call that had disappeared — the i18n bundle fetch did exactly that when
     # its wrapper was deleted, and this pool said the method reached web alone.
     surface_files frontend-mobile/src frontend-mobile/app > "$TMP/files_mobile.txt"
+    # `packages/ui-logic` holds the React Query hooks both clients bind to
+    # their own API instance: `createGroupHooks(groupsApi, …)` in each app's
+    # hooks/useGroups. The call sits in the shared factory, not in either app,
+    # so leaving it out of this pool read every group, notification and palette
+    # method as having no caller at all.
     surface_files packages/api-client/src packages/shared-constants/src \
-        packages/shared-types/src packages/mcp-types/src sdk/src > "$TMP/files_shared.txt"
+        packages/shared-types/src packages/mcp-types/src packages/ui-logic/src \
+        sdk/src > "$TMP/files_shared.txt"
 
     PROD_N=$(cat "$TMP"/files_*.txt 2>/dev/null | grep -c . || true)
 
