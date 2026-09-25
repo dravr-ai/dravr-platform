@@ -695,7 +695,7 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh" ]] \
 fi
 
 # ----------------------------------------------------------------------------
-# Tier 1l: hosted page stylesheet (compile-free, ~1s)
+# Tier 1l: generated Boreal stylesheets (compile-free, ~1s)
 # ----------------------------------------------------------------------------
 #
 # Every server-rendered hosted page embeds one stylesheet generated from the
@@ -703,18 +703,29 @@ fi
 # the generator, so the file is committed, and a committed generated file goes
 # stale the moment a token moves. The fourteen templates it replaced had each
 # kept a private copy of a palette the product retired months before, because
-# nothing tied them to the tokens. The gate regenerates and diffs, and holds
-# every hosted template to the shared sheet. It runs when anything the sheet is
-# built from, or anything that embeds it, is in the push.
+# nothing tied them to the tokens. The web and mobile stylesheets import token
+# blocks generated from the same source, for the same reason: each used to keep
+# a hand copy of the tree. The gate regenerates and diffs all three, holds every
+# hosted template to the shared sheet and each client stylesheet to its block.
+# It runs when anything a sheet is built from, or anything that embeds one, is
+# in the push; a change to the gate or its generators also runs its self-test.
 if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
     && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands)\.ts|scripts/generate-hosted-css\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^scripts/ci/check-hosted-css\.sh$'; then
-    echo "Tier 1l: Hosted page stylesheet"
-    echo "-------------------------------"
+       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands)\.ts|scripts/(generate-hosted-css|generate-client-css|wcag)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^frontend-mobile/(global|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+    echo "Tier 1l: Generated Boreal stylesheets"
+    echo "-------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh"; then
         echo ""
-        echo "FAIL: the hosted page stylesheet is stale, or a hosted template draws outside it!"
+        echo "FAIL: a generated Boreal stylesheet is stale, or a template or client stylesheet draws outside it!"
         exit 1
+    fi
+    if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+        | grep -qE '^packages/shared-constants/scripts/|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+        if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.test.sh"; then
+            echo ""
+            echo "FAIL: the generated-stylesheet gate no longer catches what its self-test plants!"
+            exit 1
+        fi
     fi
     echo ""
 fi

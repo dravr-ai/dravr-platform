@@ -19,12 +19,13 @@ is for what they cannot see.
 
 ```bash
 ./scripts/ci/design-system-validation.sh      # tokens, primitives, ratchets
+./scripts/ci/check-hosted-css.sh              # generated token blocks and hosted sheet
 cd frontend && bun run lint                   # bans raw <select>/<textarea>
 ```
 
 Everything these cover — stock Tailwind palette instead of §2 tokens, raw form
-controls outside `components/ui/`, retired `.input-dark`/`.select-dark`, missing
-token mirrors — is already enforced. If they pass, do not re-audit it by grep.
+controls outside `components/ui/`, retired `.input-dark`/`.select-dark`, a
+stale or hand-edited token block — is already enforced. If they pass, do not re-audit it by grep.
 If a ratchet fell, lower the baseline in the script as instructed.
 
 ### 2. LOOK AT IT

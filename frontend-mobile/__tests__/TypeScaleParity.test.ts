@@ -1,10 +1,9 @@
-// ABOUTME: Pins the phone's type ladder, faces, radii, hairlines and scrim (Boreal v2.2 Phase 2)
-// ABOUTME: The hairline strengths are read from the web stylesheet so the two clients cannot drift apart
+// ABOUTME: Pins the phone's type ladder, faces, radii, hairline classes and scrim (Boreal v2.2 Phase 2)
+// ABOUTME: The hairline and scrim values themselves are generated into both clients from one source
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { BOREAL_DARK, BOREAL_LIGHT } from '@pierre/shared-constants';
-import { BORDER_INK } from '../src/contexts/ThemeContext';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const tailwind = require('../tailwind.config.js') as {
@@ -20,17 +19,6 @@ const tailwind = require('../tailwind.config.js') as {
 };
 
 const mobileCss = readFileSync(join(__dirname, '..', 'global.css'), 'utf8');
-const webCss = readFileSync(join(__dirname, '..', '..', 'frontend', 'src', 'index.css'), 'utf8');
-
-/** `--name: value;` inside the block that starts at `selector {`. */
-function cssVar(css: string, selector: string, name: string): string {
-  const start = css.indexOf(`${selector} {`);
-  expect(start).toBeGreaterThanOrEqual(0);
-  const block = css.slice(start, css.indexOf('\n}', start));
-  const match = block.match(new RegExp(`${name}:\\s*([^;]+);`));
-  expect(match).not.toBeNull();
-  return (match as RegExpMatchArray)[1].trim();
-}
 
 const px = (value: string) => Number.parseInt(value, 10);
 
@@ -84,31 +72,12 @@ describe('the radius ladder', () => {
   });
 });
 
-describe('hairlines agree with the web (E2)', () => {
-  const strengths = [
-    ['--ghost-border-faint', 'faint'],
-    ['--ghost-border', 'default'],
-    ['--ghost-border-strong', 'strong'],
-  ] as const;
-
-  it.each(strengths)('%s matches frontend/src/index.css in light', (name) => {
-    expect(cssVar(mobileCss, ':root', name)).toBe(cssVar(webCss, ':root', name));
-  });
-
-  it.each(strengths)('%s matches frontend/src/index.css in dark', (name) => {
-    expect(cssVar(mobileCss, ':root.dark, .dark', name)).toBe(cssVar(webCss, 'html.dark', name));
-  });
-
-  it.each(strengths)('%s reaches inline styles at the same alpha (%s)', (name, key) => {
-    for (const [scheme, selector] of [
-      ['light', ':root'],
-      ['dark', ':root.dark, .dark'],
-    ] as const) {
-      const ink = BORDER_INK[scheme];
-      expect(cssVar(mobileCss, selector, name)).toBe(`rgba(${ink.rgb}, ${ink[key].toFixed(2)})`);
-    }
-  });
-
+// The hairline strengths and the scrim reach both stylesheets from
+// packages/shared-constants (`BORDER_INK`, `BOREAL_*.scrim`) through the
+// generated token block each imports, and the phone's inline styles read the
+// same constants, so the clients cannot disagree on a value. What stays the
+// phone's own is how its Tailwind config maps them.
+describe('hairlines (E2)', () => {
   it('the class path reads the variables, not a fixed alpha', () => {
     expect(tailwind.theme.extend.colors.border).toEqual({
       faint: 'var(--ghost-border-faint)',
@@ -119,9 +88,7 @@ describe('hairlines agree with the web (E2)', () => {
 });
 
 describe('one scrim', () => {
-  it('is the web value in both schemes, on the class path and the token tree', () => {
-    expect(cssVar(mobileCss, ':root', '--color-scrim')).toBe(cssVar(webCss, ':root', '--color-scrim'));
-    expect(cssVar(mobileCss, ':root.dark, .dark', '--color-scrim')).toBe(cssVar(webCss, 'html.dark', '--color-scrim'));
+  it('is the token tree value in both schemes, on the class path', () => {
     expect(BOREAL_LIGHT.scrim).toBe('#1a1c1b');
     expect(BOREAL_DARK.scrim).toBe('#000000');
     expect(tailwind.theme.extend.colors.scrim).toBe('rgb(var(--color-scrim) / <alpha-value>)');

@@ -11,18 +11,20 @@ import { fileURLToPath } from 'node:url';
 import { PRODUCT_WORDMARK } from '../src/brands';
 import {
   BOREAL,
+  BORDER_INK,
   BRAND_TRACKING,
   CONTAINER_INKS,
   CONTAINER_INKS_DARK,
-  GHOST_BORDER,
   MARK_INK,
   PRIMARY_HOVER,
   PROVIDER_GLYPH_INK,
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_DARK,
   TYPOGRAPHY,
+  ghostBorder,
   type ColorScheme,
 } from '../src/design-system';
+import { GRAPHIC_FLOOR, TEXT_FLOOR, contrast, hexToRgb, over, triple, type Rgb } from './wcag';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
@@ -38,10 +40,6 @@ export const HOSTED_CSS_PATH = resolve(REPO_ROOT, 'crates/pierre-core/src/hosted
  */
 const MARK_ASSET_PATH = resolve(REPO_ROOT, 'frontend/public/brand/mark-ink-96.png');
 const MARK_SIZE_PX = 32;
-
-/** WCAG 1.4.3 for text, 1.4.11 for a graphic or a component's edge. */
-const TEXT_FLOOR = 4.5;
-const GRAPHIC_FLOOR = 3;
 
 /** The notice draws `warning` as a /10 tint under a /40 edge, the pairing the web notice uses. */
 const NOTICE_TINT = 0.1;
@@ -59,37 +57,6 @@ const ERROR_EDGE = 0.4;
 const ERROR_ICON_TINT = 0.15;
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
-
-type Rgb = readonly [number, number, number];
-
-/** A `#rrggbb` token as a channel triple. */
-function hexToRgb(hex: string): Rgb {
-  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!match) {
-    throw new Error(`not a #rrggbb token: ${hex}`);
-  }
-  return [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)];
-}
-
-/** A colour drawn at `alpha` over an opaque ground, as the eye receives it. */
-function over(top: Rgb, alpha: number, ground: Rgb): Rgb {
-  return [0, 1, 2].map((i) => Math.round(top[i] * alpha + ground[i] * (1 - alpha))) as unknown as Rgb;
-}
-
-function channel(value: number): number {
-  const c = value / 255;
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-function luminance([r, g, b]: Rgb): number {
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-/** The WCAG contrast ratio between two opaque colours. */
-export function contrast(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 
 /** The tokens one scheme of the hosted pages draws with, each named for its role. */
 export interface HostedPalette {
@@ -195,11 +162,6 @@ export function measurePairings(scheme: ColorScheme): Measurement[] {
   return rows;
 }
 
-/** `#rrggbb` as the bare `r g b` triple every `--color-*` variable holds (DESIGN.md §2). */
-function triple(hex: string): string {
-  return hexToRgb(hex).join(' ');
-}
-
 /** CSS custom-property names for a provider id; ids are already `[a-z_]`. */
 function glyphVar(provider: string): string {
   return `--glyph-${provider.replace(/_/g, '-')}`;
@@ -238,7 +200,7 @@ function schemeVariables(scheme: ColorScheme, indent: string): string {
     ['mark', p.mark],
   ];
   const lines = colors.map(([name, hex]) => `--color-${name}: ${triple(hex)};`);
-  lines.push(`--ghost-border: ${GHOST_BORDER[scheme]};`);
+  lines.push(`--ghost-border: ${ghostBorder(BORDER_INK[scheme], 'default')};`);
   lines.push(`--check-glyph: ${checkGlyph(p.onPrimary)};`);
   for (const [provider, ink] of Object.entries(PROVIDER_GLYPH_INK)) {
     const value = ink[scheme];

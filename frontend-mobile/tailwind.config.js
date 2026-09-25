@@ -1,5 +1,5 @@
 // ABOUTME: NativeWind v4 Tailwind config — Dravr Boreal v2.2 tokens for the phone
-// ABOUTME: CSS variables drive light/dark — values declared in global.css
+// ABOUTME: CSS variables drive light/dark — values generated into boreal-tokens.generated.css
 
 const { TYPE_SCALE } = require('./src/constants/typeScale');
 
@@ -12,8 +12,9 @@ module.exports = {
   ],
   presets: [require('nativewind/preset')],
   // The `dark` class is toggled on the root view by the ThemeProvider; values
-  // for every `--color-*` token below live in global.css. Light is the
-  // declarative default, dark overrides under the `.dark` selector.
+  // for every `--color-*` token below live in boreal-tokens.generated.css,
+  // which global.css imports. Light is the declarative default, dark
+  // overrides under the `.dark` selector.
   darkMode: 'class',
   theme: {
     extend: {
@@ -67,7 +68,7 @@ module.exports = {
         },
 
         // The one veil behind a sheet or a dialog: `bg-scrim/60`, the web's
-        // value. Near-ink in light, black in dark (global.css).
+        // value. Near-ink in light, black in dark (`BOREAL_*.scrim`).
         scrim: 'rgb(var(--color-scrim) / <alpha-value>)',
 
         background: {
@@ -84,8 +85,8 @@ module.exports = {
           accent: 'rgb(var(--color-primary) / <alpha-value>)',
         },
 
-        // Hairlines, the web's three strengths (frontend/src/index.css
-        // `--ghost-border*`): `faint` for the dividers inside a list, the
+        // Hairlines, the web's three strengths (`BORDER_INK`, generated into
+        // both clients as `--ghost-border*`): `faint` for the dividers inside a list, the
         // default for pane edges, fields and the composer, `strong` for a
         // control's outline. Each variable carries its own alpha per scheme,
         // because a pale line needs more opacity on near-black than a dark
@@ -109,8 +110,8 @@ module.exports = {
         // Text that sits ON a tint of the hue above — the bound ink each hue
         // carries. At the /15 tint the hue drawn as its own label measures
         // 1.95:1 at worst in light and the ink 4.58:1; DESIGN.md §2 "Bound
-        // ink" carries the envelope. Values in global.css, the same names and
-        // the same triples the web config maps. The runtime path is
+        // ink" carries the envelope. Values in the generated token block, the
+        // same names and the same triples the web config maps. The runtime path is
         // `useThemeColors().ink.*`; these are the class path.
         'on-activity-container': 'rgb(var(--color-on-activity-container) / <alpha-value>)',
         'on-nutrition-container': 'rgb(var(--color-on-nutrition-container) / <alpha-value>)',

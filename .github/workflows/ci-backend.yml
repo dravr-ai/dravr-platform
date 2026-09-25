@@ -29,6 +29,8 @@ on:
       # generated capability catalogue left behind.
       - 'frontend/src/**'
       - 'frontend-mobile/src/**'
+      # The phone's stylesheet and the token block it imports sit at its root.
+      - 'frontend-mobile/*.css'
       - 'packages/**'
       - '.github/workflows/ci-backend.yml'
       # satellite-bump-gate.test.sh runs the gate step lifted out of this file.
@@ -70,6 +72,8 @@ on:
       - '.claude/skills/lib/**'
       - 'frontend/src/**'
       - 'frontend-mobile/src/**'
+      # The phone's stylesheet and the token block it imports sit at its root.
+      - 'frontend-mobile/*.css'
       - 'packages/**'
       - '.github/workflows/ci-backend.yml'
       # satellite-bump-gate.test.sh runs the gate step lifted out of this file.
@@ -245,16 +249,18 @@ jobs:
         run: ./scripts/ci/check-turn-envelope.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
       # The hosted pages embed one stylesheet generated from the Boreal tokens
-      # and committed, because the crates cannot run the generator. Regenerating
-      # it needs bun and no install (the generator imports only the tokens), so
-      # it stays compile-free like the rest of this job. The pre-push Tier 1l
-      # runs the same script, but a worktree without core.hooksPath skips it.
-      - name: Setup Bun (hosted page stylesheet)
+      # and committed, because the crates cannot run the generator; the web and
+      # mobile stylesheets import token blocks generated the same way.
+      # Regenerating them needs bun and no install (the generators import only
+      # the tokens), so it stays compile-free like the rest of this job. The
+      # pre-push Tier 1l runs the same script, but a worktree without
+      # core.hooksPath skips it.
+      - name: Setup Bun (generated stylesheets)
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.4"
 
-      - name: Hosted Page Stylesheet
+      - name: Boreal Generated Stylesheets
         run: ./scripts/ci/check-hosted-css.sh
 
       # pierre-database implements each repository trait twice, once per backend,
@@ -279,7 +285,7 @@ jobs:
       # Compile-free like the rest of this job. The dev-process and tunnel
       # suites spawn real processes and wait on them, so the block runs in tens
       # of seconds rather than the couple the source-reading gates take alone.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, worktree lib, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, twin surfaces, satellite pins, satellite gate, satellite Cloud Run tail, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets)
         run: |
           ./scripts/ci/check-file-sizes.test.sh
           ./scripts/ci/check-advisory-reviews.test.sh
@@ -307,6 +313,7 @@ jobs:
           ./scripts/ci/standing-issue.test.sh
           ./scripts/ci/sciotte-local.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
+          ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-satellite-drift.sh --offline
 
       # A `cargo test --test <name>` in a workflow whose target a push moved or

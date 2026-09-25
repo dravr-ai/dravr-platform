@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Measures the Boreal surface ladder instead of trusting it — every ratio in DESIGN.md §2, computed
-// ABOUTME: Also pins the three token mirrors and the two shell rules DESIGN.md §5 states for web and mobile
+// ABOUTME: Measures the Boreal surface ladder instead of trusting it — the separation ratios of DESIGN.md §2, computed
+// ABOUTME: Also pins DESIGN.md's token table to the shared tokens and the two shell rules DESIGN.md §5 states
 
 import fs from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
-import { BOREAL_LIGHT, BOREAL_DARK } from '@pierre/shared-constants';
+import { BOREAL_LIGHT, BOREAL_DARK, BORDER_INK, PRIMARY_HOVER, ghostBorder } from '@pierre/shared-constants';
+
+// The WCAG 4.5:1 floors — every text role on every tier, every bound ink on
+// its tint, every filled pair — are measured by the generator that writes the
+// client stylesheets from these tokens, which refuses to write below them
+// (packages/shared-constants/__tests__/client-css.test.ts). This file holds
+// the design's own targets above that floor.
 
 const REPO = path.join(__dirname, '..', '..', '..');
 const DESIGN_MD = fs.readFileSync(path.join(REPO, 'frontend', 'DESIGN.md'), 'utf8');
-const WEB_CSS = fs.readFileSync(path.join(REPO, 'frontend', 'src', 'index.css'), 'utf8');
-const MOBILE_CSS = fs.readFileSync(path.join(REPO, 'frontend-mobile', 'global.css'), 'utf8');
 
 /**
  * Thresholds from DESIGN.md §2 "Light tier separation".
@@ -25,8 +29,6 @@ const MOBILE_CSS = fs.readFileSync(path.join(REPO, 'frontend-mobile', 'global.cs
  */
 const TIER_STEP_MIN = 1.06;
 const RAISED_STEP_MIN = 1.18;
-/** WCAG 1.4.3 AA for body-size text. */
-const AA_TEXT = 4.5;
 
 function channel(value: number): number {
   const c = value / 255;
@@ -46,54 +48,12 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Read a CSS custom property's RGB triplet as `#rrggbb`. `nth` 1 = light, 2 = dark. */
-function cssToken(source: string, token: string, nth: 1 | 2): string {
-  const matches = [...source.matchAll(new RegExp(`--color-${token}:\\s*(\\d+) (\\d+) (\\d+);`, 'g'))];
-  const hit = matches[nth - 1];
-  expect(hit, `--color-${token} occurrence ${nth}`).toBeDefined();
-  return `#${[hit[1], hit[2], hit[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
-}
-
 /** Pull `| \`token\` | \`#hex\` |` style rows out of a DESIGN.md table. */
 function designMdHex(token: string): string {
   const row = new RegExp(`\\|\\s*\`${token}\`\\s*\\|\\s*\`(#[0-9a-f]{6})\``).exec(DESIGN_MD);
   expect(row, `DESIGN.md row for \`${token}\``).not.toBeNull();
   return (row as RegExpExecArray)[1];
 }
-
-/** Composite `fg` at `alpha` over `bg`, the way a `bg-token/15` tint resolves. */
-function composite(fg: string, alpha: number, bg: string): string {
-  const parse = (hex: string) =>
-    [0, 2, 4].map((i) => parseInt(hex.replace('#', '').slice(i, i + 2), 16));
-  const [fr, fg_, fb] = parse(fg);
-  const [br, bg_, bb] = parse(bg);
-  return `#${[
-    [fr, br],
-    [fg_, bg_],
-    [fb, bb],
-  ]
-    .map(([f, b]) => Math.round(alpha * f + (1 - alpha) * b))
-    .map((v) => v.toString(16).padStart(2, '0'))
-    .join('')}`;
-}
-
-/**
- * The avatar palette of the conversation list, and the pillar badges, paint
- * their ground as `bg-<pillar>/15` — an ALPHA over whatever surface the row
- * sits on, not an opaque container. So the ink's contrast is a function of the
- * surface underneath, and darkening the light ladder moved all six composites
- * at once. Two of these dropped below AA and only axe saw it, on the two slots
- * an e2e run happened to render.
- */
-const TINTED_SLOTS: ReadonlyArray<readonly [string, string]> = [
-  ['activity', 'on-activity-container'],
-  ['nutrition', 'on-nutrition-container'],
-  ['recovery', 'on-recovery-container'],
-  ['mobility', 'on-mobility-container'],
-  ['info', 'on-info-container'],
-];
-
-const TINT_ALPHA = 0.15;
 
 /** The light ladder, lightest first — the order a surface stacks in. */
 const LIGHT_LADDER: ReadonlyArray<readonly [string, string]> = [
@@ -103,16 +63,6 @@ const LIGHT_LADDER: ReadonlyArray<readonly [string, string]> = [
   ['surface-container', BOREAL_LIGHT.surfaceContainer],
   ['surface-container-high', BOREAL_LIGHT.surfaceContainerHigh],
   ['surface-container-highest', BOREAL_LIGHT.surfaceContainerHighest],
-];
-
-/** The same ladder in the dark scheme, so a tinted chip is checked in both. */
-const DARK_LADDER: ReadonlyArray<readonly [string, string]> = [
-  ['surface-container-lowest', BOREAL_DARK.surfaceContainerLowest],
-  ['surface', BOREAL_DARK.surface],
-  ['surface-container-low', BOREAL_DARK.surfaceContainerLow],
-  ['surface-container', BOREAL_DARK.surfaceContainer],
-  ['surface-container-high', BOREAL_DARK.surfaceContainerHigh],
-  ['surface-container-highest', BOREAL_DARK.surfaceContainerHighest],
 ];
 
 describe('the contrast helper agrees with WCAG', () => {
@@ -159,24 +109,6 @@ describe('light surface ladder — DESIGN.md §2 "Light tier separation"', () =>
       contrast(BOREAL_DARK.surfaceContainerHigh, BOREAL_DARK.surfaceContainerLow),
     ).toBeGreaterThanOrEqual(RAISED_STEP_MIN);
   });
-
-  it('keeps every text role at WCAG AA on every light tier', () => {
-    const inks: ReadonlyArray<readonly [string, string]> = [
-      ['on-surface', BOREAL_LIGHT.onSurface],
-      ['on-surface-variant', BOREAL_LIGHT.onSurfaceVariant],
-      ['outline', BOREAL_LIGHT.outline],
-      ['primary', BOREAL_LIGHT.primary],
-    ];
-
-    for (const [inkName, ink] of inks) {
-      for (const [tierName, tier] of LIGHT_LADDER) {
-        const ratio = contrast(ink, tier);
-        expect(ratio, `${inkName} on ${tierName} measured ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
-          AA_TEXT,
-        );
-      }
-    }
-  });
 });
 
 describe('primary is a usable green in both schemes', () => {
@@ -189,28 +121,17 @@ describe('primary is a usable green in both schemes', () => {
     expect(g).toBeGreaterThan(b + 10);
     // White on the filled primary, and the filled hover under the same white.
     expect(contrast('#ffffff', BOREAL_LIGHT.primary)).toBeGreaterThanOrEqual(7);
-    expect(contrast('#ffffff', cssToken(WEB_CSS, 'primary-hover', 1))).toBeGreaterThanOrEqual(7);
+    expect(contrast('#ffffff', PRIMARY_HOVER.light)).toBeGreaterThanOrEqual(7);
   });
 
   it('keeps the athlete bubble ink well clear of its tint in both schemes', () => {
     expect(contrast(BOREAL_LIGHT.onPrimaryContainer, BOREAL_LIGHT.primaryContainer)).toBeGreaterThanOrEqual(7);
     expect(contrast(BOREAL_DARK.onPrimaryContainer, BOREAL_DARK.primaryContainer)).toBeGreaterThanOrEqual(7);
   });
-
-  it('is the mint ink on the dark canvas', () => {
-    for (const tier of [
-      BOREAL_DARK.surface,
-      BOREAL_DARK.surfaceContainerLow,
-      BOREAL_DARK.surfaceContainer,
-      BOREAL_DARK.surfaceContainerHigh,
-    ]) {
-      expect(contrast(BOREAL_DARK.primary, tier)).toBeGreaterThanOrEqual(AA_TEXT);
-    }
-  });
 });
 
-describe('the three token mirrors agree with DESIGN.md', () => {
-  const mirrored: ReadonlyArray<readonly [string, keyof typeof BOREAL_LIGHT]> = [
+describe('DESIGN.md states the shipped token values', () => {
+  const documented: ReadonlyArray<readonly [string, keyof typeof BOREAL_LIGHT]> = [
     ['surface', 'surface'],
     ['surface-container-lowest', 'surfaceContainerLowest'],
     ['surface-container-low', 'surfaceContainerLow'],
@@ -223,42 +144,16 @@ describe('the three token mirrors agree with DESIGN.md', () => {
     ['on-primary-container', 'onPrimaryContainer'],
   ];
 
-  it.each(mirrored)('%s matches across DESIGN.md, web CSS, mobile CSS and shared-constants', (cssName, tsName) => {
-    const source = BOREAL_LIGHT[tsName];
-    expect(designMdHex(cssName)).toBe(source);
-    expect(cssToken(WEB_CSS, cssName, 1)).toBe(source);
-    expect(cssToken(MOBILE_CSS, cssName, 1)).toBe(source);
-  });
-
-  it('mirrors the dark primary pair too', () => {
-    expect(cssToken(WEB_CSS, 'primary', 2)).toBe(BOREAL_DARK.primary);
-    expect(cssToken(MOBILE_CSS, 'primary', 2)).toBe(BOREAL_DARK.primary);
-    expect(cssToken(WEB_CSS, 'primary-container', 2)).toBe(BOREAL_DARK.primaryContainer);
-    expect(cssToken(MOBILE_CSS, 'primary-container', 2)).toBe(BOREAL_DARK.primaryContainer);
-  });
-
-  it('mirrors the dark outline, a text role, at AA on every dark tier', () => {
-    // Web raised it for contrast while mobile and shared-constants kept the
-    // older value, which measured 3.91:1 on surface-container-highest.
-    expect(cssToken(WEB_CSS, 'outline', 2)).toBe(BOREAL_DARK.outline);
-    expect(cssToken(MOBILE_CSS, 'outline', 2)).toBe(BOREAL_DARK.outline);
-    for (const tier of [
-      BOREAL_DARK.surface,
-      BOREAL_DARK.surfaceContainerLow,
-      BOREAL_DARK.surfaceContainer,
-      BOREAL_DARK.surfaceContainerHigh,
-      BOREAL_DARK.surfaceContainerHighest,
-    ]) {
-      expect(contrast(BOREAL_DARK.outline, tier)).toBeGreaterThanOrEqual(AA_TEXT);
-    }
+  it.each(documented)('the %s row carries the shared-constants value', (cssName, tsName) => {
+    expect(designMdHex(cssName)).toBe(BOREAL_LIGHT[tsName]);
   });
 
   it('gives light the darker ghost-border ink and dark the pale one', () => {
     // A hairline has to contrast with what it sits on, and the two grounds are
-    // opposite. Mobile shipped the dark ink in both schemes.
-    expect(cssToken(MOBILE_CSS, 'border', 1)).toBe('#9ba59f');
-    expect(cssToken(MOBILE_CSS, 'border', 2)).toBe('#c0c8c3');
-    expect(DESIGN_MD).toContain('rgba(155, 165, 159, 0.40)');
+    // opposite. Mobile once shipped the dark ink in both schemes.
+    const ink = (rgb: string) => `#${rgb.split(', ').map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+    expect(luminance(ink(BORDER_INK.light.rgb))).toBeLessThan(luminance(ink(BORDER_INK.dark.rgb)));
+    expect(DESIGN_MD).toContain(ghostBorder(BORDER_INK.light, 'default'));
   });
 });
 
@@ -290,32 +185,4 @@ describe('DESIGN.md §5 states one shell rule per client', () => {
     expect(regionTable).toContain('72px column');
     expect(regionTable).toContain('The phone has no rail');
   });
-});
-
-describe('a tinted chip clears AA on every tier it can sit on', () => {
-  for (const [tint, ink] of TINTED_SLOTS) {
-    it(`${ink} on ${tint}/15, over the whole light ladder`, () => {
-      const tintHex = cssToken(WEB_CSS, tint, 1);
-      const inkHex = cssToken(WEB_CSS, ink, 1);
-      for (const [name, surface] of LIGHT_LADDER) {
-        const ground = composite(tintHex, TINT_ALPHA, surface);
-        expect(
-          contrast(inkHex, ground),
-          `${ink} on ${tint}/15 over ${name} (${ground})`,
-        ).toBeGreaterThanOrEqual(AA_TEXT);
-      }
-    });
-
-    it(`${ink} on ${tint}/15, over the whole dark ladder`, () => {
-      const tintHex = cssToken(WEB_CSS, tint, 2);
-      const inkHex = cssToken(WEB_CSS, ink, 2);
-      for (const [name, surface] of DARK_LADDER) {
-        const ground = composite(tintHex, TINT_ALPHA, surface);
-        expect(
-          contrast(inkHex, ground),
-          `${ink} on ${tint}/15 over ${name} (${ground})`,
-        ).toBeGreaterThanOrEqual(AA_TEXT);
-      }
-    });
-  }
 });
