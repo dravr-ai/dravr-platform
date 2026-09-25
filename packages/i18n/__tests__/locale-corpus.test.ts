@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Guards the client string corpus the way CI guards the server's — every key, every locale
+// ABOUTME: Guards the string corpus both clients and the server render — every key, every locale, no blanks
 // ABOUTME: A locale offered in the switcher but missing keys would ship an advertised-but-empty language
 
 import { describe, it, expect } from 'vitest';
-import { SUPPORTED_LANGUAGES, defaultI18nConfig, DEFAULT_LANGUAGE } from '@pierre/i18n';
+import { SUPPORTED_LANGUAGES, defaultI18nConfig, DEFAULT_LANGUAGE } from '../src/config';
 
 /** Flatten a translation bundle to its dot-notation leaf keys. */
 function leafKeys(bundle: unknown, prefix = ''): string[] {
@@ -311,6 +311,23 @@ describe('client locale corpus', () => {
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);
+    }
+  });
+
+  it('carries no blank value in any locale', () => {
+    // A key present in all five locales passes the parity check above while
+    // rendering as nothing; an empty string is a missing translation that
+    // parity cannot see.
+    const blanks = (bundle: unknown, path: string): string[] => {
+      if (typeof bundle === 'string') return bundle.trim() === '' ? [path] : [];
+      if (typeof bundle !== 'object' || bundle === null) return [];
+      return Object.entries(bundle as Record<string, unknown>).flatMap(([key, value]) =>
+        blanks(value, path === '' ? key : `${path}.${key}`),
+      );
+    };
+
+    for (const language of SUPPORTED_LANGUAGES) {
+      expect({ language, blank: blanks(bundleFor(language), '') }).toEqual({ language, blank: [] });
     }
   });
 

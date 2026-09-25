@@ -6,42 +6,12 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ReplyNotice } from '@pierre/shared-types';
+import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { quotaNoticeBanner } from '@pierre/chat-utils';
+import { formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
 import type { Translate } from '@pierre/chat-utils';
-import { apiClient } from '../../services/api';
+import { usageApi } from '../../services/api';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-
-/** Single counter limit check result from the backend */
-export interface LimitCheckResult {
-  allowed: boolean;
-  current: number;
-  limit: number;
-  warning: boolean;
-  burst_zone: boolean;
-  resets_at: string;
-}
-
-/** Usage status response */
-export interface UsageStatusResponse {
-  daily: {
-    messages: LimitCheckResult;
-    tokens: LimitCheckResult;
-    tool_calls: LimitCheckResult;
-  };
-  weekly: {
-    messages: LimitCheckResult;
-    tokens: LimitCheckResult;
-    tool_calls: LimitCheckResult;
-  };
-  resources: {
-    conversations: number;
-    max_conversations: number;
-    agents: number;
-    max_agents: number;
-  };
-}
 
 /** Warning level for display */
 export type WarningLevel = 'none' | 'warning' | 'burst' | 'blocked';
@@ -66,19 +36,6 @@ function getCounterLevel(counter: LimitCheckResult): WarningLevel {
   if (counter.burst_zone) return 'burst';
   if (counter.warning) return 'warning';
   return 'none';
-}
-
-function formatResetTime(isoString: string, fallback: string): string {
-  try {
-    const date = new Date(isoString);
-    return new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZoneName: 'short',
-    }).format(date);
-  } catch {
-    return fallback;
-  }
 }
 
 /**
@@ -193,10 +150,7 @@ export function useUsageStatus() {
 
   const { data, isLoading } = useQuery<UsageStatusResponse>({
     queryKey: QUERY_KEYS.usage.status(),
-    queryFn: async () => {
-      const response = await apiClient.get('/api/usage/status');
-      return response.data;
-    },
+    queryFn: () => usageApi.getStatus(),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });

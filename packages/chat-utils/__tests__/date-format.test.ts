@@ -1,33 +1,51 @@
-// ABOUTME: formatDateTime is the one stamp every "saved earlier" surface shows, in the reader's locale
-// ABOUTME: Fifteen sites spelled it before this, twelve of them hard-coding en-US
+// ABOUTME: formatDateTime and formatDate are the one stamp every "saved earlier" surface shows, in the reader's locale
+// ABOUTME: Pins the exact strings, so a copy that hard-codes en-US or drops the time cannot pass as this
 
-import { describe, expect, it } from 'vitest';
-import { formatDateTime } from '../src/date-format';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { formatDate, formatDateTime } from '../src/date-format';
 
 /** 13 April 2026, 18:05 UTC — a date whose month abbreviates differently per locale. */
 const ISO = '2026-04-13T18:05:00Z';
 
-describe('formatDateTime', () => {
-  it('spells the month in the reader language', () => {
-    const french = formatDateTime(ISO, 'fr');
-    const english = formatDateTime(ISO, 'en-US');
+// The stamps render in the process's zone; pin it so the day and the hour are exact.
+const savedZone = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = 'UTC';
+});
+afterAll(() => {
+  process.env.TZ = savedZone;
+});
 
-    expect(french).toContain('avr');
-    expect(french).toContain('2026');
-    expect(english).toContain('Apr');
-    expect(english).toContain('2026');
-    expect(french).not.toBe(english);
+describe('formatDateTime', () => {
+  it('spells the stamp in the reader language', () => {
+    expect(formatDateTime(ISO, 'fr')).toBe('13 avr. 2026, 18:05');
+    expect(formatDateTime(ISO, 'en-US')).toMatch(/^Apr 13, 2026, 6:05\sPM$/);
   });
 
   it('carries a time, not only a date', () => {
-    // The admin tables this replaces showed a time; dropping it would lose the
+    // The admin tables it serves showed a time; dropping it would lose the
     // only thing that distinguishes two rows saved on one day.
-    expect(formatDateTime(ISO, 'en-US')).toMatch(/\d{1,2}:\d{2}/);
-    expect(formatDateTime(ISO, 'fr')).toMatch(/\d{1,2}:\d{2}/);
+    expect(formatDateTime(ISO, 'de')).toMatch(/18:05$/);
   });
 
   it('returns an unparseable stamp verbatim rather than "Invalid Date"', () => {
     expect(formatDateTime('not a date', 'fr')).toBe('not a date');
     expect(formatDateTime('', 'en-US')).toBe('');
+  });
+});
+
+describe('formatDate', () => {
+  it('spells the day in the reader language, with no time', () => {
+    expect(formatDate(ISO, 'en-US')).toBe('Apr 13, 2026');
+    expect(formatDate(ISO, 'fr')).toBe('13 avr. 2026');
+    expect(formatDate(ISO, 'es')).toBe('13 abr 2026');
+  });
+
+  it('keeps the abbreviated month where dateStyle medium would go numeric', () => {
+    expect(formatDate(ISO, 'de')).toBe('13. Apr. 2026');
+  });
+
+  it('returns an unparseable stamp verbatim rather than "Invalid Date"', () => {
+    expect(formatDate('not a date', 'fr')).toBe('not a date');
   });
 });

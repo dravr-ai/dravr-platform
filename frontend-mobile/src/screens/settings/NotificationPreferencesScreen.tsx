@@ -6,65 +6,24 @@ import { View, Text, Pressable, Switch, ActivityIndicator } from 'react-native';
 import { PaneScrollView, Section, TextTabs } from '../../components/ui';
 import type { NotificationCategory } from '@pierre/shared-types';
 import {
+  NOTIFICATION_CATEGORY_BLURB_KEYS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  NOTIFICATION_QUIET_HOUR_VALUES,
+  localTimezone,
   mergeNotificationPreferences,
+  notificationCapLabel,
   notificationPreferenceUpdate,
 } from '../../../../packages/shared-constants/src/notifications';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { useNotificationPreferences } from '../../hooks/useNotifications';
 import { useTranslation } from '@pierre/i18n';
 
-/**
- * What each category actually sends, in the athlete's words.
- *
- * Keys, not copy, and identical to the web tab's map: the two surfaces describe
- * the same switch, so a difference here would be a difference in what the
- * athlete believes muting costs them. Holding the English sentences inline was
- * that difference — the default locale is French, so this screen described every
- * category in a language the rest of the screen was not speaking.
- */
-const CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
-  training: 'notifPrefs.blurbTraining',
-  recovery: 'notifPrefs.blurbRecovery',
-  coach: 'notifPrefs.blurbAgent',
-  achievement: 'notifPrefs.blurbAchievement',
-  system: 'notifPrefs.blurbSystem',
-  ai: 'notifPrefs.blurbAi',
-  reminders: 'notifPrefs.blurbReminders',
-};
-
-/** Quiet-hours boundaries on the hour, plus "Off" as an empty value. */
-const QUIET_HOUR_VALUES: readonly string[] = [
-  '',
-  ...Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
-];
-
 /** The tab key of a quiet-hours boundary: the hour itself, or `off` for none. */
 const QUIET_OFF_KEY = 'off';
 
 /** The tab key of the daily cap that means no cap. */
 const CAP_NONE_KEY = 'none';
-
-/** The device's IANA zone, used when a category has never had one stored. */
-function localTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}
-
-/**
- * Label for one daily-cap choice.
- *
- * Takes `t` rather than reading a module-level instance: the caller is inside
- * the component, so the label re-renders when the athlete changes language.
- */
-function capLabel(choice: number | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  if (choice === null) return t('frag.noLimit');
-  return choice === 1 ? t('frag.perDayOne') : t('frag.perDayN', { count: choice });
-}
 
 /**
  * Manage which notification categories reach this athlete.
@@ -100,13 +59,13 @@ export function NotificationPreferencesScreen() {
     () =>
       NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => ({
         key: choice === null ? CAP_NONE_KEY : String(choice),
-        label: capLabel(choice, t),
+        label: notificationCapLabel(choice, t),
       })),
     [t],
   );
   const quietHourItems = useMemo(
     () =>
-      QUIET_HOUR_VALUES.map((value) => ({
+      NOTIFICATION_QUIET_HOUR_VALUES.map((value) => ({
         key: value === '' ? QUIET_OFF_KEY : value,
         label: value === '' ? t('notifPrefs.off') : value,
       })),
@@ -142,8 +101,8 @@ export function NotificationPreferencesScreen() {
                   key={pref.category}
                   title={meta ? t(meta.labelKey) : pref.category}
                   description={
-                    CATEGORY_BLURB_KEYS[pref.category]
-                      ? t(CATEGORY_BLURB_KEYS[pref.category])
+                    NOTIFICATION_CATEGORY_BLURB_KEYS[pref.category]
+                      ? t(NOTIFICATION_CATEGORY_BLURB_KEYS[pref.category])
                       : t('notifPrefs.categoryBlurbFallback')
                   }
                   testID={`notification-pref-${pref.category}`}

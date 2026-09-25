@@ -8,6 +8,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import { Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
 import type { ConversationRowModel } from '@pierre/chat-utils';
+import { badgeLabel } from '@pierre/shared-constants';
 import { IconButton, Input } from '../ui';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
@@ -285,7 +286,7 @@ const ConversationItem = memo(function ConversationItem({
                 aria-label={t('chat.unreadCountAria', { count: row.unreadCount })}
                 className="flex h-[18px] min-w-[18px] flex-shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold leading-none text-on-primary"
               >
-                {row.unreadCount > 99 ? '99+' : row.unreadCount}
+                {badgeLabel(row.unreadCount)}
               </span>
             )}
           </div>

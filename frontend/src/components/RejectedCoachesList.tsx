@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { formatDateTime } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -38,21 +40,12 @@ function getReasonLabel(reason: string): string {
 }
 
 export default function RejectedCoachesList() {
+  const { language } = useTranslation();
   // Fetch rejected agents
   const { data, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminStore.rejected(),
     queryFn: () => adminApi.getRejectedStoreCoaches(),
   });
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   if (isLoading) {
     return (
@@ -141,7 +134,7 @@ export default function RejectedCoachesList() {
                           {getReasonLabel(coach.rejection_reason)}
                         </span>
                         <span className="text-xs text-outline flex-shrink-0">
-                          {formatDate(coach.rejected_at)}
+                          {formatDateTime(coach.rejected_at, language)}
                         </span>
                       </div>
                       {coach.rejection_notes && (

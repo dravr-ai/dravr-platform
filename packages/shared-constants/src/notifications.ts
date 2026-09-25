@@ -1,5 +1,5 @@
 // ABOUTME: Shared notification constants and utilities for web and mobile
-// ABOUTME: Category metadata (scheme-aware hues, labels, icon names), time formatting, preference merging
+// ABOUTME: Category metadata (scheme-aware hues, labels, blurbs, icon names), time formatting, preference choices and merging
 
 import type { ColorScheme } from './design-system';
 import type {
@@ -196,6 +196,60 @@ export const NOTIFICATION_MAX_PER_DAY_CHOICES: readonly (number | null)[] = [
   10,
   20,
 ] as const;
+
+/**
+ * What each category actually sends, in the athlete's words, as catalogue keys.
+ *
+ * The category metadata carries the label, the colour and the icon — the three
+ * things a notification row needs. A preferences surface needs one more thing:
+ * what muting the category costs you. Both surfaces describe the same switch,
+ * so they read the one map: a difference here would be a difference in what
+ * the athlete believes muting costs them.
+ */
+export const NOTIFICATION_CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
+  training: 'notifPrefs.blurbTraining',
+  recovery: 'notifPrefs.blurbRecovery',
+  coach: 'notifPrefs.blurbAgent',
+  achievement: 'notifPrefs.blurbAchievement',
+  system: 'notifPrefs.blurbSystem',
+  ai: 'notifPrefs.blurbAi',
+  reminders: 'notifPrefs.blurbReminders',
+};
+
+/**
+ * Quiet-hours boundaries on the hour, with `''` first for "Off".
+ *
+ * The wire format is `HH:MM`; the server compares against it directly, so the
+ * values are generated in that format rather than parsed back from a label.
+ */
+export const NOTIFICATION_QUIET_HOUR_VALUES: readonly string[] = [
+  '',
+  ...Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`),
+];
+
+/**
+ * The device's IANA zone, stored with quiet hours on a category that has never
+ * had one. `UTC` when the runtime cannot name its zone.
+ */
+export function localTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Label for one daily-cap choice.
+ *
+ * Takes the caller's `t` rather than holding a translator: this module has no
+ * locale, and the caller re-renders the label when the athlete changes
+ * language.
+ */
+export function notificationCapLabel(choice: number | null, t: Translate): string {
+  if (choice === null) return t('frag.noLimit');
+  return choice === 1 ? t('frag.perDayOne') : t('frag.perDayN', { count: choice });
+}
 
 /**
  * Build the request that changes one field of a category preference.

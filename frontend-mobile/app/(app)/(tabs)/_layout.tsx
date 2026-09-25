@@ -8,10 +8,11 @@ import React from 'react';
 import { Platform, View } from 'react-native';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useTranslation } from '@pierre/i18n';
+import { badgeLabel } from '@pierre/shared-constants';
 import { ServerStatusBanner } from '../../../src/components/ServerStatusBanner';
 import { useServerStatus } from '../../../src/hooks/useServerStatus';
 import { useThemeColors } from '../../../src/constants/theme';
-import { badgeLabel, TAB_BAR_TABS } from '../../../src/navigation/tabs';
+import { TAB_BAR_TABS } from '../../../src/navigation/tabs';
 import { useConversationRows } from '../../../src/screens/conversations/useConversationList';
 
 export default function TabsLayout() {

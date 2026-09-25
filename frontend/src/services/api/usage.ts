@@ -1,46 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Usage status API methods for quota checking and LLM consumption analytics
-// ABOUTME: Provides data for usage warning banners and admin consumption dashboards
+// ABOUTME: Admin usage analytics — LLM consumption and per-tool usage across a tenant
+// ABOUTME: Web-only; the calling user's own quota counters come from @pierre/api-client's usage domain
 
 import { axios } from './client';
-
-/** Single counter limit check result from the backend */
-export interface LimitCheckResult {
-  /** Whether the request is allowed (under hard limit) */
-  allowed: boolean;
-  /** Current counter value */
-  current: number;
-  /** Configured soft limit */
-  limit: number;
-  /** Whether the user is approaching the limit (at or above warning threshold) */
-  warning: boolean;
-  /** Whether the user is in the burst zone (between limit and hard limit) */
-  burst_zone: boolean;
-  /** ISO 8601 timestamp when the counter resets */
-  resets_at: string;
-}
-
-/** Usage status response from GET /api/usage/status */
-export interface UsageStatusResponse {
-  daily: {
-    messages: LimitCheckResult;
-    tokens: LimitCheckResult;
-    tool_calls: LimitCheckResult;
-  };
-  weekly: {
-    messages: LimitCheckResult;
-    tokens: LimitCheckResult;
-    tool_calls: LimitCheckResult;
-  };
-  resources: {
-    conversations: number;
-    max_conversations: number;
-    agents: number;
-    max_agents: number;
-  };
-}
 
 /** LLM consumption breakdown item */
 export interface ConsumptionBreakdownItem {
@@ -90,13 +54,7 @@ export interface ToolUsageResponse {
   days: number;
 }
 
-export const usageApi = {
-  /** Fetch current usage status (quotas, counters, warnings) */
-  async getStatus(): Promise<UsageStatusResponse> {
-    const response = await axios.get('/api/usage/status');
-    return response.data;
-  },
-
+export const adminUsageApi = {
   /** Fetch LLM consumption analytics (admin-scoped, optional tenant) */
   async getAdminLlmConsumption(days: number = 30, groupBy?: string, tenantId?: string): Promise<LlmConsumptionResponse> {
     const params = new URLSearchParams();

@@ -9,6 +9,7 @@ import { Button, Section, Badge, StatusIndicator, StatusFilter, ConfirmDialog } 
 import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
 /**
  * How long ago `date` was, in the athlete's language.
  *
@@ -28,17 +29,6 @@ const formatDistanceToNow = (date: Date, language: string): string => {
   const days = Math.round(elapsedMs / 86_400_000);
   if (Math.abs(days) < 1) return relative.format(hours, 'hour');
   return relative.format(days, 'day');
-};
-
-const format = (date: Date, pattern: string) => {
-  if (pattern === 'MMM d, yyyy') {
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
-    });
-  }
-  return date.toLocaleDateString();
 };
 
 interface A2AClientListProps {
@@ -349,7 +339,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       <div className="flex justify-between">
                         <span className="text-on-surface-variant">{t('a2a.resets')}</span>
                         <span className="font-medium text-on-surface">
-                          {format(new Date(clientRateLimit.reset_at), 'MMM d, yyyy')}
+                          {formatDate(clientRateLimit.reset_at, language)}
                         </span>
                       </div>
                     )}

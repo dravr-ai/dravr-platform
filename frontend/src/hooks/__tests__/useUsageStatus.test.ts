@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { computeWarningState, warningStateFromNotice } from '../useUsageStatus'
-import type { UsageStatusResponse, LimitCheckResult } from '../../services/api/usage'
+import type { UsageStatusResponse, LimitCheckResult } from '@pierre/shared-types'
 
 function makeLimitCheck(overrides: Partial<LimitCheckResult> = {}): LimitCheckResult {
   return {

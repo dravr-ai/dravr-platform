@@ -53,8 +53,12 @@ export {
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CATEGORY_BLURB_KEYS,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  NOTIFICATION_QUIET_HOUR_VALUES,
   defaultNotificationPreference,
+  localTimezone,
+  notificationCapLabel,
   mergeNotificationPreferences,
   notificationPreferenceUpdate,
   formatNotificationTime,
@@ -188,3 +192,9 @@ export {
   isDelegationRefusal,
   delegationRefusalKey,
 } from './delegation';
+
+// The keyless basemap both route cards draw over, per colour scheme
+export { BASEMAP_STYLE } from './route-map';
+
+// What every unread and notification badge prints for a count
+export { badgeLabel } from './badge';

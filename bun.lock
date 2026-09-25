@@ -169,6 +169,7 @@
       },
       "devDependencies": {
         "@pierre/shared-types": "*",
+        "@types/geojson": "^7946.0.16",
         "typescript": "~5.8.3",
         "vitest": "^4.1.8",
       },
@@ -209,6 +210,7 @@
         "@types/react": "^19.1.2",
         "react": "^19.2.0",
         "typescript": "~5.8.3",
+        "vitest": "^4.1.8",
       },
       "peerDependencies": {
         "@react-native-async-storage/async-storage": "^2.2.0",

@@ -230,6 +230,11 @@ export const ENDPOINTS = {
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
+  // ==================== USAGE ====================
+  USAGE: {
+    /** The calling user's quota counters and resource caps */
+    STATUS: '/api/usage/status',
+  },
   // ==================== PERSONAS ====================
   PERSONAS: {
     /** The « Style de coaching » cards, rendered from the live contract registry */

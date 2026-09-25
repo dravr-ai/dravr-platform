@@ -6,10 +6,14 @@
 
 import { useMemo, useState } from 'react';
 import {
+  NOTIFICATION_CATEGORY_BLURB_KEYS,
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  NOTIFICATION_QUIET_HOUR_VALUES,
+  localTimezone,
   mergeNotificationPreferences,
+  notificationCapLabel,
   notificationPreferenceUpdate,
 } from '@pierre/shared-constants';
 import type { NotificationCategory } from '@pierre/shared-types';
@@ -19,62 +23,21 @@ import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
 
 /**
- * What each category actually sends, in the athlete's words.
+ * Quiet-hours boundaries as select options, the empty value labelled "Off".
  *
- * The shared metadata carries the label, the colour and the icon — the three
- * things a notification row needs. A preferences screen needs one more thing:
- * what muting the category costs you. That sentence is only meaningful next to
- * a switch, so it lives with the switch rather than in the shared metadata.
- */
-const CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
-  training: 'notifPrefs.blurbTraining',
-  recovery: 'notifPrefs.blurbRecovery',
-  coach: 'notifPrefs.blurbAgent',
-  achievement: 'notifPrefs.blurbAchievement',
-  system: 'notifPrefs.blurbSystem',
-  ai: 'notifPrefs.blurbAi',
-  reminders: 'notifPrefs.blurbReminders',
-};
-
-/** The browser's IANA zone, used when a category has never had one stored. */
-function localTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}
-
-/**
- * Quiet-hours boundaries on the hour, plus "Off".
- *
- * The wire format is `HH:MM`; the server compares against it directly, so the
- * options are generated in that format rather than parsed back from a label.
+ * The values are the shared `HH:MM` list the server compares against directly,
+ * so an option is never parsed back from its label.
  */
 function quietHourOptions(offLabel: string) {
-  return [
-  { value: '', label: offLabel },
-  ...Array.from({ length: 24 }, (_, hour) => {
-    const value = `${String(hour).padStart(2, '0')}:00`;
-    return { value, label: value };
-  }),
-];
+  return NOTIFICATION_QUIET_HOUR_VALUES.map((value) => ({
+    value,
+    label: value === '' ? offLabel : value,
+  }));
 }
 
 /** A `null` cap means "no limit"; the select round-trips that as an empty value. */
 function capValue(max: number | null): string {
   return max === null ? '' : String(max);
-}
-
-/**
- * Label for one daily-cap choice.
- *
- * Takes the translator rather than calling the hook: this is a plain helper,
- * not a component, and a hook here is a rules-of-hooks violation.
- */
-function capLabel(choice: number | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
-  if (choice === null) return t('frag.noLimit');
-  return choice === 1 ? t('frag.perDayOne') : t('frag.perDayN', { count: choice });
 }
 
 /**
@@ -141,7 +104,7 @@ export default function NotificationSettingsTab() {
                     </h3>
                   </div>
                   <p className="text-sm text-on-surface-variant leading-relaxed">
-                    {CATEGORY_BLURB_KEYS[pref.category] ? t(CATEGORY_BLURB_KEYS[pref.category]) : t('notifPrefs.categoryBlurbFallback')}
+                    {NOTIFICATION_CATEGORY_BLURB_KEYS[pref.category] ? t(NOTIFICATION_CATEGORY_BLURB_KEYS[pref.category]) : t('notifPrefs.categoryBlurbFallback')}
                   </p>
                 </div>
 
@@ -190,7 +153,7 @@ export default function NotificationSettingsTab() {
                     data-testid={`notification-pref-cap-${pref.category}`}
                     options={NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => ({
                       value: capValue(choice),
-                      label: capLabel(choice, t),
+                      label: notificationCapLabel(choice, t),
                     }))}
                     onChange={(e) =>
                       updatePreference(

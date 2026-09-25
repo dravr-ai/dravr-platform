@@ -51,3 +51,5 @@ export const featureFlagsApi = api.featureFlags;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const personasApi = api.personas;
 export const i18nApi = api.i18n;
+// The calling user's quota counters, polled by the chat banner and the usage card.
+export const usageApi = api.usage;
