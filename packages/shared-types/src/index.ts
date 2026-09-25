@@ -221,3 +221,6 @@ export type { PersonaCard, PersonaRule, PersonasResponse } from './personas';
 
 export { MEMORY_FACT_KINDS } from './memory';
 export type { MemoryFactKind } from './memory';
+
+// The quota counters GET /api/usage/status serves
+export type { LimitCheckResult, UsageStatusResponse } from './usage';

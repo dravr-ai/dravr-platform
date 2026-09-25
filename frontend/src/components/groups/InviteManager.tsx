@@ -10,6 +10,7 @@ import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hoo
 import { Button, Card, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { formatDateTime } from '@pierre/chat-utils';
 import type {
   GroupRole,
   GroupInvite,
@@ -48,17 +49,6 @@ function kind_options(t: (key: string) => string): SelectOption[] {
   { value: 'member', label: t('groups.inviteTypeMember') },
   { value: 'coach', label: t('humanCoach.coach') },
 ];
-}
-
-/** A date in the reader's language, not the browser's. */
-function formatDate(dateStr: string, language: string): string {
-  return new Date(dateStr).toLocaleDateString(language, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function isExpired(invite: GroupInvite): boolean {
@@ -249,7 +239,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                       })}
                     </span>
                     {invite.expires_at && (
-                      <span>{t('frag.expires')} {formatDate(invite.expires_at, i18n.language)}</span>
+                      <span>{t('frag.expires')} {formatDateTime(invite.expires_at, i18n.language)}</span>
                     )}
                     {!invite.expires_at && <span>{t('groups.inviteNoExpiry')}</span>}
                   </div>

@@ -1,31 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: GeoJSON and the MapLibre layer recipe for one hydrated route block
+// ABOUTME: The MapLibre layer recipe and viewport for one hydrated route block
 // ABOUTME: White casing under a token-coloured line, the dash carrying the climb state
 
 import type { LngLatBoundsLike, Map as MapLibreMap } from 'maplibre-gl';
 import type { LineString, MultiLineString } from 'geojson';
-import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
+import type { RouteBounds } from '@pierre/scene-types';
 import { BOREAL, type ColorScheme } from '@pierre/shared-constants';
-
-/**
- * OpenFreeMap serves the vector basemap and its glyph ranges without a key and
- * without an account, which is why it is the basemap here: a route card that
- * needed a vendor token could not render for an athlete at all until someone
- * provisioned one.
- *
- * Two styles rather than one, because a map is the largest block of colour the
- * thread ever shows and a paper-white basemap on the near-black canvas is a
- * lamp. `positron` is the quietest style OpenFreeMap publishes — a desaturated
- * ground that leaves the track as the only saturated thing on it — and `dark`
- * is its counterpart. Both carry the same glyphs endpoint, so labels resolve
- * either way.
- */
-export const BASEMAP_STYLE: Record<ColorScheme, string> = {
-  light: 'https://tiles.openfreemap.org/styles/positron',
-  dark: 'https://tiles.openfreemap.org/styles/dark',
-};
 
 /** The whole recorded track. */
 export const TRACK_SOURCE = 'route-track';
@@ -68,50 +50,6 @@ export interface RouteInk {
 export function routeInk(scheme: ColorScheme): RouteInk {
   const tokens = BOREAL[scheme];
   return { casing: CASING, track: tokens.primary, climb: tokens.onSurface };
-}
-
-/**
- * `(latitude, longitude)` degree pairs as GeoJSON positions.
- *
- * `RouteView` carries latitude first because that is the order the activity's
- * time series records; GeoJSON positions are `[longitude, latitude]`. This flip
- * is the whole reason the conversion lives in one named function rather than
- * inline at each call site — a transposed route renders happily, somewhere off
- * the coast of Ghana.
- */
-function positions(coordinates: Array<[number, number]>): number[][] {
-  return coordinates.map(([latitude, longitude]) => [longitude, latitude]);
-}
-
-/** The recorded track as one line. */
-export function trackGeometry(coordinates: Array<[number, number]>): LineString {
-  return { type: 'LineString', coordinates: positions(coordinates) };
-}
-
-/**
- * The climbs as one multi-line, sliced out of the track they index into.
- *
- * One geometry rather than a feature per climb, because every climb is drawn
- * exactly alike: there is no per-climb property to carry, and a MultiLineString
- * is what "several lines painted the same way" is called.
- *
- * `end_index` is inclusive, so the slice runs one past it. A climb that yields
- * fewer than two positions is not a line and is dropped here rather than handed
- * to MapLibre, which rejects a whole source over one malformed member — the
- * climb still appears in the card's text list, where its gradient and category
- * are the information anyway.
- */
-export function climbGeometry(
-  coordinates: Array<[number, number]>,
-  climbs: RouteClimb[]
-): MultiLineString {
-  return {
-    type: 'MultiLineString',
-    coordinates: climbs
-      .map((climb) => coordinates.slice(climb.start_index, climb.end_index + 1))
-      .filter((run) => run.length >= 2)
-      .map((run) => positions(run)),
-  };
 }
 
 /**

@@ -58,6 +58,7 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
+import { i18n } from '@pierre/i18n';
 import RejectedCoachesList from '../RejectedCoachesList';
 import { adminApi } from '../../services/api';
 
@@ -104,6 +105,19 @@ describe('RejectedCoachesList', () => {
     });
 
     expect(screen.getByText('Duplicate Coach')).toBeInTheDocument();
+  });
+
+  it('stamps each rejection with a date and time in the reader language', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      renderRejectedCoachesList();
+
+      // The hour depends on the runner's zone; the day and month spelling do not.
+      expect(await screen.findByText(/^15 janv\. 2024, \d{2}:\d{2}$/)).toBeInTheDocument();
+      expect(screen.queryByText(/Jan 15, 2024/)).toBeNull();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('shows rejection count', async () => {

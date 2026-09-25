@@ -175,6 +175,9 @@ import { createPersonasApi } from './domains/personas';
 export { createI18nApi } from './domains/i18n';
 export type { I18nApi, I18nBundle, I18nBundleResult } from './domains/i18n';
 import { createI18nApi } from './domains/i18n';
+export { createUsageApi } from './domains/usage';
+export type { UsageApi, LimitCheckResult, UsageStatusResponse } from './domains/usage';
+import { createUsageApi } from './domains/usage';
 
 /**
  * Complete API service combining all domain APIs.
@@ -205,6 +208,8 @@ export interface PierreApiService {
   personas: ReturnType<typeof createPersonasApi>;
   /** The live string catalogue, overlaid on the embedded copy at start-up and on language change */
   i18n: ReturnType<typeof createI18nApi>;
+  /** The calling user's quota counters, read by the chat banner and the settings usage cards */
+  usage: ReturnType<typeof createUsageApi>;
   /** Underlying axios instance for custom requests */
   axios: AxiosInstance;
   /** Platform adapter */
@@ -239,6 +244,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     featureFlags: createFeatureFlagsApi(axios),
     personas: createPersonasApi(axios),
     i18n: createI18nApi(axios),
+    usage: createUsageApi(axios),
     axios,
     adapter,
   };

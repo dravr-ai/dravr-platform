@@ -9,7 +9,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import type { ConversationKind, ConversationRowModel } from '@pierre/chat-utils';
-import { MENTION_PREFIX } from '@pierre/shared-constants';
+import { MENTION_PREFIX, badgeLabel } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
@@ -40,11 +40,6 @@ const MENTION_TOKEN = new RegExp(`(^|\\s)${MENTION_PREFIX}[A-Za-z0-9_-]+`);
  */
 export function previewMentionsSomeone(preview: string): boolean {
   return MENTION_TOKEN.test(preview);
-}
-
-/** What the capsule prints for a count; three digits is where it stops growing. */
-function badgeLabel(count: number): string {
-  return count > 99 ? '99+' : String(count);
 }
 
 /**

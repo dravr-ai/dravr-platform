@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the route block — the lat/lon transpose, the climb slices, and the two-scheme basemap
+// ABOUTME: Tests the web route block — the MapLibre layers, the framed extent, and the two-scheme basemap
 // ABOUTME: Red the moment a route renders as a picture of a map instead of a framed MapLibre track
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -9,20 +9,12 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { RenderBlock, RouteView as RouteViewData } from '@pierre/scene-types';
-import { BOREAL } from '@pierre/shared-constants';
+import { climbGeometry, trackGeometry } from '@pierre/chat-utils';
+import { BASEMAP_STYLE, BOREAL } from '@pierre/shared-constants';
 import { ThemeProvider, useTheme } from '../../../hooks/useTheme';
 import RouteView from '../RouteView';
 import { SceneView } from '../SceneView';
-import {
-  addRouteLayers,
-  BASEMAP_STYLE,
-  climbGeometry,
-  CLIMB_SOURCE,
-  routeInk,
-  TRACK_SOURCE,
-  trackGeometry,
-  viewportBounds,
-} from '../routeLayers';
+import { addRouteLayers, CLIMB_SOURCE, routeInk, TRACK_SOURCE, viewportBounds } from '../routeLayers';
 
 interface LayerSpec {
   id: string;
@@ -152,34 +144,10 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('route geometry', () => {
-  it('transposes the carried (latitude, longitude) into GeoJSON [longitude, latitude]', () => {
-    const line = trackGeometry([
-      [45.5, -73.6],
-      [45.58, -73.68],
-    ]);
-
-    expect(line.type).toBe('LineString');
-    expect(line.coordinates).toEqual([
-      [-73.6, 45.5],
-      [-73.68, 45.58],
-    ]);
-  });
-
-  it('slices a climb inclusively and drops one that cannot be a line', () => {
-    const climbs = climbGeometry(TRACK, ROUTE.climbs);
-
-    expect(climbs.type).toBe('MultiLineString');
-    // The second climb spans a single fix, so it is not a line at all.
-    expect(climbs.coordinates).toEqual([
-      [
-        [-73.62, 45.52],
-        [-73.64, 45.54],
-        [-73.66, 45.56],
-      ],
-    ]);
-  });
-
+// The lat/lon transpose and the inclusive climb slice are pinned in
+// packages/chat-utils/__tests__/route.test.ts, beside the functions both
+// clients draw from.
+describe('route framing and ink', () => {
   it('frames the carried extent as [[west, south], [east, north]]', () => {
     expect(viewportBounds(ROUTE.bounds)).toEqual([
       [-73.68, 45.5],

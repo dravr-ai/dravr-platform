@@ -11,6 +11,8 @@ import type { StorePackageReview } from '../services/api/admin';
 import { clsx } from 'clsx';
 import CoachReviewDrawer from './CoachReviewDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { formatDateTime } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -48,6 +50,7 @@ interface PendingCoach {
 }
 
 export default function CoachReviewQueue() {
+  const { language } = useTranslation();
   const [selectedCoach, setSelectedCoach] = useState<PendingCoach | null>(null);
 
   // Fetch pending agents
@@ -55,16 +58,6 @@ export default function CoachReviewQueue() {
     queryKey: QUERY_KEYS.adminStore.reviewQueue(),
     queryFn: () => adminApi.getStoreReviewQueue(),
   });
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   const getTimeAgo = (dateString: string) => {
     const now = new Date();
@@ -181,7 +174,7 @@ export default function CoachReviewQueue() {
               </div>
 
               <div className="flex-shrink-0 ml-4 flex items-center gap-2 text-outline group-hover:text-primary transition-colors">
-                <span className="text-xs hidden sm:inline">{formatDate(coach.submitted_at)}</span>
+                <span className="text-xs hidden sm:inline">{formatDateTime(coach.submitted_at, language)}</span>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>

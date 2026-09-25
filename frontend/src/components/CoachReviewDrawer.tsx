@@ -12,6 +12,8 @@ import { Button, Card, Section } from './ui';
 import { clsx } from 'clsx';
 import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { formatDateTime } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -55,6 +57,7 @@ interface CoachReviewDrawerProps {
 }
 
 export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachReviewDrawerProps) {
+  const { language } = useTranslation();
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const queryClient = useQueryClient();
@@ -80,16 +83,6 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
   };
 
   if (!isOpen || !coach) return null;
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   // Truncate prompt for preview (show first 500 chars)
   const promptPreview = coach.system_prompt.length > 500 && !isPromptExpanded
@@ -295,11 +288,11 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-outline">Created</span>
-                <span className="text-on-surface">{formatDate(coach.created_at)}</span>
+                <span className="text-on-surface">{formatDateTime(coach.created_at, language)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Submitted for Review</span>
-                <span className="text-on-surface">{formatDate(coach.submitted_at)}</span>
+                <span className="text-on-surface">{formatDateTime(coach.submitted_at, language)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Status</span>

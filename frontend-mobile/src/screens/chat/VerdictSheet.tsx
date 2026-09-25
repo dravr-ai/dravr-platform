@@ -10,6 +10,7 @@ import { Feather } from '@expo/vector-icons';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
 import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
+import { formatDateTime } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Sheet } from '../../components/ui';
 import { verdictChipPalette, type ThemeColors } from './MessageList';
@@ -51,10 +52,7 @@ function VerdictCard({
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const emitted = new Date(verdict.created_at);
-  const emittedLabel = Number.isNaN(emitted.getTime())
-    ? verdict.created_at
-    : new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(emitted);
+  const emittedLabel = formatDateTime(verdict.created_at, language);
   const meta = [
     t('chat.evidenceLabel', { strength: t(EVIDENCE_STRENGTH_LABEL_KEY[verdict.evidence_strength]) }),
     t('chat.confidenceLabel', { confidence: (verdict.confidence * 100).toFixed(0) }),

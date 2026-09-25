@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: API service entry point - uses @pierre/api-client for shared modules
-// ABOUTME: Web-only modules (admin, dashboard, a2a, usage, messaging, billing) remain local
+// ABOUTME: Web-only modules (admin, admin usage, dashboard, a2a, messaging, billing) remain local
 
 import { pierreApi } from './client';
 
@@ -27,6 +27,8 @@ export const featureFlagsApi = pierreApi.featureFlags;
 export const personasApi = pierreApi.personas;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const i18nApi = pierreApi.i18n;
+// The calling user's quota counters, polled by the chat banner and the usage card.
+export const usageApi = pierreApi.usage;
 
 // Providers API delegates to shared oauth module
 export const providersApi = {
@@ -39,7 +41,7 @@ export const providersApi = {
 export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';
-export { usageApi } from './usage';
+export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';
 export { billingApi } from './billing';
 export type {

@@ -4,7 +4,7 @@
 # ABOUTME: Fails when a client calls t('a.b') with a key the shared en catalogue does not carry
 # ABOUTME: Locale-to-locale parity cannot see this — a key removed from all five resolves in none
 
-# `localeCorpus.test.ts` compares the five locales to each other, so a key
+# `locale-corpus.test.ts` compares the five locales to each other, so a key
 # deleted from all five stays "in parity" while every caller of it renders the
 # raw key string to the athlete. That is how `app.weeklyReport` shipped as the
 # literal heading of the mobile group insights panel in every language: the

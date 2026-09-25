@@ -4,8 +4,9 @@
 // The trusted-domain gate a `url` reply action passes before a client opens it
 export { trustedActionUrl } from './action-url';
 
-// A turn's `notice` block -> the usage banner both clients show
-export { quotaNoticeBanner } from './quota';
+// A turn's `notice` block -> the usage banner both clients show, and the reset
+// instant and compacted counter every usage surface prints
+export { formatCompactNumber, formatResetTime, quotaNoticeBanner } from './quota';
 export type { QuotaBanner } from './quota';
 
 // Persisted transcript row -> the ReplyBlock list a live turn arrives in.
@@ -68,6 +69,20 @@ export type { VizSegment } from './viz';
 // with every marker replaced by a line naming the chart that stood there.
 export { copyableText } from './copy-text';
 
+// The route card's geometry and captions, and the plan card's figures: the
+// pure halves of two blocks both clients draw, so the words under a map and
+// the durations on a plan read the same on web and on the phone.
+export {
+  alignedSeries,
+  climbGeometry,
+  climbGrade,
+  climbRange,
+  kilometres,
+  metresAt,
+  trackGeometry,
+} from './route';
+export { fuelParts, stepDuration } from './workout-plan';
+
 // The bubble clock, the day pill and the grouping window of the messenger thread
 export {
   MESSAGE_GROUP_WINDOW_MS,
@@ -78,9 +93,9 @@ export {
 } from './message-time';
 export type { DayLabel } from './message-time';
 
-// One localized date-and-time stamp for everything a surface saved earlier —
-// memory facts, verdicts, admin tables.
-export { formatDateTime } from './date-format';
+// One localized date-and-time stamp, and its date-only sibling, for everything
+// a surface saved earlier — memory facts, verdicts, invites, admin tables.
+export { formatDate, formatDateTime } from './date-format';
 
 // What a chat header says under the title, with one precedence for both clients
 export { threadSubtitle } from './thread-subtitle';

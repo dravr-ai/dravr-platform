@@ -11,10 +11,13 @@ import PreApprovedEmails from './PreApprovedEmails';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { formatDateTime } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 
 type UserTab = 'pending' | 'preapproved' | 'active' | 'suspended' | 'all';
 
 export default function UserManagement() {
+  const { language } = useTranslation();
   const [activeTab, setActiveTab] = useState<UserTab>('pending');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [modalAction, setModalAction] = useState<'approve' | 'suspend'>('approve');
@@ -140,16 +143,6 @@ export default function UserManagement() {
   const handleCloseDrawer = () => {
     setIsDrawerOpen(false);
     setSelectedUser(null);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   };
 
   const getStatusBadgeVariant = (status: string) => {
@@ -293,10 +286,10 @@ export default function UserManagement() {
                   </div>
                   <p className="text-sm text-on-surface-variant mb-1">{user.email}</p>
                   <div className="flex items-center space-x-4 text-xs text-outline">
-                    <span>Registered: {formatDate(user.created_at)}</span>
-                    <span>Last active: {user.last_active ? formatDate(user.last_active) : 'Never'}</span>
+                    <span>Registered: {formatDateTime(user.created_at, language)}</span>
+                    <span>Last active: {user.last_active ? formatDateTime(user.last_active, language) : 'Never'}</span>
                     {user.approved_by && (
-                      <span>Approved: {formatDate(user.approved_at!)}</span>
+                      <span>Approved: {formatDateTime(user.approved_at!, language)}</span>
                     )}
                   </div>
                 </div>

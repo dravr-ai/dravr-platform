@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import UsageWarningBanner from '../chat/UsageWarningBanner';
 import { computeWarningState } from '../../hooks/useUsageStatus';
-import type { UsageStatusResponse } from '../../services/api/usage';
+import type { UsageStatusResponse } from '@pierre/shared-types';
 
 function makeLimitCheck(overrides: Partial<{
   allowed: boolean;

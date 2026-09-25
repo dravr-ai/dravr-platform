@@ -5,6 +5,7 @@ import React from 'react';
 import { View, TouchableOpacity, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Bell } from 'lucide-react-native';
+import { badgeLabel } from '@pierre/shared-constants';
 import { useUnreadCount } from '../../hooks/useNotifications';
 import { useThemeColors } from '../../constants/theme';
 
@@ -45,7 +46,7 @@ export function NotificationBellButton({
             className="text-xs font-bold font-mono tabular-nums"
             style={{ color: colors.tokens.onPrimary }}
           >
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {badgeLabel(unreadCount)}
           </Text>
         </View>
       )}

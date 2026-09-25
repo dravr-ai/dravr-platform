@@ -6,10 +6,10 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ReplyNotice } from '@pierre/shared-types';
-import { quotaNoticeBanner } from '@pierre/chat-utils';
+import type { LimitCheckResult, ReplyNotice, UsageStatusResponse } from '@pierre/shared-types';
+import { formatResetTime, quotaNoticeBanner } from '@pierre/chat-utils';
 import type { TranslatableText } from '@pierre/chat-utils';
-import { usageApi, type UsageStatusResponse, type LimitCheckResult } from '../services/api/usage';
+import { usageApi } from '../services/api';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -45,20 +45,6 @@ const LEVEL_PRIORITY: Record<WarningLevel, number> = {
   burst: 2,
   blocked: 3,
 };
-
-/** Format reset time in user's local timezone */
-function formatResetTime(isoString: string, fallback: string): string {
-  try {
-    const date = new Date(isoString);
-    return new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZoneName: 'short',
-    }).format(date);
-  } catch {
-    return fallback;
-  }
-}
 
 /**
  * Compute the warning state from the full usage status response.

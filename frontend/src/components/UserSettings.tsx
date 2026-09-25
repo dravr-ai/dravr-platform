@@ -12,7 +12,7 @@ import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
-import type { OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
+import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import {
   ADMIN_HIDDEN_PANES,
   APP_VERSION,
@@ -34,12 +34,12 @@ import MemoryPanel from './memory/MemoryPanel';
 import { buildFitnessProviderCards } from '../utils/fitnessProviderCards';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { providerScopeLabelKey, sciotteTargetForBackend } from '@pierre/shared-constants';
+import { formatCompactNumber, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
-import type { LimitCheckResult } from '../services/api/usage';
 
 interface OAuthApp {
   provider: string;
@@ -71,17 +71,6 @@ const MIN_PASSWORD_LENGTH = 8;
 // QUERY_KEYS catalogue since this surface is web-only.
 const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
 
-/** Format large numbers compactly (e.g. 145000 -> "145.0K", 2000000 -> "2.0M") */
-function formatCompactNumber(value: number): string {
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`;
-  }
-  return value.toLocaleString();
-}
-
 /** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
 function getUsageBarColor(current: number, limit: number): string {
   if (limit <= 0) return 'bg-activity';
@@ -90,26 +79,6 @@ function getUsageBarColor(current: number, limit: number): string {
   if (pct > 70) return 'bg-nutrition';
   return 'bg-activity';
 }
-
-/**
- * Format ISO 8601 reset time in the user's local timezone.
- *
- * `fallback` is the caller's translated wording for an unparseable timestamp:
- * this runs outside the component, so it cannot reach the catalogue itself.
- */
-function formatResetTime(isoString: string, fallback: string): string {
-  try {
-    const date = new Date(isoString);
-    return new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZoneName: 'short',
-    }).format(date);
-  } catch {
-    return fallback;
-  }
-}
-
 
 export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
   const { user, logout, isAuthenticated } = useAuth();

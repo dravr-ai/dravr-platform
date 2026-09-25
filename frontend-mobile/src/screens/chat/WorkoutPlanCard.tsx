@@ -3,9 +3,9 @@
 
 import React from 'react';
 import { View, Text } from 'react-native';
+import { fuelParts, stepDuration } from '@pierre/chat-utils';
 import type {
   PlanDay,
-  PlanFueling,
   PlanPhase,
   PlanStep,
   PlanWeek,
@@ -13,8 +13,6 @@ import type {
 } from '@pierre/shared-types';
 
 import { useTranslation } from '@pierre/i18n';
-
-type Translate = (key: string, opts?: Record<string, unknown>) => string;
 
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
@@ -53,15 +51,6 @@ function Sentence({ text, figure }: { text: string; figure: string | number }) {
 }
 
 /**
- * A step's duration as the compact figure the steps line carries: whole
- * minutes once a step lasts one, seconds under that so a stride does not read
- * as "0m".
- */
-function stepDuration(seconds: number): string {
-  return seconds < 60 ? `${seconds}s` : `${Math.round(seconds / 60)}m`;
-}
-
-/**
  * "label · Nm · zone", with "×repeat" appended when the step is repeated.
  * The duration and the repeat count are the step's two figures.
  */
@@ -81,22 +70,6 @@ function StepText({ step }: { step: PlanStep }) {
       ) : null}
     </Text>
   );
-}
-
-/**
- * The fuelling fragments for one day, in display order. Sodium is shown as an
- * estimated sweat loss and never as a required intake: the evidence does not
- * support prescribing a mg/h figure.
- */
-function fuelParts(fueling: PlanFueling, t: Translate): string[] {
-  const parts = [
-    t('chat.fuelCarbs', { value: fueling.carbs_g_per_h }),
-    t('chat.fuelFluid', { value: fueling.fluid_ml_per_h }),
-  ];
-  if (fueling.sodium_mg_per_h !== undefined) {
-    parts.push(t('chat.fuelSodiumLoss', { value: fueling.sodium_mg_per_h }));
-  }
-  return parts;
 }
 
 /**

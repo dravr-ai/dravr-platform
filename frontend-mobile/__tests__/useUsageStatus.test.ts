@@ -5,42 +5,15 @@
 // ABOUTME: Validates warning levels, blocked messages, and severity prioritization
 
 jest.mock('../src/services/api', () => ({
-  apiClient: { get: jest.fn() },
+  usageApi: { getStatus: jest.fn() },
 }));
 
 jest.mock('@pierre/shared-constants', () => ({
   QUERY_KEYS: { usage: { status: () => ['usage', 'status'] } },
 }));
 
+import type { LimitCheckResult, UsageStatusResponse } from '@pierre/shared-types';
 import { computeWarningState, type WarningLevel } from '../src/screens/chat/useUsageStatus';
-
-interface LimitCheckResult {
-  allowed: boolean;
-  current: number;
-  limit: number;
-  warning: boolean;
-  burst_zone: boolean;
-  resets_at: string;
-}
-
-interface UsageStatusResponse {
-  daily: {
-    messages: LimitCheckResult;
-    tokens: LimitCheckResult;
-    tool_calls: LimitCheckResult;
-  };
-  weekly: {
-    messages: LimitCheckResult;
-    tokens: LimitCheckResult;
-    tool_calls: LimitCheckResult;
-  };
-  resources: {
-    conversations: number;
-    max_conversations: number;
-    agents: number;
-    max_agents: number;
-  };
-}
 
 function makeLimitCheck(overrides: Partial<LimitCheckResult> = {}): LimitCheckResult {
   return {

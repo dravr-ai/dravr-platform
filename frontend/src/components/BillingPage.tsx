@@ -14,6 +14,7 @@ import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 import { useTranslation } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
 
 const TIER_LABEL_KEYS: Record<string, string> = {
   starter: 'plan.starter',
@@ -40,17 +41,8 @@ function formatCurrency(amount: number | undefined, currency: string | undefined
   }).format(value);
 }
 
-function formatDate(epochSecs: number | undefined): string {
-  if (!epochSecs) return '—';
-  return new Date(epochSecs * 1000).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 export default function BillingPage() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user } = useAuth();
   const { flags: featureFlags } = useFeatureFlags();
   const showBillingHeader = featureFlags[FEATURE_KEYS.billingHeader];
@@ -338,7 +330,9 @@ export default function BillingPage() {
               <tbody>
                 {invoicesQuery.data.invoices.map((inv, idx) => (
                   <tr key={inv.id ?? idx} className="border-b ghost-border last:border-none">
-                    <td className="py-2 text-on-surface">{formatDate(inv.created)}</td>
+                    <td className="py-2 text-on-surface">
+                      {inv.created ? formatDate(new Date(inv.created * 1000).toISOString(), language) : '—'}
+                    </td>
                     <td className="py-2 text-on-surface font-mono text-xs">{inv.number ?? '—'}</td>
                     <td className="py-2 text-on-surface">
                       {formatCurrency(inv.amount_paid ?? inv.amount_due, inv.currency)}

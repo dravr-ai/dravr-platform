@@ -11,6 +11,7 @@ import { Button, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
 
 interface MemberListProps {
   groupId: string;
@@ -30,15 +31,6 @@ const ROLE_BADGE: Record<GroupRole, { labelKey: string; color: string; Icon: typ
   admin: { labelKey: 'groups.admin', color: 'bg-primary/20 text-primary', Icon: Shield },
   member: { labelKey: 'groups.member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
 };
-
-/** A date in the reader's language, not the browser's. */
-function formatDate(dateStr: string, language: string): string {
-  return new Date(dateStr).toLocaleDateString(language, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 export default function MemberList({
   groupId,
