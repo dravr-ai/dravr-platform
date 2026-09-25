@@ -11,6 +11,7 @@ import { spacing, useThemeColors } from '../../constants/theme';
 import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { oauthApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 const CONNECTED_APPS_QUERY_KEY = ['oauth', 'connected-apps'] as const;
 
@@ -38,7 +39,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
       queryClient.invalidateQueries({ queryKey: CONNECTED_APPS_QUERY_KEY });
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = describeApiError(err, { t, fallbackKey: 'errors.unknown' });
       Alert.alert(t('app.couldNotRevokeApp'), msg);
     },
   });
@@ -73,7 +74,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
         // `Text` no native view, so a tap on it would reach nothing there.
         <View className="flex-row flex-wrap items-baseline px-4 py-3" testID="connected-apps-error">
           <Text className="text-sm text-error">
-            {t('app.failedLoadConnectedApps')} {error instanceof Error ? error.message : String(error)}
+            {t('app.failedLoadConnectedApps')} {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </Text>
           <Text
             className="text-sm text-primary font-medium ml-1"

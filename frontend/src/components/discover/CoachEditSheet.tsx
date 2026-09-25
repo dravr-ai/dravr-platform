@@ -13,6 +13,7 @@ import CoachFormModal from './CoachFormModal';
 import { coachToFormData, formDataToUpdateRequest } from './coachForm';
 import type { AgentFormData } from './coachForm';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** Cache slot for one agent, under the `coaches` prefix every agent mutation invalidates. */
 const coachKey = (agentId: string) => [...QUERY_KEYS.coaches.all, 'coach', agentId] as const;
@@ -80,7 +81,7 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
         <div className="relative bg-surface rounded-2xl max-w-sm w-full mx-4 p-6 text-center">
           <h2 className="text-lg font-semibold text-on-surface mb-2">{t('discover.agentLoadFailedTitle')}</h2>
           <p className="text-sm text-on-surface-variant mb-4">
-            {error instanceof Error && error.message ? error.message : t('discover.agentDetailMissing')}
+            {describeApiError(error, { t, fallbackKey: 'discover.agentDetailMissing' })}
           </p>
           <Button variant="secondary" onClick={onClose}>{t('chat.close')}</Button>
         </div>
@@ -122,7 +123,7 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
       />
       {remove.isError && (
         <p role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-error/10 border border-error/30 text-sm text-error">
-          {remove.error instanceof Error && remove.error.message ? remove.error.message : t('discover.deleteAgentFailed')}
+          {describeApiError(remove.error, { t, fallbackKey: 'discover.deleteAgentFailed' })}
         </p>
       )}
     </>

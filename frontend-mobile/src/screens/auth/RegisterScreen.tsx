@@ -11,7 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAsyncAction } from '@pierre/ui-logic';
+import { describeApiError, useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, FormScrollView, Input } from '../../components/ui';
 import { BrandLockup } from '../../components/ui/BrandLockup';
@@ -70,7 +70,7 @@ export function RegisterScreen() {
       router.replace('/(auth)/pending-approval');
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : t('app.registrationFailedLower');
+      const message = describeApiError(error, { t, fallbackKey: 'app.registrationFailedLower' });
       Alert.alert(t('app.registrationFailedTitle'), message);
     },
     successResetDelay: 0,

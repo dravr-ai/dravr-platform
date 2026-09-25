@@ -26,6 +26,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { MessagingChannelsScreen } from '../src/screens/settings/MessagingChannelsScreen';
+import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
 const CHANNELS = [
   { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
@@ -168,7 +169,7 @@ describe('MessagingChannelsScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     mockListLinks.mockResolvedValue([]);
-    mockInitLink.mockRejectedValue(new Error('channel not configured'));
+    mockInitLink.mockRejectedValue(apiRefusal(400, { message: 'channel not configured' }));
 
     const { getByTestId } = render(<MessagingChannelsScreen />);
     await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());

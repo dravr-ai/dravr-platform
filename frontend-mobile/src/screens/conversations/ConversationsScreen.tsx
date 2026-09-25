@@ -31,10 +31,7 @@ import { useChatPlusActions } from '../chat/useChatPlusActions';
 import { ConversationRow } from './ConversationRow';
 import { useConversationList } from './useConversationList';
 import { useTranslation } from '@pierre/i18n';
-
-function describeError(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
-}
+import { describeApiError } from '@pierre/ui-logic';
 
 export function ConversationsScreen() {
   const { t } = useTranslation();
@@ -88,7 +85,7 @@ export function ConversationsScreen() {
       // something unread — advancing it is monotonic server-side anyway.
       if (row.unreadCount > 0) {
         list.markRead(row.id).catch((err: unknown) => {
-          setActionError(describeError(err, t('app.failedMarkRead')));
+          setActionError(describeApiError(err, { t, fallbackKey: 'app.failedMarkRead' }));
         });
       }
     },
@@ -108,7 +105,7 @@ export function ConversationsScreen() {
   const markUnread = useCallback(
     (row: ConversationRowModel) => {
       list.markUnread(row.id).catch((err: unknown) => {
-        setActionError(describeError(err, t('app.failedMarkUnread')));
+        setActionError(describeApiError(err, { t, fallbackKey: 'app.failedMarkUnread' }));
       });
     },
     [list, t],
@@ -123,7 +120,7 @@ export function ConversationsScreen() {
           style: 'destructive',
           onPress: () => {
             list.remove(row.id).catch((err: unknown) => {
-              setActionError(describeError(err, t('app.failedDeleteConversation')));
+              setActionError(describeApiError(err, { t, fallbackKey: 'app.failedDeleteConversation' }));
             });
           },
         },
@@ -159,7 +156,7 @@ export function ConversationsScreen() {
       const row = selectedRow;
       setSelectedRow(null);
       list.rename(row.id, newTitle).catch((err: unknown) => {
-        setActionError(describeError(err, t('app.failedRenameConversation')));
+        setActionError(describeApiError(err, { t, fallbackKey: 'app.failedRenameConversation' }));
       });
     },
     [selectedRow, list, t],
@@ -185,7 +182,7 @@ export function ConversationsScreen() {
 
   const keyExtractor = useCallback((item: ConversationRowModel) => item.id, []);
 
-  const errorMessage = actionError ?? (list.isError ? describeError(list.error, t('app.failedLoadConversations')) : null);
+  const errorMessage = actionError ?? (list.isError ? describeApiError(list.error, { t, fallbackKey: 'app.failedLoadConversations' }) : null);
 
   return (
     <View className="flex-1 bg-background-primary" testID="conversations-screen">

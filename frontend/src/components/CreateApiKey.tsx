@@ -6,6 +6,8 @@ import { useMutation } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { AdminPermission, CreateAdminTokenResponse } from '../types/api';
 import { Textarea, Input } from './ui';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 interface CreateApiKeyProps {
   onBack: () => void;
@@ -43,6 +45,7 @@ const PERMISSION_DESCRIPTIONS: Record<AdminPermission, { label: string; descript
 };
 
 export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyProps) {
+  const { t } = useTranslation();
   const [serviceName, setServiceName] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<Set<AdminPermission>>(new Set(['provision_keys']));
@@ -119,9 +122,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
         <form onSubmit={handleSubmit} className="space-y-6">
           {createTokenMutation.error && (
             <div className="bg-error/15 border border-error/30 text-error px-4 py-3 rounded">
-              {createTokenMutation.error instanceof Error
-                ? createTokenMutation.error.message
-                : 'Failed to create API token'}
+              {describeApiError(createTokenMutation.error, { t, fallbackKey: 'app.failedCreateToken' })}
             </div>
           )}
 

@@ -13,6 +13,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** The three appearance choices, in the order the pane lists them. */
 const APPEARANCE_OPTIONS: readonly AppearancePref[] = ['system', 'dark', 'light'];
@@ -59,7 +60,7 @@ export function ProfileScreen() {
       Alert.alert(t('app.profileUpdated'), t('app.displayNameSaved'));
       router.back();
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('app.failedToUpdateProfile');
+      const message = describeApiError(err, { t, fallbackKey: 'app.failedToUpdateProfile' });
       Alert.alert(t('app.couldNotSaveProfile'), message);
     } finally {
       setIsSaving(false);

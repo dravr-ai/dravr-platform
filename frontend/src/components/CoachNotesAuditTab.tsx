@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type AgentNoteAuditRow } from '../services/api/admin';
 import { Card, Button, Badge, Select , Input } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
 
@@ -34,6 +36,7 @@ function humanizeScope(scope: string): string {
 }
 
 export default function CoachNotesAuditTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
 
@@ -175,7 +178,7 @@ export default function CoachNotesAuditTab() {
         ) : isError ? (
           <div className="p-6 text-sm text-error">
             Failed to load agent notes audit:{' '}
-            {error instanceof Error ? error.message : String(error)}
+            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">

@@ -784,6 +784,10 @@ if [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; then
         echo "FAIL: shared package type-check failed!"
         exit 1
     fi
+    if ! (cd "$PROJECT_ROOT" && bun run lint:packages); then
+        echo "FAIL: shared package lint failed!"
+        exit 1
+    fi
     if ! (cd "$PROJECT_ROOT" && bun run test:packages); then
         echo "FAIL: shared package tests failed!"
         exit 1

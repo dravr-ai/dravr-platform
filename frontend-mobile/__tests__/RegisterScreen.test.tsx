@@ -20,6 +20,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { RegisterScreen } from '../src/screens/auth/RegisterScreen';
+import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
 describe('RegisterScreen', () => {
   beforeEach(() => {
@@ -91,7 +92,7 @@ describe('RegisterScreen', () => {
     });
 
     it('alerts on a failed registration and does not navigate', async () => {
-      mockRegister.mockRejectedValueOnce(new Error('Email already registered'));
+      mockRegister.mockRejectedValueOnce(apiRefusal(409, { message: 'Email already registered' }));
       const { getByTestId } = renderComponent();
 
       fireEvent.changeText(getByTestId('register-display-name-input'), 'Jean');

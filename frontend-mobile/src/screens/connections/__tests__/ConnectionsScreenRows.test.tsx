@@ -11,6 +11,7 @@ import { ConnectionsScreen } from '../ConnectionsScreen';
 import { InitialsAvatar } from '../../../components/ui';
 import { oauthApi } from '../../../services/api';
 import type { ExtendedProviderStatus } from '../../../types';
+import { networkFailure } from '../../../../integration/app/helpers/apiRefusal';
 
 const mockPush = jest.fn();
 
@@ -228,12 +229,12 @@ describe('ConnectionsScreen rows', () => {
   });
 
   it('a failed load is one error line with an inline retry that reloads', async () => {
-    getProvidersStatus.mockRejectedValueOnce(new Error('offline'));
+    getProvidersStatus.mockRejectedValueOnce(networkFailure());
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     render(<ConnectionsScreen />);
 
     const retry = await screen.findByTestId('connections-retry');
-    expect(screen.getByText('offline').props.className).toContain('text-error');
+    expect(screen.getByText('Network error. Check your connection.').props.className).toContain('text-error');
     expect(retry.props.className).toContain('text-primary');
 
     getProvidersStatus.mockResolvedValueOnce({ providers: [disconnectedStrava] });

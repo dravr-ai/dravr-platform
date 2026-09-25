@@ -9,6 +9,7 @@ import { Button, EmptyState, Input, PaneScrollView, Row, Section, Sheet } from '
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { McpToken } from '../../types';
+import { describeApiError } from '@pierre/ui-logic';
 
 /**
  * Manage the MCP tokens this account has minted.
@@ -45,7 +46,7 @@ export function TokensScreen() {
       });
       setTokens(deduplicated);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : t('app.failedLoadTokens'));
+      setLoadError(describeApiError(err, { t, fallbackKey: 'app.failedLoadTokens' }));
       setTokens([]);
     } finally {
       setIsLoading(false);

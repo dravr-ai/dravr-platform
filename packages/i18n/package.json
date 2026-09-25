@@ -11,7 +11,8 @@
     "./locales/*": "./src/locales/*"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
     "test": "vitest run"
   },
   "dependencies": {

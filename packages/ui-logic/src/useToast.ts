@@ -102,11 +102,13 @@ export function useToast({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  // Cleanup timers on unmount
+  // Cleanup timers on unmount. The ref holds one Map for the hook's life, so
+  // the instance read here is the one the cleanup must empty.
   useEffect(() => {
+    const timers = timersRef.current;
     return () => {
-      timersRef.current.forEach(timer => clearTimeout(timer));
-      timersRef.current.clear();
+      timers.forEach(timer => clearTimeout(timer));
+      timers.clear();
     };
   }, []);
 
