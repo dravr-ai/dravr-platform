@@ -70,7 +70,7 @@ static EXTRACTION_PERMITS: LazyLock<Semaphore> =
 
 /// How long a spawned extraction holds its job row.
 ///
-/// One LLM call, queued behind at most [`MAX_CONCURRENT_EXTRACTIONS`]
+/// One LLM call, queued behind at most `MAX_CONCURRENT_EXTRACTIONS`
 /// others, is well inside this; a row still leased past it belongs to an
 /// instance that is gone, and the resume sweep may take it over.
 pub const EXTRACTION_JOB_LEASE: Duration = Duration::from_mins(5);
@@ -220,7 +220,7 @@ pub struct ExtractionRequest<'a> {
     ///
     /// The agent-prescription filter drops schedule facts *because* plans are
     /// supposed to persist through that tool. When it did not run, the drop
-    /// deletes the only copy — see [`is_agent_prescription`].
+    /// deletes the only copy — see `is_agent_prescription`.
     pub plan_was_saved: bool,
 }
 
@@ -624,7 +624,6 @@ fn restated_fact_id(
     anchor_of(&group).map(|row| row.id.clone())
 }
 
-/// Call the extraction LLM and parse the response into [`RawFact`] records.
 /// Stand-in for the agent reply on a turn whose reply was withheld by the
 /// identity-leak detector.
 ///
@@ -663,6 +662,7 @@ fn existing_facts_block(existing: &[UserFact]) -> String {
     out
 }
 
+/// Call the extraction LLM and parse the response into [`RawFact`] records.
 async fn run_llm_extraction(
     provider: &ChatProvider,
     system_prompt: &str,
@@ -803,7 +803,7 @@ pub struct SpawnedExtractionRequest {
 
 /// Run one owed extraction to the end, inside the process-wide bound.
 ///
-/// Waits for a permit when [`MAX_CONCURRENT_EXTRACTIONS`] runs are already
+/// Waits for a permit when `MAX_CONCURRENT_EXTRACTIONS` runs are already
 /// in flight, then extracts and persists. This is the one body both the
 /// turn-spawned run and the resume sweep execute, so a job runs the same
 /// way whichever instance picks it up.

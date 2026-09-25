@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the Stripe billing adapter
-// ABOUTME: Tier price lookup and error mapping via the provider API, plus webhook event normalization
+// ABOUTME: Tier price lookup and error mapping via the provider API, plus signed-webhook event normalization
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,10 +10,15 @@
 
 use std::collections::HashMap;
 
-use dravr_stripe::{StripeClient, StripeEvent, StripeEventData, SubscriptionEvent};
-use pierre_core::billing::stripe::{normalize_event, StripePriceConfig, StripeProvider};
-use pierre_core::billing::{BillingEvent, BillingProvider, CheckoutRequest, WebhookPayload};
+use dravr_stripe::StripeClient;
+use hmac::{Hmac, Mac};
+use pierre_core::billing::stripe::{StripePriceConfig, StripeProvider};
+use pierre_core::billing::{
+    BillingEvent, BillingProvider, CheckoutRequest, EventEnvelope, WebhookPayload,
+};
 use pierre_core::errors::ErrorCode;
+use serde_json::{json, Value};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -67,9 +72,11 @@ fn request_complete(request: &[u8]) -> bool {
     request.len() >= header_end + 4 + content_length
 }
 
+const WEBHOOK_SECRET: &str = "whsec_test_stub";
+
 fn provider(base_url: &str) -> StripeProvider {
     StripeProvider::new(
-        StripeClient::new("sk_test_stub", "whsec_test_stub").with_base_url(base_url),
+        StripeClient::new("sk_test_stub", WEBHOOK_SECRET).with_base_url(base_url),
         StripePriceConfig {
             professional: "price_pro".to_owned(),
             enterprise: "price_ent".to_owned(),
@@ -94,22 +101,52 @@ fn posted_price(price_id: &str) -> String {
     format!("line_items%5B0%5D%5Bprice%5D={price_id}")
 }
 
-fn sample_subscription(status: &str) -> SubscriptionEvent {
-    let mut metadata = HashMap::new();
-    metadata.insert("tenant_id".to_owned(), "ten-1".to_owned());
-    metadata.insert("user_id".to_owned(), "user-1".to_owned());
-    metadata.insert("plan_tier".to_owned(), "professional".to_owned());
-    SubscriptionEvent {
-        subscription_id: "sub_1".to_owned(),
-        customer_id: "cus_1".to_owned(),
-        status: status.to_owned(),
-        current_period_start: Some(1_700_000_000),
-        current_period_end: Some(1_702_592_000),
-        cancel_at_period_end: false,
-        canceled_at: None,
-        trial_end: None,
-        metadata,
-    }
+/// The `Stripe-Signature` header Stripe would send for `body` right now:
+/// HMAC-SHA256 over `"{t}.{body}"` with the webhook secret, hex-encoded.
+fn sign(body: &[u8]) -> String {
+    let timestamp = chrono::Utc::now().timestamp();
+    let mut mac = Hmac::<Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
+    mac.update(timestamp.to_string().as_bytes());
+    mac.update(b".");
+    mac.update(body);
+    format!(
+        "t={timestamp},v1={}",
+        hex::encode(mac.finalize().into_bytes())
+    )
+}
+
+/// Deliver `event` as a correctly signed webhook: normalization is reachable
+/// only through `parse_webhook`, which verifies the signature first.
+async fn deliver(event: &Value) -> EventEnvelope {
+    let body = serde_json::to_vec(event).unwrap();
+    let headers = HashMap::from([("stripe-signature".to_owned(), sign(&body))]);
+    provider("http://127.0.0.1:9")
+        .parse_webhook(WebhookPayload {
+            headers: &headers,
+            body: &body,
+        })
+        .await
+        .unwrap()
+}
+
+fn subscription_event(id: &str, event_type: &str, status: &str) -> Value {
+    json!({
+        "id": id,
+        "type": event_type,
+        "data": { "object": {
+            "id": "sub_1",
+            "customer": "cus_1",
+            "status": status,
+            "current_period_start": 1_700_000_000,
+            "current_period_end": 1_702_592_000,
+            "cancel_at_period_end": false,
+            "metadata": {
+                "tenant_id": "ten-1",
+                "user_id": "user-1",
+                "plan_tier": "professional"
+            }
+        }}
+    })
 }
 
 #[tokio::test]
@@ -147,14 +184,14 @@ async fn checkout_rejects_a_tier_with_no_price_before_calling_stripe() {
     assert!(err.message.contains("starter"));
 }
 
-#[test]
-fn normalize_subscription_created_maps_to_upserted() {
-    let event = StripeEvent {
-        id: "evt_1".to_owned(),
-        event_type: "customer.subscription.created".to_owned(),
-        data: StripeEventData::Subscription(Box::new(sample_subscription("active"))),
-    };
-    let envelope = normalize_event(event);
+#[tokio::test]
+async fn normalize_subscription_created_maps_to_upserted() {
+    let envelope = deliver(&subscription_event(
+        "evt_1",
+        "customer.subscription.created",
+        "active",
+    ))
+    .await;
     assert_eq!(envelope.event_id, "evt_1");
     let BillingEvent::SubscriptionUpserted(payload) = envelope.event else {
         unreachable!("expected SubscriptionUpserted")
@@ -168,14 +205,14 @@ fn normalize_subscription_created_maps_to_upserted() {
     assert!(payload.current_period_end.is_some());
 }
 
-#[test]
-fn normalize_subscription_deleted_maps_to_canceled() {
-    let event = StripeEvent {
-        id: "evt_2".to_owned(),
-        event_type: "customer.subscription.deleted".to_owned(),
-        data: StripeEventData::Subscription(Box::new(sample_subscription("canceled"))),
-    };
-    let envelope = normalize_event(event);
+#[tokio::test]
+async fn normalize_subscription_deleted_maps_to_canceled() {
+    let envelope = deliver(&subscription_event(
+        "evt_2",
+        "customer.subscription.deleted",
+        "canceled",
+    ))
+    .await;
     let BillingEvent::SubscriptionCanceled {
         provider_subscription_id,
         ..
@@ -186,16 +223,14 @@ fn normalize_subscription_deleted_maps_to_canceled() {
     assert_eq!(provider_subscription_id, "sub_1");
 }
 
-#[test]
-fn normalize_invoice_payment_failed_maps_to_payment_failed() {
-    let event = StripeEvent {
-        id: "evt_3".to_owned(),
-        event_type: "invoice.payment_failed".to_owned(),
-        data: StripeEventData::InvoicePaymentFailed {
-            subscription_id: Some("sub_9".to_owned()),
-        },
-    };
-    let envelope = normalize_event(event);
+#[tokio::test]
+async fn normalize_invoice_payment_failed_maps_to_payment_failed() {
+    let envelope = deliver(&json!({
+        "id": "evt_3",
+        "type": "invoice.payment_failed",
+        "data": { "object": { "id": "in_1", "subscription": "sub_9" } }
+    }))
+    .await;
     let BillingEvent::PaymentFailed {
         provider_subscription_id,
     } = envelope.event
@@ -205,27 +240,25 @@ fn normalize_invoice_payment_failed_maps_to_payment_failed() {
     assert_eq!(provider_subscription_id, "sub_9");
 }
 
-#[test]
-fn normalize_unknown_event_is_ignored() {
-    let event = StripeEvent {
-        id: "evt_4".to_owned(),
-        event_type: "charge.refunded".to_owned(),
-        data: StripeEventData::Other(serde_json::json!({"id": "ch_1"})),
-    };
-    let envelope = normalize_event(event);
+#[tokio::test]
+async fn normalize_unknown_event_is_ignored() {
+    let envelope = deliver(&json!({
+        "id": "evt_4",
+        "type": "charge.refunded",
+        "data": { "object": { "id": "ch_1" } }
+    }))
+    .await;
     assert!(matches!(envelope.event, BillingEvent::Ignored));
 }
 
-#[test]
-fn invoice_payment_failed_without_subscription_is_ignored() {
-    let event = StripeEvent {
-        id: "evt_5".to_owned(),
-        event_type: "invoice.payment_failed".to_owned(),
-        data: StripeEventData::InvoicePaymentFailed {
-            subscription_id: None,
-        },
-    };
-    let envelope = normalize_event(event);
+#[tokio::test]
+async fn invoice_payment_failed_without_subscription_is_ignored() {
+    let envelope = deliver(&json!({
+        "id": "evt_5",
+        "type": "invoice.payment_failed",
+        "data": { "object": { "id": "in_2" } }
+    }))
+    .await;
     assert!(matches!(envelope.event, BillingEvent::Ignored));
 }
 
@@ -240,9 +273,16 @@ async fn stripe_api_error_becomes_external_service() {
         .start_checkout(&checkout("professional"))
         .await
         .unwrap_err();
-    stub.await.unwrap();
+    // Judge the error before awaiting the stub: a transport failure maps to the
+    // same code with other text, and a stub nobody reached never finishes, so
+    // awaiting it first would hang instead of failing.
     assert_eq!(err.code, ErrorCode::ExternalServiceError);
-    assert!(err.message.contains("No such price"));
+    assert!(
+        err.message.contains("No such price"),
+        "expected Stripe's API error message, got {:?}",
+        err.message
+    );
+    stub.await.unwrap();
 }
 
 #[tokio::test]

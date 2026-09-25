@@ -228,12 +228,9 @@ fn map_stripe_err(err: StripeError) -> AppError {
 ///
 /// Subscription events become `SubscriptionUpserted` (or `SubscriptionCanceled`
 /// for `customer.subscription.deleted`), a failed invoice with a subscription id
-/// becomes `PaymentFailed`, and everything else is `Ignored`.
-///
-/// LIMITATION(registre#613): `normalize_event` is `pub` and accepts any `StripeEvent`; only
-/// `parse_webhook` verifies the signature first, and no type enforces that order.
-#[must_use]
-pub fn normalize_event(event: StripeEvent) -> EventEnvelope {
+/// becomes `PaymentFailed`, and everything else is `Ignored`. Private, so the
+/// only way in is `parse_webhook`, which verifies the signature first.
+fn normalize_event(event: StripeEvent) -> EventEnvelope {
     let billing_event = match (&event.event_type, event.data) {
         (event_type, StripeEventData::Subscription(sub))
             if event_type == "customer.subscription.deleted" =>

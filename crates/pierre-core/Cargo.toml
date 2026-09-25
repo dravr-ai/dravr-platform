@@ -150,6 +150,11 @@ bcrypt = { version = "0.16", optional = true }
 [dev-dependencies]
 # Used by the DummyProvider tests in tests/billing_dummy_test.rs.
 tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
+# tests/billing_stripe_test.rs signs webhook payloads the way Stripe does
+# (HMAC-SHA256 over "{t}.{body}", hex) so events reach normalization only
+# through parse_webhook's signature check.
+hmac = "0.12"
+hex = "0.4"
 # tests/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
 # (SdkTracerProvider + InMemorySpanExporter) to pin traceparent injection.
 opentelemetry_sdk = { version = "0.32.1", features = ["trace", "testing"] }
