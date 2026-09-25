@@ -1,10 +1,47 @@
-// ABOUTME: The pure half of the route card — GeoJSON out of the hydrated track, and the words printed under the map
-// ABOUTME: Both clients draw the same ride from here, so a kilometre mark or a climb grade cannot read differently on the phone
+// ABOUTME: The pure half of the route card — the map's frame and GeoJSON out of the hydrated track, and the words printed under it
+// ABOUTME: Both clients draw the same ride from here, so the framed box, a kilometre mark or a climb grade cannot differ on the phone
 
 import type { LineString, MultiLineString, Position } from 'geojson';
-import type { RouteClimb } from '@pierre/scene-types';
+import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
 
 import type { Translate } from './text';
+
+/**
+ * The narrowest box a route map frames, in degrees, on either axis.
+ *
+ * A track whose extent is a point — an activity that recorded one fix, a
+ * trainer session that recorded only jitter — otherwise fits at the style's
+ * maximum zoom, which is a map of one tree. Widening the box to this floor
+ * keeps the frame at about the distance a route is read from. A real ride is
+ * orders of magnitude wider and passes through untouched.
+ */
+export const MIN_SPAN_DEGREES = 0.004;
+
+/** A map frame in the `[west, south, east, north]` order both MapLibre bindings take. */
+export type RouteFrame = [west: number, south: number, east: number, north: number];
+
+/**
+ * The box a route map is framed on: the carried extent, with each axis
+ * narrower than `MIN_SPAN_DEGREES` widened to exactly that span.
+ *
+ * The extent is carried by the block rather than folded from the points here,
+ * so every client frames the same ride identically. Only a degenerate axis is
+ * adjusted, and it is adjusted symmetrically about its midpoint so the track
+ * stays centred.
+ */
+export function routeFrame(bounds: RouteBounds): RouteFrame {
+  const widen = (min: number, max: number): [number, number] => {
+    const span = max - min;
+    if (span >= MIN_SPAN_DEGREES) {
+      return [min, max];
+    }
+    const grow = (MIN_SPAN_DEGREES - span) / 2;
+    return [min - grow, max + grow];
+  };
+  const [south, north] = widen(bounds.min_latitude, bounds.max_latitude);
+  const [west, east] = widen(bounds.min_longitude, bounds.max_longitude);
+  return [west, south, east, north];
+}
 
 /**
  * A parallel series is index-aligned with the track or it is absent — the

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The MapLibre layer recipe and viewport for one hydrated route block
+// ABOUTME: The MapLibre layer recipe and inks for one hydrated route block
 // ABOUTME: White casing under a token-coloured line, the dash carrying the climb state
 
-import type { LngLatBoundsLike, Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { LineString, MultiLineString } from 'geojson';
-import type { RouteBounds } from '@pierre/scene-types';
 import { BOREAL, type ColorScheme } from '@pierre/shared-constants';
 
 /** The whole recorded track. */
@@ -50,19 +49,6 @@ export interface RouteInk {
 export function routeInk(scheme: ColorScheme): RouteInk {
   const tokens = BOREAL[scheme];
   return { casing: CASING, track: tokens.primary, climb: tokens.onSurface };
-}
-
-/**
- * The carried extent as MapLibre's `[[west, south], [east, north]]`.
- *
- * Handed to the map at construction rather than fitted afterwards, so the first
- * frame is already over the route instead of panning to it once tiles arrive.
- */
-export function viewportBounds(bounds: RouteBounds): LngLatBoundsLike {
-  return [
-    [bounds.min_longitude, bounds.min_latitude],
-    [bounds.max_longitude, bounds.max_latitude],
-  ];
 }
 
 /**

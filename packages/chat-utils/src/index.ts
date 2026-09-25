@@ -70,9 +70,10 @@ export type { VizSegment } from './viz';
 // with every marker replaced by a line naming the chart that stood there.
 export { copyableText } from './copy-text';
 
-// The route card's geometry and captions, and the plan card's figures: the
-// pure halves of two blocks both clients draw, so the words under a map and
-// the durations on a plan read the same on web and on the phone.
+// The route card's frame, geometry and captions, and the plan card's figures:
+// the pure halves of two blocks both clients draw, so the box a map opens on,
+// the words under it and the durations on a plan read the same on web and on
+// the phone.
 export {
   alignedSeries,
   climbGeometry,
@@ -80,6 +81,7 @@ export {
   climbRange,
   kilometres,
   metresAt,
+  routeFrame,
   trackGeometry,
 } from './route';
 export { fuelParts, stepDuration } from './workout-plan';

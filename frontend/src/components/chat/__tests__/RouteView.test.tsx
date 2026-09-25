@@ -14,7 +14,7 @@ import { BASEMAP_STYLE, BOREAL } from '@pierre/shared-constants';
 import { ThemeProvider, useTheme } from '../../../hooks/useTheme';
 import RouteView from '../RouteView';
 import { SceneView } from '../SceneView';
-import { addRouteLayers, CLIMB_SOURCE, routeInk, TRACK_SOURCE, viewportBounds } from '../routeLayers';
+import { addRouteLayers, CLIMB_SOURCE, routeInk, TRACK_SOURCE } from '../routeLayers';
 
 interface LayerSpec {
   id: string;
@@ -158,17 +158,10 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-// The lat/lon transpose and the inclusive climb slice are pinned in
-// packages/chat-utils/__tests__/route.test.ts, beside the functions both
-// clients draw from.
-describe('route framing and ink', () => {
-  it('frames the carried extent as [[west, south], [east, north]]', () => {
-    expect(viewportBounds(ROUTE.bounds)).toEqual([
-      [-73.68, 45.5],
-      [-73.6, 45.58],
-    ]);
-  });
-
+// The minimum-span frame, the lat/lon transpose and the inclusive climb slice
+// are pinned in packages/chat-utils/__tests__/route.test.ts, beside the
+// functions both clients draw from.
+describe('route ink', () => {
   it('inks the track in the accent and the climbs in the body ink, per scheme', () => {
     expect(routeInk('light').track).toBe(BOREAL.light.primary);
     expect(routeInk('light').climb).toBe(BOREAL.light.onSurface);
@@ -221,10 +214,10 @@ describe('RouteView', () => {
 
     await waitFor(() => expect(harness.constructed).toHaveLength(1));
     const options = harness.constructed[0];
-    expect(options.bounds).toEqual([
-      [-73.68, 45.5],
-      [-73.6, 45.58],
-    ]);
+    // West, south, east, north: a real ride is wider than the minimum span on
+    // both axes, so it is framed exactly as carried.
+    expect(options.bounds).toEqual([-73.68, 45.5, -73.6, 45.58]);
+    expect(options.fitBoundsOptions).toEqual({ padding: 24 });
     // Dravr is dark-first, so an athlete with no stored preference gets the
     // dark basemap rather than a paper-white lamp on the near-black canvas.
     expect(options.style).toBe(BASEMAP_STYLE.dark);
@@ -260,6 +253,43 @@ describe('RouteView', () => {
     // Without the URL, MapLibre asks for a worker beside its own module; a
     // bundle has none there, so the worker loads index.html and no tile draws.
     expect(harness.calls).toEqual(['worker:/assets/maplibre-gl-worker.js', 'map']);
+  });
+
+  /**
+   * An activity that recorded one fix has an extent that is a point. Both
+   * clients open it on the shared minimum span, so the same ride is framed
+   * from the same distance on the web and on the phone — a zoom cap on the fit
+   * would frame it from wherever that cap happens to land instead.
+   */
+  it('opens a one-fix track on the shared minimum span, with no zoom cap', async () => {
+    render(
+      <ThemeProvider>
+        <RouteView
+          view={{
+            ...ROUTE,
+            coordinates: [[45.5, -73.6]],
+            bounds: {
+              min_latitude: 45.5,
+              max_latitude: 45.5,
+              min_longitude: -73.6,
+              max_longitude: -73.6,
+            },
+            elevation_meters: [24],
+            distances_meters: [0],
+            climbs: [],
+          }}
+        />
+      </ThemeProvider>
+    );
+
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+    const options = harness.constructed[0];
+    const [west, south, east, north] = options.bounds as number[];
+    expect(east - west).toBeCloseTo(0.004, 10);
+    expect(north - south).toBeCloseTo(0.004, 10);
+    expect((east + west) / 2).toBeCloseTo(-73.6, 10);
+    expect((north + south) / 2).toBeCloseTo(45.5, 10);
+    expect(options.fitBoundsOptions).toEqual({ padding: 24 });
   });
 
   it('repaints on the light basemap in the light scheme, in the light inks', async () => {

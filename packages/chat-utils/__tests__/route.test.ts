@@ -1,15 +1,17 @@
-// ABOUTME: Unit tests for the route card's pure half — the GeoJSON both maps draw and the words printed under them
-// ABOUTME: Red if the lat/lon flip, the inclusive climb slice, the km range or the HC caption drift from what both clients show
+// ABOUTME: Unit tests for the route card's pure half — the frame and GeoJSON both maps draw and the words printed under them
+// ABOUTME: Red if the minimum span, the lat/lon flip, the inclusive climb slice, the km range or the HC caption drift between clients
 
 import { describe, expect, it } from 'vitest';
-import type { RouteClimb } from '@pierre/scene-types';
+import type { RouteBounds, RouteClimb } from '@pierre/scene-types';
 import {
+  MIN_SPAN_DEGREES,
   alignedSeries,
   climbGeometry,
   climbGrade,
   climbRange,
   kilometres,
   metresAt,
+  routeFrame,
   trackGeometry,
 } from '../src/route';
 
@@ -23,6 +25,63 @@ const climb = (start: number, end: number, category: string | null): RouteClimb 
 /** A translator that shows which key and params it was handed. */
 const t = (key: string, params?: Record<string, string | number>) =>
   `${key}(${JSON.stringify(params ?? {})})`;
+
+const box = (south: number, north: number, west: number, east: number): RouteBounds => ({
+  min_latitude: south,
+  max_latitude: north,
+  min_longitude: west,
+  max_longitude: east,
+});
+
+describe('routeFrame', () => {
+  it('floors the frame at four thousandths of a degree', () => {
+    expect(MIN_SPAN_DEGREES).toBe(0.004);
+  });
+
+  it('frames a single point on a box exactly the minimum span wide, centred on it', () => {
+    const [west, south, east, north] = routeFrame(box(45.5, 45.5, -73.6, -73.6));
+
+    expect(east - west).toBeCloseTo(MIN_SPAN_DEGREES, 12);
+    expect(north - south).toBeCloseTo(MIN_SPAN_DEGREES, 12);
+    expect(west).toBeCloseTo(-73.602, 12);
+    expect(east).toBeCloseTo(-73.598, 12);
+    expect(south).toBeCloseTo(45.498, 12);
+    expect(north).toBeCloseTo(45.502, 12);
+  });
+
+  it('widens a two-fix track narrower than the minimum about its midpoint', () => {
+    // Two fixes 0.001° apart north-south and 0.0006° east-west: both axes are
+    // under the floor, so both grow to it, each about its own midpoint.
+    const [west, south, east, north] = routeFrame(box(45.5, 45.501, -73.6006, -73.6));
+
+    expect(east - west).toBeCloseTo(MIN_SPAN_DEGREES, 12);
+    expect(north - south).toBeCloseTo(MIN_SPAN_DEGREES, 12);
+    expect((north + south) / 2).toBeCloseTo(45.5005, 12);
+    expect((east + west) / 2).toBeCloseTo(-73.6003, 12);
+  });
+
+  it('widens only the axis that is under the floor', () => {
+    // A straight run due north: long in latitude, a point in longitude.
+    const [west, south, east, north] = routeFrame(box(45.5, 45.58, -73.6, -73.6));
+
+    expect([south, north]).toEqual([45.5, 45.58]);
+    expect(east - west).toBeCloseTo(MIN_SPAN_DEGREES, 12);
+    expect((east + west) / 2).toBeCloseTo(-73.6, 12);
+  });
+
+  it('frames a real ride exactly as carried, as west, south, east, north', () => {
+    expect(routeFrame(box(45.5, 45.58, -73.68, -73.6))).toEqual([-73.68, 45.5, -73.6, 45.58]);
+  });
+
+  it('leaves an axis exactly at the minimum span untouched', () => {
+    expect(routeFrame(box(0, MIN_SPAN_DEGREES, 0, MIN_SPAN_DEGREES))).toEqual([
+      0,
+      0,
+      MIN_SPAN_DEGREES,
+      MIN_SPAN_DEGREES,
+    ]);
+  });
+});
 
 describe('alignedSeries', () => {
   it('keeps a series as long as the track and drops a ragged or empty one', () => {
