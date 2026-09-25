@@ -243,3 +243,20 @@ export type { MemoryFactKind } from './memory';
 
 // The quota counters GET /api/usage/status serves
 export type { LimitCheckResult, UsageStatusResponse } from './usage';
+
+// Billing: subscription, invoices, plan catalogue, quota snapshot, checkout and portal
+export type {
+  PlanTier,
+  PaidPlanTier,
+  SubscriptionView,
+  BillingInvoice,
+  InvoicesResponse,
+  QuotaCounter,
+  MyQuotaResponse,
+  PlanView,
+  PlansResponse,
+  CheckoutRequest,
+  CheckoutResponse,
+  PortalRequest,
+  PortalResponse,
+} from './billing';

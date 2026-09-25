@@ -222,6 +222,15 @@ export const QUERY_KEYS = {
     channels: () => ['messaging-channels'] as const,
   },
 
+  // ==================== BILLING ====================
+  billing: {
+    all: ['billing'] as const,
+    subscription: () => ['billing', 'subscription'] as const,
+    invoices: () => ['billing', 'invoices'] as const,
+    quota: () => ['billing', 'quota'] as const,
+    plans: () => ['billing', 'plans'] as const,
+  },
+
   // ==================== USAGE QUOTAS ====================
   usage: {
     all: ['usage'] as const,

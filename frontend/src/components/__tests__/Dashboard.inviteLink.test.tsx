@@ -54,7 +54,10 @@ vi.mock('../../hooks/useAuth', () => ({
   }),
 }));
 
-vi.mock('../../services/api', () => ({}));
+vi.mock('../../services/api', () => ({
+  // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
+  featureFlagsApi: {},
+}));
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 
 function renderDashboard(pendingInviteCode: string | null, onInviteCodeConsumed = vi.fn()) {

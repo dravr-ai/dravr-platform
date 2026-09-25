@@ -315,8 +315,11 @@ describe('client locale corpus', () => {
     // a tapped day opens in chat; `home.activities.*` is the recent list's
     // heading, sync line, empty and failure states and its analyze draft.
     // +22.
+    // 2485 once both plan pages named a tier through one key set: mobile's
+    // `app.planStarter`, `app.planProfessional` and `app.planEnterprise`
+    // carried the same words as web's `plan.*`, which both now read. -3.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2488);
+    expect(reference).toHaveLength(2485);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

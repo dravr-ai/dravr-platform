@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-phantom-surfaces.sh's route gate and web service scan — what the old scans missed
-# ABOUTME: Pins multi-line, {param} and .nest routes, the stock/diff contract, the marker, uncalled web methods, fail-closed scans
+# ABOUTME: Pins multi-line, {param} and .nest routes, the stock/diff contract, the marker, uncalled web methods, shared hooks, fail-closed scans
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -326,6 +326,30 @@ rm -r "$root/frontend/src/services"
 commit "$root" "move the services somewhere the scan does not look"
 expect "a missing services directory fails closed" "$root" 1 HEAD~1
 expect_output "the refusal says the scan is stale" "frontend/src/services/api not found — this scan is stale."
+
+# ---------------------------------------------------------------------------
+# 9. A method reached through a shared hook both clients bind
+# ---------------------------------------------------------------------------
+# The React Query hooks live in packages/ui-logic as factories each client
+# binds to its own API instance, so the call sits there and in neither app.
+root="$(tree sharedhook)"
+commit "$root" base
+cat > "$root/packages/api-client/src/domains/demo.ts" <<'TS'
+export const createDemoApi = (axios: { get: (url: string) => unknown }) => ({
+    async listThings() {
+      return axios.get('/api/things');
+    },
+    async countThings() {
+      return axios.get('/api/things');
+    },
+});
+TS
+mkdir -p "$root/packages/ui-logic/src"
+printf 'export const createThingHooks = (api: any) => ({ useCount: () => api.countThings() });\n' \
+    > "$root/packages/ui-logic/src/thingHooks.ts"
+commit "$root" "add a method only a shared hook calls"
+expect "a method only a shared ui-logic hook calls passes" "$root" 0 HEAD~1
+expect_output "the scan counts it as called" "api-client: all 2 domain methods have a production caller."
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

@@ -8,29 +8,14 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { billingApi } from '../services/api';
 import { track } from '../services/analytics';
-import type { PlanView } from '../services/api';
+import type { PaidPlanTier, PlanView } from '@pierre/shared-types';
+import { QUERY_KEYS, hasPaymentProblem, planTierLabelKey } from '@pierre/shared-constants';
 import { useAuth } from '../hooks/useAuth';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 import { useTranslation } from '@pierre/i18n';
-import { formatDate } from '@pierre/chat-utils';
-
-const TIER_LABEL_KEYS: Record<string, string> = {
-  starter: 'plan.starter',
-  professional: 'plan.professional',
-  enterprise: 'plan.enterprise',
-};
-
-/** Subscription statuses that mean the user must fix their payment. */
-const PAYMENT_PROBLEM_STATUSES = new Set(['past_due', 'unpaid', 'incomplete', 'incomplete_expired']);
-
-/** Compact integer formatting for quota caps (500000 → "500K", 5000000 → "5M"). */
-function formatCompact(value: number): string {
-  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(
-    value
-  );
-}
+import { formatCompactNumber, formatDate } from '@pierre/chat-utils';
 
 function formatCurrency(amount: number | undefined, currency: string | undefined): string {
   if (amount == null) return '—';
@@ -49,28 +34,28 @@ export default function BillingPage() {
   const [error, setError] = useState<string | null>(null);
 
   const subscriptionQuery = useQuery({
-    queryKey: ['billing', 'subscription'],
+    queryKey: QUERY_KEYS.billing.subscription(),
     queryFn: () => billingApi.getSubscription(),
   });
 
   const invoicesQuery = useQuery({
-    queryKey: ['billing', 'invoices'],
+    queryKey: QUERY_KEYS.billing.invoices(),
     queryFn: () => billingApi.listInvoices(),
     enabled: subscriptionQuery.data != null,
   });
 
   const quotaQuery = useQuery({
-    queryKey: ['billing', 'quota'],
+    queryKey: QUERY_KEYS.billing.quota(),
     queryFn: () => billingApi.getMyQuota(),
   });
 
   const plansQuery = useQuery({
-    queryKey: ['billing', 'plans'],
+    queryKey: QUERY_KEYS.billing.plans(),
     queryFn: () => billingApi.getPlans(),
   });
 
   const checkoutMutation = useMutation({
-    mutationFn: (tier: 'professional' | 'enterprise') => {
+    mutationFn: (tier: PaidPlanTier) => {
       if (!user) throw new Error('not authenticated');
       track({ name: 'checkout_started', props: { tier } });
       const successUrl = `${window.location.origin}/billing?upgrade=success`;
@@ -107,8 +92,9 @@ export default function BillingPage() {
   // user as a last resort. The stored auth user may omit `tier`, so relying
   // on it alone mislabels a paid user as Starter.
   const tier = sub?.plan_tier ?? quotaQuery.data?.tier ?? user?.tier ?? 'starter';
-  const tierLabel = TIER_LABEL_KEYS[tier] ? t(TIER_LABEL_KEYS[tier]) : tier;
-  const hasPaymentProblem = sub != null && PAYMENT_PROBLEM_STATUSES.has(sub.status);
+  const tierLabelKey = planTierLabelKey(tier);
+  const tierLabel = tierLabelKey ? t(tierLabelKey) : tier;
+  const paymentProblem = hasPaymentProblem(sub?.status);
 
   // Checkout success return path: the provider redirects to
   // `/billing?upgrade=success` once payment completes. Fire the funnel-close
@@ -129,7 +115,7 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      {hasPaymentProblem && (
+      {paymentProblem && (
         <Card variant="dark" className="p-4 border border-error/60 bg-error/10">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -256,7 +242,7 @@ export default function BillingPage() {
                 plan={plan}
                 isCurrent={plan.tier === tier}
                 onUpgrade={() =>
-                  checkoutMutation.mutate(plan.tier as 'professional' | 'enterprise')
+                  checkoutMutation.mutate(plan.tier as PaidPlanTier)
                 }
                 onManage={() => (sub != null ? portalMutation.mutate() : undefined)}
                 checkoutPending={checkoutMutation.isPending}
@@ -384,7 +370,7 @@ function PlanCard({
   hasSubscription: boolean;
 }) {
   const { t } = useTranslation();
-  const cap = (value: number): string => (plan.unlimited ? t('shell.billingUnlimited') : formatCompact(value));
+  const cap = (value: number): string => (plan.unlimited ? t('shell.billingUnlimited') : formatCompactNumber(value));
   const includedUsage = plan.included_usd != null
     ? `$${plan.included_usd}/mo`
     : plan.unlimited
