@@ -26,7 +26,7 @@ import { NotificationBellButton } from '../../components/notifications/Notificat
 import { HOME_ROUTE, threadHref } from '../../navigation/routes';
 import { ChatPlusFlows } from '../chat/ChatPlusFlows';
 import { NewChatButton } from '../chat/NewChatButton';
-import { presentChatPlusMenu } from '../chat/presentChatPlusMenu';
+import { presentMenu } from '../../utils/presentMenu';
 import { useChatPlusActions } from '../chat/useChatPlusActions';
 import { ConversationRow } from './ConversationRow';
 import { useConversationList } from './useConversationList';
@@ -60,12 +60,7 @@ export function ConversationsScreen() {
   // group chat; "add someone" belongs to the thread that is being read.
   const chatPlus = useChatPlusActions(null);
   const openPlusMenu = useCallback(
-    () =>
-      presentChatPlusMenu({
-        actions: chatPlus.actions,
-        cancelLabel: t('common.cancel'),
-        title: t('app.convNewAria'),
-      }),
+    () => presentMenu(chatPlus.actions, { title: t('app.convNewAria'), cancelLabel: t('common.cancel') }),
     [chatPlus.actions, t],
   );
 

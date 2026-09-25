@@ -4,9 +4,8 @@
 // ABOUTME: Presents a message's long-press actions as the platform's own menu — an action sheet on iOS, a dialog on Android
 // ABOUTME: Copy, share, rate up or down, and retry on the last agent turn, with selection haptics as the row opens
 
-import { ActionSheetIOS, Alert, Platform } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import type { TFunction } from '@pierre/i18n';
+import { presentMenu, type MenuRow } from '../../utils/presentMenu';
 
 /** The two ratings a message can carry; the caller toggles a repeated tap off. */
 export type MessageRating = 'up' | 'down';
@@ -21,11 +20,6 @@ interface PresentMessageMenuOptions {
   /** Called with the tapped rating even when it equals `rating` — the caller toggles it off. */
   onRate: (rating: MessageRating) => void;
   onRetry: () => void;
-}
-
-interface MenuRow {
-  label: string;
-  onPress: () => void;
 }
 
 /** The marked label of the rating row the message already holds. */
@@ -44,8 +38,6 @@ export function presentMessageMenu(
   { canRetry, rating, onCopy, onShare, onRate, onRetry }: PresentMessageMenuOptions,
   t: TFunction,
 ): void {
-  Haptics.selectionAsync().catch(() => undefined);
-
   const rows: MenuRow[] = [
     { label: t('common.copy'), onPress: onCopy },
     { label: t('chat.share'), onPress: onShare },
@@ -55,22 +47,5 @@ export function presentMessageMenu(
   if (canRetry) {
     rows.push({ label: t('common.retry'), onPress: onRetry });
   }
-  const cancelLabel = t('common.cancel');
-
-  if (Platform.OS === 'ios') {
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: [...rows.map((row) => row.label), cancelLabel],
-        cancelButtonIndex: rows.length,
-      },
-      (index) => {
-        rows[index]?.onPress();
-      },
-    );
-    return;
-  }
-  Alert.alert(t('chat.messageActions'), undefined, [
-    ...rows.map((row) => ({ text: row.label, onPress: row.onPress })),
-    { text: cancelLabel, style: 'cancel' as const },
-  ]);
+  presentMenu(rows, { title: t('chat.messageActions'), cancelLabel: t('common.cancel'), haptic: true });
 }

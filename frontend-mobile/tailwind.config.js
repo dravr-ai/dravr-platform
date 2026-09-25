@@ -1,6 +1,8 @@
 // ABOUTME: NativeWind v4 Tailwind config — Dravr Boreal v2.2 tokens for the phone
 // ABOUTME: CSS variables drive light/dark — values declared in global.css
 
+const { TYPE_SCALE } = require('./src/constants/typeScale');
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
@@ -136,23 +138,16 @@ module.exports = {
         mono: ['JetBrainsMono'],
       },
       // The platform ladder in the system face (Design/Boreal v2.2 — Mobile
-      // Less, "The scale"). Every step carries its line-height so a bare
-      // `text-sm` is complete without a `leading-*` beside it. Reading text is
-      // `base` 16/22; interface text is `sm` 13/18 at weight 500 on anything
-      // navigable; `md` 15/20 is a row's second line when it is read, not
-      // scanned (the chat preview, a Discover description); `xs` 12/16 is the
-      // floor — nothing goes under it but a native badge. `2xl` and up are
-      // reserved for the auth and onboarding headline.
-      fontSize: {
-        xs: ['12px', { lineHeight: '16px' }],
-        sm: ['13px', { lineHeight: '18px' }],
-        md: ['15px', { lineHeight: '20px' }],
-        base: ['16px', { lineHeight: '22px' }],
-        lg: ['17px', { lineHeight: '22px' }],
-        xl: ['20px', { lineHeight: '25px' }],
-        '2xl': ['22px', { lineHeight: '28px' }],
-        '3xl': ['26px', { lineHeight: '32px' }],
-      },
+      // Less, "The scale"), declared once in src/constants/typeScale.js so the
+      // inline styles that cannot take a class read the same steps. Every step
+      // carries its line-height so a bare `text-sm` is complete without a
+      // `leading-*` beside it.
+      fontSize: Object.fromEntries(
+        Object.entries(TYPE_SCALE).map(([step, { fontSize, lineHeight }]) => [
+          step,
+          [`${fontSize}px`, { lineHeight: `${lineHeight}px` }],
+        ]),
+      ),
       letterSpacing: {
         brand: '0.15em',      // DRAVR wordmark — the only tracked text in the product
       },

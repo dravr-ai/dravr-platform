@@ -808,8 +808,11 @@ The phone shares every token above and differs where a thumb and a system
 ladder make it differ. The mirrors are `frontend-mobile/tailwind.config.js`
 (the class path) and `frontend-mobile/src/contexts/ThemeContext.tsx` (the
 runtime path, `useThemeColors()`); `__tests__/TypeScaleParity.test.ts` pins
-both to this table and to `index.css`. The decisions behind it are in the
-vault under `Design/Boreal v2.2 — Mobile Less`.
+both to this table and to `index.css`. The scale below is declared once, in
+`frontend-mobile/src/constants/typeScale.js`: the Tailwind config builds the
+`text-*` classes from it, and a style that cannot take a class (the chat's
+markdown) reads the same steps as `typeScale` from `constants/theme`. The
+decisions behind it are in the vault under `Design/Boreal v2.2 — Mobile Less`.
 
 ### Scale
 

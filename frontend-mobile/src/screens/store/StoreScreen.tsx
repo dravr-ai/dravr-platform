@@ -21,7 +21,7 @@ import { useTranslation } from '@pierre/i18n';
 import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
 import { TextTabs, HeaderActions, type TextTabItem } from '../../components/ui';
 import { DiscoverRow } from './DiscoverRow';
-import { presentSortMenu, type SortMenuOption } from './presentSortMenu';
+import { presentMenu } from '../../utils/presentMenu';
 
 // Category tabs. `key` is the value sent to the API and must stay English;
 // the label is resolved at render, since module scope cannot hold a hook.
@@ -178,18 +178,11 @@ export function StoreScreen() {
     label: t(labelKey),
   }));
 
-  const sortMenuOptions: SortMenuOption<SortOption>[] = SORT_OPTIONS.map(({ key, labelKey }) => ({
-    key,
-    label: t(labelKey),
-  }));
-
   const openSortMenu = () => {
-    presentSortMenu<SortOption>({
-      options: sortMenuOptions,
-      onChange: setSelectedSort,
-      cancelLabel: t('common.cancel'),
-      title: t('discover.sortByLabel'),
-    });
+    presentMenu(
+      SORT_OPTIONS.map(({ key, labelKey }) => ({ label: t(labelKey), onPress: () => setSelectedSort(key) })),
+      { title: t('discover.sortByLabel'), cancelLabel: t('common.cancel') },
+    );
   };
 
   const renderEmptyState = () => (
