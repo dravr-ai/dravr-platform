@@ -116,7 +116,11 @@ module.exports = {
           // pulls that in. Compiling against 35 fails checkReleaseAarMetadata before
           // a single source file is built; the EAS log names the requirement.
           compileSdkVersion: 36,
-          targetSdkVersion: 35,
+          // Google Play takes new apps and updates only at target API 36 or
+          // later from 2026-08-31, which opts the app into Android 16's
+          // runtime behaviour: edge-to-edge with no opt-out, predictive back,
+          // and orientation and resizability locks ignored on large screens.
+          targetSdkVersion: 36,
           enableProguardInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
         },
