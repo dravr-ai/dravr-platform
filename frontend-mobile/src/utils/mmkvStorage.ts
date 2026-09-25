@@ -1,39 +1,48 @@
 // ABOUTME: MMKV storage adapter for React Query persistence
-// ABOUTME: Provides fast synchronous storage for offline caching of activities and training data
+// ABOUTME: Persists the query cache to disk through react-native-mmkv v4, in memory only inside Expo Go
 
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
-// Dynamic import for MMKV to handle test environment
-// In production, this will use the native MMKV module
-// In tests, we'll mock this module
-let queryCacheStorage: {
+/** The slice of an MMKV instance the persister uses. */
+interface QueryCacheStorage {
   getString: (key: string) => string | undefined;
   set: (key: string, value: string) => void;
-  delete: (key: string) => void;
+  remove: (key: string) => void;
   clearAll: () => void;
-};
+}
 
-try {
-  const { MMKV } = require('react-native-mmkv');
-  queryCacheStorage = new MMKV({
-    id: 'pierre-query-cache',
-  });
-} catch {
-  // Fallback for test environment - use in-memory storage
-  const inMemoryStorage = new Map<string, string>();
-  queryCacheStorage = {
-    getString: (key: string) => inMemoryStorage.get(key),
-    set: (key: string, value: string) => {
-      inMemoryStorage.set(key, value);
+/**
+ * Expo Go ships a fixed set of native modules and MMKV's Nitro module is not
+ * one of them — merely importing react-native-mmkv there throws — so in Expo
+ * Go the cache lives in memory for the session and the library is never
+ * loaded. Every other build — dev client, preview, store — carries the native
+ * module and persists to disk; a missing module there is a broken build and
+ * throws rather than silently forgetting the athlete's cache.
+ */
+function memoryStorage(): QueryCacheStorage {
+  const entries = new Map<string, string>();
+  return {
+    getString: (key) => entries.get(key),
+    set: (key, value) => {
+      entries.set(key, value);
     },
-    delete: (key: string) => {
-      inMemoryStorage.delete(key);
+    remove: (key) => {
+      entries.delete(key);
     },
     clearAll: () => {
-      inMemoryStorage.clear();
+      entries.clear();
     },
   };
 }
+
+function mmkvStorage(): QueryCacheStorage {
+  const { createMMKV } = require('react-native-mmkv') as typeof import('react-native-mmkv');
+  return createMMKV({ id: 'pierre-query-cache' });
+}
+
+const queryCacheStorage: QueryCacheStorage =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ? memoryStorage() : mmkvStorage();
 
 // Storage key for persisted queries
 const QUERY_CACHE_KEY = 'REACT_QUERY_CACHE';
@@ -62,12 +71,12 @@ export const mmkvPersister: Persister = {
       return JSON.parse(cached) as PersistedClient;
     } catch {
       // Corrupted cache, clear and return undefined
-      queryCacheStorage.delete(QUERY_CACHE_KEY);
+      queryCacheStorage.remove(QUERY_CACHE_KEY);
       return undefined;
     }
   },
   removeClient: async () => {
-    queryCacheStorage.delete(QUERY_CACHE_KEY);
+    queryCacheStorage.remove(QUERY_CACHE_KEY);
   },
 };
 
@@ -77,7 +86,7 @@ export const mmkvPersister: Persister = {
  * Call this on user logout to ensure no data leaks between users.
  */
 export function clearQueryCache(): void {
-  queryCacheStorage.delete(QUERY_CACHE_KEY);
+  queryCacheStorage.remove(QUERY_CACHE_KEY);
 }
 
 /**

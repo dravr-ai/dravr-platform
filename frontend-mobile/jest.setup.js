@@ -214,6 +214,13 @@ jest.mock('react-native-safe-area-context', () => {
 // a ScrollView and KeyboardAvoidingView as a View, so a form's keyboard
 // mechanism is visible in the tree and the native tracker is never needed.
 jest.mock('react-native-keyboard-controller', () => require('react-native-keyboard-controller/jest'));
+// react-native-mmkv v4 is a Nitro module: importing it loads NitroModules,
+// which has no native side under Jest. The library's own in-memory instance
+// stands in, so code that persists through createMMKV runs unchanged.
+jest.mock('react-native-mmkv', () => ({
+  createMMKV: (config) =>
+    require('react-native-mmkv/lib/createMMKV/createMockMMKV').createMockMMKV(config),
+}));
 
 // Mock expo-linear-gradient. The stops stay on the view it renders as
 // `colors`, so a test can measure the plate a label sits on.
