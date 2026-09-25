@@ -117,6 +117,7 @@ fn telemetry() -> TurnTelemetry {
         activities_prefetched: false,
         usage: None,
         identity_leak: None,
+        provider_warnings: Vec::new(),
     }
 }
 

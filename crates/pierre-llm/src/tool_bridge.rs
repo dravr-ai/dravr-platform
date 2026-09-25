@@ -71,5 +71,6 @@ pub fn with_tools_response(response: ChatResponse) -> ChatResponseWithTools {
         usage: response.usage,
         function_calls: function_calls_from(response.tool_calls),
         finish_reason: response.finish_reason,
+        warnings: response.warnings,
     }
 }

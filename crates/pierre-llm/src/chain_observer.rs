@@ -154,6 +154,7 @@ impl FallbackObserver for ChainObserver {
         record_served_tier(ServedTier {
             provider: tier.provider.name(),
             position: tier.position,
+            capabilities: tier.provider.capabilities(),
         });
 
         // A stream counts on OPEN — the breaker tracks transport-level

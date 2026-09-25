@@ -17,6 +17,8 @@ use std::future::Future;
 
 use tracing::trace;
 
+use crate::LlmCapabilities;
+
 /// The tier of a fallback chain that answered a call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServedTier {
@@ -25,6 +27,10 @@ pub struct ServedTier {
     /// Zero-based position in the chain; `0` is the configured primary, so
     /// anything above it means the call fell back.
     pub position: usize,
+    /// What the provider that answered supports — the set a request's
+    /// parameters are checked against, since a fallback tier can honor less
+    /// than the head the chain is named after.
+    pub capabilities: LlmCapabilities,
 }
 
 tokio::task_local! {

@@ -316,7 +316,10 @@ fn push_history_row(
         return;
     }
 
-    let stripped = strip_simulation_artifacts(&msg.content);
+    // A truncated or filtered reply replays without the caveat the platform
+    // appended to it: the model's partial answer is what a "continue" needs,
+    // the caveat is narration about the reply failing.
+    let stripped = strip_simulation_artifacts(msg.replayable_content());
     if stripped.is_empty() {
         return;
     }

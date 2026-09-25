@@ -1907,6 +1907,10 @@
     "quota_burst": "Heads-up: you're past your plan's limit of {1} and running on reserve. The counter resets on {2}.",
     "rate_limited": "You're sending messages a little faster than your plan allows. Give it a moment and try again — I'll be here.",
     "reply_withheld": "My reply didn't go through — it mixed in technical details that don't belong here. Send your last message again and we'll pick up where we left off.",
+    "reply_stop": {
+      "truncated": "✂️ My reply was cut off before I finished. Ask me to continue and I'll pick up where I stopped.",
+      "filtered": "⚠️ Part of my reply was removed by a content filter, so it may be incomplete. Try rephrasing your question."
+    },
     "scope": {
       "carve_out": {
         "nutrition": "## Clarification for your nutrition role\n\nYou specialise in nutrition, so questions about meals, dinner, breakfast, snacks, food choices, and training-linked meal planning are fully within your scope. Answer these directly, grounded in the user's training data (intensity, duration, energy expenditure). The \"food/meal finders out-of-scope\" rule above targets restaurant search, delivery apps, and online menu lookups only — it does not cover evidence-based nutrition advice or meal planning built on the user's training. Never refuse \"what should I eat after my run\", \"dinner ideas after my workout\", \"post-workout snack\" or equivalent.",

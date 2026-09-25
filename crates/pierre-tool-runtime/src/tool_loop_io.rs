@@ -178,6 +178,11 @@ pub struct ToolLoopResult {
     /// moment-in-time failure is what turned one 2026-07-24 apology into an
     /// identical one 18 days later.
     pub capability_claim_unverified: bool,
+    /// What the serving provider reported ignoring across the loop's LLM
+    /// calls — a temperature it has no knob for, tools it simulated in text,
+    /// an image it could not see. Deduplicated, in first-seen order: a loop
+    /// re-sends the same request shape every iteration.
+    pub provider_warnings: Vec<String>,
 }
 
 /// A tool call the Guardian parked pending `/confirm`·`/deny` resolution.
@@ -210,9 +215,20 @@ pub(crate) struct ToolLoopTally {
     pub tools_called: Vec<String>,
     /// Backend key of a provider a window was served without.
     pub served_without_provider: Option<String>,
+    /// Provider warnings seen so far, deduplicated in first-seen order.
+    pub provider_warnings: Vec<String>,
 }
 
 impl ToolLoopTally {
+    /// Fold one LLM call's provider warnings into the loop's list.
+    pub fn note_provider_warnings(&mut self, warnings: Option<&[String]>) {
+        for warning in warnings.unwrap_or_default() {
+            if !self.provider_warnings.contains(warning) {
+                self.provider_warnings.push(warning.clone());
+            }
+        }
+    }
+
     /// Exit carrying a provider the athlete must re-authorize before the ask
     /// can be answered.
     pub fn provider_auth_required(
@@ -232,6 +248,7 @@ impl ToolLoopTally {
             guardian_denied: None,
             guardian_confirm: None,
             capability_claim_unverified: false,
+            provider_warnings: self.provider_warnings,
         }
     }
 
@@ -253,6 +270,7 @@ impl ToolLoopTally {
             guardian_denied: Some(denial),
             guardian_confirm: None,
             capability_claim_unverified: false,
+            provider_warnings: self.provider_warnings,
         }
     }
 
@@ -274,6 +292,7 @@ impl ToolLoopTally {
             guardian_denied: None,
             guardian_confirm: Some(confirm),
             capability_claim_unverified: false,
+            provider_warnings: self.provider_warnings,
         }
     }
 
@@ -296,6 +315,7 @@ impl ToolLoopTally {
             guardian_denied: None,
             guardian_confirm: None,
             capability_claim_unverified: false,
+            provider_warnings: self.provider_warnings,
         }
     }
 
@@ -313,11 +333,38 @@ impl ToolLoopTally {
             guardian_denied: None,
             guardian_confirm: None,
             capability_claim_unverified: false,
+            provider_warnings: self.provider_warnings,
         }
     }
 }
 
 impl ToolLoopResult {
+    /// Build the [`ToolLoopResult`] for a Guardian-rejected plan.
+    ///
+    /// Covers both the over-step-cap and the failed-static-verification cases.
+    /// Surfaced as a `guardian_denied` so the chat pipeline renders the localized
+    /// `KEY_GUARDIAN_DENIED` reply (P3) instead of the rejection flowing through
+    /// post-processing as if it were model output.
+    pub(crate) fn guardian_plan_denied(reason: &str) -> Self {
+        Self {
+            content: String::new(),
+            usage: None,
+            finish_reason: Some("guardian_plan_rejected".to_owned()),
+            activity_list: None,
+            tool_calls_count: 0,
+            tools_called: Vec::new(),
+            pending_provider_auth_required: None,
+            served_without_provider: None,
+            guardian_denied: Some(GuardianDenial {
+                tool_name: "(plan)".to_owned(),
+                reason: reason.to_owned(),
+            }),
+            guardian_confirm: None,
+            capability_claim_unverified: false,
+            provider_warnings: Vec::new(),
+        }
+    }
+
     /// `true` when this turn produced nothing the athlete can be shown.
     ///
     /// Mirrors the rule the messaging egress applies before it sends the

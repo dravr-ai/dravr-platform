@@ -1907,6 +1907,10 @@
     "quota_burst": "Aviso: has superado el límite de {1} de tu plan y sigues con la reserva. El contador se reinicia el {2}.",
     "rate_limited": "Estás enviando mensajes un poco más rápido de lo que permite tu plan. Espera un momento y vuelve a intentarlo — aquí estaré.",
     "reply_withheld": "Mi respuesta no salió — mezclaba detalles técnicos que no tienen lugar aquí. Envíame de nuevo tu último mensaje y retomamos donde estábamos.",
+    "reply_stop": {
+      "truncated": "✂️ Mi respuesta se cortó antes de terminar. Pídeme que continúe y retomo donde me quedé.",
+      "filtered": "⚠️ Un filtro de contenido eliminó parte de mi respuesta, así que puede estar incompleta. Intenta reformular tu pregunta."
+    },
     "scope": {
       "carve_out": {
         "nutrition": "## Aclaración para tu rol de nutrición\n\nEstás especializado en nutrición: las preguntas sobre comidas, cenas, desayunos, snacks, elecciones alimentarias y planificación de comidas vinculadas al entrenamiento están plenamente dentro de tu ámbito. Responde directamente, apoyándote en los datos de entrenamiento del usuario (intensidad, duración, gasto energético). La regla «búsquedas de comida fuera de alcance» de más arriba apunta solo a la búsqueda de restaurantes, apps de entrega y menús en línea — no cubre los consejos nutricionales basados en evidencia ni la planificación de comidas fundada en los datos de entrenamiento. Nunca rechaces «qué comer después de correr», «ideas para la cena tras entrenar», «snack post-entrenamiento» o equivalentes.",

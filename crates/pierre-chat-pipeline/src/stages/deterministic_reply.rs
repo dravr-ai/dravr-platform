@@ -149,6 +149,7 @@ pub async fn deliver(
                 activities_prefetched: false,
                 usage: None,
                 identity_leak: None,
+                provider_warnings: Vec::new(),
             },
             quota,
             reconnect: None,

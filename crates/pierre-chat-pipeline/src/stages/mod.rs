@@ -71,7 +71,10 @@ pub mod prefetch;
 /// Prompt assembly: agent/default → provider/group/memory → canary → messages.
 pub mod prompt_assembly;
 pub mod prompt_builder;
+pub mod provider_stop;
 pub mod refresh;
+/// The language a platform note appended to a reply is written in.
+pub(crate) mod reply_locale;
 /// Pre-dispatch prep + multi-turn tool execution loop.
 pub mod tool_dispatch;
 /// Post-turn memory extraction, recorded before it runs

@@ -37,6 +37,7 @@ fn loop_result(denied: Option<GuardianDenial>) -> ToolLoopResult {
         guardian_denied: denied,
         guardian_confirm: None,
         capability_claim_unverified: false,
+        provider_warnings: Vec::new(),
     }
 }
 

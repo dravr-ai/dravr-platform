@@ -1907,6 +1907,10 @@
     "quota_burst": "Petite note : tu as dépassé la limite de {1} de ton forfait — tu continues sur la réserve. Le compteur se réinitialise le {2}.",
     "rate_limited": "Tu envoies des messages un peu trop vite pour ton forfait. Attends un moment, puis réessaie — je serai là.",
     "reply_withheld": "Ma réponse n'est pas passée — elle mélangeait des détails techniques qui n'ont pas leur place ici. Renvoie ton dernier message et on reprend là où on en était.",
+    "reply_stop": {
+      "truncated": "✂️ Ma réponse a été coupée avant la fin. Demande-moi de continuer et je reprends là où je me suis arrêté.",
+      "filtered": "⚠️ Une partie de ma réponse a été retirée par un filtre de contenu, elle est peut-être incomplète. Essaie de reformuler ta question."
+    },
     "scope": {
       "carve_out": {
         "nutrition": "## Précision pour ton rôle nutrition\n\nTu es spécialisé en nutrition : les questions sur les repas, dîners, petits-déjeuners, collations, choix alimentaires et la planification des repas liée à l'entraînement SONT entièrement dans ton domaine. Réponds directement à ces questions en t'appuyant sur les données d'entraînement de l'utilisateur (intensité, durée, dépense énergétique). La règle « recherche de nourriture hors périmètre » qui apparaît plus haut vise uniquement la recherche de restaurants, d'applications de livraison ou de menus en ligne — pas les conseils nutritionnels basés sur les preuves et sur les données d'entraînement. Ne refuse jamais « que manger après ma sortie », « idées de dîner après mon entraînement », « collation post-séance » ou équivalents.",

@@ -111,6 +111,12 @@ pub const KEY_TURN_INTERRUPTED: &str = "messaging.turn_interrupted";
 /// Key: reply withheld at the response boundary — the canary scan proved it
 /// exposed system-prompt content, or the narration scrub emptied it.
 pub const KEY_REPLY_WITHHELD: &str = "messaging.reply_withheld";
+/// Key: caveat appended to a reply the provider cut off at its token budget.
+/// No format placeholders.
+pub const KEY_REPLY_STOP_TRUNCATED: &str = "messaging.reply_stop.truncated";
+/// Key: caveat appended to a reply a provider-side content filter trimmed.
+/// No format placeholders.
+pub const KEY_REPLY_STOP_FILTERED: &str = "messaging.reply_stop.filtered";
 /// Key: text-guardrails rejected an over-long response.
 pub const KEY_GUARDRAIL_TOO_LONG: &str = "messaging.guardrail.too_long";
 /// Key: text-guardrails rejected a blocked-topic response.

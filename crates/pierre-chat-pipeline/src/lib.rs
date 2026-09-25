@@ -123,6 +123,7 @@ use stages::persistence::{
     append_platform_prompt, get_conversation_history, persist_assistant_response,
     resolve_turn_prompt,
 };
+use stages::provider_stop;
 #[cfg(feature = "tools-verification")]
 use stages::verification::persist_pending_verdicts;
 use tool_budget::resolve_max_iterations;
@@ -729,11 +730,12 @@ pub async fn run(
 ///
 /// Private and extracted purely to keep `run_turn` inside the cognitive-
 /// complexity budget; it adds no public API surface.
-const fn persisted_finish_reason(
+const fn persisted_finish_reason<'a>(
     leak_replaced: bool,
     capability_claim_unverified: bool,
-    model_finish_reason: Option<&str>,
-) -> Option<&str> {
+    stop_stamp: Option<&'static str>,
+    model_finish_reason: Option<&'a str>,
+) -> Option<&'a str> {
     if leak_replaced {
         Some(WITHHELD_REPLY_FINISH_REASON)
     } else if capability_claim_unverified {
@@ -741,6 +743,10 @@ const fn persisted_finish_reason(
         // model never wrote, which is the stronger reason to keep it out of a
         // prompt. Both stamps drop the row at replay.
         Some(UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON)
+    } else if let Some(stamp) = stop_stamp {
+        // Ranked below both drops: a row either of them keeps out of every
+        // prompt needs no caveat cut from it at replay.
+        Some(stamp)
     } else {
         model_finish_reason
     }
@@ -905,7 +911,17 @@ async fn run_turn(
     // left the wire carrying scaffolding the record never showed (registre#40) — a
     // real answer is unchanged, scaffolding-only empties into a localized error.
     result.content = chat_tool_loop::strip_simulation_artifacts(&result.content);
-    let persisted_assistant_content = result.content.clone();
+    let (persisted_assistant_content, stop_stamp) = provider_stop::caveat_delivered_reply(
+        ctx,
+        &input,
+        &result,
+        post_processed.provider_stop,
+        &profile.locale,
+    )
+    .map_or_else(
+        || (result.content.clone(), None),
+        |(caveated, stamp)| (caveated, Some(stamp)),
+    );
     let assistant_params = AddMessageParams {
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
@@ -916,6 +932,7 @@ async fn run_turn(
         finish_reason: persisted_finish_reason(
             leak_replaced,
             result.capability_claim_unverified,
+            stop_stamp,
             result.finish_reason.as_deref(),
         ),
         prompt_tokens,
@@ -1006,7 +1023,7 @@ async fn run_turn(
             user_message,
             assistant_message,
             conversation: updated_conversation,
-            content: result.content,
+            content: persisted_assistant_content,
             finish_reason: result.finish_reason,
             activity_list,
             telemetry: TurnTelemetry {
@@ -1018,6 +1035,7 @@ async fn run_turn(
                 activities_prefetched,
                 usage: result.usage,
                 identity_leak,
+                provider_warnings: result.provider_warnings,
             },
             quota,
             reconnect,
