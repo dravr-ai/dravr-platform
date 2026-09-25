@@ -19,7 +19,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::claim_extractor::ExtractedClaim;
+use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -180,6 +180,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             let extracted = ExtractedClaim {
                 text: claim_text.clone(),
                 category,
+                source: ClaimSource::Caller,
             };
             let corpus = claim_verification::resolve_corpus(context.resources.evidence_registry());
             let outcome =
