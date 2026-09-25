@@ -73,11 +73,12 @@ impl NotificationScreen {
         }
     }
 
-    /// The `USER_SURFACES` id this screen opens.
+    /// The destination id this screen opens: a `USER_SURFACES` surface or a
+    /// `SETTINGS_PANES` pane.
     ///
-    /// Surfaces, not routes: the registry holds each platform's own route for
-    /// a surface, so this stays the one platform-neutral answer and neither
-    /// client needs a table.
+    /// Destinations, not routes: the registry holds each platform's own route
+    /// for a destination, so this stays the one platform-neutral answer and
+    /// neither client needs a table.
     #[must_use]
     pub const fn surface(self) -> &'static str {
         match self {
@@ -89,7 +90,7 @@ impl NotificationScreen {
                 "chat"
             }
             Self::Settings => "profile",
-            Self::Connections => "data-providers",
+            Self::Connections => "connections",
         }
     }
 }
