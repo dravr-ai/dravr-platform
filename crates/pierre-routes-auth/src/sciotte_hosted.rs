@@ -42,7 +42,7 @@ use pierre_middleware::provider_link_token::{
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_services::provider_notice::notice_in_force;
+use pierre_services::provider_notice::asks_for_notice;
 
 /// Default target platform when the caller does not specify one
 const DEFAULT_TARGET: &str = "strava";
@@ -261,20 +261,7 @@ pub async fn handle_sciotte_hosted_login_page(
     let backend = SciotteTarget::from_target_param(target).provider_name();
     let consent_required = match (Uuid::parse_str(&claims.sub), Uuid::parse_str(&claims.tid)) {
         (Ok(user_id), Ok(tenant_id)) => {
-            match notice_in_force(&resources.repos, tenant_id, user_id, backend).await {
-                None => false,
-                Some(current) => {
-                    resources
-                        .repos
-                        .users
-                        .provider_terms_version(user_id, backend)
-                        .await
-                        .ok()
-                        .flatten()
-                        .as_deref()
-                        != Some(current)
-                }
-            }
+            asks_for_notice(&resources.repos, tenant_id, user_id, backend).await
         }
         _ => false,
     };

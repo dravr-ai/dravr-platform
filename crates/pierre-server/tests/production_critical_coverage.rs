@@ -13,7 +13,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
+use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -347,19 +347,14 @@ async fn test_production_rate_limiting() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
     let _token = auth_manager.generate_token(&user, &jwks_manager)?;
 
-    // Test rate limiting logic
-    let rate_limiter = UnifiedRateLimitCalculator::new();
-
-    // Test rate limit calculation for user tier
-    let rate_limit_info = rate_limiter.calculate_user_tier_rate_limit(
-        &UserTier::Starter,
-        0, // No usage yet
-    );
-
-    // Starter tier should have limits
-    assert!(rate_limit_info.limit.is_some());
-    assert_eq!(rate_limit_info.tier, "starter");
-    assert!(!rate_limit_info.is_rate_limited); // Fresh user shouldn't be limited yet
+    // The budget the auth gate computes for this user: the Starter tier's
+    // monthly limit, none of it used yet
+    let budget = calculate_jwt_rate_limit(&user, 0, chrono::Utc::now());
+    let RequestBudget::Metered { limit, used, .. } = budget else {
+        panic!("a Starter user is metered, got {budget:?}");
+    };
+    assert_eq!((limit, used), (10_000, 0));
+    assert!(!budget.is_exceeded()); // Fresh user shouldn't be limited yet
 
     Ok(())
 }

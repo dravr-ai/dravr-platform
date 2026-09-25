@@ -235,7 +235,7 @@ pub use conversation::{
 mod api_key;
 pub use api_key::{
     ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
-    CreateApiKeyRequest, CreateApiKeyRequestSimple, RateLimitStatus,
+    ApiKeyWindowUsage, CreateApiKeyRequest, CreateApiKeyRequestSimple,
 };
 
 // A2A protocol data types

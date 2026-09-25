@@ -63,6 +63,19 @@
             <p class="fineprint" id="cred-notice">Credentials go directly to the provider — Dravr never stores your password.</p>
         </section>
 
+        <!-- Phase: OAuth notice (a provider whose notice comes before its
+             authorization page: WHOOP's owner authorization) -->
+        <section id="phase-oauth-consent" hidden>
+            <button type="button" class="btn btn-tertiary back-link" id="oauth-back">&larr; Back</button>
+            <h1 id="oauth-title">Authorize</h1>
+            <div class="callout" role="note" id="oauth-consent-block">
+                <p class="callout-title" id="oauth-consent-title"></p>
+                <p id="oauth-consent-body"></p>
+                <label class="check"><input type="checkbox" id="oauth-tos-consent"> <span id="oauth-consent-label"></span></label>
+            </div>
+            <button type="button" class="btn btn-primary btn-block" id="oauth-continue" disabled>Continue</button>
+        </section>
+
         <!-- Phase: logging-in -->
         <section id="phase-logging-in" hidden>
             <div class="status">
@@ -140,6 +153,8 @@
                 channelLabel: "{{CHANNEL_LABEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
                 // [{ provider, display_name, connected, kind: 'oauth'|'sciotte', target, consent_required, notice?, login_identifier }]
+                // `notice` is shown before the credentials (sciotte) or before the
+                // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
                 timeoutMs: 1200000,
             };
@@ -184,7 +199,7 @@
                 field.autocomplete = username ? 'username' : 'email';
             }
 
-            const phases = ['picker', 'credentials', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
+            const phases = ['picker', 'credentials', 'oauth-consent', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
                 phases.forEach((p) => {
                     const el = document.getElementById('phase-' + p);
@@ -241,13 +256,41 @@
                 });
             }
 
+            // Full-page redirect to the link-token-authed OAuth init, carrying
+            // the notice's acceptance when the athlete just gave it.
+            function startOAuth(provider, accepted) {
+                const url = '/api/providers/connect/oauth-init/' + encodeURIComponent(provider)
+                    + '?token=' + encodeURIComponent(CONFIG.token)
+                    + (accepted ? '&tos_consent=true' : '');
+                window.location.assign(url);
+            }
+
+            // The provider picked whose notice is on screen (WHOOP's owner
+            // authorization), until its Continue starts the OAuth flow.
+            let oauthPending = null;
+
+            // Show the provider's notice before its authorization page, starting
+            // unticked, with Continue disabled until it is accepted. The text is
+            // set as text, never as markup.
+            function openOAuthConsent(p) {
+                oauthPending = p;
+                document.getElementById('oauth-title').textContent = p.display_name;
+                document.getElementById('oauth-consent-title').textContent = p.notice.title;
+                document.getElementById('oauth-consent-body').textContent = p.notice.body;
+                document.getElementById('oauth-consent-label').textContent = p.notice.consent;
+                document.getElementById('oauth-tos-consent').checked = false;
+                document.getElementById('oauth-continue').disabled = true;
+                showPhase('oauth-consent');
+            }
+
             function pickProvider(p) {
                 clearError();
                 if (p.kind === 'oauth') {
-                    // Full-page redirect to the link-token-authed OAuth init.
-                    const url = '/api/providers/connect/oauth-init/' + encodeURIComponent(p.provider)
-                        + '?token=' + encodeURIComponent(CONFIG.token);
-                    window.location.assign(url);
+                    if (p.consent_required && p.notice) {
+                        openOAuthConsent(p);
+                        return;
+                    }
+                    startOAuth(p.provider, false);
                     return;
                 }
                 // Sciotte credential flow.
@@ -454,6 +497,17 @@
             document.getElementById('retry-btn').addEventListener('click', backToPicker);
             document.getElementById('cred-back').addEventListener('click', backToPicker);
             document.getElementById('tf-back').addEventListener('click', backToPicker);
+            document.getElementById('oauth-back').addEventListener('click', () => {
+                oauthPending = null;
+                backToPicker();
+            });
+            document.getElementById('oauth-tos-consent').addEventListener('change', (e) => {
+                document.getElementById('oauth-continue').disabled = !e.target.checked;
+            });
+            document.getElementById('oauth-continue').addEventListener('click', () => {
+                if (!oauthPending || !document.getElementById('oauth-tos-consent').checked) return;
+                startOAuth(oauthPending.provider, true);
+            });
 
             renderPicker();
             if (!handleOAuthReturn()) {

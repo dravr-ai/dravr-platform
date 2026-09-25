@@ -9,8 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::header::RETRY_AFTER;
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
@@ -24,15 +23,14 @@ use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
-use pierre_services::provider_notice::notice_in_force;
+use pierre_services::provider_notice::require_notice_accepted;
 use pierre_services::provider_revocation::{drop_scrape_session, DisconnectReason};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use pierre_providers::sciotte_remote::{
-    shed_retry_after_secs, RemoteLoginOutcome, RemoteSciotteClient, RETRY_AFTER_SECS_DETAIL,
+    shed_retry_after_secs, RemoteLoginOutcome, RemoteSciotteClient,
 };
 
 #[cfg(feature = "health-sync")]
@@ -788,7 +786,8 @@ pub fn login_failure_response(
 
 /// The athlete-facing answer to a scraper-service load-shed: the service's own
 /// `503` status, the wait it computed both as a `Retry-After` header and in
-/// `details`, and the same friendly copy a login failure carries.
+/// `details` (one value, attached once, which `impl IntoResponse for AppError`
+/// renders as the header), and the same friendly copy a login failure carries.
 ///
 /// [`ErrorCode::ExternalRateLimited`] is the code that renders as `503` *and*
 /// whose message `AppError::sanitized_message` passes through verbatim, so the
@@ -797,22 +796,12 @@ pub fn login_failure_response(
 /// `WARN` instead of `ERROR`, so the shed leaves one backpressure line in the
 /// logs and nothing in the ops channel.
 fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
-    let mut error = AppError::new(
+    AppError::new(
         ErrorCode::ExternalRateLimited,
         friendly_login_failure_message(provider),
-    );
-    let mut details = Map::new();
-    details.insert(
-        RETRY_AFTER_SECS_DETAIL.to_owned(),
-        Value::from(retry_after_secs),
-    );
-    error.details = Some(Box::new(Value::Object(details)));
-
-    let mut response = error.into_response();
-    response
-        .headers_mut()
-        .insert(RETRY_AFTER, HeaderValue::from(retry_after_secs));
-    response
+    )
+    .with_retry_after(retry_after_secs)
+    .into_response()
 }
 
 /// Refuse a login to a backend whose exposure notice is in force for this
@@ -835,26 +824,15 @@ async fn require_provider_terms(
     target: SciotteTarget,
     accepted_now: bool,
 ) -> Result<(), AppError> {
-    let backend = target.provider_name();
-    let Some(current) = notice_in_force(&resources.repos, tenant_id, user_id, backend).await else {
-        return Ok(());
-    };
-    let users = &resources.repos.users;
-    if users
-        .provider_terms_version(user_id, backend)
-        .await?
-        .as_deref()
-        == Some(current)
-    {
-        return Ok(());
-    }
-    if !accepted_now {
-        return Err(AppError::invalid_input(format!(
-            "Connecting {} requires accepting the account notice first",
-            target.brand()
-        )));
-    }
-    users.record_provider_terms(user_id, backend, current).await
+    require_notice_accepted(
+        &resources.repos,
+        tenant_id,
+        user_id,
+        target.provider_name(),
+        target.brand(),
+        accepted_now,
+    )
+    .await
 }
 
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)

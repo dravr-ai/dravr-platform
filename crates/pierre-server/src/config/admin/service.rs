@@ -11,11 +11,11 @@ use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_cache_ttl,
     register_feature_flags, register_garmin_provider, register_group_permissions,
     register_heart_rate_zones, register_llm_pricing, register_llm_provider_config,
-    register_mcp_network, register_monitoring, register_nutrition, register_rate_limiting,
-    register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
-    register_strava_provider, register_strava_seat_reclaim, register_tokio_runtime,
-    register_tool_execution, register_training_stress_balance, register_usage_quotas,
-    register_weather_analysis, ParameterDefinition, ORDERED_PARAMETERS,
+    register_mcp_network, register_monitoring, register_nutrition, register_recommendation_engine,
+    register_sleep_recovery, register_sqlx_pool, register_strava_provider,
+    register_strava_seat_reclaim, register_tokio_runtime, register_tool_execution,
+    register_training_stress_balance, register_usage_quotas, register_weather_analysis,
+    ParameterDefinition, ORDERED_PARAMETERS,
 };
 use pierre_config::admin_env::{EnvConfigError, EnvConfigPins};
 use pierre_config::admin_types::{
@@ -204,9 +204,6 @@ impl AdminConfigService {
     /// so env pins can be validated against it before the service exists.
     fn build_definitions() -> HashMap<String, ParameterDefinition> {
         let mut defs = HashMap::new();
-
-        // Rate Limiting Parameters — see config::admin::definitions::register_rate_limiting
-        register_rate_limiting(&mut defs);
 
         // Feature Flags — see config::admin::definitions::register_feature_flags
         register_feature_flags(&mut defs);

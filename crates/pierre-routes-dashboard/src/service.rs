@@ -9,9 +9,11 @@
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - HashMap key ownership for statistics aggregation (tool_name.clone())
 
-use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-use pierre_auth::api_keys::ApiKeyTier;
+use chrono::{DateTime, Datelike, Duration, Utc};
 use pierre_auth::auth::AuthResult;
+use pierre_auth::rate_limiting::{
+    api_key_window_start, calculate_api_key_rate_limit, RequestBudget,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{LlmUsageDailyRow, RequestLog, ToolUsage};
 use pierre_runtime_context::DashboardCtx;
@@ -386,11 +388,14 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
 
     /// Get rate limit overview for all user's API keys
     ///
+    /// Each key's usage, limit and reset come from the same calculator the
+    /// auth gate enforces and the `X-RateLimit-*` headers render, so the page
+    /// and the headers agree: the calls inside the key's sliding window, and
+    /// the instant its oldest call leaves it. An unlimited key has neither a
+    /// limit nor a reset.
+    ///
     /// # Errors
     /// Returns an error if authentication fails or database queries fail
-    ///
-    /// # Panics
-    /// Panics if date construction fails with invalid values
     pub async fn get_rate_limit_overview(
         &self,
         auth: AuthResult,
@@ -417,28 +422,31 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
         let mut overview = Vec::new();
+        let now = Utc::now();
 
         for api_key in api_keys {
-            let current_usage = self
+            let window_usage = self
                 .resources
                 .repos()
                 .usage
-                .get_api_key_current(&api_key.id)
+                .get_api_key_window_usage(&api_key.id, api_key_window_start(&api_key, now))
                 .await
                 .map_err(|e| {
-                    AppError::database(format!("Failed to get API key current usage: {e}"))
+                    AppError::database(format!("Failed to get API key window usage: {e}"))
                 })?;
 
-            let limit = if api_key.tier == ApiKeyTier::Enterprise {
-                None
-            } else {
-                Some(u64::from(api_key.rate_limit_requests))
-            };
+            let (limit, reset_date) =
+                match calculate_api_key_rate_limit(&api_key, &window_usage, now) {
+                    RequestBudget::Metered {
+                        limit, resets_at, ..
+                    } => (Some(u64::from(limit)), Some(resets_at)),
+                    RequestBudget::Unlimited => (None, None),
+                };
 
             let usage_percentage = limit.map_or(0.0, |limit_val| {
                 if limit_val > 0 {
                     {
-                        (f64::from(current_usage)
+                        (f64::from(window_usage.count)
                             / f64::from(u32::try_from(limit_val).unwrap_or(u32::MAX)))
                             * 100.0
                     }
@@ -447,27 +455,14 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
                 }
             });
 
-            // Calculate reset date (first day of next month)
-            let now = Utc::now();
-            // Use chrono's built-in date construction to avoid edge cases
-            let next_month_start = if now.month() == 12 {
-                Utc.with_ymd_and_hms(now.year() + 1, 1, 1, 0, 0, 0)
-            } else {
-                Utc.with_ymd_and_hms(now.year(), now.month() + 1, 1, 0, 0, 0)
-            };
-
-            let reset_date = next_month_start.single().ok_or_else(|| {
-                AppError::internal("Failed to create valid date for next month start")
-            })?;
-
             overview.push(RateLimitOverview {
                 api_key_id: api_key.id,
                 api_key_name: api_key.name,
                 tier: format!("{:?}", api_key.tier).to_lowercase(),
-                current_usage: current_usage.into(),
+                current_usage: window_usage.count.into(),
                 limit,
                 usage_percentage,
-                reset_date: Some(reset_date),
+                reset_date,
             });
         }
 

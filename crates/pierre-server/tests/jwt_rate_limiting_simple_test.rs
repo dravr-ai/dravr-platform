@@ -14,11 +14,15 @@
 
 mod common;
 
+use chrono::Utc;
 use pierre_auth::auth::AuthManager;
-use pierre_config::environment::RateLimitConfig;
+use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::User;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
+use pierre_database::repositories::analytics::next_utc_month_start;
+use pierre_middleware::rate_limiting::enforce_request_budget;
 use pierre_middleware::McpAuthMiddleware;
 use std::sync::Arc;
 
@@ -37,7 +41,6 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
         auth_manager,
         repos,
         jwks_manager.clone(),
-        RateLimitConfig::default(),
     ));
 
     // Create and store a test user (defaults to Starter tier with 10,000 requests/month)
@@ -54,53 +57,41 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
         .generate_token(&user, &jwks_manager)
         .expect("Failed to generate JWT token");
 
-    // Test authentication - should now include rate limiting info
-    let auth_result = auth_middleware
+    // Authenticating counts the request: one jwt_usage row per admitted JWT
+    // request, which the next request's budget is read from.
+    let repos = database.repositories();
+    assert_eq!(repos.usage.get_jwt_current_usage(user.id).await.unwrap(), 0);
+    auth_middleware
         .authenticate_request(Some(&format!("Bearer {token}")))
         .await
         .expect("JWT authentication should succeed");
+    let used_this_month = repos.usage.get_jwt_current_usage(user.id).await.unwrap();
+    assert_eq!(used_this_month, 1, "the admitted request is counted");
 
     // CRITICAL SECURITY FIX VERIFICATION
-    // Before: JWT tokens had rate_limit: None (unlimited access)
-    // After: JWT tokens have proper rate limiting based on user tier
-
-    let rate_limit = &auth_result.rate_limit;
-
-    // Verify JWT now has rate limiting (not None!)
-    assert!(
-        !rate_limit.is_rate_limited,
-        "Fresh JWT should not be rate limited yet"
-    );
-
-    // Verify JWT has proper limits (10,000 for Starter tier)
+    // Before: JWT tokens had no budget (unlimited access)
+    // After: JWT tokens are metered by the user's tier, 10,000 for Starter,
+    // resetting at the first instant of the next UTC month.
+    let now = Utc::now();
+    let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
     assert_eq!(
-        rate_limit.limit,
-        Some(10_000),
-        "SECURITY FIX: JWT should have Starter tier limit, not unlimited!"
+        budget,
+        RequestBudget::Metered {
+            limit: 10_000,
+            used: 1,
+            resets_at: next_utc_month_start(now),
+        },
+        "SECURITY FIX: JWT should have the Starter tier budget, not unlimited!"
     );
+    assert_eq!(budget.remaining_after_this_request(), Some(9_998));
 
-    // Verify remaining requests are tracked
+    // At the tier's limit the gate refuses with a 429 and the seconds to reset
+    let spent = calculate_jwt_rate_limit(&user, 10_000, now);
+    let refusal = enforce_request_budget(spent, now).unwrap_err();
+    assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
+    let expected_wait = (next_utc_month_start(now) - now).num_seconds();
     assert_eq!(
-        rate_limit.remaining,
-        Some(10_000),
-        "JWT should track remaining requests"
+        refusal.retry_after_secs(),
+        Some(u64::try_from(expected_wait.max(1)).unwrap())
     );
-
-    // Verify reset time is set
-    assert!(rate_limit.reset_at.is_some(), "JWT should have reset time");
-
-    // Verify tier tracking
-    assert_eq!(rate_limit.tier, "starter", "JWT should show user's tier");
-
-    // Verify auth method tracking
-    assert_eq!(
-        rate_limit.auth_method, "jwt_token",
-        "Should identify as JWT token authentication"
-    );
-
-    println!("SECURITY FIX VERIFIED: JWT tokens now have proper rate limiting!");
-    println!("   Before: Unlimited access (critical vulnerability)");
-    println!("   After: {:?} requests/month limit", rate_limit.limit);
-    println!("   Tier: {}", rate_limit.tier);
-    println!("   Auth Method: {}", rate_limit.auth_method);
 }

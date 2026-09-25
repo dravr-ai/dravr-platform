@@ -154,7 +154,6 @@ use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{AuthManager, JwtValidationError},
 };
-use pierre_config::environment::RateLimitConfig;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{constants::oauth_providers, mcp::multitenant::ProviderToolRouter};
@@ -274,7 +273,6 @@ async fn test_authentication_middleware_integration() -> Result<()> {
         (*auth_manager).clone(),
         repos,
         jwks_manager.clone(),
-        RateLimitConfig::default(),
     ));
 
     // Create test user
@@ -723,7 +721,6 @@ async fn test_concurrent_authentication_operations() -> Result<()> {
         (*auth_manager).clone(),
         repos,
         jwks_manager.clone(),
-        RateLimitConfig::default(),
     ));
 
     // Create multiple users

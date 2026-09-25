@@ -17,6 +17,7 @@ mod messaging_user_status_gate_tests {
     use axum::http::StatusCode;
     use chrono::Utc;
     use hmac::{Hmac, Mac};
+    use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
     use pierre_auth::user_status::enforce_user_status;
     use pierre_contremaitre::messaging_strings::{
         MessagingStringsRegistry, KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED,
@@ -27,6 +28,7 @@ mod messaging_user_status_gate_tests {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
+    use pierre_database::repositories::analytics::next_utc_month_start;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_services::user_status_gate::messaging_key_for_status;
@@ -287,8 +289,36 @@ mod messaging_user_status_gate_tests {
             auth_result.active_tenant_id.is_some(),
             "active_tenant_id must be resolved on the messaging path same as JWT path"
         );
+        // The gate the channel path ran: the user's own tier budget, read
+        // from the same jwt_usage counter the JWT path writes.
+        let user = resources
+            .common
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let used_this_month = resources
+            .common
+            .repos
+            .usage
+            .get_jwt_current_usage(user_id)
+            .await
+            .unwrap();
+        let now = Utc::now();
+        let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
+        assert_eq!(
+            budget,
+            RequestBudget::Metered {
+                limit: 10_000,
+                used: used_this_month,
+                resets_at: next_utc_month_start(now),
+            },
+            "a Starter user's channel turns are metered by the tier's monthly budget"
+        );
         assert!(
-            !auth_result.rate_limit.is_rate_limited,
+            !budget.is_exceeded(),
             "fresh user should not be rate-limited"
         );
     }
@@ -371,7 +401,7 @@ mod messaging_user_status_gate_tests {
     }
 
     /// Channel turns must increment the **same** `jwt_usage` counter the
-    /// JWT path increments, so `UnifiedRateLimitCalculator::calculate_jwt_rate_limit`
+    /// JWT path increments, so `calculate_jwt_rate_limit`
     /// has fresh numbers for both transports. Pre-Phase-3-followup the
     /// counter stayed at zero for every user because nothing in
     /// pierre-server called `record_jwt_usage`. Asserts that after a

@@ -718,16 +718,6 @@ pub mod system_monitoring {
     pub const DISK_WARNING_THRESHOLD: f64 = 85.0;
 }
 
-/// Rate limiting tier burst configurations
-pub mod rate_limiting_bursts {
-    /// Free tier burst limit
-    pub const FREE_TIER_BURST: u32 = 100;
-    /// Professional tier burst limit
-    pub const PROFESSIONAL_BURST: u32 = 500;
-    /// Enterprise tier burst limit
-    pub const ENTERPRISE_BURST: u32 = 2000;
-}
-
 /// OAuth 2.0 rate limiting configurations
 pub mod oauth_rate_limiting {
     /// Authorization endpoint rate limit (requests per minute)
@@ -793,12 +783,6 @@ pub mod mcp_transport {
     pub const NOTIFICATION_CHANNEL_SIZE: usize = 100;
     /// Maximum allowed MCP request body size in bytes (5 MB)
     pub const MAX_REQUEST_BODY_BYTES: usize = 5 * 1024 * 1024;
-}
-
-/// Rate limit header constants
-pub mod rate_limit_headers {
-    /// Rate limit window in seconds for HTTP headers (30 days)
-    pub const WINDOW_SECS: &str = "2592000";
 }
 
 /// Sleep analysis and recovery constants

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { classifyApiError } from '@pierre/ui-logic';
 import { authApi, adminApi, pierreApi, userApi } from '../services/api';
 import { AuthContext } from './auth';
 import type { User, ImpersonationState } from './auth';
@@ -79,7 +80,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           pierreApi.adapter.authStorage.setCsrfToken(session.csrf_token);
           localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(session.user));
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          // A spent request budget (429) is not a dead session: the cookie is
+          // valid and the refusal names when it lifts, so the athlete stays
+          // signed in on the cached user. Signing them out would only send
+          // them to a login that answers the same 429.
+          if (classifyApiError(err).kind === 'quota') {
+            return;
+          }
           // Cookie expired or invalid — clear cached user
           setUser(null);
           setToken(null);

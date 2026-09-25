@@ -20,6 +20,7 @@ import {
   trustedActionUrl,
 } from '@pierre/chat-utils';
 import { MENTION_PREFIX } from '@pierre/shared-constants';
+import { describeApiError } from '@pierre/ui-logic';
 import {
   MessageList,
   MessageInput,
@@ -316,21 +317,21 @@ export default function ChatTab({
       // The server caps active conversations (max_active_conversations) and
       // returns 429 QuotaExceeded once a user is at the limit. Without this the
       // agent click silently did nothing — surface a clear, actionable message.
-      const apiError = error as {
-        response?: { status?: number; data?: { code?: string; details?: { limit?: number } } };
-      };
-      const res = apiError.response;
-      if (res?.status === 429 || res?.data?.code === 'QuotaExceeded') {
-        const limit = res?.data?.details?.limit;
+      // Keyed on the limit the server named, not on the status: a spent
+      // request budget is a 429 too, and it is not the conversation cap.
+      const details = (error as {
+        response?: { data?: { details?: { limit_type?: string; limit?: number } } };
+      }).response?.data?.details;
+      if (details?.limit_type === 'max_active_conversations') {
         showErrorToast(
           t('chat.conversationLimitTitle'),
-          t('chat.conversationLimitBody', { limit: limit ?? '' })
+          t('chat.conversationLimitBody', { limit: details.limit ?? '' })
         );
         return;
       }
       showErrorToast(
         t('app.couldNotStartChat'),
-        t('app.conversationCreateFailed')
+        describeApiError(error, { t, fallbackKey: 'app.conversationCreateFailed' })
       );
     },
   });

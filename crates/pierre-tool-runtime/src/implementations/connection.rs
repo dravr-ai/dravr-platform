@@ -44,6 +44,7 @@ use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::ProviderRegistry;
 use pierre_services::delegated_connections::describe_link;
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_notice::{require_notice_accepted, NOTICE_REFUSAL_ACTION};
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tools_core::ToolResult;
 
@@ -211,6 +212,19 @@ fn build_oauth_success_payload(
     }
 }
 
+/// The error payload for a connect the provider's notice refused: where the
+/// athlete accepts it, since no tool argument can.
+fn notice_required_result(provider: &str, error: &str) -> ToolResult {
+    ToolResult::error(json!({
+        "error": format!(
+            "{error}. The athlete accepts it by connecting {provider} from the Connections \
+             screen of the Dravr app, which shows the notice with the box to tick."
+        ),
+        "error_type": "provider_notice_required",
+        "provider": provider,
+    }))
+}
+
 /// Build OAuth error payload merged into a `ToolResult` error.
 fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
     ToolResult::error(json!({
@@ -226,14 +240,22 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
 /// Mint a provider OAuth authorization URL and persist its CSRF state row.
 ///
 /// Shared by `connect_provider` (interactive connect) and the chat auth-recovery stage
-/// (reconnect a dead OAuth provider). Builds the opaque `state`, asks the tenant OAuth
+/// (reconnect a dead OAuth provider). Applies the provider's notice precondition
+/// ([`require_notice_accepted`]) first, builds the opaque `state`, asks the tenant OAuth
 /// client for the provider's authorization URL, and stores an [`OAuthClientState`] row so
 /// the callback can validate the round-trip. Returns `(authorization_url, state)`.
 ///
+/// Neither caller can carry an acceptance: the notice (WHOOP's owner authorization) is
+/// accepted by ticking it on a connect surface that shows it — the app's connect screens
+/// or the hosted connect picker — never by a model's tool argument. So a provider whose
+/// notice is outstanding for the account is refused here, and nothing is minted.
+///
 /// # Errors
 ///
-/// Returns an error if the tenant has no OAuth client for the provider, the authorization
-/// URL cannot be generated, or the CSRF state row cannot be persisted.
+/// Returns the precondition's refusal (`details.action = "accept_provider_notice"`) while
+/// the provider's notice is outstanding, or an error if the tenant has no OAuth client for
+/// the provider, the authorization URL cannot be generated, or the CSRF state row cannot
+/// be persisted.
 pub async fn mint_oauth_authorize_url(
     resources: &dyn ToolRuntime,
     user_id: uuid::Uuid,
@@ -241,6 +263,20 @@ pub async fn mint_oauth_authorize_url(
     provider: &str,
     redirect_url: Option<&str>,
 ) -> AppResult<(String, String)> {
+    let brand = resources
+        .provider_registry()
+        .get_descriptor(provider)
+        .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned());
+    require_notice_accepted(
+        resources.repos(),
+        tenant_id.as_uuid(),
+        user_id,
+        provider,
+        &brand,
+        false,
+    )
+    .await?;
+
     let tenant_name = resources
         .repos()
         .tenants
@@ -290,6 +326,18 @@ pub async fn mint_oauth_authorize_url(
         .await?;
 
     Ok((authorization.url, state))
+}
+
+/// Whether `error` is the notice precondition's refusal rather than a failure
+/// to build the authorization URL.
+#[must_use]
+pub fn is_notice_refusal(error: &AppError) -> bool {
+    error
+        .details
+        .as_ref()
+        .and_then(|details| details.get("action"))
+        .and_then(Value::as_str)
+        == Some(NOTICE_REFUSAL_ACTION)
 }
 
 /// Annotations for tools that interact with external OAuth services
@@ -615,6 +663,14 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                     "connect_provider",
                     build_oauth_success_payload(provider, &url, &state),
                 )
+            }
+            Err(e) if is_notice_refusal(&e) => {
+                info!(
+                    user_id = %user_uuid,
+                    provider = provider,
+                    "connect_provider: the provider's notice is outstanding, nothing minted"
+                );
+                Ok(notice_required_result(provider, &e.message))
             }
             Err(e) => {
                 error!("OAuth URL generation failed for {}: {}", provider, e);

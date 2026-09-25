@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Reconnecting from a reply opens the in-app auth session; an ordinary link still opens the browser
-// ABOUTME: Safari taking the reconnect over is a hand-off the callback has no way back from
+// ABOUTME: Safari taking the reconnect over is a hand-off the callback has no way back from; WHOOP states its notice first
 
 import React from 'react';
 import * as Linking from 'expo-linking';
@@ -21,8 +21,9 @@ const AUTHORIZATION_URL = 'https://connect.garmin.com/oauth2Confirm?client_id=dr
 const RETURN_URL = 'dravr://oauth-callback';
 
 const mockInitMobileOAuth = jest.fn();
+const mockGetProvidersStatus = jest.fn();
 /** What the turn told this surface to draw — a link in prose, and a reconnect. */
-const mockBlocks: ReplyBlock[] = [
+const GARMIN_BLOCKS: ReplyBlock[] = [
   { type: 'prose', text: REPLY },
   {
     type: 'reconnect',
@@ -32,6 +33,18 @@ const mockBlocks: ReplyBlock[] = [
     text: 'Reconnecte Garmin pour continuer.',
   },
 ];
+/** A WHOOP reconnect, as the turn draws one. */
+const WHOOP_BLOCKS: ReplyBlock[] = [
+  { type: 'prose', text: 'Ta connexion WHOOP est expirée.' },
+  {
+    type: 'reconnect',
+    provider: 'whoop',
+    display_name: 'WHOOP',
+    url: 'https://app.dravr.ai/r/whoop-picker',
+    text: 'Reconnecte WHOOP pour continuer.',
+  },
+];
+let mockBlocks: ReplyBlock[] = GARMIN_BLOCKS;
 
 // No navigator under a unit test, so the header the column offsets by is 0 tall.
 jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
@@ -49,7 +62,7 @@ jest.mock('expo-linking', () => ({
 
 jest.mock('../src/services/api', () => ({
   oauthApi: {
-    getProvidersStatus: jest.fn(() => Promise.resolve({ providers: [] })),
+    getProvidersStatus: () => mockGetProvidersStatus(),
     initMobileOAuth: (...args: unknown[]) => mockInitMobileOAuth(...args),
   },
   chatApi: {},
@@ -172,6 +185,8 @@ function renderChatScreen() {
 describe('ChatScreen provider reconnect', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBlocks = GARMIN_BLOCKS;
+    mockGetProvidersStatus.mockResolvedValue({ providers: [] });
     mockInitMobileOAuth.mockResolvedValue({ authorization_url: AUTHORIZATION_URL });
   });
 
@@ -183,10 +198,43 @@ describe('ChatScreen provider reconnect', () => {
     await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
     // A fresh authorization URL minted against the app's own return address:
     // the block's URL was minted for a browser callback and cannot come back.
-    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL);
+    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false });
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
     // Safari never gets it, so there is nothing for the athlete to come back from.
     expect(Linking.openURL).not.toHaveBeenCalled();
+  });
+
+  it("states WHOOP's owner authorization before reconnecting, and carries the acceptance", async () => {
+    mockBlocks = WHOOP_BLOCKS;
+    mockGetProvidersStatus.mockResolvedValue({
+      providers: [
+        {
+          provider: 'whoop',
+          display_name: 'WHOOP',
+          requires_oauth: true,
+          connected: true,
+          needs_reauth: true,
+          capabilities: ['sleep', 'recovery'],
+          consent_required: true,
+        },
+      ],
+    });
+    const { getByText, findByText, getByTestId } = renderChatScreen();
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalled());
+
+    fireEvent.press(getByText('Reconnect WHOOP'));
+
+    expect(await findByText('Before you connect WHOOP')).toBeTruthy();
+    expect(mockInitMobileOAuth).not.toHaveBeenCalled();
+    expect(getByTestId('provider-notice-continue')).toBeDisabled();
+
+    fireEvent.press(getByTestId('provider-notice-consent'));
+    fireEvent.press(getByTestId('provider-notice-continue'));
+
+    await waitFor(() =>
+      expect(mockInitMobileOAuth).toHaveBeenCalledWith('whoop', RETURN_URL, { tosConsent: true }),
+    );
+    expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
   });
 
   it('still opens an ordinary link with the system browser', async () => {

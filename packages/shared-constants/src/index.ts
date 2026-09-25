@@ -145,12 +145,15 @@ export {
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
 export {
+  PROVIDER_NOTICES,
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
+  noticeRequired,
   providerScopeLabelKey,
   sciotteTargetForBackend,
+  syncAuthorizationOwed,
 } from './providers';
-export type { ProviderScope } from './providers';
+export type { ProviderNoticeKeys, ProviderScope } from './providers';
 
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';

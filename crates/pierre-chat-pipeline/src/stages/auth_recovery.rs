@@ -56,9 +56,13 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_middleware::provider_link_token::{
+    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
+};
 use pierre_providers::backend_resolver;
-use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
+use pierre_tool_runtime::implementations::connection::{
+    is_notice_refusal, mint_oauth_authorize_url,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
@@ -367,12 +371,60 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
     };
 }
 
+/// The hosted connect picker for this user, shortened, or `None` after
+/// logging why it could not be minted.
+///
+/// Used for an OAuth provider whose notice is outstanding: the picker shows
+/// the notice and carries its acceptance onto the OAuth start.
+async fn mint_connect_picker_url(
+    deps: &AuthRecoveryDeps<'_>,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+) -> Option<String> {
+    let tenant_id = input.tool_tenant_id.as_uuid();
+    let token = match mint_connect_link_token(
+        user_id,
+        tenant_id,
+        profile.surface.as_str(),
+        None,
+        deps.admin_jwt_secret,
+    ) {
+        Ok(token) => token,
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                error = %e,
+                "auth_recovery: failed to mint connect link token"
+            );
+            return None;
+        }
+    };
+    let full_url = format!(
+        "{}/providers/connect?token={}",
+        deps.base_url,
+        urlencoding::encode(&token)
+    );
+    Some(
+        shorten_url(
+            deps.short_links.as_ref(),
+            deps.base_url,
+            &full_url,
+            &tenant_id.to_string(),
+            &user_id.to_string(),
+        )
+        .await,
+    )
+}
+
 /// Mint the reconnect URL for `provider_slug`.
 ///
 /// Scrape-mirror providers (every slug with a [`backend_resolver::hosted_login_target`]) use the Dravr-hosted login page
 /// (email + password) — the same short-TTL link-token mint the channel bots use. OAuth
 /// providers (WHOOP, Strava, Garmin, …) get their real provider authorization URL
-/// plus a persisted CSRF state row. Returns `None` (fall back to the LLM path) on failure.
+/// plus a persisted CSRF state row, unless the provider's notice is outstanding for the
+/// account: then the hosted connect picker, which shows it. Returns `None` (fall back to
+/// the LLM path) on failure.
 async fn mint_reconnect_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -422,6 +474,18 @@ async fn mint_reconnect_url(
         );
     }
 
+    mint_oauth_reconnect_url(deps, provider_slug, user_id, input, profile).await
+}
+
+/// The reconnect URL for an OAuth provider: its authorization URL, or the
+/// hosted connect picker while the provider's notice is outstanding.
+async fn mint_oauth_reconnect_url(
+    deps: &AuthRecoveryDeps<'_>,
+    provider_slug: &str,
+    user_id: Uuid,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+) -> Option<String> {
     match mint_oauth_authorize_url(
         deps.tool_runtime.as_ref(),
         user_id,
@@ -432,6 +496,18 @@ async fn mint_reconnect_url(
     .await
     {
         Ok((url, _state)) => Some(url),
+        // The provider's notice (WHOOP's owner authorization) is outstanding
+        // for this account, and a chat link cannot carry its acceptance: the
+        // reconnect goes through the hosted connect picker, which shows the
+        // notice with its box before the provider's authorization page.
+        Err(e) if is_notice_refusal(&e) => {
+            info!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                "auth_recovery: provider notice outstanding, offering the hosted connect picker"
+            );
+            mint_connect_picker_url(deps, user_id, input, profile).await
+        }
         Err(e) => {
             warn!(
                 user_id = %user_id,

@@ -15,11 +15,12 @@ mod common;
 
 use chrono::{Duration, Utc};
 use pierre_auth::{
-    api_keys::{ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
+    api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthManager, AuthMethod},
+    rate_limiting::{api_key_window_start, calculate_api_key_rate_limit, RequestBudget},
 };
-use pierre_config::environment::RateLimitConfig;
-use pierre_core::models::User;
+use pierre_core::errors::ErrorCode;
+use pierre_core::models::{ApiKeyWindowUsage, User};
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::McpAuthMiddleware;
@@ -47,7 +48,6 @@ async fn create_test_environment() -> (
         (*auth_manager).clone(),
         repos,
         jwks_manager,
-        RateLimitConfig::default(),
     ));
 
     // Create test user
@@ -63,6 +63,16 @@ async fn create_test_environment() -> (
     let jwt_token = auth_manager.generate_token(&user, &jwks_manager).unwrap();
 
     (database, auth_manager, auth_middleware, user, jwt_token)
+}
+
+/// The key's calls inside its own sliding window, as the gate reads them.
+async fn window_usage(database: &Database, api_key: &ApiKey) -> ApiKeyWindowUsage {
+    database
+        .repositories()
+        .usage
+        .get_api_key_window_usage(&api_key.id, api_key_window_start(api_key, Utc::now()))
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -96,15 +106,21 @@ async fn test_end_to_end_api_key_workflow() {
 
     assert_eq!(auth_result.user_id, user.id);
     assert!(matches!(auth_result.auth_method, AuthMethod::ApiKey { .. }));
-    assert!(auth_result.rate_limit.limit.is_some());
 
-    // Step 3: Verify rate limit status
-    let rate_limit = &auth_result.rate_limit;
-    assert!(!rate_limit.is_rate_limited);
-    assert_eq!(rate_limit.limit, Some(100_000)); // Professional tier
-    assert_eq!(rate_limit.remaining, Some(100_000)); // No usage yet
+    // Step 3: Authentication alone writes no usage row: the request-budget
+    // layer writes it once the request has a real outcome, and this call ran
+    // outside any request
+    let usage = window_usage(&database, &api_key).await;
+    assert_eq!(usage.count, 0);
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    assert!(!budget.is_exceeded());
+    let RequestBudget::Metered { limit, used, .. } = budget else {
+        panic!("a professional key is metered, got {budget:?}");
+    };
+    assert_eq!((limit, used), (100_000, 0)); // Professional tier
+    assert_eq!(budget.remaining_after_this_request(), Some(99_999));
 
-    // Step 4: Record some usage
+    // Step 4: Record a tool call the way the request-budget layer does
     let usage = ApiKeyUsage {
         id: None,
         api_key_id: api_key.id.clone(),
@@ -126,21 +142,10 @@ async fn test_end_to_end_api_key_workflow() {
         .await
         .unwrap();
 
-    // Step 5: Verify usage is tracked
-    let current_usage = database
-        .repositories()
-        .usage
-        .get_api_key_current(&api_key.id)
-        .await
-        .unwrap();
-    assert_eq!(current_usage, 1);
+    // Step 5: The row is in the window
+    assert_eq!(window_usage(&database, &api_key).await.count, 1);
 
-    // Step 6: Check updated rate limit
-    let updated_rate_limit = api_key_manager.rate_limit_status(&api_key, current_usage);
-    assert!(!updated_rate_limit.is_rate_limited);
-    assert_eq!(updated_rate_limit.remaining, Some(99_999));
-
-    // Step 7: Get usage statistics
+    // Step 6: Get usage statistics
     let start_date = Utc::now() - Duration::days(1);
     let end_date = Utc::now() + Duration::days(1);
     let stats = database
@@ -154,6 +159,13 @@ async fn test_end_to_end_api_key_workflow() {
     assert_eq!(stats.successful_requests, 1);
     assert_eq!(stats.failed_requests, 0);
     assert_eq!(stats.total_response_time_ms, 150);
+    assert_eq!(stats.tool_usage["get_activities"]["count"], 1);
+    assert_eq!(
+        stats.tool_usage.as_object().map(serde_json::Map::len),
+        Some(1),
+        "only the recorded call, no row invented by authentication: {}",
+        stats.tool_usage
+    );
 }
 
 #[tokio::test]
@@ -182,54 +194,41 @@ async fn test_api_key_rate_limiting() {
         .await
         .unwrap();
 
-    // First request should succeed
-    let auth_result1 = auth_middleware
-        .authenticate_request(Some(&full_key))
-        .await
-        .unwrap();
-    assert!(!auth_result1.rate_limit.is_rate_limited);
-
-    // Record usage to approach the limit
-    for i in 0..2 {
-        let usage = ApiKeyUsage {
-            id: None,
-            api_key_id: api_key.id.clone(),
-            timestamp: Utc::now(),
-            tool_name: format!("test_tool_{i}"),
-            response_time_ms: Some(100),
-            status_code: 200,
-            error_message: None,
-            request_size_bytes: None,
-            response_size_bytes: None,
-            ip_address: None,
-            user_agent: None,
-        };
+    // Two calls already made inside the key's window
+    for _ in 0..2 {
         database
             .repositories()
             .usage
-            .record_api_key(&usage)
+            .record_api_key(&ApiKeyUsage {
+                id: None,
+                api_key_id: api_key.id.clone(),
+                timestamp: Utc::now(),
+                tool_name: "GET /api/usage/status".to_owned(),
+                response_time_ms: Some(12),
+                status_code: 200,
+                error_message: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+            })
             .await
             .unwrap();
     }
+    let usage = window_usage(&database, &api_key).await;
+    assert_eq!(usage.count, 2);
+    let budget = calculate_api_key_rate_limit(&api_key, &usage, Utc::now());
+    assert!(budget.is_exceeded());
+    assert_eq!(budget.remaining_after_this_request(), Some(0));
 
-    // Now the key should be rate limited
-    let current_usage = database
-        .repositories()
-        .usage
-        .get_api_key_current(&api_key.id)
+    // The third is refused as a 429 with a retry window, not a 401
+    let refusal = auth_middleware
+        .authenticate_request(Some(&full_key))
         .await
-        .unwrap();
-    assert_eq!(current_usage, 2);
-
-    let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
-    assert!(rate_limit_status.is_rate_limited);
-    assert_eq!(rate_limit_status.remaining, Some(0));
-
-    // Authentication should fail due to rate limiting
-    let auth_result = auth_middleware.authenticate_request(Some(&full_key)).await;
-    assert!(auth_result.is_err());
-    let error_msg = auth_result.unwrap_err().to_string();
-    assert!(error_msg.contains("Rate limit exceeded"));
+        .unwrap_err();
+    assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
+    assert!(refusal.to_string().contains("Rate limit exceeded"));
+    assert!(refusal.retry_after_secs().unwrap() >= 1);
 }
 
 #[tokio::test]
@@ -279,26 +278,22 @@ async fn test_enterprise_tier_unlimited_usage() {
     }
 
     // Verify high usage is recorded
-    let current_usage = database
-        .repositories()
-        .usage
-        .get_api_key_current(&api_key.id)
-        .await
-        .unwrap();
-    assert_eq!(current_usage, 1000);
+    let usage = window_usage(&database, &api_key).await;
+    assert_eq!(usage.count, 1000);
 
-    // Enterprise tier should never be rate limited
-    let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
-    assert!(!rate_limit_status.is_rate_limited);
-    assert_eq!(rate_limit_status.limit, None);
-    assert_eq!(rate_limit_status.remaining, None);
+    // Enterprise tier is never rate limited
+    assert_eq!(
+        calculate_api_key_rate_limit(&api_key, &usage, Utc::now()),
+        RequestBudget::Unlimited
+    );
 
-    // Authentication should still succeed
-    let auth_result = auth_middleware
+    // Authentication still succeeds. It writes no row itself: the
+    // request-budget layer records the call once the request has an outcome.
+    auth_middleware
         .authenticate_request(Some(&full_key))
         .await
         .unwrap();
-    assert!(!auth_result.rate_limit.is_rate_limited);
+    assert_eq!(window_usage(&database, &api_key).await.count, 1000);
 }
 
 #[tokio::test]
@@ -431,37 +426,13 @@ async fn test_concurrent_api_key_usage() {
 
     // Simulate concurrent requests
     let mut handles = vec![];
-    for i in 0..10 {
+    for _ in 0..10 {
         let auth_middleware_clone = auth_middleware.clone();
-        let database_clone = database.clone();
-        let api_key_id = api_key.id.clone();
         let full_key_clone = full_key.clone();
 
         let handle = tokio::spawn(async move {
-            // Authenticate
             let auth_result = auth_middleware_clone
                 .authenticate_request(Some(&full_key_clone))
-                .await
-                .unwrap();
-
-            // Record usage
-            let usage = ApiKeyUsage {
-                id: None,
-                api_key_id: api_key_id.clone(),
-                timestamp: Utc::now(),
-                tool_name: format!("concurrent_tool_{i}"),
-                response_time_ms: Some(100 + i * 10),
-                status_code: 200,
-                error_message: None,
-                request_size_bytes: None,
-                response_size_bytes: None,
-                ip_address: None,
-                user_agent: None,
-            };
-            database_clone
-                .repositories()
-                .usage
-                .record_api_key(&usage)
                 .await
                 .unwrap();
 
@@ -483,14 +454,9 @@ async fn test_concurrent_api_key_usage() {
         assert_eq!(user_id, user.id);
     }
 
-    // Verify all usage was recorded
-    let final_usage = database
-        .repositories()
-        .usage
-        .get_api_key_current(&api_key.id)
-        .await
-        .unwrap();
-    assert_eq!(final_usage, 10);
+    // Admission writes no row; each request's row is the request-budget
+    // layer's, pinned per concurrent request in rate_limit_headers_e2e_test.
+    assert_eq!(window_usage(&database, &api_key).await.count, 0);
 }
 
 #[tokio::test]

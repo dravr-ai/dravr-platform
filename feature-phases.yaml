@@ -94,6 +94,6 @@ features:
     review_by: 2026-10-05
   - name: provider-exposure-notice
     surface: crates/pierre-services/src/provider_notice.rs
-    current: FeatureKey ProviderExposureNotice defaults off, so a TrainingPeaks or COROS login asks for no account-risk notice and records no acceptance; only the seeded e2e accounts (webtest, mobiletest) are armed. The notice, its five-locale copy, the per-provider acceptance record and the login refusal are complete and run for any account the flag arms, per tenant or per user (pierre-cli tenant|user set-feature --key provider_exposure_notice)
-    advance_when: the first athletes who are not demo accounts are onboarded onto TrainingPeaks or COROS. Arm the flag as a tenant default for their tenant at onboarding (ChefFamille, 2026-09-24 — the demo does not need it, onboarding does), then decide whether it becomes the compile default
-    review_by: 2026-11-30
+    current: FeatureKey ProviderExposureNotice defaults off, so a TrainingPeaks or COROS login asks for no account-risk notice, a WHOOP OAuth start asks for no owner authorization, health sync keeps WHOOP records without one, and no acceptance is recorded; only the seeded e2e accounts (webtest, mobiletest) are armed. The notices, their five-locale copy, the per-provider acceptance record, the login and OAuth-start refusals and the WHOOP persistence gate are complete and run for any account the flag arms, per tenant or per user (pierre-cli tenant|user set-feature --key provider_exposure_notice)
+    advance_when: the first athletes who are not demo accounts are onboarded onto TrainingPeaks, COROS or WHOOP, and in any case before WHOOP's API Terms take effect on 2026-10-06 for every tenant with a WHOOP connection (carnet#539 point 2). Arm the flag as a tenant default for their tenant at onboarding (ChefFamille, 2026-09-24 — the demo does not need it, onboarding does), then decide whether it becomes the compile default
+    review_by: 2026-10-05

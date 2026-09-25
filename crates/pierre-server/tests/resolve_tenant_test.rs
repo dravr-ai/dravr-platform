@@ -15,7 +15,6 @@
 
 use anyhow::Result;
 use pierre_auth::auth::{AuthMethod, AuthResult};
-use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 use pierre_core::errors::ErrorCode;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_runtime_context::{resolve_tenant, MiddlewareCtx, TenantMode};
@@ -32,14 +31,6 @@ fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "starter".to_owned(),
-        },
-        rate_limit: UnifiedRateLimitInfo {
-            is_rate_limited: false,
-            limit: Some(1000),
-            remaining: Some(1000),
-            reset_at: None,
-            tier: "starter".to_owned(),
-            auth_method: "jwt".to_owned(),
         },
         active_tenant_id,
     }

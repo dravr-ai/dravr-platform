@@ -31,8 +31,8 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, RawQuery, State},
     http::{
-        header::{AUTHORIZATION, CONTENT_TYPE},
-        HeaderMap, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER},
+        HeaderMap, HeaderValue, StatusCode,
     },
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -41,7 +41,10 @@ use axum::{
     Json,
 };
 use pierre_a2a::{
-    protocol_types::{error_info, A2ASpecError, StreamResponse, Task},
+    protocol_types::{
+        error_info, retry_after_secs, A2ASpecError, StreamResponse, Task,
+        RATE_LIMIT_EXCEEDED_REASON,
+    },
     A2ARequest, A2AResponse, A2AServer, JsonRpcError, A2A_VERSION, A2A_VERSION_HEADER,
 };
 use pierre_core::auth_header::extract_bearer_token;
@@ -92,6 +95,31 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .and_then(|value| value.to_str().ok())
         .and_then(|header| extract_bearer_token(header).ok())
         .map(str::to_owned)
+}
+
+/// The protocol server for one request, over the routes' shared handles.
+fn protocol_server<C: MiddlewareCtx + A2ACtx>(state: &A2ARoutesState<C>) -> A2AServer {
+    let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
+    A2AServer::new_with_resources(
+        ctx,
+        state.tool_runtime.clone(),    // Safe: Arc clone of trait object
+        state.auth_middleware.clone(), // Safe: Arc clone for the shared auth pipeline
+    )
+}
+
+/// The wait a rate-limit refusal carries, for its `Retry-After` header.
+fn refusal_retry_after(error: &JsonRpcError) -> Option<u64> {
+    error.data.as_ref().and_then(retry_after_secs)
+}
+
+/// Attach `Retry-After` to `response` when the refusal carried a wait.
+fn with_retry_after(mut response: Response, retry_after: Option<u64>) -> Response {
+    if let Some(secs) = retry_after {
+        response
+            .headers_mut()
+            .insert(RETRY_AFTER, HeaderValue::from(secs));
+    }
+    response
 }
 
 /// Whether a JSON-RPC error carries the given `ErrorInfo` reason.
@@ -158,16 +186,27 @@ fn sse_task_stream(
 // ============================ JSONRPC binding ============================
 
 /// HTTP status for a JSON-RPC response envelope: authentication failures
-/// surface as 401 (auth is transport-level per spec §4), everything else
-/// rides HTTP 200 with the error inside the envelope.
+/// surface as 401 and a spent request budget as 429 (auth is
+/// transport-level per spec §4), everything else rides HTTP 200 with the
+/// error inside the envelope.
 fn jsonrpc_http_status(response: &A2AResponse) -> StatusCode {
     response.error.as_ref().map_or(StatusCode::OK, |error| {
         if has_reason(error, AUTHENTICATION_REQUIRED) {
             StatusCode::UNAUTHORIZED
+        } else if has_reason(error, RATE_LIMIT_EXCEEDED_REASON) {
+            StatusCode::TOO_MANY_REQUESTS
         } else {
             StatusCode::OK
         }
     })
+}
+
+/// A JSON-RPC envelope as its HTTP response: the status
+/// [`jsonrpc_http_status`] picks, and `Retry-After` on a rate-limit refusal.
+fn jsonrpc_response(response: A2AResponse) -> Response {
+    let status = jsonrpc_http_status(&response);
+    let retry_after = response.error.as_ref().and_then(refusal_retry_after);
+    with_retry_after((status, Json(response)).into_response(), retry_after)
 }
 
 /// JSON-RPC error envelope helper.
@@ -219,35 +258,24 @@ pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
         return (StatusCode::OK, Json(response)).into_response();
     }
 
-    let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
-    let server = A2AServer::new_with_resources(ctx, state.tool_runtime.clone()); // Safe: Arc clone of trait object
+    let server = protocol_server(&state);
 
     match request.method.as_str() {
         "SendStreamingMessage" => {
             let envelope_id = request.id.clone(); // Safe: JSON value ownership for SSE frames
             match server.start_streaming_message(request).await {
                 Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, envelope_id),
-                Err(response) => {
-                    let status = jsonrpc_http_status(&response);
-                    (status, Json(*response)).into_response()
-                }
+                Err(response) => jsonrpc_response(*response),
             }
         }
         "SubscribeToTask" => {
             let envelope_id = request.id.clone(); // Safe: JSON value ownership for SSE frames
             match server.start_task_subscription(request).await {
                 Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, envelope_id),
-                Err(response) => {
-                    let status = jsonrpc_http_status(&response);
-                    (status, Json(*response)).into_response()
-                }
+                Err(response) => jsonrpc_response(*response),
             }
         }
-        _ => {
-            let response = server.handle_request(request).await;
-            let status = jsonrpc_http_status(&response);
-            (status, Json(response)).into_response()
-        }
+        _ => jsonrpc_response(server.handle_request(request).await),
     }
 }
 
@@ -265,6 +293,9 @@ fn rest_error_mapping(error: &JsonRpcError) -> (StatusCode, &'static str) {
         -32601 => (StatusCode::NOT_IMPLEMENTED, "UNIMPLEMENTED"),
         -32000 if has_reason(error, AUTHENTICATION_REQUIRED) => {
             (StatusCode::UNAUTHORIZED, "UNAUTHENTICATED")
+        }
+        -32000 if has_reason(error, RATE_LIMIT_EXCEEDED_REASON) => {
+            (StatusCode::TOO_MANY_REQUESTS, "RESOURCE_EXHAUSTED")
         }
         _ => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL"),
     }
@@ -293,7 +324,10 @@ fn rest_response(response: A2AResponse) -> Response {
     if let Some(error) = &response.error {
         let (status, code_name) = rest_error_mapping(error);
         let details = error.data.clone().unwrap_or_else(|| json!([])); // Safe: JSON value ownership for body
-        return rest_error_response(status, code_name, &error.message, &details);
+        return with_retry_after(
+            rest_error_response(status, code_name, &error.message, &details),
+            refusal_retry_after(error),
+        );
     }
     let result = response.result.unwrap_or(Value::Null);
     (
@@ -355,8 +389,7 @@ async fn rest_dispatch<C: MiddlewareCtx + A2ACtx>(
     params: Value,
 ) -> Response {
     let request = wire_request(method, params, bearer_token(headers));
-    let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
-    let server = A2AServer::new_with_resources(ctx, state.tool_runtime.clone()); // Safe: Arc clone of trait object
+    let server = protocol_server(state);
     rest_response(server.handle_request(request).await)
 }
 
@@ -399,8 +432,7 @@ pub(crate) async fn rest_message_stream<C: MiddlewareCtx + A2ACtx>(
     };
 
     let request = wire_request("SendStreamingMessage", params, bearer_token(&headers));
-    let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
-    let server = A2AServer::new_with_resources(ctx, state.tool_runtime.clone()); // Safe: Arc clone of trait object
+    let server = protocol_server(&state);
     match server.start_streaming_message(request).await {
         Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, None),
         Err(response) => rest_response(*response),
@@ -504,8 +536,7 @@ pub(crate) async fn rest_task_action<C: MiddlewareCtx + A2ACtx>(
                 json!({ "id": task_id }),
                 bearer_token(&headers),
             );
-            let ctx: Arc<dyn A2ACtx> = state.ctx.clone(); // Safe: Arc clone coerced into trait object
-            let server = A2AServer::new_with_resources(ctx, state.tool_runtime.clone()); // Safe: Arc clone of trait object
+            let server = protocol_server(&state);
             match server.start_task_subscription(request).await {
                 Ok((snapshot, receiver)) => sse_task_stream(snapshot, receiver, None),
                 Err(response) => rest_response(*response),

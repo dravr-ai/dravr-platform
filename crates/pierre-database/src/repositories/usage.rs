@@ -10,7 +10,7 @@ use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
-use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats};
+use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats, ApiKeyWindowUsage};
 use pierre_core::models::{
     ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
 };
@@ -22,8 +22,13 @@ use uuid::Uuid;
 pub trait UsageRepository: Send + Sync {
     /// Record API key usage
     async fn record_api_key(&self, usage: &ApiKeyUsage) -> AppResult<()>;
-    /// Get current usage count for an API key
-    async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32>;
+    /// An API key's calls after `window_start` (its sliding rate-limit
+    /// window) and the earliest of them
+    async fn get_api_key_window_usage(
+        &self,
+        api_key_id: &str,
+        window_start: DateTime<Utc>,
+    ) -> AppResult<ApiKeyWindowUsage>;
     /// Get usage statistics for an API key
     async fn get_api_key_stats(
         &self,

@@ -30,7 +30,7 @@ interface SciotteBusyErrorShape {
   response?: {
     status?: number;
     headers?: Record<string, string | number | undefined>;
-    data?: { error?: string; reason?: string; retry_after_secs?: number };
+    data?: { error?: string; reason?: string; details?: { retry_after_secs?: number } };
   };
 }
 
@@ -63,7 +63,9 @@ async function postWithSciotteBackpressureRetry<TResponse, TBody>(
         throw err;
       }
       const retryAfterHeader = typed.response?.headers?.['retry-after'];
-      const retryAfterFromBody = typed.response?.data?.retry_after_secs;
+      // The server's refusal carries the wait in `details`, the same value
+      // it sends as the header.
+      const retryAfterFromBody = typed.response?.data?.details?.retry_after_secs;
       const retryAfterSecs =
         Number(retryAfterHeader ?? retryAfterFromBody ?? 0) || 0;
       const exponentialMs = SCIOTTE_RETRY_BASE_MS * 2 ** attempt;
@@ -97,6 +99,16 @@ export interface MobileOAuthInitResponse {
   metadata: ApiMetadata;
 }
 
+/** What an OAuth start carries beyond the provider. */
+export interface OAuthStartOptions {
+  /**
+   * The athlete ticked the provider's notice on this attempt (the card's
+   * `consent_required`, WHOOP's owner authorization). The server refuses a
+   * start whose notice is outstanding without it.
+   */
+  tosConsent?: boolean;
+}
+
 /**
  * Creates the OAuth API methods bound to an axios instance.
  */
@@ -122,9 +134,10 @@ export function createOAuthApi(axios: AxiosInstance) {
      * the await leaves the popup empty for the whole round trip — which iPhone
      * users reported as a broken connect.
      */
-    authorizeUrl(provider: string): string {
+    authorizeUrl(provider: string, options: OAuthStartOptions = {}): string {
       const base = (axios.defaults.baseURL ?? '').replace(/\/$/, '');
-      return `${base}${ENDPOINTS.OAUTH.AUTHORIZE(provider)}`;
+      const consent = options.tosConsent ? '?tos_consent=true' : '';
+      return `${base}${ENDPOINTS.OAUTH.AUTHORIZE(provider)}${consent}`;
     },
 
     /**
@@ -133,11 +146,15 @@ export function createOAuthApi(axios: AxiosInstance) {
      */
     async initMobileOAuth(
       provider: string,
-      redirectUri?: string
+      redirectUri?: string,
+      options: OAuthStartOptions = {}
     ): Promise<MobileOAuthInitResponse> {
       const params = new URLSearchParams();
       if (redirectUri) {
         params.set('redirect_uri', redirectUri);
+      }
+      if (options.tosConsent) {
+        params.set('tos_consent', 'true');
       }
 
       const queryString = params.toString();
@@ -216,7 +233,7 @@ export function createOAuthApi(axios: AxiosInstance) {
       password: string;
       method: 'email' | 'google' | 'apple';
       target: SciotteTarget;
-      /** The user ticked the provider's exposure notice on this attempt (TrainingPeaks). */
+      /** The user ticked the provider's exposure notice on this attempt (TrainingPeaks, COROS). */
       tos_consent?: boolean;
     }): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<

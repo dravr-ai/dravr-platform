@@ -76,9 +76,10 @@ impl SseRoutes {
                 // tight loop when the network blips or the page
                 // refreshes; a single stale-token client otherwise
                 // generates dozens of identical warnings per minute.
-                // The 401 response is the actionable signal.
+                // The refusal itself is the actionable signal: a 401, or
+                // a 429 with its retry window when the budget is spent.
                 debug!(user_id = %user_uuid, error = %e, "Failed to authenticate JWT token for SSE");
-                AppError::auth_invalid(format!("Authentication failed: {e}"))
+                e.into_auth_refusal("Authentication failed")
             })?;
 
         // Verify authenticated user matches requested user_id

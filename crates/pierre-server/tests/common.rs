@@ -27,7 +27,7 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
-use pierre_config::environment::{HttpClientConfig, RateLimitConfig, ServerConfig};
+use pierre_config::environment::{HttpClientConfig, ServerConfig};
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -212,7 +212,6 @@ pub fn create_test_auth_middleware(
         (**auth_manager).clone(),
         repos,
         jwks_manager,
-        RateLimitConfig::default(),
     ))
 }
 

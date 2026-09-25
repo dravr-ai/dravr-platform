@@ -7,6 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+mod common;
+
+use axum::body::{to_bytes, Body};
+use axum::extract::ConnectInfo;
+use axum::http::header::{CONTENT_TYPE, RETRY_AFTER};
+use axum::http::{Request, StatusCode};
+use axum::response::Response;
+use axum::Router;
 use futures_util::future::join_all;
 use pierre_auth::{
     config::RateLimitConfig,
@@ -19,12 +27,15 @@ use pierre_auth::{
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
+use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
+use serde_json::{json, Value};
 use std::{
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::time::{sleep, Duration};
+use tower::ServiceExt;
 
 /// Rate limit window, in seconds, for the two tests that cross a window boundary.
 ///
@@ -213,34 +224,99 @@ async fn test_rate_limit_headers() {
     );
 }
 
-/// Test 429 response includes Retry-After header
+/// One request to the full application, from `addr` as the server's
+/// `ConnectInfo` would name it.
+async fn from_address(app: &Router, request: Request<Body>, addr: SocketAddr) -> Response {
+    let mut request = request;
+    request.extensions_mut().insert(ConnectInfo(addr));
+    app.clone().oneshot(request).await.unwrap()
+}
+
+/// Assert `response` is the per-IP refusal: 429, the RFC 6749
+/// `too_many_requests` body, and a `Retry-After` inside the one-minute window.
+async fn assert_rate_limited(response: Response, endpoint: &str) {
+    assert_eq!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "{endpoint} past its limit"
+    );
+    let retry_after: u64 = response
+        .headers()
+        .get(RETRY_AFTER)
+        .unwrap_or_else(|| panic!("{endpoint} refusal carries Retry-After"))
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        (1..=60).contains(&retry_after),
+        "{endpoint} Retry-After {retry_after} should be within the one-minute window"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["error"], "too_many_requests");
+    assert_eq!(body["error_description"], "Rate limit exceeded");
+}
+
+/// The 429 the `OAuth2` endpoints answer through the full application carries
+/// `Retry-After`, in the RFC's body shape, on both rate-limited endpoints.
 #[tokio::test]
 async fn test_retry_after_header() {
-    let rate_limiter = OAuth2RateLimiter::new();
-    let client_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 106));
-    let endpoint = "register";
+    common::init_server_config();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let addr = SocketAddr::from(([203, 0, 113, 7], 40_000));
 
-    // Exhaust rate limit
+    // Registration admits ten per minute from one address.
+    let register = |i: u32| {
+        Request::post("/oauth2/register")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "redirect_uris": [format!("https://retry{i}.example.com/callback")],
+                    "client_name": format!("Retry-After client {i}"),
+                })
+                .to_string(),
+            ))
+            .unwrap()
+    };
     for i in 1..=10 {
-        let status = rate_limiter.check_rate_limit(endpoint, client_ip);
-        assert!(
-            !status.is_limited,
-            "Request {i} should not be limited during quota exhaustion"
+        let response = from_address(&app, register(i), addr).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::CREATED,
+            "registration {i} is within the limit"
+        );
+        assert!(response.headers().get(RETRY_AFTER).is_none());
+    }
+    assert_rate_limited(from_address(&app, register(11), addr).await, "register").await;
+
+    // The token endpoint admits thirty per minute; a malformed grant still
+    // counts, since the limiter runs before the grant is read. The limiter
+    // keeps one counter per address across its endpoints, so this half starts
+    // from a second, fresh address.
+    let token_addr = SocketAddr::from(([203, 0, 113, 8], 40_000));
+    let token = || {
+        Request::post("/oauth2/token")
+            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("grant_type=client_credentials"))
+            .unwrap()
+    };
+    for i in 1..=30 {
+        let response = from_address(&app, token(), token_addr).await;
+        assert_ne!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "token request {i} is within the limit"
         );
     }
+    assert_rate_limited(from_address(&app, token(), token_addr).await, "token").await;
 
-    // Next request should be rate limited with Retry-After
-    let status = rate_limiter.check_rate_limit(endpoint, client_ip);
-    assert!(status.is_limited);
-    assert!(
-        status.retry_after_seconds.is_some(),
-        "Retry-After header should be set"
-    );
-
-    let retry_after = status.retry_after_seconds.unwrap();
-    assert!(
-        retry_after > 0 && retry_after <= 60,
-        "Retry-After should be between 1 and 60 seconds"
+    // Another address has its own bucket.
+    let elsewhere = SocketAddr::from(([198, 51, 100, 9], 40_000));
+    assert_eq!(
+        from_address(&app, register(12), elsewhere).await.status(),
+        StatusCode::CREATED
     );
 }
 

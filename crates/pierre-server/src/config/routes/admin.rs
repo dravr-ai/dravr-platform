@@ -100,13 +100,12 @@ impl AdminConfigState {
             Err(delegated) if delegated.code == ErrorCode::PermissionDenied => {
                 return Err(delegated)
             }
-            Err(user_jwt_error) => {
-                self.device_login_operator(&auth_value)
-                    .await?
-                    .ok_or_else(|| {
-                        AppError::auth_invalid(format!("Authentication failed: {user_jwt_error}"))
-                    })?
-            }
+            // Not an admin token either: the user credential's refusal
+            // stands, a spent budget as its 429.
+            Err(user_jwt_error) => self
+                .device_login_operator(&auth_value)
+                .await?
+                .ok_or_else(|| user_jwt_error.into_auth_refusal("Authentication failed"))?,
         };
 
         // Verify admin privileges using centralized guard

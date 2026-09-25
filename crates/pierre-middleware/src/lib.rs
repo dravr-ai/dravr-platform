@@ -27,7 +27,7 @@ pub mod csrf;
 pub mod extractors;
 /// Short-lived signed link-tokens for channel-initiated provider connection flows
 pub mod provider_link_token;
-/// Rate limiting middleware and utilities
+/// Request-budget gate and the `X-RateLimit-*` response headers
 pub mod rate_limiting;
 /// PII redaction and sensitive data masking
 pub mod redaction;
@@ -75,14 +75,12 @@ pub use cors::setup_cors;
 
 // Rate limiting middleware and utilities
 
-/// Check rate limit and send error response
-pub use rate_limiting::check_rate_limit_and_respond;
-/// Create rate limit error
-pub use rate_limiting::create_rate_limit_error;
-/// Create rate limit headers
+/// Render a request budget as `X-RateLimit-*` headers
 pub use rate_limiting::create_rate_limit_headers;
-/// Rate limit headers module
+/// Rate limit header names
 pub use rate_limiting::headers;
+/// Layer rendering the caller's request budget and recording the admitted API key's outcome
+pub use rate_limiting::request_budget_middleware;
 
 // PII-safe logging and redaction
 

@@ -16,6 +16,18 @@
 export { PierreMcpClient, BridgeConfig } from './mcp-bridge';
 
 /**
+ * Export the provider OAuth start the bridge runs before opening a browser,
+ * which reads a provider notice refusal as a message to accept it in the app.
+ */
+export {
+  startProviderOAuth,
+  providerNoticeMessage,
+  isNoticeRefusal,
+  NOTICE_REFUSAL_ACTION,
+  type ProviderOAuthStart,
+} from './provider-oauth-start';
+
+/**
  * Export the stateless MCP client the bridge uses to reach the Dravr server over
  * Streamable HTTP, protocol revision 2026-07-28, for programmatic use without the
  * stdio bridge around it.

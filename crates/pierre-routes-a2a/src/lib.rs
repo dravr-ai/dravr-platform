@@ -116,8 +116,9 @@ pub struct A2ARoutesState<C: MiddlewareCtx + A2ACtx> {
     pub ctx: Arc<C>,
     /// A2A client manager — registration, credential lookups, rate-limit status.
     pub client_manager: Arc<A2AClientManager>,
-    /// MCP auth middleware — required when constructing the
-    /// [`pierre_a2a::auth::A2AAuthenticator`] for the API-key flow.
+    /// MCP auth middleware — admits a user JWT on the protocol routes
+    /// (account status, request budget, usage row, budget report), and backs
+    /// the [`pierre_a2a::auth::A2AAuthenticator`] for the API-key flow.
     pub auth_middleware: Arc<McpAuthMiddleware>,
     /// Tool runtime — backs the universal tool executor used by the
     /// JSON-RPC `tools.execute` dispatch path in [`service::A2ARoutes`].

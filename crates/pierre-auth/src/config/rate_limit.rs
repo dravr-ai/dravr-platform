@@ -1,22 +1,17 @@
-// ABOUTME: Rate limiting configuration for tier-based request throttling
-// ABOUTME: Configurable limits per API key tier with environment variable overrides
+// ABOUTME: Rate limiting configuration for the OAuth endpoint limiter and admin-provisioned API keys
+// ABOUTME: Per-minute OAuth endpoint limits, limiter housekeeping and key defaults, with environment overrides
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::{oauth_rate_limiting, rate_limiting_bursts, system_config};
+use pierre_core::constants::{oauth_rate_limiting, system_config};
 use serde::{Deserialize, Serialize};
 use std::env;
 
-/// Rate limiting configuration for tier-based request throttling
+/// Rate limiting configuration: the `OAuth` endpoint limiter and the default
+/// budget of an admin-provisioned API key
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
-    /// Free tier burst limit
-    pub free_tier_burst: u32,
-    /// Professional tier burst limit
-    pub professional_burst: u32,
-    /// Enterprise tier burst limit
-    pub enterprise_burst: u32,
     /// OAuth authorize endpoint rate limit (requests per minute)
     pub oauth_authorize_rpm: u32,
     /// OAuth token endpoint rate limit (requests per minute)
@@ -36,9 +31,6 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            free_tier_burst: rate_limiting_bursts::FREE_TIER_BURST,
-            professional_burst: rate_limiting_bursts::PROFESSIONAL_BURST,
-            enterprise_burst: rate_limiting_bursts::ENTERPRISE_BURST,
             oauth_authorize_rpm: oauth_rate_limiting::AUTHORIZE_RPM,
             oauth_token_rpm: oauth_rate_limiting::TOKEN_RPM,
             oauth_register_rpm: oauth_rate_limiting::REGISTER_RPM,
@@ -55,18 +47,6 @@ impl RateLimitConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            free_tier_burst: env::var("RATE_LIMIT_FREE_TIER_BURST")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(rate_limiting_bursts::FREE_TIER_BURST),
-            professional_burst: env::var("RATE_LIMIT_PROFESSIONAL_BURST")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(rate_limiting_bursts::PROFESSIONAL_BURST),
-            enterprise_burst: env::var("RATE_LIMIT_ENTERPRISE_BURST")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(rate_limiting_bursts::ENTERPRISE_BURST),
             oauth_authorize_rpm: env::var("OAUTH_AUTHORIZE_RATE_LIMIT_RPM")
                 .ok()
                 .and_then(|s| s.parse().ok())

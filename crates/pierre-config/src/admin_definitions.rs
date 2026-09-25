@@ -30,13 +30,13 @@ use crate::tid_cuts;
 /// the service that consumes it stays in `pierre-server`.
 #[derive(Debug, Clone)]
 pub struct ParameterDefinition {
-    /// Unique identifier for the parameter (e.g., `rate_limit.free_tier_burst`)
+    /// Unique identifier for the parameter (e.g., `feature.weather_api_enabled`)
     pub key: String,
     /// Human-readable name for display in UI
     pub display_name: String,
     /// Detailed description of what this parameter controls
     pub description: String,
-    /// Category grouping for organization (e.g., `rate_limiting`, `algorithms`)
+    /// Category grouping for organization (e.g., `feature_flags`, `algorithms`)
     pub category: String,
     /// Data type for validation and UI rendering
     pub data_type: ConfigDataType,
@@ -340,79 +340,6 @@ pub fn register_llm_pricing<S: BuildHasher>(defs: &mut HashMap<String, Parameter
             units: Some("$/M tokens".to_owned()),
             scientific_basis: None,
             env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-}
-
-/// Register the `Rate Limiting Parameters` catalog entries.
-pub fn register_rate_limiting<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
-    // Rate Limiting Parameters
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "rate_limit.free_tier_burst".to_owned(),
-            display_name: "Free Tier Burst Limit".to_owned(),
-            description: "Maximum burst requests for free tier users".to_owned(),
-            category: "rate_limiting".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(10),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(1),
-                max: serde_json::json!(100),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: None,
-            env: boot_env("RATE_LIMIT_FREE_TIER_BURST"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "rate_limit.professional_burst".to_owned(),
-            display_name: "Professional Tier Burst Limit".to_owned(),
-            description: "Maximum burst requests for professional tier users".to_owned(),
-            category: "rate_limiting".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(50),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(10),
-                max: serde_json::json!(500),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: None,
-            env: boot_env("RATE_LIMIT_PROFESSIONAL_BURST"),
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "rate_limit.enterprise_burst".to_owned(),
-            display_name: "Enterprise Tier Burst Limit".to_owned(),
-            description: "Maximum burst requests for enterprise tier users".to_owned(),
-            category: "rate_limiting".to_owned(),
-            data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(100),
-            valid_range: Some(ParameterRange {
-                min: serde_json::json!(50),
-                max: serde_json::json!(10000),
-                step: Some(1.0),
-            }),
-            enum_options: None,
-            units: Some("requests".to_owned()),
-            scientific_basis: None,
-            env: boot_env("RATE_LIMIT_ENTERPRISE_BURST"),
             is_runtime_configurable: true,
             requires_restart: false,
         },
