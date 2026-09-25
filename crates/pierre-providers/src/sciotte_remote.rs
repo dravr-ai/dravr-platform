@@ -86,8 +86,8 @@ const SHED_RETRY_AFTER_FALLBACK_SECS: u64 = 30;
 ///
 /// Continuation variants carry the server-minted `flow_id` naming the parked
 /// login flow — echoed back on `submit_otp`/`select_2fa` so a multi-provider,
-/// multi-user service resumes the right browser (the server falls back to its
-/// sole pending flow when the id is absent).
+/// multi-user service resumes the right browser. The service refuses a
+/// continuation that names no flow (`400 flow_id_required`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteLoginOutcome {
     /// Login complete; the service now holds the session under `session_id`.
@@ -122,6 +122,17 @@ pub enum RemoteLoginOutcome {
     },
     /// The provider rejected the credentials / flow.
     Failed(String),
+}
+
+/// What [`RemoteSciotteClient::delete_session`] found: either way the service
+/// no longer holds the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionRemoval {
+    /// The service held the session and dropped it with its cookies.
+    Removed,
+    /// The service no longer held the session: it idled out, or the service
+    /// restarted since the platform last imported it.
+    AlreadyGone,
 }
 
 /// What `GET /api/activities` answers with: the scraped rows and whether the
@@ -549,16 +560,13 @@ impl RemoteSciotteClient {
 
     /// POST `/auth/submit-otp` — continue an interactive login with an OTP/2FA
     /// code. `flow_id` names the parked flow (from the continuation outcome);
-    /// `None` lets the server resume its sole pending flow.
+    /// the service refuses a continuation without one (`400 flow_id_required`),
+    /// so it is always sent.
     ///
     /// # Errors
     ///
     /// Returns an error on transport failure or an unparseable response.
-    pub async fn submit_otp(
-        &self,
-        code: &str,
-        flow_id: Option<&str>,
-    ) -> AppResult<RemoteLoginOutcome> {
+    pub async fn submit_otp(&self, code: &str, flow_id: &str) -> AppResult<RemoteLoginOutcome> {
         let resp = self
             .request(reqwest::Method::POST, "/auth/submit-otp")
             .await?
@@ -570,8 +578,9 @@ impl RemoteSciotteClient {
     }
 
     /// POST `/auth/select-2fa` — pick a 2FA method during an interactive login.
-    /// `flow_id` names the parked flow; `None` lets the server resume its sole
-    /// pending flow.
+    /// `flow_id` names the parked flow (from the continuation outcome); the
+    /// service refuses a continuation without one (`400 flow_id_required`), so
+    /// it is always sent.
     ///
     /// # Errors
     ///
@@ -579,7 +588,7 @@ impl RemoteSciotteClient {
     pub async fn select_2fa(
         &self,
         option_id: &str,
-        flow_id: Option<&str>,
+        flow_id: &str,
     ) -> AppResult<RemoteLoginOutcome> {
         let resp = self
             .request(reqwest::Method::POST, "/auth/select-2fa")
@@ -625,6 +634,44 @@ impl RemoteSciotteClient {
             .await
             .map_err(|e| AppError::internal(format!("sciotte export decode: {e}")))?
             .session)
+    }
+
+    /// DELETE `/auth/sessions/{id}` — drop a session and its provider cookies
+    /// from the service's memory now, rather than after its idle lifetime.
+    ///
+    /// The service answers `404 session_not_found` for a session it no longer
+    /// holds (it idled out, or the service restarted since the last import),
+    /// which is the state the caller asked for, so it is
+    /// [`SessionRemoval::AlreadyGone`] rather than an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on transport failure or any other non-success status.
+    /// Neither error carries the session id: the transport error is stripped
+    /// of the request URL, which names it.
+    pub async fn delete_session(&self, session_id: &str) -> AppResult<SessionRemoval> {
+        let resp = self
+            .request(
+                reqwest::Method::DELETE,
+                &format!("/auth/sessions/{session_id}"),
+            )
+            .await?
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::new(
+                    ErrorCode::ExternalServiceError,
+                    format!("sciotte delete-session request: {}", e.without_url()),
+                )
+            })?;
+        match resp.status() {
+            status if status.is_success() => Ok(SessionRemoval::Removed),
+            StatusCode::NOT_FOUND => Ok(SessionRemoval::AlreadyGone),
+            status => Err(AppError::new(
+                ErrorCode::ExternalServiceError,
+                format!("sciotte delete-session returned {status}"),
+            )),
+        }
     }
 
     /// POST `/auth/import-session` — re-hydrate the service's transient store from
