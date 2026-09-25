@@ -26,8 +26,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_schema::json_schemas;
 use pierre_mcp_schema::{McpError, McpResponse, ProgressNotification};
+#[cfg(feature = "client-admin-api")]
 use pierre_services::oauth_flow::OAuthService;
-use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::protocol::types::{CancellationToken, ProgressReporter};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
@@ -110,33 +110,6 @@ impl ProviderToolRouter {
     #[must_use]
     pub fn resources(&self) -> Arc<ServerContext> {
         self.resources.clone()
-    }
-
-    /// Route disconnect tool request to appropriate provider handler
-    ///
-    /// # Errors
-    /// Returns an error if the provider is not supported or the operation fails
-    #[tracing::instrument(
-        skip(ctx, request_id),
-        fields(
-            provider = %provider_name,
-            user_id = %ctx.tenant_context.user_id,
-            tenant_id = %ctx.tenant_context.tenant_id,
-        )
-    )]
-    pub async fn route_disconnect_tool(
-        provider_name: &str,
-        request_id: Value,
-        ctx: &ToolRoutingContext<'_>,
-    ) -> McpResponse {
-        // Tenant context is always available since tool execution requires it
-        Self::handle_tenant_disconnect_provider(
-            ctx.tenant_context,
-            provider_name,
-            ctx.resources,
-            request_id,
-        )
-        .await
     }
 
     /// Route provider-specific tool requests to appropriate handlers
@@ -223,59 +196,6 @@ impl ProviderToolRouter {
     }
 
     // === Tenant-Aware Tool Handlers ===
-
-    /// Disconnect a provider through the domain chokepoint (`OAuthService`):
-    /// mirror resolution, lockstep token+row deletion, catalogued notify event.
-    async fn handle_tenant_disconnect_provider(
-        tenant_context: &TenantContext,
-        provider_name: &str,
-        resources: &Arc<ServerContext>,
-        request_id: Value,
-    ) -> McpResponse {
-        info!(
-            "Tenant {} disconnecting provider {} for user {}",
-            tenant_context.tenant_name, provider_name, tenant_context.user_id
-        );
-
-        let service = OAuthService::new(resources.data(), resources.common.config.clone());
-        let tenant_uuid = Some(tenant_context.tenant_id.as_uuid());
-        if let Err(e) = service
-            .disconnect_provider(
-                tenant_context.user_id,
-                provider_name,
-                tenant_uuid,
-                DisconnectReason::Athlete,
-            )
-            .await
-        {
-            error!(
-                "Failed to disconnect {} for user {}: {}",
-                provider_name, tenant_context.user_id, e
-            );
-            return McpResponse {
-                jsonrpc: JSONRPC_VERSION.to_owned(),
-                result: None,
-                error: Some(McpError {
-                    code: ERROR_INTERNAL_ERROR,
-                    message: format!("Failed to disconnect from {provider_name}"),
-                    data: None,
-                }),
-                id: Some(request_id),
-            };
-        }
-
-        McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_owned(),
-            result: Some(serde_json::json!({
-                "message": format!("Disconnected from {provider_name}"),
-                "provider": provider_name,
-                "tenant_id": tenant_context.tenant_id,
-                "success": true
-            })),
-            error: None,
-            id: Some(request_id),
-        }
-    }
 
     /// Create error response for tool execution failure
     fn create_tool_error_response(

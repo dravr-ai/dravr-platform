@@ -98,28 +98,6 @@ pub struct CheckOAuthNotificationsParams {
     pub notification_id: Option<String>,
 }
 
-/// Parameters for provider connection
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectProviderParams {
-    /// Provider name (e.g., "strava")
-    pub provider: String,
-
-    /// Optional Strava client ID
-    #[serde(default)]
-    pub strava_client_id: Option<String>,
-
-    /// Optional Strava client secret
-    #[serde(default)]
-    pub strava_client_secret: Option<String>,
-}
-
-/// Parameters for disconnecting a provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DisconnectProviderParams {
-    /// Provider name to disconnect
-    pub provider: String,
-}
-
 /// Parameters for marking notifications as read
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarkNotificationsReadParams {

@@ -677,6 +677,30 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
 
     assert_eq!(stats_response["jsonrpc"], "2.0");
 
+    // Test 9b: `connect_provider` over `/mcp` is the registry tool (carnet#552).
+    // The carve-out it replaced refused every provider but strava/fitbit and
+    // answered "opening browser" text around a relative `authUrl` with no
+    // `structuredContent`; the registry tool mints the real authorization URL
+    // and returns the structured part its advertised outputSchema requires.
+    let connect_response = client
+        .call_tool("connect_provider", json!({"provider": "strava"}))
+        .await?;
+    let connect_result = &connect_response["result"];
+    assert_eq!(
+        connect_result["isError"], false,
+        "connect_provider must succeed: {connect_response}"
+    );
+    let connect_structured = &connect_result["structuredContent"];
+    assert_eq!(connect_structured["provider"], "strava");
+    assert_eq!(connect_structured["status"], "pending_authorization");
+    let authorization_url = connect_structured["authorization_url"]
+        .as_str()
+        .expect("the structured part carries the authorization URL");
+    assert!(
+        authorization_url.starts_with("http"),
+        "an absolute URL the athlete can open, not a relative path: {authorization_url}"
+    );
+
     // Test 10: MCP Protocol - Error Handling (Invalid Tool)
     let invalid_tool_response = client.call_tool("invalid_tool", json!({})).await?;
 
