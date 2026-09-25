@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the Stripe billing adapter
-// ABOUTME: Tier price lookup, webhook event normalization and Stripe error mapping
+// ABOUTME: Tier price lookup and error mapping via the provider API, plus webhook event normalization
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,89 @@
 
 use std::collections::HashMap;
 
-use dravr_stripe::{StripeError, StripeEvent, StripeEventData, SubscriptionEvent};
-use pierre_core::billing::stripe::{map_stripe_err, normalize_event, StripePriceConfig};
-use pierre_core::billing::BillingEvent;
+use dravr_stripe::{StripeClient, StripeEvent, StripeEventData, SubscriptionEvent};
+use pierre_core::billing::stripe::{normalize_event, StripePriceConfig, StripeProvider};
+use pierre_core::billing::{BillingEvent, BillingProvider, CheckoutRequest, WebhookPayload};
+use pierre_core::errors::ErrorCode;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
+
+/// One-shot stand-in for the Stripe API: accepts a single connection, answers
+/// it with `status` and `body`, and hands back the raw request it received so
+/// a test can read the form `start_checkout` posted.
+async fn stub_stripe(status: u16, body: &'static str) -> (String, JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        loop {
+            let read = socket.read(&mut chunk).await.unwrap();
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&chunk[..read]);
+            if request_complete(&request) {
+                break;
+            }
+        }
+        let response = format!(
+            "HTTP/1.1 {status} STUB\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    (base_url, handle)
+}
+
+/// True once the buffer holds the full header block and `content-length` body.
+fn request_complete(request: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(request);
+    let Some(header_end) = text.find("\r\n\r\n") else {
+        return false;
+    };
+    let content_length = text[..header_end]
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+    request.len() >= header_end + 4 + content_length
+}
+
+fn provider(base_url: &str) -> StripeProvider {
+    StripeProvider::new(
+        StripeClient::new("sk_test_stub", "whsec_test_stub").with_base_url(base_url),
+        StripePriceConfig {
+            professional: "price_pro".to_owned(),
+            enterprise: "price_ent".to_owned(),
+        },
+    )
+}
+
+fn checkout(tier: &str) -> CheckoutRequest {
+    CheckoutRequest {
+        tier: tier.to_owned(),
+        tenant_id: "ten-1".to_owned(),
+        user_id: "user-1".to_owned(),
+        success_url: "https://app.test/ok".to_owned(),
+        cancel_url: "https://app.test/cancel".to_owned(),
+    }
+}
+
+const SESSION_OK: &str = r#"{"id":"cs_1","url":"https://checkout.test/cs_1"}"#;
+
+/// `line_items[0][price]=<id>` as reqwest form-encodes it.
+fn posted_price(price_id: &str) -> String {
+    format!("line_items%5B0%5D%5Bprice%5D={price_id}")
+}
 
 fn sample_subscription(status: &str) -> SubscriptionEvent {
     let mut metadata = HashMap::new();
@@ -32,15 +112,39 @@ fn sample_subscription(status: &str) -> SubscriptionEvent {
     }
 }
 
-#[test]
-fn price_config_resolves_known_tiers() {
-    let cfg = StripePriceConfig {
-        professional: "price_pro".to_owned(),
-        enterprise: "price_ent".to_owned(),
-    };
-    assert_eq!(cfg.price_for("professional").unwrap(), "price_pro");
-    assert_eq!(cfg.price_for("enterprise").unwrap(), "price_ent");
-    assert!(cfg.price_for("starter").is_err());
+#[tokio::test]
+async fn checkout_resolves_professional_tier_to_its_price() {
+    let (base_url, stub) = stub_stripe(200, SESSION_OK).await;
+    let response = provider(&base_url)
+        .start_checkout(&checkout("professional"))
+        .await
+        .unwrap();
+    assert_eq!(response.checkout_url, "https://checkout.test/cs_1");
+    let request = stub.await.unwrap();
+    assert!(request.starts_with("POST /v1/checkout/sessions "));
+    assert!(request.contains(&posted_price("price_pro")));
+}
+
+#[tokio::test]
+async fn checkout_resolves_enterprise_tier_to_its_price() {
+    let (base_url, stub) = stub_stripe(200, SESSION_OK).await;
+    provider(&base_url)
+        .start_checkout(&checkout("enterprise"))
+        .await
+        .unwrap();
+    let request = stub.await.unwrap();
+    assert!(request.contains(&posted_price("price_ent")));
+}
+
+#[tokio::test]
+async fn checkout_rejects_a_tier_with_no_price_before_calling_stripe() {
+    // No stub: a request would fail as a transport error, not InvalidInput.
+    let err = provider("http://127.0.0.1:9")
+        .start_checkout(&checkout("starter"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidInput);
+    assert!(err.message.contains("starter"));
 }
 
 #[test]
@@ -125,20 +229,39 @@ fn invoice_payment_failed_without_subscription_is_ignored() {
     assert!(matches!(envelope.event, BillingEvent::Ignored));
 }
 
-#[test]
-fn map_stripe_api_error_becomes_external_service() {
-    use pierre_core::errors::ErrorCode;
-    let err = map_stripe_err(StripeError::Api {
-        status: 400,
-        error_type: "invalid_request_error".to_owned(),
-        message: "No such price".to_owned(),
-    });
+#[tokio::test]
+async fn stripe_api_error_becomes_external_service() {
+    let (base_url, stub) = stub_stripe(
+        400,
+        r#"{"error":{"type":"invalid_request_error","message":"No such price"}}"#,
+    )
+    .await;
+    let err = provider(&base_url)
+        .start_checkout(&checkout("professional"))
+        .await
+        .unwrap_err();
+    stub.await.unwrap();
     assert_eq!(err.code, ErrorCode::ExternalServiceError);
+    assert!(err.message.contains("No such price"));
 }
 
-#[test]
-fn map_stripe_signature_error_becomes_invalid_input() {
-    use pierre_core::errors::ErrorCode;
-    let err = map_stripe_err(StripeError::SignatureVerification("bad".to_owned()));
+#[tokio::test]
+async fn bad_webhook_signature_becomes_invalid_input() {
+    let now = chrono::Utc::now().timestamp();
+    let mut headers = HashMap::new();
+    headers.insert(
+        "stripe-signature".to_owned(),
+        format!("t={now},v1=00000000000000000000000000000000"),
+    );
+    let body =
+        br#"{"id":"evt_forged","type":"customer.subscription.deleted","data":{"object":{}}}"#;
+    let err = provider("http://127.0.0.1:9")
+        .parse_webhook(WebhookPayload {
+            headers: &headers,
+            body,
+        })
+        .await
+        .unwrap_err();
     assert_eq!(err.code, ErrorCode::InvalidInput);
+    assert!(err.message.contains("signature verification failed"));
 }

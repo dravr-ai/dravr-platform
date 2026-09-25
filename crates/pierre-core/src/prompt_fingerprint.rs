@@ -101,8 +101,7 @@ pub enum LeakVerdict {
 /// Lower-case the text and collapse ASCII whitespace runs to a single
 /// space. Unicode is preserved verbatim — we only touch ASCII
 /// whitespace / case so European characters in prompts stay intact.
-#[must_use]
-pub fn normalize(text: &str) -> String {
+fn normalize(text: &str) -> String {
     let lowered = text.to_lowercase();
     let mut out = String::with_capacity(lowered.len());
     let mut prev_ws = false;
