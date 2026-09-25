@@ -935,6 +935,12 @@ module "photograveur" {
     # The service refuses to start without this: a renderer that cannot pin the
     # audience it accepts would take tokens minted for any other service.
     PHOTOGRAVEUR_AUDIENCE = local.photograveur_audience
+
+    # The one caller it admits, the same account invoker_members names above.
+    # Any Google service account can mint a token for a given audience, so the
+    # audience alone would admit every one of them; the service refuses to start
+    # on a reachable bind without this list (carnet#567).
+    PHOTOGRAVEUR_ALLOWED_CALLERS = module.service_accounts.app_service_account_email
   }
 }
 
@@ -1000,6 +1006,14 @@ module "sciotte" {
     # start without it: a scraper that cannot pin its audience would accept
     # tokens minted for any other Google service.
     DRAVR_SCIOTTE_AUDIENCE = local.sciotte_audience
+
+    # The one caller it admits: the API's service account. Any Google service
+    # account can mint a token for a given audience, so the audience alone would
+    # admit every one of them; the service refuses to start on a reachable bind
+    # without this list (carnet#567). Set whatever backend_sciotte_iam says,
+    # because the container's own verifier checks it on every platform route
+    # whether or not Cloud Run IAM is also in front.
+    DRAVR_SCIOTTE_ALLOWED_CALLERS = module.service_accounts.app_service_account_email
 
     # Backpressure limiter — fail-fast required set (no crate defaults).
     # max_concurrent=2 matches the 2Gi memory sizing above.

@@ -126,16 +126,6 @@ export const QUERY_KEYS = {
   adminTokens: {
     all: ['admin-tokens'] as const,
     list: (includeInactive?: boolean) => ['admin-tokens', includeInactive] as const,
-    audit: (tokenId: string) => ['admin-token-audit', tokenId] as const,
-    usageStats: (tokenId: string) => ['admin-token-usage-stats', tokenId] as const,
-    provisionedKeys: (tokenId: string) => ['admin-token-provisioned-keys', tokenId] as const,
-  },
-
-  // ==================== ADMIN - CONFIG ====================
-  adminConfig: {
-    all: ['admin-config'] as const,
-    catalog: () => ['admin-config-catalog'] as const,
-    audit: () => ['admin-config-audit'] as const,
   },
 
   // ==================== ADMIN - SETTINGS ====================
@@ -155,23 +145,15 @@ export const QUERY_KEYS = {
   // ==================== DASHBOARD ====================
   dashboard: {
     all: ['dashboard'] as const,
-    overview: () => ['dashboard-overview'] as const,
-    rateLimits: () => ['rate-limits'] as const,
     usageAnalytics: (days?: number) => ['usage-analytics', days] as const,
     toolUsage: (apiKeyId?: string, timeRange?: string) =>
       ['tool-usage-breakdown', apiKeyId, timeRange] as const,
-    requestLogs: (apiKeyId?: string, filter?: unknown) =>
-      ['request-logs', apiKeyId, filter] as const,
-    requestStats: (apiKeyId?: string, timeRange?: string) =>
-      ['request-stats', apiKeyId, timeRange] as const,
     recentActivity: () => ['admin-recent-activity'] as const,
   },
 
   // ==================== A2A (Agent-to-Agent) ====================
   a2a: {
     all: ['a2a'] as const,
-    dashboardOverview: () => ['a2a-dashboard-overview'] as const,
-    agentCard: () => ['a2a-agent-card'] as const,
     clients: () => ['a2a-clients'] as const,
     clientUsage: (clientId?: string) => ['a2a-client-usage', clientId] as const,
     clientRateLimit: (clientId?: string) => ['a2a-client-rate-limit', clientId] as const,

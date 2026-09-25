@@ -139,7 +139,11 @@ export interface OAuthSessionConfigOAuth extends OAuthSessionConfigBase {
   oauthClientSecret: string;
 }
 
-/** API key authentication mode */
+/**
+ * API key authentication mode: a Dravr API key is the whole session. It is presented as
+ * the bearer on every request, and the mode never registers a client, never opens a
+ * browser to sign in, and never presents a session stored in the keychain in its place.
+ */
 export interface OAuthSessionConfigApiKey extends OAuthSessionConfigBase {
   mode: 'api-key';
   apiKey: string;
@@ -565,9 +569,12 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     return undefined;
   }
 
-  /** Whether this session authorizes as a client it registered and stored itself. */
+  /**
+   * Whether this session authorizes as a client it registered and stored itself. Only
+   * OAuth mode authorizes at all: a JWT or an API key is presented as given.
+   */
   private usesDynamicRegistration(): boolean {
-    return this.config.mode !== "jwt" && !this.configuredClient();
+    return this.config.mode === "oauth" && !this.configuredClient();
   }
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
@@ -802,6 +809,13 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
+    // In api-key mode the configured key is the session, whatever else the keychain
+    // holds: a session stored there by an earlier OAuth sign-in is never loaded, renewed
+    // or sent in its place, so a refused key cannot turn into another identity.
+    if (this.config.mode === "api-key") {
+      return { access_token: this.config.apiKey, token_type: "Bearer" };
+    }
+
     // If no in-memory tokens, try to load from persistent storage
     if (!this.savedTokens && this.allStoredTokens.pierre) {
       // Single-flight. A refresh rotates the refresh token, so a second concurrent
@@ -1258,7 +1272,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     };
 
     // Check Dravr token
-    status.pierre = !!this.savedTokens;
+    status.pierre = this.config.mode === "api-key" || !!this.savedTokens;
 
     // Check provider tokens from client-side storage
     if (this.allStoredTokens.providers) {
@@ -1721,6 +1735,14 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
       this.log(
         "Skipping credential validation (using the JWT token from the environment)",
       );
+      return;
+    }
+
+    // Skip it in api-key mode too. The validation endpoint judges a session token, so it
+    // answers "invalid" for any API key - and that answer clears the keychain, provider
+    // tokens included. Dravr checks the key itself on every request.
+    if (this.config.mode === 'api-key') {
+      this.log("Skipping credential validation (using the configured API key)");
       return;
     }
 

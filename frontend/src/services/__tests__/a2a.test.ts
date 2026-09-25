@@ -52,30 +52,6 @@ describe('a2aApi', () => {
     })
   })
 
-  describe('getA2AClient', () => {
-    it('should fetch a single A2A client', async () => {
-      mockAxios.get.mockResolvedValue({ data: { id: 'client-1', name: 'Agent' } })
-
-      const result = await a2aApi.getA2AClient('client-1')
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/clients/client-1')
-      expect(result.name).toBe('Agent')
-    })
-  })
-
-  describe('updateA2AClient', () => {
-    it('should update an A2A client', async () => {
-      mockAxios.put.mockResolvedValue({ data: { id: 'client-1', name: 'Updated Agent' } })
-
-      const result = await a2aApi.updateA2AClient('client-1', { name: 'Updated Agent' })
-
-      expect(mockAxios.put).toHaveBeenCalledWith('/a2a/clients/client-1', {
-        name: 'Updated Agent',
-      })
-      expect(result.name).toBe('Updated Agent')
-    })
-  })
-
   describe('deactivateA2AClient', () => {
     it('should deactivate an A2A client', async () => {
       mockAxios.delete.mockResolvedValue({ data: { success: true } })
@@ -104,46 +80,6 @@ describe('a2aApi', () => {
       expect(mockAxios.get).toHaveBeenCalledWith(
         '/a2a/clients/client-1/usage?start_date=2026-01-01&end_date=2026-02-01'
       )
-    })
-  })
-
-  describe('getA2ASessions', () => {
-    it('should fetch sessions without filter', async () => {
-      mockAxios.get.mockResolvedValue({ data: { sessions: [] } })
-
-      await a2aApi.getA2ASessions()
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/sessions?')
-    })
-
-    it('should fetch sessions filtered by client', async () => {
-      mockAxios.get.mockResolvedValue({ data: { sessions: [] } })
-
-      await a2aApi.getA2ASessions('client-1')
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/sessions?client_id=client-1')
-    })
-  })
-
-  describe('getA2ADashboardOverview', () => {
-    it('should fetch A2A dashboard overview', async () => {
-      mockAxios.get.mockResolvedValue({ data: { total_clients: 5 } })
-
-      const result = await a2aApi.getA2ADashboardOverview()
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/a2a/dashboard/overview')
-      expect(result.total_clients).toBe(5)
-    })
-  })
-
-  describe('getA2AAgentCard', () => {
-    it('should fetch agent card from the well-known discovery path', async () => {
-      mockAxios.get.mockResolvedValue({ data: { name: 'Pierre Agent' } })
-
-      const result = await a2aApi.getA2AAgentCard()
-
-      expect(mockAxios.get).toHaveBeenCalledWith('/.well-known/agent-card.json')
-      expect(result.name).toBe('Pierre Agent')
     })
   })
 })

@@ -516,15 +516,6 @@ test.describe('API Key Rotation', () => {
       });
     });
 
-    // Mock token details
-    await page.route('**/api/admin/tokens/token-1', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(sampleTokens[0]),
-      });
-    });
-
     await loginToDashboard(page);
   });
 
@@ -587,67 +578,6 @@ test.describe('API Key Details', () => {
       }
     });
 
-    // Mock token details
-    await page.route('**/api/admin/tokens/token-1', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ...sampleTokens[0],
-          audit_entries: [
-            { action: 'provision_keys', timestamp: '2024-01-20T15:30:00Z', success: true, ip_address: '192.168.1.1' },
-            { action: 'list_keys', timestamp: '2024-01-20T14:00:00Z', success: true, ip_address: '192.168.1.1' },
-          ],
-        }),
-      });
-    });
-
-    // Mock audit endpoint
-    await page.route('**/admin/tokens/*/audit', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          entries: [
-            { action: 'provision_keys', timestamp: '2024-01-20T15:30:00Z', success: true, ip_address: '192.168.1.1' },
-            { action: 'list_keys', timestamp: '2024-01-20T14:00:00Z', success: true, ip_address: '192.168.1.1' },
-            { action: 'revoke_keys', timestamp: '2024-01-19T10:00:00Z', success: false, error_message: 'Key not found' },
-          ],
-        }),
-      });
-    });
-
-    // Mock usage stats
-    await page.route('**/admin/tokens/*/usage-stats', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total_requests: 150,
-          last_24h: 25,
-          last_7d: 100,
-          most_common_actions: [
-            { action: 'provision_keys', count: 80 },
-            { action: 'list_keys', count: 50 },
-          ],
-        }),
-      });
-    });
-
-    // Mock provisioned keys
-    await page.route('**/admin/tokens/*/provisioned-keys', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          keys: [
-            { key_id: 'key-1', user_email: 'user1@example.com', created_at: '2024-01-15T10:00:00Z', is_active: true },
-            { key_id: 'key-2', user_email: 'user2@example.com', created_at: '2024-01-16T10:00:00Z', is_active: true },
-          ],
-        }),
-      });
-    });
-
     await loginToDashboard(page);
   });
 
@@ -661,70 +591,6 @@ test.describe('API Key Details', () => {
       // Should show token details
       await page.waitForTimeout(500);
       await expect(page.getByText('CI/CD Pipeline')).toBeVisible();
-    }
-  });
-
-  test('displays usage statistics', async ({ page }) => {
-    await page.waitForTimeout(500);
-
-    const viewDetailsButton = page.getByRole('button', { name: /View Details|Details/i }).first();
-    if (await viewDetailsButton.isVisible()) {
-      await viewDetailsButton.click();
-      await page.waitForTimeout(500);
-
-      // Should show usage stats
-      const usageSection = page.getByText(/Usage|Statistics|Requests/i);
-      if (await usageSection.isVisible()) {
-        await expect(usageSection).toBeVisible();
-      }
-    }
-  });
-
-  test('displays audit log entries', async ({ page }) => {
-    await page.waitForTimeout(500);
-
-    const viewDetailsButton = page.getByRole('button', { name: /View Details|Details/i }).first();
-    if (await viewDetailsButton.isVisible()) {
-      await viewDetailsButton.click();
-      await page.waitForTimeout(500);
-
-      // Should show audit entries
-      const auditSection = page.getByText(/Audit|Activity|Recent/i);
-      if (await auditSection.isVisible()) {
-        await expect(auditSection).toBeVisible();
-      }
-    }
-  });
-
-  test('displays provisioned API keys', async ({ page }) => {
-    await page.waitForTimeout(500);
-
-    const viewDetailsButton = page.getByRole('button', { name: /View Details|Details/i }).first();
-    if (await viewDetailsButton.isVisible()) {
-      await viewDetailsButton.click();
-      await page.waitForTimeout(500);
-
-      // Should show provisioned keys
-      const keysSection = page.getByText(/Provisioned|API Keys/i);
-      if (await keysSection.isVisible()) {
-        await expect(keysSection).toBeVisible();
-      }
-    }
-  });
-
-  test('shows error entries in audit log', async ({ page }) => {
-    await page.waitForTimeout(500);
-
-    const viewDetailsButton = page.getByRole('button', { name: /View Details|Details/i }).first();
-    if (await viewDetailsButton.isVisible()) {
-      await viewDetailsButton.click();
-      await page.waitForTimeout(500);
-
-      // Should show error indicator for failed actions in audit log
-      const errorIndicator = page.locator('.text-red-500, .bg-red-100, [class*="error"]');
-      // Error entries may or may not be visible depending on data
-      const errorCount = await errorIndicator.count();
-      expect(errorCount).toBeGreaterThanOrEqual(0);
     }
   });
 });

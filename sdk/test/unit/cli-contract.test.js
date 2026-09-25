@@ -80,6 +80,7 @@ describe('Credential flags', () => {
     const result = runCli(['--help']);
 
     expect(result.stdout).toContain('PIERRE_JWT_TOKEN');
+    expect(result.stdout).toContain('PIERRE_API_KEY');
     expect(result.stdout).toContain('PIERRE_OAUTH_CLIENT_SECRET');
     expect(result.stdout).not.toContain('--token <');
     expect(result.stdout).not.toContain('--oauth-client-secret');
@@ -100,6 +101,24 @@ describe('Auth mode selection', () => {
     expect(result.stderr).toContain('auth mode = jwt');
     expect(result.stderr).toContain('PIERRE_JWT_TOKEN = [SET]');
     expect(result.stderr).not.toContain('env.jwt');
+  });
+
+  test('PIERRE_API_KEY selects API key mode without printing the key', () => {
+    const result = launch({ PIERRE_API_KEY: 'pk_live_envkeyenvkeyenvkeyenvkeyenvke' });
+
+    expect(result.stderr).toContain('auth mode = api-key');
+    expect(result.stderr).toContain('PIERRE_API_KEY = [SET]');
+    expect(result.stderr).not.toContain('envkey');
+  });
+
+  test('PIERRE_JWT_TOKEN takes precedence over PIERRE_API_KEY', () => {
+    const result = launch({
+      PIERRE_JWT_TOKEN: 'eyJhbGciOiJIUzI1NiJ9.env.jwt',
+      PIERRE_API_KEY: 'pk_live_envkeyenvkeyenvkeyenvkeyenvke',
+    });
+
+    expect(result.stderr).toContain('auth mode = jwt');
+    expect(result.stderr).toContain('PIERRE_API_KEY = [SET]');
   });
 
   test('PIERRE_OAUTH_CLIENT_SECRET selects the pre-registered OAuth client', () => {

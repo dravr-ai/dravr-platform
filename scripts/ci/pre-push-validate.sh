@@ -312,7 +312,9 @@ fi
 # authApi.refreshToken). Gates the diff: a NEW unimplemented trait or uncalled
 # api-client method fails here, while the author still has the context to wire
 # a consumer. The standing stock is reported, not blessed — clearing it is a
-# per-surface deletion decision tracked in dravr-ai/carnet (carnet#17).
+# per-surface deletion decision tracked in dravr-ai/carnet (carnet#17). The one
+# whole-tree rule: every web-only service method (frontend/src/services/api)
+# needs a caller, because that stock is zero (carnet#581).
 # Also fires on either client's changes: since the api-client scan is split
 # per surface, a client that drops its last caller of a method the other client
 # still uses is a parity gap this catches — and that change touches neither

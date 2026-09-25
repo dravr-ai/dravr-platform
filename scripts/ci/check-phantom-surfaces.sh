@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Compile-free detection of phantom surfaces — declared capabilities
-# ABOUTME: with no implementor (Rust traits) and no caller (api-client methods).
+# ABOUTME: with no implementor (Rust traits) and no caller (api-client and web service methods).
 
 # WHY THIS EXISTS
 # ---------------
@@ -37,6 +37,14 @@
 #      map". The 2026-09-02 review found it by reading; nothing could have
 #      failed a push over it, because the direction of a check decides what is
 #      invisible to it.
+#   4. A web-only service method (frontend/src/services/api) with ZERO
+#      production call sites. The endpoints only the web console calls — admin,
+#      a2a, dashboard, usage, billing, messaging config — live there instead of
+#      in the api-client, so the api-client scan never read them, and the route
+#      scan (case 3) counts any client line that names a path as a caller,
+#      including the line inside a method nothing calls. Recurrence: carnet#581 — 34 such methods,
+#      three of them feeding the admin token screen from routes the server has
+#      never served, every one of their routes reading as consumed.
 #
 # Both were found by a manual cold read months after they were written. Neither
 # is visible to a regression test: nothing broke, because nothing ran.
@@ -229,6 +237,66 @@ else
                     echo "   mobile only: $m"
                 done < "$TMP/mobile_only.txt"
             fi
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Scan 2b: web-only service methods with zero production call sites
+# ---------------------------------------------------------------------------
+# Same caller rule as scan 2 (`.name` followed by a non-word character), over
+# the web app alone, since nothing else imports these files. The definition
+# directory is excluded: a service method is consumed by a component or hook,
+# and the barrel only re-exports whole objects.
+#
+# Whole-tree, not diff-scoped: the stock was cleared to zero (carnet#581), and a
+# diff scan misses the common way a method goes dead — the component holding
+# its last call is deleted, which is a whole-file deletion the parity check
+# deliberately ignores. Delete the method in the same change, or wire a caller.
+WEB_SERVICES="frontend/src/services/api"
+
+if [[ ! -d "$WEB_SERVICES" ]]; then
+    echo -e "${RED}❌ ${WEB_SERVICES} not found — this scan is stale.${NC}"
+    FAILED=true
+else
+    grep -hoE '^[[:space:]]{2}async [a-zA-Z0-9_]+\(' "$WEB_SERVICES"/*.ts 2>/dev/null \
+        | sed -E 's/^[[:space:]]*async //; s/\($//' | sort -u > "$TMP/web_methods.txt"
+    find frontend/src \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null \
+        | grep -vE '__tests__|\.test\.|\.spec\.' \
+        | grep -v "^${WEB_SERVICES}/" > "$TMP/web_service_callers.txt"
+
+    WEB_METHOD_N=$(grep -c . < "$TMP/web_methods.txt" || true)
+    WEB_CALLER_FILES_N=$(grep -c . < "$TMP/web_service_callers.txt" || true)
+
+    if [[ "$WEB_METHOD_N" -eq 0 || "$WEB_CALLER_FILES_N" -eq 0 ]]; then
+        echo -e "${RED}❌ Parsed zero web service methods or zero web files — this scan is stale.${NC}"
+        FAILED=true
+    else
+        sed -E 's/^/\\./; s/$/([^a-zA-Z0-9_]|$)/' "$TMP/web_methods.txt" > "$TMP/web_patterns.txt"
+        tr '\n' '\0' < "$TMP/web_service_callers.txt" \
+            | xargs -0 grep -ohEf "$TMP/web_patterns.txt" 2>/dev/null \
+            | sed -E 's/^\.//; s/[^a-zA-Z0-9_]$//' \
+            | sort -u > "$TMP/web_used.txt"
+        comm -23 "$TMP/web_methods.txt" "$TMP/web_used.txt" > "$TMP/web_orphans.txt"
+
+        WEB_USED_N=$(grep -c . < "$TMP/web_used.txt" || true)
+        WEB_ORPHAN_N=$(grep -c . < "$TMP/web_orphans.txt" || true)
+
+        if [[ "$WEB_USED_N" -lt $(( WEB_METHOD_N / 4 )) ]]; then
+            echo -e "${RED}❌ Web service usage scan implausible: only ${WEB_USED_N} of ${WEB_METHOD_N} methods matched.${NC}"
+            echo -e "${YELLOW}   The scan machinery is broken (grep/xargs behaviour), not the codebase.${NC}"
+            FAILED=true
+        elif [[ "$WEB_ORPHAN_N" -eq 0 ]]; then
+            echo -e "${GREEN}✅ Web services: all ${WEB_METHOD_N} methods in ${WEB_SERVICES} have a production caller.${NC}"
+        else
+            echo -e "${RED}❌ Web service methods with zero production callers (${WEB_ORPHAN_N} of ${WEB_METHOD_N}):${NC}"
+            while read -r m; do
+                [[ -z "$m" ]] && continue
+                SITE=$(grep -HnE "^[[:space:]]{2}async ${m}\(" "$WEB_SERVICES"/*.ts 2>/dev/null | head -1 | cut -d: -f1,2)
+                echo "   $m  ($SITE)"
+            done < "$TMP/web_orphans.txt"
+            echo -e "${YELLOW}   Delete each method (and what only it used), or give it a caller, in this change.${NC}"
+            FAILED=true
         fi
     fi
 fi
