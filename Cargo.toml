@@ -23,7 +23,7 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
 # because two tronc versions in the lockfile hard-fail the duplicate gate.
-dravr-tronc = "2.0.0"
+dravr-tronc = "2.1.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.22.1" }
