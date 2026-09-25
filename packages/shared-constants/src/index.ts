@@ -41,7 +41,6 @@ export {
   BRAND_TRACKING,
   SPACING,
   BORDER_RADIUS,
-  FONT_SIZE,
   FONT_WEIGHT,
   DESIGN_SYSTEM,
 } from './design-system';

@@ -31,7 +31,7 @@ import {
 } from '@pierre/chat-utils';
 import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
-import { spacing, fontSize, borderRadius, useThemeColors } from '../../constants/theme';
+import { spacing, typeScale, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, VerdictTone } from '@pierre/shared-types';
 import {
@@ -127,30 +127,32 @@ function FeedbackReasonInput({
 }
 
 // Markdown styles for assistant messages — built per palette so the rendered
-// markdown flips with the active theme.
+// markdown flips with the active theme. Sizes are steps of the phone's class
+// ladder (DESIGN.md §10): the prose reads at `base`, the headings climb to
+// `lg` and `xl`, and code and table cells sit at the interface step `sm`.
 const buildMarkdownStyles = (colors: ThemeColors) => ({
   body: {
     color: colors.text.primary,
-    fontSize: fontSize.md,
-    lineHeight: fontSize.md * 1.5,
+    fontSize: typeScale.base.fontSize,
+    lineHeight: typeScale.base.fontSize * 1.5,
   },
   heading1: {
     color: colors.text.primary,
-    fontSize: fontSize.xl,
+    fontSize: typeScale.xl.fontSize,
     fontWeight: '700' as const,
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
   heading2: {
     color: colors.text.primary,
-    fontSize: fontSize.lg,
+    fontSize: typeScale.lg.fontSize,
     fontWeight: '600' as const,
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
   },
   heading3: {
     color: colors.text.primary,
-    fontSize: fontSize.md,
+    fontSize: typeScale.base.fontSize,
     fontWeight: '600' as const,
     marginTop: spacing.xs,
     marginBottom: spacing.xs,
@@ -178,7 +180,7 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
     paddingHorizontal: 4,
     borderRadius: 4,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: fontSize.sm,
+    fontSize: typeScale.sm.fontSize,
   },
   fence: {
     backgroundColor: colors.background.tertiary,
@@ -188,7 +190,7 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
   },
   code_block: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: fontSize.sm,
+    fontSize: typeScale.sm.fontSize,
     color: colors.text.primary,
   },
   link: {
@@ -220,7 +222,7 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
     borderBottomWidth: 1,
     borderColor: colors.border.default,
     fontWeight: '600' as const,
-    fontSize: fontSize.sm,
+    fontSize: typeScale.sm.fontSize,
     color: colors.text.primary,
   },
   tr: {
@@ -233,7 +235,7 @@ const buildMarkdownStyles = (colors: ThemeColors) => ({
     minWidth: TABLE_CELL_MIN_WIDTH,
     borderRightWidth: 1,
     borderColor: colors.border.faint,
-    fontSize: fontSize.sm,
+    fontSize: typeScale.sm.fontSize,
     color: colors.text.secondary,
   },
 });

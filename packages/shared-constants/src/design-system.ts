@@ -601,20 +601,6 @@ export const BORDER_RADIUS = {
   full: 9999,
 } as const;
 
-/** Font size scale for inline styles. `chrome` is the phone's interface
- *  size (13, weight 500 on anything navigable); the class ladder in
- *  `frontend-mobile/tailwind.config.js` is the primary path there. */
-export const FONT_SIZE = {
-  xs: 12,
-  chrome: 13,
-  sm: 14,
-  md: 16,
-  lg: 18,
-  xl: 20,
-  xxl: 24,
-  xxxl: 32,
-} as const;
-
 /** Font weight values (unchanged). */
 export const FONT_WEIGHT = {
   normal: '400',
@@ -649,7 +635,6 @@ export const DESIGN_SYSTEM = {
   brandTracking: BRAND_TRACKING,
   spacing: SPACING,
   borderRadius: BORDER_RADIUS,
-  fontSize: FONT_SIZE,
   fontWeight: FONT_WEIGHT,
 } as const;
 

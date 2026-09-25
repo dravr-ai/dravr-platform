@@ -8,13 +8,14 @@ import {
   providerGlyphInk,
   SPACING,
   BORDER_RADIUS,
-  FONT_SIZE,
   FONT_WEIGHT,
 } from '../../../packages/shared-constants/src/design-system';
+import { TYPE_SCALE } from './typeScale';
 
 export const spacing = SPACING;
 export const borderRadius = BORDER_RADIUS;
-export const fontSize = FONT_SIZE;
+/** The `text-*` class ladder as numbers, for a style that cannot take a class. */
+export const typeScale = TYPE_SCALE;
 export const fontWeight = FONT_WEIGHT;
 
 /**
