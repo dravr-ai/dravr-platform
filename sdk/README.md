@@ -160,7 +160,7 @@ const client = new PierreMcpClient(config);
 await client.start();
 ```
 
-Also exported: `PierreOAuthClientProvider` for embedding the OAuth flow, the Zod response schemas with `validateToolResponse` / `validateMcpToolResponse`, and the token storage API (`createSecureStorage`, `EncryptedFileStorage`).
+Also exported: `PierreOAuthClientProvider` for embedding the OAuth flow, `validateMcpToolResponse`, which checks each result's `structuredContent` against the `outputSchema` the server advertised in `tools/list` (the bridge registers them via `registerToolOutputSchemas`), and the token storage API (`createSecureStorage`, `EncryptedFileStorage`).
 
 ### Tool parameter types
 

@@ -20,6 +20,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   validateMcpToolResponse,
+  registerToolOutputSchemas,
   configureValidator,
   type ResponseValidatorConfig,
 } from "./response-validator.js";
@@ -76,7 +77,7 @@ export interface BridgeConfigBase {
   proactiveConnectionTimeoutMs?: number; // Default: 5000ms
   proactiveToolsListTimeoutMs?: number; // Default: 3000ms
   toolCallConnectionTimeoutMs?: number; // Default: 10000ms (10s for tool-triggered connections)
-  /** Response validation configuration - validates tool responses against Zod schemas */
+  /** Response validation configuration - validates structuredContent against each tool's advertised outputSchema */
   responseValidation?: Partial<ResponseValidatorConfig>;
 }
 
@@ -280,7 +281,7 @@ export class PierreMcpClient {
         );
 
         if (toolsResult) {
-          this.cachedTools = toolsResult;
+          this.adoptTools(toolsResult);
           this.log(
             `Cached ${toolsResult.tools.length} tools from Dravr: ${JSON.stringify(toolsResult.tools.map((t: any) => t.name))}`,
           );
@@ -529,7 +530,7 @@ export class PierreMcpClient {
           if (this.pierreClient) {
             this.log("Fetching authenticated tools after OAuth...");
             const toolsResult = await this.pierreClient.listTools();
-            this.cachedTools = toolsResult;
+            this.adoptTools(toolsResult);
             this.log(
               `Refreshed cache with ${toolsResult.tools.length} authenticated tools: ${JSON.stringify(toolsResult.tools.map((t: any) => t.name))}`,
             );
@@ -757,6 +758,16 @@ export class PierreMcpClient {
   }
 
   /**
+   * Cache a `tools/list` result and adopt its outputSchemas for response
+   * validation, so every tool result is checked against the schema the server
+   * advertised in the same listing — never against a copy kept in the SDK.
+   */
+  private adoptTools(toolsResult: any): void {
+    this.cachedTools = toolsResult;
+    registerToolOutputSchemas(toolsResult?.tools ?? []);
+  }
+
+  /**
    * The cached catalogue as the host receives it: the tools alone. The cache hints
    * that come with a 2026-07-28 listing describe the server's freshness promise to
    * this bridge, not to the host on the far side of it.
@@ -888,7 +899,7 @@ export class PierreMcpClient {
             const result = await client.listTools();
             this.log(`Received ${result.tools.length} tools from Dravr`);
             // Cache the result for next time
-            this.cachedTools = result;
+            this.adoptTools(result);
             return this.hostToolsList();
           }
 
@@ -1011,7 +1022,8 @@ export class PierreMcpClient {
           JSON.stringify(result).substring(0, 200),
         );
 
-        // Validate response against Zod schema (logs warnings on mismatch, doesn't block)
+        // Validate structuredContent against the tool's advertised outputSchema
+        // (logs warnings on mismatch, doesn't block)
         validateMcpToolResponse(request.params.name, result);
 
         return result;
@@ -1054,7 +1066,7 @@ export class PierreMcpClient {
                 const retryResult = await this.callPierreTool(request, extra);
                 this.log(`Request succeeded after automatic session renewal`);
 
-                // Validate response against Zod schema
+                // Validate structuredContent against the tool's advertised outputSchema
                 validateMcpToolResponse(request.params.name, retryResult);
 
                 return retryResult;
@@ -1332,7 +1344,7 @@ export class PierreMcpClient {
         try {
           const client = this.pierreClient;
           const tools = await client.listTools();
-          this.cachedTools = tools;
+          this.adoptTools(tools);
           this.log(
             `Cached ${tools.tools.length} tools after connect_to_dravr: ${JSON.stringify(tools.tools.map((t: any) => t.name))}`,
           );

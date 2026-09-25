@@ -32,8 +32,7 @@ scripts/
 │   ├── check-gh-cli.sh             # GitHub CLI availability check
 │   └── add-license-headers.sh       # SPDX license header management
 ├── sdk/                             # SDK tooling
-│   ├── generate-sdk-types.js        # TypeScript type generation from server schemas
-│   └── validate-sdk-schemas.sh      # SDK schema drift detection
+│   └── generate-sdk-types.js        # TypeScript type generation from server schemas
 ├── profiling/                       # Performance profiling
 │   ├── benchmark-compare.sh         # Criterion benchmark comparison
 │   ├── flamegraph.sh                # CPU flamegraph generation
