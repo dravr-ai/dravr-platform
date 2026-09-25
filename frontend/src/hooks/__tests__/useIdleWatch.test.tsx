@@ -7,9 +7,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import { QueryClient, QueryClientProvider, useQuery, focusManager } from '@tanstack/react-query';
-import { IDLE_STOP_AFTER_MS, QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
+import {
+  holdIdleWhileBusy,
+  IDLE_STOP_AFTER_MS,
+  idleSignal,
+  QUERY_FOCUS_POLICY,
+  resetIdleAbort,
+} from '@pierre/shared-constants';
 import { useIdleWatch } from '../useIdleWatch';
-import { holdIdleWhileBusy, idleSignal, resetIdleAbort } from '../../services/api/idleSignal';
 
 /** Shorter than the idle threshold, so several polls land before it fires. */
 const POLL_INTERVAL_MS = 30_000;

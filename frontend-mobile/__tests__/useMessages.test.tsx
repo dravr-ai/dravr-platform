@@ -30,6 +30,10 @@ jest.mock('@pierre/chat-utils', () => ({
   // The real mapping, not a stub: the progress line the athlete reads is the
   // point of the strip, and a stubbed mapper would let a broken one pass.
   statusForProgress: jest.requireActual('@pierre/chat-utils').statusForProgress,
+  // The real lost-turn reducer: every send and every read goes through it,
+  // and a stub would decide nothing about when a failure's note stands.
+  readLostTurn: jest.requireActual('@pierre/chat-utils').readLostTurn,
+  reduceLostTurn: jest.requireActual('@pierre/chat-utils').reduceLostTurn,
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';

@@ -87,8 +87,8 @@ export function stripToolScaffolding(content: string): string {
  * neither answers this turn. No question outside `heldIds` means the server
  * never received the turn, so nothing it holds answers it.
  *
- * Both clients ask exactly this before they drop the note that told the
- * athlete the reply had not arrived.
+ * The lost-turn reducer asks exactly this, for both clients, before the note
+ * that told the athlete the reply had not arrived comes down.
  */
 export function replyLandedSince(
   rows: readonly Pick<Message, 'id' | 'role'>[],

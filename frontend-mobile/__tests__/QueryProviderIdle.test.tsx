@@ -5,7 +5,12 @@ import React from 'react';
 import { render, waitFor, act, fireEvent, screen } from '@testing-library/react-native';
 import { Text, Pressable, AppState, type AppStateStatus } from 'react-native';
 import { useQuery, focusManager } from '@tanstack/react-query';
-import { IDLE_STOP_AFTER_MS } from '@pierre/shared-constants';
+import {
+  holdIdleWhileBusy,
+  IDLE_STOP_AFTER_MS,
+  idleSignal,
+  resetIdleAbort,
+} from '@pierre/shared-constants';
 
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, user: { id: '1' } }),
@@ -26,7 +31,6 @@ jest.mock('../src/utils/mmkvStorage', () => ({
 }));
 
 import { QueryProvider } from '../src/providers/QueryProvider';
-import { holdIdleWhileBusy, idleSignal, resetIdleAbort } from '../src/services/idleSignal';
 
 /** Shorter than the idle threshold, so several polls land before it fires. */
 const POLL_INTERVAL_MS = 30_000;

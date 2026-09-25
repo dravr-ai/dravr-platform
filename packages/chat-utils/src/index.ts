@@ -19,16 +19,19 @@ export { COMMAND_FINISH_REASON, transcriptBlocks, withVerdictRows } from './bloc
 export { splitActivityContent, countActivities } from './activity';
 
 // Cross-surface conversation rendering helpers (web + mobile parity):
-// hide tool-plumbing rows, strip residual tool XML, tell whether a lost
-// turn's reply has since been written, label the channel.
+// hide tool-plumbing rows, strip residual tool XML, label the channel.
 export {
   isToolPlumbingMessage,
   filterDisplayMessages,
   stripToolScaffolding,
-  replyLandedSince,
   resolveChannelOrigin,
 } from './conversation';
 export type { MessageChannelOrigin } from './conversation';
+
+// A turn lost while the athlete was away: when both clients keep its note,
+// and when a re-read of the thread has answered it.
+export { readLostTurn, reduceLostTurn } from './lost-turn';
+export type { LostTurn } from './lost-turn';
 
 // The unified conversation-list row: one model, one preview rule, one
 // timestamp rule, one avatar colour — derived identically on web and mobile.

@@ -6,7 +6,13 @@ import { AppState, type AppStateStatus, Platform, View } from 'react-native';
 import { MutationCache, QueryClient, focusManager } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import Toast from 'react-native-toast-message';
-import { IdleWatch, QUERY_FOCUS_POLICY } from '@pierre/shared-constants';
+import {
+  IdleWatch,
+  QUERY_FOCUS_POLICY,
+  idleAbort,
+  registerIdleWatch,
+  resetIdleAbort,
+} from '@pierre/shared-constants';
 import {
   classifyApiError,
   describeApiError,
@@ -18,7 +24,6 @@ import {
   CACHE_TIMES,
   clearQueryCache,
 } from '../utils/mmkvStorage';
-import { idleAbort, registerIdleWatch, resetIdleAbort } from '../services/idleSignal';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
 
