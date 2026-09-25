@@ -358,6 +358,10 @@ jobs:
 
       - name: Per-crate clippy
         if: steps.detect.outputs.skip != 'true'
+        # build.warnings, not `-- -D warnings`: a warning stays a warning, so the
+        # crate still produces its rmeta and the run fails once at the end.
+        env:
+          CARGO_BUILD_WARNINGS: deny
         run: |
           # Folder name == package name for every workspace crate except pierre-server,
           # which is excluded above. Pass the folder name straight to `-p`.
@@ -369,7 +373,7 @@ jobs:
                   continue
               fi
               echo "::group::cargo clippy -p $crate --all-targets --all-features"
-              if ! cargo clippy -p "$crate" --all-targets --all-features -- -D warnings; then
+              if ! cargo clippy -p "$crate" --all-targets --all-features; then
                   echo "::error::clippy failed for $crate"
                   FAILED=1
               fi
@@ -388,7 +392,7 @@ jobs:
                   continue
               fi
               echo "::group::cargo clippy -p pierre_mcp_server --test $target"
-              if ! cargo clippy -p pierre_mcp_server --test "$target" --all-features -- -D warnings; then
+              if ! cargo clippy -p pierre_mcp_server --test "$target" --all-features; then
                   echo "::error::clippy failed for test target $target"
                   FAILED=1
               fi
@@ -418,7 +422,7 @@ jobs:
           free-disk-space: 'true'
 
       # The wrapper runs `cargo clippy --keep-going --all-targets --all-features
-      # -- -D warnings` unchanged — same diagnostics, same exit status — and adds
+      # --config build.warnings="deny"` unchanged — same diagnostics, same exit status — and adds
       # one thing: the crates the run could not reach.
       #
       # --keep-going carries cargo past a failing crate into everything that does
@@ -650,9 +654,9 @@ jobs:
     # between it and the Docker build. Clippy costs little more than check on the
     # same unit, so the configuration that ships gets linted; `no-default-features`
     # stays a check, since its job is to prove the gates are wired, not to lint.
-    # RUSTFLAGS denies warnings for the workspace only — Cargo
-    # compiles registry and git dependencies with --cap-lints allow, so
-    # third-party code cannot fail this.
+    # build.warnings denies warnings from workspace packages only, so
+    # third-party code cannot fail this; unlike RUSTFLAGS it leaves the
+    # build fingerprint alone.
     strategy:
       fail-fast: false
       matrix:
@@ -683,12 +687,12 @@ jobs:
         run: |
           if [ -n "${{ matrix.features }}" ]; then
             cargo clippy --keep-going -p pierre_mcp_server \
-              --no-default-features --features "${{ matrix.features }}" -- -D warnings
+              --no-default-features --features "${{ matrix.features }}"
           else
             cargo check --keep-going -p pierre_mcp_server --no-default-features
           fi
         env:
-          RUSTFLAGS: "-D warnings"
+          CARGO_BUILD_WARNINGS: deny
 
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)

@@ -65,7 +65,7 @@ env:
   # Retry transient crates.io download failures (curl/SSL EOF) instead of
   # failing the job; cold rust-cache (frequent Cargo.lock churn) hits fresh fetches.
   CARGO_NET_RETRY: "10"
-  RUSTFLAGS: -Dwarnings
+  CARGO_BUILD_WARNINGS: deny
 
 concurrency:
   group: chat-conversation-eval-${{ github.ref }}

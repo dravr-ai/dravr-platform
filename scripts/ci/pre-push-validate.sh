@@ -408,6 +408,23 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     echo ""
 fi
 
+# Tiers 1e and 1f deny warnings through Cargo's build.warnings rather than
+# `-D warnings` / RUSTFLAGS: the setting leaves the build fingerprint alone, so
+# these probes share target/ with every other build. Cargo before 1.97 ignores
+# the key without a word and would pass every warning, so refuse to run on one
+# (a Homebrew cargo ahead of rustup on PATH is the usual way to get it).
+require_build_warnings() {
+    local version major minor
+    version="$(cargo --version | awk '{print $2}')"
+    IFS=. read -r major minor _ <<< "$version"
+    if (( major < 1 || (major == 1 && minor < 97) )); then
+        echo "FAIL: cargo $version predates build.warnings (cargo 1.97) and would"
+        echo "  ignore it. Put rustup's cargo first on PATH so rust-toolchain.toml"
+        echo "  selects the pinned toolchain."
+        exit 1
+    fi
+}
+
 # ============================================================================
 # TIER 1e: Changed server-test clippy (compiles ONLY what this push touched)
 # ============================================================================
@@ -433,10 +450,12 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-fil
     if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
         echo "Tier 1e: Changed server-test clippy"
         echo "------------------------------------"
+        require_build_warnings
         while IFS= read -r f; do
             target="$(basename "$f" .rs)"
             echo "  cargo clippy -p pierre_mcp_server --test $target"
-            if ! cargo clippy -p pierre_mcp_server --test "$target" --all-features -- -D warnings; then
+            if ! CARGO_BUILD_WARNINGS=deny \
+                cargo clippy -p pierre_mcp_server --test "$target" --all-features; then
                 echo ""
                 echo "FAIL: clippy on changed test target $target!"
                 exit 1
@@ -450,18 +469,16 @@ fi
 # TIER 1f: --no-default-features dead_code probe (compiles ONLY changed crates)
 # ============================================================================
 # CI's feature-profiles job builds `-p pierre_mcp_server --no-default-features`
-# under RUSTFLAGS="-D warnings". An item whose SOLE caller sits behind a cargo
+# with warnings denied. An item whose SOLE caller sits behind a cargo
 # feature is unreachable there, so rustc's dead_code — a warning everywhere
 # else — is an error. No local gate sees it: per-crate clippy runs
 # --all-features, which turns the caller back on (carnet#153; the fix in
 # 6f18100f6 had to widen write_through_served_window to `pub`). `cargo check`
 # is enough — dead_code is a rustc lint, the clippy driver adds nothing here —
-# but only under RUSTFLAGS="-D warnings", CI's own env: a bare check exits 0 on
-# the exact failure being chased, and `cargo check` accepts no trailing lint
-# args (that idiom is clippy-only). The deny rides RUSTFLAGS, which changes
-# fingerprints, so the probe gets its own CARGO_TARGET_DIR — otherwise every
-# run would rebuild the crate's whole dep graph twice (once with the flag,
-# once without on the next dev build).
+# but only with warnings denied, as CI denies them: a bare check exits 0 on the
+# exact failure being chased. The deny rides build.warnings, which does not
+# touch fingerprints, so the probe builds in the ordinary target/ and reuses
+# whatever the last dev build left there.
 #
 # The crates below are pierre-server's NON-OPTIONAL deps whose every feature is
 # forwarded from a pierre-server feature that --no-default-features turns off,
@@ -511,10 +528,10 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     # So pay the compile, but only when the trigger fires: a diff that adds or
     # removes a `#[cfg(feature` line in a crate root — 2 of the last 40 commits.
     #
-    # Measured against the shared t1f-probe target dir: 2.3s when a leaf crate
-    # changed (the realistic trigger case), 5.7s with nothing changed, and 1m57s
-    # the first time that dir has to build pierre_mcp_server from cold. The cold
-    # cost is one-time per machine and is shared with the leaf-crate probes
+    # Measured with a warm probe cache: 2.3s when a leaf crate changed (the
+    # realistic trigger case), 5.7s with nothing changed, and 1m57s when
+    # pierre_mcp_server's zero-feature unit has to build from cold. The cold
+    # cost is paid once per checkout and is shared with the leaf-crate probes
     # above, so a checkout that has run Tier 1f at all pays seconds here.
     if git diff "$BASE_REF" HEAD -- 'crates/*/src/lib.rs' 2>/dev/null \
         | grep -qE '^[+-][[:space:]]*#\[cfg\(feature'; then
@@ -523,10 +540,10 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     if [[ -n "$TIER1F_CRATES" ]]; then
         echo "Tier 1f: --no-default-features probe"
         echo "------------------------------------"
+        require_build_warnings
         for c in $TIER1F_CRATES; do
-            echo "  RUSTFLAGS=\"-D warnings\" cargo check -p $c --no-default-features"
-            if ! CARGO_TARGET_DIR="$PROJECT_ROOT/target/t1f-probe" RUSTFLAGS="-D warnings" \
-                cargo check -p "$c" --no-default-features; then
+            echo "  CARGO_BUILD_WARNINGS=deny cargo check -p $c --no-default-features"
+            if ! CARGO_BUILD_WARNINGS=deny cargo check -p "$c" --no-default-features; then
                 echo ""
                 echo "FAIL: $c has an item unreachable with features off."
                 echo "  Its sole caller is behind a #[cfg(feature = ...)]. Either gate"
@@ -1001,11 +1018,11 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
         echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; these catch it sooner:"
         while IFS= read -r crate; do
             [[ -z "$crate" ]] && continue
-            echo "  cargo clippy -p $crate --all-targets --all-features -- -D warnings"
+            echo "  CARGO_BUILD_WARNINGS=deny cargo clippy -p $crate --all-targets --all-features"
         done <<< "$ADVISORY_CRATES"
         while IFS= read -r target; do
             [[ -z "$target" ]] && continue
-            echo "  cargo clippy -p pierre_mcp_server --test $target --all-features -- -D warnings"
+            echo "  CARGO_BUILD_WARNINGS=deny cargo clippy -p pierre_mcp_server --test $target --all-features"
         done <<< "$ADVISORY_TARGETS"
         echo ""
         echo "  A red clippy run's error list is PARTIAL: a crate whose dependency"

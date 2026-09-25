@@ -141,11 +141,12 @@ jobs:
         # platform-conditional source paths still lint cleanly.
         run: |
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cargo clippy --lib --bins --examples --quiet -- -D warnings
+            cargo clippy --lib --bins --examples --quiet
           else
-            cargo clippy --all-targets --quiet -- -D warnings
+            cargo clippy --all-targets --quiet
           fi
         env:
+          CARGO_BUILD_WARNINGS: deny
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="

@@ -6,6 +6,10 @@
 
 #![recursion_limit = "256"]
 #![deny(unsafe_code)]
+// A pub item this binary never uses is reachable from nowhere: the lint is
+// crate-level because a library's test harness is a binary too, where it
+// would flag every pub item the unit tests do not call.
+#![deny(dead_code_pub_in_binary)]
 
 //! # Dravr API Server Binary
 //!

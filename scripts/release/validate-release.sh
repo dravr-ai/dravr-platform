@@ -115,7 +115,7 @@ fi
 # 7. Rust clippy check
 print_check "Rust clippy"
 
-if cargo clippy --quiet -- -D warnings 2>/dev/null; then
+if CARGO_BUILD_WARNINGS=deny cargo clippy --quiet 2>/dev/null; then
     print_pass "Clippy check passed"
 else
     print_fail "Clippy has warnings/errors"

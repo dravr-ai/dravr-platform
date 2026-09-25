@@ -17,6 +17,11 @@
 //! The bearer token a seeded user carries is `devfixture:<user_id>`; the
 //! fixture extracts the user id from it and returns that user's activities.
 
+// A pub item this binary never uses is reachable from nowhere: the lint is
+// crate-level because a library's test harness is a binary too, where it
+// would flag every pub item the unit tests do not call.
+#![deny(dead_code_pub_in_binary)]
+
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;

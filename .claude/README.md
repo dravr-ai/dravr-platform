@@ -239,7 +239,7 @@ Skills are focused, single-purpose tasks with clear commands. They're faster tha
 
 | Skill | Purpose | Quick Command |
 |-------|---------|---------------|
-| `strict-clippy-check.md` | Zero-tolerance linting | `cargo clippy --all-targets --all-features -- -D warnings` |
+| `strict-clippy-check.md` | Zero-tolerance linting | `CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features` |
 | `validate-architecture.md` | Pattern and architecture validation | `./scripts/ci/architectural-validation.sh` |
 | `check-no-secrets.md` | Secret detection | `./scripts/ci/validate-no-secrets.sh` |
 | `check-error-handling.md` 🆕 | Anyhow regression detection | `rg "use anyhow" src/ --type rust` |
@@ -349,7 +349,7 @@ All agents and skills enforce Pierre's coding standards from `.claude/CLAUDE.md`
 
 ```bash
 # Pre-commit validation
-cargo clippy --all-targets --all-features -- -D warnings
+CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features
 ./scripts/ci/architectural-validation.sh
 ./scripts/ci/validate-no-secrets.sh
 
@@ -519,7 +519,7 @@ Add to `.vscode/tasks.json`:
 {
   "label": "Claude: Run Clippy",
   "type": "shell",
-  "command": "cargo clippy --all-targets --all-features -- -D warnings"
+  "command": "CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features"
 }
 ```
 

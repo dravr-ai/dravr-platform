@@ -36,7 +36,7 @@ jobs fire on every push). The local gate is `./scripts/ci/pre-push-validate.sh`.
 ```bash
 # Validate ONLY the crate you changed, on the pinned toolchain CI uses.
 # Fast (seconds–1 min) and closes the feedback loop without the full-workspace ban.
-rustup run 1.98.1 cargo clippy -p <crate> --all-targets --all-features -- -D warnings
+CARGO_BUILD_WARNINGS=deny rustup run 1.98.1 cargo clippy -p <crate> --all-targets --all-features
 ```
 
 CRITICAL: validate with the toolchain `rust-toolchain.toml` pins (1.98.1), NOT
@@ -74,10 +74,10 @@ cargo clippy --all-targets -- \
 ### Fix Auto-Fixable Issues
 ```bash
 # Apply automatic fixes (use with caution)
-cargo clippy --fix --all-targets --allow-dirty -- -D warnings
+cargo clippy --fix --all-targets --allow-dirty
 
 # Preview fixes without applying
-cargo clippy --fix --all-targets --allow-dirty --dry-run -- -D warnings
+cargo clippy --fix --all-targets --allow-dirty --dry-run
 ```
 
 ## Linting Configuration
@@ -194,7 +194,7 @@ Clippy runs in GitHub Actions (`.github/workflows/ci-backend.yml`):
 # preflight-clippy: per-crate clippy on changed leaf crates (~3–5 min)
 # clippy:          full-workspace clippy (~10–12 min, gates release-binary)
 - name: Clippy
-  run: cargo clippy --all-targets --all-features -- -D warnings
+  run: CARGO_BUILD_WARNINGS=deny cargo clippy --all-targets --all-features
 ```
 
 ## Success Criteria
