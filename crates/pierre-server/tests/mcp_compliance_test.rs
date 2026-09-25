@@ -317,18 +317,6 @@ fn test_content_types() {
     assert_eq!(json_value["type"], "image");
     assert_eq!(json_value["data"], "base64data");
     assert_eq!(json_value["mimeType"], "image/png");
-
-    // Test resource content
-    let resource_content = Content::Resource {
-        uri: "file://test.txt".to_owned(),
-        text: Some("Resource text".to_owned()),
-        mime_type: Some("text/plain".to_owned()),
-    };
-    let json_value = serde_json::to_value(&resource_content).expect("Should serialize");
-    assert_eq!(json_value["type"], "resource");
-    assert_eq!(json_value["uri"], "file://test.txt");
-    assert_eq!(json_value["text"], "Resource text");
-    assert_eq!(json_value["mimeType"], "text/plain");
 }
 
 /// Test server capabilities structure
@@ -342,10 +330,6 @@ fn test_server_capabilities() {
         tools: Some(ToolsCapability {
             list_changed: Some(false),
         }),
-        auth: None,
-        oauth2: None,
-        completion: None,
-        sampling: None,
         ..Default::default()
     };
 

@@ -329,18 +329,6 @@ async fn test_content_type_format_compliance() {
     assert_eq!(serialized["type"], "image");
     assert_eq!(serialized["mimeType"], "image/png");
     assert!(serialized["data"].is_string());
-
-    // Test resource content
-    let resource_content = Content::Resource {
-        uri: "https://api.example.com/data/123".to_owned(),
-        text: Some("Resource description".to_owned()),
-        mime_type: Some("application/json".to_owned()),
-    };
-    let serialized = serde_json::to_value(&resource_content).expect("Should serialize");
-    assert_eq!(serialized["type"], "resource");
-    assert_eq!(serialized["uri"], "https://api.example.com/data/123");
-    assert_eq!(serialized["text"], "Resource description");
-    assert_eq!(serialized["mimeType"], "application/json");
 }
 
 /// Test tool schema validation compliance

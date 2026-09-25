@@ -48,15 +48,7 @@ fn test_universal_to_mcp_conversion_success() {
             assert!(text.contains("\"data\""));
             assert!(text.contains("\"test\""));
         }
-        Content::Image { .. } => {
-            panic!("Expected text content, got image");
-        }
-        Content::Resource { .. } => {
-            panic!("Expected text content, got resource");
-        }
-        Content::Progress { .. } => {
-            panic!("Expected text content, got progress");
-        }
+        Content::Image { .. } => panic!("Expected text content, got an image"),
     }
 }
 
@@ -77,15 +69,7 @@ fn test_universal_to_mcp_conversion_error() {
         Content::Text { text } => {
             assert!(text.contains("Invalid parameters"));
         }
-        Content::Image { .. } => {
-            panic!("Expected text content, got image");
-        }
-        Content::Resource { .. } => {
-            panic!("Expected text content, got resource");
-        }
-        Content::Progress { .. } => {
-            panic!("Expected text content, got progress");
-        }
+        Content::Image { .. } => panic!("Expected text content, got an image"),
     }
 }
 
@@ -148,7 +132,7 @@ fn rendered_text(response: UniversalResponse) -> String {
         .remove(0)
     {
         Content::Text { text } => text,
-        other => panic!("expected text content, got {other:?}"),
+        Content::Image { .. } => panic!("expected text content, got an image"),
     }
 }
 

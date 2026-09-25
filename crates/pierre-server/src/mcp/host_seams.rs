@@ -33,10 +33,9 @@ use dravr_tronc::mcp::auth::{AuthError, AuthHook};
 use dravr_tronc::mcp::host::{CallToolOutcome, MethodHandler, ToolDispatcher};
 use dravr_tronc::mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
 use dravr_tronc::mcp::schema::{
-    AuthCapability, CompleteRequest, CompleteResult, Completion, CompletionCapability,
-    CreateMessageRequest, LoggingCapability, OAuth2Capability, PromptsCapability,
-    ResourcesCapability, Root, SamplingCapability, ServerCapabilities, TaskSupport, Tool,
-    ToolResponse, ToolSchema, ToolsCapability,
+    CompleteRequest, CompleteResult, Completion, CompletionCapability, CreateMessageRequest,
+    LoggingCapability, OAuth2Capability, PromptsCapability, ResourcesCapability, Root,
+    ServerCapabilities, TaskSupport, Tool, ToolResponse, ToolSchema, ToolsCapability,
 };
 use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
@@ -645,24 +644,15 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         state: &Arc<dyn ToolRuntime>,
         ctx: &ToolContext,
         arguments: Value,
-    ) -> ToolResponse {
-        run_dispatch(
-            self.resources.clone(),
-            state.clone(),
-            ctx.clone(),
-            name.to_owned(),
-            arguments,
-        )
-        .await
-    }
-
-    async fn call_tool_outcome(
-        &self,
-        name: &str,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        arguments: Value,
     ) -> CallToolOutcome {
+        // A name no tool is registered under is MCP's unknown-tool protocol
+        // error (-32602), which the engine frames. A registered tool this
+        // caller may not run is still refused in-band by `run_dispatch`, as an
+        // error result that says why.
+        if !self.resources.mcp.tool_registry.contains(name) {
+            return CallToolOutcome::UnknownTool;
+        }
+
         // The asynchronous path is opt-in twice over: the client must declare
         // the tasks extension on this request, and the tool must have declared
         // task support on its own definition. Everything else answers inline.
@@ -679,7 +669,14 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         };
         if !(ctx.supports_tasks() && declares_tasks) {
             return CallToolOutcome::Immediate(Box::new(
-                self.call_tool(name, state, ctx, arguments).await,
+                run_dispatch(
+                    self.resources.clone(),
+                    state.clone(),
+                    ctx.clone(),
+                    name.to_owned(),
+                    arguments,
+                )
+                .await,
             ));
         }
 
@@ -1062,8 +1059,11 @@ pub fn handle_authenticate(id: Option<Value>) -> McpResponse {
 
 /// Build the platform's rich [`ServerCapabilities`] for `initialize`/`discover`.
 ///
-/// Advertises logging, prompts, resources, tools, completion, sampling, and the
-/// tenant-level `OAuth2` endpoints (resolved from the configured base URL).
+/// Advertises logging, prompts, resources, tools and completions, plus the
+/// tenant-level `OAuth2` endpoints (resolved from the configured base URL)
+/// under `experimental`, the one place the specification lets a server
+/// advertise a capability it does not define. Sampling is a client capability,
+/// so the server does not claim it.
 fn server_capabilities() -> ServerCapabilities {
     let base_url = get_server_config().map_or_else(
         || "http://localhost:8081".to_owned(),
@@ -1089,14 +1089,10 @@ fn server_capabilities() -> ServerCapabilities {
         tools: Some(ToolsCapability {
             list_changed: Some(false),
         }),
-        auth: Some(AuthCapability {
-            oauth2: Some(oauth2.clone()),
-        }),
-        oauth2: Some(oauth2),
-        completion: Some(CompletionCapability {}),
-        sampling: Some(SamplingCapability {}),
+        completions: Some(CompletionCapability {}),
         ..Default::default()
     }
+    .with_oauth2(oauth2)
 }
 
 /// Build the platform's [`McpServer`] over the shared [`ToolRuntime`] façade.

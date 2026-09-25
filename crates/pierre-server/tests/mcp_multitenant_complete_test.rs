@@ -705,9 +705,10 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     let invalid_tool_response = client.call_tool("invalid_tool", json!({})).await?;
 
     assert_eq!(invalid_tool_response["jsonrpc"], "2.0");
-    // An unknown tool is reported as a tool result with isError=true (the tronc
-    // ToolDispatcher contract adopted in the E3 migration), not a -32601 error.
-    assert_eq!(invalid_tool_response["result"]["isError"], true);
+    // A name no tool is registered under is MCP's unknown-tool protocol error,
+    // -32602 (server/tools, Error Handling), not a tool result.
+    assert_eq!(invalid_tool_response["error"]["code"], -32602);
+    assert!(invalid_tool_response.get("result").is_none());
 
     println!("All multi-tenant MCP server tests passed!");
 

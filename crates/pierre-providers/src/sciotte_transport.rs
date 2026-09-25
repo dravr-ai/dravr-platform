@@ -17,15 +17,8 @@ use std::error::Error as StdError;
 use std::io;
 use std::time::Instant;
 
+use dravr_tronc::server::request_guard::REQUEST_ID_HEADER;
 use pierre_core::errors::{AppError, ErrorCode};
-
-/// Header carrying the id one request to the scraper is logged under.
-///
-/// The service's request guard (dravr-tronc `server::request_guard`) adopts
-/// the id the platform sends, echoes it on the response and logs the request
-/// under it — including a request dropped before it answered — so one id finds
-/// the same request in both services' logs.
-pub const REQUEST_ID_HEADER: &str = "x-request-id";
 
 /// How a request to the scraper failed when no HTTP response came back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

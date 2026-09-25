@@ -60,6 +60,7 @@ use dravr_sciotte::models::{
     Activity as SciotteActivity, DailySummary, PlannedWorkout as SciottePlannedWorkout,
 };
 use dravr_tronc::iam::IdTokenSource;
+use dravr_tronc::server::request_guard::{HANDLER_PANIC, REQUEST_ID_HEADER, REQUEST_TIMEOUT};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
@@ -67,7 +68,7 @@ use serde_json::{Map, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::sciotte_transport::{transport_error, TransportFailure, REQUEST_ID_HEADER};
+use crate::sciotte_transport::{transport_error, TransportFailure};
 
 /// Environment variable holding the remote scraper's base URL. Required since
 /// the Phase 4 cutover — unset makes `require_from_env` error (no fallback).
@@ -98,14 +99,6 @@ pub const RETRY_AFTER_SECS_DETAIL: &str = "retry_after_secs";
 /// its permit, so an over-long hint parks the caller on a service that is
 /// already free again.
 const SHED_RETRY_AFTER_FALLBACK_SECS: u64 = 30;
-
-/// `error.type` the service's request guard answers a handler panic with, on a
-/// `500`: dravr-tronc's `request_guard::HANDLER_PANIC`.
-const HANDLER_PANIC_MARKER: &str = "handler_panic";
-
-/// `error.type` the service's request guard answers a request still running at
-/// its deadline with, on a `504`: dravr-tronc's `request_guard::REQUEST_TIMEOUT`.
-const REQUEST_TIMEOUT_MARKER: &str = "request_timeout";
 
 /// How many times an idempotent `GET` is re-sent after its connection closed
 /// before any response arrived.
@@ -432,12 +425,12 @@ pub fn service_failure_error(
         .and_then(|error| error.get("type"))
         .and_then(Value::as_str);
     let what = match (http_status, guard_type) {
-        (StatusCode::GATEWAY_TIMEOUT, Some(REQUEST_TIMEOUT_MARKER)) => {
+        (StatusCode::GATEWAY_TIMEOUT, Some(REQUEST_TIMEOUT)) => {
             "outlived the service's request deadline"
         }
         (StatusCode::GATEWAY_TIMEOUT, _) => "outlived the gateway's deadline",
         (StatusCode::BAD_GATEWAY, _) => "got no usable answer through the gateway",
-        (StatusCode::INTERNAL_SERVER_ERROR, Some(HANDLER_PANIC_MARKER)) => {
+        (StatusCode::INTERNAL_SERVER_ERROR, Some(HANDLER_PANIC)) => {
             "failed in a service handler that panicked"
         }
         _ => return None,
