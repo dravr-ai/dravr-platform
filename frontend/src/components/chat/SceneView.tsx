@@ -15,8 +15,8 @@ import RouteView from './RouteView';
 /**
  * Tailwind classes per colour token.
  *
- * The pillar accents are defined as CSS variables in `index.css` with a dark
- * counterpart under `prefers-color-scheme`, so naming the class is all this
+ * The pillar accents are defined as CSS variables in the token block
+ * `index.css` imports, with a dark counterpart under `html.dark`, so naming the class is all this
  * component does about theming — no `getComputedStyle`, no palette cached at
  * module scope, and nothing to re-resolve when the theme flips.
  */

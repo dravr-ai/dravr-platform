@@ -3,7 +3,7 @@
 The brand: what Dravr is called, how it is written, the mark it wears and the
 palette it is drawn in. Everything about how the product is *built* from these
 — surfaces, type roles, components, layout, motion, accessibility — lives in
-[DESIGN.md](DESIGN.md), which is the source of truth the token mirrors and
+[DESIGN.md](DESIGN.md), which is the source of truth the token generators and
 the design-system validation script answer to. This file does not repeat it.
 
 ## Brand concept
@@ -121,7 +121,7 @@ web loads them from `frontend/index.html`, the phone via `expo-font`.
 
 ## Accessibility
 
-- Body text clears 4.5:1 on every surface tier; DESIGN.md §8 carries the measured table and `DesignTokens.test.ts` re-measures it.
+- Body text clears 4.5:1 on every surface tier; DESIGN.md §8 carries the measured table and the client-stylesheet generator re-measures it, refusing to write below the floor.
 - Colour is never the only channel: a pillar or status hue is a dot beside a word.
 - The mark is decorative (`aria-hidden`) wherever the wordmark or the chrome already names the app.
 
