@@ -16,9 +16,13 @@
 //! trusted network is the client itself, and its `X-Forwarded-For` is
 //! ignored outright.
 //!
-//! Internal networks (loopback, private, link-local, shared address space and
-//! unique-local) are always trusted: a proxy in front of the server reaches it
-//! from one, and no client on the public internet sends from one. A public
+//! Internal networks (loopback, private, link-local, shared address space,
+//! unique-local, and "this network", `0.0.0.0/8`) are always trusted: a proxy
+//! in front of the server reaches it from one, and no client on the public
+//! internet sends from one. Cloud Run records a caller that reached an
+//! internal-ingress service over the VPC as `0.0.0.0`, so on the deployed
+//! backend that address is the last hop of every request the frontend's
+//! nginx forwards, and the walk passes it on the way to the client. A public
 //! hop that appends its own address after the client's, such as a cloud load
 //! balancer's forwarding rule, is added with `TRUSTED_PROXY_CIDRS`.
 
@@ -112,7 +116,9 @@ pub struct TrustedProxies {
 
 impl TrustedProxies {
     /// The internal networks alone: loopback, RFC 1918 private, link-local,
-    /// RFC 6598 shared address space, and their IPv6 counterparts.
+    /// RFC 6598 shared address space, their IPv6 counterparts, and RFC 1122's
+    /// "this network" (`0.0.0.0/8`), which no router forwards a packet from,
+    /// and which Cloud Run writes in place of a VPC caller's address.
     #[must_use]
     pub fn internal() -> Self {
         let v4 = |a, b, prefix| IpNetwork {
@@ -131,6 +137,7 @@ impl TrustedProxies {
                 v4(192, 168, 16),
                 v4(169, 254, 16),
                 v4(100, 64, 10),
+                v4(0, 0, 8),
                 IpNetwork {
                     base: IpAddr::V6(Ipv6Addr::LOCALHOST),
                     prefix: 128,

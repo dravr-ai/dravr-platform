@@ -1,5 +1,5 @@
 // ABOUTME: End-to-end tests for OAuth2 endpoint rate limiting with RFC-compliant headers
-// ABOUTME: Validates per-endpoint per-IP windows in the shared cache, 429 and 503 responses, and header values
+// ABOUTME: Validates per-endpoint per-client windows, the deployed proxy chain, 429 and 503 responses, and header values
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +17,7 @@ use axum::response::Response;
 use axum::Router;
 use futures_util::future::join_all;
 use pierre_auth::{
-    config::{OAuth2ServerConfig, RateLimitConfig},
+    config::{rate_limit::trusted_proxies, OAuth2ServerConfig, RateLimitConfig},
     oauth2_server::{
         client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
         rate_limiting::OAuth2RateLimiter,
@@ -25,6 +25,7 @@ use pierre_auth::{
     rate_limiting::OAuth2Endpoint,
 };
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
+use pierre_config::environment::ServerConfig;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{DatabaseProvider, OAuth2ServerRepository};
@@ -62,6 +63,17 @@ const AUTHORIZE_PKCE_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw
 
 /// What a request the limiter could not count is refused with.
 const LIMITER_UNAVAILABLE: &str = "Rate limiting is temporarily unavailable; retry later";
+
+/// The hops the deployed backend saw appended after each client on
+/// 2026-09-26: the load balancer's forwarding rule, the frontend nginx's
+/// Cloud Run sandbox peer, and the `0.0.0.0` Cloud Run writes for the VPC hop
+/// into the internal-ingress backend.
+const DEPLOYED_TAIL: &str = "136.68.126.109, 169.254.169.126,0.0.0.0";
+
+/// The backend's `TRUSTED_PROXY_CIDRS` in dev: Google's front-end ranges and
+/// the load balancer's two addresses.
+const DEV_TRUSTED_PROXY_CIDRS: &str =
+    "35.191.0.0/16,130.211.0.0/22,136.68.126.109,2600:1901:0:3cf8::";
 
 /// A limiter with no shared store, counting in its own process-local one,
 /// with the limits and window of `config`.
@@ -930,6 +942,62 @@ async fn test_clients_behind_one_proxy_keep_separate_windows() {
         .exists(&window_key("token", client))
         .await
         .unwrap());
+}
+
+/// carnet#623, the live regression: through the load balancer, nginx and the
+/// VPC hop, every request reached the backend ending in `0.0.0.0`, so a
+/// second client's first token request landed in the first client's spent
+/// window. Each client now keeps its own.
+#[tokio::test]
+async fn test_clients_through_the_deployed_chain_keep_separate_windows() {
+    let resources = common::create_test_server_resources_with_config(ServerConfig {
+        activity_fetch_limit: 100,
+        rate_limiting: RateLimitConfig {
+            trusted_proxies: trusted_proxies(DEV_TRUSTED_PROXY_CIDRS),
+            ..RateLimitConfig::default()
+        },
+        ..ServerConfig::default()
+    })
+    .await
+    .unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    // The backend's own peer: its Cloud Run sandbox proxy.
+    let peer = SocketAddr::from(([169, 254, 169, 126], 51_000));
+    let alice = format!("198.51.100.41,{DEPLOYED_TAIL}");
+
+    for i in 1..=30 {
+        let response = from_address(&app, forwarded(token_request(), &alice), peer).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "alice's token request {i} is within her limit"
+        );
+    }
+    assert_rate_limited(
+        from_address(&app, forwarded(token_request(), &alice), peer).await,
+        "token",
+    )
+    .await;
+
+    // A second client through the same hops: its first call is admitted.
+    let bob = format!("136.86.205.10,{DEPLOYED_TAIL}");
+    let response = from_address(&app, forwarded(token_request(), &bob), peer).await;
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "bob's first token request has his own window"
+    );
+
+    // Entries alice writes in front of her own, trusted-looking or not, do
+    // not open her a fresh window.
+    for forged in ["203.0.113.250", "0.0.0.0", "136.68.126.109"] {
+        let chain = format!("{forged}, {alice}");
+        assert_rate_limited(
+            from_address(&app, forwarded(token_request(), &chain), peer).await,
+            "token",
+        )
+        .await;
+    }
 }
 
 /// An IPv6 client is metered by its /64: rotating through the addresses a

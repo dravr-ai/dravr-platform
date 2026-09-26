@@ -1,5 +1,5 @@
 // ABOUTME: Pins how the client address is found behind trusted proxies and how it is metered
-// ABOUTME: Covers network parsing and containment, the X-Forwarded-For walk, forged entries and IPv6 /64 keys
+// ABOUTME: Covers network parsing and containment, the X-Forwarded-For walk, the deployed chain, forged entries and IPv6 /64 keys
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,6 +12,18 @@ use std::net::{IpAddr, Ipv4Addr};
 use http::{HeaderMap, HeaderValue};
 use pierre_auth::client_address::{metering_key, IpNetwork, TrustedProxies};
 use pierre_auth::config::rate_limit::trusted_proxies;
+
+/// The `X-Forwarded-For` the deployed backend received on 2026-09-26, with the
+/// client replaced by a documentation address: the client, the load
+/// balancer's forwarding rule, the frontend nginx's Cloud Run sandbox peer,
+/// then the `0.0.0.0` Cloud Run writes for the VPC hop into the
+/// internal-ingress backend.
+const MEASURED_CHAIN: &str = "198.51.100.31,136.68.126.109, 169.254.169.126,0.0.0.0";
+
+/// The backend's `TRUSTED_PROXY_CIDRS` in dev: Google's front-end ranges and
+/// the load balancer's two addresses.
+const DEV_TRUSTED_PROXY_CIDRS: &str =
+    "35.191.0.0/16,130.211.0.0/22,136.68.126.109,2600:1901:0:3cf8::";
 
 fn ip(raw: &str) -> IpAddr {
     raw.parse().unwrap()
@@ -74,13 +86,21 @@ fn the_internal_networks_are_trusted_and_public_ones_are_not() {
         "192.168.1.1",
         "169.254.169.126",
         "100.64.0.1",
+        "0.0.0.0",
+        "0.255.1.2",
         "::1",
         "fd12::1",
         "fe80::1",
     ] {
         assert!(trusted.trusts(ip(internal)), "{internal}");
     }
-    for public in ["172.32.0.1", "8.8.8.8", "198.51.100.41", "2001:db8::1"] {
+    for public in [
+        "172.32.0.1",
+        "1.0.0.1",
+        "8.8.8.8",
+        "198.51.100.41",
+        "2001:db8::1",
+    ] {
         assert!(!trusted.trusts(ip(public)), "{public}");
     }
 }
@@ -112,6 +132,45 @@ fn the_client_is_the_rightmost_entry_no_trusted_proxy_wrote() {
     // An entry that does not parse stops the walk at the trusted hop right of it
     let garbled = forwarded_for(&["198.51.100.41, unknown, 169.254.1.1"]);
     assert_eq!(trusted.client_address(proxy, &garbled), ip("169.254.1.1"));
+}
+
+/// carnet#623: behind the deployed chain every client read as `0.0.0.0`, the
+/// last hop, so all of them shared one window.
+#[test]
+fn the_deployed_chain_resolves_each_client() {
+    let trusted = trusted_proxies(DEV_TRUSTED_PROXY_CIDRS);
+    // The backend's own TCP peer is its Cloud Run sandbox proxy.
+    let peer = ip("169.254.169.126");
+    let resolve = |chain: &str| trusted.client_address(peer, &forwarded_for(&[chain]));
+
+    assert_eq!(resolve(MEASURED_CHAIN), ip("198.51.100.31"));
+
+    // A second client through the same hops has its own address.
+    let second = MEASURED_CHAIN.replace("198.51.100.31", "136.86.205.10");
+    assert_eq!(resolve(&second), ip("136.86.205.10"));
+
+    // An IPv6 client arrives through the load balancer's IPv6 address.
+    assert_eq!(
+        resolve("2001:db8:5::7, 2600:1901:0:3cf8::, 169.254.169.126, 0.0.0.0"),
+        ip("2001:db8:5::7")
+    );
+
+    // Entries the client wrote in front of its own are never reached, even
+    // ones naming a trusted hop.
+    for forged in ["203.0.113.250", "0.0.0.0", "136.68.126.109", "10.0.0.1"] {
+        assert_eq!(
+            resolve(&format!("{forged}, {MEASURED_CHAIN}")),
+            ip("198.51.100.31"),
+            "{forged}"
+        );
+    }
+
+    // Without the load balancer's address the walk stops at it: one key for
+    // every client again, which is what TRUSTED_PROXY_CIDRS is for.
+    assert_eq!(
+        TrustedProxies::internal().client_address(peer, &forwarded_for(&[MEASURED_CHAIN])),
+        ip("136.68.126.109")
+    );
 }
 
 #[test]

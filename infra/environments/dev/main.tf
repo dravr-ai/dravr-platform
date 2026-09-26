@@ -285,9 +285,11 @@ module "backend" {
 
       # The OAuth2 limiter keys each client by the rightmost X-Forwarded-For
       # entry no trusted proxy wrote, since the backend's TCP peer is a proxy
-      # and never the client. Internal networks (nginx's peer, the VPC source
-      # the backend sees) are always trusted. These add the public hops: the
-      # load balancer, which appends its own forwarding-rule address after the
+      # and never the client. The hops after the load balancer are internal
+      # and always trusted: nginx's Cloud Run sandbox peer (169.254.0.0/16) and
+      # the 0.0.0.0 Cloud Run writes for nginx's VPC hop into this
+      # internal-ingress service. These add the public hops: the load
+      # balancer, which appends its own forwarding-rule address after the
       # client's, and the ranges Google's front ends proxy from.
       TRUSTED_PROXY_CIDRS = join(",", concat(
         ["35.191.0.0/16", "130.211.0.0/22"],
