@@ -47,7 +47,7 @@ dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag
 dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.5.0" }
 
 # Weather vendor logic.
-dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.3.0" }
+dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.4.0" }
 
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene.
 photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.4.0" }
