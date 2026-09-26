@@ -50,7 +50,7 @@ dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/
 dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.3.0" }
 
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene.
-photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.3.1" }
+photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.4.0" }
 
 # Time-series storage backend.
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.4" }
