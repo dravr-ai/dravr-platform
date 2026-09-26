@@ -12,7 +12,8 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats, ApiKeyWindowUsage};
 use pierre_core::models::{
-    ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
+    ConversationTurnId, JwtMonthlyUsage, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
+    UsageCounterRecord,
 };
 use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantId};
 use uuid::Uuid;
@@ -38,11 +39,10 @@ pub trait UsageRepository: Send + Sync {
     ) -> AppResult<ApiKeyUsageStats>;
     /// Record JWT token usage for rate limiting and analytics
     async fn record_jwt_usage(&self, usage: &JwtUsage) -> AppResult<()>;
-    /// Get current JWT usage count for rate limiting (current month)
-    async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<u32>;
-    /// JWT usage count since the start of the current UTC day, for a
-    /// per-user daily request limit
-    async fn get_jwt_usage_today(&self, user_id: Uuid) -> AppResult<u32>;
+    /// The user's JWT requests this UTC month and the admin's monthly
+    /// override for them, read in one statement: the inputs of the JWT
+    /// request budget besides the tier
+    async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<JwtMonthlyUsage>;
     /// Get request logs with filtering options
     async fn get_request_logs(
         &self,

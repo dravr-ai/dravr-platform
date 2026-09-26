@@ -1,4 +1,4 @@
-// ABOUTME: Per-user rate-limit override repository round-trip + admin_ops override-vs-tier precedence
+// ABOUTME: Per-user rate-limit override repository round-trip: a row's monthly limit, note and timestamps
 // ABOUTME: Industry standard exemption pattern: row presence wins over UserTier.monthly_limit()
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -90,7 +90,6 @@ async fn override_upsert_then_get_round_trips() {
     let now = Utc::now();
     let row = UserRateLimitOverride {
         user_id,
-        daily_limit: Some(50),
         monthly_limit: Some(1500),
         note: Some("VIP — temporary increase for benchmark week".to_owned()),
         set_by: Some(admin_user_id),
@@ -106,7 +105,6 @@ async fn override_upsert_then_get_round_trips() {
         .unwrap()
         .expect("override row exists after upsert");
     assert_eq!(fetched.user_id, user_id);
-    assert_eq!(fetched.daily_limit, Some(50));
     assert_eq!(fetched.monthly_limit, Some(1500));
     assert_eq!(
         fetched.note.as_deref(),
@@ -115,7 +113,7 @@ async fn override_upsert_then_get_round_trips() {
 }
 
 #[tokio::test]
-async fn override_null_limits_round_trip_as_unlimited() {
+async fn override_null_limit_round_trips_as_unlimited() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let (user_id, _tenant_id) = build_user(&repos, UserTier::Starter).await;
@@ -123,7 +121,6 @@ async fn override_null_limits_round_trip_as_unlimited() {
     let now = Utc::now();
     let row = UserRateLimitOverride {
         user_id,
-        daily_limit: None,
         monthly_limit: None,
         note: None,
         set_by: None,
@@ -138,7 +135,6 @@ async fn override_null_limits_round_trip_as_unlimited() {
         .await
         .unwrap()
         .unwrap();
-    assert!(fetched.daily_limit.is_none(), "null daily = unlimited");
     assert!(fetched.monthly_limit.is_none(), "null monthly = unlimited");
 }
 
@@ -151,7 +147,6 @@ async fn override_delete_reverts_to_tier_default() {
     let now = Utc::now();
     let row = UserRateLimitOverride {
         user_id,
-        daily_limit: Some(100),
         monthly_limit: Some(3000),
         note: None,
         set_by: None,
@@ -196,7 +191,6 @@ async fn override_upsert_preserves_original_set_at() {
         .user_rate_limit_overrides
         .upsert(&UserRateLimitOverride {
             user_id,
-            daily_limit: Some(100),
             monthly_limit: Some(3000),
             note: Some("first set".to_owned()),
             set_by: None,
@@ -222,7 +216,6 @@ async fn override_upsert_preserves_original_set_at() {
         .user_rate_limit_overrides
         .upsert(&UserRateLimitOverride {
             user_id,
-            daily_limit: Some(200),
             monthly_limit: Some(6000),
             note: Some("doubled".to_owned()),
             set_by: None,
@@ -238,7 +231,7 @@ async fn override_upsert_preserves_original_set_at() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(after_update.daily_limit, Some(200));
+    assert_eq!(after_update.monthly_limit, Some(6000));
     assert_eq!(after_update.note.as_deref(), Some("doubled"));
     assert_eq!(
         after_update.set_at, original_set_at,

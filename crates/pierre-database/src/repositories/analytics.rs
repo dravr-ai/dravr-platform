@@ -103,10 +103,22 @@ pub(crate) const API_KEY_TOOL_USAGE_SQL: &str = "SELECT endpoint, COUNT(*) AS to
      GROUP BY endpoint \
      ORDER BY tool_count DESC";
 
-/// A user's JWT requests since `$2`: the month-to-date count a monthly
-/// limit is enforced against, or the day-to-date count of a daily one.
-pub(crate) const JWT_CURRENT_USAGE_SQL: &str =
-    "SELECT COUNT(*) AS count FROM jwt_usage WHERE user_id = $1 AND timestamp >= $2";
+/// A user's JWT requests since `$2`, the first instant of the UTC month, and
+/// the admin's override row for them: everything the monthly request budget
+/// reads, in one statement so a request pays one round trip for it.
+///
+/// `override_rows` is 0 or 1 (`user_id` keys the override table) and tells a
+/// missing row apart from a row whose `monthly_limit` is NULL, which the
+/// scalar `override_monthly_limit` alone cannot. Both read as integers on
+/// either engine. `$1` binds once and is read three times, which holds because
+/// `user_rate_limit_overrides.user_id` has `jwt_usage.user_id`'s type on each
+/// engine (`uuid` on Postgres, `TEXT` on `SQLite`).
+pub(crate) const JWT_CURRENT_USAGE_SQL: &str = "SELECT COUNT(*) AS count, \
+            (SELECT COUNT(*) FROM user_rate_limit_overrides o WHERE o.user_id = $1) \
+                AS override_rows, \
+            (SELECT o.monthly_limit FROM user_rate_limit_overrides o WHERE o.user_id = $1) \
+                AS override_monthly_limit \
+     FROM jwt_usage WHERE user_id = $1 AND timestamp >= $2";
 
 /// A user's calls per tool over `[$2, $3]`, most called first, ten at most;
 /// `$4` is the failure floor.
@@ -246,7 +258,7 @@ pub fn success_ratio(success: i64, total: i64) -> f64 {
 
 /// The first instant of the current UTC month.
 ///
-/// The window the tier's monthly JWT limit is counted over, spelled once
+/// The window a user's monthly JWT limit is counted over, spelled once
 /// for both engines. This used to be a rolling hour on `SQLite`, which
 /// made the monthly limit decorative there, and the session time zone's
 /// month on Postgres.
@@ -272,26 +284,6 @@ pub fn next_utc_month_start(now: DateTime<Utc>) -> DateTime<Utc> {
     now.date_naive()
         .with_day(1)
         .and_then(|first| first.checked_add_months(Months::new(1)))
-        .and_then(|next| next.and_hms_opt(0, 0, 0))
-        .map_or(now, |midnight| midnight.and_utc())
-}
-
-/// The first instant of the UTC day `now` falls in: the window a per-user
-/// daily request limit is counted over.
-#[must_use]
-pub fn utc_day_start(now: DateTime<Utc>) -> DateTime<Utc> {
-    now.date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or(now, |midnight| midnight.and_utc())
-}
-
-/// The first instant of the UTC day after the one `now` falls in: when a
-/// daily request limit resets. `now` itself on the last day chrono can
-/// represent.
-#[must_use]
-pub fn next_utc_day_start(now: DateTime<Utc>) -> DateTime<Utc> {
-    now.date_naive()
-        .succ_opt()
         .and_then(|next| next.and_hms_opt(0, 0, 0))
         .map_or(now, |midnight| midnight.and_utc())
 }
@@ -493,7 +485,7 @@ macro_rules! impl_usage_repository {
                 Ok(())
             }
 
-            async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<u32> {
+            async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<JwtMonthlyUsage> {
                 let row = sqlx::query(JWT_CURRENT_USAGE_SQL)
                     .bind($ids::bind(user_id))
                     .bind(current_utc_month_start())
@@ -505,22 +497,19 @@ macro_rules! impl_usage_repository {
                 let count: i64 = row
                     .try_get("count")
                     .map_err(|e| usage_column_error("count", e))?;
-                u32_from_count(count, "count")
-            }
-
-            async fn get_jwt_usage_today(&self, user_id: Uuid) -> AppResult<u32> {
-                let row = sqlx::query(JWT_CURRENT_USAGE_SQL)
-                    .bind($ids::bind(user_id))
-                    .bind(utc_day_start(Utc::now()))
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get JWT usage today: {e}"))
-                    })?;
-                let count: i64 = row
-                    .try_get("count")
-                    .map_err(|e| usage_column_error("count", e))?;
-                u32_from_count(count, "count")
+                let override_rows: i64 = row
+                    .try_get("override_rows")
+                    .map_err(|e| usage_column_error("override_rows", e))?;
+                let override_monthly_limit: Option<i32> = row
+                    .try_get("override_monthly_limit")
+                    .map_err(|e| usage_column_error("override_monthly_limit", e))?;
+                Ok(JwtMonthlyUsage {
+                    used: u32_from_count(count, "count")?,
+                    monthly_override: monthly_override_from_columns(
+                        override_rows,
+                        override_monthly_limit,
+                    ),
+                })
             }
 
             async fn get_request_logs(

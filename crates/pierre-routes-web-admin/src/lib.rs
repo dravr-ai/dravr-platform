@@ -1246,28 +1246,7 @@ impl WebAdminRoutes {
             Json(serde_json::json!({
                 "success": true,
                 "message": "Rate limit information retrieved",
-                "data": {
-                    "user_id": limits.user_id,
-                    "tier": limits.tier,
-                    "rate_limits": {
-                        "daily": {
-                            "limit": limits.daily_limit,
-                            "used": limits.daily_used,
-                            "remaining": limits.daily_remaining,
-                        },
-                        "monthly": {
-                            "limit": limits.monthly_limit,
-                            "used": limits.monthly_used,
-                            "remaining": limits.monthly_remaining,
-                        },
-                    },
-                    "reset_times": {
-                        "daily_reset": limits.daily_reset.to_rfc3339(),
-                        "monthly_reset": limits.monthly_reset.to_rfc3339(),
-                    },
-                    "override_active": limits.override_active,
-                    "override_note": limits.override_note,
-                }
+                "data": limits.to_json()
             })),
         )
             .into_response())

@@ -9,20 +9,18 @@ use std::fmt::Display;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::MonthlyLimitOverride;
 use uuid::Uuid;
 
 /// Per-user rate-limit override row (industry-standard exemption pattern).
 ///
-/// When a row exists for a user, its values win over the tier-keyed default
-/// computed from `UserTier::monthly_limit()` and friends. `None` on either
-/// limit field means "unlimited for this dimension" (same semantics as the
-/// existing `Enterprise.monthly_limit()` returning `None`).
+/// When a row exists for a user, its monthly limit wins over the tier's
+/// `UserTier::monthly_limit()`. `None` means no monthly ceiling, the same
+/// semantics as `Enterprise.monthly_limit()` returning `None`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserRateLimitOverride {
     /// User the override applies to.
     pub user_id: Uuid,
-    /// Custom daily request cap. `None` = unlimited daily.
-    pub daily_limit: Option<u32>,
     /// Custom monthly request cap. `None` = unlimited monthly.
     pub monthly_limit: Option<u32>,
     /// Operator-facing note explaining why the override exists.
@@ -37,9 +35,11 @@ pub struct UserRateLimitOverride {
 
 /// CRUD for `user_rate_limit_overrides`, the per-user exemption table.
 ///
-/// The auth middleware enforces a row and `compute_user_rate_limits` (in
-/// `pierre-services`) reports it, both through `UserRequestLimits::resolve`
-/// (in `pierre-auth`), before falling back to the tier default.
+/// The auth middleware enforces a row's monthly limit and
+/// `compute_user_rate_limits` (in `pierre-services`) reports it, both through
+/// `MonthlyLimitOverride::resolve` over what `UsageRepository::get_jwt_current_usage`
+/// reads, which takes the row in the same statement as the month's count.
+/// Without a row the tier's limit applies.
 ///
 /// A quota surface. The table carries no `tenant_id`; every statement is
 /// scoped by `user_id`, the strictly narrower key, and the admin handler
@@ -68,24 +68,23 @@ pub trait UserRateLimitOverrideRepository: Send + Sync {
 /// [`super::uuid_columns`]); every other bind is a plain `Option<i32>`,
 /// `Option<&str>` or `DateTime<Utc>` both drivers encode alike.
 pub(crate) const GET_RATE_LIMIT_OVERRIDE_SQL: &str = r"
-            SELECT user_id, daily_limit, monthly_limit, note, set_by, set_at, updated_at
+            SELECT user_id, monthly_limit, note, set_by, set_at, updated_at
             FROM user_rate_limit_overrides
             WHERE user_id = $1
             ";
 
 /// Insert, or on conflict update everything but `set_at`.
 ///
-/// `set_at` and `updated_at` both bind the call time (`$6`); the `DO UPDATE`
+/// `set_at` and `updated_at` both bind the call time (`$5`); the `DO UPDATE`
 /// never names `set_at`, so an existing row keeps its first-set timestamp
-/// while `updated_at` advances. Limits bind as `i32`: the column is a 4-byte
-/// `INTEGER` on Postgres, and a cap above `i32::MAX` saturates rather than
-/// failing the write.
+/// while `updated_at` advances. The limit binds as `i32`: the column is a
+/// 4-byte `INTEGER` on Postgres, and a cap above `i32::MAX` saturates rather
+/// than failing the write.
 pub(crate) const UPSERT_RATE_LIMIT_OVERRIDE_SQL: &str = r"
             INSERT INTO user_rate_limit_overrides
-                (user_id, daily_limit, monthly_limit, note, set_by, set_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
+                (user_id, monthly_limit, note, set_by, set_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $5)
             ON CONFLICT (user_id) DO UPDATE SET
-                daily_limit = EXCLUDED.daily_limit,
                 monthly_limit = EXCLUDED.monthly_limit,
                 note = EXCLUDED.note,
                 set_by = EXCLUDED.set_by,
@@ -112,6 +111,20 @@ pub(crate) fn limit_to_column(limit: u32) -> i32 {
     i32::try_from(limit).unwrap_or(i32::MAX)
 }
 
+/// The override a user's row sets, from the number of rows the user has
+/// (0 or 1, `user_id` being the key) and the row's `monthly_limit`, as the
+/// JWT usage statement selects them.
+pub(crate) fn monthly_override_from_columns(
+    rows: i64,
+    monthly_limit: Option<i32>,
+) -> MonthlyLimitOverride {
+    if rows == 0 {
+        return MonthlyLimitOverride::NotSet;
+    }
+    limit_from_column(monthly_limit)
+        .map_or(MonthlyLimitOverride::Unlimited, MonthlyLimitOverride::Limit)
+}
+
 /// Emit the whole [`UserRateLimitOverrideRepository`] implementation for one
 /// backend type. The body is written once here; each backend's shell invokes
 /// it with its own type and its uuid codec, and sqlx resolves the driver from
@@ -136,10 +149,6 @@ macro_rules! impl_user_rate_limit_override_repository {
 
                 Ok(Some(UserRateLimitOverride {
                     user_id: $ids::read(&row, "user_id")?,
-                    daily_limit: limit_from_column(
-                        row.try_get("daily_limit")
-                            .map_err(|e| rate_limit_column_error("daily_limit", e))?,
-                    ),
                     monthly_limit: limit_from_column(
                         row.try_get("monthly_limit")
                             .map_err(|e| rate_limit_column_error("monthly_limit", e))?,
@@ -160,7 +169,6 @@ macro_rules! impl_user_rate_limit_override_repository {
             async fn upsert(&self, row: &UserRateLimitOverride) -> AppResult<()> {
                 sqlx::query(UPSERT_RATE_LIMIT_OVERRIDE_SQL)
                     .bind($ids::bind(row.user_id))
-                    .bind(row.daily_limit.map(limit_to_column))
                     .bind(row.monthly_limit.map(limit_to_column))
                     .bind(row.note.as_deref())
                     .bind($ids::bind_opt(row.set_by))

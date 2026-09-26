@@ -275,11 +275,9 @@ test.describe('User Management - User Details', () => {
           user_id: 'user-1',
           tier: 'professional',
           rate_limits: {
-            daily: { limit: 10000, used: 500, remaining: 9500 },
             monthly: { limit: 100000, used: 5000, remaining: 95000 },
           },
           reset_times: {
-            daily_reset: '2024-01-21T00:00:00Z',
             monthly_reset: '2024-02-01T00:00:00Z',
           },
         }),
@@ -349,10 +347,9 @@ test.describe('User Management - User Details', () => {
           user_id: 'user-1',
           tier: 'professional',
           rate_limits: {
-            daily: { limit: 10000, used: 500, remaining: 9500 },
             monthly: { limit: 100000, used: 5000, remaining: 95000 },
           },
-          reset_times: { daily_reset: '2024-01-21T00:00:00Z', monthly_reset: '2024-02-01T00:00:00Z' },
+          reset_times: { monthly_reset: '2024-02-01T00:00:00Z' },
         }),
       });
     });
@@ -373,7 +370,7 @@ test.describe('User Management - User Details', () => {
 
       // Should show rate limit information
       await page.waitForTimeout(500);
-      // Rate limits should be displayed (daily/monthly)
+      // The monthly rate limit should be displayed
     }
   });
 });
@@ -394,10 +391,9 @@ test.describe('User Management - Password Reset', () => {
           user_id: 'user-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
-          reset_times: { daily_reset: '2024-01-21T00:00:00Z', monthly_reset: '2024-02-01T00:00:00Z' },
+          reset_times: { monthly_reset: '2024-02-01T00:00:00Z' },
         }),
       });
     });
@@ -458,10 +454,9 @@ test.describe('User Management - Password Reset', () => {
           user_id: 'user-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
-          reset_times: { daily_reset: '2024-01-21T00:00:00Z', monthly_reset: '2024-02-01T00:00:00Z' },
+          reset_times: { monthly_reset: '2024-02-01T00:00:00Z' },
         }),
       });
     });

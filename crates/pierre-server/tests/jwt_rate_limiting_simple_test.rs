@@ -16,11 +16,9 @@ mod common;
 
 use chrono::Utc;
 use pierre_auth::auth::AuthManager;
-use pierre_auth::rate_limiting::{
-    calculate_jwt_rate_limit, RequestBudget, UserRequestLimits, UserRequestUsage,
-};
+use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::User;
+use pierre_core::models::{JwtMonthlyUsage, MonthlyLimitOverride, User};
 use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
 use pierre_database::repositories::analytics::next_utc_month_start;
@@ -62,28 +60,26 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
     // Authenticating counts the request: one jwt_usage row per admitted JWT
     // request, which the next request's budget is read from.
     let repos = database.repositories();
-    assert_eq!(repos.usage.get_jwt_current_usage(user.id).await.unwrap(), 0);
+    assert_eq!(
+        repos.usage.get_jwt_current_usage(user.id).await.unwrap(),
+        JwtMonthlyUsage {
+            used: 0,
+            monthly_override: MonthlyLimitOverride::NotSet,
+        }
+    );
     auth_middleware
         .authenticate_request(Some(&format!("Bearer {token}")))
         .await
         .expect("JWT authentication should succeed");
-    let used_this_month = repos.usage.get_jwt_current_usage(user.id).await.unwrap();
-    assert_eq!(used_this_month, 1, "the admitted request is counted");
+    let usage = repos.usage.get_jwt_current_usage(user.id).await.unwrap();
+    assert_eq!(usage.used, 1, "the admitted request is counted");
 
     // CRITICAL SECURITY FIX VERIFICATION
     // Before: JWT tokens had no budget (unlimited access)
     // After: JWT tokens are metered by the user's tier, 10,000 for Starter,
     // resetting at the first instant of the next UTC month.
     let now = Utc::now();
-    let tier_limits = UserRequestLimits::resolve(&user, None);
-    let budget = calculate_jwt_rate_limit(
-        tier_limits,
-        UserRequestUsage {
-            today: 0,
-            this_month: used_this_month,
-        },
-        now,
-    );
+    let budget = calculate_jwt_rate_limit(&user, usage, now);
     assert_eq!(
         budget,
         RequestBudget::Metered {
@@ -97,10 +93,10 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
 
     // At the tier's limit the gate refuses with a 429 and the seconds to reset
     let spent = calculate_jwt_rate_limit(
-        tier_limits,
-        UserRequestUsage {
-            today: 0,
-            this_month: 10_000,
+        &user,
+        JwtMonthlyUsage {
+            used: 10_000,
+            ..usage
         },
         now,
     );

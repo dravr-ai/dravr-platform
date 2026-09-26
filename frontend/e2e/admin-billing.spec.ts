@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E for admin billing surface — UserDetailDrawer Usage Card + BillingTab CSV export.
+// ABOUTME: Playwright E2E for admin billing surface — UserDetailDrawer Usage and Rate Limits cards + BillingTab CSV export.
 // ABOUTME: Regression-pins: Usage Card must coexist with Impersonate button; admin /api/admin/users/{id}/usage path.
 
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -125,11 +125,9 @@ async function loginAsSuperAdminWithUsers(page: Page) {
           user_id: 'user-active-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
           reset_times: {
-            daily_reset: '2024-01-21T00:00:00Z',
             monthly_reset: '2024-02-01T00:00:00Z',
           },
           override_active: false,
@@ -298,6 +296,70 @@ test.describe('Admin Billing - UserDetailDrawer Usage Card', () => {
     // Drawer must render the empty-state branch, NOT crash. The Impersonate button is the canary.
     await expect(page.getByText('No LLM activity this month')).toBeVisible();
     await expect(page.getByRole('button', { name: /Impersonate User/i })).toBeVisible();
+  });
+});
+
+test.describe('Admin Billing - UserDetailDrawer monthly rate-limit override', () => {
+  test('an override sends a monthly limit, never a daily one, and the card shows the new cap', async ({ page }) => {
+    await page.route('**/api/admin/users/*/usage**', async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ user_id: 'user-active-1', from: '2026-09-01T00:00:00Z', by_model: [], daily: [] }),
+      });
+    });
+
+    await loginAsSuperAdminWithUsers(page);
+
+    // Registered after the helper's rate-limit mock, so this one answers:
+    // the tier's budget until an override is PUT, then the override's.
+    let override: { monthly_limit: number | null; note: string | null } | null = null;
+    const putBodies: unknown[] = [];
+    await page.route('**/admin/users/*/rate-limit', async (route: Route) => {
+      const limit = override ? override.monthly_limit : 10000;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            user_id: 'user-active-1',
+            tier: 'starter',
+            rate_limits: {
+              monthly: { limit, used: 500, remaining: limit === null ? null : limit - 500 },
+            },
+            reset_times: { monthly_reset: '2026-10-01T00:00:00Z' },
+            override_active: override !== null,
+            override_note: override ? override.note : null,
+          },
+        }),
+      });
+    });
+    await page.route('**/api/admin/users/*/rate-limit-override', async (route: Route) => {
+      const body = route.request().postDataJSON();
+      putBodies.push(body);
+      override = body;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Rate limit override applied' }),
+      });
+    });
+
+    await openUserDetailDrawer(page);
+
+    await expect(page.getByText('Monthly Usage')).toBeVisible();
+    await expect(page.getByText('500 / 10,000')).toBeVisible();
+    await expect(page.getByText('Daily Usage')).toHaveCount(0);
+
+    await page.getByText('Override limits for this user…').click();
+    await expect(page.getByText('Daily limit')).toHaveCount(0);
+    await page.getByPlaceholder('e.g. 3000, or blank for unlimited').fill('600');
+    await page.getByPlaceholder('Why this override exists').fill('pilot cap');
+    await page.getByRole('button', { name: 'Save override' }).click();
+
+    await expect(page.getByText('Per-user override active')).toBeVisible();
+    await expect(page.getByText('500 / 600')).toBeVisible();
+    expect(putBodies).toEqual([{ monthly_limit: 600, note: 'pilot cap' }]);
   });
 });
 

@@ -7,8 +7,9 @@
 //! Per-user rate-limit override admin endpoints.
 //!
 //! - `PUT /api/admin/users/{user_id}/rate-limit-override` — set or update
-//!   a custom daily / monthly cap (or null for "unlimited at that
-//!   dimension"), plus an audit note.
+//!   a custom monthly cap (or null for no monthly ceiling), plus an audit
+//!   note. Authentication enforces it on the user's JWT, cookie and channel
+//!   requests in place of the tier's monthly limit.
 //! - `DELETE /api/admin/users/{user_id}/rate-limit-override` — revert the
 //!   user to their tier default.
 //!
@@ -37,14 +38,17 @@ use pierre_services::admin_ops;
 
 /// Request body for `PUT /api/admin/users/{user_id}/rate-limit-override`.
 ///
-/// `daily_limit` and `monthly_limit` accept a positive integer (custom cap) or
-/// null (unlimited for that dimension). Zero is rejected — use null for
-/// unlimited.
+/// `monthly_limit` accepts a positive integer (custom cap) or null (no
+/// monthly ceiling). Zero is rejected — use null for unlimited. An unknown
+/// or missing field is refused, so a request cannot set a cap other than
+/// the one it names: a body without `monthly_limit` would otherwise read as
+/// null and lift the user's ceiling.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetRateLimitOverrideRequest {
-    /// Custom daily request cap. Null = unlimited daily.
-    pub daily_limit: Option<u32>,
-    /// Custom monthly request cap. Null = unlimited monthly.
+    /// Custom monthly request cap. Null = unlimited monthly. The key is
+    /// required even when its value is null.
+    #[serde(deserialize_with = "Option::deserialize")]
     pub monthly_limit: Option<u32>,
     /// Operator-facing note explaining why the override exists.
     pub note: Option<String>,
@@ -89,7 +93,6 @@ pub async fn handle_set(
     admin_ops::set_user_rate_limit_override(
         &context.repos,
         user_uuid,
-        body.daily_limit,
         body.monthly_limit,
         body.note,
         Some(admin_user_id),

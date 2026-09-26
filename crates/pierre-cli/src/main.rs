@@ -522,15 +522,11 @@ enum UserCommand {
         email: String,
     },
 
-    /// Set a per-user rate-limit override (omit a cap for unlimited at that dimension)
+    /// Set a per-user monthly rate-limit override (omit --monthly for unlimited)
     SetRateLimit {
         /// Email of the user
         #[arg(long)]
         email: String,
-
-        /// Custom daily request cap (positive; omit for unlimited daily)
-        #[arg(long)]
-        daily: Option<u32>,
 
         /// Custom monthly request cap (positive; omit for unlimited monthly)
         #[arg(long)]
@@ -1039,11 +1035,10 @@ async fn main() -> Result<()> {
             }
             UserCommand::SetRateLimit {
                 email,
-                daily,
                 monthly,
                 note,
             } => {
-                commands::user::set_rate_limit(&repos, email, daily, monthly, note).await?;
+                commands::user::set_rate_limit(&repos, email, monthly, note).await?;
             }
             UserCommand::ClearRateLimit { email } => {
                 commands::user::clear_rate_limit(&repos, email).await?;

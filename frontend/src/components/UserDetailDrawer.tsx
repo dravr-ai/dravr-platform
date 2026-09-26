@@ -32,7 +32,6 @@ export default function UserDetailDrawer({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [overrideEditing, setOverrideEditing] = useState(false);
-  const [overrideDaily, setOverrideDaily] = useState<string>('');
   const [overrideMonthly, setOverrideMonthly] = useState<string>('');
   const [overrideNote, setOverrideNote] = useState<string>('');
   const [tierEditing, setTierEditing] = useState(false);
@@ -101,12 +100,11 @@ export default function UserDetailDrawer({
         if (trimmed === '' || trimmed.toLowerCase() === 'unlimited') return null;
         const n = Number.parseInt(trimmed, 10);
         if (!Number.isFinite(n) || n <= 0) {
-          throw new Error('Daily and monthly limits must be positive integers or blank for unlimited');
+          throw new Error('The monthly limit must be a positive integer or blank for unlimited');
         }
         return n;
       };
       return adminApi.setUserRateLimitOverride(user.id, {
-        daily_limit: parseLimit(overrideDaily),
         monthly_limit: parseLimit(overrideMonthly),
         note: overrideNote.trim() === '' ? null : overrideNote.trim(),
       });
@@ -349,25 +347,6 @@ export default function UserDetailDrawer({
               </div>
             ) : rateLimit ? (
               <div className="space-y-4">
-                {/* Daily Usage */}
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-on-surface-variant">Daily Usage</span>
-                    <span className="font-medium text-on-surface">
-                      {rateLimit.rate_limits.daily.used.toLocaleString()} / {formatLimit(rateLimit.rate_limits.daily.limit)}
-                    </span>
-                  </div>
-                  <div className="w-full bg-surface-container-high rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${getUsageColor(getUsagePercentage(rateLimit.rate_limits.daily.used, rateLimit.rate_limits.daily.limit))}`}
-                      style={{ width: `${getUsagePercentage(rateLimit.rate_limits.daily.used, rateLimit.rate_limits.daily.limit)}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-outline mt-1">
-                    Resets: {formatDate(rateLimit.reset_times.daily_reset)}
-                  </p>
-                </div>
-
                 {/* Monthly Usage */}
                 <div>
                   <div className="flex justify-between text-sm mb-1">
@@ -394,7 +373,6 @@ export default function UserDetailDrawer({
                         <button
                           type="button"
                           onClick={() => {
-                            setOverrideDaily(rateLimit.rate_limits.daily.limit?.toString() ?? '');
                             setOverrideMonthly(rateLimit.rate_limits.monthly.limit?.toString() ?? '');
                             setOverrideNote(rateLimit.override_note ?? '');
                             setOverrideEditing(true);
@@ -412,7 +390,6 @@ export default function UserDetailDrawer({
                     <button
                       type="button"
                       onClick={() => {
-                        setOverrideDaily('');
                         setOverrideMonthly('');
                         setOverrideNote('');
                         setOverrideEditing(true);
@@ -423,30 +400,16 @@ export default function UserDetailDrawer({
                     </button>
                   )}
                   <p className="text-xs text-outline">
-                    Tier defaults editable in{' '}
-                    <a href="#platform-settings" className="text-activity hover:underline">
-                      Platform Settings → Rate Limits
-                    </a>
-                    .
+                    Without an override, the user's tier sets the monthly limit.
                   </p>
 
                   {overrideEditing && (
                     <div className="rounded-md bg-surface-container-high p-3 space-y-2 text-xs">
                       <div className="font-semibold text-on-surface">Override</div>
                       <p className="text-on-surface-variant">
-                        Leave blank for unlimited; positive integers set a custom cap.
-                        Industry standard exemption pattern — tier defaults apply when no override is set.
+                        Leave blank for unlimited; a positive integer caps the user's requests per
+                        calendar month (UTC). Clearing the override restores the tier's limit.
                       </p>
-                      <label className="block">
-                        <span className="text-on-surface-variant">Daily limit</span>
-                        <input
-                          type="text"
-                          value={overrideDaily}
-                          onChange={(e) => setOverrideDaily(e.target.value)}
-                          placeholder="e.g. 100, or blank for unlimited"
-                          className="mt-1 w-full rounded bg-surface-container-low border ghost-border px-2 py-1 text-on-surface"
-                        />
-                      </label>
                       <label className="block">
                         <span className="text-on-surface-variant">Monthly limit</span>
                         <input

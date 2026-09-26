@@ -6,13 +6,12 @@
 
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
-    UserRequestLimits, UserRequestUsage,
 };
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
@@ -494,7 +493,8 @@ impl McpAuthMiddleware {
             .first()
             .map_or_else(|| Some(tenant_id.as_uuid()), |t| Some(t.id.as_uuid()));
 
-        // Rate limit on the user-tier policy (JWT calculator — channel links
+        // Rate limit on the user's monthly budget (the JWT calculator, so an
+        // admin's override applies here as on a session token — channel links
         // are long-lived user credentials, same authority as a session token).
         // Deliberately NOT reported to the response headers: this response
         // goes to Meta, Telegram or Slack, and the headers would hand the
@@ -506,7 +506,8 @@ impl McpAuthMiddleware {
         // shape fell through to the operator-error catch-all instead — the
         // rate-limited user got silence and on-call got paged (registre#8).
         let now = Utc::now();
-        let budget = self.user_request_budget(&user, now).await?;
+        let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
+        let budget = calculate_jwt_rate_limit(&user, usage, now);
         enforce_request_budget(budget, now).inspect_err(|e| {
             warn!(
                 user_id = %user_id,
@@ -573,14 +574,16 @@ impl McpAuthMiddleware {
             warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
         })?;
 
-        // The user's requests against the limits in force for it (an admin
-        // override, else the tier). A breach is a 429 with a retry window,
-        // not a 401: "slow down" and "bad credentials" demand opposite client
-        // reactions, and the old auth_invalid shape sent rate-limited clients
-        // into re-login loops (registre#10). It carries the budget that
-        // refused it, so the refusal renders its numbers too.
+        // The user's month-to-date requests against its monthly limit (an
+        // admin's override, else the tier's), both read in one statement. A
+        // breach is a 429 with a retry window, not a 401: "slow down" and
+        // "bad credentials" demand opposite client reactions, and the old
+        // auth_invalid shape sent rate-limited clients into re-login loops
+        // (registre#10). It carries the budget that refused it, so the
+        // refusal renders its numbers too.
         let now = Utc::now();
-        let budget = self.user_request_budget(&user, now).await?;
+        let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
+        let budget = calculate_jwt_rate_limit(&user, usage, now);
         enforce_request_budget(budget, now)
             .map_err(|error| Refused::OverBudget { budget, error })?;
 
@@ -616,31 +619,6 @@ impl McpAuthMiddleware {
             },
             budget,
         })
-    }
-
-    /// `user`'s request budget at `now`: the limits in force for it (an
-    /// admin's per-user override, else its tier) against the requests counted
-    /// in each limited window.
-    ///
-    /// A window with no limit is not counted.
-    async fn user_request_budget(
-        &self,
-        user: &User,
-        now: DateTime<Utc>,
-    ) -> AppResult<RequestBudget> {
-        let override_row = self.repos.user_rate_limit_overrides.get(user.id).await?;
-        let limits = UserRequestLimits::resolve(user, override_row.as_ref());
-        let usage = UserRequestUsage {
-            today: match limits.daily {
-                Some(_) => self.repos.usage.get_jwt_usage_today(user.id).await?,
-                None => 0,
-            },
-            this_month: match limits.monthly {
-                Some(_) => self.repos.usage.get_jwt_current_usage(user.id).await?,
-                None => 0,
-            },
-        };
-        Ok(calculate_jwt_rate_limit(limits, usage, now))
     }
 
     /// Get reference to the auth manager for testing purposes

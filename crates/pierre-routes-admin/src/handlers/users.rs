@@ -606,29 +606,7 @@ pub(crate) async fn handle_get_user_rate_limit(
         AdminResponse {
             success: true,
             message: "Rate limit information retrieved".to_owned(),
-            data: to_value(json!({
-                "user_id": limits.user_id,
-                "tier": limits.tier,
-                "rate_limits": {
-                    "daily": {
-                        "limit": limits.daily_limit,
-                        "used": limits.daily_used,
-                        "remaining": limits.daily_remaining,
-                    },
-                    "monthly": {
-                        "limit": limits.monthly_limit,
-                        "used": limits.monthly_used,
-                        "remaining": limits.monthly_remaining,
-                    },
-                },
-                "reset_times": {
-                    "daily_reset": limits.daily_reset.to_rfc3339(),
-                    "monthly_reset": limits.monthly_reset.to_rfc3339(),
-                },
-                "override_active": limits.override_active,
-                "override_note": limits.override_note,
-            }))
-            .ok(),
+            data: Some(limits.to_json()),
         },
         StatusCode::OK,
     ))

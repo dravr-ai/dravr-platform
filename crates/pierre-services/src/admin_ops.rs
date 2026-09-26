@@ -6,13 +6,12 @@
 
 use crate::pricing::cost_for_record;
 use chrono::{DateTime, Duration, Utc};
-use pierre_auth::rate_limiting::UserRequestLimits;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
-use pierre_core::models::{Tenant, TenantPlan, User, UserStatus, UserTier};
+use pierre_core::models::{MonthlyLimitOverride, Tenant, TenantPlan, User, UserStatus, UserTier};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
-use pierre_database::repositories::analytics::{next_utc_day_start, next_utc_month_start};
+use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
 use pierre_runtime_context::DataContext;
@@ -54,32 +53,48 @@ pub struct PasswordResetResult {
     pub user_email: String,
 }
 
-/// Rate limit information for a single user
+/// A user's monthly request budget as the admin views report it
 pub struct UserRateLimits {
     /// Target user ID
     pub user_id: String,
     /// Effective tier label
     pub tier: String,
-    /// Daily request cap (None means unlimited)
-    pub daily_limit: Option<u32>,
-    /// Requests made today
-    pub daily_used: u32,
-    /// Daily quota remaining (None means unlimited)
-    pub daily_remaining: Option<u32>,
     /// Monthly request cap (None means unlimited)
     pub monthly_limit: Option<u32>,
     /// Requests made this month
     pub monthly_used: u32,
     /// Monthly quota remaining (None means unlimited)
     pub monthly_remaining: Option<u32>,
-    /// Wall-clock time when the daily counter resets
-    pub daily_reset: DateTime<Utc>,
     /// Wall-clock time when the monthly counter resets
     pub monthly_reset: DateTime<Utc>,
     /// True when a per-user override is in effect (tier default ignored).
     pub override_active: bool,
     /// Operator note attached to the override, if any.
     pub override_note: Option<String>,
+}
+
+impl UserRateLimits {
+    /// The body both admin surfaces answer `GET …/users/{id}/rate-limit`
+    /// with, so the two cannot drift apart.
+    #[must_use]
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "user_id": self.user_id,
+            "tier": self.tier,
+            "rate_limits": {
+                "monthly": {
+                    "limit": self.monthly_limit,
+                    "used": self.monthly_used,
+                    "remaining": self.monthly_remaining,
+                },
+            },
+            "reset_times": {
+                "monthly_reset": self.monthly_reset.to_rfc3339(),
+            },
+            "override_active": self.override_active,
+            "override_note": self.override_note,
+        })
+    }
 }
 
 /// A single tool usage entry with computed percentage
@@ -483,10 +498,11 @@ pub async fn list_user_tool_overrides(
         .map_err(|e| AppError::internal(format!("Failed to list user tool overrides: {e}")))
 }
 
-/// Set or update a per-user rate-limit override.
+/// Set or update a per-user monthly rate-limit override.
 ///
-/// Validates that limit values are positive or `None` (unlimited at that
-/// dimension); rejects zero. Verifies the target user exists before
+/// The authentication gate enforces it in place of the tier's monthly limit
+/// until it is cleared. `monthly_limit` is a positive cap, or `None` for no
+/// monthly ceiling; zero is rejected. Verifies the target user exists before
 /// persisting. Shared by the cookie `PUT
 /// /api/admin/users/{id}/rate-limit-override` route and
 /// `pierre-cli user set-rate-limit`.
@@ -498,14 +514,13 @@ pub async fn list_user_tool_overrides(
 pub async fn set_user_rate_limit_override(
     repos: &RepositoryRegistry,
     target_user_id: Uuid,
-    daily_limit: Option<u32>,
     monthly_limit: Option<u32>,
     note: Option<String>,
     set_by: Option<Uuid>,
 ) -> Result<(), AppError> {
-    if matches!(daily_limit, Some(0)) || matches!(monthly_limit, Some(0)) {
+    if monthly_limit == Some(0) {
         return Err(AppError::invalid_input(
-            "Rate limit values must be positive integers; use null for unlimited",
+            "The monthly limit must be a positive integer; use null for unlimited",
         ));
     }
 
@@ -520,7 +535,6 @@ pub async fn set_user_rate_limit_override(
     let now = Utc::now();
     let row = UserRateLimitOverride {
         user_id: target_user_id,
-        daily_limit,
         monthly_limit,
         note,
         set_by,
@@ -537,7 +551,6 @@ pub async fn set_user_rate_limit_override(
     info!(
         set_by = ?set_by,
         target_user_id = %target_user_id,
-        daily_limit = ?daily_limit,
         monthly_limit = ?monthly_limit,
         "Per-user rate-limit override set"
     );
@@ -1067,10 +1080,11 @@ pub async fn generate_password_reset_token(
 
 /// Compute rate limit information for a specific user.
 ///
-/// Calculates daily and monthly usage, limits, remaining quota, and reset times
-/// from the limits the auth middleware enforces (a per-user override, else the
-/// tier). Shared by both the cookie (`/api/admin/...`) and admin-token
-/// (`/admin/...`) surfaces so the override + reset rules live once.
+/// Reports the monthly usage, limit, remaining quota and reset time the auth
+/// middleware enforces: the same statement feeds both, so the limit shown is a
+/// per-user override when one is set and the tier's otherwise. Shared by both
+/// the cookie (`/api/admin/...`) and admin-token (`/admin/...`) surfaces so
+/// the override + reset rules live once.
 ///
 /// # Errors
 ///
@@ -1091,49 +1105,30 @@ pub async fn compute_user_rate_limits(
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    // The same counters and the same limit resolution the auth middleware
-    // enforces, so this view shows what the gate applies: a per-user override
-    // replaces the tier's limits, and the tier sets a monthly limit only.
-    let monthly_used = repos
+    // The statement the auth middleware reads, so this view shows what the
+    // gate applies: the month's count and the override's limit, else the
+    // tier's. The override row itself is read only for its note.
+    let usage = repos
         .usage
         .get_jwt_current_usage(target_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to count monthly usage: {e}")))?;
-    let daily_used = repos
-        .usage
-        .get_jwt_usage_today(target_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to count daily usage: {e}")))?;
-    let override_row = repos
+    let monthly_limit = usage.monthly_override.resolve(&user.tier);
+    let override_note = repos
         .user_rate_limit_overrides
         .get(target_user_id)
         .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch rate-limit override: {e}")))?;
-    let limits = UserRequestLimits::resolve(&user, override_row.as_ref());
-    let (daily_limit, monthly_limit) = (limits.daily, limits.monthly);
-    let override_active = override_row.is_some();
-    let override_note = override_row.and_then(|o| o.note);
-
-    // Calculate remaining
-    let monthly_remaining = monthly_limit.map(|l| l.saturating_sub(monthly_used));
-    let daily_remaining = daily_limit.map(|l| l.saturating_sub(daily_used));
-
-    let now = Utc::now();
-    let daily_reset = next_utc_day_start(now);
-    let monthly_reset = next_utc_month_start(now);
+        .map_err(|e| AppError::internal(format!("Failed to fetch rate-limit override: {e}")))?
+        .and_then(|o| o.note);
 
     Ok(UserRateLimits {
         user_id: target_user_id.to_string(),
         tier: user.tier.to_string(),
-        daily_limit,
-        daily_used,
-        daily_remaining,
         monthly_limit,
-        monthly_used,
-        monthly_remaining,
-        daily_reset,
-        monthly_reset,
-        override_active,
+        monthly_used: usage.used,
+        monthly_remaining: monthly_limit.map(|l| l.saturating_sub(usage.used)),
+        monthly_reset: next_utc_month_start(Utc::now()),
+        override_active: usage.monthly_override != MonthlyLimitOverride::NotSet,
         override_note,
     })
 }

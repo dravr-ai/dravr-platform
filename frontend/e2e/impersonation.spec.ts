@@ -233,11 +233,9 @@ test.describe('Impersonation - Super Admin Access', () => {
           user_id: 'user-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
           reset_times: {
-            daily_reset: '2024-01-21T00:00:00Z',
             monthly_reset: '2024-02-01T00:00:00Z',
           },
         }),
@@ -427,11 +425,9 @@ test.describe('Impersonation - Start and End Flow', () => {
           user_id: 'user-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
           reset_times: {
-            daily_reset: '2024-01-21T00:00:00Z',
             monthly_reset: '2024-02-01T00:00:00Z',
           },
         }),
@@ -654,11 +650,9 @@ test.describe('Impersonation - Regular Admin Cannot Impersonate', () => {
           user_id: 'user-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
           reset_times: {
-            daily_reset: '2024-01-21T00:00:00Z',
             monthly_reset: '2024-02-01T00:00:00Z',
           },
         }),
@@ -755,11 +749,9 @@ test.describe('Impersonation - Error Handling', () => {
           user_id: 'user-1',
           tier: 'starter',
           rate_limits: {
-            daily: { limit: 1000, used: 50, remaining: 950 },
             monthly: { limit: 10000, used: 500, remaining: 9500 },
           },
           reset_times: {
-            daily_reset: '2024-01-21T00:00:00Z',
             monthly_reset: '2024-02-01T00:00:00Z',
           },
         }),

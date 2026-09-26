@@ -254,9 +254,9 @@ pub use tier_quota::{TierQuotaConfig, ENTERPRISE, PROFESSIONAL, STARTER};
 pub mod subscription;
 pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
-    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtUsage,
-    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog, ToolUsage,
-    UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
+    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtMonthlyUsage, JwtUsage,
+    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, MonthlyLimitOverride, RequestLog,
+    ToolUsage, UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// An agent package's training artefacts — flavour, skeleton, workouts — beside its prompt
