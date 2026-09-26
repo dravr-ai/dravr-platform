@@ -23,15 +23,14 @@ use tracing::{error, field, field::Empty, info, warn, Span};
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
 use pierre_auth::tenant::TenantContext;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, TenantId};
 use pierre_mcp_transport::oauth_flow_manager::OAuthTemplateRenderer;
 use pierre_providers::backend_resolver;
 use pierre_providers::ProviderDescriptor;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
 use pierre_services::oauth_flow::{
-    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, parse_user_id, AuthUrlOptions,
-    OAuthService,
+    categorize_oauth_error, extract_tenant_id, get_user_for_oauth, AuthUrlOptions, OAuthService,
 };
 use pierre_services::oauth_redirects;
 use pierre_services::provider_notice::{asks_for_notice, require_notice_accepted};
@@ -595,9 +594,9 @@ pub struct OAuthStartQuery {
 /// notice in force for it, recording the acceptance this start carries.
 ///
 /// The OAuth-start face of [`require_notice_accepted`], shared by every route
-/// that mints an authorization URL — the web launch and initiate routes, the
-/// mobile init and the hosted connect picker's init — so none can hand out a
-/// URL the precondition has not passed. The refusal names the provider by its
+/// that mints an authorization URL — the launch route, the mobile init and
+/// the hosted connect picker's init — so none can hand out a URL the
+/// precondition has not passed. The refusal names the provider by its
 /// registered display name.
 ///
 /// # Errors
@@ -622,81 +621,6 @@ pub async fn require_oauth_start_notice(
         tos_consent,
     )
     .await
-}
-
-/// Handle OAuth authorization initiation
-///
-/// Requires authentication and verifies that the authenticated user matches
-/// the `user_id` in the path to prevent unauthorized OAuth flow initiation.
-#[tracing::instrument(
-    skip(resources, headers),
-    fields(
-        route = "oauth_auth_initiate",
-        provider = %provider,
-        user_id = %user_id_str,
-        tenant_id = Empty,
-    )
-)]
-pub async fn handle_oauth_auth_initiate(
-    State(resources): State<AuthRoutesContext>,
-    Path((provider, user_id_str)): Path<(String, String)>,
-    Query(start): Query<OAuthStartQuery>,
-    headers: HeaderMap,
-) -> Result<Response, AppError> {
-    // Authenticate the request before proceeding
-    let auth_result = resources
-        .auth_middleware
-        .authenticate_request_with_headers(&headers)
-        .await?;
-
-    let user_id = parse_user_id(&user_id_str)?;
-
-    // Verify authenticated user matches the requested user_id
-    if auth_result.user_id != user_id {
-        warn!(
-            "OAuth auth initiate: authenticated user {} does not match path user_id {}",
-            auth_result.user_id, user_id
-        );
-        return Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Cannot initiate OAuth flow for a different user",
-        ));
-    }
-
-    info!(
-        "OAuth authorization initiation for provider: {} user: {}",
-        provider, user_id_str
-    );
-
-    // Verify user exists
-    get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
-    let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
-    require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
-        .await?;
-
-    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
-
-    let auth_response = oauth_service
-        .get_auth_url(user_id, tenant_id, &provider, AuthUrlOptions::default())
-        .await
-        .map_err(|e| {
-            error!(
-                "Failed to generate OAuth URL for {} user {}: {}",
-                provider, user_id, e
-            );
-            AppError::internal(format!("Failed to generate OAuth URL for {provider}: {e}"))
-        })?;
-
-    info!(
-        "Generated OAuth URL for {} user {} (state issued)",
-        provider, user_id
-    );
-
-    Ok((
-        StatusCode::FOUND,
-        [(header::LOCATION, auth_response.authorization_url)],
-    )
-        .into_response())
 }
 
 /// Handle mobile OAuth initiation
@@ -897,6 +821,12 @@ pub async fn handle_mobile_oauth_init(
 /// The session-authenticated mirror of `connect_hosted::handle_connect_oauth_init`,
 /// which does the same for channel-initiated links; the two differ only in how
 /// the caller proves identity (session cookie here, connect link-token there).
+///
+/// The flow belongs to whoever the credential names — a session cookie, a
+/// session bearer, or an API key as the whole `Authorization` value — and to
+/// no one else: the route takes no user id, so no caller can start a flow for
+/// another account. The web app opens it as a popup; the SDK bridge fetches it
+/// with its bearer and opens the provider page the redirect names.
 ///
 /// A provider whose notice is outstanding for the account (WHOOP's owner
 /// authorization) is refused until `?tos_consent=true` accepts it.

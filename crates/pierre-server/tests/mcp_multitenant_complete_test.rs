@@ -313,8 +313,8 @@ impl MultiTenantMcpClient {
     }
 
     /// Get Strava OAuth URL (requires authentication)
-    async fn get_strava_oauth_url(&self, user_id: &str) -> Result<String> {
-        let url = format!("{}/api/oauth/auth/strava/{user_id}", self.base_url);
+    async fn get_strava_oauth_url(&self) -> Result<String> {
+        let url = format!("{}/api/oauth/authorize/strava", self.base_url);
         let jwt = self
             .jwt_token
             .as_deref()
@@ -567,7 +567,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     assert!(client.csrf_token.is_some());
 
     // Test 3: OAuth URL Generation
-    let oauth_url = client.get_strava_oauth_url(&user_id).await?;
+    let oauth_url = client.get_strava_oauth_url().await?;
     assert!(oauth_url.contains("strava.com/oauth/authorize"));
     assert!(oauth_url.contains("client_id=test_client_id")); // Verify tenant-specific credentials are used
     assert!(oauth_url.contains("redirect_uri="));

@@ -860,17 +860,6 @@ impl OAuthService {
 // Helper functions used by OAuth handlers
 // ---------------------------------------------------------------------------
 
-/// Parse a user ID string to UUID
-///
-/// # Errors
-/// Returns `AppError::invalid_input` if the string is not a valid UUID.
-pub fn parse_user_id(user_id_str: &str) -> Result<uuid::Uuid, AppError> {
-    uuid::Uuid::parse_str(user_id_str).map_err(|_| {
-        error!("Invalid user_id format: {}", user_id_str);
-        AppError::invalid_input("Invalid user ID format")
-    })
-}
-
 /// Retrieve user from database with proper error handling
 ///
 /// # Errors

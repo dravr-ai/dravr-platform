@@ -47,7 +47,6 @@ crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate anot
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tenant-scoped tool operations require super-admin privileges
-crates/pierre-routes-auth/src/oauth.rs:Cannot initiate OAuth flow for a different user
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link TrainingPeaks athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can confirm it

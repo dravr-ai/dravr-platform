@@ -17,8 +17,8 @@ export type ProviderOAuthStart =
   | { kind: "authorize"; url: string }
   /** The account owes the provider's notice: tell the user where to accept it. */
   | { kind: "notice_required"; message: string }
-  /** Anything else: open the initiate route and let the browser show it. */
-  | { kind: "open_initiate" };
+  /** Anything else: open the launch route and let the browser show it. */
+  | { kind: "open_launch" };
 
 /**
  * The message a user reads when a provider's notice stands between them and
@@ -48,30 +48,30 @@ export function isNoticeRefusal(status: number, body: unknown): boolean {
 }
 
 /**
- * Start `provider`'s OAuth flow on the initiate route with the bridge's own
+ * Start `provider`'s OAuth flow on Dravr's launch route with the bridge's own
  * bearer, without following its redirect.
  *
  * A 302 names the provider's authorization page, which the caller opens
  * directly, so the flow's state is minted once. A notice refusal becomes
  * [`providerNoticeMessage`] instead of a raw 400 in the user's browser. Any
  * other answer, or a request that fails outright, leaves the caller to open
- * the initiate route as before.
+ * the launch route itself.
  */
 export async function startProviderOAuth(
-  initiateUrl: string,
+  launchUrl: string,
   accessToken: string,
   provider: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ProviderOAuthStart> {
   let response: Response;
   try {
-    response = await fetchImpl(initiateUrl, {
+    response = await fetchImpl(launchUrl, {
       method: "GET",
       redirect: "manual",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
   } catch {
-    return { kind: "open_initiate" };
+    return { kind: "open_launch" };
   }
 
   const location = response.headers.get("location");
@@ -88,5 +88,5 @@ export async function startProviderOAuth(
   if (isNoticeRefusal(response.status, body)) {
     return { kind: "notice_required", message: providerNoticeMessage(provider) };
   }
-  return { kind: "open_initiate" };
+  return { kind: "open_launch" };
 }

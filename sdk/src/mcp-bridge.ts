@@ -1594,12 +1594,11 @@ export class PierreMcpClient {
    * Starts `provider`'s authorization for the athlete this bridge acts for and names the
    * page the browser opens, or the notice the account owes before it may start.
    *
-   * A Dravr session token names its athlete in the JWT `sub` claim, and the flow starts on
-   * Dravr's initiation route for that user id. An API key names no athlete the bridge can
-   * read, so in api-key mode Dravr is asked for the provider's authorization URL instead:
-   * the key authenticates that request, and Dravr mints the URL for the key's athlete and
-   * records the flow's state on its side. Either way a refusal naming the provider's
-   * notice becomes the message that says where to accept it.
+   * Dravr's launch route takes the athlete from the credential that calls it, so the
+   * session bearer alone decides whose flow starts. In api-key mode Dravr's mobile init is
+   * asked instead: it answers the authorization URL as JSON, so a refused key is reported
+   * as refused rather than opened as an error page. Either way a refusal naming the
+   * provider's notice becomes the message that says where to accept it.
    */
   private async startProviderAuthorization(
     provider: string,
@@ -1638,25 +1637,16 @@ export class PierreMcpClient {
       throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
     }
 
-    // Decode JWT to get user_id (JWT format: header.payload.signature)
-    const payload = tokens.access_token.split(".")[1];
-    const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
-    const userId = decoded.sub;
-
-    if (!userId) {
-      throw new PierreError(PierreErrorCode.AUTH_ERROR, "Could not extract user_id from JWT token");
-    }
-
-    this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
-    const initiateUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
-    const start = await startProviderOAuth(initiateUrl, tokens.access_token, provider);
+    this.log(`Initiating ${provider} OAuth flow for the signed-in athlete`);
+    const launchUrl = `${this.config.pierreServerUrl}/api/oauth/authorize/${encodeURIComponent(provider)}`;
+    const start = await startProviderOAuth(launchUrl, tokens.access_token, provider);
     switch (start.kind) {
       case "notice_required":
         return start;
       case "authorize":
         return { kind: "open", url: start.url };
-      case "open_initiate":
-        return { kind: "open", url: initiateUrl };
+      case "open_launch":
+        return { kind: "open", url: launchUrl };
     }
   }
 

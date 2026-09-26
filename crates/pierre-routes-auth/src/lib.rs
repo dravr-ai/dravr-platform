@@ -238,10 +238,6 @@ impl AuthRoutes {
             )
             .route("/api/oauth/status", get(oauth::handle_oauth_status))
             .route("/api/providers", get(oauth::handle_providers_status))
-            .route(
-                "/api/oauth/auth/{provider}/{user_id}",
-                get(oauth::handle_oauth_auth_initiate),
-            )
             // OAuth launch — 302s the browser to the provider (requires auth).
             // A popup opened onto this never sits blank, unlike fetching the URL
             // and assigning it client-side.

@@ -1,5 +1,5 @@
 // ABOUTME: carnet#539 point 2 — a WHOOP OAuth start is refused until the account accepts WHOOP's owner-authorization notice
-// ABOUTME: Pins every start path (web launch, initiate, mobile init, hosted picker, connect_provider) per account and per notice version
+// ABOUTME: Pins every start path (launch route, mobile init, hosted picker, connect_provider) per account and per notice version
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,10 +11,10 @@
 //! account and per notice version through the same store as the TrainingPeaks
 //! and COROS notices.
 //!
-//! Every path that mints a WHOOP authorization URL is held to it: the web
-//! launch route, the initiate route, the mobile init, the hosted connect
-//! picker's init and the `connect_provider` tool (which also serves the chat
-//! reconnect). A start without the acceptance mints nothing; a start that
+//! Every path that mints a WHOOP authorization URL is held to it: the launch
+//! route the web app and the SDK bridge start from, the mobile init, the
+//! hosted connect picker's init and the `connect_provider` tool (which also
+//! serves the chat reconnect). A start without the acceptance mints nothing; a start that
 //! carries it records the version and proceeds; an account that accepted is
 //! not asked again; a changed notice is asked again; and an account the
 //! `provider_exposure_notice` flag leaves off is never asked.
@@ -260,26 +260,12 @@ async fn the_web_launch_asks_for_whoops_notice_once_per_version() {
 }
 
 #[tokio::test]
-async fn the_initiate_and_mobile_starts_are_held_to_the_same_notice() {
+async fn the_mobile_start_is_held_to_the_same_notice_as_the_launch_route() {
     let resources = whoop_server().await;
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
     let auth = bearer(&resources, &user, tenant_id);
     arm_notice(&resources, user_id).await;
-
-    // The initiate route.
-    let initiate = format!("/api/oauth/auth/whoop/{user_id}");
-    let resp = AxumTestRequest::get(&initiate)
-        .header("authorization", &auth)
-        .send(routes(&resources))
-        .await;
-    let (status, location) = (
-        resp.status(),
-        resp.header("location").map(ToOwned::to_owned),
-    );
-    let body: Value = serde_json::from_str(&resp.text()).unwrap_or(Value::Null);
-    assert_notice_refusal(status, &body, "initiate");
-    assert_eq!(location, None);
 
     // The mobile init, refused without the acceptance.
     let resp = AxumTestRequest::get("/api/oauth/mobile/init/whoop")
@@ -311,8 +297,8 @@ async fn the_initiate_and_mobile_starts_are_held_to_the_same_notice() {
         Some(whoop_notice_version())
     );
 
-    // Accepted, the initiate route redirects without being asked.
-    let resp = AxumTestRequest::get(&initiate)
+    // Accepted there, the launch route redirects without being asked.
+    let resp = AxumTestRequest::get("/api/oauth/authorize/whoop")
         .header("authorization", &auth)
         .send(routes(&resources))
         .await;

@@ -29,9 +29,10 @@ function stravaStatus(state) {
 }
 
 /**
- * A scripted Dravr. The initiate route answers the bridge's start with a 302 to the
- * provider's page, and /mcp answers discovery and `get_connection_status`, each read with
- * the next of `states` and the last one after that. A state of 'error' fails that read.
+ * A scripted Dravr. The launch route answers the bridge's start with a 302 to the
+ * provider's page and every other GET is a 404, as the retired initiate route is on the
+ * real server. /mcp answers discovery and `get_connection_status`, each read with the
+ * next of `states` and the last one after that; a state of 'error' fails that read.
  * Every request is recorded.
  */
 function startDravr(states) {
@@ -51,7 +52,7 @@ function startDravr(states) {
           res.end(JSON.stringify(json));
         };
 
-        if (req.method === 'GET' && req.url === '/api/oauth/auth/strava/user-1') {
+        if (req.method === 'GET' && req.url === '/api/oauth/authorize/strava') {
           res.writeHead(302, { Location: PROVIDER_PAGE });
           res.end();
           return;
@@ -109,10 +110,10 @@ function startDravr(states) {
  * A bridge signed in to the scripted Dravr through its real MCP client, with no callback
  * listener bound: nothing in a provider flow needs one.
  */
-async function wiredBridge(dravr) {
+async function wiredBridge(dravr, accessToken = jwtFor('user-1')) {
   const provider = makeProvider({ disableBrowser: true }, dravr.url);
   provider.savedTokens = {
-    access_token: jwtFor('user-1'),
+    access_token: accessToken,
     token_type: 'Bearer',
     expires_in: 3600,
     scope: 'fitness:read fitness:write profile:read profile:write',
@@ -193,13 +194,32 @@ describe('connect_provider polls Dravr for the connection', () => {
         expect(read.headers.authorization).toBe(`Bearer ${jwtFor('user-1')}`);
       }
 
-      // The flow starts with the session bearer and nothing to call this machine back
-      // with, and no listener is bound for it.
+      // The flow starts on the launch route, which takes the athlete from the session
+      // bearer: no user id rides the path. Nothing to call this machine back with is
+      // sent, and no listener is bound for it.
       const starts = dravr.starts();
       expect(starts).toHaveLength(1);
+      expect(starts[0].url).toBe('/api/oauth/authorize/strava');
       expect(starts[0].headers.authorization).toBe(`Bearer ${jwtFor('user-1')}`);
       expect(starts[0].headers['x-callback-token']).toBeUndefined();
       expect(wired.provider.callbackServer).toBeUndefined();
+    } finally {
+      await wired.cleanup();
+    }
+  });
+
+  test('a session token the bridge cannot read still starts the flow: the credential names the athlete', async () => {
+    dravr = await startDravr(['disconnected', 'connected']);
+    const wired = await wiredBridge(dravr, 'opaque-session-token');
+    fastPoll(wired.bridge);
+    try {
+      const result = await wired.connect();
+
+      expect(result.isError).toBe(false);
+      expect(result.content[0].text).toMatch(/^Strava connected successfully!/);
+      const starts = dravr.starts();
+      expect(starts.map((r) => r.url)).toEqual(['/api/oauth/authorize/strava']);
+      expect(starts[0].headers.authorization).toBe('Bearer opaque-session-token');
     } finally {
       await wired.cleanup();
     }

@@ -1,21 +1,23 @@
-// ABOUTME: carnet#550 — the connection status the SDK bridge polls turns connected once its provider flow completes
-// ABOUTME: Drives the real start routes, the callback against a mocked Strava token endpoint, and get_connection_status
+// ABOUTME: The server side of the SDK bridge's connect_provider: the launch route it starts from and the status it polls
+// ABOUTME: carnet#603 launch identity from the credential alone; carnet#550 get_connection_status turns connected on completion
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The SDK bridge's `connect_provider` opens the provider's authorization
-//! page and then asks Dravr, every few seconds, for the provider's
-//! connection status through `get_connection_status`, the tool it already
-//! reads to decide the provider is connected before it starts a flow. Dravr
-//! posts nothing to the bridge's host, so a bridge on any machine learns the
-//! outcome.
+//! The SDK bridge's `connect_provider` starts a provider flow on the launch
+//! route `/api/oauth/authorize/{provider}` (its mobile init mint in api-key
+//! mode), opens the provider's authorization page, and then asks Dravr,
+//! every few seconds, for the provider's connection status through
+//! `get_connection_status`, the tool it already reads to decide the provider
+//! is connected before it starts a flow. Dravr posts nothing to the bridge's
+//! host, so a bridge on any machine learns the outcome.
 //!
-//! These tests prove the status it polls moves from `disconnected` to
-//! `connected` when a flow started on either route the bridge uses — the
-//! initiate route in session mode, the mobile init mint in api-key mode —
-//! completes, and that another athlete can neither start that flow nor see
-//! it complete.
+//! The launch route takes the athlete from the credential that calls it — a
+//! session bearer or an API key — and from nothing else, so the retired
+//! initiate route that named a user id in its path is gone, and no caller can
+//! start a flow for another account. The status the bridge polls moves from
+//! `disconnected` to `connected` when a flow started on either route
+//! completes, and another athlete's poll never sees it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -30,6 +32,7 @@ use axum::http::{header, HeaderMap, Request, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
+use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -152,8 +155,18 @@ async fn get_with_session(
     uri: &str,
     jwt: &str,
 ) -> (StatusCode, HeaderMap, Vec<u8>) {
+    get_with_authorization(resources, uri, &format!("Bearer {jwt}")).await
+}
+
+/// `GET uri` on the auth routes with `authorization` as the whole
+/// `Authorization` value.
+async fn get_with_authorization(
+    resources: &ServerContext,
+    uri: &str,
+    authorization: &str,
+) -> (StatusCode, HeaderMap, Vec<u8>) {
     let request = Request::get(uri)
-        .header("authorization", format!("Bearer {jwt}"))
+        .header("authorization", authorization)
         .body(Body::empty())
         .unwrap();
     let response = AuthRoutes::routes(resources.auth_routes_context())
@@ -169,22 +182,52 @@ async fn get_with_session(
     (status, headers, body)
 }
 
-/// Start a flow on the initiate route the bridge fetches in session mode and
-/// return the state its provider redirect carries.
-async fn start_on_initiate(resources: &ServerContext, user_id: Uuid, jwt: &str) -> String {
-    let uri = format!("/api/oauth/auth/strava/{user_id}");
-    let (status, headers, body) = get_with_session(resources, &uri, jwt).await;
+/// The `state` a launch answer's provider redirect carries, once the answer
+/// is checked to be that redirect.
+fn state_of_redirect(uri: &str, status: StatusCode, headers: &HeaderMap, body: &[u8]) -> String {
     assert_eq!(
         status,
         StatusCode::FOUND,
         "{uri} starts the flow: {}",
-        String::from_utf8_lossy(&body)
+        String::from_utf8_lossy(body)
     );
     Url::parse(headers[header::LOCATION].to_str().unwrap())
         .unwrap()
         .query_pairs()
         .find_map(|(name, value)| (name == "state").then(|| value.into_owned()))
         .expect("the provider redirect carries the flow's state")
+}
+
+/// Start a flow on the launch route the bridge fetches in session mode and
+/// return the state its provider redirect carries.
+async fn start_on_launch(resources: &ServerContext, jwt: &str) -> String {
+    let uri = "/api/oauth/authorize/strava";
+    let (status, headers, body) = get_with_session(resources, uri, jwt).await;
+    state_of_redirect(uri, status, &headers, &body)
+}
+
+/// The athlete a flow's state was minted for: its first `:` segment.
+fn athlete_of_state(state: &str) -> Uuid {
+    Uuid::parse_str(state.split(':').next().unwrap()).unwrap()
+}
+
+/// A stored API key for `user_id`, as the whole `Authorization` value a REST
+/// route reads it from.
+async fn api_key_for(resources: &ServerContext, user_id: Uuid) -> String {
+    let (key, full_key) = ApiKeyManager::new()
+        .create_api_key(
+            user_id,
+            CreateApiKeyRequest {
+                name: "bridge-launch".to_owned(),
+                description: None,
+                tier: ApiKeyTier::Starter,
+                rate_limit_requests: Some(1000),
+                expires_in_days: None,
+            },
+        )
+        .unwrap();
+    resources.common.repos.api_keys.create(&key).await.unwrap();
+    full_key
 }
 
 /// What one poll of the bridge reads: `get_connection_status` for Strava,
@@ -221,7 +264,7 @@ async fn the_polled_status_turns_connected_when_the_bridge_flow_completes() {
     let (resources, service, executor, _env) = dravr(&strava).await;
     let (user_id, tenant_id, jwt) = athlete(&resources).await;
 
-    let state = start_on_initiate(&resources, user_id, &jwt).await;
+    let state = start_on_launch(&resources, &jwt).await;
 
     let pending = strava_status(&executor, user_id, tenant_id).await;
     assert_eq!(pending["provider"], "strava");
@@ -270,32 +313,17 @@ async fn the_polled_status_turns_connected_when_a_minted_flow_completes() {
     assert_eq!(connected["connected"], true);
 }
 
-/// Another athlete's bridge can neither start this athlete's flow nor see it
-/// complete: the initiate route refuses a user id that is not the session's,
-/// and the status it polls stays disconnected while the owner's turns
-/// connected.
+/// Another athlete's bridge never sees this athlete's flow complete: the
+/// status it polls stays disconnected while the owner's turns connected.
 #[tokio::test]
 #[serial]
-async fn another_athletes_bridge_neither_starts_nor_sees_the_flow() {
+async fn another_athletes_bridge_never_sees_the_flow_complete() {
     let strava = mock_strava().await;
     let (resources, service, executor, _env) = dravr(&strava).await;
     let (owner_id, owner_tenant, owner_jwt) = athlete(&resources).await;
-    let (other_id, other_tenant, other_jwt) = athlete(&resources).await;
+    let (other_id, other_tenant, _) = athlete(&resources).await;
 
-    let (refused, _, body) = get_with_session(
-        &resources,
-        &format!("/api/oauth/auth/strava/{owner_id}"),
-        &other_jwt,
-    )
-    .await;
-    assert_eq!(
-        refused,
-        StatusCode::FORBIDDEN,
-        "{}",
-        String::from_utf8_lossy(&body)
-    );
-
-    let state = start_on_initiate(&resources, owner_id, &owner_jwt).await;
+    let state = start_on_launch(&resources, &owner_jwt).await;
     service
         .handle_callback("auth-code", &state, "strava")
         .await
@@ -317,5 +345,97 @@ async fn another_athletes_bridge_neither_starts_nor_sees_the_flow() {
     assert!(
         stored.is_none(),
         "the owner's provider token never lands on another athlete"
+    );
+}
+
+/// The route the bridge started from before carnet#603, which named its
+/// athlete in the path, is gone: a valid session reaches a 404 there.
+#[tokio::test]
+#[serial]
+async fn the_retired_initiate_route_answers_404() {
+    let strava = mock_strava().await;
+    let (resources, _, _, _env) = dravr(&strava).await;
+    let (user_id, _, jwt) = athlete(&resources).await;
+
+    let (status, headers, _) = get_with_session(
+        &resources,
+        &format!("/api/oauth/auth/strava/{user_id}"),
+        &jwt,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(headers.get(header::LOCATION).is_none());
+}
+
+/// The launch route accepts both credentials the bridge holds — a session
+/// bearer, and an API key as the whole `Authorization` value — and mints the
+/// flow for the athlete each one names.
+#[tokio::test]
+#[serial]
+async fn the_launch_route_starts_the_flow_of_the_athlete_the_credential_names() {
+    let strava = mock_strava().await;
+    let (resources, _, _, _env) = dravr(&strava).await;
+    let (session_athlete, _, jwt) = athlete(&resources).await;
+    let (key_athlete, _, _) = athlete(&resources).await;
+    let uri = "/api/oauth/authorize/strava";
+
+    let (status, headers, body) = get_with_session(&resources, uri, &jwt).await;
+    let session_state = state_of_redirect(uri, status, &headers, &body);
+    assert_eq!(athlete_of_state(&session_state), session_athlete);
+
+    let key = api_key_for(&resources, key_athlete).await;
+    let (status, headers, body) = get_with_authorization(&resources, uri, &key).await;
+    let key_state = state_of_redirect(uri, status, &headers, &body);
+    assert_eq!(athlete_of_state(&key_state), key_athlete);
+}
+
+/// Identity comes from the credential and from nothing a caller writes: an
+/// athlete who names another's user id — in the retired path or in a query
+/// parameter — starts a flow for their own account or none, and completing it
+/// connects the provider to them alone.
+#[tokio::test]
+#[serial]
+async fn the_launch_route_refuses_another_athletes_identity() {
+    let strava = mock_strava().await;
+    let (resources, service, executor, _env) = dravr(&strava).await;
+    let (owner_id, owner_tenant, _) = athlete(&resources).await;
+    let (caller_id, caller_tenant, caller_jwt) = athlete(&resources).await;
+
+    let (status, _, _) = get_with_session(
+        &resources,
+        &format!("/api/oauth/auth/strava/{owner_id}"),
+        &caller_jwt,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let uri = format!("/api/oauth/authorize/strava?user_id={owner_id}");
+    let (status, headers, body) = get_with_session(&resources, &uri, &caller_jwt).await;
+    let state = state_of_redirect(&uri, status, &headers, &body);
+    assert_eq!(athlete_of_state(&state), caller_id);
+
+    service
+        .handle_callback("auth-code", &state, "strava")
+        .await
+        .expect("the caller's own flow completes");
+
+    assert_eq!(
+        strava_status(&executor, caller_id, caller_tenant).await["status"],
+        "connected"
+    );
+    assert_eq!(
+        strava_status(&executor, owner_id, owner_tenant).await["status"],
+        "disconnected"
+    );
+    let owner_token = resources
+        .common
+        .repos
+        .oauth_tokens
+        .get_token(owner_id, owner_tenant, "strava")
+        .await
+        .unwrap();
+    assert!(
+        owner_token.is_none(),
+        "nothing lands on the athlete the caller named"
     );
 }
