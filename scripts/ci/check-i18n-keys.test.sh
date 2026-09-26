@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ABOUTME: Pins check-i18n-keys.sh — the catch case, the clean case, and three no-false-positive cases
+# ABOUTME: Pins check-i18n-keys.sh — both catch cases, the clean case, three no-false-positive cases, fail-closed
 # ABOUTME: Builds a throwaway catalogue and source tree, so it runs in under a second with no deps
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -77,7 +77,17 @@ else
     fail "mishandled a dynamic key (status $STATUS)"
 fi
 
-# 5. Fail closed: a scan that found no call sites has verified nothing.
+# 5. Catch: a classifier fallback key is translated like a t() call.
+scaffold
+printf 'export const m = (err: unknown) => describeApiError(err, { t, fallbackKey: %s });\n' "'app.weeklyReport'" > "$WORK/probe/src/Fallback.tsx"
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "UNRESOLVED app.weeklyReport"; then
+    pass "fails on a describeApiError fallback key the catalogue does not carry"
+else
+    fail "did not catch the unresolved fallback key (status $STATUS)"
+fi
+
+# 6. Fail closed: a scan that found no call sites has verified nothing.
 scaffold
 printf 'export const H = () => <Text>nothing translated here</Text>;\n' > "$WORK/probe/src/Empty.tsx"
 OUT="$(run_check)"; STATUS=$?

@@ -67,6 +67,9 @@ make_repo() {
     printf '#!/bin/sh\nexit 0\n' >"$dir/scripts/ci/$stub"
     chmod +x "$dir/scripts/ci/$stub"
   done
+  # The base resolver is not a stub: the validator sources it to pick the base
+  # every tier diffs against, so the fixture runs the real rule.
+  cp "$SCRIPT_DIR/gate-base-ref.sh" "$dir/scripts/ci/gate-base-ref.sh"
   # Tier 1-shared runs the .build submodule's validate.sh on every push and
   # fails closed when it is missing, so the fixture carries a no-op in its place.
   mkdir -p "$dir/.build/validation"
@@ -198,9 +201,25 @@ expect_absent "Rust diff names no changed package" "Changed packages:"
 expect_absent "Rust source outside tests/ pays no workflow-target tier" "Tier 1m: Workflow test targets"
 expect_exit "Rust diff passes" 0
 
-# 7. Fail closed. A checkout whose .build submodule was never initialised has no
+# 7. One base for every tier. The validator resolves its base through
+#    gate-base-ref.sh and exports it, so a gate it calls with no argument (the
+#    agent-vocabulary tier) diffs against the same commit as the gates it hands
+#    $BASE_REF to. The fixture has no origin/main, so the rule lands on HEAD~1.
+echo "  case 7: the base reaches a gate called without one"
+dir="$(make_repo)"
+# Single quotes on purpose: the stub expands the variable when it runs, not here.
+printf '#!/bin/sh\necho "vocabulary-base=${GATE_BASE_REF:-unset}"\n' >"$dir/scripts/ci/check-agent-vocabulary.sh"
+chmod +x "$dir/scripts/ci/check-agent-vocabulary.sh"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "vocabulary stub"
+base_sha="$(git -C "$dir" rev-parse HEAD)"
+run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
+expect_contains "the argument-less vocabulary gate reads the exported base" "vocabulary-base=$base_sha"
+expect_exit "the base-propagation case passes" 0
+
+# 8. Fail closed. A checkout whose .build submodule was never initialised has no
 #    validate.sh, and a push from it must stop rather than skip the shared scans.
-echo "  case 7: .build submodule missing"
+echo "  case 8: .build submodule missing"
 dir="$(make_repo)"
 rm -rf "$dir/.build"
 run_change "$dir" src/lib.rs "$(printf 'pub fn probe() {}\n\npub fn probe_three() {}')"

@@ -10,6 +10,8 @@ import { adminApi } from '../services/api';
 import type { PreApprovedEmail } from '../services/api/admin';
 import { Button, Card, Badge, Input } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { formatDate } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 
 /**
  * Pre-approving an address is how an operator adds someone who has not
@@ -18,6 +20,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
  * approved on the spot by the same action.
  */
 export default function PreApprovedEmails() {
+  const { language } = useTranslation();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
@@ -165,7 +168,7 @@ export default function PreApprovedEmails() {
                     <p className="text-sm text-on-surface-variant mb-1">{entry.note}</p>
                   )}
                   <div className="flex items-center space-x-4 text-xs text-outline">
-                    <span>Allowed: {formatDate(entry.created_at)}</span>
+                    <span>Allowed: {formatDate(entry.created_at, language)}</span>
                     <span>By: {entry.allowed_by_email ?? 'unattributed'}</span>
                   </div>
                 </div>
@@ -196,14 +199,6 @@ function statusVariant(status: 'pending' | 'active' | 'suspended') {
     default:
       return 'warning' as const;
   }
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
 }
 
 /**

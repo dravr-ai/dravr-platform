@@ -8,6 +8,7 @@ import type { A2AClientRegistrationRequest, A2AClientCredentials } from '../type
 import { Button, Card, Textarea, Input } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface CreateA2AClientProps {
   onSuccess?: () => void;
@@ -369,9 +370,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
               <div>
                 <h3 className="text-sm font-medium text-error">{t('a2a.registrationFailed')}</h3>
                 <p className="text-sm text-on-surface mt-1">
-                  {createMutation.error instanceof Error
-                    ? createMutation.error.message
-                    : t('a2a.registerError')}
+                  {describeApiError(createMutation.error, { t, fallbackKey: 'a2a.registerError' })}
                 </p>
               </div>
             </div>

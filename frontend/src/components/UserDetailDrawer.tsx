@@ -15,6 +15,8 @@ import { useAuth } from '../hooks/useAuth';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
+import { formatDateTime } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 
 interface UserDetailDrawerProps {
   user: User | null;
@@ -29,6 +31,7 @@ export default function UserDetailDrawer({
   onClose,
   onAction
 }: UserDetailDrawerProps) {
+  const { language } = useTranslation();
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [overrideEditing, setOverrideEditing] = useState(false);
@@ -146,16 +149,6 @@ export default function UserDetailDrawer({
   });
 
   if (!isOpen || !user) return null;
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
 
   const formatLimit = (limit: number | null) => {
     if (limit === null) return 'Unlimited';
@@ -292,16 +285,16 @@ export default function UserDetailDrawer({
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-on-surface-variant">Registered</span>
-                <p className="font-medium text-on-surface">{formatDate(user.created_at)}</p>
+                <p className="font-medium text-on-surface">{formatDateTime(user.created_at, language)}</p>
               </div>
               <div>
                 <span className="text-on-surface-variant">Last Active</span>
-                <p className="font-medium text-on-surface">{user.last_active ? formatDate(user.last_active) : 'Never'}</p>
+                <p className="font-medium text-on-surface">{user.last_active ? formatDateTime(user.last_active, language) : 'Never'}</p>
               </div>
               {user.approved_at && (
                 <div>
                   <span className="text-on-surface-variant">Approved</span>
-                  <p className="font-medium text-on-surface">{formatDate(user.approved_at)}</p>
+                  <p className="font-medium text-on-surface">{formatDateTime(user.approved_at, language)}</p>
                 </div>
               )}
               {user.approved_by && (
@@ -362,7 +355,7 @@ export default function UserDetailDrawer({
                     />
                   </div>
                   <p className="text-xs text-outline mt-1">
-                    Resets: {formatDate(rateLimit.reset_times.monthly_reset)}
+                    Resets: {formatDateTime(rateLimit.reset_times.monthly_reset, language)}
                   </p>
                 </div>
                 <div className="pt-2 border-t ghost-border space-y-2">

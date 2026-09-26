@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Compile-free detection of phantom surfaces — declared capabilities
-# ABOUTME: with no implementor (Rust traits) and no caller (api-client methods).
+# ABOUTME: with no implementor (Rust traits) and no caller (api-client and web service methods).
 
 # WHY THIS EXISTS
 # ---------------
@@ -37,15 +37,29 @@
 #      map". The 2026-09-02 review found it by reading; nothing could have
 #      failed a push over it, because the direction of a check decides what is
 #      invisible to it.
+#   4. A web-only service method (frontend/src/services/api) with ZERO
+#      production call sites. The endpoints only the web console calls — admin,
+#      a2a, dashboard, usage, billing, messaging config — live there instead of
+#      in the api-client, so the api-client scan never read them, and the route
+#      scan (case 3) counts any client line that names a path as a caller,
+#      including the line inside a method nothing calls. Recurrence: carnet#581 — 34 such methods,
+#      three of them feeding the admin token screen from routes the server has
+#      never served, every one of their routes reading as consumed.
 #
 # Both were found by a manual cold read months after they were written. Neither
 # is visible to a regression test: nothing broke, because nothing ran.
 #
 # MODES
-#   check-phantom-surfaces.sh              — report the standing stock, exit 0
-#   check-phantom-surfaces.sh <BASE_REF>   — additionally FAIL when the diff
-#                                            against BASE_REF introduces a NEW
-#                                            phantom surface
+#   check-phantom-surfaces.sh [BASE_REF]   — report the standing stock, and FAIL
+#                                            when the diff against the base
+#                                            introduces a NEW phantom surface
+#
+# The base follows the rule every diff gate shares (gate-base-ref.sh): the
+# argument, else $GATE_BASE_REF, else origin/main, and HEAD~1 whenever that is
+# missing or equals HEAD. An empty argument used to skip the gate entirely and
+# report the stock alone, which disarmed it on every workflow_dispatch run. Only
+# a root commit, with nothing before it, skips the gate now. A scan that cannot
+# stand behind its result fails in either case.
 #
 # The diff-scoped mode is the gate: it stops the stock from growing at the
 # moment of authoring, which is the only moment the author has the context to
@@ -65,7 +79,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 cd "$PROJECT_ROOT" || exit 1
 
-BASE_REF="${1:-}"
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$SCRIPT_DIR/gate-base-ref.sh"
+BASE_REF="$(resolve_gate_base_ref "${1:-}" || true)"
 FAILED=false
 
 echo -e "${BLUE}==== Phantom Surface Detection (static) ====${NC}"
@@ -141,8 +157,14 @@ else
     # call that had disappeared — the i18n bundle fetch did exactly that when
     # its wrapper was deleted, and this pool said the method reached web alone.
     surface_files frontend-mobile/src frontend-mobile/app > "$TMP/files_mobile.txt"
+    # `packages/ui-logic` holds the React Query hooks both clients bind to
+    # their own API instance: `createGroupHooks(groupsApi, …)` in each app's
+    # hooks/useGroups. The call sits in the shared factory, not in either app,
+    # so leaving it out of this pool read every group, notification and palette
+    # method as having no caller at all.
     surface_files packages/api-client/src packages/shared-constants/src \
-        packages/shared-types/src packages/mcp-types/src sdk/src > "$TMP/files_shared.txt"
+        packages/shared-types/src packages/mcp-types/src packages/ui-logic/src \
+        sdk/src > "$TMP/files_shared.txt"
 
     PROD_N=$(cat "$TMP"/files_*.txt 2>/dev/null | grep -c . || true)
 
@@ -226,6 +248,66 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Scan 2b: web-only service methods with zero production call sites
+# ---------------------------------------------------------------------------
+# Same caller rule as scan 2 (`.name` followed by a non-word character), over
+# the web app alone, since nothing else imports these files. The definition
+# directory is excluded: a service method is consumed by a component or hook,
+# and the barrel only re-exports whole objects.
+#
+# Whole-tree, not diff-scoped: the stock was cleared to zero (carnet#581), and a
+# diff scan misses the common way a method goes dead — the component holding
+# its last call is deleted, which is a whole-file deletion the parity check
+# deliberately ignores. Delete the method in the same change, or wire a caller.
+WEB_SERVICES="frontend/src/services/api"
+
+if [[ ! -d "$WEB_SERVICES" ]]; then
+    echo -e "${RED}❌ ${WEB_SERVICES} not found — this scan is stale.${NC}"
+    FAILED=true
+else
+    grep -hoE '^[[:space:]]{2}async [a-zA-Z0-9_]+\(' "$WEB_SERVICES"/*.ts 2>/dev/null \
+        | sed -E 's/^[[:space:]]*async //; s/\($//' | sort -u > "$TMP/web_methods.txt"
+    find frontend/src \( -name '*.ts' -o -name '*.tsx' \) 2>/dev/null \
+        | grep -vE '__tests__|\.test\.|\.spec\.' \
+        | grep -v "^${WEB_SERVICES}/" > "$TMP/web_service_callers.txt"
+
+    WEB_METHOD_N=$(grep -c . < "$TMP/web_methods.txt" || true)
+    WEB_CALLER_FILES_N=$(grep -c . < "$TMP/web_service_callers.txt" || true)
+
+    if [[ "$WEB_METHOD_N" -eq 0 || "$WEB_CALLER_FILES_N" -eq 0 ]]; then
+        echo -e "${RED}❌ Parsed zero web service methods or zero web files — this scan is stale.${NC}"
+        FAILED=true
+    else
+        sed -E 's/^/\\./; s/$/([^a-zA-Z0-9_]|$)/' "$TMP/web_methods.txt" > "$TMP/web_patterns.txt"
+        tr '\n' '\0' < "$TMP/web_service_callers.txt" \
+            | xargs -0 grep -ohEf "$TMP/web_patterns.txt" 2>/dev/null \
+            | sed -E 's/^\.//; s/[^a-zA-Z0-9_]$//' \
+            | sort -u > "$TMP/web_used.txt"
+        comm -23 "$TMP/web_methods.txt" "$TMP/web_used.txt" > "$TMP/web_orphans.txt"
+
+        WEB_USED_N=$(grep -c . < "$TMP/web_used.txt" || true)
+        WEB_ORPHAN_N=$(grep -c . < "$TMP/web_orphans.txt" || true)
+
+        if [[ "$WEB_USED_N" -lt $(( WEB_METHOD_N / 4 )) ]]; then
+            echo -e "${RED}❌ Web service usage scan implausible: only ${WEB_USED_N} of ${WEB_METHOD_N} methods matched.${NC}"
+            echo -e "${YELLOW}   The scan machinery is broken (grep/xargs behaviour), not the codebase.${NC}"
+            FAILED=true
+        elif [[ "$WEB_ORPHAN_N" -eq 0 ]]; then
+            echo -e "${GREEN}✅ Web services: all ${WEB_METHOD_N} methods in ${WEB_SERVICES} have a production caller.${NC}"
+        else
+            echo -e "${RED}❌ Web service methods with zero production callers (${WEB_ORPHAN_N} of ${WEB_METHOD_N}):${NC}"
+            while read -r m; do
+                [[ -z "$m" ]] && continue
+                SITE=$(grep -HnE "^[[:space:]]{2}async ${m}\(" "$WEB_SERVICES"/*.ts 2>/dev/null | head -1 | cut -d: -f1,2)
+                echo "   $m  ($SITE)"
+            done < "$TMP/web_orphans.txt"
+            echo -e "${YELLOW}   Delete each method (and what only it used), or give it a caller, in this change.${NC}"
+            FAILED=true
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Scan 3: deserialized config fields with zero read sites
 # ---------------------------------------------------------------------------
 # The quietest phantom of the three. An operator sets the key, the file parses,
@@ -304,20 +386,54 @@ fi
 # ---------------------------------------------------------------------------
 # Scan 4: /api/ routes the server serves that no client mentions
 # ---------------------------------------------------------------------------
-# Matched on the route's STATIC PREFIX, because neither side spells the whole
-# path: Rust carries `{param}` segments and the clients append `?query` or
-# interpolate `${id}` onto a literal. Comparing full strings reported routes as
-# orphans that a domain file reaches one line later — /api/memory/facts is
-# built as `/api/memory/facts?${query}`, and an exact-match scan called it dead.
+# The route list comes from scripts/ci/backend-routes.py, the one route scanner
+# (nginx-routing-check.sh reads its prefixes). It sees what a line grep cannot:
+# a `.route(` whose path rustfmt moved to the next line, and a router mounted
+# under a `.nest` prefix. The grep this replaced read 71 single-line `/api`
+# registrations and missed 160 split ones, so routes no client calls passed.
+#
+# Matched on the FULL templated path. A `{param}` segment matches what a client
+# writes in its place — a `${expr}` interpolation, a `{name}` in a doc comment,
+# or a `:name` — and a literal segment matches only itself, so
+# `/api/agents/{id}/fork` is not satisfied by a mention of `/api/agents` (the
+# old scan cut every path at its first `{param}`, which is how that route passed)
+# and `/api/agents/{id}` is not satisfied by `/api/agents/proposal`. The path
+# must end where the mention ends — a quote, `?`, `$`, space — so a longer path
+# never stands in for a shorter one, while `/api/memory/facts?${query}` still
+# reaches /api/memory/facts.
 #
 # Only `/api/` is scanned. `/mcp`, `/a2a`, `/health` and `/.well-known` are
 # protocol surfaces whose consumers are external by definition, and asking our
 # own clients to call them would be the bug.
-ROUTE_SRC=(crates/*/src)
-grep -rhoE '\.route\("/api/[^"]*"' "${ROUTE_SRC[@]}" 2>/dev/null \
-    | sed -E 's/^\.route\("//; s/"$//' \
-    | sed -E 's#/\{[^}]*\}.*$##' \
-    | sort -u > "$TMP/routes.txt"
+ROUTES_PY="$SCRIPT_DIR/backend-routes.py"
+
+# Every `/api/` route one tree serves, as PATH<TAB>FILE:LINE. The scanner exits
+# non-zero when it cannot stand behind its list (a computed path, an unresolved
+# `.nest`, no routes at all); that is a failed gate, never an empty list.
+scan_api_routes() { # $1 = tree root, $2 = output file
+    local out
+    if ! out="$(python3 "$ROUTES_PY" routes "$1" 2>&1)"; then
+        echo -e "${RED}❌ Route scan failed on ${1}:${NC}"
+        printf '%s\n' "$out" | sed 's/^/   /'
+        return 1
+    fi
+    printf '%s\n' "$out" | awk -F'\t' '$1 ~ /^\/api\//' > "$2"
+}
+
+# An ERE per route, one per line, in the order of the route file: literal
+# segments escaped, each `{param}` turned into the client spellings above, and
+# an end-of-path boundary appended.
+route_patterns() {
+    sed -E 's/[].[\\*^$()+?|]/\\&/g' "$1" \
+        | sed -E 's#\{[^}/]*\}#(\\$\\{[^}]*\\}|\\{[^}/]*\\}|:[A-Za-z_][A-Za-z0-9_]*)#g; s#$#([^A-Za-z0-9_/-]|$)#'
+}
+
+: > "$TMP/routes.txt"
+if scan_api_routes "$PROJECT_ROOT" "$TMP/route_sites.txt"; then
+    cut -f1 "$TMP/route_sites.txt" | sort -u > "$TMP/routes.txt"
+else
+    FAILED=true
+fi
 
 ROUTE_N=$(grep -c . < "$TMP/routes.txt" || true)
 
@@ -334,13 +450,26 @@ else
 
     : > "$TMP/orphan_routes.txt"
     if [[ -s "$TMP/client_files.txt" ]]; then
-        while read -r route; do
+        # Every pattern starts with the literal `/api/`, so the lines that carry
+        # it are the whole search space: read the clients once, not per route.
+        tr '\n' '\0' < "$TMP/client_files.txt" \
+            | xargs -0 grep -hF -- '/api/' > "$TMP/client_api_lines.txt" 2>/dev/null || true
+        route_patterns "$TMP/routes.txt" > "$TMP/route_patterns.txt"
+        while IFS=$'\t' read -r route pattern; do
             [[ -z "$route" ]] && continue
-            # -F: a route is a literal, and `.` in a path must not match any char.
-            if ! grep -qF -- "$route" $(cat "$TMP/client_files.txt") 2>/dev/null; then
+            if ! grep -qE -- "$pattern" "$TMP/client_api_lines.txt"; then
                 echo "$route" >> "$TMP/orphan_routes.txt"
             fi
-        done < "$TMP/routes.txt"
+        done < <(paste "$TMP/routes.txt" "$TMP/route_patterns.txt")
+
+        # Completeness tripwire, as for the api-client scan: both apps call
+        # dozens of routes, so matching almost none means the matcher broke.
+        CALLED_N=$(( ROUTE_N - $(grep -c . < "$TMP/orphan_routes.txt" || true) ))
+        if [[ "$CALLED_N" -lt $(( ROUTE_N / 4 )) ]]; then
+            echo -e "${RED}❌ Route match implausible: only ${CALLED_N} of ${ROUTE_N} /api/ routes matched a client line.${NC}"
+            echo -e "${YELLOW}   The matcher is broken (sed/grep behaviour), not the codebase.${NC}"
+            FAILED=true
+        fi
     else
         echo -e "${RED}❌ Found zero client files — this scan is stale.${NC}"
         FAILED=true
@@ -438,32 +567,60 @@ if [[ -n "$BASE_REF" ]]; then
     # and this check cannot tell them apart. What it can tell is that a route
     # arriving right now has nothing on the other end — decide that while the
     # reason is still in someone's head.
-    ADDED_ROUTES="$(git diff -U0 "${BASE_REF}...HEAD" -- 'crates/*/src/*.rs' 2>/dev/null \
-        | grep '^+' | grep -v '^+++' | grep -oE '\.route\("/api/[^"]*"' \
-        | sed -E 's/^\.route\("//; s/"$//' | sed -E 's#/\{[^}]*\}.*$##' | sort -u || true)"
-    if [[ -n "$ADDED_ROUTES" && -f "$TMP/orphan_routes.txt" ]]; then
+    #
+    # "Added" is a set difference: the routes HEAD serves minus the routes the
+    # merge-base served, both read by the same scanner. Grepping the diff's `+`
+    # lines cannot work once registrations span lines — the path sits on a line
+    # of its own, a nested route's `+` line carries no prefix — and rustfmt
+    # reflowing an existing registration adds lines without adding a route.
+    MERGE_BASE="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+    mkdir -p "$TMP/base_tree"
+    if [[ -z "$MERGE_BASE" ]]; then
+        echo -e "${RED}❌ No merge-base between ${BASE_REF} and HEAD — cannot tell which routes this change adds.${NC}"
+        NEW_FOUND=true
+    elif ! git archive "$MERGE_BASE" -- ':(glob)crates/*/src/**' | tar -x -C "$TMP/base_tree"; then
+        echo -e "${RED}❌ Could not read crates/*/src at ${MERGE_BASE} — cannot tell which routes this change adds.${NC}"
+        NEW_FOUND=true
+    elif ! scan_api_routes "$TMP/base_tree" "$TMP/base_route_sites.txt"; then
+        NEW_FOUND=true
+    elif [[ -f "$TMP/orphan_routes.txt" ]]; then
+        cut -f1 "$TMP/base_route_sites.txt" | sort -u > "$TMP/base_routes.txt"
+        comm -13 "$TMP/base_routes.txt" "$TMP/routes.txt" \
+            | comm -12 - "$TMP/orphan_routes.txt" > "$TMP/added_orphan_routes.txt"
         while read -r r; do
             [[ -z "$r" ]] && continue
-            if grep -qxF "$r" "$TMP/orphan_routes.txt" 2>/dev/null; then
-                # The failure text below offers a LIMITATION(registre#issue:)
-                # marker as the way to ship a known gap. Honour it: a route
-                # whose own declaration site carries a marker naming that route
-                # is registered debt with an issue behind it, not an unowned
-                # phantom. The marker must name the route, so one marker cannot
-                # blanket-silence a file, and the issue number is printed here
-                # so a registered gap stays visible in the run instead of
-                # disappearing into a pass.
-                marker="$(grep -rhoE "LIMITATION\(registre#[0-9]+\)[^\n]*${r}" \
-                    --include='*.rs' crates 2>/dev/null | head -1 || true)"
-                if [[ -n "$marker" ]]; then
-                    issue="$(printf '%s' "$marker" | grep -oE 'registre#[0-9]+' | head -1)"
-                    echo -e "${YELLOW}⚠️  Registered gap (${issue}): ${r} has no client${NC}"
-                else
-                    echo -e "${RED}❌ New /api/ route no client mentions: ${r}${NC}"
-                    NEW_FOUND=true
-                fi
+            # The failure text below offers a LIMITATION(registre#issue:) marker
+            # as the way to ship a known gap. Honour it: a route whose own
+            # declaring file carries a marker naming that route is registered
+            # debt with an issue behind it, not an unowned phantom. The marker
+            # must name the whole route — `/api/agents/import` does not register
+            # `/api/agents/import/preview` — so one marker cannot blanket-silence
+            # a family, and the issue number is printed here so a registered gap
+            # stays visible in the run instead of disappearing into a pass.
+            issue="$(awk -F'\t' -v r="$r" '$1 == r { sub(/:[0-9]+$/, "", $2); print $2 }' \
+                    "$TMP/route_sites.txt" | sort -u \
+                | while read -r f; do
+                    awk -v r="$r" '
+                        {
+                            m = index($0, "LIMITATION(registre#")
+                            if (m == 0) next
+                            rest = substr($0, m)
+                            i = index(rest, r)
+                            if (i == 0) next
+                            after = substr(rest, i + length(r), 1)
+                            if (after ~ /[A-Za-z0-9_\/{}-]/) next
+                            match(rest, /registre#[0-9]+/)
+                            print substr(rest, RSTART, RLENGTH)
+                            exit
+                        }' "$PROJECT_ROOT/$f"
+                done | head -1)"
+            if [[ -n "$issue" ]]; then
+                echo -e "${YELLOW}⚠️  Registered gap (${issue}): ${r} has no client${NC}"
+            else
+                echo -e "${RED}❌ New /api/ route no client mentions: ${r}${NC}"
+                NEW_FOUND=true
             fi
-        done <<< "$ADDED_ROUTES"
+        done < "$TMP/added_orphan_routes.txt"
     fi
 
     if [[ "$NEW_FOUND" == "true" ]]; then

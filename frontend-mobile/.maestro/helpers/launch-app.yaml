@@ -12,6 +12,8 @@ appId: host.exp.Exponent
 # the app without the iOS "Open in Expo Go?" confirmation dialog on iOS 18. iOS 27
 # asks anyway, so the dialog is answered when it is there — one immediate check,
 # not a slot in the loop below, where every optional miss costs a lookup budget.
+# A link that reaches Expo Go before it has finished starting is not opened at all;
+# the loop below sends it again while the login screen has not appeared.
 - runFlow:
     when:
       platform: iOS
@@ -54,6 +56,18 @@ appId: host.exp.Exponent
 # lookup budget on each miss, so a round in which neither sheet is present costs ~16 s,
 # not the swipe's 2 s — 6 rounds is the practical ceiling before the 120 s login-screen
 # wait. The tap at 50%,10% closes the full developer menu, which opens after "Continue".
+#
+# On iOS each round ends by sending the deep link again while the login screen is still
+# absent. The first link, sent the moment launchApp returns, can reach Expo Go before it
+# is ready for one, and Expo Go then stays on its own home screen with the app never
+# started: no sheet to dismiss, so every round missed and the flow failed at the 120 s
+# wait. That was the iOS lane's one recurring failure, on main and on branches alike,
+# hitting a different flow on each attempt: during those flows the server never received
+# the GET /api/i18n/<locale> the app sends as its root layout loads (2026-09-25, runs
+# 36077391246 and 36096724222). By the end of a round Expo Go has been up for 15 s or
+# more, so the link opens the app; when the app is already running under a sheet, Expo Go
+# hands the link to it as a deep link into the running project. The link is sent at the
+# end of a round and not at its start, where the app may still be loading from the last one.
 - swipe:
     start: "50%,30%"
     end: "50%,31%"
@@ -77,6 +91,18 @@ appId: host.exp.Exponent
           start: "50%,30%"
           end: "50%,32%"
           duration: 2000
+      - runFlow:
+          when:
+            platform: iOS
+            notVisible:
+              id: "login-screen"
+          commands:
+            - openLink: "exp://127.0.0.1:8082"
+            - runFlow:
+                when:
+                  visible: "Open"
+                commands:
+                  - tapOn: "Open"
 
 # Wait for React Native to load and render login screen.
 # 120s timeout accounts for JS bundle compilation on cold start in CI.

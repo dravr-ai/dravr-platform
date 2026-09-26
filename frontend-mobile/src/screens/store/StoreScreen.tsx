@@ -21,7 +21,8 @@ import { useTranslation } from '@pierre/i18n';
 import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
 import { TextTabs, HeaderActions, type TextTabItem } from '../../components/ui';
 import { DiscoverRow } from './DiscoverRow';
-import { presentSortMenu, type SortMenuOption } from './presentSortMenu';
+import { presentMenu } from '../../utils/presentMenu';
+import { describeApiError } from '@pierre/ui-logic';
 
 // Category tabs. `key` is the value sent to the API and must stay English;
 // the label is resolved at render, since module scope cannot hold a hook.
@@ -91,7 +92,7 @@ export function StoreScreen() {
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadAgents');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadAgents' });
       setError(errorMessage);
       console.error('Failed to load store coaches:', err);
     } finally {
@@ -115,7 +116,7 @@ export function StoreScreen() {
       setNextCursor(response.next_cursor ?? null);
       setHasMore(response.has_more ?? false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMoreAgents');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadMoreAgents' });
       setError(errorMessage);
       console.error('Failed to load more coaches:', err);
     } finally {
@@ -136,7 +137,7 @@ export function StoreScreen() {
       setNextCursor(null);
       setHasMore(false);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedSearchAgents');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedSearchAgents' });
       setError(errorMessage);
       console.error('Failed to search coaches:', err);
     }
@@ -178,18 +179,11 @@ export function StoreScreen() {
     label: t(labelKey),
   }));
 
-  const sortMenuOptions: SortMenuOption<SortOption>[] = SORT_OPTIONS.map(({ key, labelKey }) => ({
-    key,
-    label: t(labelKey),
-  }));
-
   const openSortMenu = () => {
-    presentSortMenu<SortOption>({
-      options: sortMenuOptions,
-      onChange: setSelectedSort,
-      cancelLabel: t('common.cancel'),
-      title: t('discover.sortByLabel'),
-    });
+    presentMenu(
+      SORT_OPTIONS.map(({ key, labelKey }) => ({ label: t(labelKey), onPress: () => setSelectedSort(key) })),
+      { title: t('discover.sortByLabel'), cancelLabel: t('common.cancel') },
+    );
   };
 
   const renderEmptyState = () => (

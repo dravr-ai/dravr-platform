@@ -26,6 +26,9 @@ export {
   BACKGROUND_COLORS,
   TEXT_COLORS,
   BORDER_COLORS,
+  BORDER_INK,
+  ghostBorder,
+  PRIMARY_HOVER,
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_DARK,
   CONTAINER_INKS,
@@ -41,7 +44,6 @@ export {
   BRAND_TRACKING,
   SPACING,
   BORDER_RADIUS,
-  FONT_SIZE,
   FONT_WEIGHT,
   DESIGN_SYSTEM,
 } from './design-system';
@@ -53,8 +55,12 @@ export {
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
+  NOTIFICATION_CATEGORY_BLURB_KEYS,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
+  NOTIFICATION_QUIET_HOUR_VALUES,
   defaultNotificationPreference,
+  localTimezone,
+  notificationCapLabel,
   mergeNotificationPreferences,
   notificationPreferenceUpdate,
   formatNotificationTime,
@@ -86,8 +92,8 @@ export {
 export type { MentionDraft, MentionCandidate } from './mentions';
 
 // User-facing surface registry (what the product offers, and where per platform)
-export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels, webRouteFor } from './surfaces';
-export type { UserSurface } from './surfaces';
+export { USER_SURFACES, surfaceById, surfacesFor, webNavLabels } from './surfaces';
+export type { DestinationRoutes, UserSurface } from './surfaces';
 
 // Settings menu grouping (which panes, in what order, holding what)
 export {
@@ -96,6 +102,8 @@ export {
   settingsPanesFor,
   settingsPane,
   settingsPaneSections,
+  settingsPaneWebRoute,
+  settingsSectionScreen,
   HELP_URL,
   LEGAL_URL,
   APP_VERSION,
@@ -130,6 +138,15 @@ export type { NotificationDestination, NotificationNavTarget } from './notificat
 // Memory fact kinds (the server's FactKind wire values and their label keys)
 export { MEMORY_KIND_LABEL_KEY } from './memory';
 
+// Billing vocabulary both plan pages print (tier names as corpus keys, and the
+// subscription statuses that ask the athlete to fix their payment)
+export {
+  PLAN_TIER_LABEL_KEY,
+  planTierLabelKey,
+  PAYMENT_PROBLEM_STATUSES,
+  hasPaymentProblem,
+} from './billing';
+
 // Provider capability scopes (the wire slugs a provider card lists, and the
 // catalogue key naming each one)
 export {
@@ -158,6 +175,18 @@ export {
   IdleWatch,
 } from './query-policy';
 export type { IdleWatchOptions } from './query-policy';
+
+// The send path's side of that contract: the abort signal an open turn rides,
+// and the registered watch it holds active and asks whether the athlete left.
+export {
+  idleSignal,
+  idleAbort,
+  resetIdleAbort,
+  registerIdleWatch,
+  holdIdleWhileBusy,
+  trackAbsence,
+  whenAthleteReturns,
+} from './idle-signal';
 
 // Claim-verdict vocabulary: the status and evidence words both chat surfaces
 // print, as corpus keys resolved with each client's own t()
@@ -192,3 +221,9 @@ export {
   isDelegationRefusal,
   delegationRefusalKey,
 } from './delegation';
+
+// The keyless basemap both route cards draw over, per colour scheme
+export { BASEMAP_STYLE } from './route-map';
+
+// What every unread and notification badge prints for a count
+export { badgeLabel } from './badge';

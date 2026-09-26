@@ -15,8 +15,11 @@
 #   is the base that actually describes the change; a schedule or workflow_dispatch
 #   run carries no such sha.
 #
-#   Sourced rather than executed so each gate keeps one resolution rule. Callers:
-#   check-file-sizes.sh, check-migration-idempotency.sh.
+#   Sourced rather than executed so every gate keeps one resolution rule. Every
+#   diff-scoped gate under scripts/ci sources it (`rg -l gate-base-ref scripts/ci`
+#   lists them), and pre-push-validate.sh resolves its own base here too and
+#   exports the result as $GATE_BASE_REF, so a gate it calls without an argument
+#   diffs against the same commit as one it hands the base to.
 #
 # Usage:
 #   . "$SCRIPT_DIR/gate-base-ref.sh"

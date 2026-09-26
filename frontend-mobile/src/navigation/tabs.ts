@@ -61,8 +61,3 @@ export const TAB_BAR_TABS: readonly TabBarTab[] = [
     testID: 'tab-settings',
   },
 ];
-
-/** What a badge prints for a count; three digits is where it stops growing. */
-export function badgeLabel(count: number): string {
-  return count > 99 ? '99+' : String(count);
-}

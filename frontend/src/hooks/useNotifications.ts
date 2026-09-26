@@ -1,151 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks for notification management on the web frontend
-// ABOUTME: Provides hooks for notification feed, unread count, per-category preferences, and actions
+// ABOUTME: The web client's binding of the shared notification hooks — its API and its unread-badge poll
+// ABOUTME: The hooks themselves live in @pierre/ui-logic, one definition for web and mobile
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
-import { QUERY_KEYS } from '@pierre/shared-constants';
+import { createNotificationHooks } from '@pierre/ui-logic';
 import { notificationsApi } from '../services/api';
-import type {
-  ListNotificationsParams,
-  UpdateNotificationPreferenceRequest,
-} from '@pierre/shared-types';
 
-/**
- * Hook for fetching the notification feed with pagination and filtering.
- */
-export function useNotificationFeed(params?: ListNotificationsParams) {
-  const queryClient = useQueryClient();
-
-  const query = useQuery({
-    queryKey: QUERY_KEYS.notifications.feed(params?.category),
-    queryFn: () => notificationsApi.listNotifications(params),
-    staleTime: 30_000,
-  });
-
-  const invalidate = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
-      queryClient.invalidateQueries({ queryKey: ['notifications-feed'] }),
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
-    ]);
-  }, [queryClient]);
-
-  return {
-    notifications: query.data?.data ?? [],
-    total: query.data?.total ?? 0,
-    unreadCount: query.data?.unread_count ?? 0,
-    isLoading: query.isLoading,
-    isRefetching: query.isRefetching,
-    isError: query.isError,
-    error: query.error,
-    refetch: query.refetch,
-    invalidate,
-  };
-}
-
-/**
- * Hook for fetching the unread notification count.
- * Polls every 2 minutes for badge updates; window-focus refetch disabled
- * because this is a low-value background counter and tab-hopping was
- * generating 80+ requests per session.
- */
-export function useUnreadCount() {
-  const query = useQuery({
-    queryKey: QUERY_KEYS.notifications.unreadCount(),
-    queryFn: () => notificationsApi.getUnreadCount(),
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-  });
-
-  return {
-    unreadCount: query.data?.unread_count ?? 0,
-    isLoading: query.isLoading,
-  };
-}
-
-/**
- * Hook for notification mutations (mark read, mark all read, delete).
- */
-export function useNotificationActions() {
-  const queryClient = useQueryClient();
-
-  // Invalidate every distinct notifications key. We can't rely on a single
-  // prefix match because the key tree is flat and uses dashed sentinels
-  // (`notifications-feed`, `notifications-unread-count`) rather than nested
-  // children of `['notifications']`.
-  const invalidateAll = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all }),
-      queryClient.invalidateQueries({ queryKey: ['notifications-feed'] }),
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.preferences() }),
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.devices() }),
-    ]);
-  }, [queryClient]);
-
-  const markAsRead = useMutation({
-    mutationFn: (notificationId: string) => notificationsApi.markAsRead(notificationId),
-    onSuccess: invalidateAll,
-  });
-
-  const markAllAsRead = useMutation({
-    mutationFn: () => notificationsApi.markAllAsRead(),
-    onSuccess: invalidateAll,
-  });
-
-  const deleteNotification = useMutation({
-    mutationFn: (notificationId: string) => notificationsApi.deleteNotification(notificationId),
-    onSuccess: invalidateAll,
-  });
-
-  return {
-    markAsRead: markAsRead.mutate,
-    markAllAsRead: markAllAsRead.mutate,
-    deleteNotification: deleteNotification.mutate,
-    isMarkingRead: markAsRead.isPending,
-    isMarkingAllRead: markAllAsRead.isPending,
-    isDeleting: deleteNotification.isPending,
-  };
-}
-
-/**
- * Hook for managing per-category notification preferences.
- *
- * Same shape the mobile hook of this name exposes, so the two preference
- * surfaces read one contract: `preferences` is the server's per-category list
- * and `updatePreference` takes an `UpdateNotificationPreferenceRequest`
- * verbatim. Nothing is derived locally — a category the server does not return
- * is a category this client does not offer.
- */
-export function useNotificationPreferences() {
-  const queryClient = useQueryClient();
-
-  const query = useQuery({
-    queryKey: QUERY_KEYS.notifications.preferences(),
-    queryFn: () => notificationsApi.getPreferences(),
-    staleTime: 5 * 60_000,
-  });
-
-  const updatePreference = useMutation({
-    mutationFn: (request: UpdateNotificationPreferenceRequest) =>
-      notificationsApi.updatePreference(request),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: QUERY_KEYS.notifications.preferences(),
-      });
-    },
-  });
-
-  return {
-    preferences: query.data?.preferences ?? [],
-    isLoading: query.isLoading,
-    isError: query.isError,
-    updatePreference: updatePreference.mutate,
-    isUpdating: updatePreference.isPending,
-  };
-}
+export const {
+  useNotificationFeed,
+  useUnreadCount,
+  useNotificationActions,
+  useNotificationPreferences,
+} = createNotificationHooks(notificationsApi, {
+  // A low-value background counter: polled every two minutes, and not
+  // refetched on window focus or mount, because tab-hopping was generating
+  // 80+ requests per session.
+  staleTime: 60_000,
+  refetchInterval: 120_000,
+  refetchOnWindowFocus: false,
+  refetchOnMount: false,
+});

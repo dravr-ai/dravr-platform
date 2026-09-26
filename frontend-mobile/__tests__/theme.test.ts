@@ -1,7 +1,11 @@
 // ABOUTME: Unit tests for the mobile scale tokens — spacing, type scale, radius
 // ABOUTME: Colour is not testable from here: it lives in useThemeColors(), which needs a scheme to resolve
 
-import { spacing, fontSize, borderRadius } from '../src/constants/theme';
+import { spacing, typeScale, borderRadius } from '../src/constants/theme';
+
+const tailwind = require('../tailwind.config.js') as {
+  theme: { extend: { fontSize: Record<string, [string, { lineHeight: string }]> } };
+};
 
 describe('Theme Constants', () => {
   describe('spacing', () => {
@@ -21,20 +25,21 @@ describe('Theme Constants', () => {
     });
   });
 
-  describe('fontSize', () => {
-    it('should have font size values', () => {
-      expect(fontSize.xs).toBeDefined();
-      expect(fontSize.sm).toBeDefined();
-      expect(fontSize.md).toBeDefined();
-      expect(fontSize.lg).toBeDefined();
-      expect(fontSize.xl).toBeDefined();
+  describe('typeScale', () => {
+    // The class path and the inline path are one ladder: a style that cannot
+    // take a class reads the same step a `text-*` class renders.
+    it('is the text-* class ladder, step for step, in points', () => {
+      const classes = tailwind.theme.extend.fontSize;
+      expect(Object.keys(typeScale)).toEqual(Object.keys(classes));
+      for (const [step, { fontSize, lineHeight }] of Object.entries(typeScale)) {
+        expect(classes[step]).toEqual([`${fontSize}px`, { lineHeight: `${lineHeight}px` }]);
+      }
     });
 
-    it('should have increasing font sizes', () => {
-      expect(fontSize.sm).toBeGreaterThan(fontSize.xs);
-      expect(fontSize.md).toBeGreaterThan(fontSize.sm);
-      expect(fontSize.lg).toBeGreaterThan(fontSize.md);
-      expect(fontSize.xl).toBeGreaterThan(fontSize.lg);
+    it('reads 16 / 22 at the reading step, 13 / 18 at the interface step and 17 / 22 at the inline title', () => {
+      expect(typeScale.base).toEqual({ fontSize: 16, lineHeight: 22 });
+      expect(typeScale.sm).toEqual({ fontSize: 13, lineHeight: 18 });
+      expect(typeScale.lg).toEqual({ fontSize: 17, lineHeight: 22 });
     });
   });
 

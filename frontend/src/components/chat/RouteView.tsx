@@ -7,58 +7,20 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { useTranslation } from '@pierre/i18n';
-import type { RouteClimb, RouteView as RouteViewData } from '@pierre/scene-types';
-import { useTheme } from '../../hooks/useTheme';
+import type { RouteView as RouteViewData } from '@pierre/scene-types';
 import {
-  addRouteLayers,
-  BASEMAP_STYLE,
+  alignedSeries,
   climbGeometry,
-  routeInk,
+  climbGrade,
+  climbRange,
+  kilometres,
+  metresAt,
+  routeFrame,
   trackGeometry,
-  viewportBounds,
-} from './routeLayers';
-
-/**
- * A parallel series is index-aligned with the track or it is absent — the
- * photograveur contract is explicit that it is never padded to fit. This
- * re-checks the length anyway, because the series arrives over the wire and a
- * ragged one would print a distance read off the end of the array; a card that
- * drops the kilometre marks is a smaller loss than one that invents them.
- */
-function alignedSeries(series: number[] | null, points: number): number[] | null {
-  if (series === null || series.length !== points || points === 0) return null;
-  return series;
-}
-
-/** Metres to the one decimal of a kilometre a route is read in. */
-function kilometres(metres: number): string {
-  return (metres / 1000).toFixed(1);
-}
-
-/** The value at an index the wire supplied, or null when it points nowhere. */
-function metresAt(series: number[], index: number): number | null {
-  if (!Number.isInteger(index) || index < 0 || index >= series.length) return null;
-  return series[index];
-}
-
-/** `km 4.0–8.0` for one climb, or null when the track carried no distances. */
-function climbRange(distances: number[] | null, climb: RouteClimb): string | null {
-  if (distances === null) return null;
-  const from = metresAt(distances, climb.start_index);
-  const to = metresAt(distances, climb.end_index);
-  if (from === null || to === null) return null;
-  return `km ${kilometres(from)}–${kilometres(to)}`;
-}
-
-/**
- * The grade above the numbered scale, as the platform spells it.
- *
- * Hors catégorie is a name, not a number: every cycling culture writes it
- * `HC` and none says "Cat HC". A climb that carries it is captioned with the
- * two letters as they arrive; only `1` through `4` go through the `Cat N`
- * template.
- */
-const HORS_CATEGORIE = 'HC';
+} from '@pierre/chat-utils';
+import { BASEMAP_STYLE } from '@pierre/shared-constants';
+import { useTheme } from '../../hooks/useTheme';
+import { addRouteLayers, routeInk } from './routeLayers';
 
 /**
  * One recorded track, drawn.
@@ -80,7 +42,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
     () => climbGeometry(view.coordinates, view.climbs),
     [view.coordinates, view.climbs]
   );
-  const bounds = useMemo(() => viewportBounds(view.bounds), [view.bounds]);
+  const bounds = useMemo(() => routeFrame(view.bounds), [view.bounds]);
   const ink = useMemo(() => routeInk(scheme), [scheme]);
 
   // The style-load handler runs again on every basemap swap and has to paint in
@@ -123,11 +85,12 @@ export default function RouteView({ view }: { view: RouteViewData }) {
       const created = new Map({
         container: node,
         style: paint.current.style,
+        // Handed over at construction rather than fitted afterwards, so the
+        // first frame is already over the route instead of panning to it once
+        // tiles arrive. A one-fix track arrives widened to the shared minimum
+        // span, so it opens at the distance the phone frames it from.
         bounds,
-        // A track whose extent is a point — an activity that recorded one fix —
-        // otherwise fits at the style's maximum zoom, which is a map of one
-        // tree. 16 is as close as a route is ever read.
-        fitBoundsOptions: { padding: 24, maxZoom: 16 },
+        fitBoundsOptions: { padding: 24 },
         // MapLibre's own attribution lands bottom-right, under the zoom stack;
         // the compact one is docked opposite it below.
         attributionControl: false,
@@ -201,15 +164,7 @@ export default function RouteView({ view }: { view: RouteViewData }) {
           <ul className="mt-1 space-y-0.5 text-xs text-on-surface-variant">
             {view.climbs.map((climb) => {
               const range = climbRange(distances, climb);
-              // A climb below the category threshold is still drawn on the
-              // map but carries no grade — and a grade it did not earn is not
-              // one to print, so it gets no caption rather than a made-up one.
-              const grade =
-                climb.category === null
-                  ? null
-                  : climb.category === HORS_CATEGORIE
-                    ? climb.category
-                    : t('chat.routeClimbCategory', { category: climb.category });
+              const grade = climbGrade(climb, t);
               return (
                 <li
                   key={`${climb.start_index}-${climb.end_index}`}

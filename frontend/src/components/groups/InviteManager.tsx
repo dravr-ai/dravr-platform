@@ -10,12 +10,14 @@ import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hoo
 import { Button, Card, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { formatDateTime } from '@pierre/chat-utils';
 import type {
   GroupRole,
   GroupInvite,
   GroupInviteKind,
   CreateInviteRequest,
 } from '@pierre/shared-types';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface InviteManagerProps {
   groupId: string;
@@ -48,17 +50,6 @@ function kind_options(t: (key: string) => string): SelectOption[] {
   { value: 'member', label: t('groups.inviteTypeMember') },
   { value: 'coach', label: t('humanCoach.coach') },
 ];
-}
-
-/** A date in the reader's language, not the browser's. */
-function formatDate(dateStr: string, language: string): string {
-  return new Date(dateStr).toLocaleDateString(language, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function isExpired(invite: GroupInvite): boolean {
@@ -111,7 +102,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       showSuccess(t('app.inviteCreated'), detail);
       setShowCreateForm(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.inviteCreateFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.inviteCreateFailed' });
       showError(t('app.creationFailed'), message);
     }
   };
@@ -143,7 +134,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       showSuccess(t('app.inviteDeactivated'), t('app.inviteLinkStopsWorking'));
       setConfirmDeactivate(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.inviteDeactivateFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.inviteDeactivateFailed' });
       showError(t('app.deactivationFailed'), message);
     }
   };
@@ -249,7 +240,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                       })}
                     </span>
                     {invite.expires_at && (
-                      <span>{t('frag.expires')} {formatDate(invite.expires_at, i18n.language)}</span>
+                      <span>{t('frag.expires')} {formatDateTime(invite.expires_at, i18n.language)}</span>
                     )}
                     {!invite.expires_at && <span>{t('groups.inviteNoExpiry')}</span>}
                   </div>

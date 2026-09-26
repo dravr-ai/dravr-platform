@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { Settings } from 'lucide-react';
 import { DravrLogo } from '../DravrLogo';
 import { useTranslation } from '@pierre/i18n';
+import { badgeLabel } from '@pierre/shared-constants';
 
 /** One destination the rail offers. */
 export interface RailTab {
@@ -91,7 +92,7 @@ export function IconRail({
                       data-testid="pending-users-badge"
                       className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-on-primary ring-2 ring-surface"
                     >
-                      {tab.badge > 99 ? '99+' : tab.badge}
+                      {badgeLabel(tab.badge)}
                     </span>
                   )}
                 </button>

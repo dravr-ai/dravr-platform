@@ -41,8 +41,8 @@ use dravr_tronc::mcp::server::{InstructionsSource, McpServer};
 use dravr_tronc::mcp::tasks::{TaskId, TaskManager, TaskOptions, TaskOwner, TaskStatus};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
+use pierre_core::auth_header::is_api_key_format;
 use pierre_core::constants::http_status::INTERNAL_SERVER_ERROR;
-use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -303,20 +303,23 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         };
 
         // The transport strips the `Bearer ` prefix; the auth middleware expects
-        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare API key
-        // (`pk_live_` or `pk_trial_`) — so reconstruct it from the stripped token.
-        let auth_header =
-            if token.starts_with(key_prefixes::LIVE) || token.starts_with(key_prefixes::TRIAL) {
-                token.to_owned()
-            } else {
-                format!("Bearer {token}")
-            };
+        // the HTTP header form — `Bearer <jwt>` for JWTs, or a bare API key — so
+        // reconstruct it from the stripped token with the classifier the
+        // middleware itself uses, so `/mcp` accepts every key format REST does.
+        let auth_header = if is_api_key_format(token) {
+            token.to_owned()
+        } else {
+            format!("Bearer {token}")
+        };
 
+        // The scoped entry point: a delegated OAuth grant authenticates here,
+        // because this hook refuses any `tools/call` its scopes do not cover
+        // (below) and the dispatch chokepoint refuses it again.
         let auth_result = match self
             .resources
             .auth
             .auth_middleware
-            .authenticate_request(Some(&auth_header))
+            .authenticate_scoped_request(Some(&auth_header))
             .await
         {
             Ok(result) => result,

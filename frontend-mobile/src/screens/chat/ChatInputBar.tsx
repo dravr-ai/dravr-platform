@@ -10,13 +10,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { isCommandDraft } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
+import { PALETTE_KEYS } from '@pierre/ui-logic';
 import { useThemeColors } from '../../constants/theme';
 import { VoiceButton } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
 import { MentionPalette } from '../../components/MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
-import { COMPOSER_KEYS, composerKey, type ComposerKeyEvent } from '../../hooks/composerKeys';
+import { composerKey, type ComposerKeyEvent } from '../../hooks/composerKeys';
 
 interface ChatInputBarProps {
   inputText: string;
@@ -112,9 +113,10 @@ export function ChatInputBar({
    * the athlete typed the whole thing and means to send it.
    */
   const handleKeyPress = (event: ComposerKeyEvent) => {
-    if (palette.handleKeyPress(event)) return;
-    if (mentions.handleKeyPress(event)) return;
-    if (composerKey(event) === COMPOSER_KEYS.enter && canSend && isCommandDraft(inputText)) {
+    const key = composerKey(event);
+    if (palette.handleKey(key)) return;
+    if (mentions.handleKey(key)) return;
+    if (key === PALETTE_KEYS.enter && canSend && isCommandDraft(inputText)) {
       onSendMessage();
     }
   };

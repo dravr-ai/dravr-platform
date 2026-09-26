@@ -11,6 +11,7 @@ import { userApi } from '../services/api';
 import {
   BOREAL_LIGHT,
   BOREAL_DARK,
+  BORDER_INK,
   PILLARS,
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_DARK,
@@ -95,25 +96,6 @@ interface ThemeContextValue {
   /** True while the persisted preference is still loading on cold start. */
   loading: boolean;
 }
-
-/**
- * Ghost-border recipes, per scheme — the web's three strengths verbatim
- * (`frontend/src/index.css` `--ghost-border-faint` / `--ghost-border` /
- * `--ghost-border-strong`), so a divider measures the same on both clients.
- * `global.css` carries the same values for the class path (`border-border-*`);
- * `TypeScaleParity.test.ts` pins all three sources to each other.
- *
- * A hairline only reads when it contrasts with what it sits on, and the two
- * schemes need opposite ink for that: a pale grey-green line carries on the
- * near-black canvas and disappears on a white card, which is how the light
- * theme lost the only separation its near-identical surface tiers had. Light
- * therefore takes the darker Product Tier ghost border; dark keeps the pale
- * one at the opacities a near-black ground needs.
- */
-export const BORDER_INK: Record<ColorScheme, { rgb: string; faint: number; default: number; strong: number }> = {
-  light: { rgb: '155, 165, 159', faint: 0.26, default: 0.4, strong: 0.55 },
-  dark: { rgb: '192, 200, 195', faint: 0.14, default: 0.22, strong: 0.34 },
-};
 
 function buildPalette(scheme: ColorScheme): ThemeColors {
   const tokens = scheme === 'dark' ? BOREAL_DARK : BOREAL_LIGHT;

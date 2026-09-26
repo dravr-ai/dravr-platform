@@ -6,7 +6,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { OAuthClientInformation } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -24,11 +24,20 @@ import {
   configureValidator,
   type ResponseValidatorConfig,
 } from "./response-validator.js";
-import { PierreOAuthClientProvider, OAuthSessionConfig } from "./oauth-session-manager.js";
+import {
+  PierreOAuthClientProvider,
+  OAuthSessionConfig,
+  PIERRE_OAUTH_SCOPE,
+} from "./oauth-session-manager.js";
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
-import { startProviderOAuth } from "./provider-oauth-start.js";
+import {
+  CALLBACK_TOKEN_HEADER,
+  isNoticeRefusal,
+  providerNoticeMessage,
+  startProviderOAuth,
+} from "./provider-oauth-start.js";
 import {
   McpHttpClient,
   McpHttpError,
@@ -95,7 +104,11 @@ export interface BridgeConfigOAuth extends BridgeConfigBase {
   oauthClientSecret: string;
 }
 
-/** API key authentication mode */
+/**
+ * API key authentication mode: the Dravr API key is sent as the bearer on every /mcp
+ * request, which Dravr's MCP transport authenticates as that key. No browser sign-in
+ * runs in this mode, and a key Dravr refuses is reported as refused.
+ */
 export interface BridgeConfigApiKey extends BridgeConfigBase {
   mode: 'api-key';
   apiKey: string;
@@ -103,6 +116,11 @@ export interface BridgeConfigApiKey extends BridgeConfigBase {
 
 /** Discriminated union for authentication modes */
 export type BridgeConfig = BridgeConfigJwt | BridgeConfigOAuth | BridgeConfigApiKey;
+
+/** The page connect_provider opens, or the notice that stands between the account and it. */
+type ProviderAuthorizationPage =
+  | { kind: "open"; url: string }
+  | { kind: "notice_required"; message: string };
 
 export class PierreMcpClient {
   private config: BridgeConfig;
@@ -404,6 +422,14 @@ export class PierreMcpClient {
             );
             return;
           }
+          if (this.config.mode === "api-key") {
+            // The key is the only credential this mode presents, and presenting it
+            // again gets the same answer, so the refusal is reported at once.
+            throw new PierreError(
+              PierreErrorCode.AUTH_ERROR,
+              "Dravr refused the configured API key - check that it is active and has not expired or been revoked",
+            );
+          }
           if (attempt < maxAttempts) {
             this.log(
               `Stored session rejected, retrying... (attempt ${attempt}/${maxAttempts})`,
@@ -449,77 +475,13 @@ export class PierreMcpClient {
 
       // Manually trigger OAuth flow by building authorization URL and redirecting
       try {
-        // Step 1: Ensure client is registered (dynamic client registration)
-        let clientInfo = await this.oauthProvider.clientInformation();
-
-        // Get client metadata for redirect URI (needed for both new and existing clients)
-        const clientMetadata = this.oauthProvider["clientMetadata"];
-
-        if (!clientInfo) {
-          this.log(
-            "No client info found - performing dynamic client registration",
-          );
-
-          // Generate new client credentials
-          const crypto = require("crypto");
-          const clientId = `pierre-bridge-${crypto.randomBytes(8).toString("hex")}`;
-          const clientSecret = crypto.randomBytes(32).toString("hex");
-
-          const fullClientInfo: OAuthClientInformationFull = {
-            client_id: clientId,
-            client_secret: clientSecret,
-            redirect_uris: clientMetadata.redirect_uris,
-            grant_types: clientMetadata.grant_types,
-            response_types: clientMetadata.response_types,
-            scope: clientMetadata.scope,
-            client_name: clientMetadata.client_name,
-            client_uri: clientMetadata.client_uri,
-            client_id_issued_at: Math.floor(Date.now() / 1000),
-            client_secret_expires_at: 0, // Never expires
-          };
-
-          // Save and register the client (this updates clientInfo with Dravr's assigned client_id)
-          await this.oauthProvider.saveClientInformation(fullClientInfo);
-
-          // Re-fetch client information to get the server-assigned client_id
-          clientInfo = await this.oauthProvider.clientInformation();
-          if (!clientInfo) {
-            throw new PierreError(
-              PierreErrorCode.AUTH_ERROR,
-              "Client registration failed - no client info after registration",
-            );
-          }
-
-          this.log(
-            `Dynamic client registration complete: ${clientInfo.client_id}`,
-          );
-        }
-
-        // Step 2: Get redirect URI
-        const redirectUri = clientMetadata.redirect_uris[0];
-
-        // Step 3: Generate PKCE values
-        const state = await this.oauthProvider.state();
-        const codeVerifier = this.oauthProvider.generateRandomString(64);
-        await this.oauthProvider.saveCodeVerifier(codeVerifier);
-
-        const codeChallenge =
-          await this.oauthProvider.generateCodeChallenge(codeVerifier);
-
-        // Step 4: Build authorization URL
-        const authUrl = new URL(
-          `${this.config.pierreServerUrl}/oauth2/authorize`,
+        // Steps 1-5: authorize in the browser as a client registration Dravr accepts.
+        // The provider registers when none is stored or the stored one asked for another
+        // scope set, and re-registers and retries once when Dravr refuses a stored one.
+        const provider = this.oauthProvider;
+        await provider.authorizeWithRegistration((client) =>
+          this.authorizeInBrowser(provider, client),
         );
-        authUrl.searchParams.set("client_id", clientInfo.client_id);
-        authUrl.searchParams.set("redirect_uri", redirectUri);
-        authUrl.searchParams.set("response_type", "code");
-        authUrl.searchParams.set("state", state);
-        authUrl.searchParams.set("code_challenge", codeChallenge);
-        authUrl.searchParams.set("code_challenge_method", "S256");
-        authUrl.searchParams.set("scope", "read:fitness write:fitness");
-
-        // Step 5: Redirect to authorization (opens browser)
-        await this.oauthProvider.redirectToAuthorization(authUrl);
 
         // Step 6: Connect after OAuth completes
         await this.attemptConnection();
@@ -570,6 +532,34 @@ export class PierreMcpClient {
     this.log(
       `After attemptConnection, pierreClient is: ${!!this.pierreClient}`,
     );
+  }
+
+  /**
+   * One authorization as `client`: a fresh PKCE pair, the authorization URL, and the
+   * browser step, which returns once the code has been exchanged for tokens.
+   */
+  private async authorizeInBrowser(
+    provider: PierreOAuthClientProvider,
+    client: OAuthClientInformation,
+  ): Promise<void> {
+    const redirectUri = provider.redirectUrl;
+
+    const state = await provider.state();
+    const codeVerifier = provider.generateRandomString(64);
+    await provider.saveCodeVerifier(codeVerifier);
+    const codeChallenge = await provider.generateCodeChallenge(codeVerifier);
+
+    const authUrl = new URL(`${this.config.pierreServerUrl}/oauth2/authorize`);
+    authUrl.searchParams.set("client_id", client.client_id);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("code_challenge", codeChallenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("scope", PIERRE_OAUTH_SCOPE);
+
+    // Opens the browser and waits for the callback and the code exchange
+    await provider.redirectToAuthorization(authUrl);
   }
 
   /**
@@ -1491,52 +1481,32 @@ export class PierreMcpClient {
         );
       }
 
-      // Step 3: Extract user_id from JWT token
-      const tokens = await this.oauthProvider.tokens();
-      if (!tokens?.access_token) {
-        throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
+      // Step 3: Bind the callback listener before the flow starts. Dravr posts the
+      // provider tokens there when the flow completes, and the listener accepts that
+      // POST only with its per-flow token, which travels with the start below.
+      await this.oauthProvider.ensureCallbackServerBound();
+      const callbackToken = this.oauthProvider.callbackAuthToken;
+      if (!callbackToken) {
+        throw new PierreError(
+          PierreErrorCode.CONFIG_ERROR,
+          "Callback listener is bound but holds no per-flow token",
+        );
       }
 
-      // Decode JWT to get user_id (JWT format: header.payload.signature)
-      const payload = tokens.access_token.split(".")[1];
-      const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
-      const userId = decoded.sub;
-
-      if (!userId) {
-        throw new PierreError(PierreErrorCode.AUTH_ERROR, "Could not extract user_id from JWT token");
-      }
-
-      this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
-
-      // Ensure callback server is running to receive provider OAuth completion notification
-      // The server will POST to this callback when provider OAuth completes
-      if (this.oauthProvider) {
-        const oauthProviderAny = this.oauthProvider as any;
-        if (!oauthProviderAny.callbackServer) {
-          this.log("Starting callback server for provider OAuth notification");
-          // Accessing redirectUrl triggers startCallbackServerSync internally
-          const callbackUrl = oauthProviderAny.redirectUrl;
-          this.log(`Callback server ready at ${callbackUrl}`);
-        }
-      }
-
-      // Correct OAuth URL format: /api/oauth/auth/{provider}/{user_id}
-      const initiateUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
-
-      // Start the flow here, before any browser opens: a provider whose
-      // notice the account owes (WHOOP's owner authorization) is refused, and
-      // the user reads where to accept it rather than a raw 400 page.
-      const start = await startProviderOAuth(initiateUrl, tokens.access_token, provider);
-      if (start.kind === "notice_required") {
+      // Step 4: Start the provider's authorization before any browser opens: a provider
+      // whose notice the account owes (WHOOP's owner authorization) is refused, and the
+      // user reads where to accept it rather than a raw 400 page.
+      const page = await this.startProviderAuthorization(provider, callbackToken);
+      if (page.kind === "notice_required") {
         this.log(`${provider} OAuth refused: the account owes the provider's notice`);
         return {
-          content: [{ type: "text", text: start.message }],
+          content: [{ type: "text", text: page.message }],
           isError: true,
         };
       }
 
       try {
-        const providerOAuthUrl = start.kind === "authorize" ? start.url : initiateUrl;
+        const providerOAuthUrl = page.url;
 
         // Open provider OAuth in browser with focus
         openUrlInBrowserWithFocus(providerOAuthUrl, {
@@ -1642,6 +1612,92 @@ export class PierreMcpClient {
         ],
         isError: true,
       };
+    }
+  }
+
+  /**
+   * Starts `provider`'s authorization for the athlete this bridge acts for and names the
+   * page the browser opens, or the notice the account owes before it may start.
+   *
+   * A Dravr session token names its athlete in the JWT `sub` claim, and the flow starts on
+   * Dravr's initiation route for that user id. An API key names no athlete the bridge can
+   * read, so in api-key mode Dravr is asked for the provider's authorization URL instead:
+   * the key authenticates that request, and Dravr mints the URL for the key's athlete and
+   * records the flow's state on its side. Either way a refusal naming the provider's
+   * notice becomes the message that says where to accept it.
+   *
+   * Both starts carry `callbackToken`, the callback listener's per-flow token, in a request
+   * header: Dravr keeps it with the flow's state and presents it on the completion POST, the
+   * one request the listener accepts provider tokens from. It never rides a URL, so neither
+   * a request log nor the browser's history holds it.
+   */
+  private async startProviderAuthorization(
+    provider: string,
+    callbackToken: string,
+  ): Promise<ProviderAuthorizationPage> {
+    if (this.config.mode === "api-key") {
+      // A REST route reads an API key as the whole Authorization value, with no scheme:
+      // there `Bearer` introduces a session token. The MCP transport strips `Bearer`
+      // before it looks, which is why /mcp requests carry the key under that scheme.
+      const response = await fetch(
+        `${this.config.pierreServerUrl}/api/oauth/mobile/init/${encodeURIComponent(provider)}`,
+        {
+          headers: {
+            Authorization: this.config.apiKey,
+            [CALLBACK_TOKEN_HEADER]: callbackToken,
+          },
+        },
+      );
+      if (!response.ok) {
+        const refusal: unknown = await response.json().catch(() => null);
+        if (isNoticeRefusal(response.status, refusal)) {
+          return { kind: "notice_required", message: providerNoticeMessage(provider) };
+        }
+        throw new PierreError(
+          PierreErrorCode.PROVIDER_ERROR,
+          `Dravr refused to start ${provider} authorization for the configured API key (HTTP ${response.status})`,
+        );
+      }
+      const minted = (await response.json()) as { authorization_url?: unknown };
+      if (typeof minted.authorization_url !== "string") {
+        throw new PierreError(
+          PierreErrorCode.PROVIDER_ERROR,
+          `Dravr answered the ${provider} authorization request without an authorization_url`,
+        );
+      }
+      this.log(`Initiating ${provider} OAuth flow for the configured API key`);
+      return { kind: "open", url: minted.authorization_url };
+    }
+
+    const tokens = await this.oauthProvider?.tokens();
+    if (!tokens?.access_token) {
+      throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
+    }
+
+    // Decode JWT to get user_id (JWT format: header.payload.signature)
+    const payload = tokens.access_token.split(".")[1];
+    const decoded = JSON.parse(Buffer.from(payload, "base64").toString());
+    const userId = decoded.sub;
+
+    if (!userId) {
+      throw new PierreError(PierreErrorCode.AUTH_ERROR, "Could not extract user_id from JWT token");
+    }
+
+    this.log(`Initiating ${provider} OAuth flow for user: ${userId}`);
+    const initiateUrl = `${this.config.pierreServerUrl}/api/oauth/auth/${provider}/${userId}`;
+    const start = await startProviderOAuth(
+      initiateUrl,
+      tokens.access_token,
+      provider,
+      callbackToken,
+    );
+    switch (start.kind) {
+      case "notice_required":
+        return start;
+      case "authorize":
+        return { kind: "open", url: start.url };
+      case "open_initiate":
+        return { kind: "open", url: initiateUrl };
     }
   }
 

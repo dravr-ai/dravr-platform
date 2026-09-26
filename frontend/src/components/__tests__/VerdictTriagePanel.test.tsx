@@ -9,6 +9,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import VerdictTriagePanel from '../VerdictTriagePanel';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import type { VerdictKnob } from '../../services/api/admin';
+import { apiRefusal } from '../../test/apiRefusal';
 
 function verdict(id: string, overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
   return {
@@ -146,7 +147,7 @@ describe('VerdictTriagePanel', () => {
   it('surfaces the write failure instead of swallowing it', async () => {
     const onSetDisposition = vi
       .fn()
-      .mockRejectedValue(new Error('Permission required: manage_configuration'));
+      .mockRejectedValue(apiRefusal(403, { message: 'Permission required: manage_configuration' }));
     render(<VerdictTriagePanel verdict={verdict('v1')} knob={knob} onSetDisposition={onSetDisposition} />);
 
     fireEvent.change(screen.getByLabelText('Disposition call'), { target: { value: 'unsure' } });

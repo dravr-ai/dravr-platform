@@ -71,42 +71,13 @@ pub fn extract_bearer_token_from_option_owned(auth_header: Option<&str>) -> AppR
     extract_bearer_token_from_option(auth_header).map(str::to_owned)
 }
 
-/// Check if authorization header is in Bearer format
-#[must_use]
-pub fn is_bearer_token(auth_header: &str) -> bool {
-    auth_header.starts_with("Bearer ") && auth_header.len() > 7
-}
-
-/// Check if authorization header is likely an API key format
+/// Whether an Authorization header value, or the bearer token a transport
+/// stripped from one, is an API key this server issues (`pk_live_` or
+/// `pk_trial_`).
+///
+/// The one classifier REST authentication and the `/mcp` transport share, so
+/// both accept exactly the same key formats.
 #[must_use]
 pub fn is_api_key_format(auth_header: &str) -> bool {
-    auth_header.starts_with(key_prefixes::LIVE)
-        || auth_header.starts_with(key_prefixes::TRIAL)
-        || auth_header.starts_with("sk_")
-}
-
-/// Determine the authorization type from header
-#[derive(Debug, PartialEq, Eq)]
-pub enum AuthType {
-    /// Bearer token authentication (JWT or `OAuth2`)
-    Bearer,
-    /// API key authentication
-    ApiKey,
-    /// Unknown or unsupported authentication type
-    Unknown,
-}
-
-/// Detects the authentication type from an authorization header
-///
-/// Analyzes the header format to determine whether it contains a Bearer token,
-/// API key, or an unknown authentication scheme.
-#[must_use]
-pub fn detect_auth_type(auth_header: &str) -> AuthType {
-    if is_bearer_token(auth_header) {
-        AuthType::Bearer
-    } else if is_api_key_format(auth_header) {
-        AuthType::ApiKey
-    } else {
-        AuthType::Unknown
-    }
+    auth_header.starts_with(key_prefixes::LIVE) || auth_header.starts_with(key_prefixes::TRIAL)
 }

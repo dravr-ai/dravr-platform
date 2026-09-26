@@ -610,14 +610,13 @@ impl FitnessProvider for StravaProvider {
 
         let mut new_credentials = utils::refresh_oauth_token(
             &self.client,
-            &utils::RefreshRequest {
-                token_url: &self.config.token_url,
-                client_id: &credentials.client_id,
-                client_secret: &credentials.client_secret,
-                refresh_token: &refresh_token,
-                provider_name: oauth_providers::STRAVA,
-                extra_form: &[],
-            },
+            &utils::RefreshRequest::form_fields(
+                oauth_providers::STRAVA,
+                &self.config.token_url,
+                &credentials.client_id,
+                &credentials.client_secret,
+                &refresh_token,
+            ),
         )
         .await?;
         // Strava always rotates the refresh token and reports an absolute

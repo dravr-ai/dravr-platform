@@ -25,16 +25,25 @@ rm -f "$MARKER_FILE"
 # ============================================================================
 # Detect changed files and classify them
 # ============================================================================
-# Use the merge-base with origin/main so that rebased branches don't report
-# main commits they picked up as branch-owned changes. Falls back to
-# origin/main or HEAD~1 if merge-base lookup fails (e.g., fresh clone).
-if git rev-parse --verify "origin/main" &>/dev/null; then
-    BASE_REF=$(git merge-base "origin/main" HEAD 2>/dev/null || echo "origin/main")
+# The base comes from the one rule every diff-scoped gate uses
+# (gate-base-ref.sh): $GATE_BASE_REF, else origin/main, and HEAD~1 whenever that
+# is missing or already equals HEAD — so pushing a main that origin/main has
+# caught up with still inspects the tip commit instead of an empty diff. It is
+# then narrowed to its merge-base with HEAD, so a rebased branch does not report
+# the main commits it picked up as its own, and exported: the gates below that
+# take no argument read the same base as the ones handed $BASE_REF.
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$PROJECT_ROOT/scripts/ci/gate-base-ref.sh"
+if GATE_BASE="$(resolve_gate_base_ref)"; then
+    MERGE_BASE="$(git merge-base "$GATE_BASE" HEAD 2>/dev/null || echo "$GATE_BASE")"
+    BASE_REF="$(resolve_gate_base_ref "$MERGE_BASE")"
 else
-    BASE_REF="HEAD~1"
+    # A root commit: nothing precedes it, so there is no diff to scope a gate to.
+    BASE_REF="HEAD"
 fi
+export GATE_BASE_REF="$BASE_REF"
 
-CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD 2>/dev/null || echo "")
 
 HAS_RUST_SRC_CHANGES=false
 HAS_CARGO_CHANGES=false
@@ -192,7 +201,7 @@ fi
 # closed when shellcheck is absent rather than reading as clean, because a
 # scan that ran nothing is not a pass. The pattern set below mirrors the
 # workflow step in .github/workflows/ci-backend.yml — extend both together.
-SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$'
+SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
 SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
 SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do [[ -f "$PROJECT_ROOT/$f" ]] && echo "$f"; done)
 if [[ -n "$SHELL_LINT_FILES" ]]; then
@@ -303,7 +312,9 @@ fi
 # authApi.refreshToken). Gates the diff: a NEW unimplemented trait or uncalled
 # api-client method fails here, while the author still has the context to wire
 # a consumer. The standing stock is reported, not blessed — clearing it is a
-# per-surface deletion decision tracked in dravr-ai/carnet (carnet#17).
+# per-surface deletion decision tracked in dravr-ai/carnet (carnet#17). The one
+# whole-tree rule: every web-only service method (frontend/src/services/api)
+# needs a caller, because that stock is zero (carnet#581).
 # Also fires on either client's changes: since the api-client scan is split
 # per surface, a client that drops its last caller of a method the other client
 # still uses is a parity gap this catches — and that change touches neither
@@ -684,7 +695,7 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh" ]] \
 fi
 
 # ----------------------------------------------------------------------------
-# Tier 1l: hosted page stylesheet (compile-free, ~1s)
+# Tier 1l: generated Boreal stylesheets (compile-free, ~1s)
 # ----------------------------------------------------------------------------
 #
 # Every server-rendered hosted page embeds one stylesheet generated from the
@@ -692,18 +703,29 @@ fi
 # the generator, so the file is committed, and a committed generated file goes
 # stale the moment a token moves. The fourteen templates it replaced had each
 # kept a private copy of a palette the product retired months before, because
-# nothing tied them to the tokens. The gate regenerates and diffs, and holds
-# every hosted template to the shared sheet. It runs when anything the sheet is
-# built from, or anything that embeds it, is in the push.
+# nothing tied them to the tokens. The web and mobile stylesheets import token
+# blocks generated from the same source, for the same reason: each used to keep
+# a hand copy of the tree. The gate regenerates and diffs all three, holds every
+# hosted template to the shared sheet and each client stylesheet to its block.
+# It runs when anything a sheet is built from, or anything that embeds one, is
+# in the push; a change to the gate or its generators also runs its self-test.
 if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
     && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands)\.ts|scripts/generate-hosted-css\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^scripts/ci/check-hosted-css\.sh$'; then
-    echo "Tier 1l: Hosted page stylesheet"
-    echo "-------------------------------"
+       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands)\.ts|scripts/(generate-hosted-css|generate-client-css|wcag)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^frontend-mobile/(global|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+    echo "Tier 1l: Generated Boreal stylesheets"
+    echo "-------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh"; then
         echo ""
-        echo "FAIL: the hosted page stylesheet is stale, or a hosted template draws outside it!"
+        echo "FAIL: a generated Boreal stylesheet is stale, or a template or client stylesheet draws outside it!"
         exit 1
+    fi
+    if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+        | grep -qE '^packages/shared-constants/scripts/|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+        if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.test.sh"; then
+            echo ""
+            echo "FAIL: the generated-stylesheet gate no longer catches what its self-test plants!"
+            exit 1
+        fi
     fi
     echo ""
 fi
@@ -771,6 +793,10 @@ if [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; then
     echo "  $PACKAGE_TEST_FILES test file(s)"
     if ! (cd "$PROJECT_ROOT" && bun run typecheck:packages); then
         echo "FAIL: shared package type-check failed!"
+        exit 1
+    fi
+    if ! (cd "$PROJECT_ROOT" && bun run lint:packages); then
+        echo "FAIL: shared package lint failed!"
         exit 1
     fi
     if ! (cd "$PROJECT_ROOT" && bun run test:packages); then

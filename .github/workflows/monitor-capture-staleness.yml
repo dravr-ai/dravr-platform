@@ -78,6 +78,12 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      # Holds scripts/ci/standing-issue.cjs, which files the carnet issue below.
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci/standing-issue.cjs
+          sparse-checkout-cone-mode: false
+
       # A monitor that cannot reach the server must SAY SO, loudly. Without this
       # the credential-missing path was a silent green: on 2026-09-01 the first
       # real dispatch of this lane skipped both steps and reported success,
@@ -297,26 +303,11 @@ jobs:
               `_[Monitor: Capture Staleness](${monitorUrl})_`,
             ].join('\n');
 
-            // Every page, not the first: listForRepo returns newest-first and a
-            // standing issue's created_at never advances, so a single page of 100
-            // would stop seeing it once enough newer issues carry the label (same
-            // reasoning as monitor-scheduled-lanes.yml).
-            const existing = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', labels: 'dravr-platform', per_page: 100,
+            const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
+            await upsertStandingIssue(github, core, {
+              owner, repo, label: 'dravr-platform', title, body, onExisting: 'comment',
+              labels: ['dravr-platform', 'bug', 'critical'],
             });
-            const open = existing.find((i) => i.title === title);
-
-            if (!open) {
-              const created = await github.rest.issues.create({
-                owner, repo, title, body, labels: ['dravr-platform', 'bug', 'critical'],
-              });
-              core.info(`Opened issue #${created.data.number}`);
-              return;
-            }
-            await github.rest.issues.createComment({
-              owner, repo, issue_number: open.number, body,
-            });
-            core.info(`Commented on issue #${open.number}`);
 
       # Deliberately a warning, not a failure. This lane runs only on `schedule`,
       # so monitor-scheduled-lanes.yml reads its conclusion — and a red here would

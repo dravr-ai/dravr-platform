@@ -61,7 +61,7 @@ const MESSAGING_CHANNELS: [ChannelType; 5] = [
 pub struct SurfaceCapabilitiesResponse {
     /// Every reply-block kind the envelope can produce, in reply order.
     pub block_kinds: Vec<String>,
-    /// The `data.screen` vocabulary, paired with the surface each token opens.
+    /// The `data.screen` vocabulary, paired with the destination each token opens.
     pub notification_screens: Vec<NotificationScreenRow>,
     /// One row per surface, in [`SurfaceId::ALL`] order.
     pub surfaces: Vec<SurfaceCapabilityRow>,
@@ -72,7 +72,8 @@ pub struct SurfaceCapabilitiesResponse {
 pub struct NotificationScreenRow {
     /// The token as it travels on the wire.
     pub screen: String,
-    /// The `USER_SURFACES` id it opens.
+    /// The destination id it opens: a `USER_SURFACES` surface or a
+    /// `SETTINGS_PANES` pane.
     pub surface: String,
 }
 

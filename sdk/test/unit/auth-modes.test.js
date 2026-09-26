@@ -106,18 +106,8 @@ describe('OAuth 2.0 Authentication Mode', () => {
   });
 });
 
-describe('API Key Authentication Mode', () => {
-  test('should accept valid API key mode configuration', () => {
-    const config = {
-      mode: 'api-key',
-      pierreServerUrl: 'http://localhost:8081',
-      apiKey: 'sk-test-api-key-123456789',
-    };
-
-    expect(config.mode).toBe('api-key');
-    expect(config.apiKey).toBeTruthy();
-  });
-});
+// What API key mode sends, and what it never asks for, is asserted against a running
+// bridge in api-key-mode.test.js.
 
 describe('Authentication Mode Discrimination', () => {
   test('should correctly discriminate between all three modes', () => {

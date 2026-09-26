@@ -32,6 +32,7 @@ import { ProviderNotice } from './ProviderNotice';
 import { PROVIDER_NOTICES, type ProviderNoticeKeys } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
+import { describeApiError } from '@pierre/ui-logic';
 
 type LoginPhase =
   | 'choose'
@@ -310,7 +311,7 @@ export function SciotteLoginModal({
       }
       // type === 'cancel' / 'dismiss' — user backed out; no error to surface.
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('app.stravaOauthLaunchFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'app.stravaOauthLaunchFailed' });
       Alert.alert(t('app.connectionFailed'), message);
     }
   }, [onConnected, onClose, t]);
@@ -355,7 +356,7 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('auth.loginFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'auth.loginFailed' });
       setError(message);
       setPhase('error');
     } finally {
@@ -390,7 +391,7 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('app.verificationFailed'));
+      setError(describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }));
       setPhase('error');
     } finally {
       setIsLoading(false);
@@ -431,7 +432,7 @@ export function SciotteLoginModal({
         setPhase('error');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('app.verificationFailed'));
+      setError(describeApiError(err, { t, fallbackKey: 'app.verificationFailed' }));
       setPhase('error');
     } finally {
       setIsLoading(false);

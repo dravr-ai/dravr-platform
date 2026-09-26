@@ -15,14 +15,15 @@ use uuid::Uuid;
 
 use pierre_auth::auth::AuthResult;
 use pierre_auth::security::cookies::get_cookie_value;
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_runtime_context::MiddlewareCtx;
 
 /// Axum extractor that authenticates a user from the `Authorization` header or `auth_token` cookie.
 ///
 /// Tries the `Authorization` header first, then falls back to the `auth_token` cookie.
 /// Returns the full [`AuthResult`] including `user_id`, `auth_method`,
-/// and `active_tenant_id`.
+/// and `active_tenant_id`. A delegated OAuth grant is refused with 403: see
+/// [`extract_auth_from_headers`].
 ///
 /// # Usage
 ///
@@ -70,11 +71,15 @@ impl<C: MiddlewareCtx> FromRequestParts<Arc<C>> for AuthenticatedUser {
 /// Shared logic used by the [`AuthenticatedUser`] extractor. Tries the `Authorization` header
 /// first, then falls back to the `auth_token` cookie formatted as a Bearer token.
 ///
+/// Only the athlete's own credential passes: every route behind this acts with the athlete's
+/// whole authority and reads no scope, so a delegated OAuth grant is refused.
+///
 /// # Errors
 ///
 /// Returns [`AppError`] if:
 /// - No `Authorization` header or `auth_token` cookie is present
 /// - The token is invalid or expired
+/// - The token is a delegated OAuth grant (403 `PermissionDenied`, passed through unchanged)
 /// - The user lookup or rate limit check fails
 ///
 /// A spent request budget stays a 429 and a server-side failure keeps its
@@ -97,7 +102,17 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
     resources
         .authenticate_request(Some(&auth_value))
         .await
-        .map_err(|e| e.into_auth_refusal("Authentication failed"))
+        .map_err(|e| {
+            // A refused delegation is a genuine credential used where it does not
+            // apply: 403, carrying the sentence that says where it does. Folded
+            // into a 401 it would send the application back to re-authenticate
+            // for a token that would be refused again.
+            if e.code == ErrorCode::PermissionDenied {
+                e
+            } else {
+                e.into_auth_refusal("Authentication failed")
+            }
+        })
 }
 
 /// Convenience function to get `user_id` from an [`AuthenticatedUser`].

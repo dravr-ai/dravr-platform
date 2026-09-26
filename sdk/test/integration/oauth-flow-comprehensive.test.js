@@ -41,7 +41,7 @@ describe('OAuth 2.0 Flow - Dynamic Client Registration', () => {
       redirect_uris: ['http://localhost:35535/oauth/callback'],
       grant_types: ['authorization_code'],
       response_types: ['code'],
-      scope: 'read:fitness write:fitness',
+      scope: 'fitness:read fitness:write',
       client_name: 'Pierre Test Client',
       client_uri: 'https://test.example.com'
     };
@@ -62,6 +62,28 @@ describe('OAuth 2.0 Flow - Dynamic Client Registration', () => {
     expect(registrationResponse).toHaveProperty('client_secret');
     expect(registrationResponse.client_id).toBeTruthy();
     expect(registrationResponse.client_secret).toBeTruthy();
+    // The server registers exactly the grant it will authorize, in its own vocabulary.
+    expect(registrationResponse.scope).toBe('fitness:read fitness:write');
+  }, 30000);
+
+  test('should refuse a scope outside the server vocabulary', async () => {
+    const response = await fetch(registrationEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        redirect_uris: ['http://localhost:35535/oauth/callback'],
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        scope: 'read:fitness write:fitness',
+        client_name: 'Legacy Scope Client'
+      })
+    });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe('invalid_client_metadata');
   }, 30000);
 
   test('should return server-assigned client_id when registration succeeds', async () => {
@@ -71,7 +93,7 @@ describe('OAuth 2.0 Flow - Dynamic Client Registration', () => {
       redirect_uris: ['http://localhost:35535/oauth/callback'],
       grant_types: ['authorization_code'],
       response_types: ['code'],
-      scope: 'read:fitness write:fitness',
+      scope: 'fitness:read fitness:write profile:read profile:write',
       client_name: 'Pierre Bridge Client',
       client_uri: 'https://claude.ai'
     };
@@ -141,7 +163,7 @@ describe('OAuth 2.0 Flow - Dynamic Client Registration', () => {
       redirect_uris: ['http://localhost:35535/oauth/callback'],
       grant_types: ['authorization_code'],
       response_types: ['code'],
-      scope: 'read:fitness',
+      scope: 'fitness:read',
       client_name: 'Duplicate Test Client'
     };
 

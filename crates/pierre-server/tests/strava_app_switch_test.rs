@@ -34,7 +34,6 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 #[cfg(feature = "client-chat")]
 use pierre_chat_pipeline::stages::prefetch::{
     agentless_activity_window, inject_activity_refresh, prefetch_activity_context,
@@ -57,8 +56,10 @@ use pierre_llm::ChatMessage;
 use pierre_mcp_server::mcp::resources::ServerContext;
 #[cfg(feature = "health-sync")]
 use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refresher;
+use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::oauth_flow::OAuthService;
+use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -346,7 +347,7 @@ async fn fill_env_app(repos: &RepositoryRegistry) {
 /// consumes its state — and return the `client_id` the URL sent the athlete to.
 async fn reconnect(service: &OAuthService, user_id: Uuid, tenant: TenantId) -> String {
     let authorization = service
-        .get_auth_url(user_id, tenant, "strava")
+        .get_auth_url(user_id, tenant, "strava", AuthUrlOptions::default())
         .await
         .expect("a seat remains somewhere");
     service
@@ -772,7 +773,7 @@ async fn a_reconnect_that_loses_a_race_stores_nothing_and_revokes_its_own_grant(
     connect(repos, user_id, tenant, None).await;
     kill(repos, user_id, tenant).await;
     let authorization = service
-        .get_auth_url(user_id, tenant, "strava")
+        .get_auth_url(user_id, tenant, "strava", AuthUrlOptions::default())
         .await
         .expect("the env app has room");
     let winner = UserOAuthToken::new(
@@ -1769,7 +1770,9 @@ async fn a_transient_refresh_failure_carries_nothing_strava_answered() {
     let (resources, _service, _env) = service_pointed_at(&base).await;
     let (user_id, tenant) = athlete(&resources, "transient-text").await;
     connect_expired(&resources.common.repos, user_id, tenant, None).await;
-    let unparsed_success = r#"{"access_token":"access-of-an-unparsed-success","refresh_token":"refresh-of-an-unparsed-success"}"#;
+    // A success whose expiry is no timestamp: the pair is in the body, and
+    // the body does not parse.
+    let unparsed_success = r#"{"access_token":"access-of-an-unparsed-success","refresh_token":"refresh-of-an-unparsed-success","expires_at":"never"}"#;
 
     for (status, body, answered) in [
         (
@@ -1802,9 +1805,13 @@ async fn a_transient_refresh_failure_carries_nothing_strava_answered() {
         assert_eq!(auth_required_provider(&refused), None);
     }
 
-    let parse_error = refresh_strava_token(api_client(), ENV_CLIENT_ID, ENV_CLIENT_SECRET, "rt")
-        .await
-        .expect_err("an unparsable success is an error");
+    let token_url = format!("{base}/oauth/token");
+    let parse_error = refresh_oauth_token(
+        api_client(),
+        &RefreshRequest::form_fields("strava", &token_url, ENV_CLIENT_ID, ENV_CLIENT_SECRET, "rt"),
+    )
+    .await
+    .expect_err("an unparsable success is an error");
     assert!(
         !parse_error.to_string().contains("unparsed-success"),
         "a successful body is the token pair and stays out of the error: {parse_error}"
@@ -1947,7 +1954,7 @@ async fn a_reconnect_that_cannot_list_the_athletes_tokens_revokes_nothing() {
         .await
         .unwrap();
     let authorization = service
-        .get_auth_url(user_id, dead_in, "strava")
+        .get_auth_url(user_id, dead_in, "strava", AuthUrlOptions::default())
         .await
         .expect("the env app has room");
     // The listing reads this table; nothing else the callback needs does.
@@ -1987,7 +1994,7 @@ async fn a_lost_race_leaves_a_fresh_grant_the_athlete_holds_elsewhere() {
     let (user_id, live_in, racing_in) = athlete_in_two_tenants(&resources, "raced-live").await;
     connect(repos, user_id, live_in, None).await;
     let authorization = service
-        .get_auth_url(user_id, racing_in, "strava")
+        .get_auth_url(user_id, racing_in, "strava", AuthUrlOptions::default())
         .await
         .expect("the env app has room");
     let winner = UserOAuthToken::new(
@@ -2056,5 +2063,85 @@ async fn a_sync_credential_read_reports_a_rate_limited_refresh_as_the_providers(
     assert_eq!(
         connection_and_seat(&resources.common.repos, user_id, tenant).await,
         (ConnectionStatus::Active, true)
+    );
+}
+
+/// A Strava token whose pool app is no longer registered, for an athlete who
+/// registered their own Strava app since, resolves one client on every path
+/// that presents it: the tenant OAuth manager, the refresh and the
+/// revocation all take the athlete's own app, through the one resolver. The
+/// refresh used to go straight to the env app while the manager and the
+/// revocation took the athlete's.
+#[tokio::test]
+#[serial]
+async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
+    const OWN_CLIENT: &str = "athlete-own-app";
+    const OWN_SECRET: &str = "athlete-own-secret";
+    let (base, mock) = mock_strava().await;
+    let (resources, service, _env) = service_pointed_at(&base).await;
+    let repos = &resources.common.repos;
+    let (user_id, tenant) = athlete(&resources, "removed-pool-app").await;
+    connect_expired(repos, user_id, tenant, Some("910099")).await;
+    repos
+        .oauth_tokens
+        .store_user_oauth_app(
+            user_id,
+            "strava",
+            OWN_CLIENT,
+            OWN_SECRET,
+            "https://example.test/api/oauth/callback/strava",
+        )
+        .await
+        .unwrap();
+
+    let managed = resources
+        .auth
+        .tenant_oauth_client
+        .oauth_manager
+        .lock()
+        .await
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant,
+            "strava",
+            repos.tenants.as_ref(),
+            repos.oauth_tokens.as_ref(),
+        )
+        .await
+        .expect("the manager resolves a client");
+    assert_eq!(managed.client_id, OWN_CLIENT);
+    assert_eq!(managed.client_secret, OWN_SECRET);
+
+    AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+        .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
+        .await
+        .expect("the lookup does not error")
+        .expect("the expired token is refreshed");
+    let refreshes = mock.token_requests.lock().unwrap().clone();
+    assert_eq!(refreshes.len(), 1, "{refreshes:?}");
+    assert!(
+        refreshes[0].1.contains(&format!("client_id={OWN_CLIENT}"))
+            && refreshes[0]
+                .1
+                .contains(&format!("client_secret={OWN_SECRET}")),
+        "the refresh presents the client the manager resolves: {}",
+        refreshes[0].1
+    );
+
+    service
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("the disconnect succeeds");
+    let revocations = mock.revocations.lock().unwrap().clone();
+    assert_eq!(revocations.len(), 1, "{revocations:?}");
+    assert_eq!(
+        revocations[0].0,
+        basic(OWN_CLIENT, OWN_SECRET),
+        "the revocation presents the client the refresh did"
     );
 }

@@ -11,6 +11,7 @@ import {
   baseTypeScriptRules,
   baseReactRules,
   reactHooksRules,
+  rawErrorMessageRestrictions,
   testFileRules,
 } from '../packages/eslint-config-pierre/index.js';
 
@@ -91,6 +92,9 @@ export default [
       ...reactHooksRules,
       // Mobile-specific rules
       'no-console': 'off',
+      // A failed call is shown through describeApiError, never as the thrown
+      // error's own message: that is axios's English, under any locale.
+      'no-restricted-syntax': ['error', ...rawErrorMessageRestrictions],
     },
     settings: {
       react: {

@@ -209,10 +209,14 @@ print("  scan: all alarm cases pass")
 PY
 
 echo "── issues: open, comment, acknowledge, close"
-node - "$WORK/issues_body.js" <<'JS'
+node - "$WORK/issues_body.js" "$ROOT" <<'JS'
 const fs = require('fs');
+const path = require('path');
 const script = fs.readFileSync(process.argv[2], 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+// github-script resolves a relative require against the workspace, where the
+// checkout put the repository; the root stands in for it here.
+const workspaceRequire = (id) => require(id.startsWith('.') ? path.resolve(process.argv[3], id) : id);
 const prefix = '[platform] scheduled lane unhealthy: ';
 const red = (name) => ({
   name, file: `${name}.yml`, conclusion: 'schedule: failure', verdict: 'red on schedule (failure)',
@@ -247,7 +251,7 @@ async function scenario({ reds, scheduled, healthy, issues, comments = {} }) {
     REDS: JSON.stringify(reds), SCHEDULED: JSON.stringify(scheduled), HEALTHY: JSON.stringify(healthy),
     GITHUB_SERVER_URL: 'https://github.com', GITHUB_REPOSITORY: 'dravr-ai/dravr-platform', GITHUB_RUN_ID: '1',
   });
-  await new AsyncFunction('github', 'core', script)(github, core);
+  await new AsyncFunction('require', 'github', 'core', script)(workspaceRequire, github, core);
   return calls;
 }
 

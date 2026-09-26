@@ -1,7 +1,7 @@
 # ABOUTME: Snapshot of the backend's top-level path prefixes, reviewed against nginx
 # ABOUTME: scripts/ci/nginx-routing-check.sh fails when the extracted set differs
 #
-# Regenerate:  python3 scripts/ci/backend-route-prefixes.py . > scripts/ci/backend-route-prefixes.txt
+# Regenerate:  python3 scripts/ci/backend-routes.py prefixes . > scripts/ci/backend-route-prefixes.txt
 #
 # Why a snapshot rather than a computed pass/fail: resolving Rust router
 # composition exactly (merge vs nest, builders bound through closures) needs a
@@ -16,29 +16,27 @@
 # separate outages in one day (/mcp, /.well-known, /oauth2) came from exactly
 # this drift going unnoticed.
 #
-# proxied = reaches the backend via the nginx alternation
-# edge    = served by nginx itself, deliberately not proxied
-# nested  = an artefact of imperfect nest-resolution; the real path is under an
-#           already-proxied prefix (verify before adding a new one here)
+# proxied    = reaches the backend via the nginx alternation
+# edge       = served by nginx itself, deliberately not proxied
+# unproxied  = a real backend route family the nginx alternation does not carry,
+#              so through the edge it serves the SPA shell with a 200
 .well-known   # proxied
 a2a           # proxied
 admin         # proxied
 api           # proxied
-audit         # nested under /api/admin/config
-catalog       # nested under /api/admin/config
-category      # nested under /api/admin/config
-config        # nested under /api/admin/config
+config        # unproxied: GET/PUT /config and /config/user (ConfigurationRoutes)
 dashboard     # proxied (/dashboard/... ; bare /dashboard stays SPA)
 fitness       # proxied
 health        # edge: nginx serves `location = /health` for Cloud Run
 health-data   # proxied
+internal      # unproxied: Cloud Tasks posts /internal/turns/{id}/run to the service's own run.app URL; /internal/conversation-turn/{id} is admin observability
 mcp           # proxied (bare-path alternative)
 messaging     # proxied
+notifications # unproxied: GET /notifications/sse/{user_id}, which no in-repo client opens
 oauth         # proxied
 oauth2        # proxied
+providers     # proxied
 r             # proxied
 ready         # edge: container readiness
-reset         # nested under /api/admin/config
 tenants       # proxied (bare-path alternative: POST/GET /tenants)
-validate      # nested under /api/admin/config
 webhooks      # proxied

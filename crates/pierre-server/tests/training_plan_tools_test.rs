@@ -18,9 +18,12 @@ use pierre_database::repositories::training_plans::PlanOwner;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
+use pierre_tool_runtime::implementations::training_plans::{
+    GetTrainingPlanTool, SaveTrainingPlanTool,
+};
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use pierre_tool_runtime::tool_execution::generate_tool_catalog;
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
@@ -2773,5 +2776,83 @@ async fn a_null_race_list_is_refused_rather_than_read_as_keep() -> Result<()> {
         vec!["Club 10k".to_owned()],
         "a refused save writes nothing"
     );
+    Ok(())
+}
+
+// ============================================================================
+// The plan read is scope-gated
+// ============================================================================
+
+/// The reply is the athlete's plan, and with `include_state` their readiness,
+/// recovery and sleep-derived state. Declaring only the runtime requirements
+/// derived an empty scope list, so a delegated grant of any width — the empty
+/// grant included — read it, while `save_training_plan` next to it demanded
+/// `fitness:write`.
+#[test]
+fn get_training_plan_declares_the_fitness_read_it_performs() {
+    let caps = GetTrainingPlanTool.capabilities();
+
+    assert_eq!(
+        required_scopes(caps),
+        vec![OAuthScope::FitnessRead],
+        "reading the plan requires fitness:read, the read twin of save_training_plan"
+    );
+    assert_eq!(
+        missing_scope(&[], caps),
+        Some(OAuthScope::FitnessRead),
+        "the empty grant must be refused and told what it needed"
+    );
+    assert_eq!(
+        missing_scope(&[OAuthScope::ProfileRead], caps),
+        Some(OAuthScope::FitnessRead),
+        "a profile grant does not reach fitness data"
+    );
+    assert_eq!(missing_scope(&OAuthScope::self_grant(), caps), None);
+}
+
+#[tokio::test]
+async fn a_grant_without_fitness_read_is_refused_the_plan_at_the_chokepoint() -> Result<()> {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let resources = common::create_test_server_resources().await?;
+
+    for grant in [Vec::new(), vec![OAuthScope::ProfileRead]] {
+        let executor = UniversalToolExecutor::new(resources.clone()).with_scopes(grant.clone());
+        let (user_id, tenant_id) = create_test_user(&executor).await?;
+        let refused = executor
+            .execute_tool(make_request(
+                "get_training_plan",
+                json!({ "include_state": true }),
+                user_id,
+                Some(&tenant_id),
+            ))
+            .await
+            .expect_err("a grant without fitness:read must not reach the plan");
+        let message = refused.to_string();
+        assert!(
+            message.contains("fitness:read"),
+            "the refusal for {grant:?} names the grant that was needed: {message}"
+        );
+    }
+
+    // The grant that covers it still reads: no plan yet, and that answer.
+    let executor =
+        UniversalToolExecutor::new(resources.clone()).with_scopes(vec![OAuthScope::FitnessRead]);
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let response = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        response.success,
+        "fitness:read reads the plan: {:?}",
+        response.error
+    );
+    let result = response.result.expect("the read returns a payload");
+    assert_eq!(result["plan"], Value::Null);
     Ok(())
 }

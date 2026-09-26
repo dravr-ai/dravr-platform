@@ -1,4 +1,4 @@
-// ABOUTME: Turns a turn's own `notice` reply block into the usage banner both clients show
+// ABOUTME: Turns a turn's own `notice` reply block into the usage banner both clients show, and prints its figures
 // ABOUTME: One wording and one counter reading, instead of a countdown scraped out of the refusal prose
 
 import type { ReplyNotice } from '@pierre/shared-types';
@@ -16,12 +16,15 @@ export interface QuotaBanner {
 }
 
 /**
- * The reset instant in the reader's own timezone.
+ * The reset instant in the reader's own timezone: `12:00 AM UTC`, `00:00 UTC`.
+ *
+ * Every usage surface — the chat banner on both clients and both settings
+ * usage cards — prints the reset instant through this one function.
  *
  * `fallback` is the caller's translated wording for an unparseable instant:
  * this module has no locale, so it cannot reach the catalogue itself.
  */
-function formatResetTime(isoString: string, fallback: string): string {
+export function formatResetTime(isoString: string, fallback: string): string {
   try {
     return new Intl.DateTimeFormat(undefined, {
       hour: 'numeric',
@@ -31,6 +34,20 @@ function formatResetTime(isoString: string, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+/**
+ * A usage counter compacted for a quota meter: `145.0K`, `2.0M`, and the
+ * plain locale-grouped figure under a thousand.
+ */
+export function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return value.toLocaleString();
 }
 
 /**

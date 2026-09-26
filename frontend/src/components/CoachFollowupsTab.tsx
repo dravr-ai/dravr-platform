@@ -9,6 +9,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi, type FollowupRow } from '../services/api/admin';
 import { Card, Button, ConfirmDialog, Select , Input } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
 
@@ -49,6 +51,7 @@ function isOverdue(iso: string | null): boolean {
 }
 
 export default function CoachFollowupsTab() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const tenantId = user?.tenant_id ?? '';
   const queryClient = useQueryClient();
@@ -175,7 +178,7 @@ export default function CoachFollowupsTab() {
         ) : isError ? (
           <div className="p-6 text-sm text-error">
             Failed to load followups:{' '}
-            {error instanceof Error ? error.message : String(error)}
+            {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center">

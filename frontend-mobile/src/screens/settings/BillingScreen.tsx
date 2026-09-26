@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Phase 5E mobile billing surface — current plan, upgrade CTA, manage portal, invoices
-// ABOUTME: Calls /api/billing/{checkout,portal,subscription,invoices,users/me/quota}
+// ABOUTME: Reads the shared api-client billing domain; the dravr:// return links are mobile's own
 
 import React, { useState } from 'react';
 import {
@@ -15,84 +15,15 @@ import {
   View,
 } from 'react-native';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import type { PaidPlanTier } from '@pierre/shared-types';
+import { QUERY_KEYS, hasPaymentProblem, planTierLabelKey } from '@pierre/shared-constants';
+import { formatCompactNumber } from '@pierre/chat-utils';
 import { useAuth } from '../../contexts/AuthContext';
-import { apiClient } from '../../services/api';
+import { billingApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { useFeatureFlags, FEATURE_KEYS } from '../../hooks/useFeatureFlags';
 import { useTranslation } from '@pierre/i18n';
-
-interface SubscriptionView {
-  id: string;
-  tenant_id: string;
-  user_id: string;
-  provider: string;
-  provider_customer_id: string;
-  provider_subscription_id: string | null;
-  status: string;
-  plan_tier: string;
-  current_period_end: string | null;
-  cancel_at_period_end: boolean;
-}
-
-interface QuotaCounter {
-  counter_type: string;
-  current: number;
-  limit: number;
-  warning: boolean;
-  burst_zone: boolean;
-  resets_at: string;
-}
-
-interface MyQuotaResponse {
-  tier: string;
-  counters: QuotaCounter[];
-}
-
-interface InvoiceRow {
-  id?: string;
-  number?: string;
-  amount_paid?: number;
-  amount_due?: number;
-  currency?: string;
-  status?: string;
-  created?: number;
-  hosted_invoice_url?: string;
-}
-
-interface PlanView {
-  tier: string;
-  label: string;
-  unlimited: boolean;
-  daily_messages: number;
-  daily_tokens: number;
-  monthly_tokens: number;
-  max_active_agents: number;
-  daily_tool_calls: number;
-  included_usd: number | null;
-}
-
-/** Corpus key per tier. Module scope holds keys; the screen resolves them. */
-const TIER_LABEL_KEY: Record<string, string> = {
-  starter: 'app.planStarter',
-  professional: 'app.planProfessional',
-  enterprise: 'app.planEnterprise',
-};
-
-/** Subscription statuses that mean the user must fix their payment. */
-const PAYMENT_PROBLEM_STATUSES = new Set([
-  'past_due',
-  'unpaid',
-  'incomplete',
-  'incomplete_expired',
-]);
-
-/** Compact integer formatting for quota caps (500000 → "500K"). */
-function formatCompact(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value);
-}
+import { describeApiError } from '@pierre/ui-logic';
 
 export function BillingScreen(): React.ReactElement {
   const { t } = useTranslation();
@@ -102,77 +33,52 @@ export function BillingScreen(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   const subscriptionQuery = useQuery({
-    queryKey: ['mobile-billing', 'subscription'],
-    queryFn: async (): Promise<SubscriptionView | null> => {
-      try {
-        const r = await apiClient.get('/api/billing/subscription');
-        return r.data as SubscriptionView;
-      } catch (e) {
-        const err = e as { response?: { status?: number } };
-        if (err.response?.status === 404) return null;
-        throw e;
-      }
-    },
+    queryKey: QUERY_KEYS.billing.subscription(),
+    queryFn: () => billingApi.getSubscription(),
   });
 
   const quotaQuery = useQuery({
-    queryKey: ['mobile-billing', 'quota'],
-    queryFn: async (): Promise<MyQuotaResponse> => {
-      const r = await apiClient.get('/api/users/me/quota');
-      return r.data as MyQuotaResponse;
-    },
+    queryKey: QUERY_KEYS.billing.quota(),
+    queryFn: () => billingApi.getMyQuota(),
   });
 
   const invoicesQuery = useQuery({
-    queryKey: ['mobile-billing', 'invoices'],
-    queryFn: async (): Promise<{ invoices: InvoiceRow[] }> => {
-      const r = await apiClient.get('/api/billing/invoices');
-      return r.data as { invoices: InvoiceRow[] };
-    },
+    queryKey: QUERY_KEYS.billing.invoices(),
+    queryFn: () => billingApi.listInvoices(),
     enabled: subscriptionQuery.data != null,
   });
 
   const plansQuery = useQuery({
-    queryKey: ['mobile-billing', 'plans'],
-    queryFn: async (): Promise<{ plans: PlanView[] }> => {
-      const r = await apiClient.get('/api/billing/plans');
-      return r.data as { plans: PlanView[] };
-    },
+    queryKey: QUERY_KEYS.billing.plans(),
+    queryFn: () => billingApi.getPlans(),
   });
 
   const checkoutMutation = useMutation({
-    mutationFn: async (tier: 'professional' | 'enterprise'): Promise<{ checkout_url: string }> => {
+    mutationFn: (tier: PaidPlanTier) => {
       if (!user) throw new Error('not authenticated');
       trackMobile({ name: 'checkout_started', props: { tier } });
-      // The user and tenant come from the bearer token; the body carries
-      // only the plan and the redirect targets.
-      const r = await apiClient.post('/api/billing/checkout', {
+      // The provider sends the athlete back into the app on these links.
+      return billingApi.startCheckout({
         tier,
         success_url: 'dravr://billing?upgrade=success',
         cancel_url: 'dravr://billing?upgrade=cancel',
       });
-      return r.data as { checkout_url: string };
     },
     onSuccess: ({ checkout_url }) => {
       void Linking.openURL(checkout_url);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : t('app.checkoutFailed')),
+    onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'app.checkoutFailed' })),
   });
 
   const portalMutation = useMutation({
-    mutationFn: async (): Promise<{ portal_url: string }> => {
-      const sub = subscriptionQuery.data;
-      if (!sub) throw new Error('no subscription');
-      // The portal opens for the customer on the caller's own subscription row.
-      const r = await apiClient.post('/api/billing/portal', {
-        return_url: 'dravr://billing',
-      });
-      return r.data as { portal_url: string };
+    mutationFn: () => {
+      if (!subscriptionQuery.data) throw new Error('no subscription');
+      return billingApi.openPortal({ return_url: 'dravr://billing' });
     },
     onSuccess: ({ portal_url }) => {
       void Linking.openURL(portal_url);
     },
-    onError: (e) => setError(e instanceof Error ? e.message : t('app.portalOpenFailed')),
+    onError: (e) => setError(describeApiError(e, { t, fallbackKey: 'app.portalOpenFailed' })),
   });
 
   const sub = subscriptionQuery.data;
@@ -180,16 +86,18 @@ export function BillingScreen(): React.ReactElement {
   // server-side from users.tier — authoritative), then the auth-context user.
   // The stored auth user may omit `tier`, which would mislabel a paid user.
   const tier = sub?.plan_tier ?? quotaQuery.data?.tier ?? user?.tier ?? 'starter';
-  const hasPaymentProblem = sub != null && PAYMENT_PROBLEM_STATUSES.has(sub.status);
+  const tierLabelKey = planTierLabelKey(tier);
+  const tierLabel = tierLabelKey ? t(tierLabelKey) : tier;
+  const paymentProblem = hasPaymentProblem(sub?.status);
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
-      {hasPaymentProblem && (
+      {paymentProblem && (
         <View style={[styles.card, styles.dunningCard]}>
           <Text className="text-sm font-semibold" style={styles.dunningTitle}>{t('app.paymentProblem')}</Text>
           <Text className="text-sm" style={styles.muted}>
             {t('app.lastPaymentFailed', {
-              plan: TIER_LABEL_KEY[tier] ? t(TIER_LABEL_KEY[tier]) : tier,
+              plan: tierLabel,
               status: sub?.status ?? '',
             })}
           </Text>
@@ -208,7 +116,7 @@ export function BillingScreen(): React.ReactElement {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text className="text-base font-semibold" style={styles.cardTitle}>{t('app.currentPlan')}</Text>
-          <Text style={styles.tierBadge}>{t(TIER_LABEL_KEY[tier]) ?? tier}</Text>
+          <Text style={styles.tierBadge}>{tierLabel}</Text>
         </View>
         {subscriptionQuery.isLoading ? (
           <ActivityIndicator />
@@ -268,7 +176,7 @@ export function BillingScreen(): React.ReactElement {
           <ActivityIndicator />
         ) : plansQuery.data ? (
           plansQuery.data.plans.map((plan) => {
-            const cap = (v: number): string => (plan.unlimited ? t('app.unlimited') : formatCompact(v));
+            const cap = (v: number): string => (plan.unlimited ? t('app.unlimited') : formatCompactNumber(v));
             const includedUsage =
               plan.included_usd != null
                 ? `$${plan.included_usd}/mo`

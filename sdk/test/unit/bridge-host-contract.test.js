@@ -4,6 +4,7 @@
 // ABOUTME: Tests the bridge's contract with its MCP host: declared capabilities and request budget
 // ABOUTME: Proves tools.listChanged is declared and every browser wait answers inside the host deadline
 
+const http = require('http');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
 const {
@@ -44,7 +45,7 @@ function makeBridge(serverUrl, overrides = {}) {
  * Bridge wired for a connect_provider call: an OAuth session that already holds a token,
  * a bound callback listener, and a Pierre client that reports the provider unconnected.
  */
-async function connectProviderBridge() {
+async function connectProviderBridge(serverUrl = 'http://localhost:8081') {
   const { provider } = await startProvider({ disableBrowser: true });
   provider.savedTokens = {
     access_token: jwtFor('user-1'),
@@ -54,7 +55,7 @@ async function connectProviderBridge() {
     scope: 'read:fitness write:fitness',
   };
 
-  const bridge = makeBridge('http://localhost:8081');
+  const bridge = makeBridge(serverUrl);
   await bridge.createMcpServer();
   bridge.oauthProvider = provider;
   bridge.pierreClient = {
@@ -103,6 +104,54 @@ describe('declared tool capabilities', () => {
     } finally {
       await host.close();
       await bridge.mcpServer.close();
+    }
+  });
+});
+
+describe('connect_provider hands Dravr the callback listener token', () => {
+  const PROVIDER_PAGE = 'https://www.strava.com/oauth/authorize?client_id=1&state=minted';
+
+  test('the flow starts with the per-flow token in a header, and no URL carries it', async () => {
+    const started = [];
+    const dravr = http.createServer((req, res) => {
+      started.push({
+        url: req.url,
+        authorization: req.headers.authorization,
+        callbackToken: req.headers['x-callback-token'],
+      });
+      res.writeHead(302, { Location: PROVIDER_PAGE });
+      res.end();
+    });
+    await new Promise((resolve) => dravr.listen(0, '127.0.0.1', resolve));
+
+    const { bridge, provider, handler } = await connectProviderBridge(
+      `http://127.0.0.1:${dravr.address().port}`,
+    );
+    const logs = [];
+    bridge.log = (message) => logs.push(message);
+    provider.waitForProviderOAuth = async () => undefined;
+
+    try {
+      const result = await handler(connectProviderRequest, {
+        signal: new AbortController().signal,
+      });
+
+      expect(result.isError).toBe(false);
+      expect(result.content[0].text).toMatch(/Strava connected successfully/);
+
+      const listenerToken = provider.callbackAuthToken;
+      expect(listenerToken).toMatch(/^[0-9a-f]{64}$/);
+      expect(started).toHaveLength(1);
+      expect(started[0].url).toBe('/api/oauth/auth/strava/user-1');
+      expect(started[0].callbackToken).toBe(listenerToken);
+      expect(started[0].authorization).toBe(`Bearer ${jwtFor('user-1')}`);
+
+      expect(logs).toContain(`OAuth URL: ${PROVIDER_PAGE}`);
+      expect(logs.some((line) => line.includes(listenerToken))).toBe(false);
+    } finally {
+      stopProvider(provider);
+      await bridge.mcpServer.close();
+      await closeServer(dravr);
     }
   });
 });

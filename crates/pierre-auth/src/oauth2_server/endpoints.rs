@@ -10,8 +10,10 @@
 
 use super::client_registration::ClientRegistrationManager;
 use super::models::{
-    AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Error, TokenRequest, TokenResponse,
+    AuthorizeRejection, AuthorizeRequest, AuthorizeResponse, OAuth2AuthCode, OAuth2Client,
+    OAuth2Error, TokenRequest, TokenResponse,
 };
+use super::pkce::{check_code_challenge, verify_challenge};
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
 use base64::{engine::general_purpose, Engine as _};
@@ -21,10 +23,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
-use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -38,72 +37,6 @@ struct AuthCodeParams<'a> {
     state: Option<&'a str>,
     code_challenge: Option<&'a str>,
     code_challenge_method: Option<&'a str>,
-}
-
-/// Validate PKCE `code_verifier` format per RFC 7636 Section 4.1
-fn validate_pkce_verifier_format(verifier: &str) -> Result<(), OAuth2Error> {
-    // Length: 43-128 characters
-    if verifier.len() < 43 || verifier.len() > 128 {
-        return Err(OAuth2Error::invalid_grant(
-            "code_verifier must be between 43 and 128 characters",
-        ));
-    }
-
-    // Characters: Only unreserved characters allowed: [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"
-    verifier
-        .chars()
-        .all(|c| matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~'))
-        .ok_or_else(|| {
-            OAuth2Error::invalid_grant(
-                "code_verifier contains invalid characters (RFC 7636: only [A-Z], [a-z], [0-9], -, ., _, ~ allowed)",
-            )
-        })
-}
-
-/// Compute PKCE challenge from verifier using S256 method
-fn compute_pkce_challenge(verifier: &str, method: &str) -> Result<String, OAuth2Error> {
-    if method != "S256" {
-        return Err(OAuth2Error::invalid_grant(
-            "Only S256 code_challenge_method is supported (plain method is not allowed for security reasons)",
-        ));
-    }
-
-    let mut hasher = Sha256::new();
-    hasher.update(verifier.as_bytes());
-    let hash = hasher.finalize();
-    Ok(general_purpose::URL_SAFE_NO_PAD.encode(hash))
-}
-
-/// Verify PKCE challenge using constant-time comparison
-fn verify_pkce_challenge(
-    stored_challenge: &str,
-    code_verifier: Option<&str>,
-    code_challenge_method: Option<&str>,
-    client_id: &str,
-) -> Result<(), OAuth2Error> {
-    let verifier = code_verifier
-        .ok_or_else(|| OAuth2Error::invalid_grant("code_verifier is required (PKCE)"))?;
-
-    validate_pkce_verifier_format(verifier)?;
-
-    let method = code_challenge_method.unwrap_or("S256");
-    let computed_challenge = compute_pkce_challenge(verifier, method)?;
-
-    // Constant-time comparison to prevent timing attacks
-    if computed_challenge
-        .as_bytes()
-        .ct_eq(stored_challenge.as_bytes())
-        .into()
-    {
-        debug!("PKCE verification successful for client {}", client_id);
-        Ok(())
-    } else {
-        warn!(
-            "PKCE verification failed for client {} - code_verifier does not match code_challenge",
-            client_id
-        );
-        Err(OAuth2Error::invalid_grant("Invalid code_verifier"))
-    }
 }
 
 /// OAuth 2.0 Authorization Server
@@ -141,17 +74,23 @@ impl OAuth2AuthorizationServer {
         }
     }
 
-    /// Handle authorization request (GET /oauth/authorize)
+    /// Check an authorization request and resolve the scope it is granted,
+    /// before the user is asked anything.
+    ///
+    /// The client and its `redirect_uri` are checked first because they decide
+    /// where every later error goes (RFC 6749 Section 4.1.2.1): an unknown
+    /// client or an unregistered `redirect_uri` is
+    /// [`AuthorizeRejection::ShownToUser`], and any error after both are
+    /// verified (`response_type`, scope, PKCE) is
+    /// [`AuthorizeRejection::RedirectedToClient`].
     ///
     /// # Errors
-    /// Returns an error if client validation fails, invalid parameters, or authorization code generation fails
-    pub async fn authorize(
+    /// Returns the rejection when the client, `redirect_uri`, `response_type`,
+    /// scope or PKCE parameters are refused.
+    pub async fn check_authorize_request(
         &self,
-        request: AuthorizeRequest,
-        user_id: Option<Uuid>,     // From authentication
-        tenant_id: Option<String>, // From JWT claims
-    ) -> Result<AuthorizeResponse, OAuth2Error> {
-        // Validate client
+        request: &AuthorizeRequest,
+    ) -> Result<String, AuthorizeRejection> {
         let client = self
             .client_manager
             .get_client(&request.client_id)
@@ -161,8 +100,31 @@ impl OAuth2AuthorizationServer {
                     "Client lookup failed for client_id={}: {:#}",
                     request.client_id, e
                 );
-                OAuth2Error::invalid_client()
+                AuthorizeRejection::ShownToUser(OAuth2Error::invalid_client())
             })?;
+
+        // Exact match against the client's registration (RFC 6749 Section 3.1.2.3).
+        if !client.redirect_uris.contains(&request.redirect_uri) {
+            return Err(AuthorizeRejection::ShownToUser(
+                OAuth2Error::invalid_request("Invalid redirect_uri"),
+            ));
+        }
+
+        Self::check_verified_client_request(&client, request)
+            .map_err(AuthorizeRejection::RedirectedToClient)
+    }
+
+    /// The checks that follow a verified client and `redirect_uri`: the
+    /// response type, the scope and PKCE. Returns the granted scope.
+    fn check_verified_client_request(
+        client: &OAuth2Client,
+        request: &AuthorizeRequest,
+    ) -> Result<String, OAuth2Error> {
+        if request.response_type.is_empty() {
+            return Err(OAuth2Error::invalid_request(
+                "Missing response_type parameter",
+            ));
+        }
 
         // Validate response type is supported by the server
         if request.response_type != "code" {
@@ -178,48 +140,31 @@ impl OAuth2AuthorizationServer {
             ));
         }
 
-        // Validate requested scope is within client's registered scope (RFC 6749 Section 3.3)
-        // If client has no registered scope (None), any requested scope is allowed (no restriction)
-        if let Some(ref requested_scope) = request.scope {
-            if let Some(ref allowed_scope) = client.scope {
-                let allowed_scopes: HashSet<&str> = allowed_scope.split(' ').collect();
-                for scope in requested_scope.split(' ') {
-                    if !allowed_scopes.contains(scope) {
-                        return Err(OAuth2Error::invalid_scope(&format!(
-                            "Client is not authorized for scope '{scope}'"
-                        )));
-                    }
-                }
-            }
-        }
+        // The grant this authorization issues (RFC 6749 Section 3.3), inside
+        // the client's registered scope.
+        let scope = Self::authorized_scope(client, request.scope.as_deref())?;
 
-        // Validate redirect URI
-        if !client.redirect_uris.contains(&request.redirect_uri) {
-            return Err(OAuth2Error::invalid_request("Invalid redirect_uri"));
-        }
+        check_code_challenge(request)?;
+        Ok(scope)
+    }
 
-        // Validate PKCE parameters (RFC 7636)
-        if let Some(ref code_challenge) = request.code_challenge {
-            // Validate code_challenge format (base64url-encoded, 43-128 characters)
-            if code_challenge.len() < 43 || code_challenge.len() > 128 {
-                return Err(OAuth2Error::invalid_request(
-                    "code_challenge must be between 43 and 128 characters",
-                ));
-            }
-
-            // Validate code_challenge_method - only S256 is allowed (RFC 7636 security best practice)
-            let method = request.code_challenge_method.as_deref().unwrap_or("S256");
-            if method != "S256" {
-                return Err(OAuth2Error::invalid_request(
-                    "code_challenge_method must be 'S256' (plain method is not supported for security reasons)",
-                ));
-            }
-        } else {
-            // PKCE is required for authorization code flow
-            return Err(OAuth2Error::invalid_request(
-                "code_challenge is required for authorization_code flow (PKCE)",
-            ));
-        }
+    /// Handle authorization request (GET /oauth/authorize)
+    ///
+    /// The request is checked by [`Self::check_authorize_request`]; its
+    /// rejection is returned as the error it carries.
+    ///
+    /// # Errors
+    /// Returns an error if client validation fails, invalid parameters, or authorization code generation fails
+    pub async fn authorize(
+        &self,
+        request: AuthorizeRequest,
+        user_id: Option<Uuid>,     // From authentication
+        tenant_id: Option<String>, // From JWT claims
+    ) -> Result<AuthorizeResponse, OAuth2Error> {
+        let scope = self
+            .check_authorize_request(&request)
+            .await
+            .map_err(AuthorizeRejection::into_error)?;
 
         // Consent is enforced at the route layer (`OAuth2Routes::execute_authorization`
         // shows the consent screen and records the grant) before this code-minting
@@ -249,7 +194,7 @@ impl OAuth2AuthorizationServer {
                 user_id,
                 tenant_id: &tenant_id,
                 redirect_uri: &request.redirect_uri,
-                scope: request.scope.as_deref(),
+                scope: Some(&scope),
                 state: request.state.as_deref(),
                 code_challenge: request.code_challenge.as_deref(),
                 code_challenge_method: request.code_challenge_method.as_deref(),
@@ -343,12 +288,9 @@ impl OAuth2AuthorizationServer {
             .await?;
 
         // Generate JWT access token
+        let granted = Self::delegated_grant(auth_code.scope.as_deref());
         let access_token = self
-            .generate_access_token(
-                &request.client_id,
-                Some(auth_code.user_id),
-                auth_code.scope.as_deref(),
-            )
+            .generate_access_token(&request.client_id, Some(auth_code.user_id), &granted)
             .await
             .map_err(|e| {
                 error!(
@@ -370,7 +312,7 @@ impl OAuth2AuthorizationServer {
             client_id: request.client_id.clone(), // Safe: Clone for ownership
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: auth_code.scope.clone(),         // Safe: Clone for storage
+            scope: Self::rendered_scope(&granted),
             expires_at: refresh_token_expires_at,
             created_at: Utc::now(),
             revoked: false,
@@ -391,7 +333,7 @@ impl OAuth2AuthorizationServer {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
-            scope: auth_code.scope,
+            scope: Self::rendered_scope(&granted),
             refresh_token: Some(refresh_token_value),
         })
     }
@@ -402,11 +344,12 @@ impl OAuth2AuthorizationServer {
         request: TokenRequest,
     ) -> Result<TokenResponse, OAuth2Error> {
         // Generate JWT access token for client
+        let granted = Self::delegated_grant(request.scope.as_deref());
         let access_token = self
             .generate_access_token(
                 &request.client_id,
                 None, // No user for client credentials
-                request.scope.as_deref(),
+                &granted,
             )
             .await
             .map_err(|e| {
@@ -421,7 +364,7 @@ impl OAuth2AuthorizationServer {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
-            scope: request.scope,
+            scope: Self::rendered_scope(&granted),
             refresh_token: None,
         })
     }
@@ -441,11 +384,12 @@ impl OAuth2AuthorizationServer {
             .await?;
 
         // Generate new access token
+        let granted = Self::delegated_grant(old_refresh_token.scope.as_deref());
         let access_token = self
             .generate_access_token(
                 &request.client_id,
                 Some(old_refresh_token.user_id),
-                old_refresh_token.scope.as_deref(),
+                &granted,
             )
             .await
             .map_err(|e| {
@@ -471,7 +415,7 @@ impl OAuth2AuthorizationServer {
             client_id: request.client_id.clone(),   // Safe: Clone for ownership
             user_id: old_refresh_token.user_id,
             tenant_id: old_refresh_token.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: old_refresh_token.scope.clone(),         // Safe: Clone for storage
+            scope: Self::rendered_scope(&granted),
             expires_at: refresh_token_expires_at,
             created_at: Utc::now(),
             revoked: false,
@@ -497,7 +441,7 @@ impl OAuth2AuthorizationServer {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
-            scope: old_refresh_token.scope,
+            scope: Self::rendered_scope(&granted),
             refresh_token: Some(new_refresh_token_value),
         })
     }
@@ -664,7 +608,7 @@ impl OAuth2AuthorizationServer {
         // Verify PKCE code_verifier (RFC 7636)
         // Note: PKCE verification happens AFTER atomic consumption to prevent code reuse on verification failure
         if let Some(stored_challenge) = &auth_code.code_challenge {
-            verify_pkce_challenge(
+            verify_challenge(
                 stored_challenge,
                 code_verifier,
                 auth_code.code_challenge_method.as_deref(),
@@ -685,10 +629,67 @@ impl OAuth2AuthorizationServer {
     /// Served from the vocabulary rather than a literal list, so a scope cannot
     /// be published without being enforceable or enforced without being
     /// published — which is how the three names this replaces came to mean
-    /// nothing.
+    /// nothing. Only the delegable part: a client is never granted `admin`, and
+    /// a spec-following MCP client requests whatever is listed here.
     #[must_use]
     pub fn supported_scopes() -> Vec<&'static str> {
-        OAuthScope::all_as_str()
+        OAuthScope::delegable_as_str()
+    }
+
+    /// Resolve the scope an authorization request is granted, or refuse it.
+    ///
+    /// The requested scope, or the default grant when the client named none —
+    /// the same default the consent screen shows, so what the athlete approves
+    /// is what the code carries. Every name must be in the vocabulary and
+    /// delegable, and the whole grant must sit inside what the client
+    /// registered.
+    fn authorized_scope(
+        client: &OAuth2Client,
+        requested: Option<&str>,
+    ) -> Result<String, OAuth2Error> {
+        let granted = OAuthScope::requested_grant(requested)
+            .map_err(|e| OAuth2Error::invalid_scope(&e.message))?;
+        let registered = Self::registered_scope(client);
+        if let Some(outside) = granted.iter().find(|scope| !registered.contains(scope)) {
+            return Err(OAuth2Error::invalid_scope(&format!(
+                "Client is not authorized for scope '{outside}'"
+            )));
+        }
+        Ok(OAuthScope::render_granted(&granted))
+    }
+
+    /// The scope a client registered.
+    ///
+    /// Registration persists the default grant when a client asks for none. A
+    /// row that holds NULL reads as that same default — the grant the
+    /// registration response told the client it had — and never as "no
+    /// restriction": an anonymously registered client is not authorized
+    /// beyond what it was told.
+    fn registered_scope(client: &OAuth2Client) -> Vec<OAuthScope> {
+        client
+            .scope
+            .as_deref()
+            .map_or_else(OAuthScope::default_grant, OAuthScope::parse_granted)
+    }
+
+    /// The grant a token minted for a stored or requested `scope` carries: the
+    /// names this server defines, less any that cannot be delegated.
+    ///
+    /// Registration and authorization already refuse `admin`, so this bites
+    /// only on a refresh token or a client-credentials request that predates
+    /// or bypasses those checks. It is also the one place that keeps every
+    /// delegated token strictly narrower than the self grant, which is how a
+    /// route that reads no scope tells a third party from the athlete.
+    fn delegated_grant(scope: Option<&str>) -> Vec<OAuthScope> {
+        OAuthScope::parse_granted(scope.unwrap_or_default())
+            .into_iter()
+            .filter(|scope| scope.is_delegable())
+            .collect()
+    }
+
+    /// A grant in the token response's `scope` form: absent when empty.
+    fn rendered_scope(granted: &[OAuthScope]) -> Option<String> {
+        (!granted.is_empty()).then(|| OAuthScope::render_granted(granted))
     }
 
     /// The grant shown on the consent screen when the client requested none.
@@ -713,19 +714,19 @@ impl OAuth2AuthorizationServer {
         &self,
         client_id: &str,
         user_id: Option<Uuid>,
-        scope: Option<&str>,
+        granted: &[OAuthScope],
     ) -> AppResult<String> {
-        let scopes = scope.map_or_else(
-            || {
-                debug!(
-                    client_id = %client_id,
-                    user_id = ?user_id,
-                    "No scopes provided for token generation, using empty scope list"
-                );
-                Vec::new()
-            },
-            |s| s.split(' ').map(str::to_owned).collect::<Vec<_>>(),
-        );
+        if granted.is_empty() {
+            debug!(
+                client_id = %client_id,
+                user_id = ?user_id,
+                "Minting an access token with an empty grant"
+            );
+        }
+        let scopes: Vec<String> = granted
+            .iter()
+            .map(|scope| scope.as_str().to_owned())
+            .collect();
 
         let Some(uid) = user_id else {
             return self
@@ -976,7 +977,7 @@ impl OAuth2AuthorizationServer {
             .generate_access_token(
                 &refresh_token_data.client_id,
                 Some(refresh_token_data.user_id),
-                refresh_token_data.scope.as_deref(),
+                &Self::delegated_grant(refresh_token_data.scope.as_deref()),
             )
             .await?;
 

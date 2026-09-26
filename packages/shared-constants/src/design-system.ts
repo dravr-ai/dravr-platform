@@ -1,19 +1,35 @@
-// ABOUTME: Boreal Editorial design tokens shared across Dravr web and mobile
-// ABOUTME: Vendored from the dravr-website global.css — dravr.ai canonical brand
+// ABOUTME: Boreal Editorial design tokens shared across Dravr web and mobile — the one source of every value
+// ABOUTME: Both client stylesheets and the hosted page sheet are generated from here (packages/shared-constants/scripts)
 
 // ========== BOREAL LIGHT — MD3 TOKEN TREE ==========
 
 /**
- * Canonical MD3 light token set vendored from the dravr-website global.css.
- * Web reads this directly; mobile reads it via its theme context when the
- * system color scheme is light.
+ * Canonical MD3 light token set, first vendored from the dravr-website
+ * global.css. The `--color-*` blocks of `frontend/src/index.css` and
+ * `frontend-mobile/global.css` are generated from it
+ * (`scripts/generate-client-css.ts`); mobile's inline styles read it through
+ * its theme context when the resolved scheme is light.
  */
 export const BOREAL_LIGHT = {
-  /** Sage-forest — the one accent, legible as text (4.7:1 on the darkest tier) and under white (7.4:1). */
+  /**
+   * Sage-forest, the one accent: filled CTAs, the send button, the unread
+   * pill, links and the wordmark. The v1 primary (#00241a) read as black at
+   * every size, so the green had to live in a separate `brand` ink token; this
+   * value is that ink promoted, and one token now carries both roles. White
+   * text clears 7.4:1 on it, and as text it clears 4.5:1 on every light tier
+   * (4.7:1 on the darkest).
+   */
   primary: '#255f4d',
   onPrimary: '#ffffff',
-  /** A tint, not a dense fill: the athlete bubble, the active rail item, an avatar ground. */
+  /**
+   * A tint, not a dense fill: the athlete's bubble, the active rail item, a
+   * selected tile, an avatar ground.
+   */
   primaryContainer: '#e1eae5',
+  /**
+   * The same forest carried down until it clears 9.8:1 on the tint — the pair
+   * the dark scheme already had.
+   */
   onPrimaryContainer: '#143d30',
   primaryFixed: '#beedd9',
   primaryFixedDim: '#a3d0be',
@@ -37,10 +53,23 @@ export const BOREAL_LIGHT = {
   errorContainer: '#ffdad6',
   onErrorContainer: '#93000a',
 
-  /** Warm paper — the one ground for rail, lists, thread and page. */
+  /**
+   * Warm paper, the one ground: the rail, the list column, the thread canvas
+   * and every page sit on it, separated by hairlines rather than by fill
+   * steps. The container tiers are for what sits ON the page — a composer
+   * field, a search field, a hover, a day pill.
+   */
   surface: '#f7f6f2',
   surfaceDim: '#d7d6d1',
   surfaceBright: '#f7f6f2',
+  /**
+   * The ladder still separates on FILL where it has to: adjacent tiers clear
+   * 1.06:1 (measured 1.11 / 1.11 / 1.09 / 1.08) and a raised surface clears
+   * 1.18:1 over the canvas under it (`lowest` on `low`: 1.21) — DESIGN.md §2
+   * "Light tier separation" carries the table and the token test measures it.
+   * `surface` against `surface-container-lowest` stays the one near-pair
+   * (1.08:1): a card on the page is lifted by its hairline, not by its fill.
+   */
   surfaceContainerLowest: '#ffffff',
   surfaceContainerLow: '#ebeae5',
   surfaceContainer: '#e0dfda',
@@ -56,20 +85,37 @@ export const BOREAL_LIGHT = {
   background: '#f7f6f2',
   onBackground: '#1a1c1b',
 
+  /**
+   * `outline` is used as a TEXT colour in 182 places — de-emphasised labels,
+   * timestamps, counts, the sidebar section headers. That is a foreground
+   * role, so it answers to WCAG 1.4.3's 4.5:1, not to the 3:1 a border needs.
+   * At the MD3 value (#717974) it measured 4.06:1 on surface-container-low and
+   * 3.20:1 on surface-dim, and no test had ever checked: every axe scan in
+   * the web suite disabled the colour-contrast rule. Both schemes' values
+   * clear 4.5:1 against every surface tone in their scheme, with the
+   * darkest/lightest container as the binding case — which is why the light
+   * value tracks the container ladder: separating the light tiers moved the
+   * binding case down to surface-container-highest. The client-stylesheet
+   * generator measures it on every tier and refuses to write below the floor.
+   */
   outline: '#525a55',
   outlineVariant: '#c0c8c3',
 
-  /** The veil behind a sheet or a dialog, drawn at 60 % — `--color-scrim`. */
+  /**
+   * The veil behind a sheet, a drawer or a dialog, drawn at 60 % —
+   * `--color-scrim`. Reads as a shadow of the page, not as black.
+   */
   scrim: '#1a1c1b',
 } as const;
 
 // ========== BOREAL DARK — tuned variant for mobile OLED night use ==========
 
 /**
- * Dark counterpart derived via MD3 "dark-on-dark" inversion rules. Not shipped
- * to web (the website is light-only); mobile selects this when the system
- * color scheme is dark. Ambient shadow darkens from 6% on_surface to 50% pure
- * black to preserve elevation on near-black surfaces.
+ * Dark counterpart derived via MD3 "dark-on-dark" inversion rules. Both client
+ * stylesheets carry it under their dark class (`html.dark` on the web, `.dark`
+ * on the phone, generated like the light block); mobile's inline styles select
+ * it when the resolved scheme is dark. Ambient shadow darkens from 6%
+ * on_surface to 50% pure black to preserve elevation on near-black surfaces.
  */
 export const BOREAL_DARK = {
   primary: '#a3d0be',
@@ -263,20 +309,62 @@ export const BORDER_COLORS = {
   strong: 'rgba(155, 165, 159, 0.55)',
 } as const;
 
+/** The three hairline strengths every client draws (DESIGN.md §4). */
+export type HairlineStrength = 'faint' | 'default' | 'strong';
+
+/** One scheme's hairline: its ink as an `r, g, b` list and the alpha of each strength. */
+export type HairlineInk = { readonly rgb: string } & Readonly<Record<HairlineStrength, number>>;
+
 /**
- * The card and field hairline in each scheme (DESIGN.md §2 "Outline /
- * borders"). The ink changes between schemes, not only the opacity: a
- * hairline has to contrast with the ground under it, and the two grounds are
- * opposite. `frontend/src/index.css` carries the same pair as `--ghost-border`.
+ * Ghost-border recipes, per scheme (DESIGN.md §2 "Outline / borders"): the
+ * `--ghost-border-faint` / `--ghost-border` / `--ghost-border-strong` of both
+ * client stylesheets, the phone's inline `useThemeColors().border.*`, and the
+ * hosted pages' `--ghost-border`, so a divider measures the same everywhere.
+ *
+ * `default` anchors pane edges, fields and the composer — visible enough to
+ * hold a card on the light canvas without becoming a hard rule, where the
+ * 0.15 marketing-tier value left cards floating without anchor. `faint` is
+ * for the dividers INSIDE a list or table, where a default rule between every
+ * row reads as a stack of boxes (DESIGN.md §4). Two strengths, so a visible
+ * line is a decision.
+ *
+ * A hairline only reads when it contrasts with what it sits on, and the two
+ * schemes need opposite ink for that: a pale grey-green line carries on the
+ * near-black canvas and disappears on a white card, which is how the light
+ * theme lost the only separation its near-identical surface tiers had. Light
+ * therefore takes the darker Product Tier ghost border; dark keeps the pale
+ * one at the opacities a near-black ground needs.
  */
-export const GHOST_BORDER: Record<ColorScheme, string> = {
-  light: BORDER_COLORS.default,
-  dark: 'rgba(192, 200, 195, 0.22)',
+export const BORDER_INK: Record<ColorScheme, HairlineInk> = {
+  light: { rgb: '155, 165, 159', faint: 0.26, default: 0.4, strong: 0.55 },
+  dark: { rgb: '192, 200, 195', faint: 0.14, default: 0.22, strong: 0.34 },
+};
+
+/** One hairline as the CSS colour a stylesheet declares: `rgba(r, g, b, 0.40)`. */
+export function ghostBorder(ink: HairlineInk, strength: HairlineStrength): string {
+  return `rgba(${ink.rgb}, ${ink[strength].toFixed(2)})`;
+}
+
+/**
+ * The only shadow in the web system, `--shadow-floating`. A resting card is
+ * lifted by its hairline; shadow is reserved for what floats over the page —
+ * menus, popovers, drawers, modals. The near-black ground needs far more
+ * opacity for the same shadow to read at all. The phone draws its floating
+ * elevation from `AMBIENT_SHADOW.floating`, because a native view takes one
+ * shadow and no CSS list.
+ */
+export const FLOATING_SHADOW: Record<ColorScheme, string> = {
+  light: '0 12px 24px -6px rgba(26, 28, 27, 0.12), 0 6px 12px -3px rgba(26, 28, 27, 0.08)',
+  dark: '0 12px 24px -6px rgba(0, 0, 0, 0.55), 0 6px 12px -3px rgba(0, 0, 0, 0.45)',
 };
 
 /**
  * The hover fill of a filled `primary` (DESIGN.md §2 `primary-hover`): a step
  * darker in both schemes, so the label keeps its contrast while the fill moves.
+ * In light that is one step down the forest (white on it: 9.2:1). In dark the
+ * button is light mint with near-black `on-primary` text, so the hover has to
+ * stay light there — an explicit per-scheme value keeps the same foreground
+ * legible in both.
  */
 export const PRIMARY_HOVER: Record<ColorScheme, string> = {
   light: '#1e5040',
@@ -324,6 +412,13 @@ export const SEMANTIC_COLORS = {
  * `frontend/src/index.css` has shipped these since Boreal v2; the phone had
  * only the primary, tertiary and error inks, so any native surface drawing a
  * pillar label had nothing correct to reach for.
+ *
+ * The `bg-X/10 text-X` chip is used in 115 places on the web — coach
+ * categories, verdict badges, status pills. The fill keeps the brand hue; only
+ * the LABEL takes these. The system already had this pattern for primary,
+ * tertiary and error; the pillars simply never got their half of it. The
+ * client-stylesheet generator measures each ink on a /15 tint of its hue over
+ * every tier in both schemes and refuses to write below 4.5:1.
  */
 export const CONTAINER_INKS = {
   activity: '#0b5748',
@@ -600,20 +695,6 @@ export const BORDER_RADIUS = {
   full: 9999,
 } as const;
 
-/** Font size scale for inline styles. `chrome` is the phone's interface
- *  size (13, weight 500 on anything navigable); the class ladder in
- *  `frontend-mobile/tailwind.config.js` is the primary path there. */
-export const FONT_SIZE = {
-  xs: 12,
-  chrome: 13,
-  sm: 14,
-  md: 16,
-  lg: 18,
-  xl: 20,
-  xxl: 24,
-  xxxl: 32,
-} as const;
-
 /** Font weight values (unchanged). */
 export const FONT_WEIGHT = {
   normal: '400',
@@ -648,7 +729,6 @@ export const DESIGN_SYSTEM = {
   brandTracking: BRAND_TRACKING,
   spacing: SPACING,
   borderRadius: BORDER_RADIUS,
-  fontSize: FONT_SIZE,
   fontWeight: FONT_WEIGHT,
 } as const;
 

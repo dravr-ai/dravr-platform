@@ -70,16 +70,9 @@ vi.mock('../../hooks/useAuth', () => ({
   })
 }));
 
-// Mock API with simple responses - Dashboard uses dashboardApi, adminApi, a2aApi
+// Mock API with simple responses - Dashboard uses dashboardApi and adminApi
 vi.mock('../../services/api', () => ({
   dashboardApi: {
-    getDashboardOverview: vi.fn().mockResolvedValue({
-      total_api_keys: 10,
-      active_api_keys: 8,
-      total_requests_today: 500,
-      total_requests_this_month: 15000
-    }),
-    getRateLimitOverview: vi.fn().mockResolvedValue([]),
     getUsageAnalytics: vi.fn().mockResolvedValue({ time_series: [] }),
   },
   adminApi: {
@@ -88,14 +81,8 @@ vi.mock('../../services/api', () => ({
     ]),
     getStoreStats: vi.fn().mockResolvedValue({ pending_count: 0, total_count: 5, approved_count: 5 }),
   },
-  a2aApi: {
-    getA2ADashboardOverview: vi.fn().mockResolvedValue({
-      total_clients: 3,
-      active_clients: 2,
-      requests_today: 100,
-      requests_this_month: 3000
-    }),
-  }
+  // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
+  featureFlagsApi: {},
 }));
 
 function renderDashboard() {

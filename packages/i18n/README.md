@@ -23,7 +23,7 @@ screen. Now a key exists once, in all five locales, or the push fails:
 `scripts/ci/check-contremaitre-sync.sh` (pre-push Tier 1b, compile-free) requires
 an identical key set across the five files and every `KEY_*` the registry declares
 to be present; `crates/pierre-server/tests/contremaitre_test.rs` proves the same
-at compile time; `frontend/src/i18n/__tests__/localeCorpus.test.ts` pins the count.
+at compile time; `packages/i18n/__tests__/locale-corpus.test.ts` pins the count.
 
 **A key is rendered by exactly one side.** Server-rendered keys (`messaging.*`,
 `commands.*`, `notifications.*`, `persona.*` — the ones with a `KEY_*` constant) use
@@ -114,7 +114,7 @@ Add the key to **all five** `src/locales/<locale>/translation.json` files, neste
 under its namespace, and nothing else. A string the server renders also gets a
 `pub const KEY_*` in `messaging_strings.rs` naming the dotted key, and uses `{0}`
 placeholders. Tier 1b fails the push on a key that is short of a locale, and
-`localeCorpus.test.ts` needs its count bumped — that bump is the review prompt.
+`locale-corpus.test.ts` needs its count bumped — that bump is the review prompt.
 
 A string is never written into a component, a constants package or a Rust
 literal: `frontend/src/i18n/untranslatedScan.ts` ratchets the athlete surface at
@@ -155,7 +155,7 @@ answer in. The order is:
 3. add it to `SUPPORTED_LANGUAGES`, `LANGUAGE_NAMES` and `defaultI18nConfig.resources`;
 4. add its flag to both `LanguageSwitcher` components.
 
-`frontend/src/i18n/__tests__/localeCorpus.test.ts` fails on a locale that is declared
+`packages/i18n/__tests__/locale-corpus.test.ts` fails on a locale that is declared
 but short of keys, or that never diverged from English.
 
 ## License

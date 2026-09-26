@@ -93,7 +93,6 @@ import {
   storeApi,
   userApi,
   providersApi,
-  keysApi,
   dashboardApi,
   a2aApi,
   adminApi,
@@ -115,7 +114,6 @@ describe('API Barrel Exports', () => {
   })
 
   it('should export web-only domain APIs', () => {
-    expect(keysApi).toBeDefined()
     expect(dashboardApi).toBeDefined()
     expect(a2aApi).toBeDefined()
     expect(adminApi).toBeDefined()

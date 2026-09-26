@@ -7,6 +7,7 @@
 import React, { useEffect } from 'react';
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
+import { badgeLabel } from '@pierre/shared-constants';
 
 export interface MobileNavTab {
   id: string;
@@ -60,7 +61,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
                       className="absolute -top-1.5 -right-2 bg-primary text-on-primary text-xs rounded-full h-[18px] min-w-[18px] px-1 flex items-center justify-center font-semibold ring-2 ring-surface"
                       aria-label={`${tab.badge} unread`}
                     >
-                      {tab.badge > 99 ? '99+' : tab.badge}
+                      {badgeLabel(tab.badge)}
                     </span>
                   )}
                 </span>
@@ -273,7 +274,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                     <span className="flex-1 text-left">{tab.name}</span>
                     {tab.badge !== undefined && tab.badge > 0 && (
                       <span className="bg-primary text-on-primary text-xs rounded-full h-5 min-w-5 px-1.5 flex items-center justify-center font-semibold">
-                        {tab.badge > 99 ? '99+' : tab.badge}
+                        {badgeLabel(tab.badge)}
                       </span>
                     )}
                   </button>

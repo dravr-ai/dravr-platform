@@ -118,7 +118,7 @@ class OAuthCallbackSimulator {
       redirect_uris: ['http://localhost:35535/oauth/callback'],
       grant_types: ['authorization_code'],
       response_types: ['code'],
-      scope: 'read:fitness write:fitness',
+      scope: 'fitness:read fitness:write',
       client_name: 'OAuth Callback Simulator',
       client_uri: 'https://test.example.com'
     };
@@ -177,7 +177,7 @@ class OAuthCallbackSimulator {
     authUrl.searchParams.set('client_id', this.clientInfo.client_id);
     authUrl.searchParams.set('redirect_uri', this.clientInfo.redirect_uri);
     authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'read:fitness write:fitness');
+    authUrl.searchParams.set('scope', 'fitness:read fitness:write');
     authUrl.searchParams.set('state', this.authState);
     authUrl.searchParams.set('code_challenge', this.codeChallenge);
     authUrl.searchParams.set('code_challenge_method', 'S256');

@@ -139,6 +139,8 @@ vi.mock('../../services/api', () => ({
       revokeMcpToken: vi.fn(),
     },
   },
+  // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
+  notificationsApi: {},
 }));
 
 // Render the Sciotte modal as a testid carrying its target so a fallback that

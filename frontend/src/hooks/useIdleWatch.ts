@@ -6,8 +6,7 @@
 
 import { useEffect } from 'react';
 import { focusManager } from '@tanstack/react-query';
-import { IdleWatch } from '@pierre/shared-constants';
-import { idleAbort, registerIdleWatch, resetIdleAbort } from '../services/api/idleSignal';
+import { IdleWatch, idleAbort, registerIdleWatch, resetIdleAbort } from '@pierre/shared-constants';
 
 /**
  * The interactions that count as "somebody is here".

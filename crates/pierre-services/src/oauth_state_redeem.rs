@@ -32,6 +32,9 @@ pub struct ParsedOAuthState {
     pub(crate) tenant_id: Option<uuid::Uuid>,
     /// Strava shared-app pool member pinned at authorize (`None` = env-default).
     pub(crate) oauth_app_client_id: Option<String>,
+    /// Per-flow token of the bridge listener that started the flow, presented
+    /// on its success notification (`None` = no bridge to notify).
+    pub(crate) bridge_callback_token: Option<String>,
 }
 
 impl ParsedOAuthState {
@@ -121,6 +124,7 @@ impl OAuthService {
             pkce_code_verifier,
             tenant_id,
             oauth_app_client_id: client_state.oauth_app_client_id,
+            bridge_callback_token: client_state.bridge_callback_token,
         })
     }
 

@@ -56,6 +56,19 @@ describe('settings pane parity — mobile', () => {
     },
   );
 
+  it.each(
+    SETTINGS_PANES.flatMap((pane) =>
+      Object.entries(pane.mobileScreens ?? {}).map(([section, route]) => [pane.id, section, route]),
+    ),
+  )('implements the %s pane\'s %s section screen at %s', (_pane, _section, route) => {
+    const found = routeFileCandidates(route as string).some((candidate) => fs.existsSync(candidate));
+    const outcome = found
+      ? 'implemented'
+      : `MISSING — no expo-router file serves ${route}. Build the screen, or drop ` +
+        'the section from the pane\'s mobileScreens.';
+    expect(outcome).toBe('implemented');
+  });
+
   it('builds its rows from the declaration rather than a second hand-written list', () => {
     // A hand-written list is how the grouping drifted the first time: usage
     // stood alone here and sat inside Account on web, and both were correct

@@ -15,6 +15,8 @@ on:
       - '.github/workflows/frontend-tests.yml'
       - 'docker/images/frontend/**'
       - 'scripts/ci/nginx-routing-check.sh'
+      - 'scripts/ci/backend-routes.py'
+      - 'scripts/ci/backend-route-prefixes.txt'
   pull_request:
     branches: [ main ]
     paths:
@@ -29,6 +31,8 @@ on:
       - '.github/workflows/frontend-tests.yml'
       - 'docker/images/frontend/**'
       - 'scripts/ci/nginx-routing-check.sh'
+      - 'scripts/ci/backend-routes.py'
+      - 'scripts/ci/backend-route-prefixes.txt'
   workflow_dispatch:  # Allow manual triggering
 
 concurrency:
@@ -91,6 +95,9 @@ jobs:
       - name: Type check shared packages
         run: bun run typecheck:packages
 
+      - name: Lint shared packages
+        run: bun run lint:packages
+
       - name: Test shared packages
         run: |
           # `bun run --filter` over a pattern that matches no package exits 0, so
@@ -125,7 +132,10 @@ jobs:
 
       - name: Type check
         working-directory: frontend
-        run: bunx tsc --noEmit
+        # `tsc -b`, not `tsc --noEmit`: the root tsconfig lists no files and
+        # only references the app and node projects, so a bare `--noEmit`
+        # checks nothing and passes over any type error.
+        run: bun run type-check
 
       - name: Run tests
         working-directory: frontend

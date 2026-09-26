@@ -139,15 +139,14 @@ impl ProviderRegistry {
     fn register_strava(registry: &mut Self) {
         registry.register_factory(oauth_providers::STRAVA, Box::new(StravaProviderFactory));
         registry.register_descriptor(oauth_providers::STRAVA, Box::new(StravaDescriptor));
-        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
-            load_provider_env_config(
-                oauth_providers::STRAVA,
-                "https://www.strava.com/oauth/authorize",
-                "https://www.strava.com/oauth/token",
-                "https://www.strava.com/api/v3",
-                Some("https://www.strava.com/oauth/revoke"),
-                &[oauth_providers::STRAVA_DEFAULT_SCOPES.to_owned()],
-            );
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::STRAVA,
+            "https://www.strava.com/oauth/authorize",
+            "https://www.strava.com/oauth/token",
+            "https://www.strava.com/api/v3",
+            Some("https://www.strava.com/oauth/revoke"),
+            &[oauth_providers::STRAVA_DEFAULT_SCOPES.to_owned()],
+        );
         registry.set_default_config(
             oauth_providers::STRAVA,
             ProviderConfig {
@@ -169,15 +168,14 @@ impl ProviderRegistry {
     fn register_garmin(registry: &mut Self) {
         registry.register_factory(oauth_providers::GARMIN, Box::new(GarminProviderFactory));
         registry.register_descriptor(oauth_providers::GARMIN, Box::new(GarminDescriptor));
-        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
-            load_provider_env_config(
-                oauth_providers::GARMIN,
-                "https://connect.garmin.com/oauthConfirm",
-                "https://connectapi.garmin.com/oauth-service/oauth/access_token",
-                "https://apis.garmin.com/wellness-api/rest",
-                Some("https://apis.garmin.com/wellness-api/rest/user/registration"),
-                &["wellness:read".to_owned(), "activities:read".to_owned()],
-            );
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::GARMIN,
+            "https://connect.garmin.com/oauthConfirm",
+            "https://connectapi.garmin.com/oauth-service/oauth/access_token",
+            "https://apis.garmin.com/wellness-api/rest",
+            Some("https://apis.garmin.com/wellness-api/rest/user/registration"),
+            &["wellness:read".to_owned(), "activities:read".to_owned()],
+        );
         registry.set_default_config(
             oauth_providers::GARMIN,
             ProviderConfig {
@@ -203,18 +201,17 @@ impl ProviderRegistry {
             Box::new(TerraProviderFactory::new(terra_cache)),
         );
         registry.register_descriptor(oauth_providers::TERRA, Box::new(TerraDescriptor));
-        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
-            load_provider_env_config(
-                oauth_providers::TERRA,
-                TERRA_WIDGET_SESSION_URL,
-                TERRA_TOKEN_URL,
-                TERRA_API_BASE_URL,
-                Some(TERRA_DEAUTH_URL),
-                &oauth_providers::TERRA_DEFAULT_SCOPES
-                    .split(',')
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>(),
-            );
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::TERRA,
+            TERRA_WIDGET_SESSION_URL,
+            TERRA_TOKEN_URL,
+            TERRA_API_BASE_URL,
+            Some(TERRA_DEAUTH_URL),
+            &oauth_providers::TERRA_DEFAULT_SCOPES
+                .split(',')
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+        );
         registry.set_default_config(
             oauth_providers::TERRA,
             ProviderConfig {
@@ -236,18 +233,17 @@ impl ProviderRegistry {
     fn register_whoop(registry: &mut Self) {
         registry.register_factory(oauth_providers::WHOOP, Box::new(WhoopProviderFactory));
         registry.register_descriptor(oauth_providers::WHOOP, Box::new(WhoopDescriptor));
-        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
-            load_provider_env_config(
-                oauth_providers::WHOOP,
-                "https://api.prod.whoop.com/oauth/oauth2/auth",
-                "https://api.prod.whoop.com/oauth/oauth2/token",
-                "https://api.prod.whoop.com/developer/v2",
-                Some("https://api.prod.whoop.com/developer/v2/user/access"),
-                &oauth_providers::WHOOP_DEFAULT_SCOPES
-                    .split(' ')
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>(),
-            );
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::WHOOP,
+            "https://api.prod.whoop.com/oauth/oauth2/auth",
+            "https://api.prod.whoop.com/oauth/oauth2/token",
+            "https://api.prod.whoop.com/developer/v2",
+            Some("https://api.prod.whoop.com/developer/v2/user/access"),
+            &oauth_providers::WHOOP_DEFAULT_SCOPES
+                .split(' ')
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+        );
         registry.set_default_config(
             oauth_providers::WHOOP,
             ProviderConfig {
@@ -272,19 +268,18 @@ impl ProviderRegistry {
     fn register_coros(registry: &mut Self) {
         registry.register_factory(oauth_providers::COROS, Box::new(CorosProviderFactory));
         registry.register_descriptor(oauth_providers::COROS, Box::new(CorosDescriptor));
-        let (_, _, auth_url, token_url, api_base_url, revoke_url, scopes) =
-            load_provider_env_config(
-                oauth_providers::COROS,
-                // Placeholder URLs - update when COROS provides official API documentation
-                "https://open.coros.com/oauth2/authorize",
-                "https://open.coros.com/oauth2/token",
-                "https://open.coros.com/api/v1",
-                Some("https://open.coros.com/oauth2/revoke"),
-                &oauth_providers::COROS_DEFAULT_SCOPES
-                    .split(' ')
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>(),
-            );
+        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
+            oauth_providers::COROS,
+            // Placeholder URLs - update when COROS provides official API documentation
+            "https://open.coros.com/oauth2/authorize",
+            "https://open.coros.com/oauth2/token",
+            "https://open.coros.com/api/v1",
+            Some("https://open.coros.com/oauth2/revoke"),
+            &oauth_providers::COROS_DEFAULT_SCOPES
+                .split(' ')
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+        );
         registry.set_default_config(
             oauth_providers::COROS,
             ProviderConfig {

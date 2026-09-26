@@ -358,57 +358,6 @@ fn test_oauth2_token_serialization_with_nulls() {
 }
 
 // =============================================================================
-// Strava-Specific Tests
-// =============================================================================
-
-#[test]
-fn test_strava_token_response_deserialization() {
-    use pierre_auth::oauth2_client::client::strava::StravaTokenResponse;
-
-    let json = r#"{
-        "token_type": "Bearer",
-        "expires_at": 1700000000,
-        "expires_in": 21600,
-        "refresh_token": "strava_refresh_token",
-        "access_token": "strava_access_token",
-        "athlete": {
-            "id": 12345,
-            "username": "testathlete",
-            "firstname": "Test",
-            "lastname": "Athlete"
-        }
-    }"#;
-
-    let response: StravaTokenResponse = serde_json::from_str(json).unwrap();
-
-    assert_eq!(response.token_type, "Bearer");
-    assert_eq!(response.access_token, "strava_access_token");
-    assert_eq!(response.refresh_token, "strava_refresh_token");
-    assert_eq!(response.expires_at, 1_700_000_000);
-    assert_eq!(response.expires_in, 21600);
-
-    let athlete = response.athlete.unwrap();
-    assert_eq!(athlete.id, 12345);
-    assert_eq!(athlete.username, Some("testathlete".to_owned()));
-}
-
-#[test]
-fn test_strava_token_response_without_athlete() {
-    use pierre_auth::oauth2_client::client::strava::StravaTokenResponse;
-
-    let json = r#"{
-        "token_type": "Bearer",
-        "expires_at": 1700000000,
-        "expires_in": 21600,
-        "refresh_token": "refresh",
-        "access_token": "access"
-    }"#;
-
-    let response: StravaTokenResponse = serde_json::from_str(json).unwrap();
-    assert!(response.athlete.is_none());
-}
-
-// =============================================================================
 // Edge Cases and Error Handling
 // =============================================================================
 

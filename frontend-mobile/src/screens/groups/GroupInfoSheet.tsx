@@ -37,6 +37,7 @@ import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
 import { CONNECTIONS_ROUTE } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
+import { describeApiError } from '@pierre/ui-logic';
 
 /** How long an invite created from this sheet stays redeemable. */
 const INVITE_LIFETIME_DAYS = 7;
@@ -71,10 +72,6 @@ export interface GroupInfoSheetProps {
   onClose: () => void;
   /** The athlete is no longer in this group: go back to the conversation list. */
   onLeft: () => void;
-}
-
-function errorText(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
 }
 
 /**
@@ -156,7 +153,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               setRemovingMemberId(member.user_id);
               await removeMember(member.user_id);
             } catch (err) {
-              Alert.alert(t('common.error'), errorText(err, t('app.failedRemoveMember')));
+              Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedRemoveMember' }));
             } finally {
               setRemovingMemberId(null);
             }
@@ -173,7 +170,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         setRoleChangingUserId(member.user_id);
         await updateRole({ userId: member.user_id, role });
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateRole')));
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateRole' }));
       } finally {
         setRoleChangingUserId(null);
       }
@@ -196,7 +193,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               : `Join ${group?.name ?? 'our group'}: ${INVITE_LINK_BASE}/${invite.code}`,
         });
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, t('app.failedCreateInvite')));
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedCreateInvite' }));
       }
     },
     [createInvite, group?.name, t],
@@ -221,7 +218,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             try {
               await deactivateInvite(inviteId);
             } catch (err) {
-              Alert.alert(t('common.error'), errorText(err, t('app.failedDeactivateInvite')));
+              Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedDeactivateInvite' }));
             }
           },
         },
@@ -240,7 +237,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           try {
             await removeCoach();
           } catch (err) {
-            Alert.alert(t('common.error'), errorText(err, t('humanCoach.removeFailed')));
+            Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'humanCoach.removeFailed' }));
           }
         },
       },
@@ -255,7 +252,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       setNameDraft(null);
       setDescriptionDraft(null);
     } catch (err) {
-      Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateGroup')));
+      Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateGroup' }));
     }
   }, [nameDraft, descriptionDraft, group?.name, group?.description, updateGroup, t]);
 
@@ -264,7 +261,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       try {
         await updateGroup(patch);
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateGroup')));
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateGroup' }));
       }
     },
     [updateGroup, t],
@@ -275,7 +272,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       try {
         await updateConsent(consent);
       } catch (err) {
-        Alert.alert(t('common.error'), errorText(err, t('app.failedUpdateSharing')));
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
       }
     },
     [updateConsent, t],
@@ -299,7 +296,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             onClose();
             onLeft();
           } catch (err) {
-            Alert.alert(t('common.error'), errorText(err, t('app.failedLeaveGroup')));
+            Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedLeaveGroup' }));
           }
         },
       },
@@ -321,7 +318,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               onClose();
               onLeft();
             } catch (err) {
-              Alert.alert(t('common.error'), errorText(err, t('app.failedArchiveGroup')));
+              Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedArchiveGroup' }));
             }
           },
         },

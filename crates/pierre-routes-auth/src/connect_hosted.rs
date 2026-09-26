@@ -41,7 +41,7 @@ use pierre_middleware::provider_link_token::{
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_services::oauth_flow::OAuthService;
+use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use uuid::Uuid;
 
 use crate::connect_hosted_templates;
@@ -318,7 +318,15 @@ pub async fn handle_connect_oauth_init(
     );
 
     match oauth_service
-        .get_auth_url_with_return(user_id, tenant_id, &provider, Some(&return_url))
+        .get_auth_url(
+            user_id,
+            tenant_id,
+            &provider,
+            AuthUrlOptions {
+                return_redirect: Some(&return_url),
+                ..AuthUrlOptions::default()
+            },
+        )
         .await
     {
         Ok(auth_response) => {

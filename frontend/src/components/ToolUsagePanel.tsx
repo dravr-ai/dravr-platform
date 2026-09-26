@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
-import { usageApi } from '../services/api';
+import { adminUsageApi } from '../services/api';
 import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
 import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
 import type { ToolUsageResponse } from '../services/api/usage';
@@ -23,7 +23,7 @@ export default function ToolUsagePanel() {
 
   const { data, isLoading, error } = useQuery<ToolUsageResponse>({
     queryKey: ['admin', 'tool-usage', days],
-    queryFn: () => usageApi.getAdminToolUsage(days),
+    queryFn: () => adminUsageApi.getAdminToolUsage(days),
     // Degrade gracefully — never propagate to the error boundary (which would
     // blank the whole Analytics tab if this endpoint is unavailable).
     throwOnError: false,

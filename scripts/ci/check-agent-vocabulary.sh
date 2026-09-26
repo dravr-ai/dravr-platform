@@ -123,16 +123,20 @@ PY
 echo ""
 echo "==== Agent vocabulary: prose added by this push ===="
 
-BASE="${VOCAB_DIFF_BASE:-origin/main}"
-if ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
-    echo "ℹ️  $BASE unavailable — skipping the diff-scoped half."
+# The base every diff-scoped gate uses: the argument, else $GATE_BASE_REF (which
+# pre-push exports), else origin/main, and HEAD~1 whenever that is missing or
+# equals HEAD. Only a root commit has nothing to diff against.
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$ROOT/scripts/ci/gate-base-ref.sh"
+if ! BASE="$(resolve_gate_base_ref "${1:-}")"; then
+    echo "ℹ️  HEAD is a root commit — no base to diff against; skipping the diff-scoped half."
     exit $FAILED
 fi
 
 MERGE_BASE="$(git merge-base HEAD "$BASE" 2>/dev/null || echo '')"
 if [[ -z "$MERGE_BASE" ]]; then
-    echo "ℹ️  no merge base with $BASE — skipping the diff-scoped half."
-    exit $FAILED
+    echo "❌ no merge base between $BASE and HEAD — the diff-scoped half cannot tell what this push adds."
+    exit 1
 fi
 
 # High-confidence sense-A phrases only. Each names the persona directly; none

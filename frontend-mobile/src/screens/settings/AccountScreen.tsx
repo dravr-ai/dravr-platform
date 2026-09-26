@@ -6,39 +6,14 @@ import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 import { settingsPaneSections } from '@pierre/shared-constants';
+import { formatCompactNumber, formatResetTime } from '@pierre/chat-utils';
+import type { LimitCheckResult } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Button, EmptyState, Input, PaneScrollView, Row, Section, Sheet } from '../../components/ui';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
+import { useUsageStatus } from '../chat/useUsageStatus';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
-
-/** Format large numbers compactly (e.g. 145000 -> "145.0K"). */
-function formatCompactNumber(value: number): string {
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`;
-  }
-  return value.toLocaleString();
-}
-
-/**
- * `fallback` is the caller's translated wording for an unparseable timestamp:
- * this runs outside the component, so it cannot reach the catalogue itself.
- */
-function formatResetTime(isoString: string, fallback: string): string {
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZoneName: 'short',
-    }).format(new Date(isoString));
-  } catch {
-    return fallback;
-  }
-}
 
 /** The account creation date, in the reader's own locale. */
 function formatMemberSince(isoString: string | undefined, fallback: string): string {

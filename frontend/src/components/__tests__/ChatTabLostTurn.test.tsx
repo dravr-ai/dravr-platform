@@ -10,13 +10,12 @@ import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
 import type { Message } from '@pierre/shared-types';
-import { IDLE_STOP_AFTER_MS } from '@pierre/shared-constants';
+import { IDLE_STOP_AFTER_MS, resetIdleAbort } from '@pierre/shared-constants';
 import { TurnIdleAbortedError } from '@pierre/api-client';
 import { i18n } from '@pierre/i18n';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
 import { useIdleWatch } from '../../hooks/useIdleWatch';
-import { resetIdleAbort } from '../../services/api/idleSignal';
 
 const CONVERSATION_ID = 'conv-1';
 

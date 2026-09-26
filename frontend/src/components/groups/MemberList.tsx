@@ -11,6 +11,8 @@ import { Button, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
+import { describeApiError } from '@pierre/ui-logic';
 
 interface MemberListProps {
   groupId: string;
@@ -30,15 +32,6 @@ const ROLE_BADGE: Record<GroupRole, { labelKey: string; color: string; Icon: typ
   admin: { labelKey: 'groups.admin', color: 'bg-primary/20 text-primary', Icon: Shield },
   member: { labelKey: 'groups.member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
 };
-
-/** A date in the reader's language, not the browser's. */
-function formatDate(dateStr: string, language: string): string {
-  return new Date(dateStr).toLocaleDateString(language, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 export default function MemberList({
   groupId,
@@ -94,7 +87,7 @@ export default function MemberList({
       showSuccess(t('app.memberRemoved'), t('app.memberRemovedFrom', { member: confirmRemove.display_name ?? t('groups.member') }));
       setConfirmRemove(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.removeFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.removeFailed' });
       showError(t('app.removeFailed'), message);
     }
   };
@@ -105,7 +98,7 @@ export default function MemberList({
       await updateRole({ userId: member.user_id, role: newRole });
       showSuccess(t('app.roleUpdated'), t('app.memberIsNowRole', { member: member.display_name ?? t('groups.member'), role: newRole }));
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('groups.roleUpdateFailed');
+      const message = describeApiError(err, { t, fallbackKey: 'groups.roleUpdateFailed' });
       showError(t('app.updateFailed'), message);
     }
   };

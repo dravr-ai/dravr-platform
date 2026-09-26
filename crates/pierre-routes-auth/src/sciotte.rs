@@ -24,7 +24,7 @@ use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::delegated_connections::forget_coach_roster;
 use pierre_services::provider_notice::require_notice_accepted;
-use pierre_services::provider_revocation::DisconnectReason;
+use pierre_services::provider_revocation::{drop_scrape_session, DisconnectReason};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -53,10 +53,10 @@ use pierre_middleware::provider_link_token::{
 struct RemoteFlowState {
     /// Service-minted id that names the parked browser. It is the only binding
     /// between the caller and the login *they* started, so every continuation
-    /// carries it: a continuation sent without one lets the service resume its
-    /// sole pending flow, which on a busy service is another athlete's browser
-    /// — and its exported session would be persisted under the caller's
-    /// account.
+    /// carries it: the service refuses a continuation without one
+    /// (`flow_id_required`), and resumes whichever browser the id names — so an
+    /// id that is not the caller's own would persist another athlete's session
+    /// under the caller's account.
     flow_id: String,
     /// Backend provider name (`sciotte` / `sciotte_garmin`) carried from the
     /// login request. A *system* failure on an OTP/2FA continuation needs it for
@@ -222,11 +222,12 @@ async fn recall_remote_flow(
 /// client error naming the recovery.
 ///
 /// The id is the whole of the caller-to-flow binding: `submit-otp` /
-/// `select-2fa` authenticate the caller, but the scraper service resumes its
-/// *sole* pending flow when a continuation carries no id — so continuing
-/// without one hands the caller whichever browser is parked, and
-/// `remote_login_to_response` then persists that session under the caller's
-/// `user_id`/`tenant_id`. A caller with no live entry is refused here instead.
+/// `select-2fa` authenticate the caller, but the scraper service resumes
+/// whichever parked browser the id names, and `remote_login_to_response` then
+/// persists that session under the caller's `user_id`/`tenant_id`. The id is
+/// therefore only ever the caller's own remembered one; a caller with no live
+/// entry is refused here, before any call (the service itself refuses a
+/// continuation that names no flow).
 ///
 /// # Errors
 ///
@@ -240,8 +241,8 @@ pub async fn require_remote_flow(
     let Some(flow) = recall_remote_flow(cache, tenant_id, user_id).await else {
         warn!(
             %user_id,
-            "Sciotte continuation has no live flow for this caller — refusing instead of \
-             letting the service resume whichever browser is parked"
+            "Sciotte continuation has no live flow for this caller — refusing before any \
+             call to the service"
         );
         return Err(AppError::invalid_input(NO_PENDING_LOGIN_MESSAGE));
     };
@@ -924,10 +925,7 @@ pub async fn handle_sciotte_select_2fa(
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
-    let outcome = match remote
-        .select_2fa(&request.option_id, Some(flow_id.as_str()))
-        .await
-    {
+    let outcome = match remote.select_2fa(&request.option_id, &flow_id).await {
         Ok(outcome) => outcome,
         Err(e) => {
             return match login_failure_response(user_id, tenant_id, &provider, "two_factor", &e) {
@@ -978,10 +976,7 @@ pub async fn handle_sciotte_submit_otp(
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
     let remote = RemoteSciotteClient::require_from_env()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
-    let outcome = match remote
-        .submit_otp(&request.code, Some(flow_id.as_str()))
-        .await
-    {
+    let outcome = match remote.submit_otp(&request.code, &flow_id).await {
         Ok(outcome) => outcome,
         Err(e) => {
             return match login_failure_response(user_id, tenant_id, &provider, "otp", &e) {
@@ -1062,6 +1057,10 @@ pub async fn handle_sciotte_disconnect(
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
     let tenant = TenantId::from_uuid(tenant_id);
+
+    // Before the row goes: it names the session the sciotte service still
+    // holds the provider cookies under.
+    drop_scrape_session(&resources.repos, user_id, tenant, "sciotte").await;
 
     resources
         .repos

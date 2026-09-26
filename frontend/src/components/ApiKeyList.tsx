@@ -10,12 +10,15 @@ import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { describeApiError } from '@pierre/ui-logic';
+import { useTranslation } from '@pierre/i18n';
 
 interface ApiKeyListProps {
   onViewDetails: (token: AdminToken) => void;
 }
 
 export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
+  const { t } = useTranslation();
   const { isAuthenticated, user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set());
@@ -125,7 +128,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
           <div>
             <h3 className="text-lg font-medium text-error">Failed to load API tokens</h3>
             <p className="text-on-surface mt-1">
-              {error instanceof Error ? error.message : 'An unknown error occurred'}
+              {describeApiError(error, { t, fallbackKey: 'errors.unknown' })}
             </p>
           </div>
         </div>

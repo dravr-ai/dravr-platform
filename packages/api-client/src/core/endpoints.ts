@@ -230,6 +230,26 @@ export const ENDPOINTS = {
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
+  // ==================== USAGE ====================
+  USAGE: {
+    /** The calling user's quota counters and resource caps */
+    STATUS: '/api/usage/status',
+  },
+  // ==================== BILLING ====================
+  BILLING: {
+    /** Start a hosted checkout for a paid tier (POST) */
+    CHECKOUT: '/api/billing/checkout',
+    /** Open the provider's customer portal on the caller's own subscription (POST) */
+    PORTAL: '/api/billing/portal',
+    /** The caller's subscription row; 404 when there is none */
+    SUBSCRIPTION: '/api/billing/subscription',
+    /** The caller's invoices, newest first */
+    INVOICES: '/api/billing/invoices',
+    /** The plan comparison catalogue, derived from the caps the server enforces */
+    PLANS: '/api/billing/plans',
+    /** The effective tier and every quota counter the chat write path checks */
+    MY_QUOTA: '/api/users/me/quota',
+  },
   // ==================== ATHLETE HOME ====================
   /** The athlete's own training data, read for the Home page */
   ATHLETE: {

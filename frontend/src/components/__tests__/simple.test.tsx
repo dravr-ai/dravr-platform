@@ -15,7 +15,6 @@ vi.mock('../../services/api', () => ({
     logout: vi.fn().mockResolvedValue(undefined),
   },
   adminApi: {
-    getSetupStatus: vi.fn().mockResolvedValue({ needs_setup: false, admin_exists: true }),
     endImpersonation: vi.fn(),
   },
   pierreApi: {

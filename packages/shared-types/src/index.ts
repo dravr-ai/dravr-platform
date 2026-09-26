@@ -169,37 +169,19 @@ export type {
   BadgeSyncResponse,
 } from './notifications.js';
 
-// Admin types (API keys, admin tokens, A2A protocol, dashboard)
+// Admin types (admin tokens, A2A protocol, dashboard)
 export type {
-  ApiKeyStatus,
-  ApiKey,
-  ApiKeysResponse,
-  CreateApiKeyRequest,
-  CreateApiKeyResponse,
   AdminPermission,
   AdminToken,
   AdminTokensResponse,
   CreateAdminTokenRequest,
   CreateAdminTokenResponse,
-  AdminTokenAudit,
-  AdminTokenUsageStats,
-  TierUsage,
-  DashboardOverview,
-  RateLimitOverview,
-  RequestLog,
-  RequestStats,
-  RequestFilter,
   ToolUsageBreakdown,
   A2AClient,
   A2AClientRegistrationRequest,
   A2AClientCredentials,
-  A2ASession,
   A2ARateLimitStatus,
   A2AUsageStats,
-  A2AUsageRecord,
-  A2ADashboardOverview,
-  SetupStatusResponse,
-  ProvisionedKey,
 } from './admin.js';
 
 // Group coaching types (groups, members, invites, analytics)
@@ -258,3 +240,23 @@ export type { PersonaCard, PersonaRule, PersonasResponse } from './personas';
 
 export { MEMORY_FACT_KINDS } from './memory';
 export type { MemoryFactKind } from './memory';
+
+// The quota counters GET /api/usage/status serves
+export type { LimitCheckResult, UsageStatusResponse } from './usage';
+
+// Billing: subscription, invoices, plan catalogue, quota snapshot, checkout and portal
+export type {
+  PlanTier,
+  PaidPlanTier,
+  SubscriptionView,
+  BillingInvoice,
+  InvoicesResponse,
+  QuotaCounter,
+  MyQuotaResponse,
+  PlanView,
+  PlansResponse,
+  CheckoutRequest,
+  CheckoutResponse,
+  PortalRequest,
+  PortalResponse,
+} from './billing';

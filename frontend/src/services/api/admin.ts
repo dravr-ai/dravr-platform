@@ -103,12 +103,6 @@ export interface StorePackageReview {
 }
 
 export const adminApi = {
-  // ==================== SETUP STATUS ====================
-  async getSetupStatus() {
-    const response = await axios.get('/admin/setup/status');
-    return response.data;
-  },
-
   // ==================== ADMIN TOKEN MANAGEMENT ====================
   async getAdminTokens(params?: { include_inactive?: boolean }) {
     const queryParams = new URLSearchParams();
@@ -132,11 +126,6 @@ export const adminApi = {
     return response.data;
   },
 
-  async getAdminTokenDetails(tokenId: string) {
-    const response = await axios.get(`/api/admin/tokens/${tokenId}`);
-    return response.data;
-  },
-
   async revokeAdminToken(tokenId: string) {
     const response = await axios.post(`/api/admin/tokens/${tokenId}/revoke`);
     return response.data;
@@ -144,65 +133,6 @@ export const adminApi = {
 
   async rotateAdminToken(tokenId: string, data?: { expires_in_days?: number }) {
     const response = await axios.post(`/api/admin/tokens/${tokenId}/rotate`, data || {});
-    return response.data;
-  },
-
-  async getAdminTokenInfo() {
-    const response = await axios.get('/admin/token-info');
-    return response.data;
-  },
-
-  async getAdminHealth() {
-    const response = await axios.get('/admin/health');
-    return response.data;
-  },
-
-  async getAdminTokenAudit(tokenId: string) {
-    const response = await axios.get(`/admin/tokens/${tokenId}/audit`);
-    return response.data;
-  },
-
-  async getAdminTokenUsageStats(tokenId: string) {
-    const response = await axios.get(`/admin/tokens/${tokenId}/usage-stats`);
-    return response.data;
-  },
-
-  async getAdminTokenProvisionedKeys(tokenId: string) {
-    const response = await axios.get(`/admin/tokens/${tokenId}/provisioned-keys`);
-    return response.data;
-  },
-
-  // ==================== API KEY PROVISIONING ====================
-  async provisionApiKey(data: {
-    user_email: string;
-    tier: string;
-    description?: string;
-    expires_in_days?: number;
-    rate_limit_requests?: number;
-    rate_limit_period?: string;
-  }) {
-    const response = await axios.post('/admin/provision-api-key', data);
-    return response.data;
-  },
-
-  async revokeApiKey(data: { key_id?: string; user_email?: string }) {
-    const response = await axios.post('/admin/revoke-api-key', data);
-    return response.data;
-  },
-
-  async listApiKeys(params?: {
-    user_email?: string;
-    active_only?: boolean;
-    limit?: number;
-    offset?: number;
-  }) {
-    const queryParams = new URLSearchParams();
-    if (params?.user_email) queryParams.append('user_email', params.user_email);
-    if (params?.active_only !== undefined) queryParams.append('active_only', params.active_only.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.offset) queryParams.append('offset', params.offset.toString());
-
-    const response = await axios.get(`/admin/list-api-keys?${queryParams}`);
     return response.data;
   },
 
@@ -418,22 +348,6 @@ export const adminApi = {
     return response.data;
   },
 
-  async getUserCostTimeseries(userId: string, fromIso?: string): Promise<{
-    user_id: string;
-    from: string;
-    daily: Array<{
-      date: string;
-      tokens: number;
-      prompt_tokens: number;
-      completion_tokens: number;
-      calls: number;
-    }>;
-  }> {
-    const qs = fromIso ? `?from=${encodeURIComponent(fromIso)}` : '';
-    const response = await axios.get(`/api/admin/users/${userId}/cost-timeseries${qs}`);
-    return response.data;
-  },
-
   async setUserTier(userId: string, tier: 'starter' | 'professional' | 'enterprise'): Promise<{
     user_id: string;
     email: string;
@@ -472,32 +386,6 @@ export const adminApi = {
     return response.data;
   },
 
-  async getTenantInvoicePreview(tenantId: string, period: string): Promise<{
-    tenant_id: string;
-    period: string;
-    by_model: Array<{
-      provider: string;
-      model: string;
-      call_type: string;
-      total_tokens: number;
-      prompt_tokens: number;
-      completion_tokens: number;
-      calls: number;
-    }>;
-    daily: Array<{
-      date: string;
-      tokens: number;
-      prompt_tokens: number;
-      completion_tokens: number;
-      calls: number;
-    }>;
-  }> {
-    const response = await axios.get(`/api/admin/tenants/${tenantId}/invoice`, {
-      params: { period },
-    });
-    return response.data;
-  },
-
   // ==================== ADMIN SETTINGS ====================
   async getAutoApprovalSetting(): Promise<{ enabled: boolean; description: string }> {
     const response = await axios.get('/api/admin/settings/auto-approval');
@@ -510,95 +398,6 @@ export const adminApi = {
   },
 
   // ==================== CONFIGURATION MANAGEMENT ====================
-  async getConfigCatalog(tenantId?: string): Promise<{
-    success: boolean;
-    data: {
-      total_parameters: number;
-      runtime_configurable_count: number;
-      static_count: number;
-      categories: Array<{
-        id: string;
-        name: string;
-        display_name: string;
-        description: string;
-        display_order: number;
-        is_active: boolean;
-        parameters: Array<{
-          key: string;
-          display_name: string;
-          description: string;
-          category: string;
-          data_type: string;
-          current_value: unknown;
-          default_value: unknown;
-          is_modified: boolean;
-          valid_range?: { min?: number; max?: number; step?: number };
-          enum_options?: string[];
-          units?: string;
-          scientific_basis?: string;
-          env_variable?: string;
-          /** An environment pin is supplying this value; only a tenant or user override beats it. */
-          env_pinned: boolean;
-          /** Which rung supplied current_value: user | tenant | env | global | default. */
-          value_source: string;
-          is_runtime_configurable: boolean;
-          requires_restart: boolean;
-        }>;
-      }>;
-    };
-  }> {
-    const params = new URLSearchParams();
-    if (tenantId) params.append('tenant_id', tenantId);
-    const queryString = params.toString();
-    const url = queryString ? `/api/admin/config/catalog?${queryString}` : '/api/admin/config/catalog';
-    const response = await axios.get(url);
-    return response.data;
-  },
-
-  async getConfigAuditLog(params?: {
-    category?: string;
-    config_key?: string;
-    admin_user_id?: string;
-    tenant_id?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<{
-    success: boolean;
-    data: {
-      entries: Array<{
-        id: string;
-        timestamp: string;
-        admin_user_id: string;
-        admin_email: string;
-        category: string;
-        config_key: string;
-        old_value: unknown;
-        new_value: unknown;
-        data_type: string;
-        reason?: string;
-        tenant_id?: string;
-        ip_address?: string;
-        user_agent?: string;
-      }>;
-      total_count: number;
-      offset: number;
-      limit: number;
-    };
-  }> {
-    const queryParams = new URLSearchParams();
-    if (params?.category) queryParams.append('category', params.category);
-    if (params?.config_key) queryParams.append('config_key', params.config_key);
-    if (params?.admin_user_id) queryParams.append('admin_user_id', params.admin_user_id);
-    if (params?.tenant_id) queryParams.append('tenant_id', params.tenant_id);
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.offset) queryParams.append('offset', params.offset.toString());
-
-    const queryString = queryParams.toString();
-    const url = queryString ? `/api/admin/config/audit?${queryString}` : '/api/admin/config/audit';
-    const response = await axios.get(url);
-    return response.data;
-  },
-
   async updateConfig(request: {
     parameters: Record<string, unknown>;
     reason?: string;
@@ -618,19 +417,6 @@ export const adminApi = {
     const queryString = params.toString();
     const url = queryString ? `/api/admin/config?${queryString}` : '/api/admin/config';
     const response = await axios.put(url, request);
-    return response.data;
-  },
-
-  async resetConfig(request: {
-    category?: string;
-    parameters?: string[];
-  }, tenantId?: string, userId?: string): Promise<{ success: boolean; data: { reset_count: number } }> {
-    const params = new URLSearchParams();
-    if (tenantId) params.append('tenant_id', tenantId);
-    if (userId) params.append('user_id', userId);
-    const queryString = params.toString();
-    const url = queryString ? `/api/admin/config/reset?${queryString}` : '/api/admin/config/reset';
-    const response = await axios.post(url, request);
     return response.data;
   },
 
@@ -661,25 +447,6 @@ export const adminApi = {
     duration_seconds: number;
   }> {
     const response = await axios.post('/api/admin/impersonate/end');
-    return response.data;
-  },
-
-  async getImpersonationSessions(): Promise<{
-    sessions: Array<{
-      id: string;
-      impersonator_id: string;
-      impersonator_email?: string;
-      target_user_id: string;
-      target_user_email?: string;
-      reason?: string;
-      started_at: string;
-      ended_at?: string;
-      is_active: boolean;
-      duration_seconds: number;
-    }>;
-    total_count: number;
-  }> {
-    const response = await axios.get('/api/admin/impersonate/sessions');
     return response.data;
   },
 
@@ -771,40 +538,6 @@ export const adminApi = {
   },
 
   // ==================== TOOL SELECTION ====================
-  async getToolCatalog(): Promise<{
-    success: boolean;
-    message: string;
-    data: Array<{
-      tool_name: string;
-      display_name: string;
-      description: string;
-      category: string;
-      default_enabled: boolean;
-      is_globally_disabled: boolean;
-      available_in_tiers: string[];
-    }>;
-  }> {
-    const response = await axios.get('/api/admin/tools/catalog');
-    return response.data;
-  },
-
-  async getToolCatalogEntry(toolName: string): Promise<{
-    success: boolean;
-    message: string;
-    data: {
-      tool_name: string;
-      display_name: string;
-      description: string;
-      category: string;
-      default_enabled: boolean;
-      is_globally_disabled: boolean;
-      available_in_tiers: string[];
-    };
-  }> {
-    const response = await axios.get(`/api/admin/tools/catalog/${toolName}`);
-    return response.data;
-  },
-
   async getGlobalDisabledTools(): Promise<{
     success: boolean;
     message: string;
@@ -1115,15 +848,6 @@ export const adminApi = {
     return response.data;
   },
 
-  async promoteCoachToContremaitre(agentId: string): Promise<{
-    success: boolean;
-    path: string;
-    commit_sha: string | null;
-  }> {
-    const response = await axios.post(`/api/admin/contremaitre/agents/${agentId}/promote`);
-    return response.data;
-  },
-
   // ==================== HARNESS CONFIG (Phase B C3) ====================
   async getHarnessConfig(): Promise<HarnessConfigResponse> {
     const response = await axios.get('/api/admin/settings/harness');
@@ -1171,20 +895,6 @@ export const adminApi = {
     if (params.user_id) query.append('user_id', params.user_id);
     if (params.limit !== undefined) query.append('limit', String(params.limit));
     const response = await axios.get(`/api/admin/claim-verdicts?${query.toString()}`);
-    return response.data;
-  },
-
-  async listVerdictsForConversation(
-    conversationId: string,
-    tenantId: string,
-  ): Promise<{
-    verdicts: ClaimVerdict[];
-    total: number;
-  }> {
-    const query = new URLSearchParams({ tenant_id: tenantId });
-    const response = await axios.get(
-      `/api/admin/claim-verdicts/conversations/${conversationId}?${query.toString()}`,
-    );
     return response.data;
   },
 

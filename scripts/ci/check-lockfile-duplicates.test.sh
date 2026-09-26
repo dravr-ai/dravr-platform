@@ -170,9 +170,9 @@ grep -q "dravr-tronc resolves more than once" "$OUT" || fail "two sources: failu
 grep -q "registry+https://github.com/rust-lang/crates.io-index" "$OUT" || fail "two sources: failure output must name the registry source"
 grep -q "git+https://github.com/dravr-ai/dravr-tronc.git?tag=v1.0.0" "$OUT" || fail "two sources: failure output must name the git source"
 
-# --- 4. a bare-named crates.io crate (prefix membership) ------------------------
-# embacle ships from crates.io under its bare name; the `embacle` prefix is what
-# admits it, exactly as ci-backend's cargo-tree gate matches it explicitly.
+# --- 4. a bare-named crates.io crate (declared membership) ----------------------
+# embacle ships from crates.io under its bare name; satellites.toml's
+# `crates = "embacle embacle-tool-host"` is what admits it.
 f="$WORK/embacle.lock"
 plant "$f" <<'LOCK'
 [[package]]
@@ -270,6 +270,72 @@ code="$(run_guard "$f")"
 expect "aws-lc-rs back in the lockfile fails" "$code" 1
 grep -q "aws-lc-rs is back in the lockfile" "$OUT" || fail "aws-lc: failure output must name the crate"
 grep -q "1.18.1" "$OUT" || fail "aws-lc: failure output must name the version"
+
+# --- 5b. photograveur from a registry: declared, not only git-sourced -------------
+# Its dravr-ai git source is one way in; satellites.toml's [photograveur] stanza
+# is the other. Moved to a registry, it must still be counted — the rule that
+# matched on name prefix alone never saw it at all.
+f="$WORK/photograveur-registry.lock"
+plant "$f" <<'LOCK'
+[[package]]
+name = "photograveur"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8888888888888888888888888888888888888888888888888888888888888888"
+
+[[package]]
+name = "photograveur"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9999999999999999999999999999999999999999999999999999999999999999"
+LOCK
+# The git copy in BASE makes three; drop it so only the declaration can admit it.
+awk 'BEGIN { RS = ""; ORS = "\n\n" } !/name = "photograveur"\nversion = "0\.1\.6"/' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+code="$(run_guard "$f")"
+expect "a declared satellite from a registry at two versions fails" "$code" 1
+grep -q "photograveur resolves more than once" "$OUT" || fail "registry photograveur: failure output must name the crate"
+grep -q "0.1.6" "$OUT" && fail "registry photograveur: the fixture still carries the git copy"
+
+# The declaration is read, not assumed: with a satellites.toml that does not
+# declare photograveur, the same registry-only split is outside the ecosystem.
+toml="$WORK/satellites-without-photograveur.toml"
+printf '[embacle]\nrepo = "dravr-embacle"\nsource = "crates-io"\ncrates = "embacle embacle-tool-host"\n' > "$toml"
+code=0
+SATELLITES_TOML="$toml" "$UNDER_TEST" "$f" >"$OUT" 2>&1 || code=$?
+expect "membership follows satellites.toml, not a list in the script" "$code" 0
+
+code=0
+SATELLITES_TOML="$WORK/no-such.toml" "$UNDER_TEST" "$BASE" >"$OUT" 2>&1 || code=$?
+expect "an unreadable satellites.toml is exit 2, never a narrower gate" "$code" 2
+
+# --- 5c. --duplicates: the names alone, for a caller that decides ----------------
+# satellite-bump.yml's stand-down reads the split crates from here instead of
+# keeping its own rule; the photograveur split must come back by name.
+code=0
+"$UNDER_TEST" --duplicates "$WORK/photograveur.lock" >"$OUT" 2>&1 || code=$?
+expect "--duplicates exits 0 on a split" "$code" 0
+[ "$(cat "$OUT")" = "photograveur" ] || fail "--duplicates on the photograveur split printed: $(cat "$OUT")"
+code=0
+"$UNDER_TEST" --duplicates "$BASE" >"$OUT" 2>&1 || code=$?
+expect "--duplicates exits 0 on a converged lockfile" "$code" 0
+[ -s "$OUT" ] && fail "--duplicates on a converged lockfile printed: $(cat "$OUT")"
+code=0
+"$UNDER_TEST" --duplicates "$WORK/no-ecosystem.lock" >"$OUT" 2>&1 || code=$?
+expect "--duplicates fails closed on a lockfile with no ecosystem crate" "$code" 1
+
+# --- 5d. every duplicate gate runs this script -----------------------------------
+# The rule lives here once. ci-backend's per-push gate and satellite-bump's
+# stand-down each kept their own, and the per-push one missed photograveur.
+if grep -q 'scripts/ci/check-lockfile-duplicates.sh$' "$REPO_ROOT/.github/workflows/ci-backend.yml"; then
+  pass "ci-backend's per-push duplicate gate runs this script"
+else
+  fail "ci-backend.yml no longer runs check-lockfile-duplicates.sh"
+fi
+if grep -q 'check-lockfile-duplicates.sh --duplicates' "$REPO_ROOT/.github/workflows/satellite-bump.yml"; then
+  pass "satellite-bump's stand-down reads --duplicates"
+else
+  fail "satellite-bump.yml no longer reads check-lockfile-duplicates.sh --duplicates"
+fi
 
 # --- 10. the real lockfile --------------------------------------------------------
 # The tree this test ships in holds one entry per ecosystem crate. If this case

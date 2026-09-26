@@ -3,8 +3,9 @@
 
 // Boreal Editorial design system — MD3 tokens.
 //
-// Every token below reads from a CSS custom property defined in src/index.css,
-// so a single `.dark` class on <html> flips the entire palette without
+// Every token below reads from a CSS custom property declared in
+// src/boreal-tokens.generated.css (imported by src/index.css, generated from
+// @pierre/shared-constants), so a single `.dark` class on <html> flips the entire palette without
 // needing `dark:` variants on individual utilities. The legacy `pierre.*`
 // namespace it replaced is gone: every value in it was a frozen light-theme
 // hex, so each call site was theme-invariant by construction.
@@ -66,7 +67,7 @@ module.exports = {
         recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
         mobility: 'rgb(var(--color-mobility) / <alpha-value>)',
 
-        // Text that sits ON a tint of the hue above. See index.css.
+        // Text that sits ON a tint of the hue above. See CONTAINER_INKS in design-system.ts.
         'on-activity-container': 'rgb(var(--color-on-activity-container) / <alpha-value>)',
         'on-nutrition-container': 'rgb(var(--color-on-nutrition-container) / <alpha-value>)',
         'on-recovery-container': 'rgb(var(--color-on-recovery-container) / <alpha-value>)',

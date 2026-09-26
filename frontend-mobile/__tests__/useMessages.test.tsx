@@ -30,10 +30,15 @@ jest.mock('@pierre/chat-utils', () => ({
   // The real mapping, not a stub: the progress line the athlete reads is the
   // point of the strip, and a stubbed mapper would let a broken one pass.
   statusForProgress: jest.requireActual('@pierre/chat-utils').statusForProgress,
+  // The real lost-turn reducer: every send and every read goes through it,
+  // and a stub would decide nothing about when a failure's note stands.
+  readLostTurn: jest.requireActual('@pierre/chat-utils').readLostTurn,
+  reduceLostTurn: jest.requireActual('@pierre/chat-utils').reduceLostTurn,
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';
 import type { Message } from '../src/types';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 /**
  * The hook invalidates the conversation-list query after a turn, so it needs
@@ -487,7 +492,7 @@ describe('useMessages', () => {
     });
 
     it('reverts the optimistic rating when the API call fails', async () => {
-      mockSubmitMessageFeedback.mockRejectedValue(new Error('offline'));
+      mockSubmitMessageFeedback.mockRejectedValue(networkFailure());
       const { result } = renderHook(() => useMessages());
 
       await act(async () => {
@@ -495,7 +500,7 @@ describe('useMessages', () => {
       });
 
       expect(result.current.messageFeedback['asst-1']).toBeNull();
-      expect(result.current.error).toBe('offline');
+      expect(result.current.error).toBe('Network error. Check your connection.');
     });
 
     it('hydrates feedback state from the messages-list response on load', async () => {

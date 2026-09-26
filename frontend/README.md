@@ -294,7 +294,6 @@ The frontend communicates with Pierre MCP Server via REST API:
 
 Key endpoints:
 - `/api/auth/*` - Authentication
-- `/api/keys/*` - API key management
 - `/api/admin/*` - Admin operations
 - `/api/dashboard/*` - Dashboard data
 - `/a2a/*` - A2A client management

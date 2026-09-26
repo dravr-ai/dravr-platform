@@ -18,6 +18,8 @@ vi.mock('../../services/api', () => ({
   chatApi: {
     listCommands: (...args: unknown[]) => listCommands(...args),
   },
+  // Read by the mention palette binding at import; no draft here opens it.
+  coachesApi: {},
 }));
 
 /** The catalogue rows the server returns, in its domain-then-command order. */

@@ -179,83 +179,25 @@ jobs:
               `_This issue auto-updates each Monday. It closes itself when both pins are current (CLI \`${latest}\`, SDK \`${sdkLatest}\`)._`,
             ].join('\n');
 
-            // Ensure label exists
-            try {
-              await github.rest.issues.getLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-              });
-            } catch {
-              await github.rest.issues.createLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-                color: '0366d6',
-                description: 'Dependency updates',
-              });
-            }
-
-            // Look for any open issue from this monitor (title prefix match)
-            const { data: openIssues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: label,
-              per_page: 100,
+            // The title carries the drifted versions, so the open issue from an
+            // earlier run is found by prefix and retitled. The second prefix is
+            // the title this monitor filed under before it also watched the SDK.
+            const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
+            await upsertStandingIssue(github, core, {
+              ...context.repo, label, title, body, onExisting: 'update',
+              titlePrefixes: ['Copilot pin drift:', 'Copilot CLI update available:'],
+              newLabel: { color: '0366d6', description: 'Dependency updates' },
             });
-
-            const existing = openIssues.find(i => (i.title.startsWith('Copilot pin drift:') || i.title.startsWith('Copilot CLI update available:')));
-
-            if (existing) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                title,
-                body,
-              });
-              core.info(`Updated existing issue #${existing.number}`);
-            } else {
-              const { data: issue } = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-                labels: [label],
-              });
-              core.info(`Created issue #${issue.number}`);
-            }
 
       - name: Close stale tracking issue when caught up
         if: steps.compare.outputs.drift == 'false'
         uses: actions/github-script@v9
         with:
           script: |
-            const label = 'dependencies';
-            const { data: openIssues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: label,
-              per_page: 100,
+            const { closeStandingIssues } = require('./scripts/ci/standing-issue.cjs');
+            await closeStandingIssues(github, core, {
+              ...context.repo,
+              label: 'dependencies',
+              titlePrefixes: ['Copilot pin drift:', 'Copilot CLI update available:'],
+              comment: 'Both Copilot pins are current (Dockerfile CLI ARG vs npm `latest`, Cargo.lock github-copilot-sdk vs crates.io). Auto-closing.',
             });
-
-            const stale = openIssues.filter(i => i.title.startsWith('Copilot pin drift:') || (i.title.startsWith('Copilot pin drift:') || i.title.startsWith('Copilot CLI update available:')));
-
-            for (const issue of stale) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                body: 'Both Copilot pins are current (Dockerfile CLI ARG vs npm `latest`, Cargo.lock github-copilot-sdk vs crates.io). Auto-closing.',
-              });
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: 'closed',
-                state_reason: 'completed',
-              });
-              core.info(`Closed stale issue #${issue.number}`);
-            }

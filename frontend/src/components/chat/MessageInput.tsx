@@ -75,8 +75,10 @@ export default function MessageInput({
     // A palette owns Enter, Tab, the arrows and Escape while it is open:
     // Enter on a half-typed command or handle completes it rather than
     // sending it.
-    if (palette.handleKeyDown(e)) return;
-    if (mentions.handleKeyDown(e)) return;
+    if (palette.handleKey(e.key) || mentions.handleKey(e.key)) {
+      e.preventDefault();
+      return;
+    }
     // On touch (coarse-pointer) soft keyboards the Return key must insert a
     // newline — there is a dedicated 44x44 Send button. Enter-to-send is kept
     // on pointer-fine (desktop/laptop) devices only.

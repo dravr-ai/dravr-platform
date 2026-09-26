@@ -134,7 +134,7 @@ export function deriveKind(conversation: Conversation): ConversationKind {
 
 // Punctuation a title may open a word with (`«Plan»`, `"Tempo"`, `@coach`)
 // that must not become an initial.
-const LEADING_PUNCTUATION = /^["'«‘“(\[{@#*_~-]+/;
+const LEADING_PUNCTUATION = /^["'«‘“([{@#*_~-]+/;
 
 /**
  * Up to two letters for the avatar circle: the first character of the first

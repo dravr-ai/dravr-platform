@@ -1,11 +1,15 @@
 | `text-md` | 15 / 20 | A row's second line when it is read, not scanned: the chat preview, a Discover description |
 # Design System: Dravr Boreal — Product Tier
 
-> **Source of truth.** The hex values and rules in this document are mirrored in
-> `frontend/src/index.css`, `frontend/tailwind.config.cjs`,
-> `frontend-mobile/global.css`, `frontend-mobile/tailwind.config.js`, and
-> `packages/shared-constants/src/design-system.ts`. Any change to those files
-> must be reflected here. The brand's own name lives in
+> **Source of truth.** Every token value lives once, in
+> `packages/shared-constants/src/design-system.ts`. The `--color-*` blocks the
+> two client stylesheets import (`frontend/src/boreal-tokens.generated.css`,
+> `frontend-mobile/boreal-tokens.generated.css`) and the hosted page sheet are
+> generated from it (`bun run generate:client-css` / `generate:hosted-css` in
+> that package), and `frontend/tailwind.config.cjs` and
+> `frontend-mobile/tailwind.config.js` map those variables to classes. This
+> document states the values and the rules; a change to the tokens must be
+> reflected here. The brand's own name lives in
 > `packages/shared-constants/src/brands.ts` as `PRODUCT_WORDMARK`.
 
 Dravr ships two related design systems that share a brand identity but differ
@@ -146,12 +150,11 @@ Tailwind shade (`text-amber-400`, `bg-red-500`): those are fixed in both themes,
 so they fight the surface in one of them, and they land ~30% more saturated than
 Boreal — a stock amber on a status chip outshouts the page's only CTA.
 
-`scripts/ci/design-system-validation.sh` checks these four against
-`frontend/src/index.css`, `frontend-mobile/global.css` and
-`packages/shared-constants/src/design-system.ts` on every run. The values above
-are the source of truth; the check exists because "mirrored" was previously a
-claim nothing verified, and mobile carried the Editorial-tier `warning`
-(`#8f6a2e`) for months while this table said `#b08326`.
+Both clients' `--color-success` … `--color-info` are generated from
+`SEMANTIC_COLORS` / `SEMANTIC_COLORS_DARK`, so there is no second copy to
+drift. There used to be three: "mirrored" was a claim nothing verified, and
+mobile carried the Editorial-tier `warning` (`#8f6a2e`) for months while this
+table said `#b08326`.
 
 **Opacity works, and it must.** Every `--color-*` variable holds a bare RGB
 triplet (`--color-warning: 176 131 38`) and both Tailwind configs map it as
@@ -205,8 +208,8 @@ ink on the same tint runs 4.58:1 to 7.01:1 in light and 4.73:1 to 8.08:1 in
 dark. So the light scheme is where the pairing fails outright and dark is
 where it fails quietly on the upper tiers — one rule covers both.
 
-**Both platforms carry the same seven, byte for byte.** `frontend/src/index.css`
-and `frontend-mobile/global.css` declare the triples; `frontend/tailwind.config.cjs`
+**Both platforms carry the same seven, byte for byte.** Both generated token
+blocks declare the triples from `CONTAINER_INKS`; `frontend/tailwind.config.cjs`
 and `frontend-mobile/tailwind.config.js` both map them as
 `rgb(var(--color-on-*-container) / <alpha-value>)`, so `text-on-activity-container`
 and `bg-on-warning-container/40` are real classes on either canvas. The phone's
@@ -214,9 +217,9 @@ runtime path is `useThemeColors().ink.*`, reading `CONTAINER_INKS` /
 `CONTAINER_INKS_DARK` from `@pierre/shared-constants`; `categoryAccent` and
 `categoryInk` in `frontend-mobile/src/constants/theme.ts` hand a coach category's
 fill and its ink out as a pair, which is how a caller is kept from taking one
-without the other. `frontend/src/__tests__/DesignTokens.test.ts` and
-`frontend-mobile/__tests__/CategoryAccent.test.tsx` measure the pairing over
-the ladder in both schemes.
+without the other. The generator that writes both token blocks measures the
+pairing over the ladder in both schemes and refuses to write one below 4.5:1;
+`frontend-mobile/__tests__/CategoryAccent.test.tsx` measures the phone's pairs.
 
 The envelope has an edge, and `CONTAINER_INKS` documents it: these inks clear
 AA on tints from `/10` to `/15` over the whole ladder, and to `/20` over
@@ -676,9 +679,11 @@ record keyed by hue, so a thread's slot is the same hue on the web and the
 phone, and a hue added to the list without a binding is a type error.
 
 The surface ladder itself is measured, not assumed:
-`frontend/src/__tests__/DesignTokens.test.ts` computes every ratio in §2 from
-the token values, asserts the separation floors and the 4.5:1 text minimums,
-and checks the three mirrors against the tables in this file. The wordmark is
+`frontend/src/__tests__/DesignTokens.test.ts` computes the separation ratios in
+§2 from the token values, asserts their floors, and checks the tables in this
+file against `design-system.ts`. The 4.5:1 text minimums are measured by
+`packages/shared-constants/scripts/generate-client-css.ts`, which refuses to
+write either client's token block below them. The wordmark is
 data (`PRODUCT_WORDMARK` in `@pierre/shared-constants`), not a translated
 string, so it is identical in all five locales by construction.
 
@@ -808,8 +813,11 @@ The phone shares every token above and differs where a thumb and a system
 ladder make it differ. The mirrors are `frontend-mobile/tailwind.config.js`
 (the class path) and `frontend-mobile/src/contexts/ThemeContext.tsx` (the
 runtime path, `useThemeColors()`); `__tests__/TypeScaleParity.test.ts` pins
-both to this table and to `index.css`. The decisions behind it are in the
-vault under `Design/Boreal v2.2 — Mobile Less`.
+both to this table and to `index.css`. The scale below is declared once, in
+`frontend-mobile/src/constants/typeScale.js`: the Tailwind config builds the
+`text-*` classes from it, and a style that cannot take a class (the chat's
+markdown) reads the same steps as `typeScale` from `constants/theme`. The
+decisions behind it are in the vault under `Design/Boreal v2.2 — Mobile Less`.
 
 ### Scale
 

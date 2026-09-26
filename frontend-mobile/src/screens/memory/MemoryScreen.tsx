@@ -15,6 +15,7 @@ import { userApi } from '../../services/api';
 import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 import { presentMemoryFactMenu } from './presentMemoryFactMenu';
+import { describeApiError } from '@pierre/ui-logic';
 
 const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 
@@ -42,7 +43,7 @@ export function MemoryScreen(): React.JSX.Element {
       queryClient.invalidateQueries({ queryKey: MEMORY_FACTS_QUERY_KEY });
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = describeApiError(err, { t, fallbackKey: 'errors.unknown' });
       Alert.alert(t('app.couldNotForgetFact'), msg);
     },
   });
@@ -124,7 +125,7 @@ export function MemoryScreen(): React.JSX.Element {
           <View className="flex-row flex-wrap items-baseline px-4 py-3" testID="memory-error">
             <Text className="text-sm text-error">
               {t('app.failedLoadMemoryFacts', {
-                reason: error instanceof Error ? error.message : String(error),
+                reason: describeApiError(error, { t, fallbackKey: 'errors.unknown' }),
               })}
             </Text>
             <Text

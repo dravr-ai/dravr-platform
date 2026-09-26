@@ -4,7 +4,7 @@
 # ABOUTME: Fails when a client calls t('a.b') with a key the shared en catalogue does not carry
 # ABOUTME: Locale-to-locale parity cannot see this — a key removed from all five resolves in none
 
-# `localeCorpus.test.ts` compares the five locales to each other, so a key
+# `locale-corpus.test.ts` compares the five locales to each other, so a key
 # deleted from all five stays "in parity" while every caller of it renders the
 # raw key string to the athlete. That is how `app.weeklyReport` shipped as the
 # literal heading of the mobile group insights panel in every language: the
@@ -16,6 +16,8 @@
 # locales, which the corpus test already pins).
 #
 # Scope and deliberate exclusions:
+#   - `fallbackKey: 'a.b'` literals count as call sites: describeApiError
+#     translates them itself, so a typo there renders the raw key too.
 #   - Only single/double-quoted literals. `t(`groups.${id}`)` is dynamic and
 #     unresolvable statically; those are counted and reported, never failed on.
 #   - Comments are stripped before scanning, so prose naming an old key is not
@@ -76,7 +78,9 @@ keys = leaf_keys(catalogue)
 
 BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 LINE_COMMENT = re.compile(r"^\s*(//|\*).*$", re.M)
-CALL = re.compile(r"\bt\(\s*(['\"])([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)\1")
+# `fallbackKey: 'a.b'` is the key describeApiError hands to `t` when a failed
+# call carries nothing better; it renders exactly as a `t()` call does.
+CALL = re.compile(r"(?:\bt\(\s*|\bfallbackKey:\s*)(['\"])([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)\1")
 # \x60 is the backtick: spelled as an escape because this python sits inside
 # a $( ... ) the shell parses first, and bash 3.2 stops at a literal one.
 DYNAMIC = re.compile(r"\bt\(\s*\x60")

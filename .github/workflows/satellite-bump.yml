@@ -40,11 +40,13 @@
 #     lane counted its own crates and the duplicate was in dravr-equilibre, surfacing
 #     as E0053 twenty minutes into a gate on a branch that could never merge.
 #
-# What this workflow does NOT do: ship. It stops at the squash merge. Images, Cloud
-# Run deploys, digest assertions, rollbacks and `tag-deployed-*` stay in the caller
-# as ordinary jobs keyed on `state == 'pushed'`, moved verbatim rather than merged
-# into a shared tail. That is deliberate — it is the scar tissue that must not be
-# lost in a refactor, and every satellite's is different.
+# What this workflow does NOT do: ship. It stops at the squash merge, and shipping
+# stays with the caller, keyed on `state`. A lane whose satellite is only a crate
+# dispatches the platform image itself. A lane with a Cloud Run service builds its
+# image, then calls deploy-satellite-cloud-run.yml, which carries the deploy, the
+# digest assertion, the rollback, the `deployed-dev` tag and the platform dispatch
+# once for every such lane — the service name, the HTTP probe and the summary text
+# are its inputs, and the scar tissue behind each step is written there beside it.
 
 name: "Satellite: Bump (reusable)"
 
@@ -421,12 +423,16 @@ jobs:
           # shellcheck disable=SC2086
           cargo update ${UPDATE_ARGS}
 
-          # Which dravr-ecosystem crates now resolve more than once? Read from the
-          # lockfile directly rather than by parsing check-lockfile-duplicates.sh's
-          # prose, so this cannot drift from that script's wording.
-          DUPES=$(awk '/^name = /{ n=$0; gsub(/name = "|"/,"",n);
-                                   if (n ~ /^(dravr-|embacle|photograveur)/) c[n]++ }
-                       END { for (k in c) if (c[k] > 1) print k }' Cargo.lock)
+          # Which dravr-ecosystem crates now resolve more than once? Asked of the
+          # duplicate gate itself in its machine-readable mode, so "ecosystem
+          # crate" means here exactly what it means on every push. The exit status
+          # is read on its own: a scan that could not run is a failure, never an
+          # empty list read as "no split".
+          if ! DUPES=$(scripts/ci/check-lockfile-duplicates.sh --duplicates Cargo.lock); then
+            echo "::error::check-lockfile-duplicates.sh --duplicates could not scan Cargo.lock"
+            exit 1
+          fi
+          DUPES=$(printf '%s' "${DUPES}" | tr '\n' ' ')
 
           if [ -n "${DUPES}" ]; then
             # A release that also moved a crate ANOTHER lane owns cannot be integrated

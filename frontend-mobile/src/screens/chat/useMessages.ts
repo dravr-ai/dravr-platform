@@ -4,20 +4,27 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { type FlashListRef } from '@shopify/flash-list';
 import { useQueryClient } from '@tanstack/react-query';
-import { QUERY_KEYS } from '@pierre/shared-constants';
-import { chatApi } from '../../services/api';
 import {
   holdIdleWhileBusy,
   idleSignal,
+  QUERY_KEYS,
   trackAbsence,
   whenAthleteReturns,
-} from '../../services/idleSignal';
+} from '@pierre/shared-constants';
+import { chatApi } from '../../services/api';
 import { replySceneBlocks, TurnIdleAbortedError, type MessagesResponse } from '@pierre/api-client';
 import type { ClaimVerdict, ReplyBlock, ReplyNotice } from '@pierre/shared-types';
-import { filterDisplayMessages, replyLandedSince, statusForProgress } from '@pierre/chat-utils';
+import {
+  filterDisplayMessages,
+  readLostTurn,
+  reduceLostTurn,
+  statusForProgress,
+  type LostTurn,
+} from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
+import { describeApiError } from '@pierre/ui-logic';
 
 export interface MessagesState {
   messages: Message[];
@@ -105,23 +112,19 @@ export interface MessagesActions {
 }
 
 /**
- * A turn whose stream was lost while the athlete was away.
+ * What the thread paints for a turn lost while the athlete was away, kept by
+ * the lost-turn reducer both clients share.
  *
- * The server finishes a turn whether or not anyone is still reading, so the
- * failure's note stands only until a read of the conversation holds the
- * reply. Every read of the thread goes through `showTranscript`, which puts
- * the note back under a transcript that does not answer the turn yet and
- * drops it once one does — so the screen's own reloads (a focus, the end of a
+ * Every read of the thread goes through `showTranscript`, which puts these
+ * rows back under a transcript that does not answer the turn yet and drops
+ * them once one does — so the screen's own reloads (a focus, the end of a
  * send) cannot take the note down before the reply is there.
  */
-interface LostTurn {
-  conversationId: string;
-  /** The rows the client held when it sent the turn. */
-  heldIds: ReadonlySet<string>;
+interface LostTurnRows {
   /** The question the turn sent, for a transcript that never received it. */
   question: Message;
   /** The failure's row: the note and its Retry. */
-  note: Message;
+  row: Message;
   /** The failure's text, which `error` carries while the note stands. */
   failure: string;
 }
@@ -146,7 +149,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const openConversationRef = useRef<string | null>(null);
   // The turn lost while the athlete was away whose reply has not landed yet.
   // A new turn supersedes it, so it is cleared the moment one starts.
-  const lostTurnRef = useRef<LostTurn | null>(null);
+  const lostTurnRef = useRef<LostTurn<LostTurnRows> | null>(null);
 
   const scrollToBottom = useCallback(() => {
     if (flatListRef.current && messages.length > 0) {
@@ -208,21 +211,20 @@ export function useMessages(): MessagesState & MessagesActions {
     const transcript = response.messages || [];
     const rows = filterDisplayMessages(transcript);
     const lost = lostTurnRef.current;
-    if (lost?.conversationId !== conversationId) {
-      setMessages(rows);
-    } else if (replyLandedSince(transcript, lost.heldIds)) {
-      // The reply is written: it renders from the transcript, once, and the
-      // note and its failure are done.
-      lostTurnRef.current = null;
-      setError(null);
-      setMessages(rows);
-    } else {
+    const reading = readLostTurn(lost, conversationId, transcript);
+    lostTurnRef.current = reduceLostTurn(lost, { type: 'read', conversationId, transcript });
+    if (reading.kind === 'waiting') {
       // Not answered yet. The note sits under the question — the server's
       // copy when it received the turn, the client's own when it never did —
       // so its Retry re-sends the right line.
-      const received = transcript.some(m => m.role === 'user' && !lost.heldIds.has(m.id));
-      setMessages(received ? [...rows, lost.note] : [...rows, lost.question, lost.note]);
-      setError(lost.failure);
+      const { question, row, failure } = reading.note;
+      setMessages(reading.questionReceived ? [...rows, row] : [...rows, question, row]);
+      setError(failure);
+    } else {
+      // The transcript is the thread. When it answers the lost turn, the
+      // reply renders from it, once, and the note and its failure are done.
+      if (reading.kind === 'answered') setError(null);
+      setMessages(rows);
     }
 
     // Hydrate thumbs up/down state (and any saved reason) from the server so
@@ -249,7 +251,7 @@ export function useMessages(): MessagesState & MessagesActions {
       const response = await chatApi.getConversationMessages(conversationId);
       await showTranscript(conversationId, response);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('app.failedLoadMessages');
+      const errorMessage = describeApiError(err, { t, fallbackKey: 'app.failedLoadMessages' });
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
@@ -268,7 +270,7 @@ export function useMessages(): MessagesState & MessagesActions {
    * while it was on the wire: a new turn supersedes the lost one, and painting
    * the transcript over it would drop that turn's question and reply.
    */
-  const recoverLostReply = useCallback(async (lost: LostTurn) => {
+  const recoverLostReply = useCallback(async (lost: LostTurn<LostTurnRows>) => {
     const stillShowing = () =>
       lostTurnRef.current === lost && openConversationRef.current === lost.conversationId;
     if (!stillShowing()) return;
@@ -332,7 +334,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
     openConversationRef.current = conversationId;
-    lostTurnRef.current = null;
+    lostTurnRef.current = reduceLostTurn(lostTurnRef.current, { type: 'sent' });
 
     // What the thread held before this turn, so a re-read after a lost stream
     // can tell this turn's reply from the rows that were already there.
@@ -425,15 +427,15 @@ export function useMessages(): MessagesState & MessagesActions {
           const question: Message = { ...userMessage, id: `user-${Date.now()}` };
           // Failed while the athlete was away: every read of the thread keeps
           // the note until the reply has landed.
-          if (leftDuringTurn()) {
-            lostTurnRef.current = {
+          lostTurnRef.current = reduceLostTurn(lostTurnRef.current, {
+            type: 'failed',
+            away: leftDuringTurn(),
+            turn: {
               conversationId,
               heldIds,
-              question,
-              note: errorResponse,
-              failure: turnFailureText(sendErr),
-            };
-          }
+              note: { question, row: errorResponse, failure: turnFailureText(sendErr) },
+            },
+          });
           setMessages(prev => [
             ...prev.map(m => (m.id === userMessage.id ? question : m)),
             errorResponse,
@@ -462,7 +464,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
     openConversationRef.current = conversationId;
-    lostTurnRef.current = null;
+    lostTurnRef.current = reduceLostTurn(lostTurnRef.current, { type: 'sent' });
 
     setProgressText(null);
 
@@ -515,17 +517,21 @@ export function useMessages(): MessagesState & MessagesActions {
           setError(turnFailureText(err));
           invalidateConversationList();
           const errorRow = failedTurnRow(err, signal.aborted);
-          if (leftDuringTurn()) {
-            lostTurnRef.current = {
+          lostTurnRef.current = reduceLostTurn(lostTurnRef.current, {
+            type: 'failed',
+            away: leftDuringTurn(),
+            turn: {
               conversationId,
               heldIds,
-              // The re-sent line, as a row of its own: the original stays
-              // where it was in the transcript.
-              question: { ...userMessage, id: `user-${Date.now()}` },
-              note: errorRow,
-              failure: turnFailureText(err),
-            };
-          }
+              note: {
+                // The re-sent line, as a row of its own: the original stays
+                // where it was in the transcript.
+                question: { ...userMessage, id: `user-${Date.now()}` },
+                row: errorRow,
+                failure: turnFailureText(err),
+              },
+            },
+          });
           setMessages(prev => [...prev, errorRow]);
         },
       });
@@ -566,7 +572,7 @@ export function useMessages(): MessagesState & MessagesActions {
         }
       } catch (err) {
         setMessageFeedback(prev => ({ ...prev, [messageId]: previous }));
-        setError(err instanceof Error ? err.message : t('chat.feedbackSaveFailed'));
+        setError(describeApiError(err, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
       }
     },
     [messageFeedback]
@@ -596,7 +602,7 @@ export function useMessages(): MessagesState & MessagesActions {
           trimmed || undefined
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : t('chat.feedbackSaveFailed'));
+        setError(describeApiError(err, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
       }
     },
     []

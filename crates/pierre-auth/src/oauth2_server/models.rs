@@ -223,6 +223,19 @@ impl OAuth2Error {
         }
     }
 
+    /// Create an `invalid_client_metadata` error (RFC 7591 Section 3.2.2)
+    /// Used when a registration request carries a metadata value the server refuses
+    #[must_use]
+    pub fn invalid_client_metadata(description: &str) -> Self {
+        Self {
+            error: "invalid_client_metadata".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some(
+                "https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.2".to_owned(),
+            ),
+        }
+    }
+
     /// Create an `invalid_scope` error (RFC 6749 Section 4.1.2.1)
     /// Used when a client requests scopes beyond what it was registered for
     #[must_use]
@@ -233,6 +246,42 @@ impl OAuth2Error {
             error_uri: Some(
                 "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
             ),
+        }
+    }
+
+    /// Create an `access_denied` error (RFC 6749 Section 4.1.2.1)
+    /// Used when the resource owner refuses the authorization on the consent screen
+    #[must_use]
+    pub fn access_denied(description: &str) -> Self {
+        Self {
+            error: "access_denied".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some(
+                "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
+            ),
+        }
+    }
+}
+
+/// A refused authorization request, split by where RFC 6749 Section 4.1.2.1
+/// lets its error go.
+#[derive(Debug)]
+pub enum AuthorizeRejection {
+    /// The `client_id` is unknown or the `redirect_uri` is not registered for
+    /// it, so nothing vouches for the `redirect_uri`: the error is shown to the
+    /// user and never redirected there.
+    ShownToUser(OAuth2Error),
+    /// The client and its `redirect_uri` are verified: the error goes back to
+    /// the client by redirecting there, with the request's `state`.
+    RedirectedToClient(OAuth2Error),
+}
+
+impl AuthorizeRejection {
+    /// The error, however it is delivered.
+    #[must_use]
+    pub fn into_error(self) -> OAuth2Error {
+        match self {
+            Self::ShownToUser(error) | Self::RedirectedToClient(error) => error,
         }
     }
 }

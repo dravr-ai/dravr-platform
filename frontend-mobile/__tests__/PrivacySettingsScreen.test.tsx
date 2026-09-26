@@ -26,6 +26,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { PrivacySettingsScreen } from '../src/screens/settings/PrivacySettingsScreen';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 const userWithConsent = (consent: boolean): Partial<User> => ({
   id: 'user-1',
@@ -97,13 +98,13 @@ describe('PrivacySettingsScreen — analytics consent', () => {
     // The important one. An optimistic switch that stays flipped after a failed
     // write tells the user their data sharing is off while it is still on.
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
-    mockUpdateAnalyticsConsent.mockRejectedValueOnce(new Error('network down'));
+    mockUpdateAnalyticsConsent.mockRejectedValueOnce(networkFailure());
 
     const { getByTestId } = renderScreen();
     fireEvent(getByTestId('analytics-consent-switch'), 'valueChange', true);
 
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith('Could not save preference', 'network down');
+      expect(alertSpy).toHaveBeenCalledWith('Could not save preference', 'Network error. Check your connection.');
     });
     await waitFor(() => {
       expect(getByTestId('analytics-consent-switch').props.value).toBe(false);

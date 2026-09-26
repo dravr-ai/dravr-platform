@@ -38,6 +38,7 @@ crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for yo
 crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privileges. Contact your tenant administrator.
 crates/pierre-groups/src/service.rs:Group coaching requires a Professional or Enterprise plan
 crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
+crates/pierre-middleware/src/auth.rs:This access token was delegated to an application and is accepted only by the MCP and A2A endpoints
 crates/pierre-providers/src/sciotte_remote.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication

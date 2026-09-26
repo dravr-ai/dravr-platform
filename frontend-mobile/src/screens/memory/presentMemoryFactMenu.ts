@@ -4,9 +4,8 @@
 // ABOUTME: Presents a remembered fact's actions as the platform's own menu — an action sheet on iOS, a dialog on Android
 // ABOUTME: Forget is the one row and it is destructive; selection haptics fire as the menu opens
 
-import { ActionSheetIOS, Alert, Platform } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import type { TFunction } from '@pierre/i18n';
+import { presentMenu } from '../../utils/presentMenu';
 
 interface PresentMemoryFactMenuOptions {
   onForget: () => void;
@@ -20,26 +19,10 @@ interface PresentMemoryFactMenuOptions {
  * carries no button.
  */
 export function presentMemoryFactMenu({ onForget }: PresentMemoryFactMenuOptions, t: TFunction): void {
-  Haptics.selectionAsync().catch(() => undefined);
-
-  const forgetLabel = t('shell.memoryForget');
-  const cancelLabel = t('common.cancel');
-
-  if (Platform.OS === 'ios') {
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: [forgetLabel, cancelLabel],
-        cancelButtonIndex: 1,
-        destructiveButtonIndex: 0,
-      },
-      (index) => {
-        if (index === 0) onForget();
-      },
-    );
-    return;
-  }
-  Alert.alert(t('shell.memoryForgetConfirm'), undefined, [
-    { text: forgetLabel, onPress: onForget, style: 'destructive' as const },
-    { text: cancelLabel, style: 'cancel' as const },
-  ]);
+  presentMenu([{ label: t('shell.memoryForget'), onPress: onForget }], {
+    title: t('shell.memoryForgetConfirm'),
+    cancelLabel: t('common.cancel'),
+    destructiveIndex: 0,
+    haptic: true,
+  });
 }

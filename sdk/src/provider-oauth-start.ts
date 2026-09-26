@@ -11,6 +11,13 @@
  */
 export const NOTICE_REFUSAL_ACTION = "accept_provider_notice";
 
+/**
+ * The header carrying the bridge callback listener's per-flow token: on the
+ * request that starts a provider flow, and on the completion POST Dravr sends
+ * that listener, which accepts provider tokens only when it matches.
+ */
+export const CALLBACK_TOKEN_HEADER = "X-Callback-Token";
+
 /** What starting a provider's OAuth flow came to. */
 export type ProviderOAuthStart =
   /** The server minted the provider's authorization page: open it. */
@@ -51,16 +58,19 @@ export function isNoticeRefusal(status: number, body: unknown): boolean {
  * Start `provider`'s OAuth flow on the initiate route with the bridge's own
  * bearer, without following its redirect.
  *
- * A 302 names the provider's authorization page, which the caller opens
- * directly, so the flow's state is minted once. A notice refusal becomes
- * [`providerNoticeMessage`] instead of a raw 400 in the user's browser. Any
- * other answer, or a request that fails outright, leaves the caller to open
- * the initiate route as before.
+ * The request carries `callbackToken`, the bridge callback listener's per-flow
+ * token, in [`CALLBACK_TOKEN_HEADER`]: Dravr keeps it with the flow and
+ * presents it on that flow's completion POST. A 302 names the provider's
+ * authorization page, which the caller opens directly, so the flow's state is
+ * minted once. A notice refusal becomes [`providerNoticeMessage`] instead of a
+ * raw 400 in the user's browser. Any other answer, or a request that fails
+ * outright, leaves the caller to open the initiate route as before.
  */
 export async function startProviderOAuth(
   initiateUrl: string,
   accessToken: string,
   provider: string,
+  callbackToken: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ProviderOAuthStart> {
   let response: Response;
@@ -68,7 +78,10 @@ export async function startProviderOAuth(
     response = await fetchImpl(initiateUrl, {
       method: "GET",
       redirect: "manual",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        [CALLBACK_TOKEN_HEADER]: callbackToken,
+      },
     });
   } catch {
     return { kind: "open_initiate" };

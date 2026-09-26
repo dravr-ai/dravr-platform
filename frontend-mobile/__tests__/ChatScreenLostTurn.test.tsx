@@ -7,7 +7,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { IdleWatch } from '@pierre/shared-constants';
+import { IdleWatch, idleAbort, registerIdleWatch, resetIdleAbort } from '@pierre/shared-constants';
 
 // No navigator under a unit test, so the header the column offsets by is 0 tall.
 jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
@@ -112,7 +112,6 @@ jest.mock('../src/screens/chat/useChatPlusActions', () => {
 });
 
 import { ChatScreen } from '../src/screens/chat/ChatScreen';
-import { idleAbort, registerIdleWatch, resetIdleAbort } from '../src/services/idleSignal';
 import type { Message } from '../src/types';
 import { TurnIdleAbortedError } from '@pierre/api-client';
 import { i18n } from '@pierre/i18n';

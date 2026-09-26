@@ -27,6 +27,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { MemoryScreen } from '../src/screens/memory/MemoryScreen';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 type Fact = {
   id: string;
@@ -306,11 +307,13 @@ describe('MemoryScreen', () => {
   });
 
   it('says why the list failed and offers a retry that asks again', async () => {
-    mockListMemoryFacts.mockRejectedValueOnce(new Error('offline'));
+    mockListMemoryFacts.mockRejectedValueOnce(networkFailure());
     mockListMemoryFacts.mockResolvedValueOnce({ facts: [], total: 0 });
     const { getByTestId, getByText } = renderScreen();
     await waitFor(() => expect(getByTestId('memory-retry')).toBeTruthy());
-    expect(getByText(i18n.t('app.failedLoadMemoryFacts', { reason: 'offline' }))).toBeTruthy();
+    expect(
+      getByText(i18n.t('app.failedLoadMemoryFacts', { reason: i18n.t('errors.network') })),
+    ).toBeTruthy();
 
     fireEvent.press(getByTestId('memory-retry'));
 

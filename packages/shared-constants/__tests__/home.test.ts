@@ -10,7 +10,6 @@ import {
   surfaceById,
   surfacesFor,
   webNavLabels,
-  webRouteFor,
 } from '../src';
 
 describe('home surface', () => {
@@ -24,7 +23,6 @@ describe('home surface', () => {
       webNav: 'Home',
       blocks: [],
     });
-    expect(webRouteFor('home')).toBe('home');
     expect(surfacesFor('web').some((surface) => surface.id === 'home')).toBe(true);
     expect(surfacesFor('mobile').some((surface) => surface.id === 'home')).toBe(true);
   });

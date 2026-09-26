@@ -28,11 +28,15 @@
 
 set -uo pipefail
 
-BASE_REF="${1:-origin/main}"
+# The shared base rule: the argument, else $GATE_BASE_REF, else origin/main, and
+# HEAD~1 whenever that is missing or equals HEAD. Three dots, like every other
+# diff gate: the files this change touched since it left the base, not the
+# difference between two tips.
+# shellcheck source=scripts/ci/gate-base-ref.sh
+. "$(dirname "${BASH_SOURCE[0]}")/gate-base-ref.sh"
+BASE_REF="$(resolve_gate_base_ref "${1:-}")" || exit 0
 
-CHANGED=$(git diff --name-only "$BASE_REF" HEAD -- '*.rs' 2>/dev/null \
-    || git diff --name-only HEAD~1 HEAD -- '*.rs' 2>/dev/null \
-    || true)
+CHANGED=$(git diff --name-only "$BASE_REF"...HEAD -- '*.rs' 2>/dev/null || true)
 
 [ -z "$CHANGED" ] && exit 0
 
@@ -88,7 +92,11 @@ HITS=$(
                 # and no `use` can replace it. Blank it before matching so the
                 # bare `crate::` inside is not read as an inline path.
                 gsub(/\$crate::/, "MACRO_CRATE_", line)
-                while (match(line, /(std|core|alloc|crate)(::[A-Za-z_][A-Za-z0-9_]*){2,}/)) {
+                # Three or more segments, the repetition spelled out: mawk,
+                # the default awk on Debian and Ubuntu, does not honour a
+                # `{2,}` interval and matched every 2-segment `crate::name!`
+                # macro call as if it were a 3-segment path.
+                while (match(line, /(std|core|alloc|crate)::[A-Za-z_][A-Za-z0-9_]*::[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*/)) {
                     print FILENAME ":" FNR ": " substr(line, RSTART, RLENGTH)
                     line = substr(line, RSTART + RLENGTH)
                 }

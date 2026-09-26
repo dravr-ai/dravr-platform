@@ -2,11 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for admin and dashboard domain APIs
-// ABOUTME: Verifies admin tokens, user management, API key provisioning, and monitoring
+// ABOUTME: Verifies admin tokens, user management, pre-approved emails, and error propagation
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { AxiosError } from 'axios';
-import { adminApi, dashboardApi, a2aApi } from '../api/index';
+import { adminApi, dashboardApi } from '../api/index';
 
 // vi.hoisted runs before vi.mock hoisting, so this variable is available in the factory
 const { mockAxiosInstance } = vi.hoisted(() => ({
@@ -103,24 +103,7 @@ describe('API Service - Admin Functionality', () => {
     vi.restoreAllMocks();
   });
 
-  describe('Dashboard Overview Endpoints', () => {
-    it('should fetch dashboard overview successfully', async () => {
-      const mockOverview = {
-        total_api_keys: 15,
-        active_api_keys: 12,
-        total_requests_today: 1247,
-        total_requests_this_month: 45623,
-        current_month_usage_by_tier: []
-      };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockOverview });
-
-      const result = await dashboardApi.getDashboardOverview();
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/overview');
-      expect(result).toEqual(mockOverview);
-    });
-
+  describe('Dashboard Analytics Endpoints', () => {
     it('should fetch usage analytics with correct parameters', async () => {
       const mockAnalytics = {
         time_series: [
@@ -135,55 +118,6 @@ describe('API Service - Admin Functionality', () => {
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/analytics?days=7');
       expect(result).toEqual(mockAnalytics);
-    });
-
-    it('should fetch rate limit overview', async () => {
-      const mockRateLimits = [
-        {
-          api_key_id: 'key-1',
-          api_key_name: 'Test Key',
-          tier: 'professional',
-          current_usage: 100,
-          limit: 1000,
-          usage_percentage: 10
-        }
-      ];
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockRateLimits });
-
-      const result = await dashboardApi.getRateLimitOverview();
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/rate-limits');
-      expect(result).toEqual(mockRateLimits);
-    });
-  });
-
-  describe('A2A Dashboard Endpoints', () => {
-    it('should fetch A2A dashboard overview', async () => {
-      const mockA2AOverview = {
-        total_clients: 5,
-        active_clients: 3,
-        requests_today: 423,
-        requests_this_month: 12543
-      };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockA2AOverview });
-
-      const result = await a2aApi.getA2ADashboardOverview();
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/a2a/dashboard/overview');
-      expect(result).toEqual(mockA2AOverview);
-    });
-
-    it('should fetch A2A usage analytics with parameters', async () => {
-      const mockA2AAnalytics = { request_count: 1500, tool_usage: {} };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockA2AAnalytics });
-
-      const result = await a2aApi.getA2AUsageAnalytics(14);
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/a2a/dashboard/analytics?days=14');
-      expect(result).toEqual(mockA2AAnalytics);
     });
   });
 
@@ -234,23 +168,6 @@ describe('API Service - Admin Functionality', () => {
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/tokens', tokenRequest);
       expect(result).toEqual(mockResponse);
-    });
-
-    it('should get admin token details', async () => {
-      const mockTokenDetails = {
-        id: 'token-1',
-        service_name: 'Test Service',
-        permissions: ['read_users', 'manage_api_keys'],
-        usage_count: 45,
-        last_used_at: '2025-01-06T10:30:00Z'
-      };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockTokenDetails });
-
-      const result = await adminApi.getAdminTokenDetails('token-1');
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/tokens/token-1');
-      expect(result).toEqual(mockTokenDetails);
     });
 
     it('should revoke admin token', async () => {
@@ -424,130 +341,16 @@ describe('API Service - Admin Functionality', () => {
     });
   });
 
-  describe('API Key Provisioning', () => {
-    it('should provision API key for user', async () => {
-      const provisionRequest = {
-        user_email: 'user@example.com',
-        tier: 'professional',
-        description: 'API key for user project',
-        expires_in_days: 365,
-        rate_limit_requests: 5000,
-        rate_limit_period: 'month'
-      };
-
-      const mockResponse = {
-        api_key: 'pk_live_abc123...',
-        key_id: 'key-123',
-        tier: 'professional'
-      };
-
-      mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
-
-      const result = await adminApi.provisionApiKey(provisionRequest);
-
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/admin/provision-api-key', provisionRequest);
-      expect(result).toEqual(mockResponse);
-    });
-
-    it('should revoke API key by ID', async () => {
-      const revokeRequest = { key_id: 'key-123' };
-      const mockResponse = { success: true, message: 'API key revoked' };
-
-      mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
-
-      const result = await adminApi.revokeApiKey(revokeRequest);
-
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/admin/revoke-api-key', revokeRequest);
-      expect(result).toEqual(mockResponse);
-    });
-
-    it('should list API keys for user', async () => {
-      const mockApiKeys = {
-        api_keys: [
-          {
-            id: 'key-1',
-            name: 'User API Key',
-            tier: 'professional',
-            is_active: true,
-            user_email: 'user@example.com'
-          }
-        ],
-        total_count: 1
-      };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockApiKeys });
-
-      const result = await adminApi.listApiKeys({
-        user_email: 'user@example.com',
-        active_only: true,
-        limit: 10
-      });
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/admin/list-api-keys?user_email=user%40example.com&active_only=true&limit=10');
-      expect(result).toEqual(mockApiKeys);
-    });
-  });
-
-  describe('Request Monitoring', () => {
-    it('should fetch request logs with filters', async () => {
-      const mockLogs = {
-        request_logs: [
-          {
-            id: 'req-1',
-            api_key_id: 'key-1',
-            method: 'GET',
-            path: '/api/fitness/activities',
-            status: 200,
-            response_time_ms: 145,
-            timestamp: '2025-01-07T10:30:00Z'
-          }
-        ],
-        total_count: 1
-      };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockLogs });
-
-      const result = await dashboardApi.getRequestLogs('key-1', {
-        timeRange: '1h',
-        status: '200',
-        tool: 'get_activities'
-      });
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/request-logs?api_key_id=key-1&time_range=1h&status=200&tool=get_activities');
-      expect(result).toEqual(mockLogs);
-    });
-
-    it('should fetch request statistics', async () => {
-      const mockStats = {
-        total_requests: 1250,
-        success_rate: 98.4,
-        average_response_time: 234,
-        error_breakdown: {
-          '400': 5,
-          '429': 3,
-          '500': 2
-        }
-      };
-
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: mockStats });
-
-      const result = await dashboardApi.getRequestStats('key-1', '24h');
-
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/request-stats?api_key_id=key-1&time_range=24h');
-      expect(result).toEqual(mockStats);
-    });
-  });
-
   describe('Error Handling', () => {
     it('should handle 404 errors appropriately', async () => {
       const error = new AxiosError('Not Found', '404', undefined, undefined, {
         status: 404,
-        data: { error: 'Token not found' }
+        data: { error: 'Coach not found' }
       } as never);
 
       mockAxiosInstance.get.mockRejectedValueOnce(error);
 
-      await expect(adminApi.getAdminTokenDetails('invalid-token')).rejects.toThrow('Not Found');
+      await expect(adminApi.getSystemCoach('missing-coach')).rejects.toThrow('Not Found');
     });
 
     it('should handle network errors', async () => {
@@ -555,7 +358,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockRejectedValueOnce(error);
 
-      await expect(dashboardApi.getDashboardOverview()).rejects.toThrow('Network Error');
+      await expect(dashboardApi.getUsageAnalytics()).rejects.toThrow('Network Error');
     });
 
     it('should handle 403 unauthorized errors', async () => {

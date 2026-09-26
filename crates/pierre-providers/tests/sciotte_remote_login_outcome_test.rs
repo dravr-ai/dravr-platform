@@ -138,7 +138,7 @@ async fn every_sciotte_login_status_maps_to_its_outcome() {
 
     // 3. Phone-tap number matching.
     let outcome = client
-        .select_2fa("app", Some("6a7f4723-a59a880"))
+        .select_2fa("app", "6a7f4723-a59a880")
         .await
         .expect("number_match is a login outcome");
     match outcome {
@@ -151,7 +151,7 @@ async fn every_sciotte_login_status_maps_to_its_outcome() {
 
     // 4. A rejected credential is Failed, carrying the provider's own reason.
     let outcome = client
-        .submit_otp("000000", Some("6a7f4723-a59a880"))
+        .submit_otp("000000", "6a7f4723-a59a880")
         .await
         .expect("an explicit failed status is an outcome, not an error");
     match outcome {

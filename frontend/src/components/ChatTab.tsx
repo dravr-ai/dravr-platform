@@ -4,22 +4,27 @@
 // ABOUTME: The chat surface: one open thread, its header info drawer, and the composer
 // ABOUTME: Agents and groups are commands here — no agent CRUD, no group picker, no welcome grid
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { chatApi, providersApi } from '../services/api';
-import { holdIdleWhileBusy, idleSignal, trackAbsence } from '../services/api/idleSignal';
 import { track } from '../services/analytics';
 import {
   avatarSlot,
   COMMAND_FINISH_REASON,
   initialsFor,
   providerStatusLine,
-  replyLandedSince,
+  readLostTurn,
+  reduceLostTurn,
   statusForProgress,
   threadSubtitle,
   trustedActionUrl,
 } from '@pierre/chat-utils';
-import { MENTION_PREFIX } from '@pierre/shared-constants';
+import {
+  holdIdleWhileBusy,
+  idleSignal,
+  MENTION_PREFIX,
+  trackAbsence,
+} from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import {
   MessageList,
@@ -74,22 +79,6 @@ function latestPersistedMessageId(messages: Message[] | undefined): string | nul
 }
 
 /**
- * A turn whose stream was lost while the athlete was away.
- *
- * The server finishes a turn whether or not anyone is still reading it, so
- * the note shown for the failure stays only until a read of the conversation
- * holds the reply. `heldIds` are the rows the client had when the turn was
- * sent; `replyLandedSince` finds the turn's question among the rows outside
- * them and its answer after it.
- */
-interface LostTurn {
-  conversationId: string;
-  heldIds: ReadonlySet<string>;
-  /** The error text the failure put on screen. */
-  note: string;
-}
-
-/**
  * A composer action the shell hands the chat surface.
  *
  * `draft` seeds the composer and leaves the athlete to press send; `send`
@@ -135,7 +124,10 @@ export default function ChatTab({
   // response body the reply arrives on, so there is nothing to correlate.
   const [progressStatusText, setProgressStatusText] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [lostTurn, setLostTurn] = useState<LostTurn | null>(null);
+  // A turn lost while the athlete was away, kept by the reducer both clients
+  // share. Web paints its note as the error text under the transcript, so the
+  // text is what it keeps.
+  const [lostTurn, dispatchLostTurn] = useReducer(reduceLostTurn<string>, null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
@@ -203,8 +195,8 @@ export default function ChatTab({
   // note down, and the reply renders from the transcript like any other row.
   const shownError = useMemo<string | null>(() => {
     if (!lostTurn || errorMessage !== lostTurn.note) return errorMessage;
-    if (lostTurn.conversationId !== selectedConversation) return null;
-    return replyLandedSince(messagesData?.messages ?? [], lostTurn.heldIds) ? null : errorMessage;
+    const reading = readLostTurn(lostTurn, selectedConversation, messagesData?.messages ?? []);
+    return reading.kind === 'waiting' ? errorMessage : null;
   }, [errorMessage, lostTurn, selectedConversation, messagesData]);
 
   // Hydrate thumbs up/down state (and any saved reason) from the server whenever
@@ -481,7 +473,7 @@ export default function ChatTab({
     setIsStreaming(true);
     setStreamingContent('');
     setErrorMessage(null);
-    setLostTurn(null);
+    dispatchLostTurn({ type: 'sent' });
     track({ name: 'feature_engaged', props: { feature: 'chat_message_sent' } });
 
     // What the thread held before this turn, so a re-read after a lost stream
@@ -634,9 +626,11 @@ export default function ChatTab({
         // stream, or the network went with a sleeping laptop. The server kept
         // going, so the note stands only until a read of the thread holds the
         // reply; the messages query re-reads it on their return.
-        if (leftDuringTurn()) {
-          setLostTurn({ conversationId: selectedConversation, heldIds, note });
-        }
+        dispatchLostTurn({
+          type: 'failed',
+          away: leftDuringTurn(),
+          turn: { conversationId: selectedConversation, heldIds, note },
+        });
       },
     });
 
@@ -783,7 +777,7 @@ export default function ChatTab({
         else newMap.delete(messageId);
         return newMap;
       });
-      setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
+      setErrorMessage(describeApiError(error, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
     }
   }, [selectedConversation, messageFeedback, t]);
 
@@ -814,7 +808,7 @@ export default function ChatTab({
         trimmed || undefined,
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : t('chat.feedbackSaveFailed'));
+      setErrorMessage(describeApiError(error, { t, fallbackKey: 'chat.feedbackSaveFailed' }));
     }
   }, [selectedConversation, t]);
 

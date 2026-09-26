@@ -23,6 +23,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { TokensScreen } from '../src/screens/settings/TokensScreen';
+import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 const DESKTOP_TOKEN: McpToken = {
   id: 'tok-desktop',
@@ -116,12 +117,14 @@ describe('TokensScreen', () => {
   });
 
   it('says why the list failed and offers a retry that asks again', async () => {
-    mockGetMcpTokens.mockRejectedValueOnce(new Error('offline'));
+    mockGetMcpTokens.mockRejectedValueOnce(networkFailure());
     mockGetMcpTokens.mockResolvedValueOnce({ tokens: [DESKTOP_TOKEN] });
-    const { getByTestId, getByText, queryByTestId } = render(<TokensScreen />);
+    const { getByTestId, getByText, queryByTestId, queryByText } = render(<TokensScreen />);
 
     await waitFor(() => expect(getByTestId('tokens-load-error')).toBeTruthy());
-    expect(getByText('offline')).toBeTruthy();
+    // The catalogue's sentence, never axios's own English message.
+    expect(getByText(i18n.t('errors.network'))).toBeTruthy();
+    expect(queryByText('Network Error')).toBeNull();
     expect(getByTestId('tokens-retry').props.children).toEqual(i18n.t('common.retry'));
 
     fireEvent.press(getByTestId('tokens-retry'));

@@ -165,54 +165,11 @@ jobs:
             body += `cargo upgrade --incompatible\n`;
             body += `\`\`\`\n`;
 
-            // Ensure label exists
-            try {
-              await github.rest.issues.getLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-              });
-            } catch {
-              await github.rest.issues.createLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: label,
-                color: '0366d6',
-                description: 'Dependency updates',
-              });
-            }
-
-            // Find existing open issue with same title
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: label,
-              per_page: 10,
+            const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
+            await upsertStandingIssue(github, core, {
+              ...context.repo, label, title, body, onExisting: 'update',
+              newLabel: { color: '0366d6', description: 'Dependency updates' },
             });
-
-            const existing = issues.find(i => i.title === title);
-
-            if (existing) {
-              // Update existing issue
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                body: body,
-              });
-              core.info(`Updated existing issue #${existing.number}`);
-            } else {
-              // Create new issue
-              const { data: issue } = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: title,
-                body: body,
-                labels: [label],
-              });
-              core.info(`Created issue #${issue.number}`);
-            }
 
       - name: No updates needed
         if: steps.check.outputs.has_updates != 'true'

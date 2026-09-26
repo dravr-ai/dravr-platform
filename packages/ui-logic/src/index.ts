@@ -1,5 +1,5 @@
 // ABOUTME: Main entry point for @pierre/ui-logic package
-// ABOUTME: Re-exports all headless UI hooks for shared component logic
+// ABOUTME: Re-exports the headless UI hooks and the server-state hooks both clients bind
 
 // Button hook
 export {
@@ -68,3 +68,25 @@ export {
   describeLoginFailure,
   refusalReason,
 } from './apiError';
+
+// Server-state hooks both clients bind to their own API instance. Each client
+// keeps a thin `hooks/<name>` module that calls the factory once; only what is
+// genuinely platform-specific (the API instance, a freshness the two clients
+// set differently, how a key event is read) stays there.
+export { type GroupFreshness, createGroupHooks } from './groupHooks';
+export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
+export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
+
+// Composer palettes. Platform-free: each composer reads its own key event and
+// hands the palette the key's name.
+export { PALETTE_KEYS } from './paletteKeys';
+export {
+  type UseCommandPaletteOptions,
+  type UseCommandPaletteResult,
+  createCommandPaletteHook,
+} from './commandPalette';
+export {
+  type UseMentionPaletteOptions,
+  type UseMentionPaletteResult,
+  createMentionPaletteHook,
+} from './mentionPalette';

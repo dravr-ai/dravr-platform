@@ -52,9 +52,9 @@ BASELINE_WEB_HERO_GRADIENT=5
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=127
+BASELINE_WEB_CARD_SITES=124
 BASELINE_WEB_LEGACY_CARD_CLASSES=16
-BASELINE_WEB_LARGE_TEXT=67
+BASELINE_WEB_LARGE_TEXT=64
 
 # Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): the density and token
 # rules Phases 1-5 applied to the phone, ratcheted from what that migration
@@ -100,74 +100,33 @@ check_ratchet() {
 }
 
 # ----------------------------------------------------------------------------
-# HARD: every design token is defined in exactly one place per platform.
-# DESIGN.md claims to be mirrored across these files; verify the files exist
-# rather than trusting the claim.
+# HARD: every design token is defined in exactly one place.
+# DESIGN.md names design-system.ts as the source, the two generated blocks the
+# client stylesheets import, and the two Tailwind configs that map them; verify
+# the files exist rather than trusting the claim. That the blocks match the
+# source is scripts/ci/check-hosted-css.sh's job: it regenerates and diffs them.
 # ----------------------------------------------------------------------------
 echo "-- Token source files --"
 for f in \
     "frontend/DESIGN.md" \
-    "frontend/src/index.css" \
+    "packages/shared-constants/src/design-system.ts" \
+    "frontend/src/boreal-tokens.generated.css" \
     "frontend/tailwind.config.cjs" \
-    "frontend-mobile/global.css" \
-    "frontend-mobile/tailwind.config.js" \
-    "packages/shared-constants/src/design-system.ts"
+    "frontend-mobile/boreal-tokens.generated.css" \
+    "frontend-mobile/tailwind.config.js"
 do
     if [ ! -f "$PROJECT_ROOT/$f" ]; then
-        echo -e "${RED}FAIL${NC} DESIGN.md names $f as a token mirror, but it does not exist."
+        echo -e "${RED}FAIL${NC} DESIGN.md names $f as part of the token system, but it does not exist."
         FAILED=1
     fi
 done
-[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   all six token mirrors present"
+[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   the token source, both generated blocks and both Tailwind configs are present"
 echo ""
 
 # ----------------------------------------------------------------------------
-# HARD: the mirrors must agree, not merely exist.
-#
-# "Mirrored in these files" was a claim nothing checked, and the platforms drifted
-# behind it: mobile carried the Editorial-tier warning (#8f6a2e) for months while
-# DESIGN.md §2 specified the Product-tier value (#b08326). Same class of bug as a
-# capability advertised without a backing impl — so it is checked the same way.
+# HARD: every token reaches Tailwind with its alpha slot.
 # ----------------------------------------------------------------------------
-echo "-- Feedback palette agreement (DESIGN.md §2) --"
-
-# DESIGN.md §2 is the source of truth. Values as "r g b" per CSS-var convention.
-declare -a FEEDBACK_LIGHT=(
-    "success:46 125 91"
-    "warning:176 131 38"
-    "error:186 26 26"
-    "info:62 114 131"
-)
-declare -a FEEDBACK_DARK=(
-    "success:121 166 148"
-    "warning:214 184 122"
-    "error:255 180 171"
-    "info:155 182 189"
-)
-
-check_token() {
-    local file="$1" token="$2" expect="$3" theme="$4"
-    local found
-    found=$(grep -oE -- "--color-$token:[[:space:]]*[0-9]+ [0-9]+ [0-9]+" "$PROJECT_ROOT/$file" \
-        | sed -E "s/.*--color-$token:[[:space:]]*//" | sed -n "${5}p")
-    if [ -z "$found" ]; then
-        echo -e "${RED}FAIL${NC} $file is missing --color-$token ($theme)"
-        FAILED=1
-    elif [ "$found" != "$expect" ]; then
-        echo -e "${RED}FAIL${NC} $file --color-$token ($theme) = '$found', DESIGN.md §2 says '$expect'"
-        FAILED=1
-    fi
-}
-
-# Both stylesheets declare light first, then dark — occurrence 1 is light, 2 is dark.
-for f in "frontend/src/index.css" "frontend-mobile/global.css"; do
-    for pair in "${FEEDBACK_LIGHT[@]}"; do
-        check_token "$f" "${pair%%:*}" "${pair#*:}" "light" 1
-    done
-    for pair in "${FEEDBACK_DARK[@]}"; do
-        check_token "$f" "${pair%%:*}" "${pair#*:}" "dark" 2
-    done
-done
+echo "-- Tailwind token mapping (DESIGN.md §2) --"
 
 # Tokens are useless to Tailwind unless the config composes alpha onto them;
 # a bare var() silently drops every /NN modifier at build time.
@@ -181,12 +140,7 @@ for cfg in "frontend/tailwind.config.cjs" "frontend-mobile/tailwind.config.js"; 
     fi
 done
 
-grep -q "SEMANTIC_COLORS_DARK" "$PROJECT_ROOT/packages/shared-constants/src/design-system.ts" || {
-    echo -e "${RED}FAIL${NC} shared-constants exports no SEMANTIC_COLORS_DARK; DESIGN.md §2 defines both halves."
-    FAILED=1
-}
-
-[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   feedback palette agrees across web, mobile and shared-constants"
+[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   both Tailwind configs compose an alpha onto every token"
 echo ""
 
 # ----------------------------------------------------------------------------

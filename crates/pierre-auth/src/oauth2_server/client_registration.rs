@@ -53,6 +53,16 @@ impl ClientRegistrationManager {
         // Validate request
         Self::validate_registration_request(&request)?;
 
+        // The grant this client may ever be issued, persisted exactly as the
+        // response advertises it (RFC 7591 §3.2.1): the scope it asked for,
+        // every name checked against the vocabulary and `admin` refused, or
+        // the read-only default when it asked for none. The authorization
+        // endpoint checks every request against this row, so what is stored
+        // here is the ceiling of every grant the client can obtain.
+        let scope = OAuthScope::requested_grant(request.scope.as_deref())
+            .map(|granted| OAuthScope::render_granted(&granted))
+            .map_err(|e| OAuth2Error::invalid_client_metadata(&e.message))?;
+
         // Generate client credentials
         let client_id = Self::generate_client_id();
         let client_secret = Self::generate_client_secret()?;
@@ -85,7 +95,7 @@ impl ClientRegistrationManager {
             response_types: response_types.clone(),       // Safe: Vec ownership for OAuth client
             client_name: request.client_name.clone(),     // Safe: String ownership for OAuth client
             client_uri: request.client_uri.clone(), // Safe: Option<String> ownership for OAuth client
-            scope: request.scope.clone(), // Safe: Option<String> ownership for OAuth client
+            scope: Some(scope.clone()), // Safe: String ownership, echoed in the response
             created_at,
             expires_at,
         };
@@ -126,14 +136,11 @@ impl ClientRegistrationManager {
             // RFC 7591: client_uri is OPTIONAL but Claude Code requires it to be non-null
             // Provide actual server URL when not specified by the client
             client_uri: request.client_uri.or(Some(default_client_uri)),
-            // RFC 7591 §3.1.1: a client that requests no scope gets the
-            // server's default. Read-only, and read-only deliberately — a
-            // client that never asked for anything has not been consented to
-            // writing. `activities:read` is gone from the default with the rest
-            // of the vocabulary: it named a grant this server never checked.
-            scope: request
-                .scope
-                .or_else(|| Some(OAuthScope::render_granted(&OAuthScope::default_grant()))),
+            // What was persisted above. RFC 7591 §3.1.1: a client that
+            // requests no scope gets the server's default — read-only, and
+            // read-only deliberately: a client that never asked for anything
+            // has not been consented to writing.
+            scope: Some(scope),
         })
     }
 

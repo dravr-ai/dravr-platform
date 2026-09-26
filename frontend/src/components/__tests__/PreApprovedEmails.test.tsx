@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import PreApprovedEmails from '../PreApprovedEmails';
 
 vi.mock('../../services/api', () => ({
@@ -66,6 +67,19 @@ describe('PreApprovedEmails', () => {
     expect(screen.getByText('already@example.com')).toBeTruthy();
     expect(screen.getByText('active')).toBeTruthy();
     expect(screen.getByText('By: unattributed')).toBeTruthy();
+  });
+
+  it('stamps each allow in the reader language, not a hard-coded en-US', async () => {
+    vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([WAITING]);
+    await i18n.changeLanguage('fr');
+    try {
+      renderView();
+
+      expect(await screen.findByText('Allowed: 20 août 2026')).toBeTruthy();
+      expect(screen.queryByText('Allowed: Aug 20, 2026')).toBeNull();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('allows an address with its note and reports the server message', async () => {
