@@ -6,12 +6,13 @@
 
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::{
-    api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit,
+    api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
+    UserRequestLimits, UserRequestUsage,
 };
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::user_status::enforce_user_status;
@@ -69,6 +70,66 @@ fn delegated_grant_refused() -> AppError {
     )
 }
 
+/// A credential its request budget admitted, and that budget.
+struct Admitted {
+    auth: AuthResult,
+    budget: RequestBudget,
+}
+
+/// Why one credential did not authenticate the request.
+enum Refused {
+    /// Its own request budget is spent: the 429, and the budget that
+    /// produced it.
+    OverBudget {
+        budget: RequestBudget,
+        error: AppError,
+    },
+    /// Refused before any budget decided: a bad credential, a delegated grant
+    /// on a path that reads no scope, an owner the account-status gate turns
+    /// away, a server fault.
+    Failed(AppError),
+}
+
+impl Refused {
+    const fn error(&self) -> &AppError {
+        match self {
+            Self::OverBudget { error, .. } | Self::Failed(error) => error,
+        }
+    }
+}
+
+impl From<AppError> for Refused {
+    fn from(error: AppError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// One credential checked, before its outcome is the request's answer.
+type Checked = Result<Admitted, Refused>;
+
+/// Make one credential's outcome the request's answer, and report the budget
+/// that decided it to the response's `X-RateLimit-*` headers.
+///
+/// The only place authentication reports a budget, so the headers name one
+/// credential: the one that admitted the request, or the one whose own spent
+/// budget produced the 429. A credential checked and then superseded (a spent
+/// cookie falling through to the `Authorization` header) is never settled,
+/// and a refusal no budget decided (a malformed token, a suspended owner, a
+/// server fault) reports nothing.
+fn settle(checked: Checked) -> AppResult<AuthResult> {
+    match checked {
+        Ok(Admitted { auth, budget }) => {
+            report_request_budget(budget);
+            Ok(auth)
+        }
+        Err(Refused::OverBudget { budget, error }) => {
+            report_request_budget(budget);
+            Err(error)
+        }
+        Err(Refused::Failed(error)) => Err(error),
+    }
+}
+
 /// Middleware for `MCP` protocol authentication
 ///
 /// Holds the full `RepositoryRegistry` because authentication and rate-
@@ -77,10 +138,12 @@ fn delegated_grant_refused() -> AppError {
 /// would require two stored views and two separate constructor params
 /// with no material benefit — the middleware is a long-lived singleton.
 ///
-/// Every credential it admits is gated on its request budget, and the JWT
-/// and API-key paths report that budget to the response's `X-RateLimit-*`
-/// headers; the API-key path also reports the admitted key, whose usage row
-/// the request-budget layer writes with the request's outcome (see
+/// Every credential it admits is gated on its request budget. The JWT and
+/// API-key paths report the budget that decided the request to the
+/// response's `X-RateLimit-*` headers (the admitting credential's, or the one
+/// whose own 429 refused it, never one another credential superseded); the
+/// API-key path also reports the admitted key, whose usage row the
+/// request-budget layer writes with the request's outcome (see
 /// [`crate::rate_limiting`]).
 #[derive(Clone)]
 pub struct McpAuthMiddleware {
@@ -144,35 +207,37 @@ impl McpAuthMiddleware {
                 .authenticate_jwt_token(&jwt_token, GrantPolicy::DirectOnly)
                 .await
             {
-                Ok(result) => {
+                Ok(admitted) => {
                     let span = tracing::Span::current();
-                    span.record("user_id", result.user_id.to_string())
+                    span.record("user_id", admitted.auth.user_id.to_string())
                         .record("success", true);
-                    if let Some(tid) = result.active_tenant_id {
+                    if let Some(tid) = admitted.auth.active_tenant_id {
                         span.record("tenant_id", tid.to_string());
                     }
                     info!(
                         "JWT cookie authentication successful for user: {}",
-                        result.user_id
+                        admitted.auth.user_id
                     );
-                    return Ok(result);
+                    return settle(Ok(admitted));
                 }
                 // A spent budget on the only credential presented is the
                 // answer: falling through would turn it into "missing
                 // authorization header", a 401 that signs the client out.
-                Err(e)
-                    if e.code == ErrorCode::RateLimitExceeded
-                        && !headers.contains_key(AUTHORIZATION) =>
+                Err(refused @ Refused::OverBudget { .. })
+                    if !headers.contains_key(AUTHORIZATION) =>
                 {
-                    return Err(e);
+                    return settle(Err(refused));
                 }
-                Err(e) => {
+                Err(refused) => {
                     // Cookie auth failed — fall through to Authorization header
                     // instead of returning immediately. This handles cases where a
                     // stale/invalid cookie is present alongside a valid header.
+                    // The cookie is superseded and never settled: whatever the
+                    // header's outcome, it is not answered with the cookie's
+                    // budget.
                     debug!(
                         "JWT cookie authentication failed ({}), trying Authorization header",
-                        e
+                        refused.error()
                     );
                 }
             }
@@ -267,7 +332,7 @@ impl McpAuthMiddleware {
         if is_api_key_format(auth_str) {
             tracing::Span::current().record("auth_method", "API_KEY");
             debug!("Attempting API key authentication");
-            match self.authenticate_api_key(auth_str).await {
+            match settle(self.authenticate_api_key(auth_str).await) {
                 Ok(result) => {
                     let span = tracing::Span::current();
                     span.record("user_id", result.user_id.to_string())
@@ -292,7 +357,7 @@ impl McpAuthMiddleware {
         else if let Some(token) = auth_str.strip_prefix("Bearer ") {
             tracing::Span::current().record("auth_method", "JWT_TOKEN");
             debug!("Attempting JWT token authentication");
-            match self.authenticate_jwt_token(token, policy).await {
+            match settle(self.authenticate_jwt_token(token, policy).await) {
                 Ok(result) => {
                     let span = tracing::Span::current();
                     span.record("user_id", result.user_id.to_string())
@@ -319,7 +384,7 @@ impl McpAuthMiddleware {
     }
 
     /// Authenticate using `API` key
-    async fn authenticate_api_key(&self, api_key: &str) -> AppResult<AuthResult> {
+    async fn authenticate_api_key(&self, api_key: &str) -> Checked {
         // Validate key format
         self.api_key_manager.validate_key_format(api_key)?;
 
@@ -359,11 +424,11 @@ impl McpAuthMiddleware {
             );
         })?;
 
-        // The key's calls inside its own sliding window. Reported before the
-        // gate, so a refusal carries the numbers too. A breach is a 429 with a
-        // retry window — it used to surface as `ExternalServiceError` (HTTP
-        // 502), which read as "server broken" to clients and misfired their
-        // backoff (registre#10).
+        // The key's calls inside its own sliding window. A breach is a 429
+        // with a retry window, and carries the budget that refused it so the
+        // refusal renders its numbers too — it used to surface as
+        // `ExternalServiceError` (HTTP 502), which read as "server broken" to
+        // clients and misfired their backoff (registre#10).
         let now = Utc::now();
         let window_usage = self
             .repos
@@ -371,8 +436,8 @@ impl McpAuthMiddleware {
             .get_api_key_window_usage(&db_key.id, api_key_window_start(&db_key, now))
             .await?;
         let budget = calculate_api_key_rate_limit(&db_key, &window_usage, now);
-        report_request_budget(budget);
-        enforce_request_budget(budget, now)?;
+        enforce_request_budget(budget, now)
+            .map_err(|error| Refused::OverBudget { budget, error })?;
 
         // Update last used timestamp. The call is counted against the window
         // the next request reads by the request-budget layer, which writes
@@ -396,18 +461,21 @@ impl McpAuthMiddleware {
             .first()
             .map(|t| t.id.as_uuid());
 
-        Ok(AuthResult {
-            user_id: db_key.user_id,
-            auth_method: AuthMethod::ApiKey {
-                key_id: db_key.id,
-                tier: format!("{:?}", db_key.tier).to_lowercase(),
+        Ok(Admitted {
+            auth: AuthResult {
+                user_id: db_key.user_id,
+                auth_method: AuthMethod::ApiKey {
+                    key_id: db_key.id,
+                    tier: format!("{:?}", db_key.tier).to_lowercase(),
+                },
+                active_tenant_id,
+                // The athlete acting directly, not a third party acting for
+                // them, so the credential is not a narrowed delegation. The
+                // role gate still decides admin independently.
+                scopes: OAuthScope::self_grant(),
+                session_id: None,
             },
-            active_tenant_id,
-            // The athlete acting directly, not a third party acting for them,
-            // so the credential is not a narrowed delegation. The role gate
-            // still decides admin independently.
-            scopes: OAuthScope::self_grant(),
-            session_id: None,
+            budget,
         })
     }
 
@@ -513,13 +581,12 @@ impl McpAuthMiddleware {
         // shape fell through to the operator-error catch-all instead — the
         // rate-limited user got silence and on-call got paged (registre#8).
         let now = Utc::now();
-        let used_this_month = self.repos.usage.get_jwt_current_usage(user_id).await?;
-        let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
+        let budget = self.user_request_budget(&user, now).await?;
         enforce_request_budget(budget, now).inspect_err(|e| {
             warn!(
                 user_id = %user_id,
                 channel = %channel,
-                used_this_month,
+                budget = ?budget,
                 error = %e,
                 "Channel rate limit exceeded; refusing the turn"
             );
@@ -545,12 +612,9 @@ impl McpAuthMiddleware {
     ///
     /// Under [`GrantPolicy::DirectOnly`] a token whose grant is narrower than
     /// the self grant is refused before anything is read or written for it —
-    /// no usage row, no activity — since the request it carries is not served.
-    async fn authenticate_jwt_token(
-        &self,
-        token: &str,
-        policy: GrantPolicy,
-    ) -> AppResult<AuthResult> {
+    /// no usage row, no activity, no budget — since the request it carries is
+    /// not served.
+    async fn authenticate_jwt_token(&self, token: &str, policy: GrantPolicy) -> Checked {
         let claims = self
             .auth_manager
             .validate_token_detailed(token, &self.jwks_manager)
@@ -572,7 +636,7 @@ impl McpAuthMiddleware {
                 granted = %OAuthScope::render_granted(&scopes),
                 "Delegated OAuth grant refused on a path that does not enforce scopes"
             );
-            return Err(delegated_grant_refused());
+            return Err(Refused::Failed(delegated_grant_refused()));
         }
 
         // Extract active_tenant_id from JWT claims (multi-tenant user tenant selection)
@@ -605,17 +669,16 @@ impl McpAuthMiddleware {
             warn!(user_id = %user_id, status = ?user.user_status, error = %e, "API access denied by user-status gate");
         })?;
 
-        // The user's month-to-date requests against the tier's budget.
-        // Reported before the gate, so a refusal carries the numbers too. A
-        // breach is a 429 with a retry window, not a 401: "slow down" and "bad
-        // credentials" demand opposite client reactions, and the old
-        // auth_invalid shape sent rate-limited clients into re-login loops
-        // (registre#10).
+        // The user's requests against the limits in force for it (an admin
+        // override, else the tier). A breach is a 429 with a retry window,
+        // not a 401: "slow down" and "bad credentials" demand opposite client
+        // reactions, and the old auth_invalid shape sent rate-limited clients
+        // into re-login loops (registre#10). It carries the budget that
+        // refused it, so the refusal renders its numbers too.
         let now = Utc::now();
-        let used_this_month = self.repos.usage.get_jwt_current_usage(user_id).await?;
-        let budget = calculate_jwt_rate_limit(&user, used_this_month, now);
-        report_request_budget(budget);
-        enforce_request_budget(budget, now)?;
+        let budget = self.user_request_budget(&user, now).await?;
+        enforce_request_budget(budget, now)
+            .map_err(|error| Refused::OverBudget { budget, error })?;
 
         // Record JWT usage so the *next* request sees an accurate
         // `get_jwt_current_usage` and the rate-limit gate actually fires.
@@ -627,18 +690,46 @@ impl McpAuthMiddleware {
         record_jwt_usage_for_request(&self.repos, user_id, "http:jwt", "AUTH").await;
         self.note_activity(&user).await;
 
-        Ok(AuthResult {
-            user_id,
-            auth_method: AuthMethod::JwtToken {
-                tier: format!("{:?}", user.tier).to_lowercase(),
+        Ok(Admitted {
+            auth: AuthResult {
+                user_id,
+                auth_method: AuthMethod::JwtToken {
+                    tier: format!("{:?}", user.tier).to_lowercase(),
+                },
+                active_tenant_id,
+                scopes,
+                // The Guardian turn token: the `jti` only for a per-turn (ACP)
+                // token; `None` for a reused session token so a stateless MCP
+                // client is keyed per-call, not across its whole session (#2).
+                session_id: claims.guardian_turn_token(),
             },
-            active_tenant_id,
-            scopes,
-            // The Guardian turn token: the `jti` only for a per-turn (ACP) token;
-            // `None` for a reused session token so a stateless MCP client is keyed
-            // per-call, not across its whole session (#2).
-            session_id: claims.guardian_turn_token(),
+            budget,
         })
+    }
+
+    /// `user`'s request budget at `now`: the limits in force for it (an
+    /// admin's per-user override, else its tier) against the requests counted
+    /// in each limited window.
+    ///
+    /// A window with no limit is not counted.
+    async fn user_request_budget(
+        &self,
+        user: &User,
+        now: DateTime<Utc>,
+    ) -> AppResult<RequestBudget> {
+        let override_row = self.repos.user_rate_limit_overrides.get(user.id).await?;
+        let limits = UserRequestLimits::resolve(user, override_row.as_ref());
+        let usage = UserRequestUsage {
+            today: match limits.daily {
+                Some(_) => self.repos.usage.get_jwt_usage_today(user.id).await?,
+                None => 0,
+            },
+            this_month: match limits.monthly {
+                Some(_) => self.repos.usage.get_jwt_current_usage(user.id).await?,
+                None => 0,
+            },
+        };
+        Ok(calculate_jwt_rate_limit(limits, usage, now))
     }
 
     /// Get reference to the auth manager for testing purposes

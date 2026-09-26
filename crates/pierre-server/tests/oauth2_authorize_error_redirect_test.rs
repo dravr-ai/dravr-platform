@@ -52,8 +52,10 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
         auth_manager: resources.auth.auth_manager.clone(),
         jwks_manager: resources.auth.jwks_manager.clone(),
         config: Arc::new(resources.common.config.oauth2_server.clone()),
-        rate_limiter: Arc::new(OAuth2RateLimiter::from_rate_limit_config(
-            resources.common.config.rate_limiting.clone(),
+        rate_limiter: Arc::new(OAuth2RateLimiter::new(
+            None,
+            OAuth2RateLimiter::local_window_store(),
+            &resources.common.config.rate_limiting,
         )),
     };
     OAuth2Routes::routes(context).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_001))))

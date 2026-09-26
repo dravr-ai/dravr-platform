@@ -345,8 +345,10 @@ export OAUTH_AUTHORIZE_RATE_LIMIT_RPM="60"
 export OAUTH_TOKEN_RATE_LIMIT_RPM="30"
 export OAUTH_REGISTER_RATE_LIMIT_RPM="10"
 export OAUTH2_RATE_LIMIT_WINDOW_SECS="60"
-export RATE_LIMITER_CLEANUP_THRESHOLD="1000"
-export RATE_LIMITER_STALE_ENTRY_TIMEOUT_SECS="120"
+# Public proxies whose X-Forwarded-For entries the OAuth limiter reads past to
+# the client, comma-separated addresses or CIDRs. Internal networks are always
+# trusted; list a load balancer that appends its own address after the client's.
+# export TRUSTED_PROXY_CIDRS=""
 
 # Admin API Key Monthly Limit
 # export PIERRE_ADMIN_API_KEY_MONTHLY_LIMIT=""        # Default: from constants

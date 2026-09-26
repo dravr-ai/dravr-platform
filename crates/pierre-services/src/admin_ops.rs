@@ -6,12 +6,13 @@
 
 use crate::pricing::cost_for_record;
 use chrono::{DateTime, Duration, Utc};
+use pierre_auth::rate_limiting::UserRequestLimits;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::models::{Tenant, TenantPlan, User, UserStatus, UserTier};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
-use pierre_database::repositories::analytics::next_utc_month_start;
+use pierre_database::repositories::analytics::{next_utc_day_start, next_utc_month_start};
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
 use pierre_database::RepositoryRegistry;
 use pierre_runtime_context::DataContext;
@@ -1067,8 +1068,9 @@ pub async fn generate_password_reset_token(
 /// Compute rate limit information for a specific user.
 ///
 /// Calculates daily and monthly usage, limits, remaining quota, and reset times
-/// based on the user's tier. Shared by both the cookie (`/api/admin/...`) and
-/// admin-token (`/admin/...`) surfaces so the override + reset rules live once.
+/// from the limits the auth middleware enforces (a per-user override, else the
+/// tier). Shared by both the cookie (`/api/admin/...`) and admin-token
+/// (`/admin/...`) surfaces so the override + reset rules live once.
 ///
 /// # Errors
 ///
@@ -1089,55 +1091,35 @@ pub async fn compute_user_rate_limits(
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    // Get current monthly usage
+    // The same counters and the same limit resolution the auth middleware
+    // enforces, so this view shows what the gate applies: a per-user override
+    // replaces the tier's limits, and the tier sets a monthly limit only.
     let monthly_used = repos
         .usage
         .get_jwt_current_usage(target_user_id)
         .await
-        .unwrap_or(0);
-
-    // Get daily usage from activity logs (today's requests)
-    let now = Utc::now();
-    let today_start = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
+        .map_err(|e| AppError::internal(format!("Failed to count monthly usage: {e}")))?;
     let daily_used = repos
         .usage
-        .get_top_tools_analysis(target_user_id, today_start, now)
+        .get_jwt_usage_today(target_user_id)
         .await
-        .map_or(0, |tools| {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            tools.iter().map(|t| t.request_count as u32).sum::<u32>()
-        });
-
-    // Per-user override wins over the tier default. Industry pattern: tier
-    // baseline + admin-managed exemption table. None on the override row means
-    // "unlimited" — same shape as UserTier::Enterprise.monthly_limit() = None.
+        .map_err(|e| AppError::internal(format!("Failed to count daily usage: {e}")))?;
     let override_row = repos
         .user_rate_limit_overrides
         .get(target_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch rate-limit override: {e}")))?;
-
-    let (daily_limit, monthly_limit, override_active, override_note) = if let Some(o) = override_row
-    {
-        (o.daily_limit, o.monthly_limit, true, o.note)
-    } else {
-        let monthly = user.tier.monthly_limit();
-        let daily = monthly.map(|m| m / 30);
-        (daily, monthly, false, None)
-    };
+    let limits = UserRequestLimits::resolve(&user, override_row.as_ref());
+    let (daily_limit, monthly_limit) = (limits.daily, limits.monthly);
+    let override_active = override_row.is_some();
+    let override_note = override_row.and_then(|o| o.note);
 
     // Calculate remaining
     let monthly_remaining = monthly_limit.map(|l| l.saturating_sub(monthly_used));
     let daily_remaining = daily_limit.map(|l| l.saturating_sub(daily_used));
 
-    // Calculate reset times
-    let daily_reset = (now + Duration::days(1))
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
+    let now = Utc::now();
+    let daily_reset = next_utc_day_start(now);
     let monthly_reset = next_utc_month_start(now);
 
     Ok(UserRateLimits {
@@ -1155,14 +1137,6 @@ pub async fn compute_user_rate_limits(
         override_note,
     })
 }
-
-// Per-user rate-limit override CRUD lives in
-// `pierre_routes_admin::handlers::admin_rate_limit_override`. The two
-// helpers that used to live here (`set_user_rate_limit_override`,
-// `clear_user_rate_limit_override`) were inlined into that handler
-// because they only touched `repos.users` and
-// `repos.user_rate_limit_overrides` — no cross-service coupling worth
-// preserving.
 
 // =========================================================================
 // User activity aggregation

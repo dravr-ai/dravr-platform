@@ -103,8 +103,8 @@ pub(crate) const API_KEY_TOOL_USAGE_SQL: &str = "SELECT endpoint, COUNT(*) AS to
      GROUP BY endpoint \
      ORDER BY tool_count DESC";
 
-/// A user's JWT requests since `$2`: the month-to-date count the tier's
-/// monthly limit is enforced against.
+/// A user's JWT requests since `$2`: the month-to-date count a monthly
+/// limit is enforced against, or the day-to-date count of a daily one.
 pub(crate) const JWT_CURRENT_USAGE_SQL: &str =
     "SELECT COUNT(*) AS count FROM jwt_usage WHERE user_id = $1 AND timestamp >= $2";
 
@@ -272,6 +272,26 @@ pub fn next_utc_month_start(now: DateTime<Utc>) -> DateTime<Utc> {
     now.date_naive()
         .with_day(1)
         .and_then(|first| first.checked_add_months(Months::new(1)))
+        .and_then(|next| next.and_hms_opt(0, 0, 0))
+        .map_or(now, |midnight| midnight.and_utc())
+}
+
+/// The first instant of the UTC day `now` falls in: the window a per-user
+/// daily request limit is counted over.
+#[must_use]
+pub fn utc_day_start(now: DateTime<Utc>) -> DateTime<Utc> {
+    now.date_naive()
+        .and_hms_opt(0, 0, 0)
+        .map_or(now, |midnight| midnight.and_utc())
+}
+
+/// The first instant of the UTC day after the one `now` falls in: when a
+/// daily request limit resets. `now` itself on the last day chrono can
+/// represent.
+#[must_use]
+pub fn next_utc_day_start(now: DateTime<Utc>) -> DateTime<Utc> {
+    now.date_naive()
+        .succ_opt()
         .and_then(|next| next.and_hms_opt(0, 0, 0))
         .map_or(now, |midnight| midnight.and_utc())
 }
@@ -481,6 +501,21 @@ macro_rules! impl_usage_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to get JWT current usage: {e}"))
+                    })?;
+                let count: i64 = row
+                    .try_get("count")
+                    .map_err(|e| usage_column_error("count", e))?;
+                u32_from_count(count, "count")
+            }
+
+            async fn get_jwt_usage_today(&self, user_id: Uuid) -> AppResult<u32> {
+                let row = sqlx::query(JWT_CURRENT_USAGE_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(utc_day_start(Utc::now()))
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get JWT usage today: {e}"))
                     })?;
                 let count: i64 = row
                     .try_get("count")

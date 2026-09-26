@@ -73,6 +73,64 @@ fn test_universal_to_mcp_conversion_error() {
     }
 }
 
+/// A failure's payload reaches an MCP client as JSON after the message, never
+/// as `structuredContent`: the tool's declared `outputSchema` describes its
+/// answer, not its refusal, and a client that validates `structuredContent` on
+/// an error result would reject the refusal instead of reading it.
+#[test]
+fn a_failure_payload_rides_in_content_not_structured_content() {
+    let payload = serde_json::json!({
+        "error_code": "guardian_denied",
+        "reason": "budget_exceeded",
+    });
+    let mcp_response = ProtocolConverter::universal_to_mcp(UniversalResponse {
+        success: false,
+        result: Some(payload.clone()),
+        error: Some("Tool 'disconnect_provider' was blocked by security policy".into()),
+        metadata: None,
+    });
+
+    assert!(mcp_response.is_error);
+    assert_eq!(mcp_response.structured_content, None);
+    let texts: Vec<&str> = mcp_response
+        .content
+        .iter()
+        .map(|block| block.as_text().expect("every block is text"))
+        .collect();
+    assert_eq!(texts.len(), 2, "message, then the payload: {texts:?}");
+    assert_eq!(
+        texts[0],
+        "Error: Tool 'disconnect_provider' was blocked by security policy"
+    );
+    let carried: serde_json::Value = serde_json::from_str(texts[1]).unwrap();
+    assert_eq!(carried, payload);
+
+    let wire = serde_json::to_value(&mcp_response).unwrap();
+    assert!(
+        wire.get("structuredContent").is_none(),
+        "the serialized result has no structuredContent key: {wire}"
+    );
+}
+
+/// A null payload is no payload: the refusal is its message alone.
+#[test]
+fn a_null_failure_payload_adds_no_block() {
+    let mcp_response = ProtocolConverter::universal_to_mcp(UniversalResponse {
+        success: false,
+        result: Some(serde_json::Value::Null),
+        error: Some("the tool declined".into()),
+        metadata: None,
+    });
+
+    assert!(mcp_response.is_error);
+    assert_eq!(mcp_response.structured_content, None);
+    assert_eq!(mcp_response.content.len(), 1);
+    assert_eq!(
+        mcp_response.content[0].as_text(),
+        Some("Error: the tool declined")
+    );
+}
+
 #[test]
 fn test_detect_protocol_a2a() {
     let a2a_request = r#"{"jsonrpc": "2.0", "method": "SendMessage", "id": 1}"#;

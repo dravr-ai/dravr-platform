@@ -213,8 +213,8 @@ async fn test_last_report_wins_within_a_request() {
     let headers = through_layer(Router::new().route(
         "/",
         get(|| async {
-            // An exhausted cookie, then the header credential that admitted
-            // the request.
+            // The slot holds one budget: a later report replaces an earlier
+            // one, never renders beside it.
             report_request_budget(metered(10_000, 10_000));
             report_request_budget(metered(5, 1));
             "authenticated twice"

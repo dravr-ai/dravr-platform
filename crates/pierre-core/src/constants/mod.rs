@@ -728,10 +728,6 @@ pub mod oauth_rate_limiting {
     pub const REGISTER_RPM: u32 = 10;
     /// Rate limit window duration in seconds
     pub const WINDOW_SECS: u64 = 60;
-    /// Rate limiter cleanup threshold
-    pub const CLEANUP_THRESHOLD: usize = 1000;
-    /// Stale entry timeout in seconds
-    pub const STALE_ENTRY_TIMEOUT_SECS: u64 = 120;
     /// Default retry-after header value in seconds
     pub const DEFAULT_RETRY_AFTER_SECS: u64 = 60;
 }

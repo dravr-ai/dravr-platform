@@ -12,7 +12,7 @@ use crate::constants::{
     tools::GET_ACTIVITIES,
 };
 use crate::mcp::audit::record_tool_call;
-use dravr_tronc::mcp::schema::{Content, ToolResponse};
+use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -208,12 +208,16 @@ impl ToolHandlers {
     /// [`ToolResponse`] the tronc dispatcher returns.
     ///
     /// A JSON-RPC error becomes an in-band error result (MCP reports tool
-    /// failures via `isError`, see [`Self::error_to_tool_response`]); a success
-    /// result already carries the `{content, isError, structuredContent}` shape
-    /// and is deserialized back.
+    /// failures via `isError`), rendered by [`ProtocolConverter::error_result`]:
+    /// the message, then the error's `data` as a JSON text block — a quota
+    /// refusal's `limit_type`, `current`, `limit`, `resets_at` and
+    /// `retry_after_secs`, a provider reconnect's `error_code` and `provider`.
+    /// Without it a refused client holds a bare message and cannot tell when to
+    /// retry. A success result already carries the
+    /// `{content, isError, structuredContent}` shape and is deserialized back.
     fn mcp_response_to_tool_response(response: McpResponse) -> ToolResponse {
         if let Some(error) = response.error {
-            return Self::error_to_tool_response(error);
+            return ProtocolConverter::error_result(error.message, error.data);
         }
         response.result.map_or_else(
             || ToolResponse::error("Tool produced no result".to_owned()),
@@ -225,35 +229,6 @@ impl ToolHandlers {
                 })
             },
         )
-    }
-
-    /// Render a refusal as the `isError` result a `tools/call` answers with,
-    /// keeping its `data`.
-    ///
-    /// The message is the first text block. The `data` — a quota refusal's
-    /// `limit_type`, `current`, `limit`, `resets_at` and `retry_after_secs`,
-    /// a provider reconnect's `error_code` and `provider` — is the result's
-    /// `structuredContent`, where a client reads the fields it acts on, and
-    /// its serialized JSON is a second text block for a client that reads only
-    /// `content`, as MCP asks of every structured result. Without it a refused
-    /// client holds a bare message and cannot tell when to retry. MCP types
-    /// `structuredContent` as an object, so `data` that is not one is carried
-    /// in the text block alone.
-    fn error_to_tool_response(error: McpError) -> ToolResponse {
-        let mut content = vec![Content::Text {
-            text: error.message,
-        }];
-        let structured_content = error.data.and_then(|data| {
-            content.push(Content::Text {
-                text: data.to_string(),
-            });
-            data.is_object().then_some(data)
-        });
-        ToolResponse {
-            content,
-            is_error: true,
-            structured_content,
-        }
     }
 
     /// Check if a tool is enabled for a tenant, returning an error response if disabled
@@ -697,7 +672,8 @@ impl ToolHandlers {
     ///
     /// Preserves the machine-detectable `error_code` + `provider` in `data` so an
     /// MCP client can trigger a reconnect rather than string-parse a prose
-    /// failure — the structured signal the pre-guardian in-band path carried.
+    /// failure. The client reads that `data` as the JSON text block after the
+    /// message ([`ProtocolConverter::error_result`]), not as `structuredContent`.
     fn provider_auth_required_mcp(provider: &str, request_id: Value) -> McpResponse {
         McpResponse {
             jsonrpc: JSONRPC_VERSION.to_owned(),

@@ -144,6 +144,19 @@ impl OAuth2Error {
         }
     }
 
+    /// Create a `temporarily_unavailable` error (RFC 6749 §4.1.2.1): the
+    /// server cannot decide the request right now, and the client may retry.
+    #[must_use]
+    pub fn temporarily_unavailable(description: &str) -> Self {
+        Self {
+            error: "temporarily_unavailable".to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some(
+                "https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1".to_owned(),
+            ),
+        }
+    }
+
     /// The HTTP status `POST /oauth2/register` answers this refusal with:
     /// 429 for a throttled request, 400 for every other (RFC 7591 §3.2.2).
     #[must_use]

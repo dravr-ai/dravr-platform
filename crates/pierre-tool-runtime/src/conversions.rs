@@ -383,11 +383,16 @@ pub const RAISED_ERROR_CODE_KEY: &str = "__error_code";
 /// `isError`, not protocol-level JSON-RPC errors).
 ///
 /// A raised `Err(AppError)` also records its originating [`ErrorCode`] under
-/// [`RAISED_ERROR_CODE_KEY`] in `structuredContent`. The MCP wire path ignores
-/// this field, but `UniversalExecutor::execute_tool` reads it to rebuild the
-/// matching `ProtocolError` and re-raise — so callers that distinguish "tool
-/// refused to run" (`Err`) from "tool returned a failure payload"
-/// (`Ok` with `success == false`) keep their pre-E3 behaviour.
+/// [`RAISED_ERROR_CODE_KEY`] in `structuredContent`. `UniversalExecutor::execute_tool`
+/// reads it to rebuild the matching `ProtocolError` and re-raise — so callers
+/// that distinguish "tool refused to run" (`Err`) from "tool returned a failure
+/// payload" (`Ok` with `success == false`) keep their pre-E3 behaviour.
+///
+/// On an error result `structuredContent` is an in-process carrier only,
+/// never sent to an MCP client: the executor consumes it, and every transport
+/// renders the failure afresh with no `structuredContent` — a failure payload
+/// reaches a `/mcp` client as JSON in `content`, via
+/// `ProtocolConverter::error_result`.
 #[must_use]
 pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
     match result {

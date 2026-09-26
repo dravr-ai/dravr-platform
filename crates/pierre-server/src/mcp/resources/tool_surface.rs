@@ -259,14 +259,19 @@ impl ToolSurface for TurnToolSurface {
                 } else {
                     // The tool ran and declined — a Guardian block, a tenant
                     // disable, a provider needing reconnection. The model must
-                    // read the reason and adapt, so the structured payload goes
-                    // with it rather than being flattened to prose.
-                    ToolOutcome::refused(
-                        response
-                            .error
-                            .unwrap_or_else(|| "the tool declined".to_owned()),
-                    )
-                    .with_structured(payload)
+                    // read the reason and adapt, so the payload's JSON follows
+                    // the reason in the text rather than being flattened to
+                    // prose. In the text, not `structuredContent`: an error
+                    // result carries no structured part on any surface, the
+                    // rule `ProtocolConverter::error_result` states for `/mcp`.
+                    let reason = response
+                        .error
+                        .unwrap_or_else(|| "the tool declined".to_owned());
+                    ToolOutcome::refused(if payload.is_null() {
+                        reason
+                    } else {
+                        format!("{reason}\n\n{payload}")
+                    })
                 }
             }
             Ok(Err(e)) => {

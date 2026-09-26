@@ -23,6 +23,8 @@ gcp-kms = []
 # fetches with and the GCP `TokenProvider` the Cloud KMS KEK provider uses.
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt", "http-client"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+# The OAuth2 endpoint limiter counts its windows in the server's shared cache
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 
 # Async runtime and traits
@@ -71,9 +73,6 @@ urlencoding = "2.1"
 
 # X.509 certificate parsing (used by Firebase JWKS validation)
 x509-parser = "0.18.1"
-
-# Concurrent data structures
-dashmap = "5.5"
 
 # Logging
 tracing = "0.1"

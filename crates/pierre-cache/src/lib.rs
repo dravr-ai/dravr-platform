@@ -145,6 +145,21 @@ pub trait CacheProvider: Send + Sync + Clone {
     /// Returns an error if TTL check fails
     async fn ttl(&self, key: &CacheKey) -> AppResult<Option<Duration>>;
 
+    /// Count one hit against the fixed window counted at `key`.
+    ///
+    /// The first hit creates the counter to live for `window`; later hits
+    /// increment it without extending that lifetime, so the window closes
+    /// `window` after its first hit and the next hit opens a fresh one. The
+    /// increment and the expiry are one atomic step in every backend, so on
+    /// Redis every process sharing the instance counts into the same window
+    /// and no concurrent hit is lost.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend cannot be reached, or if `key` holds a
+    /// value that is not a window counter
+    async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount>;
+
     /// Verify cache backend is healthy
     ///
     /// # Errors
@@ -158,6 +173,16 @@ pub trait CacheProvider: Send + Sync + Clone {
     ///
     /// Returns an error if clear operation fails
     async fn clear_all(&self) -> AppResult<()>;
+}
+
+/// A fixed window's count once one more hit is counted, as
+/// [`CacheProvider::count_in_window`] reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowCount {
+    /// Hits counted in the window, this one included
+    pub hits: u64,
+    /// Time left before the window closes and its count starts over
+    pub resets_in: Duration,
 }
 
 /// Cache configuration

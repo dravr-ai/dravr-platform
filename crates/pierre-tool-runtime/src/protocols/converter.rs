@@ -96,6 +96,11 @@ impl ProtocolConverter {
     }
 
     /// Convert universal response to MCP format
+    ///
+    /// A failure is rendered by [`Self::error_result`]: its payload — the
+    /// `error_code` a Guardian block or a tenant disable carries, the failure
+    /// a tool chose to report as data — reaches the client as JSON in
+    /// `content`, never as `structuredContent`.
     #[must_use]
     pub fn universal_to_mcp(response: UniversalResponse) -> ToolResponse {
         if response.success {
@@ -108,19 +113,44 @@ impl ProtocolConverter {
                 structured_content: response.result,
             }
         } else {
-            ToolResponse {
-                content: vec![Content::Text {
-                    text: format!(
-                        "Error: {}",
-                        response.error.unwrap_or_else(|| "Unknown error".into())
-                    ),
-                }],
-                is_error: true,
-                // S11: preserve the structured error payload on failure too (it
-                // carries `error_code`, e.g. `guardian_denied`), so MCP/SSE
-                // callers can machine-detect a block instead of only seeing prose.
-                structured_content: response.result,
-            }
+            Self::error_result(
+                format!(
+                    "Error: {}",
+                    response.error.unwrap_or_else(|| "Unknown error".into())
+                ),
+                response.result,
+            )
+        }
+    }
+
+    /// Render a refusal as the `isError` result a `tools/call` answers with.
+    ///
+    /// `message` is the first text block. `data`, the refusal's
+    /// machine-readable part — a quota refusal's counter, reset instant and
+    /// wait, a Guardian block's `error_code` and `reason`, a provider
+    /// reconnect's `error_code` and `provider` — follows as a second text
+    /// block holding its JSON, so a client parses `content[1]` to act on it.
+    ///
+    /// Never as `structuredContent`. MCP requires a tool that declares an
+    /// `outputSchema` to answer with `structuredContent` conforming to it and
+    /// makes no exception for `isError` results, and the official TypeScript
+    /// SDK's `Client.callTool` validates it on an error result too. A refusal
+    /// payload matches no tool's answer schema, so carried there it turns the
+    /// refusal into a `-32602` protocol error and the client never reads the
+    /// reason. Most tools declare a schema, and the refusal paths are shared by
+    /// all of them, so an error result carries no structured part at all.
+    #[must_use]
+    pub fn error_result(message: String, data: Option<Value>) -> ToolResponse {
+        let mut content = vec![Content::Text { text: message }];
+        if let Some(data) = data.filter(|data| !data.is_null()) {
+            content.push(Content::Text {
+                text: data.to_string(),
+            });
+        }
+        ToolResponse {
+            content,
+            is_error: true,
+            structured_content: None,
         }
     }
 

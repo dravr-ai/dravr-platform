@@ -15,7 +15,7 @@ use crate::memory::InMemoryCache;
 use crate::redaction::redact_url;
 #[cfg(feature = "redis")]
 use crate::redis_backend::RedisCache;
-use crate::{CacheConfig, CacheKey, CacheProvider};
+use crate::{CacheConfig, CacheKey, CacheProvider, WindowCount};
 
 /// Cache backend enum for pluggable implementations
 #[non_exhaustive]
@@ -153,6 +153,35 @@ impl Cache {
         }
     }
 
+    /// Whether every process connected to this cache's backend sees the same
+    /// entries (Redis), rather than this process alone (in-memory)
+    #[must_use]
+    pub const fn is_shared_across_processes(&self) -> bool {
+        match &self.inner {
+            CacheBackend::InMemory(_) => false,
+            #[cfg(feature = "redis")]
+            CacheBackend::Redis(_) => true,
+        }
+    }
+
+    /// Count one hit against the fixed window counted at `key`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend cannot be reached, or if `key` holds a
+    /// value that is not a window counter
+    pub async fn count_in_window(
+        &self,
+        key: &CacheKey,
+        window: Duration,
+    ) -> AppResult<WindowCount> {
+        match &self.inner {
+            CacheBackend::InMemory(cache) => cache.count_in_window(key, window).await,
+            #[cfg(feature = "redis")]
+            CacheBackend::Redis(cache) => cache.count_in_window(key, window).await,
+        }
+    }
+
     /// Verify cache backend is healthy
     ///
     /// # Errors
@@ -217,6 +246,10 @@ impl CacheProvider for Cache {
 
     async fn ttl(&self, key: &CacheKey) -> AppResult<Option<Duration>> {
         Self::ttl(self, key).await
+    }
+
+    async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount> {
+        Self::count_in_window(self, key, window).await
     }
 
     async fn health_check(&self) -> AppResult<()> {
