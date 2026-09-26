@@ -39,7 +39,6 @@ fn state(name: &str, provider: &str, age_minutes: i64, used: bool) -> OAuthClien
         scope: None,
         pkce_code_verifier: None,
         oauth_app_client_id: None,
-        bridge_callback_token: None,
         created_at: now - Duration::minutes(age_minutes + 10),
         // Negative age puts expiry in the future: a launch still in flight.
         expires_at: now - Duration::minutes(age_minutes),

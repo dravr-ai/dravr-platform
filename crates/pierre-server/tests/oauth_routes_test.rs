@@ -41,7 +41,6 @@ async fn test_email_validation() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -243,7 +242,6 @@ async fn test_password_validation() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -417,7 +415,6 @@ async fn test_duplicate_user_registration() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -582,7 +579,6 @@ async fn test_login_with_correct_credentials() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -800,7 +796,6 @@ async fn test_login_with_wrong_password() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -973,7 +968,6 @@ async fn test_login_with_non_existent_user() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

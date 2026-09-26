@@ -62,7 +62,6 @@ fn find_available_port() -> u16 {
 fn create_test_config(port: u16) -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: port,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

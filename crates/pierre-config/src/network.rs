@@ -27,8 +27,6 @@ pub struct HttpClientConfig {
     pub api_client_connect_timeout_secs: u64,
     /// Health check client timeout in seconds
     pub health_check_timeout_secs: u64,
-    /// OAuth callback notification timeout in seconds
-    pub oauth_callback_notification_timeout_secs: u64,
     /// Enable exponential backoff retries with jitter
     pub enable_retries: bool,
     /// Maximum number of retry attempts
@@ -51,8 +49,6 @@ impl Default for HttpClientConfig {
             api_client_timeout_secs: timeouts::API_CLIENT_TIMEOUT_SECS,
             api_client_connect_timeout_secs: timeouts::API_CLIENT_CONNECT_TIMEOUT_SECS,
             health_check_timeout_secs: timeouts::HEALTH_CHECK_TIMEOUT_SECS,
-            oauth_callback_notification_timeout_secs:
-                timeouts::OAUTH_CALLBACK_NOTIFICATION_TIMEOUT_SECS,
             enable_retries: true,
             max_retries: 3,
             retry_base_delay_ms: 100,
@@ -95,12 +91,6 @@ impl HttpClientConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(5),
-            oauth_callback_notification_timeout_secs: env::var(
-                "OAUTH_CALLBACK_NOTIFICATION_TIMEOUT_SECS",
-            )
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(5),
             enable_retries: env_var_or("HTTP_CLIENT_ENABLE_RETRIES", "true")
                 .parse()
                 .unwrap_or(true),

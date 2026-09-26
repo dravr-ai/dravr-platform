@@ -189,7 +189,6 @@ use uuid::Uuid;
 fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -295,7 +294,6 @@ fn create_test_server_config_without_oauth() -> Arc<ServerConfig> {
 fn create_test_server_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

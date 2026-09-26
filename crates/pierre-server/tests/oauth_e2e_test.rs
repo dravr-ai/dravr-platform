@@ -188,7 +188,6 @@ async fn test_oauth_flow_through_mcp() {
     // Create test config
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -501,7 +500,6 @@ async fn test_oauth_callback_error_handling() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -698,7 +696,6 @@ async fn test_oauth_callback_error_handling() {
                 scope: None,
                 pkce_code_verifier: None,
                 oauth_app_client_id: None,
-                bridge_callback_token: None,
                 created_at: Utc::now(),
                 expires_at: Utc::now() + chrono::Duration::minutes(10),
                 used: false,
@@ -817,7 +814,6 @@ async fn test_oauth_state_csrf_protection() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1018,7 +1014,6 @@ async fn test_connection_status_tracking() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

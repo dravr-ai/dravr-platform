@@ -64,7 +64,6 @@ async fn test_register_user() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -225,7 +224,6 @@ async fn test_register_duplicate_user() {
     let temp_dir = tempfile::tempdir().unwrap();
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

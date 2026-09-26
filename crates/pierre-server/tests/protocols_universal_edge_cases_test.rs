@@ -41,7 +41,6 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
 fn create_test_config() -> Arc<ServerConfig> {
     Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

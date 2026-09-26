@@ -184,10 +184,6 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # Perfect for development, testing, and demos without external API dependencies.
 # Just set PIERRE_DEFAULT_PROVIDER=synthetic (or omit it, as synthetic is the default)
 
-# Bridge OAuth Callback Configuration
-# After provider OAuth completes, server redirects to bridge callback server to trigger focus recovery
-export OAUTH_CALLBACK_PORT=35535
-
 # ============================================================================
 # FIREBASE / GOOGLE SIGN-IN CONFIGURATION
 # ============================================================================
@@ -410,7 +406,6 @@ export OAUTH_CLIENT_CONNECT_TIMEOUT_SECS="5"
 export API_CLIENT_TIMEOUT_SECS="60"
 export API_CLIENT_CONNECT_TIMEOUT_SECS="10"
 export HEALTH_CHECK_TIMEOUT_SECS="5"
-export OAUTH_CALLBACK_NOTIFICATION_TIMEOUT_SECS="5"
 
 # HTTP Client Retry Configuration
 export HTTP_CLIENT_ENABLE_RETRIES="true"

@@ -4,7 +4,6 @@
 // ABOUTME: Tests the bridge's contract with its MCP host: declared capabilities and request budget
 // ABOUTME: Proves tools.listChanged is declared and every browser wait answers inside the host deadline
 
-const http = require('http');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
 const {
@@ -13,7 +12,7 @@ const {
 const {
   ToolListChangedNotificationSchema,
 } = require('@modelcontextprotocol/sdk/types.js');
-const { PierreError, PierreErrorCode, PierreMcpClient } = require('../../dist/index.js');
+const { PierreMcpClient } = require('../../dist/index.js');
 const {
   closeServer,
   httpRequest,
@@ -43,7 +42,7 @@ function makeBridge(serverUrl, overrides = {}) {
 
 /**
  * Bridge wired for a connect_provider call: an OAuth session that already holds a token,
- * a bound callback listener, and a Pierre client that reports the provider unconnected.
+ * and a Pierre client whose get_connection_status reports the provider unconnected.
  */
 async function connectProviderBridge(serverUrl = 'http://localhost:8081') {
   const { provider } = await startProvider({ disableBrowser: true });
@@ -60,7 +59,13 @@ async function connectProviderBridge(serverUrl = 'http://localhost:8081') {
   bridge.oauthProvider = provider;
   bridge.pierreClient = {
     callTool: async () => ({
-      structuredContent: { providers: [{ provider: 'strava', connected: false }] },
+      structuredContent: {
+        provider: 'strava',
+        status: 'disconnected',
+        connected: false,
+        needs_reauth: false,
+        backend: 'none',
+      },
     }),
   };
 
@@ -108,54 +113,6 @@ describe('declared tool capabilities', () => {
   });
 });
 
-describe('connect_provider hands Dravr the callback listener token', () => {
-  const PROVIDER_PAGE = 'https://www.strava.com/oauth/authorize?client_id=1&state=minted';
-
-  test('the flow starts with the per-flow token in a header, and no URL carries it', async () => {
-    const started = [];
-    const dravr = http.createServer((req, res) => {
-      started.push({
-        url: req.url,
-        authorization: req.headers.authorization,
-        callbackToken: req.headers['x-callback-token'],
-      });
-      res.writeHead(302, { Location: PROVIDER_PAGE });
-      res.end();
-    });
-    await new Promise((resolve) => dravr.listen(0, '127.0.0.1', resolve));
-
-    const { bridge, provider, handler } = await connectProviderBridge(
-      `http://127.0.0.1:${dravr.address().port}`,
-    );
-    const logs = [];
-    bridge.log = (message) => logs.push(message);
-    provider.waitForProviderOAuth = async () => undefined;
-
-    try {
-      const result = await handler(connectProviderRequest, {
-        signal: new AbortController().signal,
-      });
-
-      expect(result.isError).toBe(false);
-      expect(result.content[0].text).toMatch(/Strava connected successfully/);
-
-      const listenerToken = provider.callbackAuthToken;
-      expect(listenerToken).toMatch(/^[0-9a-f]{64}$/);
-      expect(started).toHaveLength(1);
-      expect(started[0].url).toBe('/api/oauth/auth/strava/user-1');
-      expect(started[0].callbackToken).toBe(listenerToken);
-      expect(started[0].authorization).toBe(`Bearer ${jwtFor('user-1')}`);
-
-      expect(logs).toContain(`OAuth URL: ${PROVIDER_PAGE}`);
-      expect(logs.some((line) => line.includes(listenerToken))).toBe(false);
-    } finally {
-      stopProvider(provider);
-      await bridge.mcpServer.close();
-      await closeServer(dravr);
-    }
-  });
-});
-
 describe('connect_provider stays inside the host request budget', () => {
   test('the wait is shorter than the host deadline and carries the host cancel signal', async () => {
     const { bridge, provider, handler } = await connectProviderBridge();
@@ -165,8 +122,8 @@ describe('connect_provider stays inside the host request budget', () => {
     const entered = new Promise((resolve) => {
       waitEntered = resolve;
     });
-    const realWait = provider.waitForProviderOAuth.bind(provider);
-    provider.waitForProviderOAuth = (name, ms, signal) => {
+    const realWait = bridge.waitForProviderConnection.bind(bridge);
+    bridge.waitForProviderConnection = (name, ms, signal) => {
       waits.push({ name, ms, signal });
       waitEntered();
       return realWait(name, ms, signal);
@@ -190,8 +147,7 @@ describe('connect_provider stays inside the host request budget', () => {
 
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toMatch(/still open in your browser/i);
-      // The cancelled wait left nothing pending behind it.
-      expect(provider.pendingProviderOAuth.size).toBe(0);
+      expect(result.content[0].text).not.toMatch(/connected successfully/i);
     } finally {
       stopProvider(provider);
       await bridge.mcpServer.close();
@@ -206,8 +162,8 @@ describe('connect_provider stays inside the host request budget', () => {
     const entered = new Promise((resolve) => {
       waitEntered = resolve;
     });
-    const realWait = provider.waitForProviderOAuth.bind(provider);
-    provider.waitForProviderOAuth = (name, ms, signal) => {
+    const realWait = bridge.waitForProviderConnection.bind(bridge);
+    bridge.waitForProviderConnection = (name, ms, signal) => {
       waits.push({ name, ms, signal });
       waitEntered();
       return realWait(name, ms, signal);
@@ -245,12 +201,8 @@ describe('connect_provider stays inside the host request budget', () => {
 
   test('an authorization the budget did not outlive is reported as pending, not as a failure', async () => {
     const { bridge, provider, handler } = await connectProviderBridge();
-    provider.waitForProviderOAuth = async () => {
-      throw new PierreError(
-        PierreErrorCode.TIMEOUT_ERROR,
-        'strava OAuth timed out after 55000ms',
-      );
-    };
+    const realWait = bridge.waitForProviderConnection.bind(bridge);
+    bridge.waitForProviderConnection = (name, _ms, signal) => realWait(name, 40, signal, 10);
 
     try {
       const result = await handler(connectProviderRequest, {
@@ -259,8 +211,10 @@ describe('connect_provider stays inside the host request budget', () => {
 
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toMatch(/not confirmed yet/i);
-      expect(result.content[0].text).toMatch(/confirmation message/i);
       expect(result.content[0].text).toMatch(/run connect_provider again/i);
+      // Nothing is sent to this machine when the page completes, so the reply promises
+      // no later message: running the tool again is how the connection is confirmed.
+      expect(result.content[0].text).not.toMatch(/confirmation message/i);
       // The two claims that were wrong before: it did not fail, and it is not connected.
       expect(result.content[0].text).not.toMatch(/timed out/i);
       expect(result.content[0].text).not.toMatch(/connected successfully/i);

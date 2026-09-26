@@ -74,7 +74,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -515,7 +514,6 @@ async fn test_set_goal_tool() -> Result<()> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1282,7 +1280,6 @@ async fn test_disconnect_provider_tool() -> Result<()> {
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Security tests for the local OAuth callback listener (token injection, port binding)
-// ABOUTME: Proves provider token POSTs must prove flow membership and the published port is held
+// ABOUTME: Security tests for the local OAuth callback listener (provider token POSTs, port binding)
+// ABOUTME: Proves the listener takes no provider tokens and the published port is the one it holds
 
 const net = require('net');
 const {
@@ -15,202 +15,25 @@ const {
   stopProvider,
 } = require('./oauth-callback-harness.js');
 
-// What a hostile local process (or a page in the user's browser) would try to plant.
-const INJECTED = {
-  access_token: 'attacker-access-token',
-  refresh_token: 'attacker-refresh-token',
-  expires_in: 3600,
-};
+describe('the callback listener takes no provider tokens', () => {
+  test('a provider-token POST is not a route: nothing is stored and no flow is touched', async () => {
+    const { provider, port } = await startProvider();
+    try {
+      const res = await httpRequest(port, {
+        method: 'POST',
+        path: '/oauth/provider-callback/strava',
+        json: { access_token: 'planted-access-token', refresh_token: 'planted-refresh-token' },
+      });
 
-describe('provider token callback authentication', () => {
-  let provider;
-  let port;
-  let callbackToken;
-
-  beforeEach(async () => {
-    ({ provider, port } = await startProvider());
-    callbackToken = provider.callbackAuthToken;
-  });
-
-  afterEach(() => {
-    stopProvider(provider);
-  });
-
-  test('the flow secret exists and is not derivable from the endpoint', () => {
-    expect(callbackToken).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  test('a POST with no callback token is refused and stores nothing', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(403);
-    expect(JSON.parse(res.body)).toEqual({
-      success: false,
-      message: 'Invalid or missing callback authentication token',
-    });
-    expect(provider.getProviderToken('strava')).toBeUndefined();
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('a POST carrying the wrong flow secret is refused and stores nothing', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': 'f'.repeat(64) },
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(403);
-    expect(JSON.parse(res.body).success).toBe(false);
-    expect(provider.getProviderToken('strava')).toBeUndefined();
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('a token of the wrong length is refused rather than crashing the comparison', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': 'short' },
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(403);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('a browser page cannot plant tokens even holding the flow secret (Origin)', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': callbackToken, Origin: 'https://attacker.example' },
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(403);
-    expect(JSON.parse(res.body).message).toMatch(/browser-originated/i);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('a browser page cannot plant tokens even holding the flow secret (Referer)', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: {
-        'x-callback-token': callbackToken,
-        Referer: 'https://attacker.example/page',
-      },
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(403);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('extra path segments after the provider name are not a callback', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava/extra/segments',
-      headers: { 'x-callback-token': callbackToken },
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(404);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('the callback path accepts POST only', async () => {
-    const res = await httpRequest(port, {
-      method: 'GET',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': callbackToken },
-    });
-
-    expect(res.status).toBe(405);
-    expect(JSON.parse(res.body).message).toMatch(/POST only/);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('the real notification is accepted and stores the provider token it carried', async () => {
-    const waiting = provider.waitForProviderOAuth('strava', 5000);
-
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': callbackToken },
-      json: {
-        access_token: 'strava-access-token',
-        refresh_token: 'strava-refresh-token',
-        expires_in: 21600,
-        token_type: 'Bearer',
-        scope: 'activity:read_all',
-      },
-    });
-
-    expect(res.status).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({
-      success: true,
-      message: 'strava token stored client-side',
-    });
-
-    const stored = provider.getProviderToken('strava');
-    expect(stored.access_token).toBe('strava-access-token');
-    expect(stored.refresh_token).toBe('strava-refresh-token');
-    expect(stored.token_type).toBe('Bearer');
-    expect(stored.scope).toBe('activity:read_all');
-    expect(stored.expires_at).toBeGreaterThan(Date.now());
-
-    await expect(waiting).resolves.toEqual({ provider: 'strava' });
-    expect(provider.getTokenStatus().providers.strava).toBe(true);
-  });
-
-  test('the flow secret in the query string is not read: only the header carries it', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: `/oauth/provider-callback/whoop?callback_token=${callbackToken}`,
-      json: { access_token: 'whoop-access-token', expires_in: 28800 },
-    });
-
-    expect(res.status).toBe(403);
-    expect(JSON.parse(res.body).message).toBe('Invalid or missing callback authentication token');
-    expect(provider.getProviderToken('whoop')).toBeUndefined();
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('an authenticated payload without an access token stores nothing', async () => {
-    const res = await httpRequest(port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': callbackToken },
-      json: { refresh_token: 'only-a-refresh-token' },
-    });
-
-    expect(res.status).toBe(400);
-    expect(JSON.parse(res.body).message).toMatch(/no access_token/);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
-  });
-
-  test('a secret from a finished flow does not authenticate the next one', async () => {
-    const firstSecret = provider.callbackAuthToken;
-    stopProvider(provider);
-
-    const restarted = await startProvider();
-    provider = restarted.provider;
-
-    expect(provider.callbackAuthToken).not.toBe(firstSecret);
-
-    const res = await httpRequest(restarted.port, {
-      method: 'POST',
-      path: '/oauth/provider-callback/strava',
-      headers: { 'x-callback-token': firstSecret },
-      json: INJECTED,
-    });
-
-    expect(res.status).toBe(403);
-    expect(provider.allStoredTokens.providers).toBeUndefined();
+      // Dravr completes provider flows on its side and the bridge polls it for the
+      // outcome, so the listener answers the Dravr sign-in redirect and nothing else.
+      expect(res.status).toBe(404);
+      expect(res.body).toBe('Not Found');
+      expect(provider.allStoredTokens).toEqual({});
+      expect(provider.authorizationPending).toBeUndefined();
+    } finally {
+      stopProvider(provider);
+    }
   });
 });
 

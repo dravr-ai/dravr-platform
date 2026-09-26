@@ -33,11 +33,6 @@ pub struct OAuthClientState {
     /// the authorize URL (a mismatch makes the provider reject the code).
     /// `None` means the env-default `STRAVA_CLIENT_ID` app.
     pub oauth_app_client_id: Option<String>,
-    /// The per-flow token of the local bridge listener that started this flow.
-    /// The success notification presents it, and the listener refuses a
-    /// provider-token POST without it; `None` means no bridge started the flow,
-    /// so none is notified.
-    pub bridge_callback_token: Option<String>,
     /// When this state was created
     pub created_at: DateTime<Utc>,
     /// When this state expires (typically 10 minutes)

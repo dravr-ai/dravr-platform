@@ -17,7 +17,6 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { createSecureStorage, SecureTokenStorage } from "./secure-storage.js";
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { OAuthServerError, PierreError, PierreErrorCode } from "./errors.js";
-import { CALLBACK_TOKEN_HEADER } from "./provider-oauth-start.js";
 
 // Load OAuth HTML templates from dist/templates/ (copied during build)
 // Templates are self-contained in the SDK bundle for portability
@@ -83,9 +82,6 @@ function oauthEndpointError(message: string, body: string): PierreError {
     : new PierreError(PierreErrorCode.AUTH_ERROR, message);
 }
 
-/** Accepted shape of the {provider} segment of the provider token callback path */
-const PROVIDER_CALLBACK_PATH = /^\/oauth\/provider-callback\/([A-Za-z0-9_-]{1,32})$/;
-
 /**
  * Compares two secrets without leaking their contents through timing. Lengths are
  * compared first because timingSafeEqual throws on unequal buffer lengths; that only
@@ -103,16 +99,6 @@ function constantTimeEquals(presented: string, expected: string): boolean {
 /** Stored tokens structure for keychain persistence */
 export interface StoredTokens {
   pierre?: OAuthTokens & { saved_at?: number };
-  providers?: Record<
-    string,
-    {
-      access_token: string;
-      refresh_token?: string;
-      expires_at?: number;
-      token_type?: string;
-      scope?: string;
-    }
-  >;
   // OAuth client registration info (includes client_secret) - stored securely alongside tokens
   client_info?: OAuthClientInformationFull;
 }
@@ -181,7 +167,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   private callbackServer: any = undefined;
   private authorizationPending: Promise<any> | undefined = undefined;
   private callbackPort: number = 0;
-  private callbackSessionToken: string | undefined = undefined;
   private callbackServerReady: Promise<number> | undefined = undefined;
   private callbackBindError: PierreError | undefined = undefined;
   private refreshInFlight: Promise<void> | undefined = undefined;
@@ -190,23 +175,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   private secureStorage: SecureTokenStorage | undefined = undefined;
   private allStoredTokens: StoredTokens = {};
 
-  // Callback for notifying when provider OAuth completes (called by PierreMcpClient)
-  private onProviderOAuthComplete:
-    | ((provider: string) => Promise<void>)
-    | undefined;
-
-  // Pending provider OAuth promises (keyed by provider name)
-  private pendingProviderOAuth: Map<
-    string,
-    { resolve: (value: any) => void; reject: (error: any) => void }
-  > = new Map();
-
-  constructor(
-    serverUrl: string,
-    config: OAuthSessionConfig,
-    onProviderOAuthComplete?: (provider: string) => Promise<void>,
-  ) {
-    this.onProviderOAuthComplete = onProviderOAuthComplete;
+  constructor(serverUrl: string, config: OAuthSessionConfig) {
     this.serverUrl = serverUrl;
     this.config = config;
 
@@ -219,85 +188,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     this.log(
       `Using OS keychain for secure token storage (will initialize on start)`,
     );
-  }
-
-  /**
-   * Waits for provider OAuth to complete (called from
-   * PierreMcpClient.handleConnectProvider).
-   *
-   * The optional signal is the MCP request's abort signal: when the host abandons the
-   * tool call, the wait ends with it rather than blocking on a request nobody is
-   * listening to any more. Every exit - completion, timeout, cancellation - clears the
-   * timer and drops the pending entry, so an abandoned wait holds nothing open. The
-   * browser flow itself keeps running: whenever it lands, the callback stores the
-   * provider token and announces it through onProviderOAuthComplete.
-   */
-  public waitForProviderOAuth(
-    provider: string,
-    timeoutMs: number = 120000,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.log(`Waiting for ${provider} OAuth completion (timeout: ${timeoutMs}ms)`);
-
-      if (signal?.aborted) {
-        reject(
-          new PierreError(
-            PierreErrorCode.PROVIDER_ERROR,
-            `${provider} OAuth wait cancelled by the MCP host`,
-          ),
-        );
-        return;
-      }
-
-      const settle = (finish: () => void) => {
-        clearTimeout(timeoutId);
-        signal?.removeEventListener("abort", onAbort);
-        this.pendingProviderOAuth.delete(provider);
-        finish();
-      };
-
-      const onAbort = () =>
-        settle(() => {
-          this.log(`${provider} OAuth wait cancelled by the MCP host`);
-          reject(
-            new PierreError(
-              PierreErrorCode.PROVIDER_ERROR,
-              `${provider} OAuth wait cancelled by the MCP host`,
-            ),
-          );
-        });
-
-      const timeoutId = setTimeout(
-        () =>
-          settle(() =>
-            reject(
-              new PierreError(
-                PierreErrorCode.TIMEOUT_ERROR,
-                `${provider} OAuth timed out after ${timeoutMs}ms`,
-              ),
-            ),
-          ),
-        timeoutMs,
-      );
-
-      signal?.addEventListener("abort", onAbort, { once: true });
-
-      this.pendingProviderOAuth.set(provider, {
-        resolve: (value: any) => settle(() => resolve(value)),
-        reject: (error: any) => settle(() => reject(error)),
-      });
-    });
-  }
-
-  // Resolve pending provider OAuth (called from callback handler)
-  private resolveProviderOAuth(provider: string): void {
-    const pending = this.pendingProviderOAuth.get(provider);
-    if (pending) {
-      this.log(`Resolving ${provider} OAuth promise`);
-      pending.resolve({ provider });
-      this.pendingProviderOAuth.delete(provider);
-    }
   }
 
   public async initializeSecureStorage(): Promise<void> {
@@ -394,13 +284,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
           this.savedTokens = this.allStoredTokens.pierre;
           this.log(`Loaded Dravr tokens from keychain`);
         }
-
-        if (this.allStoredTokens.providers) {
-          const providerCount = Object.keys(
-            this.allStoredTokens.providers,
-          ).length;
-          this.log(`Loaded ${providerCount} provider token(s) from keychain`);
-        }
       } else {
         this.log(`No stored tokens found in keychain, starting fresh`);
       }
@@ -476,42 +359,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     } catch (error) {
       this.log(`Failed to clear tokens: ${error}`);
     }
-  }
-
-  async saveProviderToken(provider: string, tokenData: any): Promise<void> {
-    if (!this.allStoredTokens.providers) {
-      this.allStoredTokens.providers = {};
-    }
-
-    this.allStoredTokens.providers[provider] = {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      expires_at: tokenData.expires_in
-        ? Date.now() + tokenData.expires_in * 1000
-        : undefined,
-      token_type: tokenData.token_type || "Bearer",
-      scope: tokenData.scope,
-    };
-
-    await this.saveStoredTokens();
-    this.log(`Saved ${provider} provider token to client storage`);
-  }
-
-  getProviderToken(provider: string): any | undefined {
-    const token = this.allStoredTokens.providers?.[provider];
-    if (!token) {
-      return undefined;
-    }
-
-    // Check if token is expired
-    if (token.expires_at && Date.now() > token.expires_at) {
-      this.log(`${provider} token expired, removing from storage`);
-      delete this.allStoredTokens.providers![provider];
-      this.saveStoredTokens();
-      return undefined;
-    }
-
-    return token;
   }
 
   get redirectUrl(): string {
@@ -1106,7 +953,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   /**
    * Ends the authorization flow: closes the callback listener (including keep-alive
    * sockets, which would otherwise hold the port), and drops the per-flow secrets.
-   * The next flow starts a fresh listener with a fresh state, verifier and callback token.
+   * The next flow starts a fresh listener with a fresh state and verifier.
    */
   private teardownAuthorizationFlow(): void {
     const server = this.callbackServer;
@@ -1115,7 +962,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     this.callbackServerReady = undefined;
     this.callbackBindError = undefined;
     this.callbackPort = 0;
-    this.callbackSessionToken = undefined;
     this.authorizationPending = undefined;
     this.codeVerifierValue = undefined;
     this.stateValue = undefined;
@@ -1260,35 +1106,8 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     this.log(`Invalidated credentials: ${scope}`);
   }
 
-  async clearProviderTokens(): Promise<void> {
-    this.allStoredTokens.providers = {};
-    await this.saveStoredTokens();
-    this.log(`Cleared all provider tokens from client storage`);
-  }
-
-  getTokenStatus(): { pierre: boolean; providers: Record<string, boolean> } {
-    const status = {
-      pierre: false,
-      providers: {} as Record<string, boolean>,
-    };
-
-    // Check Dravr token
-    status.pierre = this.config.mode === "api-key" || !!this.savedTokens;
-
-    // Check provider tokens from client-side storage
-    if (this.allStoredTokens.providers) {
-      for (const [provider, tokenData] of Object.entries(
-        this.allStoredTokens.providers,
-      )) {
-        // Check if token exists and is not expired
-        const isValid =
-          tokenData &&
-          (!tokenData.expires_at || Date.now() < tokenData.expires_at);
-        status.providers[provider] = !!isValid;
-      }
-    }
-
-    return status;
+  getTokenStatus(): { pierre: boolean } {
+    return { pierre: this.config.mode === "api-key" || !!this.savedTokens };
   }
 
   public generateRandomString(length: number): string {
@@ -1331,10 +1150,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
 
     this.callbackBindError = undefined;
     this.callbackPort = port;
-    // Per-flow secret proving a provider token callback belongs to this flow. Generated
-    // with the server so it is available to whoever kicks the flow off, not only once
-    // the asynchronous listen() completes.
-    this.callbackSessionToken = randomBytes(32).toString("hex");
 
     const server = http.createServer();
     this.callbackServer = server;
@@ -1398,17 +1213,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     return this.callbackServerReady;
   }
 
-  /**
-   * Per-flow secret a provider token callback must present on the local endpoint.
-   * Available as soon as the callback server is created, so the flow initiator can hand
-   * it to the party that will post the provider tokens back: the bridge sends it to Dravr
-   * in the `X-Callback-Token` header when it starts a provider flow, and Dravr presents it
-   * in the same header on that flow's completion POST.
-   */
-  public get callbackAuthToken(): string | undefined {
-    return this.callbackSessionToken;
-  }
-
   private setupCallbackHandler(): void {
     if (!this.callbackServer) return;
 
@@ -1461,9 +1265,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
               ),
             );
           }
-        } else if (parsedUrl.pathname?.startsWith("/oauth/provider-callback")) {
-          this.handleProviderTokenCallback(req, res, parsedUrl);
-          return; // Response is written by the handler, after the body is read
         } else {
           res.writeHead(404, { "Content-Type": "text/plain" });
           res.end("Not Found");
@@ -1474,177 +1275,6 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
         res.end("Internal Server Error");
       }
     });
-  }
-
-  /**
-   * Provider token callback endpoint. Whatever it accepts is written into the user's
-   * credential store, and the listener is reachable by every process on the machine and
-   * by any page the user's browser loads - so a request is only accepted when it proves
-   * it belongs to the flow this process started: exact method and path, no browser origin,
-   * loopback host and peer, and the per-flow callback token. Everything else is refused
-   * before the body is parsed and nothing is stored.
-   */
-  private handleProviderTokenCallback(req: any, res: any, parsedUrl: any): void {
-    const reject = (
-      status: number,
-      message: string,
-      logLine: string,
-    ): void => {
-      this.log(logLine);
-      res.writeHead(status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: false, message }));
-    };
-
-    if (req.method !== "POST") {
-      reject(
-        405,
-        "Method not allowed - provider token callbacks are POST only",
-        `Rejected provider callback: method ${req.method}`,
-      );
-      return;
-    }
-
-    // Exact path match. Prefix matching accepted trailing segments, which let a caller
-    // dress an arbitrary request up as a callback for a provider it named itself.
-    const pathMatch = PROVIDER_CALLBACK_PATH.exec(parsedUrl.pathname);
-    if (!pathMatch) {
-      reject(
-        404,
-        "Unknown callback path",
-        `Rejected provider callback: unsupported path ${parsedUrl.pathname}`,
-      );
-      return;
-    }
-    const provider = pathMatch[1];
-
-    // Host header and source IP must both be loopback: the header alone can be spoofed,
-    // and the peer address alone does not stop a DNS-rebound page from reaching us.
-    const host = req.headers.host;
-    if (
-      !host ||
-      !(host.startsWith("localhost") || host.startsWith("127.0.0.1"))
-    ) {
-      reject(
-        403,
-        "Invalid host - only localhost allowed",
-        `Rejected POST callback for ${provider}: Invalid host ${host}`,
-      );
-      return;
-    }
-
-    const remoteAddress = req.socket?.remoteAddress;
-    if (
-      remoteAddress &&
-      remoteAddress !== "127.0.0.1" &&
-      remoteAddress !== "::1" &&
-      remoteAddress !== "::ffff:127.0.0.1"
-    ) {
-      reject(
-        403,
-        "Invalid source - only localhost allowed",
-        `Rejected POST callback for ${provider}: Non-localhost source IP ${remoteAddress}`,
-      );
-      return;
-    }
-
-    // Origin or Referer means a web page issued this request. The OAuth notification is
-    // a server-to-client call and carries neither, so their presence identifies the one
-    // caller class that must never be able to plant credentials.
-    const origin = req.headers.origin;
-    const referer = req.headers.referer;
-    if (origin || referer) {
-      reject(
-        403,
-        "Browser-originated requests are not accepted on this endpoint",
-        `Rejected POST callback for ${provider}: browser origin=${origin ?? "none"} referer=${referer ?? "none"}`,
-      );
-      return;
-    }
-
-    const presentedToken = this.readCallbackToken(req);
-    if (
-      !this.callbackSessionToken ||
-      !presentedToken ||
-      !constantTimeEquals(presentedToken, this.callbackSessionToken)
-    ) {
-      reject(
-        403,
-        "Invalid or missing callback authentication token",
-        `Rejected POST callback for ${provider}: callback token ${presentedToken ? "mismatch" : "absent"}`,
-      );
-      return;
-    }
-
-    this.log(`Provider token callback for ${provider}`);
-
-    let body = "";
-    req.on("data", (chunk: any) => {
-      body += chunk.toString();
-    });
-
-    req.on("end", async () => {
-      try {
-        const tokenData = JSON.parse(body);
-        if (
-          typeof tokenData?.access_token !== "string" ||
-          tokenData.access_token.length === 0
-        ) {
-          reject(
-            400,
-            "Provider token payload has no access_token",
-            `Rejected POST callback for ${provider}: payload has no access_token`,
-          );
-          return;
-        }
-
-        await this.saveProviderToken(provider, tokenData);
-
-        // Resolve pending provider OAuth promise (allows handleConnectProvider to continue)
-        this.resolveProviderOAuth(provider);
-
-        // Notify PierreMcpClient about provider OAuth completion (for MCP notification)
-        if (this.onProviderOAuthComplete) {
-          try {
-            await this.onProviderOAuthComplete(provider);
-            this.log(`Notified MCP client about ${provider} OAuth completion`);
-          } catch (notifyError) {
-            this.log(
-              `Failed to notify MCP client about ${provider} OAuth: ${notifyError}`,
-            );
-          }
-        }
-
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            success: true,
-            message: `${provider} token stored client-side`,
-          }),
-        );
-      } catch (error) {
-        this.log(`Failed to save ${provider} token: ${error}`);
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            success: false,
-            message: "Failed to save provider token",
-          }),
-        );
-      }
-    });
-  }
-
-  /**
-   * The per-flow token a provider token callback presents, read from the header Dravr
-   * sends it in. A query string is never read: it is the part of a request line that
-   * proxies and access logs record.
-   */
-  private readCallbackToken(req: any): string | undefined {
-    const headerToken = req.headers[CALLBACK_TOKEN_HEADER.toLowerCase()];
-    if (typeof headerToken === "string" && headerToken.length > 0) {
-      return headerToken;
-    }
-    return undefined;
   }
 
   /**
@@ -1743,8 +1373,8 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     }
 
     // Skip it in api-key mode too. The validation endpoint judges a session token, so it
-    // answers "invalid" for any API key - and that answer clears the keychain, provider
-    // tokens included. Dravr checks the key itself on every request.
+    // answers "invalid" for any API key - and that answer clears the keychain. Dravr
+    // checks the key itself on every request.
     if (this.config.mode === 'api-key') {
       this.log("Skipping credential validation (using the configured API key)");
       return;

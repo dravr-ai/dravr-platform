@@ -116,7 +116,6 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "x-api-key",
     "x-auth-token",
     "x-access-token",
-    "x-callback-token",
     "api-key",
     "api_key",
     "apikey",

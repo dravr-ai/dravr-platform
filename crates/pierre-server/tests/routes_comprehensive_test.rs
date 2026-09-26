@@ -165,7 +165,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -456,7 +455,6 @@ async fn test_user_login_success() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -748,7 +746,6 @@ async fn test_token_refresh_success() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -996,7 +993,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1513,7 +1509,6 @@ async fn test_complete_auth_flow() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),
@@ -1831,7 +1826,6 @@ async fn test_concurrent_logins() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

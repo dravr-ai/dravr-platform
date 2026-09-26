@@ -125,7 +125,6 @@ impl TestServer {
     fn create_config(&self) -> Arc<ServerConfig> {
         Arc::new(ServerConfig {
             http_port: self.port,
-            oauth_callback_port: 35535,
             log_level: LogLevel::Info,
             logging: LoggingConfig::default(),
             http_client: HttpClientConfig::default(),

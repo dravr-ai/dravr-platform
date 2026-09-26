@@ -213,9 +213,6 @@ pub mod channel_error_reply;
 /// Myth-busting summary over claim verdicts (top recurring claims, agents, categories)
 pub mod myth_busting;
 
-/// Best-effort bridge notification after a successful OAuth connection
-mod oauth_bridge_notify;
-
 /// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;
 

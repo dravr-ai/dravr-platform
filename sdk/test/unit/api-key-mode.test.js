@@ -37,8 +37,16 @@ const STORED_SESSION = {
  * A scripted Dravr that authenticates the way the real one does: /mcp takes the API key
  * as a bearer, the REST initiation route takes it as the bare Authorization value. Every
  * request is recorded, so a test can assert both what was sent and what was never asked.
+ * `get_connection_status` answers the next of `stravaStatuses` on each call, then keeps
+ * answering the last one.
  */
-function startDravr({ acceptKey = true, mintStatus = 200, mintRefusal = { error: 'unauthorized' } } = {}) {
+function startDravr({
+  acceptKey = true,
+  mintStatus = 200,
+  mintRefusal = { error: 'unauthorized' },
+  stravaStatuses = ['disconnected'],
+} = {}) {
+  let statusReads = 0;
   const seen = [];
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -92,6 +100,22 @@ function startDravr({ acceptKey = true, mintStatus = 200, mintRefusal = { error:
             }));
             return;
           case 'tools/call':
+            if (rpc.params.name === 'get_connection_status') {
+              const status = stravaStatuses[Math.min(statusReads, stravaStatuses.length - 1)];
+              statusReads += 1;
+              send(200, complete(rpc.id, {
+                content: [{ type: 'text', text: status }],
+                structuredContent: {
+                  provider: rpc.params.arguments.provider,
+                  status,
+                  connected: status === 'connected',
+                  needs_reauth: false,
+                  backend: status === 'connected' ? 'oauth' : 'none',
+                },
+                isError: false,
+              }));
+              return;
+            }
             send(200, complete(rpc.id, {
               content: [{ type: 'text', text: `${rpc.params.name} ok` }],
               structuredContent: { name: rpc.params.name },
@@ -143,6 +167,21 @@ async function isolatedHome() {
       fs.rmSync(home, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Keeps connect_provider's real poll and the budget it is handed, on a cadence a test can
+ * afford: the production interval would cost two seconds per read. Every wait is
+ * recorded with the budget it was given.
+ */
+function recordPolls(bridge) {
+  const waits = [];
+  const realWait = bridge.waitForProviderConnection.bind(bridge);
+  bridge.waitForProviderConnection = (provider, ms, signal) => {
+    waits.push({ provider, ms });
+    return realWait(provider, ms, signal, 10);
+  };
+  return waits;
 }
 
 /** A bridge in api-key mode, started through its real connection path. */
@@ -258,13 +297,10 @@ describe('api-key mode', () => {
     }
   });
 
-  test('connect_provider has Dravr mint the authorization page for the key and opens that page', async () => {
-    dravr = await startDravr();
+  test('connect_provider has Dravr mint the page for the key and polls until it reads connected', async () => {
+    dravr = await startDravr({ stravaStatuses: ['disconnected', 'disconnected', 'connected'] });
     const wired = await startedBridge(dravr);
-    const waits = [];
-    wired.bridge.oauthProvider.waitForProviderOAuth = async (provider, ms) => {
-      waits.push({ provider, ms });
-    };
+    const waits = recordPolls(wired.bridge);
     try {
       const result = await wired.handler('tools/call')(
         { method: 'tools/call', params: { name: 'connect_provider', arguments: { provider: 'strava' } } },
@@ -279,15 +315,24 @@ describe('api-key mode', () => {
       // REST reads the key as the whole Authorization value; a Bearer scheme there is a
       // session token.
       expect(mint.headers.authorization).toBe(API_KEY);
-      // The flow starts with the callback listener's per-flow token, the one Dravr must
-      // present on its completion POST for the listener to accept the provider tokens.
-      const listenerToken = wired.bridge.oauthProvider.callbackAuthToken;
-      expect(listenerToken).toMatch(/^[0-9a-f]{64}$/);
-      expect(mint.headers['x-callback-token']).toBe(listenerToken);
-      // It rides a header only: no URL, and no page the browser opens, carries it.
-      expect(wired.logs.some((line) => line.includes(listenerToken))).toBe(false);
+      // Dravr is handed nothing to call this machine back with.
+      expect(mint.headers['x-callback-token']).toBeUndefined();
       expect(wired.logs).toContain(`OAuth URL: ${MINTED_URL}`);
       expect(waits).toEqual([{ provider: 'strava', ms: 55000 }]);
+
+      // The status was read over the key's own /mcp session: once before the page opened,
+      // then until it read connected.
+      const reads = dravr.seen.filter((r) => r.rpc?.params?.name === 'get_connection_status');
+      expect(reads.map((r) => r.rpc.params.arguments)).toEqual([
+        { provider: 'strava' },
+        { provider: 'strava' },
+        { provider: 'strava' },
+      ]);
+      for (const read of reads) {
+        expect(read.headers.authorization).toBe(`Bearer ${API_KEY}`);
+      }
+      // No listener was bound for the provider flow.
+      expect(wired.bridge.oauthProvider.callbackServer).toBeUndefined();
     } finally {
       await wired.cleanup();
     }
@@ -303,10 +348,7 @@ describe('api-key mode', () => {
       },
     });
     const wired = await startedBridge(dravr);
-    const waits = [];
-    wired.bridge.oauthProvider.waitForProviderOAuth = async (provider) => {
-      waits.push(provider);
-    };
+    const waits = recordPolls(wired.bridge);
     try {
       const result = await wired.handler('tools/call')(
         { method: 'tools/call', params: { name: 'connect_provider', arguments: { provider: 'strava' } } },
@@ -326,10 +368,7 @@ describe('api-key mode', () => {
   test('connect_provider reports a refused mint instead of opening any page', async () => {
     dravr = await startDravr({ mintStatus: 403 });
     const wired = await startedBridge(dravr);
-    const waits = [];
-    wired.bridge.oauthProvider.waitForProviderOAuth = async (provider) => {
-      waits.push(provider);
-    };
+    const waits = recordPolls(wired.bridge);
     try {
       const result = await wired.handler('tools/call')(
         { method: 'tools/call', params: { name: 'connect_provider', arguments: { provider: 'strava' } } },

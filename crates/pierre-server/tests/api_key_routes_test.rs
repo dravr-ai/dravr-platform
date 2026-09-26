@@ -86,7 +86,6 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
 
                 ServerConfig {
                     http_port: 8081,
-                    oauth_callback_port: 35535,
                     log_level: LogLevel::Info,
                     logging: LoggingConfig::default(),
                     http_client: HttpClientConfig::default(),

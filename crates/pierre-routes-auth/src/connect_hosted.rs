@@ -324,7 +324,6 @@ pub async fn handle_connect_oauth_init(
             &provider,
             AuthUrlOptions {
                 return_redirect: Some(&return_url),
-                ..AuthUrlOptions::default()
             },
         )
         .await

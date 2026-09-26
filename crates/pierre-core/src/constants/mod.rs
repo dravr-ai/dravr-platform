@@ -57,8 +57,6 @@ pub mod ports {
     pub const DEFAULT_MCP_PORT: u16 = 8081;
     /// Default docs port
     pub const DEFAULT_DOCS_PORT: u16 = 8082;
-    /// Default OAuth callback port (for bridge focus recovery)
-    pub const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 35535;
 }
 
 /// API routes
@@ -140,8 +138,6 @@ pub mod timeouts {
     pub const API_CLIENT_CONNECT_TIMEOUT_SECS: u64 = 10;
     /// Health check client timeout in seconds
     pub const HEALTH_CHECK_TIMEOUT_SECS: u64 = 5;
-    /// OAuth callback notification timeout in seconds
-    pub const OAUTH_CALLBACK_NOTIFICATION_TIMEOUT_SECS: u64 = 5;
     /// Database connection timeout in seconds
     pub const DATABASE_TIMEOUT_SECS: u64 = 10;
     /// OAuth callback wait timeout in seconds (for bridge flow)

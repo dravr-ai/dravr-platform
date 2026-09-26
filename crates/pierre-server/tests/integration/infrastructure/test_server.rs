@@ -320,7 +320,6 @@ fn find_available_port() -> u16 {
 fn create_test_server_config(port: u16) -> ServerConfig {
     ServerConfig {
         http_port: port,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Warn,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

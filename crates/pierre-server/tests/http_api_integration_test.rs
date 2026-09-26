@@ -133,7 +133,6 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
     // Create basic config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 8081,
-        oauth_callback_port: 35535,
         log_level: LogLevel::Info,
         logging: LoggingConfig::default(),
         http_client: HttpClientConfig::default(),

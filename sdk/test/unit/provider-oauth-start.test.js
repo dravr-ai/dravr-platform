@@ -12,11 +12,7 @@ function serve(handler) {
   return new Promise((resolve) => {
     const seen = [];
     const server = http.createServer((req, res) => {
-      seen.push({
-        url: req.url,
-        authorization: req.headers.authorization,
-        callbackToken: req.headers['x-callback-token'],
-      });
+      seen.push({ url: req.url, authorization: req.headers.authorization });
       handler(req, res);
     });
     server.listen(0, '127.0.0.1', () => {
@@ -27,9 +23,6 @@ function serve(handler) {
 }
 
 const INITIATE = '/api/oauth/auth/whoop/user-1';
-
-/** The bridge callback listener's per-flow token, as the SDK mints it. */
-const LISTENER_TOKEN = 'c'.repeat(64);
 
 describe('startProviderOAuth', () => {
   let running;
@@ -47,15 +40,13 @@ describe('startProviderOAuth', () => {
       );
     });
 
-    const start = await startProviderOAuth(`${running.base}${INITIATE}`, 'jwt-1', 'whoop', LISTENER_TOKEN);
+    const start = await startProviderOAuth(`${running.base}${INITIATE}`, 'jwt-1', 'whoop');
 
     expect(start.kind).toBe('notice_required');
     expect(start.message).toBe(providerNoticeMessage('whoop'));
     expect(start.message).toContain('Open the Dravr app, go to Connections and connect WHOOP');
     expect(start.message).not.toContain('400');
-    expect(running.seen).toEqual([
-      { url: INITIATE, authorization: 'Bearer jwt-1', callbackToken: LISTENER_TOKEN },
-    ]);
+    expect(running.seen).toEqual([{ url: INITIATE, authorization: 'Bearer jwt-1' }]);
   });
 
   test('opens the authorization page the server minted, so the flow is started once', async () => {
@@ -64,13 +55,10 @@ describe('startProviderOAuth', () => {
       res.end();
     });
 
-    const start = await startProviderOAuth(`${running.base}${INITIATE}`, 'jwt-1', 'whoop', LISTENER_TOKEN);
+    const start = await startProviderOAuth(`${running.base}${INITIATE}`, 'jwt-1', 'whoop');
 
     expect(start).toEqual({ kind: 'authorize', url: 'https://api.prod.whoop.com/oauth/oauth2/auth?state=abc' });
     expect(running.seen).toHaveLength(1);
-    // The flow starts with the listener's token in a header, never in the URL.
-    expect(running.seen[0].callbackToken).toBe(LISTENER_TOKEN);
-    expect(running.seen[0].url).toBe(INITIATE);
   });
 
   test('leaves any other answer to the initiate route in the browser', async () => {
@@ -79,7 +67,7 @@ describe('startProviderOAuth', () => {
       res.end(JSON.stringify({ code: 'InternalError', message: 'boom' }));
     });
 
-    const start = await startProviderOAuth(`${running.base}${INITIATE}`, 'jwt-1', 'whoop', LISTENER_TOKEN);
+    const start = await startProviderOAuth(`${running.base}${INITIATE}`, 'jwt-1', 'whoop');
 
     expect(start).toEqual({ kind: 'open_initiate' });
   });

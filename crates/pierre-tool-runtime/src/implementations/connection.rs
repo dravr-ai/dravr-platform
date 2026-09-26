@@ -315,8 +315,6 @@ pub async fn mint_oauth_authorize_url(
         pkce_code_verifier: None,
         // The shared-pool app the URL names, so the exchange uses its client.
         oauth_app_client_id: authorization.oauth_app_client_id,
-        // An MCP client that mints a link here has no bridge listener to notify.
-        bridge_callback_token: None,
         created_at: now,
         expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
         used: false,
