@@ -1,4 +1,4 @@
-// ABOUTME: Per-user rate-limit override repository round-trip: a row's monthly limit, note and timestamps
+// ABOUTME: Per-user rate-limit override repository round-trip, and the table's monthly-only shape on both backends
 // ABOUTME: Industry standard exemption pattern: row presence wins over UserTier.monthly_limit()
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,6 +10,7 @@ use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
 use pierre_database::repositories::UserRateLimitOverride;
 use std::time::Duration;
@@ -240,5 +241,46 @@ async fn override_upsert_preserves_original_set_at() {
     assert!(
         after_update.updated_at > original_set_at,
         "updated_at bumped on upsert"
+    );
+}
+
+/// The column list of `user_rate_limit_overrides` on whichever backend
+/// `db` is, in declaration order.
+async fn override_columns(db: &Database) -> Vec<String> {
+    match db {
+        Database::SQLite(sqlite) => {
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('user_rate_limit_overrides')")
+                .fetch_all(sqlite.pool())
+                .await
+                .unwrap()
+        }
+        #[cfg(feature = "postgresql")]
+        Database::PostgreSQL(postgres) => sqlx::query_scalar(
+            "SELECT column_name::TEXT FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'user_rate_limit_overrides' \
+             ORDER BY ordinal_position",
+        )
+        .fetch_all(postgres.pool())
+        .await
+        .unwrap(),
+    }
+}
+
+/// The migrations leave the override table holding a monthly limit only:
+/// nothing enforces a daily one, so no column offers it.
+#[tokio::test]
+async fn override_table_carries_a_monthly_limit_and_no_daily_one() {
+    let db = create_test_db().await.unwrap();
+    assert_eq!(
+        override_columns(&db).await,
+        [
+            "user_id",
+            "monthly_limit",
+            "note",
+            "set_by",
+            "set_at",
+            "updated_at"
+        ]
     );
 }
