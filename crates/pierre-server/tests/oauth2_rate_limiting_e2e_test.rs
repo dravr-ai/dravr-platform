@@ -27,8 +27,9 @@ use pierre_auth::{
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::TenantId;
+use pierre_database::backends::{DatabaseProvider, OAuth2ServerRepository};
+use pierre_database::database::generate_encryption_key;
 use pierre_database::database::test_utils::create_test_db_with_key;
-use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_routes_identity::oauth2::OAuth2Context;
 use pierre_routes_identity::OAuth2Routes;
@@ -52,6 +53,12 @@ const TEST_WINDOW_SECS: u64 = 2;
 
 /// Wait that clears `TEST_WINDOW_SECS` with a second of slack on a loaded runner.
 const TEST_EXPIRY_WAIT: Duration = Duration::from_secs(3);
+
+/// The redirect URI the client [`authorize_request`] names is registered for.
+const AUTHORIZE_REDIRECT_URI: &str = "https://client.example.com/callback";
+
+/// An S256 PKCE challenge, of the length `/oauth2/authorize` requires.
+const AUTHORIZE_PKCE_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 /// What a request the limiter could not count is refused with.
 const LIMITER_UNAVAILABLE: &str = "Rate limiting is temporarily unavailable; retry later";
@@ -644,15 +651,40 @@ fn token_request() -> Request<Body> {
         .unwrap()
 }
 
-/// A well-formed authorization request with no session, which an admitted
-/// request answers with the login redirect.
-fn authorize_request() -> Request<Body> {
-    Request::get(
-        "/oauth2/authorize?response_type=code&client_id=mcp_client_limiter\
-         &redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback",
-    )
+/// A well-formed authorization request from `client_id` with no session,
+/// which an admitted request answers with the login redirect.
+///
+/// The client is registered for [`AUTHORIZE_REDIRECT_URI`] and the request
+/// carries a PKCE challenge, since `/oauth2/authorize` checks both before it
+/// sends anyone to log in.
+fn authorize_request(client_id: &str) -> Request<Body> {
+    Request::get(format!(
+        "/oauth2/authorize?response_type=code&client_id={}&redirect_uri={}\
+         &code_challenge={AUTHORIZE_PKCE_CHALLENGE}&code_challenge_method=S256",
+        urlencoding::encode(client_id),
+        urlencoding::encode(AUTHORIZE_REDIRECT_URI),
+    ))
     .body(Body::empty())
     .unwrap()
+}
+
+/// Register the client [`authorize_request`] authorizes for, and return its id.
+async fn register_authorize_client(oauth2_server: Arc<dyn OAuth2ServerRepository>) -> String {
+    ClientRegistrationManager::new(oauth2_server)
+        .register_client(
+            ClientRegistrationRequest {
+                redirect_uris: vec![AUTHORIZE_REDIRECT_URI.to_owned()],
+                client_name: Some("Limiter client".to_owned()),
+                client_uri: None,
+                grant_types: None,
+                response_types: None,
+                scope: None,
+            },
+            MAX_PENDING_REGISTRATIONS,
+        )
+        .await
+        .unwrap()
+        .client_id
 }
 
 /// `request` with `X-Forwarded-For: forwarded_for`.
@@ -663,15 +695,17 @@ fn forwarded(mut request: Request<Body>, forwarded_for: &str) -> Request<Body> {
     request
 }
 
-/// The `OAuth2` routes alone, over `limiter`.
-async fn oauth2_routes(limiter: OAuth2RateLimiter) -> Router {
+/// The `OAuth2` routes alone, over `limiter`, and the id of the client
+/// [`authorize_request`] authorizes for in their store.
+async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
     let database = Arc::new(
         create_test_db_with_key(generate_encryption_key().to_vec())
             .await
             .unwrap(),
     );
     let repos = database.repositories();
-    OAuth2Routes::routes(OAuth2Context {
+    let client_id = register_authorize_client(Arc::clone(&repos.oauth2_server)).await;
+    let routes = OAuth2Routes::routes(OAuth2Context {
         database: Arc::clone(&database),
         oauth2_server: Arc::clone(&repos.oauth2_server),
         tenants: Arc::clone(&repos.tenants),
@@ -680,7 +714,8 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> Router {
         jwks_manager: common::get_shared_test_jwks(),
         config: Arc::new(OAuth2ServerConfig::default()),
         rate_limiter: Arc::new(limiter),
-    })
+    });
+    (routes, client_id)
 }
 
 /// `response`'s body as text.
@@ -755,7 +790,7 @@ async fn test_uncountable_window_refuses_with_temporarily_unavailable() {
             .await
             .unwrap();
     }
-    let app = oauth2_routes(OAuth2RateLimiter::new(
+    let (app, client_id) = oauth2_routes(OAuth2RateLimiter::new(
         Some(shared),
         local,
         &RateLimitConfig::default(),
@@ -770,7 +805,7 @@ async fn test_uncountable_window_refuses_with_temporarily_unavailable() {
     assert_eq!(body["error"], "temporarily_unavailable");
     assert_eq!(body["error_description"], LIMITER_UNAVAILABLE);
 
-    let response = from_address(&app, authorize_request(), addr).await;
+    let response = from_address(&app, authorize_request(&client_id), addr).await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert!(response.headers().get(RETRY_AFTER).is_none());
     // The hosted page names no error detail, so its status is what tells an
@@ -786,7 +821,7 @@ async fn test_uncountable_window_refuses_with_temporarily_unavailable() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let body: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(body["error"], "invalid_request");
-    let response = from_address(&app, authorize_request(), elsewhere).await;
+    let response = from_address(&app, authorize_request(&client_id), elsewhere).await;
     assert!(
         response.status().is_redirection(),
         "admitted authorization redirects to login, got {}",
@@ -802,16 +837,18 @@ async fn test_authorize_past_its_limit_answers_a_429_page_with_retry_after() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
     let addr = SocketAddr::from(([203, 0, 113, 31], 40_000));
+    let client_id =
+        register_authorize_client(Arc::clone(&resources.common.repos.oauth2_server)).await;
 
     for i in 1..=60 {
-        let response = from_address(&app, authorize_request(), addr).await;
+        let response = from_address(&app, authorize_request(&client_id), addr).await;
         assert!(
             response.status().is_redirection(),
             "authorization {i} is within the limit, got {}",
             response.status()
         );
     }
-    let response = from_address(&app, authorize_request(), addr).await;
+    let response = from_address(&app, authorize_request(&client_id), addr).await;
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     let retry_after: u64 = response
         .headers()
