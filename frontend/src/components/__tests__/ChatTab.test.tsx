@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ClaimVerdict, ReplyBlock, TurnEnvelope } from '@pierre/shared-types';
+import type { ClaimVerdict, CoachingGroup, ReplyBlock, TurnEnvelope } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
@@ -25,6 +25,7 @@ const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 const applyNotice = vi.fn();
 const createConversation = vi.fn();
+const getGroup = vi.fn();
 
 vi.mock('../../services/api', () => ({
   chatApi: {
@@ -41,7 +42,7 @@ vi.mock('../../services/api', () => ({
   },
   coachesApi: { list: (...a: unknown[]) => listCoaches(...a) },
   providersApi: { getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a) },
-  groupsApi: {},
+  groupsApi: { getGroup: (...a: unknown[]) => getGroup(...a) },
 }));
 
 vi.mock('../groups/GroupInfoPanel', () => ({
@@ -66,6 +67,30 @@ vi.mock('../../hooks/useUsageStatus', () => ({
     applyNotice: (...a: unknown[]) => applyNotice(...a),
   }),
 }));
+
+/** A group record as `GET /api/groups/:id` serialises it. */
+function groupRecord(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
+  return {
+    id: 'group-7',
+    tenant_id: 'tenant-a',
+    name: 'Sunday Riders',
+    description: null,
+    agent_id: COACH_ID,
+    agent_title: COACH_TITLE,
+    agent_handle: 'marathon',
+    owner_id: 'user-owner',
+    coach_user_id: null,
+    coach_display_name: null,
+    peer_data_sharing: false,
+    respond_mode: 'all',
+    digest_mode: 'off',
+    max_members: 10,
+    is_active: true,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
 
 function renderChatTab(
   props: { onNavigate?: (route: string) => void; onSelectConversation?: (id: string | null) => void } = {},
@@ -136,6 +161,37 @@ describe('ChatTab assistant author label', () => {
     const turn = avatar.parentElement?.parentElement as HTMLElement;
     expect(within(turn).getByText(COACH_TITLE)).toBeInTheDocument();
     expect(within(turn).getByText('Your aerobic decoupling held under 5%.')).toBeInTheDocument();
+  });
+
+  it('labels a group thread with the agent the group names, when the caller own agent list lacks it', async () => {
+    // The group's agent lives in another tenant: the caller's own agent list
+    // does not hold it, and the group's record names it as the caller reads it.
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          title: 'Sunday Riders',
+          agent_id: 'coach-other-tenant',
+          group_id: 'group-7',
+          group_name: 'Sunday Riders',
+        },
+      ],
+      total: 1,
+    });
+    getGroup.mockResolvedValue(
+      groupRecord({
+        tenant_id: 'tenant-b',
+        agent_id: 'coach-other-tenant',
+        agent_title: 'Gravel Coach',
+        agent_handle: 'gravel',
+      }),
+    );
+
+    renderChatTab();
+
+    expect(await screen.findByRole('img', { name: 'Gravel Coach' })).toBeInTheDocument();
+    expect(getGroup).toHaveBeenCalledWith('group-7');
+    expect(screen.queryByRole('img', { name: 'Dravr' })).toBeNull();
   });
 
   it('falls back to Dravr when the conversation has no coach attached', async () => {
@@ -549,6 +605,7 @@ describe('ChatTab header info drawer', () => {
       ],
       total: 1,
     });
+    getGroup.mockResolvedValue(groupRecord());
     const user = userEvent.setup();
     renderChatTab();
 

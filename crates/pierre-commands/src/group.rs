@@ -22,7 +22,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF,
     KEY_GROUP_PEER_SHARING_ON, KEY_GROUP_RESPOND_ALL, KEY_GROUP_RESPOND_MENTIONS,
     KEY_GROUP_RESPOND_STATUS_MENTIONS, KEY_GROUP_RESPOND_USAGE, KEY_GROUP_ROLE_ADMIN,
-    KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GROUP_STATUS_SUMMARY,
+    KEY_GROUP_ROLE_AGENT, KEY_GROUP_ROLE_COACH, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER,
+    KEY_GROUP_STATUS_SUMMARY,
 };
 use pierre_core::models::agents::ListAgentsFilter;
 use pierre_core::models::groups::{
@@ -30,7 +31,9 @@ use pierre_core::models::groups::{
     UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
+use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
 use pierre_groups::strategies::tier::tier_enables_digest;
+use pierre_services::group_staff::resolve_group_staff;
 use uuid::Uuid;
 
 use crate::{CommandHandler, PlatformCommandContext};
@@ -168,15 +171,16 @@ async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<Target
 /// about the caller's groups:
 ///
 /// - `/group invite`, `/group agent`, `/group respond`, `/group digest`,
-///   `/group consent` resolve the conversation's group and check the
-///   caller's standing *there*. `ambient` answers them, and `ambient_coach`
-///   too for `/group digest`, which the group's human coach may also run.
-/// - `/group status`, `/group members`, `/group leave` read
-///   `list_groups_for_user().first()` instead — any group the caller belongs
-///   to will do, and the conversation's group is irrelevant. `/agent assign
-///   <agent-id> <group-id>` checks the group the caller *typed*, which no
-///   conversation-scoped fact can decide. `highest` answers all four, because
-///   holding a role anywhere means some invocation succeeds.
+///   `/group consent`, `/group members` resolve the conversation's group and
+///   check the caller's standing *there*. `ambient` answers them, and
+///   `ambient_coach` too for `/group digest` and `/group members`, which the
+///   group's human coach may also run.
+/// - `/group status`, `/group leave` read `list_groups_for_user().first()`
+///   instead — any group the caller belongs to will do, and the
+///   conversation's group is irrelevant. `/agent assign <agent-id>
+///   <group-id>` checks the group the caller *typed*, which no
+///   conversation-scoped fact can decide. `highest` answers all three,
+///   because holding a role anywhere means some invocation succeeds.
 pub struct CallerGroupStanding {
     /// The caller's role in the group [`resolve_target_group`] names — `None`
     /// when no group resolves, or when the caller is not one of its members.
@@ -389,7 +393,16 @@ impl CommandHandler for GroupStatusHandler {
     }
 }
 
-/// Handler for `/group members` — list members
+/// Handler for `/group members` — who is who in the group.
+///
+/// Lists the group [`resolve_target_group`] names — the group every
+/// group-acting subcommand acts on, the chat's own in a shared room — to its
+/// live members and its human coach, the readers
+/// `GET /api/groups/{id}/members` admits. After the header come the AI agent
+/// that answers in the chat, the human coach when one is attached, then each
+/// member with their role; a name that cannot be read renders as the
+/// localized "unknown". The agent and the coach hold no membership row, so
+/// the header counts the members alone.
 pub struct GroupMembersHandler;
 
 #[async_trait]
@@ -397,43 +410,64 @@ impl CommandHandler for GroupMembersHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
+        let not_a_member = || AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]));
 
-        let groups = ctx
-            .ctx
-            .repos()
+        let target = resolve_target_group(ctx).await?;
+        let group_id = target.id.to_string();
+        let repos = ctx.ctx.repos();
+        if !repos
             .groups
-            .list_groups_for_user(ctx.user_id)
-            .await?;
-
-        let group = groups
-            .first()
-            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
-
-        let members = ctx
-            .ctx
-            .repos()
+            .admits_member_or_coach(&group_id, ctx.user_id, target.tenant_id)
+            .await?
+        {
+            return Err(not_a_member());
+        }
+        let group = repos
             .groups
-            .list_members(&group.id.to_string())
-            .await?;
+            .get_group(&group_id, target.tenant_id)
+            .await?
+            .ok_or_else(not_a_member)?;
+        let staff = resolve_group_staff(repos, &group, locale).await?;
+        let members = repos.groups.list_members(&group_id).await?;
+
+        let unknown = reg.render(KEY_GROUP_MEMBERS_UNKNOWN, locale, &[]);
+        // Every name here was typed by someone other than the reader, so each
+        // is flattened to one defanged line: a newline in a display name would
+        // otherwise forge a roster line of its own, a `[coach]` one included.
+        let line = |name: &str, role_key: &str| {
+            let role = reg.render(role_key, locale, &[]);
+            let name = display_line(name, ROSTER_NAME_MAX_CHARS);
+            let mut item = reg.render(KEY_GROUP_MEMBERS_ITEM, locale, &[&name, &role]);
+            item.push('\n');
+            item
+        };
 
         let mut text = String::with_capacity(256);
         let count = members.len().to_string();
-        text.push_str(&reg.render(KEY_GROUP_MEMBERS_HEADER, locale, &[&group.name, &count]));
-        let unknown = reg.render(KEY_GROUP_MEMBERS_UNKNOWN, locale, &[]);
+        let group_name = display_line(&group.name, ROSTER_NAME_MAX_CHARS);
+        text.push_str(&reg.render(KEY_GROUP_MEMBERS_HEADER, locale, &[&group_name, &count]));
+        text.push_str(&line(
+            staff.agent_title.as_deref().unwrap_or(&unknown),
+            KEY_GROUP_ROLE_AGENT,
+        ));
+        if group.coach_user_id.is_some() {
+            text.push_str(&line(
+                staff.coach_display_name.as_deref().unwrap_or(&unknown),
+                KEY_GROUP_ROLE_COACH,
+            ));
+        }
         for m in &members {
-            let name = m.display_name.as_deref().unwrap_or(unknown.as_str());
-            let role = reg.render(role_label_key(m.role), locale, &[]);
-            text.push_str(&reg.render(KEY_GROUP_MEMBERS_ITEM, locale, &[name, &role]));
-            text.push('\n');
+            let name = m.display_name.as_deref().unwrap_or(&unknown);
+            text.push_str(&line(name, role_label_key(m.role)));
         }
 
         Ok(CommandResponse::text(text))
     }
 
-    /// Reads `list_groups_for_user().first()`, so any group the caller belongs
-    /// to will do — the conversation's group never enters into it.
+    /// Acts on the conversation's group, which admits its live members and
+    /// its human coach.
     fn is_available(&self, standing: &CallerGroupStanding) -> bool {
-        standing.highest.is_some()
+        standing.ambient.is_some() || standing.ambient_coach
     }
 }
 

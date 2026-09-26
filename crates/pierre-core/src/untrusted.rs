@@ -102,6 +102,13 @@ pub fn defang_for_display(s: &str) -> String {
 /// only bounds a field someone filled with something else.
 pub const ACTIVITY_NAME_MAX_CHARS: usize = 120;
 
+/// Longest person, agent or group name a roster line carries, in characters.
+///
+/// A display name is whatever its owner typed on their profile, and the profile
+/// route refuses one longer than this; an agent title or a group name set by
+/// its author is bounded the same way when it lands in the same roster.
+pub const ROSTER_NAME_MAX_CHARS: usize = 100;
+
 /// One provider-written label (an activity name, a planned workout's title, a
 /// step name) as it reaches a model or a client: one line, defanged, at most
 /// `max_chars` characters.

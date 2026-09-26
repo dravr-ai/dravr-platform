@@ -347,3 +347,6 @@ pub mod trainingpeaks_accounts;
 
 /// A group's coach links `TrainingPeaks` roster athletes to members, who confirm; either side ends a link.
 pub mod delegated_connections;
+
+/// Names a coaching group's AI agent and human coach for the person reading it.
+pub mod group_staff;

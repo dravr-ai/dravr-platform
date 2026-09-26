@@ -48,9 +48,15 @@ export interface CoachingGroup {
   name: string;
   description: string | null;
   agent_id: string;
+  /** The AI agent's title as the caller reads it, or null when the agent cannot be resolved */
+  agent_title: string | null;
+  /** The AI agent's `@handle`, without the `@`, or null when it has none */
+  agent_handle: string | null;
   owner_id: string;
   /** Human professional coach attached to oversee this group, if any */
   coach_user_id: string | null;
+  /** The human coach's display name, else their email; null when no coach is attached */
+  coach_display_name: string | null;
   peer_data_sharing: boolean;
   /** 'all' answers every member message; 'mentions' only explicitly-addressed ones */
   respond_mode: GroupRespondMode;

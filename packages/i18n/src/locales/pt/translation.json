@@ -1204,6 +1204,7 @@
       "respond_usage": "Uso: /group respond mentions  ou  /group respond all",
       "role": {
         "admin": "admin",
+        "agent": "agente de IA",
         "member": "membro",
         "owner": "proprietário"
       },
@@ -1773,6 +1774,7 @@
     "detachQ": "Desligar o treinador humano deste grupo? As ligações de atletas do TrainingPeaks dele neste grupo terminam, e ele perde o acesso à lista do grupo.",
     "detached": "O treinador humano foi desassociado deste grupo.",
     "group_detached": "{0} já não tem um treinador humano associado.",
+    "group_role": "treinador",
     "iCoachOthers": "Treino outras pessoas",
     "intake_persona": "Primeiro: treinas para ti, ou treinas outras pessoas?\n\n**1** — Treino para mim\n**2** — Treino outras pessoas",
     "invite": "Convite de treinador",
@@ -1782,6 +1784,7 @@
     "joined_group": "És agora o coach humano de {0}.",
     "none": "Sem treinador humano associado. Partilha um convite de treinador para trazer um.",
     "noneHint": "Nenhum coach humano associado. Cria um convite de Coach acima e partilha-o com o coach que queres que supervisione este grupo.",
+    "noneMember": "Este grupo ainda não tem treinador humano.",
     "persona_summary": "O rigor Power-athlete, aplicado aos atletas que treinas.",
     "remove": "Remover coach",
     "removeFailed": "Não foi possível remover o coach",

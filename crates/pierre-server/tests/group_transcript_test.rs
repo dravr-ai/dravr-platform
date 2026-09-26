@@ -562,6 +562,10 @@ mod group_transcript_tests {
         assert_eq!(entries[0]["speaker"], "member");
         assert_eq!(entries[0]["content"], ALICE_MESSAGE);
         assert_eq!(entries[0]["author_user_id"], scenario.alice_id.to_string());
+        assert_eq!(
+            entries[0]["author_display_name"], "Alice",
+            "an entry names its author by display name, as the roster does"
+        );
         assert_eq!(entries[1]["speaker"], "coach");
         assert_eq!(entries[1]["content"], AGENT_REPLY);
         assert_eq!(
@@ -597,8 +601,9 @@ mod group_transcript_tests {
             .expect("alice appears in the roster");
         assert_eq!(alice_row["peer_sharing_consent"], true);
         assert_eq!(
-            alice_row["display_name"], "transcript_alice@example.com",
-            "roster display names come from the members listing source"
+            alice_row["display_name"], "Alice",
+            "roster display names come from the members listing source: the \
+             display name, the email only when there is none"
         );
 
         // 5. A non-member gets nothing — not even the roster.

@@ -1436,8 +1436,9 @@ async fn agent_command_persists_its_actions_for_reload() {
 
 /// An owner typing alone is offered nothing that acts on "the group": a solo
 /// thread names no group, and the messaging DM's ambient fallback — the first
-/// group the athlete belongs to — is off in the app. The commands that read
-/// the athlete's own groups stay.
+/// group the athlete belongs to — is off in the app. `/group members` acts on
+/// the thread's group too. The commands that read the athlete's own groups
+/// stay.
 #[tokio::test]
 async fn owner_in_a_solo_thread_is_not_offered_group_management() {
     let resources = create_test_server_resources().await.unwrap();
@@ -1461,18 +1462,14 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "/group respond",
         "/group digest",
         "/group consent",
+        "/group members",
     ] {
         assert!(
             !text.contains(hidden),
             "`{hidden}` acts on the thread's group, and a solo thread has none:\n{text}"
         );
     }
-    for shown in [
-        "/group status",
-        "/group members",
-        "/group leave",
-        "/agent assign",
-    ] {
+    for shown in ["/group status", "/group leave", "/agent assign"] {
         assert!(
             text.contains(shown),
             "`{shown}` reads the athlete's own groups, so it stays listed:\n{text}"
@@ -1818,16 +1815,17 @@ async fn help_shows_agent_assign_to_an_owner_who_is_a_member_of_the_ambient_grou
     }
 }
 
-/// `/group status`, `/group members` and `/group leave` read
-/// `list_groups_for_user().first()`, never the conversation's group — so
-/// belonging to *any* group is enough to run them.
+/// `/group status` and `/group leave` read `list_groups_for_user().first()`,
+/// never the conversation's group — so belonging to *any* group is enough to
+/// run them.
 ///
-/// Deciding them on the conversation's group hid all three from someone
-/// sitting in a room bound to a group they are not a member of, even though
-/// the commands would have answered about their own group. This is the same
-/// defect class as `/agent assign`, in three more commands, and it is why
+/// Deciding them on the conversation's group hid both from someone sitting
+/// in a room bound to a group they are not a member of, even though the
+/// commands would have answered about their own group. This is the same
+/// defect class as `/agent assign`, in two more commands, and it is why
 /// `/help` asks each handler instead of applying one shared rule to all of
-/// them.
+/// them. `/group members` names who is who in the room's group, so it is
+/// hidden with the other commands that act on it.
 #[tokio::test]
 async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() {
     let resources = create_test_server_resources().await.unwrap();
@@ -1862,7 +1860,7 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
 
     let text = help_in_conversation(router, &auth, &conv_id).await;
 
-    for shown in ["/group status", "/group members", "/group leave"] {
+    for shown in ["/group status", "/group leave"] {
         assert!(
             text.contains(shown),
             "`{shown}` reads the caller's own group, so it must be listed even \
@@ -1877,6 +1875,7 @@ async fn help_shows_own_group_commands_when_the_room_belongs_to_another_group() 
         "/group respond",
         "/group digest",
         "/group consent",
+        "/group members",
     ] {
         assert!(
             !text.contains(hidden),

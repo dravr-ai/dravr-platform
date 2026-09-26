@@ -26,6 +26,8 @@ mod agent_translations;
 /// Coaches repository implementation
 pub mod agents;
 mod agents_assignments;
+/// Single-agent reads by id, one per scope.
+mod agents_by_id;
 mod agents_copies;
 /// `PostgreSQL` row → agent mappers and the agent content/request hashes.
 mod agents_rows;

@@ -6,8 +6,9 @@
 
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Shield, Crown, User, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { Shield, User, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import { Button, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import RoleBadge from './RoleBadge';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
@@ -26,12 +27,6 @@ type SortField = 'display_name' | 'role' | 'joined_at' | 'peer_sharing_consent';
 type SortDirection = 'asc' | 'desc';
 
 const ROLE_ORDER: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 };
-
-const ROLE_BADGE: Record<GroupRole, { labelKey: string; color: string; Icon: typeof Crown }> = {
-  owner: { labelKey: 'groups.owner', color: 'bg-warning/20 text-on-warning-container', Icon: Crown },
-  admin: { labelKey: 'groups.admin', color: 'bg-primary/20 text-primary', Icon: Shield },
-  member: { labelKey: 'groups.member', color: 'bg-surface-container-high/20 text-on-surface-variant', Icon: User },
-};
 
 export default function MemberList({
   groupId,
@@ -165,8 +160,6 @@ export default function MemberList({
           </thead>
           <tbody>
             {sortedMembers.map((member) => {
-              const badge = ROLE_BADGE[member.role];
-              const BadgeIcon = badge.Icon;
               const isSelf = member.user_id === currentUserId;
               const canRemove = canManageMembers && !isSelf && member.role !== 'owner';
               const canChangeRole = isOwner && !isSelf && member.role !== 'owner';
@@ -188,15 +181,7 @@ export default function MemberList({
                     </span>
                   </td>
                   <td className="py-3 px-4">
-                    <span
-                      className={clsx(
-                        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
-                        badge.color
-                      )}
-                    >
-                      <BadgeIcon className="w-3 h-3" />
-                      {t(badge.labelKey)}
-                    </span>
+                    <RoleBadge kind={member.role} />
                   </td>
                   <td className="py-3 px-4 text-on-surface-variant">
                     {formatDate(member.joined_at, i18n.language)}

@@ -1,8 +1,8 @@
-// ABOUTME: carnet #55/#52/#53/#60 e2e — Group info inside the group's chat: admin controls, consent, report
+// ABOUTME: carnet #55/#52/#53/#60 e2e — Group info inside the group's chat: who runs it, admin controls, consent, report
 // ABOUTME: Asserts the consent PUT carries the real value and that every control reaches the same routes as before
 
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act, within } from '@testing-library/react-native';
 import { Alert, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
@@ -52,8 +52,11 @@ const GROUP: CoachingGroup = {
   name: 'Harricana 2027',
   description: 'Bloc ultra',
   agent_id: 'coach-1',
+  agent_title: 'Coach Marie',
+  agent_handle: 'marie',
   owner_id: 'user-owner',
   coach_user_id: null,
+  coach_display_name: null,
   peer_data_sharing: true,
   respond_mode: 'all',
   digest_mode: 'off',
@@ -182,10 +185,12 @@ function renderGroup() {
 describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
   let stub: HttpStub;
   let ownerConsent: boolean;
+  let group: CoachingGroup;
   let shareMock: jest.Mock;
 
   beforeEach(() => {
     ownerConsent = false;
+    group = GROUP;
     mockBack.mockClear();
     mockPush.mockClear();
     onClose.mockClear();
@@ -195,7 +200,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       .spyOn(Share, 'share')
       .mockResolvedValue({ action: 'sharedAction' } as never) as unknown as jest.Mock;
     stub = installHttpStub({
-      'GET /api/groups/group-1': { data: GROUP },
+      'GET /api/groups/group-1': () => ({ data: group }),
       'GET /api/groups/group-1/members': () => ({ data: membersResponse(ownerConsent) }),
       'GET /api/groups/group-1/stats': { data: STATS },
       'GET /api/groups/group-1/invites': { data: INVITES },
@@ -203,7 +208,8 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
       'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
-      'GET /api/agents': { data: { agents: [] } },
+      'GET /api/groups/group-1/delegated-connections': { data: { connections: [], total: 0, viewer: 'member' } },
+      'DELETE /api/groups/group-1/coach': { status: 204, data: null },
       'PUT /api/groups/group-1/members/me/consent': (request) => {
         ownerConsent = (request.body as { consent: boolean }).consent;
         return { data: { success: true } };
@@ -220,6 +226,37 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
   afterEach(() => {
     stub.restore();
     jest.restoreAllMocks();
+  });
+
+  // The group read names its agent and its human coach, resolved by the server
+  // in the group's tenant. The sheet draws both from that read alone: the
+  // caller's own coach list cannot see an agent from another tenant.
+  it('names the agent and the human coach from the group read, and detaches the coach', async () => {
+    group = { ...GROUP, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' };
+    const { findByTestId, getByTestId } = renderGroup();
+
+    const agent = await findByTestId('group-info-ai-coach');
+    expect(agent).toHaveTextContent(/Coach Marie · @marie/);
+    const coach = await findByTestId('group-info-human-coach');
+    expect(within(coach).getByText('Casey Coach')).toBeTruthy();
+    expect(within(coach).getByText('Coach')).toBeTruthy();
+    expect(getByTestId('group-info-members')).toHaveTextContent(/Phil/);
+    expect(stub.requests.map((request) => request.url)).not.toContain('/api/agents');
+
+    fireEvent.press(within(coach).getByTestId('remove-coach-button'));
+    const confirm = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
+      string,
+      string,
+      Array<{ text: string; onPress?: () => Promise<void> }>,
+    ];
+    expect(confirm[0]).toBe('Remove Coach');
+    await act(async () => {
+      await confirm[2].find((button) => button.text === 'Remove')?.onPress?.();
+    });
+
+    await waitFor(() => {
+      expect(stub.requestsFor('DELETE').map((request) => request.url)).toEqual(['/api/groups/group-1/coach']);
+    });
   });
 
   it('binds the consent switch to the caller row and writes the real value', async () => {
@@ -312,7 +349,6 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       'GET /api/groups/group-1/report': { data: REPORT },
       'GET /api/groups/group-1/health': { data: HEALTH },
       'GET /api/groups/group-1/transcript': { data: { group_id: 'group-1', entries: [] } },
-      'GET /api/agents': { data: { agents: [] } },
       'PUT /api/groups/group-1': { data: { ...GROUP, respond_mode: 'mentions' } },
     });
 

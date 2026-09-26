@@ -280,7 +280,8 @@ pub struct GroupMember {
     pub joined_at: DateTime<Utc>,
     /// When the member left (None = still active)
     pub left_at: Option<DateTime<Utc>>,
-    /// Display name (populated from user profile, not stored)
+    /// The member's display name, else their email (populated from the user
+    /// profile on read, not stored)
     #[serde(default)]
     pub display_name: Option<String>,
 }
@@ -343,7 +344,8 @@ pub struct GroupTranscriptEntry {
     pub source_message_id: Option<String>,
     /// When the utterance was recorded
     pub created_at: DateTime<Utc>,
-    /// Author display name (populated from user profile on read, not stored)
+    /// The author's display name, else their email (populated from the user
+    /// profile on read, not stored)
     #[serde(default)]
     pub author_display_name: Option<String>,
 }

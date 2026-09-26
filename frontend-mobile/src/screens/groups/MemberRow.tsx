@@ -5,11 +5,12 @@
 // ABOUTME: Drawn by Group info inside the group's own chat thread; the roles it offers match what the API allows
 
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
+import { RosterRow } from './RosterRow';
 import type { GroupMember, GroupRole } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 
@@ -41,16 +42,10 @@ export interface MemberRowProps {
 }
 
 /**
- * A member, at `Row`'s own 52-tall shape: a title line (the display name)
- * over a `subtitle` line (role, then consent if the member has granted it),
- * a leading avatar `Row` itself has no slot for, and admin controls trailing.
- * `Row` is not reused directly for that reason — `DiscoverRow` (Lane A of
- * this phase) hits the same wall and stays bespoke for it too.
- *
- * Mounted inside `GroupInfoSheet`'s Members `CollapsibleSection`, which does
- * not pay its own side inset (`CollapsibleSection`, like the sheet's other
- * hand-rolled rows, assumes the ambient inset the host `Sheet` already
- * pays) — so this row pays none of its own either, matching that context.
+ * A member, as a `RosterRow`: the display name over a role line (role, then
+ * consent if the member has granted it), and admin controls trailing. The
+ * group's AI agent and human coach draw through the same row above the
+ * members, so the three kinds of people read as one list.
  */
 export function MemberRow({
   member,
@@ -77,54 +72,48 @@ export function MemberRow({
   }, [member.role, member.peer_sharing_consent, t]);
 
   return (
-    <View
-      className={['flex-row items-center min-h-[52px]', last ? '' : 'border-b border-border-faint']
-        .filter(Boolean)
-        .join(' ')}
-      style={last ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
+    <RosterRow
+      avatar={<InitialsAvatar initials={initialsFor(displayName)} slot={slot} />}
+      name={displayName}
+      subtitle={subtitle}
+      last={last}
       testID={`group-member-${member.user_id}`}
-    >
-      <InitialsAvatar initials={initialsFor(displayName)} slot={slot} />
-      <View className="flex-1 min-w-0 ml-3 py-2">
-        <Text className="text-base text-text-primary" numberOfLines={1}>
-          {displayName}
-        </Text>
-        <Text className="text-sm text-text-secondary" numberOfLines={1}>
-          {subtitle}
-        </Text>
-      </View>
-      {/* Promotion is the owner's call — the API rejects it from anyone else,
-          so showing it to a plain admin would advertise a 403. */}
-      {isOwner && member.role !== 'owner' && (
-        <TouchableOpacity
-          className="px-2 py-1 ml-1.5 rounded border border-border-strong"
-          onPress={() => onChangeRole(member, member.role === 'admin' ? 'member' : 'admin')}
-          disabled={isChangingRole}
-          testID={`member-role-${member.user_id}`}
-        >
-          {isChangingRole ? (
-            <ActivityIndicator size="small" color={colors.text.secondary} />
-          ) : (
-            <Text className="text-xs font-semibold text-text-secondary">
-              {member.role === 'admin' ? t('app.demote') : t('app.promote')}
-            </Text>
+      trailing={
+        <>
+          {/* Promotion is the owner's call — the API rejects it from anyone else,
+              so showing it to a plain admin would advertise a 403. */}
+          {isOwner && member.role !== 'owner' && (
+            <TouchableOpacity
+              className="px-2 py-1 ml-1.5 rounded border border-border-strong"
+              onPress={() => onChangeRole(member, member.role === 'admin' ? 'member' : 'admin')}
+              disabled={isChangingRole}
+              testID={`member-role-${member.user_id}`}
+            >
+              {isChangingRole ? (
+                <ActivityIndicator size="small" color={colors.text.secondary} />
+              ) : (
+                <Text className="text-xs font-semibold text-text-secondary">
+                  {member.role === 'admin' ? t('app.demote') : t('app.promote')}
+                </Text>
+              )}
+            </TouchableOpacity>
           )}
-        </TouchableOpacity>
-      )}
-      {isAdmin && member.role === 'member' && (
-        <TouchableOpacity
-          className="p-2"
-          onPress={() => onRemove(member)}
-          disabled={isRemoving}
-          testID={`member-remove-${member.user_id}`}
-        >
-          {isRemoving ? (
-            <ActivityIndicator size="small" color={colors.text.secondary} />
-          ) : (
-            <Feather name="user-minus" size={18} color={colors.text.secondary} />
+          {isAdmin && member.role === 'member' && (
+            <TouchableOpacity
+              className="p-2"
+              onPress={() => onRemove(member)}
+              disabled={isRemoving}
+              testID={`member-remove-${member.user_id}`}
+            >
+              {isRemoving ? (
+                <ActivityIndicator size="small" color={colors.text.secondary} />
+              ) : (
+                <Feather name="user-minus" size={18} color={colors.text.secondary} />
+              )}
+            </TouchableOpacity>
           )}
-        </TouchableOpacity>
-      )}
-    </View>
+        </>
+      }
+    />
   );
 }

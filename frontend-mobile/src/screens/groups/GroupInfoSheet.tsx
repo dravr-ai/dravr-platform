@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info for a group thread — members, TrainingPeaks links, invites, coach, settings, analytics, room, exits
+// ABOUTME: Group info for a group thread — who runs it and who is in it, TrainingPeaks links, invites, settings, analytics, room, exits
 // ABOUTME: Everything the retired Groups tab held, re-homed where Telegram puts it: behind the chat header
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
+import { View, Text, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { MENTION_PREFIX, oneDecimal } from '@pierre/shared-constants';
+import { oneDecimal } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
-import { useCoachInfo } from '../../hooks/useCoachInfo';
 import {
   useCreateInvite,
   useDeactivateInvite,
@@ -31,6 +30,7 @@ import {
   useUpdatePeerConsent,
 } from '../../hooks/useGroups';
 import { GroupInsightsSection } from './GroupInsightsSection';
+import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
@@ -125,10 +125,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
   const { updateRole } = useUpdateMemberRole(groupId);
   const { removeMember } = useRemoveMember(groupId);
-  const { removeCoach } = useRemoveCoach(groupId);
+  const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
-  const { coach: aiCoach } = useCoachInfo(group?.agent_id ?? null);
 
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);
@@ -351,6 +350,18 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           defaultExpanded
           testID="group-info-members"
         >
+          {/* Who runs the group comes first, for every viewer: the agent that
+              answers here and the human coach, who holds no membership row. */}
+          {group && (
+            <GroupLeadRows
+              group={group}
+              viewerIsCoach={isGroupCoach}
+              isAdmin={isAdmin}
+              onRemoveCoach={handleRemoveCoach}
+              isRemovingCoach={isRemovingCoach}
+              last={!isLoadingMembers && members.length === 0}
+            />
+          )}
           {isLoadingMembers ? (
             <ActivityIndicator size="small" color={colors.pierre.violet} />
           ) : (
@@ -436,33 +447,6 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
             )}
           </CollapsibleSection>
         )}
-
-        <CollapsibleSection title={t('humanCoach.coach')} testID="group-info-coach">
-          <View className="flex-row items-center py-2">
-            <Feather name="cpu" size={16} color={colors.pierre.violet} />
-            <Text className="text-sm text-text-primary ml-2 flex-1" testID="group-info-ai-coach">
-              {aiCoach?.title ?? t('app.aiAgent')}
-              {aiCoach?.handle ? ` · ${MENTION_PREFIX}${aiCoach.handle}` : ''}
-            </Text>
-          </View>
-          {group?.coach_user_id ? (
-            <View className="flex-row items-center py-2" testID="group-info-human-coach">
-              <Feather name="user-check" size={16} color={colors.pierre.violet} />
-              <Text className="text-sm text-text-primary ml-2 flex-1">
-                {isGroupCoach ? t('humanCoach.youCoach') : t('humanCoach.attached')}
-              </Text>
-              {isAdmin && (
-                <TouchableOpacity onPress={handleRemoveCoach} testID="remove-coach-button">
-                  <Text className="text-sm font-semibold text-text-secondary">{t('app.remove')}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            <Text className="text-xs text-text-tertiary py-2">
-              {t('humanCoach.none')}
-            </Text>
-          )}
-        </CollapsibleSection>
 
         {/* A coach viewer reaches Settings only for the digest rows; the admin
             rows and the consent card inside stay bound to a membership row. */}
