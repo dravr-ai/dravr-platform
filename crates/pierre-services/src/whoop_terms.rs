@@ -27,11 +27,12 @@
 //!
 //! The measurements themselves are kept only under the owner's authorization:
 //! the WHOOP notice ([`provider_terms_version`]) an account accepts before the
-//! WHOOP OAuth flow begins. For an account the `provider_exposure_notice`
-//! flag arms that has not accepted the current version,
-//! [`owner_authorization_outstanding`] answers true and health sync keeps
-//! none of that account's WHOOP records — the same rule, read through the
-//! same [`outstanding_notice`], as the connect that asks for it.
+//! WHOOP OAuth flow begins. WHOOP's terms bind every account, so the notice is
+//! asked of every account whatever its feature flags; for one that has not
+//! accepted the current version, [`owner_authorization_outstanding`] answers
+//! true and health sync keeps none of that account's WHOOP records — the same
+//! rule, read through the same [`outstanding_notice`], as the connect that
+//! asks for it.
 //!
 //! [`provider_terms_version`]: pierre_core::constants::oauth_providers::provider_terms_version
 

@@ -71,8 +71,32 @@ pub const SCIOTTE_TRAININGPEAKS: &str = "sciotte_trainingpeaks";
 /// (carnet#509) is approved.
 pub const SCIOTTE_COROS: &str = "sciotte_coros";
 
-/// The dated version of each notice a provider requires the account to accept
-/// before connecting, by the backend it guards.
+/// Which accounts a provider's notice is asked of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeAudience {
+    /// Every account that connects the provider, whatever its feature flags:
+    /// the provider's own terms bind every connection, so no operator switch
+    /// can waive the notice.
+    EveryAccount,
+    /// Only the accounts the `provider_exposure_notice` feature flag arms,
+    /// per tenant or per user; an account the flag leaves off is never asked.
+    FlagArmedAccounts,
+}
+
+/// A notice a provider requires the account to accept before connecting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderNotice {
+    /// The backend the notice guards.
+    pub backend: &'static str,
+    /// The notice's dated version; an acceptance of any other version is no
+    /// acceptance of this one.
+    pub version: &'static str,
+    /// Which accounts are asked for it.
+    pub audience: NoticeAudience,
+}
+
+/// Every notice a provider requires the account to accept before connecting,
+/// by the backend it guards.
 ///
 /// Two kinds of notice share this table and the one acceptance record behind
 /// it:
@@ -80,33 +104,54 @@ pub const SCIOTTE_COROS: &str = "sciotte_coros";
 /// - **Terms-of-use exposure.** A provider read by signing in with the
 ///   athlete's own account, against its terms of use, states the risk before
 ///   the credentials: TrainingPeaks (Terms of Use section 13) and COROS (Terms
-///   of Service sections 4 and 7).
+///   of Service sections 4 and 7). Asked of the accounts the
+///   `provider_exposure_notice` flag arms
+///   ([`NoticeAudience::FlagArmedAccounts`]).
 /// - **Owner authorization.** WHOOP's API Terms of Use (section 4, effective
 ///   2026-10-06) let Dravr store WHOOP Data, compute from it and hand it to
 ///   the coach only as the data's owner expressly authorizes; the athlete
 ///   gives that authorization before the WHOOP OAuth flow begins, and health
-///   sync keeps no WHOOP record for an account that has not.
+///   sync keeps no WHOOP record for an account that has not. The terms bind
+///   every WHOOP connection, so it is asked of every account
+///   ([`NoticeAudience::EveryAccount`]).
 ///
 /// A connect to one of these backends — a credential login or the start of an
-/// OAuth flow — is refused until the account accepts its current notice; the
-/// web and mobile connect surfaces and the hosted pages show it. An account
-/// that accepted a version connects again without being asked. Bump a
-/// provider's version whenever its notice text changes on any surface or in
-/// any locale, so every account is asked again.
-pub const PROVIDER_TERMS_VERSIONS: [(&str, &str); 3] = [
-    (SCIOTTE_TRAININGPEAKS, "2026-09-24"),
-    (SCIOTTE_COROS, "2026-09-24"),
-    (WHOOP, "2026-09-25"),
+/// OAuth flow — is refused until an account asked for the notice accepts its
+/// current version; the web and mobile connect surfaces and the hosted pages
+/// show it. An account that accepted a version connects again without being
+/// asked. Bump a provider's version whenever its notice text changes on any
+/// surface or in any locale, so every account is asked again.
+pub const PROVIDER_NOTICES: [ProviderNotice; 3] = [
+    ProviderNotice {
+        backend: SCIOTTE_TRAININGPEAKS,
+        version: "2026-09-24",
+        audience: NoticeAudience::FlagArmedAccounts,
+    },
+    ProviderNotice {
+        backend: SCIOTTE_COROS,
+        version: "2026-09-24",
+        audience: NoticeAudience::FlagArmedAccounts,
+    },
+    ProviderNotice {
+        backend: WHOOP,
+        version: "2026-09-25",
+        audience: NoticeAudience::EveryAccount,
+    },
 ];
+
+/// The notice `backend` requires, or `None` when the provider asks for none.
+#[must_use]
+pub fn provider_notice(backend: &str) -> Option<&'static ProviderNotice> {
+    PROVIDER_NOTICES
+        .iter()
+        .find(|notice| notice.backend == backend)
+}
 
 /// The current notice version for `backend`, or `None` when the provider
 /// asks for no notice.
 #[must_use]
 pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
-    PROVIDER_TERMS_VERSIONS
-        .iter()
-        .find(|(guarded, _)| *guarded == backend)
-        .map(|(_, version)| *version)
+    provider_notice(backend).map(|notice| notice.version)
 }
 
 /// Synthetic fitness provider identifier (for testing)

@@ -24,7 +24,7 @@ use pierre_config::admin_types::{
     ValidateConfigRequest,
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_middleware::require_admin;
+use pierre_middleware::{require_admin, PeerAddress};
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_runtime_context::ConfigLookupScope;
 use serde::{Deserialize, Serialize};
@@ -164,20 +164,20 @@ struct AdminAuthInfo {
     email: String,
 }
 
-/// Client address recorded on the audit row: the first hop of
-/// `x-forwarded-for` (the address the edge saw), else `x-real-ip`.
+/// Client address recorded on the audit row: the client the trusted proxy
+/// chain reports (`TrustedProxies::client_address`), the same address the
+/// `OAuth2` rate limits key on. An `X-Forwarded-For` entry a client wrote
+/// never becomes it. `None` when the request carries no TCP peer.
 ///
 /// PII — it is stored as an audit field and must not be logged.
-fn client_ip(headers: &HeaderMap) -> Option<&str> {
-    let header_value = |name: &str| {
-        headers
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .map(str::trim)
-            .filter(|ip| !ip.is_empty())
-    };
-    header_value("x-forwarded-for").or_else(|| header_value("x-real-ip"))
+fn audit_client_ip(
+    state: &AdminConfigState,
+    peer: PeerAddress,
+    headers: &HeaderMap,
+) -> Option<String> {
+    let trusted = &state.resources.common.config.rate_limiting.trusted_proxies;
+    peer.0
+        .map(|peer| trusted.client_address(peer, headers).to_string())
 }
 
 /// Client user agent recorded on the audit row.
@@ -421,11 +421,13 @@ pub async fn validate_config(
 /// Returns an error if the update fails due to validation or database errors.
 pub async fn update_config(
     State(state): State<Arc<AdminConfigState>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Query(query): Query<ConfigScopeQuery>,
     Json(request): Json<UpdateConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
+    let client_ip = audit_client_ip(&state, peer, &headers);
     let scope = query.scope()?;
     let user_id = auth.user_id;
     let user_email = &auth.email;
@@ -445,7 +447,7 @@ pub async fn update_config(
                 admin_user_id: &user_id,
                 admin_email: user_email,
                 scope,
-                ip_address: client_ip(&headers),
+                ip_address: client_ip.as_deref(),
                 user_agent: user_agent(&headers),
             },
         )
@@ -477,12 +479,14 @@ pub async fn update_config(
 /// Returns an error if the category is not found or update fails.
 pub async fn update_category_config(
     State(state): State<Arc<AdminConfigState>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Path(category_name): Path<String>,
     Query(query): Query<ConfigScopeQuery>,
     Json(request): Json<UpdateConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
+    let client_ip = audit_client_ip(&state, peer, &headers);
     let scope = query.scope()?;
     let user_id = auth.user_id;
     let user_email = &auth.email;
@@ -530,7 +534,7 @@ pub async fn update_category_config(
                 admin_user_id: &user_id,
                 admin_email: user_email,
                 scope,
-                ip_address: client_ip(&headers),
+                ip_address: client_ip.as_deref(),
                 user_agent: user_agent(&headers),
             },
         )
@@ -562,11 +566,13 @@ pub async fn update_category_config(
 /// Returns an error if the reset operation fails.
 pub async fn reset_config(
     State(state): State<Arc<AdminConfigState>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Query(query): Query<ConfigScopeQuery>,
     Json(request): Json<ResetConfigRequest>,
 ) -> AppResult<impl IntoResponse> {
     let auth = state.authenticate_admin(&headers).await?;
+    let client_ip = audit_client_ip(&state, peer, &headers);
     let scope = query.scope()?;
     let user_id = auth.user_id;
     let user_email = &auth.email;
@@ -586,7 +592,7 @@ pub async fn reset_config(
                 admin_user_id: &user_id,
                 admin_email: user_email,
                 scope,
-                ip_address: client_ip(&headers),
+                ip_address: client_ip.as_deref(),
                 user_agent: user_agent(&headers),
             },
         )

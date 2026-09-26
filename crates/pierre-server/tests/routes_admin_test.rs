@@ -1532,8 +1532,10 @@ async fn test_ip_address_extraction() -> Result<()> {
 
     assert_eq!(response.status(), 200);
 
-    // The endpoint should extract the first IP from X-Forwarded-For
-    // This tests the IP extraction logic in the admin routes
+    // Forwarding headers must not break the endpoint. Which address the admin
+    // surface records is decided by the trusted-proxy resolver, never by the
+    // client-controlled first X-Forwarded-For entry; that is asserted in
+    // admin_config_routes_authz_test.
 
     Ok(())
 }

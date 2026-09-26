@@ -49,6 +49,7 @@ use chrono::Utc;
 use dravr_equilibre_sync::ContinuousMetricBatch;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
+use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId, UserOAuthToken,
 };
@@ -424,6 +425,19 @@ async fn seed_linked_user(
         .repos
         .oauth_tokens
         .upsert_token(&token)
+        .await
+        .unwrap();
+    // Linking WHOOP records the owner authorization every account gives
+    // before its OAuth flow; health sync keeps no WHOOP record without it.
+    resources
+        .common
+        .repos
+        .users
+        .record_provider_terms(
+            user_id,
+            "whoop",
+            provider_terms_version("whoop").expect("WHOOP carries a notice"),
+        )
         .await
         .unwrap();
     (user_id, tenant_id)

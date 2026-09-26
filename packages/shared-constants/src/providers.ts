@@ -75,9 +75,10 @@ export interface ProviderNoticeKeys {
 
 /**
  * Every provider notice, by the backend id the server's `consent_required`
- * names it by (`PROVIDER_TERMS_VERSIONS` in
- * `crates/pierre-core/src/constants/oauth/providers.rs`). TrainingPeaks and
- * COROS state the account risk of a signed-in scrape; WHOOP asks for the owner
+ * names it by (`PROVIDER_NOTICES` in
+ * `crates/pierre-core/src/constants/oauth/providers.rs`, which also says which
+ * accounts the server asks for each). TrainingPeaks and COROS state the
+ * account risk of a signed-in scrape; WHOOP asks every account for the owner
  * authorization its API terms require before Dravr keeps any WHOOP data.
  */
 export const PROVIDER_NOTICES: Record<string, ProviderNoticeKeys> = {

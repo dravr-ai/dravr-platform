@@ -24,6 +24,10 @@
 # The build runs before the model pull, so a renamed or moved test target
 # (the failure mode of carnet#474) fails in minutes rather than after a 9 GB
 # download. scripts/ci/check-workflow-test-targets.sh catches that before push.
+#
+# A red run files nothing here: this repository is public, and
+# "Monitor: Scheduled Lane Health" already alarms on this lane in the private
+# team tracker.
 
 name: "Monitor: LLM Live Integration"
 
@@ -35,7 +39,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: llm-live-cron
@@ -116,28 +119,3 @@ jobs:
       - name: Dump Ollama log on failure
         if: failure()
         run: sudo journalctl -u ollama --no-pager -n 200 || true
-
-      - name: Open tracking issue on failure
-        if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const today = new Date().toISOString().slice(0, 10);
-            const title = `LLM Live Integration failed on ${today}`;
-            const body = [
-              'The daily live local-LLM lane failed: `llm_local_integration_test` against Ollama (qwen2.5:14b-instruct), through the platform\'s local provider path (`http_env::local_provider`, `EmbacleProvider`) with the real tool registry schemas.',
-              '',
-              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              '',
-              'Read which step failed first:',
-              '- **Build the live test**: the test target was renamed, moved or no longer compiles.',
-              '- **Install Ollama / Pull**: the installer or the model registry was unreachable; nothing of ours ran.',
-              '- **Run the live local-LLM tests**: a tool schema or prompt the model no longer acts on, drift in embacle\'s OpenAI-compatible provider, or a gated test that skipped. The "Dump Ollama log on failure" step shows the server side.',
-            ].join('\n');
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title,
-              body,
-              labels: ['ci', 'llm'],
-            });

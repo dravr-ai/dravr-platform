@@ -58,7 +58,8 @@ pub struct SeedArgs {
 /// The e2e accounts the exposure-notice flows sign in as. The
 /// `provider_exposure_notice` flag is off by default, so a demo account
 /// connects `TrainingPeaks` or COROS without the notice; these two are armed
-/// so the web and mobile notice specs exercise it.
+/// so the web and mobile notice specs exercise it. WHOOP's owner
+/// authorization is asked of every account and needs no arming.
 const NOTICE_ARMED_ACCOUNTS: [&str; 2] = ["webtest@pierre.dev", "mobiletest@pierre.dev"];
 
 /// Demo user configuration

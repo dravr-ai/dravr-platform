@@ -26,6 +26,7 @@
 mod common;
 mod helpers;
 
+use axum::extract::connect_info::MockConnectInfo;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -34,6 +35,7 @@ use pierre_mcp_server::config::routes::{admin_config_router, AdminConfigState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::auth::service::AdminAuthService;
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -152,10 +154,13 @@ async fn an_admin_writes_a_system_wide_override_and_the_audit_row_names_the_clie
 
     let response = AxumTestRequest::put("/api/admin/config")
         .header("authorization", &auth)
-        .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+        // A client that wrote its own forged entry, forwarded by the load
+        // balancer (10.0.0.1) to the proxy that reaches this server (the
+        // internal TCP peer 10.0.0.2).
+        .header("x-forwarded-for", "192.0.2.66, 203.0.113.7, 10.0.0.1")
         .header("user-agent", "authz-test/1.0")
         .json(&update_body(5))
-        .send(router(&resources))
+        .send(router(&resources).layer(MockConnectInfo(SocketAddr::from(([10, 0, 0, 2], 44_300)))))
         .await;
     assert_eq!(response.status(), 200, "a plain Admin is the operator");
     let body: Value = response.json();
@@ -173,7 +178,9 @@ async fn an_admin_writes_a_system_wide_override_and_the_audit_row_names_the_clie
 
     // The audit row carries the client address and agent the handler read
     // from the request, and the audit endpoint returns it — its SELECT once
-    // omitted the user_id column it read, and panicked on the first row.
+    // omitted the user_id column it read, and panicked on the first row. The
+    // address is the rightmost entry no trusted proxy wrote — the one the
+    // OAuth2 limits key on — never the forged leftmost entry.
     let audit = AxumTestRequest::get("/api/admin/config/audit")
         .header("authorization", &auth)
         .send(router(&resources))
@@ -188,10 +195,47 @@ async fn an_admin_writes_a_system_wide_override_and_the_audit_row_names_the_clie
         .expect("the write must leave an audit entry");
     assert_eq!(
         entry["ip_address"], "203.0.113.7",
-        "first x-forwarded-for hop"
+        "the client the trusted proxies saw, not the forged 192.0.2.66"
     );
     assert_eq!(entry["user_agent"], "authz-test/1.0");
     assert_eq!(entry["new_value"], 5);
+}
+
+/// A request that reached the server from outside every trusted network came
+/// from its own TCP peer, so the `X-Forwarded-For` it carries is the caller's
+/// own words and is never recorded as its address.
+#[tokio::test]
+async fn an_untrusted_peers_forwarded_for_never_becomes_the_audit_address() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, _, auth) =
+        create_user_with_role(&resources, "config-direct@authz.test", UserRole::Admin).await;
+
+    let response = AxumTestRequest::put("/api/admin/config")
+        .header("authorization", &auth)
+        .header("x-forwarded-for", "192.0.2.66")
+        .json(&update_body(4))
+        .send(router(&resources).layer(MockConnectInfo(SocketAddr::from((
+            [198, 51, 100, 20],
+            44_300,
+        )))))
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let audit: Value = AxumTestRequest::get("/api/admin/config/audit")
+        .header("authorization", &auth)
+        .send(router(&resources))
+        .await
+        .json();
+    let entry = audit["data"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["config_key"] == PARAMETER)
+        .expect("the write must leave an audit entry");
+    assert_eq!(
+        entry["ip_address"], "198.51.100.20",
+        "the untrusted peer itself, not the entry it wrote"
+    );
 }
 
 #[tokio::test]
