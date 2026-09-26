@@ -45,13 +45,13 @@ pub enum FeatureKey {
     /// instead of delivered. Disabled by default — the gate runs in shadow
     /// mode (verdict logs only) until an operator arms it per tenant or user.
     PersonaNotificationPolicy,
-    /// State the notice a provider requires before connecting — the exposure
-    /// notice of a provider read through the account's own signed-in session
-    /// (`TrainingPeaks`, COROS), WHOOP's owner authorization — and refuse the
-    /// connect until it is accepted; health sync keeps no WHOOP record for an
-    /// account it arms that has not accepted WHOOP's. Disabled by default so a
-    /// demo account connects without it; admins arm it per tenant or per user
-    /// for the athletes they onboard.
+    /// State the exposure notice of a provider read through the account's own
+    /// signed-in session (`TrainingPeaks`, COROS) before its login, and refuse
+    /// the login until it is accepted. Disabled by default so a demo account
+    /// connects without it; admins arm it per tenant or per user for the
+    /// athletes they onboard. WHOOP's owner authorization is not behind this
+    /// flag: its notice is asked of every account (`NoticeAudience` in
+    /// `constants::oauth::providers`).
     ProviderExposureNotice,
 }
 
@@ -102,7 +102,7 @@ impl FeatureKey {
                 "Enforce the persona push-tier floor (gated pushes are persisted and rolled into the weekly digest instead of delivered)."
             }
             Self::ProviderExposureNotice => {
-                "Ask for the provider notice before a TrainingPeaks or COROS login or a WHOOP connect, refuse the connect until it is accepted, and keep no WHOOP record for an account that has not accepted it."
+                "Ask for the account-risk notice before a TrainingPeaks or COROS login and refuse the login until it is accepted. (WHOOP's owner authorization is asked of every account, whatever this flag says.)"
             }
         }
     }

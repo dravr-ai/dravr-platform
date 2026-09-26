@@ -58,7 +58,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::errors::AppError;
-use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{
     ActivityBuilder, ConnectionType, ConversationRecord, ConversationTurnId, MessageRecord,
     SportType, TenantId, TenantOAuthCredentials, CHANNEL_TYPE_WEB,
@@ -388,11 +387,25 @@ async fn the_agent_answer_survives_the_reconnect_offer_on_a_served_turn() {
     );
 }
 
+/// Record the athlete's acceptance of WHOOP's owner-authorization notice,
+/// which every account owes before a WHOOP mint: with it accepted, the mint
+/// reaches the tenant's missing WHOOP credentials and fails on those.
+async fn accept_whoop_notice(resources: &Arc<ServerContext>, user_id: Uuid) {
+    resources
+        .common
+        .repos
+        .users
+        .record_provider_terms(user_id, "whoop", provider_terms_version("whoop").unwrap())
+        .await
+        .unwrap();
+}
+
 /// A mint that cannot produce a URL costs the control, never the answer.
 #[tokio::test]
 async fn a_failed_mint_on_a_served_turn_keeps_the_answer_and_drops_the_control() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    accept_whoop_notice(&resources, user_id).await;
 
     // WHOOP is an OAuth provider with no credentials configured for this
     // tenant, so `mint_oauth_authorize_url` refuses and there is no link.
@@ -557,6 +570,7 @@ async fn a_turn_carrying_both_signals_takes_the_blank_path() {
 async fn a_failed_mint_on_a_blank_turn_falls_through_to_post_processing() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    accept_whoop_notice(&resources, user_id).await;
 
     // WHOOP is an OAuth provider with no credentials configured for this
     // tenant, so `mint_oauth_authorize_url` refuses and there is no link.
@@ -1211,11 +1225,6 @@ async fn a_whoop_reconnect_owing_the_owner_authorization_offers_the_hosted_picke
             scopes: vec!["read:recovery".to_owned()],
             rate_limit_per_day: 1000,
         })
-        .await
-        .unwrap();
-    repos
-        .feature_flags
-        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
         .await
         .unwrap();
 

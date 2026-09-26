@@ -4,11 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::convert::Infallible;
 use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 use std::sync::Arc;
 
-use axum::extract::FromRequestParts;
+use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::HeaderMap;
 use uuid::Uuid;
@@ -121,4 +123,27 @@ pub async fn extract_auth_from_headers<C: MiddlewareCtx>(
 #[must_use]
 pub fn auth_user_id(auth: &AuthenticatedUser) -> Uuid {
     auth.user_id
+}
+
+/// The TCP peer of a request, when the server was served with `ConnectInfo`.
+///
+/// Read through axum's own `ConnectInfo` extractor, so a router that supplies
+/// the peer with `MockConnectInfo` reads the same way. Never rejects: a router
+/// driven with neither reads as no peer. The peer is a proxy's address behind
+/// the deployed chain; `TrustedProxies::client_address` turns it and
+/// `X-Forwarded-For` into the client's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeerAddress(pub Option<IpAddr>);
+
+impl<S: Send + Sync> FromRequestParts<S> for PeerAddress {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self(
+            ConnectInfo::<SocketAddr>::from_request_parts(parts, state)
+                .await
+                .ok()
+                .map(|ConnectInfo(addr)| addr.ip()),
+        ))
+    }
 }

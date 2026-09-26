@@ -14,9 +14,9 @@
 //! stored. Other providers' scores are asserted untouched each time, so a
 //! policy that dropped everything would fail too.
 //!
-//! The measurements are kept only under the owner's authorization: for an
-//! account the `provider_exposure_notice` flag arms, no WHOOP record is
-//! written until the account accepts the current WHOOP notice.
+//! The measurements are kept only under the owner's authorization: no WHOOP
+//! record is written for any account until it accepts the current WHOOP
+//! notice, whatever the `provider_exposure_notice` flag says for it.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so
@@ -116,6 +116,16 @@ async fn connect(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId, pr
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })
+        .await
+        .unwrap();
+}
+
+/// Record the account's acceptance of the current WHOOP owner-authorization
+/// notice, as the connect that carries it does; every account owes it.
+async fn authorize_whoop(repos: &RepositoryRegistry, user_id: Uuid) {
+    repos
+        .users
+        .record_provider_terms(user_id, "whoop", provider_terms_version("whoop").unwrap())
         .await
         .unwrap();
 }
@@ -322,6 +332,7 @@ async fn a_synced_whoop_night_keeps_its_measurements_and_none_of_whoops_scores()
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
+    authorize_whoop(&repos, user_id).await;
     let storage = PierreSyncStorage::new(&repos);
 
     let stored = storage
@@ -372,6 +383,7 @@ async fn a_synced_whoop_day_keeps_its_measurements_and_drops_recovery_and_strain
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
+    authorize_whoop(&repos, user_id).await;
     let storage = PierreSyncStorage::new(&repos);
 
     let stored = storage
@@ -509,15 +521,17 @@ async fn no_whoop_record_is_kept_until_the_owner_authorizes_it() {
     connect(&repos, user_id, tenant, "sciotte_garmin").await;
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
+    // The exposure-notice flag left off for this account, as for every
+    // account an operator has not armed: WHOOP's terms bind it all the same.
     repos
         .feature_flags
-        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, false, None)
         .await
         .unwrap();
     let storage = PierreSyncStorage::new(&repos);
 
-    // Armed, and WHOOP's notice not accepted: the WHOOP night, day and
-    // weigh-in are withheld, not failed, while Garmin's night is kept.
+    // WHOOP's notice not accepted: the WHOOP night, day and weigh-in are
+    // withheld, not failed, while Garmin's night is kept.
     let stored = storage
         .store_sleep_sessions(&[
             whoop_night(user_id, &whoop_ds, night_start()),
@@ -562,11 +576,7 @@ async fn no_whoop_record_is_kept_until_the_owner_authorizes_it() {
     assert!(days(&repos, user_id, tenant).await.is_empty());
 
     // The current notice accepted, the same records are kept.
-    repos
-        .users
-        .record_provider_terms(user_id, "whoop", provider_terms_version("whoop").unwrap())
-        .await
-        .unwrap();
+    authorize_whoop(&repos, user_id).await;
     assert_eq!(
         storage
             .store_sleep_sessions(&[whoop_night(user_id, &whoop_ds, night_start())])
@@ -601,26 +611,6 @@ async fn no_whoop_record_is_kept_until_the_owner_authorizes_it() {
         weigh_ins(&repos, user_id, tenant).await[0].weight_kg,
         Some(71.4)
     );
-}
-
-#[tokio::test]
-async fn an_account_the_flag_leaves_off_keeps_its_whoop_records() {
-    let db = create_test_db().await;
-    let repos = Arc::new(db.repositories());
-    let (user_id, tenant) = seed_user(&db).await;
-    connect(&repos, user_id, tenant, "whoop").await;
-    let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
-    let storage = PierreSyncStorage::new(&repos);
-
-    assert_eq!(
-        storage
-            .store_recovery_metrics(&[whoop_day(user_id, &whoop_ds)])
-            .await
-            .unwrap(),
-        1,
-        "no notice is asked of an unarmed account, so nothing is withheld"
-    );
-    assert_eq!(days(&repos, user_id, tenant).await.len(), 1);
 }
 
 /// Serve one HTTP response to the first request and hand back the base URL.

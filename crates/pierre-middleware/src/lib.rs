@@ -67,6 +67,8 @@ pub use csrf::validate_csrf_token;
 pub use extractors::extract_auth_from_headers;
 /// Axum extractor for authenticated user context from JWT or cookie
 pub use extractors::AuthenticatedUser;
+/// A request's TCP peer, when the server was served with `ConnectInfo`
+pub use extractors::PeerAddress;
 
 // CORS middleware
 

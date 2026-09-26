@@ -16,8 +16,10 @@
 //! hosted connect picker's init and the `connect_provider` tool (which also
 //! serves the chat reconnect). A start without the acceptance mints nothing; a start that
 //! carries it records the version and proceeds; an account that accepted is
-//! not asked again; a changed notice is asked again; and an account the
-//! `provider_exposure_notice` flag leaves off is never asked.
+//! not asked again; a changed notice is asked again. WHOOP's terms bind every
+//! account, so the notice is asked whatever the `provider_exposure_notice`
+//! flag says — an account the flag leaves off is asked for WHOOP's and still
+//! not for the TrainingPeaks or COROS notices that flag gates.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
 // cfg empties the crate, and the surviving crate doc keeps `missing_docs` quiet.
@@ -31,18 +33,21 @@ mod helpers;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::constants::oauth::providers::{provider_terms_version, WHOOP};
+use pierre_core::constants::oauth::providers::{
+    provider_terms_version, SCIOTTE_COROS, SCIOTTE_TRAININGPEAKS, WHOOP,
+};
 use pierre_core::feature_flags::FeatureKey;
-use pierre_core::models::{TenantId, TenantOAuthCredentials, User};
+use pierre_core::models::{ConnectionType, TenantId, TenantOAuthCredentials, User, UserOAuthToken};
 use pierre_database::repositories::SyncCursorRow;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::mint_connect_link_token;
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::provider_notice::{outstanding_notice, require_notice_accepted};
 use pierre_tool_runtime::implementations::connection::{
     is_notice_refusal, mint_oauth_authorize_url, ConnectProviderTool,
 };
@@ -110,18 +115,6 @@ fn bearer(resources: &Arc<ServerContext>, user: &User, tenant_id: TenantId) -> S
         )
         .unwrap();
     format!("Bearer {token}")
-}
-
-/// Arm the `provider_exposure_notice` flag for `user_id`, as an operator
-/// onboarding the athlete does; it is off by default.
-async fn arm_notice(resources: &Arc<ServerContext>, user_id: Uuid) {
-    resources
-        .common
-        .repos
-        .feature_flags
-        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, true, None)
-        .await
-        .unwrap();
 }
 
 async fn accepted(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<String> {
@@ -203,9 +196,8 @@ async fn the_web_launch_asks_for_whoops_notice_once_per_version() {
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
     let auth = bearer(&resources, &user, tenant_id);
-    arm_notice(&resources, user_id).await;
 
-    // Armed, before any acceptance: the card asks, and the launch mints no URL.
+    // Before any acceptance: the card asks, and the launch mints no URL.
     assert!(whoop_card_consent_required(&resources, &auth).await);
     let (status, location, body) = launch(&resources, &auth, false).await;
     assert_notice_refusal(status, &body, "authorize");
@@ -265,7 +257,6 @@ async fn the_mobile_start_is_held_to_the_same_notice_as_the_launch_route() {
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
     let auth = bearer(&resources, &user, tenant_id);
-    arm_notice(&resources, user_id).await;
 
     // The mobile init, refused without the acceptance.
     let resp = AxumTestRequest::get("/api/oauth/mobile/init/whoop")
@@ -314,7 +305,6 @@ async fn the_hosted_picker_shows_whoops_notice_and_carries_its_acceptance() {
     let resources = whoop_server().await;
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
-    arm_notice(&resources, user_id).await;
     let token = mint_connect_link_token(
         user_id,
         tenant_id.as_uuid(),
@@ -379,7 +369,6 @@ async fn connect_provider_mints_no_whoop_url_until_the_notice_is_accepted() {
     let resources = whoop_server().await;
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
-    arm_notice(&resources, user_id).await;
     let state: Arc<dyn ToolRuntime> = resources.clone();
     let ctx = tool_context(user_id, tenant_id);
 
@@ -433,8 +422,62 @@ async fn connect_provider_mints_no_whoop_url_until_the_notice_is_accepted() {
     );
 }
 
+/// A connected WHOOP token for `user_id`, as a connect made before the notice
+/// existed left one.
+async fn connect_whoop(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant_id.to_string(),
+            provider: WHOOP.to_owned(),
+            access_token: "whoop-access-do-not-log".to_owned(),
+            refresh_token: None,
+            token_type: "Bearer".to_owned(),
+            expires_at: Some(Utc::now() + Duration::hours(1)),
+            scope: Some("read:recovery".to_owned()),
+            provider_user_id: None,
+            oauth_app_client_id: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant_id, WHOOP, &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+}
+
+/// WHOOP's card as `/api/providers` answers it.
+async fn whoop_card(resources: &Arc<ServerContext>, auth: &str) -> Value {
+    let resp = AxumTestRequest::get("/api/providers")
+        .header("authorization", auth)
+        .send(routes(resources))
+        .await;
+    let body: Value = serde_json::from_str(&resp.text()).unwrap();
+    body["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["provider"] == WHOOP)
+        .unwrap_or_else(|| panic!("no WHOOP card: {body}"))
+        .clone()
+}
+
+/// WHOOP's API terms bind every account, so the owner authorization is asked
+/// of an account the `provider_exposure_notice` flag leaves off — the start
+/// is refused, the connected card owes it, and the `connect_provider` tool
+/// mints nothing — while that same account is still not asked for the
+/// TrainingPeaks or COROS notices the flag gates.
 #[tokio::test]
-async fn an_account_the_flag_leaves_off_is_never_asked() {
+async fn an_account_the_flag_leaves_off_is_asked_for_whoop_and_nothing_else() {
     let resources = whoop_server().await;
     let (user_id, user) =
         create_test_user_with_email(&resources.agent.database, "whoop-unarmed@example.test")
@@ -442,29 +485,77 @@ async fn an_account_the_flag_leaves_off_is_never_asked() {
             .unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
     let auth = bearer(&resources, &user, tenant_id);
+    let repos = &resources.common.repos;
+    repos
+        .feature_flags
+        .set_user_override(user_id, FeatureKey::ProviderExposureNotice, false, None)
+        .await
+        .unwrap();
 
-    assert!(!whoop_card_consent_required(&resources, &auth).await);
+    // WHOOP: asked, refused without the acceptance, nothing minted.
+    assert_eq!(
+        outstanding_notice(repos, tenant_id.as_uuid(), user_id, WHOOP)
+            .await
+            .unwrap(),
+        Some(whoop_notice_version())
+    );
+    assert!(whoop_card_consent_required(&resources, &auth).await);
     let (status, location, body) = launch(&resources, &auth, false).await;
-    assert_eq!(
-        status, 302,
-        "an unarmed account starts WHOOP without a notice: {body}"
-    );
-    assert!(location.unwrap_or_default().starts_with(WHOOP_AUTHORIZE));
-    assert_eq!(
-        accepted(&resources, user_id).await,
-        None,
-        "nothing was asked, so nothing is recorded"
-    );
-
+    assert_notice_refusal(status, &body, "authorize for an unarmed account");
+    assert_eq!(location, None, "no authorization URL leaves the server");
     let state: Arc<dyn ToolRuntime> = resources.clone();
-    let minted = ConnectProviderTool
+    let refused = ConnectProviderTool
         .execute(
             &state,
             &tool_context(user_id, tenant_id),
             json!({ "provider": "whoop" }),
         )
         .await;
-    assert!(!minted.is_error, "{:?}", minted.structured_content);
+    assert!(refused.is_error, "{:?}", refused.structured_content);
+    assert_eq!(
+        structured(&refused)["error_type"],
+        "provider_notice_required"
+    );
+
+    // A WHOOP connection the account already holds reads as connected and
+    // owing the authorization, which is what the clients render as
+    // "Authorize WHOOP to keep syncing".
+    connect_whoop(&resources, user_id, tenant_id).await;
+    let card = whoop_card(&resources, &auth).await;
+    assert_eq!(card["connected"], true, "{card}");
+    assert_eq!(card["consent_required"], true, "{card}");
+
+    // The flag-gated notices stay unasked for the same account.
+    for backend in [SCIOTTE_TRAININGPEAKS, SCIOTTE_COROS] {
+        assert_eq!(
+            outstanding_notice(repos, tenant_id.as_uuid(), user_id, backend)
+                .await
+                .unwrap(),
+            None,
+            "{backend} is not asked of an account the flag leaves off"
+        );
+        assert!(
+            require_notice_accepted(repos, tenant_id.as_uuid(), user_id, backend, backend, false)
+                .await
+                .is_ok(),
+            "{backend} connects without a notice for an unarmed account"
+        );
+        assert_eq!(
+            repos
+                .users
+                .provider_terms_version(user_id, backend)
+                .await
+                .unwrap(),
+            None,
+            "nothing was asked, so nothing is recorded for {backend}"
+        );
+    }
+
+    // Accepting clears WHOOP for the same unarmed account.
+    let (status, location, body) = launch(&resources, &auth, true).await;
+    assert_eq!(status, 302, "{body}");
+    assert!(location.unwrap_or_default().starts_with(WHOOP_AUTHORIZE));
+    assert!(!whoop_card_consent_required(&resources, &auth).await);
 }
 
 /// A mid-walk sync cursor for `provider`'s `data_type`, as health sync leaves
@@ -526,7 +617,6 @@ async fn accepting_the_notice_rewinds_the_whoop_sync() {
     let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = primary_tenant(&resources, user_id).await;
     let auth = bearer(&resources, &user, tenant_id);
-    arm_notice(&resources, user_id).await;
     for data_type in ["sleep", "recovery", "health"] {
         seed_cursor(&resources, user_id, tenant_id, WHOOP, data_type).await;
     }
