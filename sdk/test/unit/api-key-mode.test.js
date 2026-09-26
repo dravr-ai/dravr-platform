@@ -35,15 +35,25 @@ const STORED_SESSION = {
 
 /**
  * A scripted Dravr that authenticates the way the real one does: /mcp takes the API key
- * as a bearer, the REST initiation route takes it as the bare Authorization value. Every
- * request is recorded, so a test can assert both what was sent and what was never asked.
- * `get_connection_status` answers the next of `stravaStatuses` on each call, then keeps
- * answering the last one.
+ * as a bearer. Every request is recorded, so a test can assert both what was sent and
+ * what was never asked. `connect_provider` answers `mint` - the minted page by default,
+ * or the tool error it names - and `get_connection_status` answers the next of
+ * `stravaStatuses` on each call, then keeps answering the last one.
  */
 function startDravr({
   acceptKey = true,
-  mintStatus = 200,
-  mintRefusal = { error: 'unauthorized' },
+  mint = {
+    content: [{ type: 'text', text: 'pending_authorization' }],
+    structuredContent: {
+      provider: 'strava',
+      authorization_url: MINTED_URL,
+      state: 'minted-state',
+      instructions: 'Visit the authorization URL',
+      expires_in_minutes: 10,
+      status: 'pending_authorization',
+    },
+    isError: false,
+  },
   stravaStatuses = ['disconnected'],
 } = {}) {
   let statusReads = 0;
@@ -61,15 +71,6 @@ function startDravr({
           res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
           res.end(JSON.stringify(json));
         };
-
-        if (req.method === 'GET' && req.url === '/api/oauth/mobile/init/strava') {
-          if (req.headers.authorization !== API_KEY || mintStatus !== 200) {
-            send(mintStatus === 200 ? 401 : mintStatus, mintRefusal);
-            return;
-          }
-          send(200, { authorization_url: MINTED_URL, provider: 'strava', state: 'minted-state' });
-          return;
-        }
 
         if (req.method !== 'POST' || req.url !== '/mcp') {
           send(404, {});
@@ -100,6 +101,10 @@ function startDravr({
             }));
             return;
           case 'tools/call':
+            if (rpc.params.name === 'connect_provider') {
+              send(200, complete(rpc.id, mint));
+              return;
+            }
             if (rpc.params.name === 'get_connection_status') {
               const status = stravaStatuses[Math.min(statusReads, stravaStatuses.length - 1)];
               statusReads += 1;
@@ -297,7 +302,7 @@ describe('api-key mode', () => {
     }
   });
 
-  test('connect_provider has Dravr mint the page for the key and polls until it reads connected', async () => {
+  test('connect_provider has Dravr\'s MCP tool mint the page for the key and polls until it reads connected', async () => {
     dravr = await startDravr({ stravaStatuses: ['disconnected', 'disconnected', 'connected'] });
     const wired = await startedBridge(dravr);
     const waits = recordPolls(wired.bridge);
@@ -310,13 +315,14 @@ describe('api-key mode', () => {
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toMatch(/Strava connected successfully/);
 
-      const mint = dravr.seen.find((r) => r.url === '/api/oauth/mobile/init/strava');
-      expect(mint.method).toBe('GET');
-      // REST reads the key as the whole Authorization value; a Bearer scheme there is a
-      // session token.
-      expect(mint.headers.authorization).toBe(API_KEY);
+      // The page is minted by the connect_provider tool over the key's own /mcp session,
+      // the same path every auth mode takes: no REST route is asked.
+      const mint = dravr.seen.find((r) => r.rpc?.params?.name === 'connect_provider');
+      expect(mint.rpc.params.arguments).toEqual({ provider: 'strava' });
+      expect(mint.headers.authorization).toBe(`Bearer ${API_KEY}`);
       // Dravr is handed nothing to call this machine back with.
       expect(mint.headers['x-callback-token']).toBeUndefined();
+      expect(dravr.seen.filter((r) => r.method !== 'POST' || r.url !== '/mcp')).toEqual([]);
       expect(wired.logs).toContain(`OAuth URL: ${MINTED_URL}`);
       expect(waits).toEqual([{ provider: 'strava', ms: 55000 }]);
 
@@ -339,12 +345,17 @@ describe('api-key mode', () => {
   });
 
   test('connect_provider reads a notice refusal as where to accept it, and opens no page', async () => {
+    const refusal = {
+      error:
+        'Connecting Strava requires accepting the account notice first. The athlete accepts it by connecting strava from the Connections screen of the Dravr app, which shows the notice with the box to tick.',
+      error_type: 'provider_notice_required',
+      provider: 'strava',
+    };
     dravr = await startDravr({
-      mintStatus: 400,
-      mintRefusal: {
-        code: 'InvalidInput',
-        message: 'Connecting Strava requires accepting the account notice first',
-        details: { action: 'accept_provider_notice', provider: 'strava' },
+      mint: {
+        content: [{ type: 'text', text: JSON.stringify(refusal) }],
+        structuredContent: refusal,
+        isError: true,
       },
     });
     const wired = await startedBridge(dravr);
@@ -366,7 +377,18 @@ describe('api-key mode', () => {
   });
 
   test('connect_provider reports a refused mint instead of opening any page', async () => {
-    dravr = await startDravr({ mintStatus: 403 });
+    const refusal = {
+      error: 'Failed to generate authorization URL: no OAuth client is configured for strava',
+      error_type: 'oauth_configuration_error',
+      provider: 'strava',
+    };
+    dravr = await startDravr({
+      mint: {
+        content: [{ type: 'text', text: refusal.error }],
+        structuredContent: refusal,
+        isError: true,
+      },
+    });
     const wired = await startedBridge(dravr);
     const waits = recordPolls(wired.bridge);
     try {
@@ -377,7 +399,7 @@ describe('api-key mode', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toMatch(
-        /Dravr refused to start strava authorization for the configured API key \(HTTP 403\)/,
+        /Dravr refused to start strava authorization: Failed to generate authorization URL: no OAuth client is configured for strava/,
       );
       expect(wired.logs.some((line) => line.startsWith('OAuth URL:'))).toBe(false);
       expect(waits).toEqual([]);

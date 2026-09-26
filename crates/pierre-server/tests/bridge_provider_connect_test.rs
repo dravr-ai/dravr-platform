@@ -1,23 +1,25 @@
-// ABOUTME: The server side of the SDK bridge's connect_provider: the launch route it starts from and the status it polls
-// ABOUTME: carnet#603 launch identity from the credential alone; carnet#550 get_connection_status turns connected on completion
+// ABOUTME: The server side of the SDK bridge's connect_provider: the MCP tool that mints its flow and the status it polls
+// ABOUTME: carnet#603 flow identity from the credential alone, a delegated grant included; carnet#550 status turns connected
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The SDK bridge's `connect_provider` starts a provider flow on the launch
-//! route `/api/oauth/authorize/{provider}` (its mobile init mint in api-key
-//! mode), opens the provider's authorization page, and then asks Dravr,
-//! every few seconds, for the provider's connection status through
+//! The SDK bridge's `connect_provider` has Dravr's `connect_provider` MCP
+//! tool mint the provider's authorization page over the bridge's own `/mcp`
+//! session, in every auth mode, opens it, and then asks Dravr, every few
+//! seconds, for the provider's connection status through
 //! `get_connection_status`, the tool it already reads to decide the provider
 //! is connected before it starts a flow. Dravr posts nothing to the bridge's
 //! host, so a bridge on any machine learns the outcome.
 //!
-//! The launch route takes the athlete from the credential that calls it — a
-//! session bearer or an API key — and from nothing else, so the retired
-//! initiate route that named a user id in its path is gone, and no caller can
-//! start a flow for another account. The status the bridge polls moves from
-//! `disconnected` to `connected` when a flow started on either route
-//! completes, and another athlete's poll never sees it.
+//! An oauth-mode bridge holds a delegated grant, which every REST route
+//! refuses and only MCP dispatch accepts, with its scopes enforced there:
+//! `connect_provider` needs `profile:write`. The tool, like the launch route
+//! the web app opens, takes the athlete from the credential that calls it and
+//! from nothing else, so the retired initiate route that named a user id in
+//! its path is gone, and no caller can start a flow for another account. The
+//! status the bridge polls moves from `disconnected` to `connected` when a
+//! flow completes, and another athlete's poll never sees it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -36,6 +38,7 @@ use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::routes::mcp::McpRoutes;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -198,7 +201,7 @@ fn state_of_redirect(uri: &str, status: StatusCode, headers: &HeaderMap, body: &
         .expect("the provider redirect carries the flow's state")
 }
 
-/// Start a flow on the launch route the bridge fetches in session mode and
+/// Start a flow on the launch route the web app opens with a session and
 /// return the state its provider redirect carries.
 async fn start_on_launch(resources: &ServerContext, jwt: &str) -> String {
     let uri = "/api/oauth/authorize/strava";
@@ -230,6 +233,61 @@ async fn api_key_for(resources: &ServerContext, user_id: Uuid) -> String {
     full_key
 }
 
+/// The grant an oauth-mode SDK bridge asks for: every delegable scope, which
+/// is never the self grant, so REST refuses it and `/mcp` enforces it.
+fn bridge_delegation() -> Vec<OAuthScope> {
+    OAuthScope::ALL
+        .into_iter()
+        .filter(|scope| scope.is_delegable())
+        .collect()
+}
+
+/// The `Authorization` value of a delegated OAuth grant for `user_id`, minted
+/// the way the authorization server's token endpoint mints it for an
+/// application: no active tenant, and the scopes the athlete consented to.
+fn delegated_bearer(resources: &ServerContext, user_id: Uuid, grant: &[OAuthScope]) -> String {
+    let scopes: Vec<String> = grant
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+    let token = resources
+        .auth
+        .auth_manager
+        .generate_oauth_access_token(&resources.auth.jwks_manager, &user_id, &scopes, &[], None)
+        .unwrap();
+    format!("Bearer {token}")
+}
+
+/// `connect_provider` for Strava over `/mcp`, as the bridge calls it: the
+/// provider alone, the athlete taken from `authorization`.
+async fn connect_over_mcp(
+    resources: &Arc<ServerContext>,
+    authorization: &str,
+) -> (StatusCode, HeaderMap, Value) {
+    let request = Request::post("/mcp")
+        .header("authorization", authorization)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": "connect_provider", "arguments": { "provider": "strava" } }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = McpRoutes::routes(Arc::clone(resources))
+        .oneshot(request)
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    (status, headers, json)
+}
+
 /// What one poll of the bridge reads: `get_connection_status` for Strava,
 /// asked as the athlete in their tenant.
 async fn strava_status(
@@ -254,9 +312,10 @@ async fn strava_status(
     response.result.expect("the status tool answers a payload")
 }
 
-/// The flow the bridge starts in session mode: the status reads disconnected
-/// while the athlete is on the provider's page and connected once Dravr has
-/// completed the callback, with no request to the bridge's host in between.
+/// A flow started on the launch route: the status the bridge polls reads
+/// disconnected while the athlete is on the provider's page and connected
+/// once Dravr has completed the callback, with no request to the bridge's host
+/// in between.
 #[tokio::test]
 #[serial]
 async fn the_polled_status_turns_connected_when_the_bridge_flow_completes() {
@@ -283,8 +342,8 @@ async fn the_polled_status_turns_connected_when_the_bridge_flow_completes() {
     assert_eq!(connected["backend"], "oauth");
 }
 
-/// The flow the bridge mints in api-key mode on the mobile init route reads
-/// the same way: disconnected until its callback lands, connected after.
+/// A flow minted on the native app's mobile init route reads the same way:
+/// disconnected until its callback lands, connected after.
 #[tokio::test]
 #[serial]
 async fn the_polled_status_turns_connected_when_a_minted_flow_completes() {
@@ -367,7 +426,7 @@ async fn the_retired_initiate_route_answers_404() {
     assert!(headers.get(header::LOCATION).is_none());
 }
 
-/// The launch route accepts both credentials the bridge holds — a session
+/// The launch route accepts both of the athlete's own credentials — a session
 /// bearer, and an API key as the whole `Authorization` value — and mints the
 /// flow for the athlete each one names.
 #[tokio::test]
@@ -437,5 +496,123 @@ async fn the_launch_route_refuses_another_athletes_identity() {
     assert!(
         owner_token.is_none(),
         "nothing lands on the athlete the caller named"
+    );
+}
+
+/// An oauth-mode bridge's delegated grant starts its flow through the
+/// `connect_provider` tool: the URL the tool returns carries a flow bound to
+/// the athlete the grant names, completing it connects that athlete, and
+/// another athlete's poll never sees it.
+#[tokio::test]
+#[serial]
+async fn the_connect_provider_tool_mints_a_delegated_bridges_flow_for_its_athlete_only() {
+    let strava = mock_strava().await;
+    let (resources, service, executor, _env) = dravr(&strava).await;
+    let (owner_id, owner_tenant, _) = athlete(&resources).await;
+    let (other_id, other_tenant, _) = athlete(&resources).await;
+
+    let (status, _, body) = connect_over_mcp(
+        &resources,
+        &delegated_bearer(&resources, owner_id, &bridge_delegation()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
+    let minted = &body["result"]["structuredContent"];
+    assert_eq!(minted["provider"], "strava");
+    assert_eq!(minted["status"], "pending_authorization");
+
+    let url = Url::parse(minted["authorization_url"].as_str().unwrap()).unwrap();
+    let query = |name: &str| {
+        url.query_pairs()
+            .find_map(|(key, value)| (key == name).then(|| value.into_owned()))
+    };
+    assert_eq!(query("client_id").as_deref(), Some("poll-test-client"));
+    let state = query("state").expect("the minted URL carries the flow's state");
+    assert_eq!(state, minted["state"].as_str().unwrap());
+    assert_eq!(
+        athlete_of_state(&state),
+        owner_id,
+        "the flow belongs to the athlete the grant names"
+    );
+
+    assert_eq!(
+        strava_status(&executor, owner_id, owner_tenant).await["status"],
+        "disconnected"
+    );
+    service
+        .handle_callback("auth-code", &state, "strava")
+        .await
+        .expect("the tool's flow completes on the callback");
+
+    let owner = strava_status(&executor, owner_id, owner_tenant).await;
+    assert_eq!(owner["status"], "connected");
+    assert_eq!(owner["connected"], true);
+    let other = strava_status(&executor, other_id, other_tenant).await;
+    assert_eq!(other["status"], "disconnected");
+    let stored = resources
+        .common
+        .repos
+        .oauth_tokens
+        .get_token(other_id, other_tenant, "strava")
+        .await
+        .unwrap();
+    assert!(
+        stored.is_none(),
+        "the grant's flow never lands on another athlete"
+    );
+}
+
+/// The tool is served to a delegated grant only within its scopes, as MCP
+/// dispatch serves every tool: linking a provider needs `profile:write`, and a
+/// grant without it is refused with the RFC 6750 challenge naming it. The REST
+/// launch routes stay the athlete's own: they refuse even the bridge's widest
+/// grant.
+#[tokio::test]
+#[serial]
+async fn a_delegated_grant_reaches_connect_provider_only_within_its_scopes() {
+    let strava = mock_strava().await;
+    let (resources, _, _, _env) = dravr(&strava).await;
+    let (user_id, _, jwt) = athlete(&resources).await;
+
+    let narrow = delegated_bearer(
+        &resources,
+        user_id,
+        &[
+            OAuthScope::FitnessRead,
+            OAuthScope::FitnessWrite,
+            OAuthScope::ProfileRead,
+        ],
+    );
+    let (status, headers, body) = connect_over_mcp(&resources, &narrow).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let challenge = headers[header::WWW_AUTHENTICATE].to_str().unwrap();
+    assert!(
+        challenge.contains("error=\"insufficient_scope\"")
+            && challenge.contains("scope=\"profile:write\""),
+        "the challenge names the grant the tool needs: {challenge}"
+    );
+
+    let widest = delegated_bearer(&resources, user_id, &bridge_delegation());
+    for uri in [
+        "/api/oauth/authorize/strava",
+        "/api/oauth/mobile/init/strava",
+    ] {
+        let (status, headers, body) = get_with_authorization(&resources, uri, &widest).await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "{uri} refuses a delegated grant: {}",
+            String::from_utf8_lossy(&body)
+        );
+        assert!(headers.get(header::LOCATION).is_none());
+    }
+
+    // The athlete's own session still starts a flow on the launch route.
+    let uri = "/api/oauth/authorize/strava";
+    let (status, headers, body) = get_with_session(&resources, uri, &jwt).await;
+    assert_eq!(
+        athlete_of_state(&state_of_redirect(uri, status, &headers, &body)),
+        user_id
     );
 }

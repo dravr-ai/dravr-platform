@@ -42,7 +42,8 @@ function makeBridge(serverUrl, overrides = {}) {
 
 /**
  * Bridge wired for a connect_provider call: an OAuth session that already holds a token,
- * and a Pierre client whose get_connection_status reports the provider unconnected.
+ * and a Pierre client whose connect_provider tool mints the provider's page and whose
+ * get_connection_status reports the provider unconnected.
  */
 async function connectProviderBridge(serverUrl = 'http://localhost:8081') {
   const { provider } = await startProvider({ disableBrowser: true });
@@ -58,15 +59,26 @@ async function connectProviderBridge(serverUrl = 'http://localhost:8081') {
   await bridge.createMcpServer();
   bridge.oauthProvider = provider;
   bridge.pierreClient = {
-    callTool: async () => ({
-      structuredContent: {
-        provider: 'strava',
-        status: 'disconnected',
-        connected: false,
-        needs_reauth: false,
-        backend: 'none',
-      },
-    }),
+    callTool: async ({ name }) =>
+      name === 'connect_provider'
+        ? {
+            content: [{ type: 'text', text: 'pending_authorization' }],
+            structuredContent: {
+              provider: 'strava',
+              authorization_url: 'https://www.strava.com/oauth/authorize?client_id=1&state=minted',
+              status: 'pending_authorization',
+            },
+          }
+        : {
+            content: [{ type: 'text', text: 'disconnected' }],
+            structuredContent: {
+              provider: 'strava',
+              status: 'disconnected',
+              connected: false,
+              needs_reauth: false,
+              backend: 'none',
+            },
+          },
   };
 
   return { bridge, provider, handler: bridge.mcpServer._requestHandlers.get('tools/call') };

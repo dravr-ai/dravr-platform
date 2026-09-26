@@ -32,11 +32,7 @@ import {
 import { openUrlInBrowserWithFocus } from "./browser-launcher.js";
 import { installBatchGuard, createBatchGuardMessageHandler } from "./batch-guard-transport.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
-import {
-  isNoticeRefusal,
-  providerNoticeMessage,
-  startProviderOAuth,
-} from "./provider-oauth-start.js";
+import { startProviderOAuth, type ProviderOAuthStart } from "./provider-oauth-start.js";
 import {
   PROVIDER_STATUS_POLL_INTERVAL_MS,
   isProviderConnected,
@@ -121,11 +117,6 @@ export interface BridgeConfigApiKey extends BridgeConfigBase {
 
 /** Discriminated union for authentication modes */
 export type BridgeConfig = BridgeConfigJwt | BridgeConfigOAuth | BridgeConfigApiKey;
-
-/** The page connect_provider opens, or the notice that stands between the account and it. */
-type ProviderAuthorizationPage =
-  | { kind: "open"; url: string }
-  | { kind: "notice_required"; message: string };
 
 export class PierreMcpClient {
   private config: BridgeConfig;
@@ -1428,9 +1419,9 @@ export class PierreMcpClient {
         );
       }
 
-      // Step 3: Start the provider's authorization before any browser opens: a provider
-      // whose notice the account owes (WHOOP's owner authorization) is refused, and the
-      // user reads where to accept it rather than a raw 400 page.
+      // Step 3: Have Dravr mint the provider's authorization page before any browser
+      // opens: a provider whose notice the account owes (WHOOP's owner authorization) is
+      // refused, and the user reads where to accept it rather than an error page.
       const page = await this.startProviderAuthorization(provider);
       if (page.kind === "notice_required") {
         this.log(`${provider} OAuth refused: the account owes the provider's notice`);
@@ -1594,60 +1585,24 @@ export class PierreMcpClient {
    * Starts `provider`'s authorization for the athlete this bridge acts for and names the
    * page the browser opens, or the notice the account owes before it may start.
    *
-   * Dravr's launch route takes the athlete from the credential that calls it, so the
-   * session bearer alone decides whose flow starts. In api-key mode Dravr's mobile init is
-   * asked instead: it answers the authorization URL as JSON, so a refused key is reported
-   * as refused rather than opened as an error page. Either way a refusal naming the
-   * provider's notice becomes the message that says where to accept it.
+   * Dravr's `connect_provider` tool mints the page over the bridge's own MCP session, so
+   * the credential that session carries - a session token, an API key, or a delegated
+   * OAuth grant - alone decides whose flow starts, in every auth mode. No REST launch
+   * route is asked: those refuse a delegated grant, which only MCP dispatch reads the
+   * scopes of.
    */
   private async startProviderAuthorization(
     provider: string,
-  ): Promise<ProviderAuthorizationPage> {
-    if (this.config.mode === "api-key") {
-      // A REST route reads an API key as the whole Authorization value, with no scheme:
-      // there `Bearer` introduces a session token. The MCP transport strips `Bearer`
-      // before it looks, which is why /mcp requests carry the key under that scheme.
-      const response = await fetch(
-        `${this.config.pierreServerUrl}/api/oauth/mobile/init/${encodeURIComponent(provider)}`,
-        { headers: { Authorization: this.config.apiKey } },
+  ): Promise<ProviderOAuthStart> {
+    const client = this.pierreClient;
+    if (!client) {
+      throw new PierreError(
+        PierreErrorCode.CONFIG_ERROR,
+        `No Dravr session to start ${provider} authorization over`,
       );
-      if (!response.ok) {
-        const refusal: unknown = await response.json().catch(() => null);
-        if (isNoticeRefusal(response.status, refusal)) {
-          return { kind: "notice_required", message: providerNoticeMessage(provider) };
-        }
-        throw new PierreError(
-          PierreErrorCode.PROVIDER_ERROR,
-          `Dravr refused to start ${provider} authorization for the configured API key (HTTP ${response.status})`,
-        );
-      }
-      const minted = (await response.json()) as { authorization_url?: unknown };
-      if (typeof minted.authorization_url !== "string") {
-        throw new PierreError(
-          PierreErrorCode.PROVIDER_ERROR,
-          `Dravr answered the ${provider} authorization request without an authorization_url`,
-        );
-      }
-      this.log(`Initiating ${provider} OAuth flow for the configured API key`);
-      return { kind: "open", url: minted.authorization_url };
     }
-
-    const tokens = await this.oauthProvider?.tokens();
-    if (!tokens?.access_token) {
-      throw new PierreError(PierreErrorCode.AUTH_ERROR, "No access token available");
-    }
-
-    this.log(`Initiating ${provider} OAuth flow for the signed-in athlete`);
-    const launchUrl = `${this.config.pierreServerUrl}/api/oauth/authorize/${encodeURIComponent(provider)}`;
-    const start = await startProviderOAuth(launchUrl, tokens.access_token, provider);
-    switch (start.kind) {
-      case "notice_required":
-        return start;
-      case "authorize":
-        return { kind: "open", url: start.url };
-      case "open_launch":
-        return { kind: "open", url: launchUrl };
-    }
+    this.log(`Initiating ${provider} OAuth flow through Dravr's connect_provider tool`);
+    return startProviderOAuth((params) => client.callTool(params), provider);
   }
 
   private async startBridge(): Promise<void> {

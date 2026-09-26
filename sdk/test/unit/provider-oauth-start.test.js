@@ -1,81 +1,92 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The bridge starts a provider's OAuth flow itself and reads WHOOP's notice refusal as a message, not a raw 400
-// ABOUTME: Pins the refusal message, the minted authorization URL it opens directly, and the fallback to the launch route
+// ABOUTME: The bridge starts a provider's OAuth flow through Dravr's connect_provider MCP tool
+// ABOUTME: Pins the minted URL it opens, the notice refusal read as a message, and any other refusal reported as one
 
-const http = require('http');
-const { startProviderOAuth, providerNoticeMessage, isNoticeRefusal } = require('../../dist/index.js');
+const {
+  startProviderOAuth,
+  providerNoticeMessage,
+  NOTICE_REQUIRED_ERROR_TYPE,
+  PierreError,
+} = require('../../dist/index.js');
 
-/** A one-route server answering the launch request as the Dravr server would. */
-function serve(handler) {
-  return new Promise((resolve) => {
-    const seen = [];
-    const server = http.createServer((req, res) => {
-      seen.push({ url: req.url, authorization: req.headers.authorization });
-      handler(req, res);
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      resolve({ server, seen, base: `http://127.0.0.1:${port}` });
-    });
-  });
+/** A tool caller that records every call and answers each with `answer`. */
+function recordingCaller(answer) {
+  const calls = [];
+  return {
+    calls,
+    callTool: async (params) => {
+      calls.push(params);
+      return answer;
+    },
+  };
 }
 
-const LAUNCH = '/api/oauth/authorize/whoop';
+const MINTED = 'https://api.prod.whoop.com/oauth/oauth2/auth?client_id=1&state=user-1%3Aflow';
 
 describe('startProviderOAuth', () => {
-  let running;
-  afterEach(() => new Promise((resolve) => (running ? running.server.close(resolve) : resolve())));
-
-  test('reads the notice refusal as where to accept it, not a raw error', async () => {
-    running = await serve((_req, res) => {
-      res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          code: 'InvalidInput',
-          message: 'Connecting WHOOP requires accepting the account notice first',
-          details: { action: 'accept_provider_notice', provider: 'whoop' },
-        }),
-      );
+  test('asks the connect_provider tool for the provider and opens the page it minted', async () => {
+    const dravr = recordingCaller({
+      content: [{ type: 'text', text: 'pending_authorization' }],
+      structuredContent: {
+        provider: 'whoop',
+        authorization_url: MINTED,
+        state: 'user-1:flow',
+        status: 'pending_authorization',
+      },
+      isError: false,
     });
 
-    const start = await startProviderOAuth(`${running.base}${LAUNCH}`, 'jwt-1', 'whoop');
+    const start = await startProviderOAuth(dravr.callTool, 'whoop');
+
+    expect(start).toEqual({ kind: 'authorize', url: MINTED });
+    // One call, naming only the provider: the athlete is the session's credential.
+    expect(dravr.calls).toEqual([{ name: 'connect_provider', arguments: { provider: 'whoop' } }]);
+  });
+
+  test('reads the notice refusal as where to accept it, not a raw error', async () => {
+    const dravr = recordingCaller({
+      content: [{ type: 'text', text: 'notice' }],
+      structuredContent: {
+        error: 'Connecting WHOOP requires accepting the account notice first',
+        error_type: NOTICE_REQUIRED_ERROR_TYPE,
+        provider: 'whoop',
+      },
+      isError: true,
+    });
+
+    const start = await startProviderOAuth(dravr.callTool, 'whoop');
 
     expect(start.kind).toBe('notice_required');
     expect(start.message).toBe(providerNoticeMessage('whoop'));
     expect(start.message).toContain('Open the Dravr app, go to Connections and connect WHOOP');
-    expect(start.message).not.toContain('400');
-    expect(running.seen).toEqual([{ url: LAUNCH, authorization: 'Bearer jwt-1' }]);
   });
 
-  test('opens the authorization page the server minted, so the flow is started once', async () => {
-    running = await serve((_req, res) => {
-      res.writeHead(302, { location: 'https://api.prod.whoop.com/oauth/oauth2/auth?state=abc' });
-      res.end();
+  test('reports any other refusal with what Dravr said, and opens nothing', async () => {
+    const dravr = recordingCaller({
+      content: [{ type: 'text', text: 'Provider \'fitbit\' is not supported. Supported providers: strava, whoop' }],
+      structuredContent: { error: 'Provider \'fitbit\' is not supported' },
+      isError: true,
     });
 
-    const start = await startProviderOAuth(`${running.base}${LAUNCH}`, 'jwt-1', 'whoop');
+    const failure = startProviderOAuth(dravr.callTool, 'fitbit');
 
-    expect(start).toEqual({ kind: 'authorize', url: 'https://api.prod.whoop.com/oauth/oauth2/auth?state=abc' });
-    expect(running.seen).toHaveLength(1);
+    await expect(failure).rejects.toBeInstanceOf(PierreError);
+    await expect(failure).rejects.toThrow(
+      "Dravr refused to start fitbit authorization: Provider 'fitbit' is not supported. Supported providers: strava, whoop",
+    );
   });
 
-  test('leaves any other answer to the launch route in the browser', async () => {
-    running = await serve((_req, res) => {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ code: 'InternalError', message: 'boom' }));
+  test('an answer without an authorization URL is an error, never a page', async () => {
+    const dravr = recordingCaller({
+      content: [{ type: 'text', text: '{}' }],
+      structuredContent: { provider: 'whoop', status: 'pending_authorization' },
+      isError: false,
     });
 
-    const start = await startProviderOAuth(`${running.base}${LAUNCH}`, 'jwt-1', 'whoop');
-
-    expect(start).toEqual({ kind: 'open_launch' });
-  });
-
-  test('recognizes only the notice refusal', () => {
-    expect(isNoticeRefusal(400, { details: { action: 'accept_provider_notice' } })).toBe(true);
-    expect(isNoticeRefusal(400, { details: { action: 'connect_provider' } })).toBe(false);
-    expect(isNoticeRefusal(403, { details: { action: 'accept_provider_notice' } })).toBe(false);
-    expect(isNoticeRefusal(400, null)).toBe(false);
+    await expect(startProviderOAuth(dravr.callTool, 'whoop')).rejects.toThrow(
+      'Dravr answered the whoop authorization request without an authorization_url',
+    );
   });
 });

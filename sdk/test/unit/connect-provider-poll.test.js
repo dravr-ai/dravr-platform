@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: connect_provider learns a provider flow's outcome by polling Dravr's get_connection_status
-// ABOUTME: Drives the real bridge and MCP client against a scripted Dravr: connected, budget spent, cancelled
+// ABOUTME: connect_provider has Dravr's connect_provider MCP tool mint the page, then polls get_connection_status
+// ABOUTME: Drives the real oauth-mode bridge (a delegated grant) and MCP client against a scripted Dravr, end to end
 
 const http = require('http');
 const { PierreMcpClient } = require('../../dist/index.js');
@@ -28,12 +28,16 @@ function stravaStatus(state) {
   };
 }
 
+/** The sentence Dravr's REST routes refuse a delegated OAuth grant with. */
+const DELEGATION_REFUSAL =
+  'This access token was delegated to an application and is accepted only by the MCP and A2A endpoints';
+
 /**
- * A scripted Dravr. The launch route answers the bridge's start with a 302 to the
- * provider's page and every other GET is a 404, as the retired initiate route is on the
- * real server. /mcp answers discovery and `get_connection_status`, each read with the
- * next of `states` and the last one after that; a state of 'error' fails that read.
- * Every request is recorded.
+ * A scripted Dravr that treats an oauth-mode bridge's token as the delegated grant it
+ * is. Every REST route refuses it with the delegation 403, the launch routes included.
+ * /mcp answers discovery, `connect_provider` with the provider page it mints, and
+ * `get_connection_status`, each read with the next of `states` and the last one after
+ * that; a state of 'error' fails that read. Every request is recorded.
  */
 function startDravr(states) {
   const seen = [];
@@ -52,13 +56,8 @@ function startDravr(states) {
           res.end(JSON.stringify(json));
         };
 
-        if (req.method === 'GET' && req.url === '/api/oauth/authorize/strava') {
-          res.writeHead(302, { Location: PROVIDER_PAGE });
-          res.end();
-          return;
-        }
         if (req.method !== 'POST' || req.url !== '/mcp') {
-          send(404, {});
+          send(403, { code: 'PermissionDenied', message: DELEGATION_REFUSAL });
           return;
         }
         if (rpc.method === 'server/discover') {
@@ -66,6 +65,21 @@ function startDravr(states) {
             supportedVersions: ['2026-07-28'],
             capabilities: { tools: {} },
             serverInfo: { name: 'pierre-mcp-server', version: '0.0.0-test' },
+          }));
+          return;
+        }
+        if (rpc.method === 'tools/call' && rpc.params.name === 'connect_provider') {
+          send(200, complete(rpc.id, {
+            content: [{ type: 'text', text: 'pending_authorization' }],
+            structuredContent: {
+              provider: rpc.params.arguments.provider,
+              authorization_url: PROVIDER_PAGE,
+              state: 'minted',
+              instructions: 'Visit the authorization URL',
+              expires_in_minutes: 10,
+              status: 'pending_authorization',
+            },
+            isError: false,
           }));
           return;
         }
@@ -95,7 +109,8 @@ function startDravr(states) {
         seen,
         url: `http://127.0.0.1:${server.address().port}`,
         statusReads: () => seen.filter((r) => r.rpc?.params?.name === 'get_connection_status'),
-        starts: () => seen.filter((r) => r.method === 'GET'),
+        mints: () => seen.filter((r) => r.rpc?.params?.name === 'connect_provider'),
+        restCalls: () => seen.filter((r) => r.method !== 'POST' || r.url !== '/mcp'),
         close: () =>
           new Promise((done) => {
             server.closeAllConnections();
@@ -106,9 +121,12 @@ function startDravr(states) {
   });
 }
 
+/** The grant an oauth-mode bridge holds: every delegable scope, never the self grant. */
+const DELEGATED_SCOPE = 'fitness:read fitness:write profile:read profile:write';
+
 /**
- * A bridge signed in to the scripted Dravr through its real MCP client, with no callback
- * listener bound: nothing in a provider flow needs one.
+ * An oauth-mode bridge signed in to the scripted Dravr through its real MCP client with
+ * a delegated grant, and no callback listener bound: nothing in a provider flow needs one.
  */
 async function wiredBridge(dravr, accessToken = jwtFor('user-1')) {
   const provider = makeProvider({ disableBrowser: true }, dravr.url);
@@ -116,7 +134,7 @@ async function wiredBridge(dravr, accessToken = jwtFor('user-1')) {
     access_token: accessToken,
     token_type: 'Bearer',
     expires_in: 3600,
-    scope: 'fitness:read fitness:write profile:read profile:write',
+    scope: DELEGATED_SCOPE,
   };
   const bridge = new PierreMcpClient({
     mode: 'oauth',
@@ -164,7 +182,7 @@ function fastPoll(bridge, budgetMs) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-describe('connect_provider polls Dravr for the connection', () => {
+describe('connect_provider mints the page over MCP and polls Dravr for the connection', () => {
   let dravr;
   afterEach(async () => {
     if (dravr) {
@@ -173,7 +191,7 @@ describe('connect_provider polls Dravr for the connection', () => {
     }
   });
 
-  test('resolves connected once the poll reads connected, with nothing sent back to this machine', async () => {
+  test('a delegated grant completes end to end: the MCP tool mints the page, no REST launch is asked', async () => {
     dravr = await startDravr(['disconnected', 'disconnected', 'disconnected', 'connected']);
     const wired = await wiredBridge(dravr);
     const waits = fastPoll(wired.bridge);
@@ -194,14 +212,28 @@ describe('connect_provider polls Dravr for the connection', () => {
         expect(read.headers.authorization).toBe(`Bearer ${jwtFor('user-1')}`);
       }
 
-      // The flow starts on the launch route, which takes the athlete from the session
-      // bearer: no user id rides the path. Nothing to call this machine back with is
-      // sent, and no listener is bound for it.
-      const starts = dravr.starts();
-      expect(starts).toHaveLength(1);
-      expect(starts[0].url).toBe('/api/oauth/authorize/strava');
-      expect(starts[0].headers.authorization).toBe(`Bearer ${jwtFor('user-1')}`);
-      expect(starts[0].headers['x-callback-token']).toBeUndefined();
+      // The flow starts on Dravr's connect_provider tool, over the same MCP session and
+      // bearer as the reads: the tool takes the athlete from the credential, so no user id
+      // is sent. The page opened is the one the tool minted.
+      const mints = dravr.mints();
+      expect(mints).toHaveLength(1);
+      expect(mints[0].rpc.params.arguments).toEqual({ provider: 'strava' });
+      expect(mints[0].headers.authorization).toBe(`Bearer ${jwtFor('user-1')}`);
+      expect(mints[0].headers['x-callback-token']).toBeUndefined();
+      expect(wired.logs).toContain(`Opened strava OAuth in browser: ${PROVIDER_PAGE}`);
+
+      // Every request went to /mcp: no REST launch route, which refuses a delegated
+      // grant, was asked. Nothing to call this machine back with was sent, and no
+      // listener is bound for it.
+      expect(dravr.restCalls()).toEqual([]);
+      expect(dravr.seen.map((r) => r.rpc?.params?.name ?? r.rpc?.method)).toEqual([
+        'server/discover',
+        'get_connection_status',
+        'connect_provider',
+        'get_connection_status',
+        'get_connection_status',
+        'get_connection_status',
+      ]);
       expect(wired.provider.callbackServer).toBeUndefined();
     } finally {
       await wired.cleanup();
@@ -217,9 +249,10 @@ describe('connect_provider polls Dravr for the connection', () => {
 
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toMatch(/^Strava connected successfully!/);
-      const starts = dravr.starts();
-      expect(starts.map((r) => r.url)).toEqual(['/api/oauth/authorize/strava']);
-      expect(starts[0].headers.authorization).toBe('Bearer opaque-session-token');
+      const mints = dravr.mints();
+      expect(mints).toHaveLength(1);
+      expect(mints[0].headers.authorization).toBe('Bearer opaque-session-token');
+      expect(dravr.restCalls()).toEqual([]);
     } finally {
       await wired.cleanup();
     }
@@ -249,7 +282,7 @@ describe('connect_provider polls Dravr for the connection', () => {
       const result = await wired.connect();
 
       expect(result.content[0].text).toMatch(/^Strava connected successfully!/);
-      expect(dravr.starts()).toHaveLength(1);
+      expect(dravr.mints()).toHaveLength(1);
       expect(dravr.statusReads()).toHaveLength(3);
     } finally {
       await wired.cleanup();
@@ -312,7 +345,8 @@ describe('connect_provider polls Dravr for the connection', () => {
 
       expect(result.isError).toBe(false);
       expect(result.content[0].text).toMatch(/^Already connected to STRAVA!/);
-      expect(dravr.starts()).toHaveLength(0);
+      expect(dravr.mints()).toHaveLength(0);
+      expect(dravr.restCalls()).toEqual([]);
       expect(dravr.statusReads()).toHaveLength(1);
       expect(waits).toEqual([]);
     } finally {
