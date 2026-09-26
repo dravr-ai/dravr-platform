@@ -14,10 +14,10 @@ module.exports = {
     '<rootDir>/jest.setup.js',
   ],
   transformIgnorePatterns: [
-    // `uuid` v14 ships ESM-only; without this allowlist entry Jest
-    // sees `export` syntax in `node_modules/uuid/dist/esm/*` and
-    // fails to parse it.
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@react-native-google-signin/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@pierre/.*|uuid)',
+    // `uuid` v14 and `standard-navigation` (expo-router's navigation
+    // primitives) ship ESM-only; without their allowlist entries Jest sees
+    // `import`/`export` syntax in node_modules and fails to parse it.
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@react-native-google-signin/.*|standard-navigation|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@pierre/.*|uuid)',
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   testMatch: ['**/__tests__/**/*.(ts|tsx|js)', '**/?(*.)+(spec|test).(ts|tsx|js)'],

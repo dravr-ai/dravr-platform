@@ -8,6 +8,7 @@ import '../global.css';
 import React from 'react';
 import { View, ActivityIndicator, LogBox } from 'react-native';
 import { Slot, useSegments, useRouter, useNavigationContainerRef } from 'expo-router';
+import type { Route } from 'expo-router/react-navigation';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -35,6 +36,11 @@ LogBox.ignoreLogs([
   'Failed to load messages:',
   'Failed to create conversation:',
   'AxiosError',
+  // Reanimated 4.5 announces, once and in development only, that the device
+  // has reduced motion on. The app honours that setting; the notice has no
+  // action to take, and its toast sits over the tab bar, where it swallowed
+  // the E2E emulator's tab taps (animations are off there).
+  'Reduced motion setting is enabled on this device',
 ]);
 
 SplashScreen.preventAutoHideAsync();
@@ -125,7 +131,12 @@ function RootLayoutNav() {
   React.useEffect(() => {
     let lastScreen: string | null = null;
     const emit = (): void => {
-      const screen = navigationRef.getCurrentRoute()?.name;
+      // expo-router types the container against a generated route map, and an
+      // app without typed routes gets an empty one, so getCurrentRoute() is
+      // typed `never`. At runtime it returns the focused route; the assertion
+      // widens the result to that shape.
+      const current = navigationRef.getCurrentRoute() as Route<string> | undefined;
+      const screen = current?.name;
       if (!screen || screen === lastScreen) return;
       lastScreen = screen;
       trackMobile({ name: 'screen_view', props: { screen } });

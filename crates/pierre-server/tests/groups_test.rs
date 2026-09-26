@@ -12,7 +12,10 @@ mod helpers;
 
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::User;
+use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
+use pierre_core::models::groups::UpdateGroupRequest;
+use pierre_core::models::{TenantId, User};
+use pierre_database::seed_models::SeedAgentTranslation;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
@@ -20,6 +23,7 @@ use pierre_routes_groups::GroupRoutes;
 
 use axum::http::StatusCode;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 /// Assert response is success (200, 201, or 204)
 fn assert_success(resp: &helpers::axum_test::AxumTestResponse, context: &str) {
@@ -1517,4 +1521,350 @@ async fn test_plain_member_is_refused_the_digest_mode_until_made_admin() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["digest_mode"], "chat");
+}
+
+// ============================================================================
+// Who is who: the agent, the human coach and the members by name
+// ============================================================================
+
+/// An owner whose group runs an agent with a catalogue handle and a French
+/// title overlay, and a member who joined from their own, different tenant.
+/// No human coach is attached yet.
+struct RosterFixture {
+    res: Arc<ServerContext>,
+    router: axum::Router,
+    owner_auth: String,
+    member_auth: String,
+    coach_auth: String,
+    owner_id: Uuid,
+    member_id: Uuid,
+    coach_id: Uuid,
+    owner_tenant: TenantId,
+    group_id: String,
+    created: Value,
+}
+
+async fn setup_roster() -> RosterFixture {
+    let res = create_test_server_resources().await.unwrap();
+    let db = &res.agent.database;
+    let (owner_id, owner, owner_tenant) =
+        create_test_user_with_plan(db, "roster-owner@test.com", "professional")
+            .await
+            .unwrap();
+    let (member_id, member, member_tenant) =
+        create_test_user_with_plan(db, "roster-member@test.com", "professional")
+            .await
+            .unwrap();
+    let (coach_id, coach, _) =
+        create_test_user_with_plan(db, "roster-coach@test.com", "professional")
+            .await
+            .unwrap();
+    assert_ne!(
+        owner_tenant, member_tenant,
+        "fixture precondition: the member acts from another tenant"
+    );
+    let repos = db.repositories();
+    repos.users.update_locale(owner_id, "en").await.unwrap();
+    repos.users.update_locale(member_id, "fr").await.unwrap();
+    repos.users.update_locale(coach_id, "fr").await.unwrap();
+
+    let owner_auth = format!("Bearer {}", generate_test_token(&res, &owner).await);
+    let member_auth = format!("Bearer {}", generate_test_token(&res, &member).await);
+    let coach_auth = format!("Bearer {}", generate_test_token(&res, &coach).await);
+    let router = build_agents_router::<ServerContext>()
+        .with_state(Arc::clone(&res))
+        .merge(GroupRoutes::routes(Arc::clone(&res)));
+
+    let agent_id = create_test_agent(&router, &owner_auth).await;
+    let handle = repos
+        .store_listings
+        .assign_catalogue_handle(&agent_id, owner_tenant)
+        .await
+        .unwrap();
+    assert_eq!(handle, "test-coach");
+    repos
+        .seeder
+        .seed_upsert_agent_translation(&SeedAgentTranslation {
+            agent_id: agent_id.clone(),
+            locale: "fr".to_owned(),
+            title: Some("Coach de Test".to_owned()),
+            description: None,
+            purpose: None,
+            instructions: None,
+            source_sha: None,
+            tags: None,
+        })
+        .await
+        .unwrap();
+
+    let resp = AxumTestRequest::post("/api/groups")
+        .header("authorization", &owner_auth)
+        .json(&json!({ "name": "Roster Club", "agent_id": agent_id, "max_members": 10 }))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::CREATED);
+    let created: Value = resp.json();
+    let group_id = created["id"].as_str().unwrap().to_owned();
+
+    let invite: Value = AxumTestRequest::post(&format!("/api/groups/{group_id}/invites"))
+        .header("authorization", &owner_auth)
+        .json(&json!({}))
+        .send(router.clone())
+        .await
+        .json();
+    let joined = AxumTestRequest::post("/api/groups/join")
+        .header("authorization", &member_auth)
+        .json(&json!({ "invite_code": invite["code"] }))
+        .send(router.clone())
+        .await;
+    assert_eq!(joined.status_code(), StatusCode::CREATED);
+
+    RosterFixture {
+        res,
+        router,
+        owner_auth,
+        member_auth,
+        coach_auth,
+        owner_id,
+        member_id,
+        coach_id,
+        owner_tenant,
+        group_id,
+        created,
+    }
+}
+
+/// A plain member who joined from another tenant reads the group's agent by
+/// its title in their own language and by its handle, and the human coach by
+/// name — the agent is resolved in the group's tenant, where it runs, not in
+/// the reader's. Every route that answers with a group names them the same
+/// way: create, read, update and the coach's own list.
+#[tokio::test]
+async fn test_cross_tenant_member_reads_the_agent_and_coach_by_name() {
+    let fx = Box::pin(setup_roster()).await;
+    let repos = fx.res.agent.database.repositories();
+    assert!(repos
+        .groups
+        .set_group_coach_user(&fx.group_id, Some(fx.coach_id), fx.owner_tenant)
+        .await
+        .unwrap());
+    repos
+        .users
+        .update_display_name(fx.coach_id, "Karine Tremblay")
+        .await
+        .unwrap();
+
+    assert_eq!(fx.created["agent_title"], "Test Coach");
+    assert_eq!(fx.created["agent_handle"], "test-coach");
+
+    let as_member = get_group_as(&fx.router, &fx.member_auth, &fx.group_id).await;
+    assert_eq!(
+        as_member["agent_title"], "Coach de Test",
+        "the French member reads the agent's French title"
+    );
+    assert_eq!(as_member["agent_handle"], "test-coach");
+    assert_eq!(as_member["coach_user_id"], fx.coach_id.to_string());
+    assert_eq!(as_member["coach_display_name"], "Karine Tremblay");
+    assert!(
+        as_member.get("system_prompt").is_none(),
+        "no agent internals reach the group body: {as_member}"
+    );
+
+    let as_owner = get_group_as(&fx.router, &fx.owner_auth, &fx.group_id).await;
+    assert_eq!(
+        as_owner["agent_title"], "Test Coach",
+        "the English owner reads the canonical title"
+    );
+    assert_eq!(as_owner["coach_display_name"], "Karine Tremblay");
+
+    let (status, updated) = put_group(
+        &fx.router,
+        &fx.owner_auth,
+        &fx.group_id,
+        json!({ "description": "Tuesday intervals" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["agent_title"], "Test Coach");
+    assert_eq!(updated["coach_display_name"], "Karine Tremblay");
+
+    let coached: Value = AxumTestRequest::get("/api/groups/coached")
+        .header("authorization", &fx.coach_auth)
+        .send(fx.router.clone())
+        .await
+        .json();
+    let groups = coached["groups"].as_array().unwrap();
+    assert_eq!(groups.len(), 1, "the coach holds one group: {coached}");
+    assert_eq!(groups[0]["agent_title"], "Coach de Test");
+    assert_eq!(groups[0]["agent_handle"], "test-coach");
+    assert_eq!(groups[0]["coach_display_name"], "Karine Tremblay");
+}
+
+/// Point the fixture's group at `agent_id` straight through the repository:
+/// the create route does not check that an agent id belongs to the group's
+/// tenant, so a row naming a foreign agent is a state the read must handle.
+async fn repoint_group_agent(fx: &RosterFixture, agent_id: &str) {
+    let updated = fx
+        .res
+        .agent
+        .database
+        .repositories()
+        .groups
+        .update_group(
+            &fx.group_id,
+            fx.owner_tenant,
+            &UpdateGroupRequest {
+                name: None,
+                description: None,
+                agent_id: Some(agent_id.to_owned()),
+                max_members: None,
+                peer_data_sharing: None,
+                respond_mode: None,
+                digest_mode: None,
+                is_active: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        updated.map(|g| g.agent_id).as_deref(),
+        Some(agent_id),
+        "fixture precondition: the group now names the other agent"
+    );
+}
+
+/// A group row naming a third tenant's private agent reads as an agent that
+/// cannot be resolved: its title and handle stay private to that tenant,
+/// while the rest of the group, the human coach included, still reads.
+#[tokio::test]
+async fn test_a_third_tenants_private_agent_is_never_named() {
+    let fx = Box::pin(setup_roster()).await;
+    let db = &fx.res.agent.database;
+    let (_, stranger, stranger_tenant) =
+        create_test_user_with_plan(db, "roster-stranger@test.com", "professional")
+            .await
+            .unwrap();
+    assert_ne!(stranger_tenant, fx.owner_tenant, "fixture precondition");
+    let stranger_auth = format!("Bearer {}", generate_test_token(&fx.res, &stranger).await);
+    let private_agent = create_test_agent(&fx.router, &stranger_auth).await;
+    repoint_group_agent(&fx, &private_agent).await;
+    let repos = db.repositories();
+    assert!(repos
+        .groups
+        .set_group_coach_user(&fx.group_id, Some(fx.coach_id), fx.owner_tenant)
+        .await
+        .unwrap());
+    repos
+        .users
+        .update_display_name(fx.coach_id, "Karine Tremblay")
+        .await
+        .unwrap();
+
+    let as_member = get_group_as(&fx.router, &fx.member_auth, &fx.group_id).await;
+    assert_eq!(as_member["agent_id"], private_agent.as_str());
+    assert_eq!(as_member["agent_title"], Value::Null);
+    assert_eq!(as_member["agent_handle"], Value::Null);
+    assert_eq!(as_member["coach_display_name"], "Karine Tremblay");
+}
+
+/// A system agent is shared across tenants, so a group running one is named
+/// by that agent's title even though it was created in another tenant.
+#[tokio::test]
+async fn test_a_system_agent_from_another_tenant_is_named() {
+    let fx = Box::pin(setup_roster()).await;
+    let db = &fx.res.agent.database;
+    let (admin_id, _, admin_tenant) =
+        create_test_user_with_plan(db, "roster-system-admin@test.com", "professional")
+            .await
+            .unwrap();
+    assert_ne!(admin_tenant, fx.owner_tenant, "fixture precondition");
+    let system_agent = db
+        .repositories()
+        .agents
+        .create_system_agent(
+            admin_id,
+            admin_tenant,
+            &CreateSystemAgentRequest {
+                title: "Shared Marathon Agent".to_owned(),
+                description: None,
+                system_prompt: "You coach the group.".to_owned(),
+                category: AgentCategory::Training,
+                tags: vec![],
+                visibility: AgentVisibility::Tenant,
+                sample_prompts: vec![],
+            },
+        )
+        .await
+        .unwrap()
+        .id
+        .to_string();
+    repoint_group_agent(&fx, &system_agent).await;
+
+    let as_member = get_group_as(&fx.router, &fx.member_auth, &fx.group_id).await;
+    assert_eq!(as_member["agent_id"], system_agent.as_str());
+    assert_eq!(as_member["agent_title"], "Shared Marathon Agent");
+    assert_eq!(as_member["coach_display_name"], Value::Null);
+}
+
+/// With no human coach the group names none; a coach whose display name is
+/// blank is named by their email, as every other surface names a person.
+#[tokio::test]
+async fn test_coach_name_is_null_without_a_coach_and_falls_back_to_email() {
+    let fx = Box::pin(setup_roster()).await;
+
+    let without = get_group_as(&fx.router, &fx.member_auth, &fx.group_id).await;
+    assert_eq!(without["coach_user_id"], Value::Null);
+    assert_eq!(without["coach_display_name"], Value::Null);
+    assert_eq!(
+        without["agent_title"], "Coach de Test",
+        "the agent is named whether or not a coach is attached"
+    );
+
+    let repos = fx.res.agent.database.repositories();
+    repos
+        .users
+        .update_display_name(fx.coach_id, "   ")
+        .await
+        .unwrap();
+    assert!(repos
+        .groups
+        .set_group_coach_user(&fx.group_id, Some(fx.coach_id), fx.owner_tenant)
+        .await
+        .unwrap());
+
+    let with_blank = get_group_as(&fx.router, &fx.member_auth, &fx.group_id).await;
+    assert_eq!(with_blank["coach_display_name"], "roster-coach@test.com");
+}
+
+/// The member list names each member by display name when they have one and
+/// by email when they have none — never by email alone.
+#[tokio::test]
+async fn test_members_are_named_by_display_name_else_email() {
+    let fx = Box::pin(setup_roster()).await;
+    let repos = fx.res.agent.database.repositories();
+    repos
+        .users
+        .update_display_name(fx.owner_id, "Olivia Owner")
+        .await
+        .unwrap();
+    let mut member = repos.users.get_global(fx.member_id).await.unwrap().unwrap();
+    member.display_name = None;
+    repos.users.update(&member).await.unwrap();
+
+    let body: Value = AxumTestRequest::get(&format!("/api/groups/{}/members", fx.group_id))
+        .header("authorization", &fx.member_auth)
+        .send(fx.router.clone())
+        .await
+        .json();
+    let members = body["members"].as_array().unwrap();
+    assert_eq!(members.len(), 2, "owner and member: {body}");
+    let name_of = |user_id: Uuid| {
+        members
+            .iter()
+            .find(|m| m["user_id"] == user_id.to_string())
+            .unwrap_or_else(|| panic!("{user_id} is listed: {body}"))["display_name"]
+            .clone()
+    };
+    assert_eq!(name_of(fx.owner_id), "Olivia Owner");
+    assert_eq!(name_of(fx.member_id), "roster-member@test.com");
 }

@@ -25,6 +25,23 @@ appId: ai.dravr.app
     id: "chat-title-button"
 - extendedWaitUntil:
     visible:
+      id: "group-info-members"
+    timeout: 10000
+
+# Who runs the group heads the member list: the AI agent, then the human coach
+# (alice), who holds no membership row and is named nowhere else in the sheet.
+- extendedWaitUntil:
+    visible:
+      id: "group-info-ai-coach"
+    timeout: 10000
+- assertVisible:
+    id: "group-info-human-coach"
+- assertNotVisible:
+    id: "group-info-no-coach"
+
+# Those two rows sit above the members, so the links section may start below the fold.
+- scrollUntilVisible:
+    element:
       id: "group-info-delegation"
     timeout: 10000
 

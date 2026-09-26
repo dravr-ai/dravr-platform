@@ -1,0 +1,59 @@
+# ABOUTME: Helper that waits for Home after a login, dismissing the iOS "Save Password?" sheet whenever it covers the app
+# ABOUTME: Taps "Not Now" when the sheet exposes its labels, and by position when the sheet hides the whole accessibility tree
+
+appId: host.exp.Exponent
+
+---
+# iOS offers to save the password a few seconds after the login screen has
+# gone (iOS 27.0, 2026-09-25: up by the 5 s mark), so a single check made the
+# moment the login screen disappears misses it, and the sheet then hides the
+# React Native tree the Home wait is looking at. Each round below checks for
+# the sheet, then waits for Home. With AutoFill off — CI writes
+# AutoFillPasswords=false, which still suppresses the sheet on iOS 27 — the
+# first round ends on Home and costs nothing extra; six 10 s rounds keep the
+# 60 s budget of the wait this replaces.
+- repeat:
+    times: 6
+    while:
+      notVisible:
+        id: "home-screen"
+    commands:
+      # The sheet exposes "Save Password?" / "Not Now" in the development
+      # build on iOS 27 and on iOS 17.4.
+      - runFlow:
+          when:
+            visible: "Save Password?"
+          file: dismiss-save-password.yaml
+      - extendedWaitUntil:
+          visible:
+            id: "home-screen"
+          timeout: 10000
+          optional: true
+      # Inside Expo Go on iOS 27 the same sheet is outside the hierarchy
+      # Maestro reads: the tree shows nothing but "Expo Go" while it is up.
+      # Ten seconds on with no Home, no login screen and no tab bar exposed
+      # means a system sheet covers the whole app, so "Not Now" is tapped
+      # where iOS 27 puts it on iPhone 17 (left button, 31% / 62%). Anything
+      # of the app showing at all skips this.
+      - runFlow:
+          when:
+            platform: iOS
+            notVisible:
+              id: "home-screen"
+          commands:
+            - runFlow:
+                when:
+                  notVisible:
+                    id: "login-screen"
+                commands:
+                  - runFlow:
+                      when:
+                        notVisible: "Accueil|Home|Discussion|Chat"
+                      commands:
+                        - tapOn:
+                            point: "31%,62%"
+
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 10000

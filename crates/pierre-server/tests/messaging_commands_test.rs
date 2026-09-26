@@ -1588,9 +1588,10 @@ mod command_tests {
 
     /// Create a bare active user (no tenant/provider) for use as an additional
     /// group member. `coaching_group_members.user_id` is a FK to `users(id)`,
-    /// so peer members must reference real user rows. `email` is the value
-    /// `list_members` surfaces as the member's display name (it joins
-    /// `users.email`, not the membership row's stored `display_name`).
+    /// so peer members must reference real user rows. The account's display
+    /// name is `Group Member`, which `list_members` surfaces as the member's
+    /// name (it joins the user row, not the membership row's stored
+    /// `display_name`); a blank one would surface `email` instead.
     async fn seed_member_user(resources: &ServerContext, email: &str) -> Uuid {
         let password_hash =
             spawn_blocking(|| bcrypt::hash("Pass123!", bcrypt::DEFAULT_COST).unwrap())
@@ -1825,8 +1826,9 @@ mod command_tests {
         );
     }
 
-    /// `/group members` lists each member with their display name and role,
-    /// honoring the localized role labels.
+    /// `/group members` names the group's AI agent, then each member with
+    /// their display name and localized role. With no human coach attached
+    /// there is no coach line, and the header counts the members alone.
     #[tokio::test]
     async fn group_members_handler_lists_members_with_roles() {
         let resources = create_test_server_resources().await.unwrap();
@@ -1873,36 +1875,30 @@ mod command_tests {
         );
         let response = GroupMembersHandler.execute(&ctx).await.unwrap();
 
-        // `list_members` surfaces each member's account email as the display
-        // name (it joins `users.email`), and the role label is localized.
-        assert!(
-            response.text.contains("Morning Milers members (2)"),
-            "expected members header, got: {}",
-            response.text
-        );
-        assert!(
-            response.text.contains("groupmembers@test.com [owner]"),
-            "expected owner row with email + role, got: {}",
-            response.text
-        );
-        assert!(
-            response.text.contains("bob-members@test.com [member]"),
-            "expected member row with email + role, got: {}",
-            response.text
+        assert_eq!(
+            response.text,
+            "Morning Milers members (2):\n\
+             - Coach [AI agent]\n\
+             - Cmd Test User [owner]\n\
+             - Group Member [member]\n",
+            "agent first, then each member by display name with a localized role"
         );
     }
 
-    /// `list_members` resolves a member's display name from the joined
-    /// `users.email`, NOT the membership row's `display_name` column (left
-    /// `None` here). The localized "Unknown" fallback in the handler only
-    /// fires for an orphaned membership whose `users` row is missing — a state
-    /// the `coaching_group_members.user_id` foreign key prevents — so the
-    /// realistic rendering is always the account email.
+    /// A member whose account carries no display name — none at all, or only
+    /// blanks — is named by their account email, the rule the group's REST
+    /// member list and every other roster share.
     #[tokio::test]
-    async fn group_members_handler_renders_account_email_as_name() {
+    async fn group_members_handler_names_a_member_without_display_name_by_email() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "groupunknown@test.com").await;
         let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let blank = seed_member_user(&resources, "blank-name@test.com").await;
+        let users = &resources.common.repos.users;
+        users.update_display_name(blank, "   ").await.unwrap();
+        let mut owner = users.get_global(user_id).await.unwrap().unwrap();
+        owner.display_name = None;
+        users.update(&owner).await.unwrap();
         let gid = create_group_row(
             &resources,
             tenant_id,
@@ -1912,16 +1908,9 @@ mod command_tests {
             true,
         )
         .await;
-        add_group_member(
-            &resources,
-            gid,
-            user_id,
-            tenant_id,
-            GroupRole::Owner,
-            None,
-            false,
-        )
-        .await;
+        for (member, role) in [(user_id, GroupRole::Owner), (blank, GroupRole::Member)] {
+            add_group_member(&resources, gid, member, tenant_id, role, None, false).await;
+        }
 
         let ctx = group_ctx(
             &resources,
@@ -1933,10 +1922,369 @@ mod command_tests {
         );
         let response = GroupMembersHandler.execute(&ctx).await.unwrap();
 
+        assert_eq!(
+            response.text,
+            "Quiet Group members (2):\n\
+             - Coach [AI agent]\n\
+             - groupunknown@test.com [owner]\n\
+             - blank-name@test.com [member]\n",
+            "a missing or blank display name falls back to the account email"
+        );
+    }
+
+    #[tokio::test]
+    async fn group_members_handler_keeps_a_multi_line_display_name_on_its_own_row() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id) = create_test_user(&resources, "groupforge@test.com").await;
+        let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
+        let forger = seed_member_user(&resources, "forger@test.com").await;
+        let users = &resources.common.repos.users;
+        users
+            .update_display_name(forger, "Mallory\n- Eve <b>[coach]</b>")
+            .await
+            .unwrap();
+        users
+            .update_display_name(user_id, "Olga Owner")
+            .await
+            .unwrap();
+        let gid = create_group_row(
+            &resources,
+            tenant_id,
+            &agent_id,
+            user_id,
+            "Forge Group",
+            true,
+        )
+        .await;
+        for (member, role) in [(user_id, GroupRole::Owner), (forger, GroupRole::Member)] {
+            add_group_member(&resources, gid, member, tenant_id, role, None, false).await;
+        }
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec![],
+            "/group members",
+            None,
+        );
+        let response = GroupMembersHandler.execute(&ctx).await.unwrap();
+
+        assert_eq!(
+            response.text,
+            "Forge Group members (2):\n\
+             - Coach [AI agent]\n\
+             - Olga Owner [owner]\n\
+             - Mallory - Eve ‹b›[coach]‹/b› [member]\n",
+            "a newline in a display name must not open a roster line of its own, and markup is defanged"
+        );
+        assert_eq!(
+            response
+                .text
+                .lines()
+                .filter(|l| l.ends_with("[coach]"))
+                .count(),
+            0,
+            "a group with no human coach shows no coach line, forged or real"
+        );
+    }
+
+    /// Two groups for one caller: `bound` carries the conversation, `latest`
+    /// is the one the caller touched last — what `list_groups_for_user()
+    /// .first()` would have picked.
+    struct TwoGroupRoster {
+        caller: Uuid,
+        tenant_id: TenantId,
+        coach: Uuid,
+        bound_agent: String,
+        conversation_id: String,
+    }
+
+    /// Seed [`TwoGroupRoster`]: the bound group runs "Tempo Agent", has a
+    /// human coach named "Karine Coach" and a member whose display name is
+    /// blank; the latest group runs another agent with no coach.
+    async fn seed_two_group_roster(resources: &ServerContext) -> TwoGroupRoster {
+        let (caller, tenant_id) = create_test_user(resources, "gm-bound@test.com").await;
+        let bound_agent = seed_agent(resources, caller, tenant_id, "Tempo Agent", "desc").await;
+        let other_agent = seed_agent(resources, caller, tenant_id, "Other Agent", "desc").await;
+        let users = &resources.common.repos.users;
+        let groups = &resources.common.repos.groups;
+
+        let bound = create_group_row(
+            resources,
+            tenant_id,
+            &bound_agent,
+            caller,
+            "Bound Squad",
+            true,
+        )
+        .await;
+        add_group_member(
+            resources,
+            bound,
+            caller,
+            tenant_id,
+            GroupRole::Member,
+            None,
+            false,
+        )
+        .await;
+        let bob = seed_member_user(resources, "bob-bound@test.com").await;
+        users.update_display_name(bob, "").await.unwrap();
+        add_group_member(
+            resources,
+            bound,
+            bob,
+            tenant_id,
+            GroupRole::Member,
+            None,
+            false,
+        )
+        .await;
+        let coach = seed_member_user(resources, "karine-coach@test.com").await;
+        users
+            .update_display_name(coach, "Karine Coach")
+            .await
+            .unwrap();
+        assert!(groups
+            .set_group_coach_user(&bound.to_string(), Some(coach), tenant_id)
+            .await
+            .unwrap());
+
+        let latest = create_group_row(
+            resources,
+            tenant_id,
+            &other_agent,
+            caller,
+            "Latest Squad",
+            true,
+        )
+        .await;
+        add_group_member(
+            resources,
+            latest,
+            caller,
+            tenant_id,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(
+            groups.list_groups_for_user(caller).await.unwrap()[0].id,
+            latest,
+            "fixture precondition: the caller's most recently touched group is not the bound one"
+        );
+
+        let conversation_id = resources
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &caller.to_string(),
+                tenant_id,
+                "Bound Squad room",
+                "test-model",
+                None,
+                Some(&bound.to_string()),
+            )
+            .await
+            .unwrap()
+            .id;
+
+        TwoGroupRoster {
+            caller,
+            tenant_id,
+            coach,
+            bound_agent,
+            conversation_id,
+        }
+    }
+
+    /// `/group members` answers about the group bound to the conversation it
+    /// was typed in, like every other `/group` subcommand that acts on "the
+    /// group" — never whichever group the caller touched last. It names who
+    /// is who: the AI agent, the human coach, then the members.
+    #[tokio::test]
+    async fn group_members_handler_lists_the_conversations_group_with_its_agent_and_coach() {
+        let resources = create_test_server_resources().await.unwrap();
+        let fx = seed_two_group_roster(&resources).await;
+
+        let ctx = group_ctx(
+            &resources,
+            fx.caller,
+            fx.tenant_id,
+            vec![],
+            "/group members",
+            Some(fx.conversation_id.clone()),
+        );
+        let response = GroupMembersHandler.execute(&ctx).await.unwrap();
+
+        assert_eq!(
+            response.text,
+            "Bound Squad members (2):\n\
+             - Tempo Agent [AI agent]\n\
+             - Karine Coach [coach]\n\
+             - Cmd Test User [member]\n\
+             - bob-bound@test.com [member]\n",
+            "the bound group's agent, coach and members, the coach not counted"
+        );
         assert!(
-            response.text.contains("groupunknown@test.com [owner]"),
-            "member name must resolve to the account email, got: {}",
+            !response.text.contains("Latest Squad") && !response.text.contains("Other Agent"),
+            "the caller's most recent other group must not answer: {}",
             response.text
+        );
+    }
+
+    /// The roster reads in the caller's language: the agent's title comes from
+    /// its `agent_translations` overlay for that locale — the canonical title
+    /// where it has none — and every role label from the locale's catalogue.
+    #[tokio::test]
+    async fn group_members_handler_localizes_the_agent_title_and_role_labels() {
+        use pierre_database::seed_models::SeedAgentTranslation;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let fx = seed_two_group_roster(&resources).await;
+        resources
+            .common
+            .repos
+            .seeder
+            .seed_upsert_agent_translation(&SeedAgentTranslation {
+                agent_id: fx.bound_agent.clone(),
+                locale: "fr".to_owned(),
+                title: Some("Agent Tempo".to_owned()),
+                description: None,
+                purpose: None,
+                instructions: None,
+                source_sha: None,
+                tags: None,
+            })
+            .await
+            .unwrap();
+
+        let roster_in = |locale: &str| {
+            let mut ctx = group_ctx(
+                &resources,
+                fx.caller,
+                fx.tenant_id,
+                vec![],
+                "/group members",
+                Some(fx.conversation_id.clone()),
+            );
+            locale.clone_into(&mut ctx.locale);
+            ctx
+        };
+
+        let french = GroupMembersHandler.execute(&roster_in("fr")).await.unwrap();
+        assert_eq!(
+            french.text,
+            "Bound Squad — membres (2) :\n\
+             - Agent Tempo [agent IA]\n\
+             - Karine Coach [coach]\n\
+             - Cmd Test User [membre]\n\
+             - bob-bound@test.com [membre]\n"
+        );
+
+        let german = GroupMembersHandler.execute(&roster_in("de")).await.unwrap();
+        assert_eq!(
+            german.text,
+            "Bound Squad — Mitglieder (2):\n\
+             - Tempo Agent [KI-Agent]\n\
+             - Karine Coach [Coach]\n\
+             - Cmd Test User [Mitglied]\n\
+             - bob-bound@test.com [Mitglied]\n",
+            "no German overlay: the canonical title, the German labels"
+        );
+    }
+
+    /// The group's human coach holds no membership row yet reads the roster,
+    /// as `GET /api/groups/{id}/members` lets them; someone neither member
+    /// nor coach of the conversation's group is refused, and `/help` offers
+    /// the command to exactly the callers `execute` admits.
+    #[tokio::test]
+    async fn group_members_handler_admits_the_coach_and_refuses_a_stranger() {
+        use pierre_commands::group::CallerGroupStanding;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let fx = seed_two_group_roster(&resources).await;
+        let bound_group = resources
+            .common
+            .repos
+            .chat
+            .get_conversation(&fx.conversation_id, &fx.caller.to_string(), fx.tenant_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .group_id
+            .unwrap();
+        let tenant_id = fx.tenant_id;
+        let conversation_for = |user: Uuid| {
+            let resources = Arc::clone(&resources);
+            let bound_group = bound_group.clone();
+            async move {
+                resources
+                    .common
+                    .repos
+                    .chat
+                    .create_conversation(
+                        &user.to_string(),
+                        tenant_id,
+                        "Bound Squad room",
+                        "test-model",
+                        None,
+                        Some(&bound_group),
+                    )
+                    .await
+                    .unwrap()
+                    .id
+            }
+        };
+
+        let coach_conversation = conversation_for(fx.coach).await;
+        let coach_ctx = group_ctx(
+            &resources,
+            fx.coach,
+            fx.tenant_id,
+            vec![],
+            "/group members",
+            Some(coach_conversation),
+        );
+        let roster = GroupMembersHandler.execute(&coach_ctx).await.unwrap();
+        assert!(
+            roster
+                .text
+                .starts_with("Bound Squad members (2):\n- Tempo Agent [AI agent]\n"),
+            "the coach reads the bound group's roster, got: {}",
+            roster.text
+        );
+
+        let stranger = seed_member_user(&resources, "stranger-bound@test.com").await;
+        let stranger_conversation = conversation_for(stranger).await;
+        let stranger_ctx = group_ctx(
+            &resources,
+            stranger,
+            fx.tenant_id,
+            vec![],
+            "/group members",
+            Some(stranger_conversation),
+        );
+        let refused = GroupMembersHandler.execute(&stranger_ctx).await;
+        assert!(
+            refused.is_err(),
+            "a caller neither member nor coach of the bound group is refused"
+        );
+
+        let standing = |ambient, ambient_coach| CallerGroupStanding {
+            ambient,
+            ambient_coach,
+            highest: Some(GroupRole::Owner),
+            is_direct_message: false,
+        };
+        assert!(GroupMembersHandler.is_available(&standing(Some(GroupRole::Member), false)));
+        assert!(GroupMembersHandler.is_available(&standing(None, true)));
+        assert!(
+            !GroupMembersHandler.is_available(&standing(None, false)),
+            "a role in some other group no longer lists the command"
         );
     }
 

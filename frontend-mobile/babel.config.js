@@ -1,5 +1,5 @@
-// ABOUTME: Babel configuration for Expo with NativeWind v4 support
-// ABOUTME: Includes react-native-reanimated plugin for gesture handling
+// ABOUTME: Babel configuration for Expo with NativeWind v4 support and the React Compiler
+// ABOUTME: babel-preset-expo adds the react-native-worklets plugin itself whenever the package is installed
 
 module.exports = function(api) {
   api.cache(true);
@@ -9,7 +9,6 @@ module.exports = function(api) {
     ],
     plugins: [
       'babel-plugin-react-compiler',
-      'react-native-reanimated/plugin',
     ],
   };
 };

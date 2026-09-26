@@ -169,11 +169,23 @@ jobs:
         # both attempts). pipefail surfaces curl's status, and running the
         # binary is the success marker — an install that produced nothing
         # runnable fails here, not in the smoke test.
+        #
+        # Pinned: the installer takes MAESTRO_VERSION and otherwise fetches
+        # whatever released last, so a Maestro release could change this
+        # lane's verdict with no commit here. The iOS lane pins the same
+        # version; move both together, after a local run on it.
+        env:
+          MAESTRO_VERSION: "2.10.0"
         run: |
           set -o pipefail
           curl -fsSL "https://get.maestro.mobile.dev" | bash
-          "$HOME/.maestro/bin/maestro" --version
-          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+          installed="$("$HOME/.maestro/bin/maestro" --version | tail -1)"
+          if [ "$installed" != "$MAESTRO_VERSION" ]; then
+            echo "::error::Maestro $MAESTRO_VERSION was asked for and $installed was installed"
+            exit 1
+          fi
+          echo "Maestro $installed"
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Free disk space for emulator
         run: |

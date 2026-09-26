@@ -10,7 +10,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { IdleWatch, idleAbort, registerIdleWatch, resetIdleAbort } from '@pierre/shared-constants';
 
 // No navigator under a unit test, so the header the column offsets by is 0 tall.
-jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
+jest.mock('expo-router/react-navigation', () => ({
+  ...jest.requireActual('expo-router/react-navigation'),
+  useHeaderHeight: () => 0,
+}));
 jest.mock('@expo/vector-icons', () => {
   const View = require('react-native').View;
   const glyph = (props: Record<string, unknown>) =>

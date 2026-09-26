@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info for the open group thread — members, TrainingPeaks links, invites, coach, settings, analytics, room
+// ABOUTME: Group info for the open group thread — who runs it, members, TrainingPeaks links, invites, coach, settings, analytics, room
 // ABOUTME: The Groups tab's management surface, re-homed where App Messaging keeps it: inside the chat
 
 import { useState } from 'react';
@@ -31,6 +31,7 @@ import {
   useSuccessToast,
 } from '../ui';
 import MemberList from './MemberList';
+import GroupLeads from './GroupLeads';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
@@ -93,10 +94,11 @@ function Section({
  * Everything the Groups tab used to hold, for the group behind the open thread.
  *
  * Tapping the thread header is how Telegram and WhatsApp reach group info, and
- * it is now the only way here: the roster and its admin actions, the invite
- * links, the human coach, the group settings, the caller's own peer-sharing
- * consent, the analytics an admin may read, the shared room transcript, and
- * the two exits. Creating and joining are commands, so neither appears.
+ * it is now the only way here: the AI agent and the human coach who run the
+ * group, the roster and its admin actions, the invite links, the coach's
+ * management, the group settings, the caller's own peer-sharing consent, the
+ * analytics an admin may read, the shared room transcript, and the two exits.
+ * Creating and joining are commands, so neither appears.
  */
 export default function GroupInfoPanel({
   groupId,
@@ -116,6 +118,8 @@ export default function GroupInfoPanel({
   // off, since their routes refuse a non-member.
   const isGroupCoach = !!group?.coach_user_id && group.coach_user_id === currentUserId;
   const isCoachViewer = isGroupCoach && !currentMember;
+  // The coach's name as the server spells it: display name, else email.
+  const coachName = group?.coach_user_id ? group.coach_display_name : null;
 
   const { stats, isLoading: isStatsLoading } = useGroupStats(
     groupId,
@@ -285,7 +289,15 @@ export default function GroupInfoPanel({
           {group.coach_user_id && (
             <span className="flex items-center gap-1.5 text-primary" data-testid="group-info-coach-badge">
               <UserCog className="w-3.5 h-3.5" aria-hidden="true" />
-              {isGroupCoach ? t('humanCoach.youCoach') : t('humanCoach.attachedBadge')}
+              {isGroupCoach ? (
+                t('humanCoach.youCoach')
+              ) : coachName ? (
+                <span>
+                  {t('humanCoach.coach')} <span className="font-medium">{coachName}</span>
+                </span>
+              ) : (
+                t('humanCoach.attachedBadge')
+              )}
             </span>
           )}
         </div>
@@ -314,6 +326,7 @@ export default function GroupInfoPanel({
       )}
 
       <Section icon={<Users className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabMembers')}>
+        <GroupLeads group={group} viewerIsCoach={isGroupCoach} />
         <MemberList
           groupId={groupId}
           members={members}
@@ -360,9 +373,12 @@ export default function GroupInfoPanel({
           </p>
           {group.coach_user_id ? (
             <div className="flex items-center justify-between gap-3">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs text-outline">
-                {group.coach_user_id}
-              </code>
+              <span
+                className="min-w-0 flex-1 truncate text-sm font-medium text-on-surface"
+                data-testid="group-info-coach-name"
+              >
+                {coachName ?? t('humanCoach.attached')}
+              </span>
               <Button
                 variant="danger"
                 size="sm"

@@ -51,6 +51,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/dev-processes.sh"
+. "$SCRIPT_DIR/ios-simulator.sh"
 . "$SCRIPT_DIR/tunnel-env.sh"
 cd "$PROJECT_ROOT"
 
@@ -441,10 +442,31 @@ print_step 8 "Starting Expo Mobile (port $EXPO_PORT)..."
 if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
     cd "$PROJECT_ROOT/frontend-mobile"
 
+    # Xcode 27 has no Simulator.app, which is what `expo start --ios` opens to
+    # boot a device, and Device Hub (its replacement) boots nothing when it
+    # opens. So on Xcode 27 the device is booted with simctl here, and the Expo
+    # Go path below installs Expo Go and opens the URL itself once Metro
+    # answers. Xcode 16 and 26 keep the --ios path unchanged.
+    IOS_DEVICE_HUB=false
+    IOS_SIM_BOOTED=""
+    if [ "$MOBILE_PLATFORM" = "ios" ] && ! ios_sim_has_simulator_app; then
+        IOS_DEVICE_HUB=true
+        if IOS_SIM_BOOTED="$(ios_sim_ensure_booted)"; then
+            ios_sim_show "$IOS_SIM_BOOTED"
+            echo "    Device Hub (Xcode 27): $(ios_sim_device_name "$IOS_SIM_BOOTED") ($IOS_SIM_BOOTED) is booted"
+        else
+            IOS_SIM_BOOTED=""
+            echo -e "${YELLOW}    Could not boot an iOS simulator. Boot one, then rerun:${NC}"
+            ios_sim_boot_hint
+        fi
+    fi
+
     if [ "$NATIVE_BUILD" = "true" ]; then
         # --native flag: build native app with Xcode (for speech recognition, native MMKV)
         echo "    Native build requested — using bin/build-native-app.sh..."
-        dev_spawn expo-build "$EXPO_LOG" "$PROJECT_ROOT/bin/build-native-app.sh" --no-bundler
+        # The device booted above, when there was one to boot, is the one built for.
+        IOS_SIM_UDID="${IOS_SIM_UDID:-$IOS_SIM_BOOTED}" \
+            dev_spawn expo-build "$EXPO_LOG" "$PROJECT_ROOT/bin/build-native-app.sh" --no-bundler
         echo "    Building native iOS app (this may take several minutes)..."
         echo "    Watch progress: tail -f $EXPO_LOG"
         # Start Metro in dev-client mode since native build uses --no-bundler.
@@ -458,6 +480,10 @@ if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
         # The Android emulator reaches the host as 10.0.2.2, and a process-level
         # EXPO_PUBLIC_API_URL beats the one in frontend-mobile/.env, so a stale
         # Cloud Run URL there cannot silently redirect the emulator to deployed dev.
+        EXPO_IOS_FLAGS=(--ios)
+        if [ "$IOS_DEVICE_HUB" = "true" ]; then
+            EXPO_IOS_FLAGS=()
+        fi
         if [ "$MOBILE_PLATFORM" = "android" ]; then
             # A previously installed Expo Go that is older than the one the SDK
             # recommends makes `expo start` ask "Install the recommended Expo Go
@@ -472,14 +498,31 @@ if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
         elif [ "$START_TUNNEL" = "true" ]; then
             # The tunnel wrote its public URL into frontend-mobile/.env, and a
             # process-level EXPO_PUBLIC_API_URL would beat it.
-            dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
+            dev_spawn expo "$EXPO_LOG" npx expo start "${EXPO_IOS_FLAGS[@]}" --go --port "$EXPO_PORT"
         else
             # The app's own default is localhost:8081, so the simulator is told
             # this checkout's port, as the Android branch does.
             EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://localhost:$SERVER_PORT}" \
-                dev_spawn expo "$EXPO_LOG" npx expo start --ios --go --port "$EXPO_PORT"
+                dev_spawn expo "$EXPO_LOG" npx expo start "${EXPO_IOS_FLAGS[@]}" --go --port "$EXPO_PORT"
         fi
         EXPO_PID=$DEV_SPAWNED_PID
+
+        # Device Hub: what --ios would have done, done by hand. A failure here
+        # leaves Metro and the rest of the stack running and says what to do.
+        if [ "$IOS_DEVICE_HUB" = "true" ] && [ -n "$IOS_SIM_BOOTED" ]; then
+            EXPO_GO_URL="exp://127.0.0.1:$EXPO_PORT"
+            if ! ios_sim_ensure_expo_go "$IOS_SIM_BOOTED" "$PROJECT_ROOT/frontend-mobile"; then
+                echo -e "${YELLOW}    Expo Go is not installed on $IOS_SIM_BOOTED. Install it with: ./bin/install-expo-go.sh${NC}"
+            elif ! ios_sim_wait_for_metro "$EXPO_PORT" 120; then
+                echo -e "${YELLOW}    Metro did not answer on $EXPO_PORT within 120s (see $EXPO_LOG). Then run:${NC}"
+                echo "    xcrun simctl openurl $IOS_SIM_BOOTED $EXPO_GO_URL"
+            elif ios_sim_open_in_expo_go "$IOS_SIM_BOOTED" "$EXPO_GO_URL"; then
+                echo "    Opened $EXPO_GO_URL in Expo Go $(ios_sim_expo_go_version "$IOS_SIM_BOOTED")"
+                echo "    iOS 27 asks \"Open in Expo Go?\" first: tap Open on the simulator."
+            else
+                echo -e "${YELLOW}    Could not open $EXPO_GO_URL. Run: xcrun simctl openurl $IOS_SIM_BOOTED $EXPO_GO_URL${NC}"
+            fi
+        fi
     fi
 
     cd "$PROJECT_ROOT"

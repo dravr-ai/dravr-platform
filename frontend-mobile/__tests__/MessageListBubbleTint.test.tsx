@@ -61,14 +61,14 @@ function renderList() {
 }
 
 /** Read the resolved text colour of a node whose style may be an array. */
-function ink(node: { props: { style: unknown } }): string | undefined {
+function ink(node: { props: { style?: unknown } }): string | undefined {
   const style = node.props.style as { color?: string } | Array<{ color?: string }>;
   const list = Array.isArray(style) ? style : [style];
   return list.reduce<string | undefined>((found, layer) => layer?.color ?? found, undefined);
 }
 
 /** Read the resolved background of a node whose style may be an array. */
-function background(node: { props: { style: unknown } }): string | undefined {
+function background(node: { props: { style?: unknown } }): string | undefined {
   const style = node.props.style as { backgroundColor?: string } | Array<{ backgroundColor?: string }>;
   const list = Array.isArray(style) ? style : [style];
   return list.reduce<string | undefined>((found, layer) => layer?.backgroundColor ?? found, undefined);

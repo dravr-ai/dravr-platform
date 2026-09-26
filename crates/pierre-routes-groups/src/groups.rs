@@ -32,9 +32,9 @@ use uuid::Uuid;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupDigestMode, GroupHealthFlag,
-    GroupInvite, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupSummary,
-    GroupWeeklyReport, JoinGroupRequest, UpdateGroupRequest,
+    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
+    GroupInviteKind, GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest,
+    UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::creation_policy::{
@@ -44,66 +44,14 @@ use pierre_groups::creation_policy::{
 use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::locale::resolve_user_locale;
 
+use crate::group_response::GroupResponse;
 use crate::group_update_access::authorize_group_update;
 
 // ============================================================================
 // Response Types
 // ============================================================================
-
-/// Response for a single coaching group
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GroupResponse {
-    /// Group ID
-    pub id: String,
-    /// Tenant ID for isolation
-    pub tenant_id: String,
-    /// Group name
-    pub name: String,
-    /// Optional description
-    pub description: Option<String>,
-    /// Agent persona ID (the AI agent that answers chats)
-    pub agent_id: String,
-    /// Owner user ID
-    pub owner_id: String,
-    /// Human coach user ID, if one is attached (`None` otherwise)
-    pub coach_user_id: Option<String>,
-    /// Whether peer data sharing is enabled
-    pub peer_data_sharing: bool,
-    /// When the AI agent replies in the bound channel chat
-    pub respond_mode: GroupRespondMode,
-    /// Where the weekly digest goes: nowhere, the group's chat, or its managers
-    pub digest_mode: GroupDigestMode,
-    /// Maximum members allowed
-    pub max_members: i32,
-    /// Whether the group is active
-    pub is_active: bool,
-    /// When the group was created
-    pub created_at: String,
-    /// When the group was last updated
-    pub updated_at: String,
-}
-
-impl From<CoachingGroup> for GroupResponse {
-    fn from(g: CoachingGroup) -> Self {
-        Self {
-            id: g.id.to_string(),
-            tenant_id: g.tenant_id,
-            name: g.name,
-            description: g.description,
-            agent_id: g.agent_id,
-            owner_id: g.owner_id.to_string(),
-            coach_user_id: g.coach_user_id.map(|u| u.to_string()),
-            peer_data_sharing: g.peer_data_sharing,
-            respond_mode: g.respond_mode,
-            digest_mode: g.digest_mode,
-            max_members: g.max_members,
-            is_active: g.is_active,
-            created_at: g.created_at.to_rfc3339(),
-            updated_at: g.updated_at.to_rfc3339(),
-        }
-    }
-}
 
 /// Response for listing groups (uses the model's lightweight summary)
 #[derive(Debug, Serialize, Deserialize)]
@@ -426,6 +374,18 @@ impl GroupRoutes {
         }
     }
 
+    /// `group` as `reader` reads it: its agent and human coach named, the
+    /// agent's title in the reader's own locale.
+    async fn group_response<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        group: CoachingGroup,
+        reader: Uuid,
+    ) -> Result<GroupResponse, AppError> {
+        let repos = resources.repos();
+        let locale = resolve_user_locale(repos.users.as_ref(), reader).await;
+        GroupResponse::for_reader(repos, group, &locale).await
+    }
+
     /// Verify the caller is an admin or owner of the given group.
     ///
     /// Returns the caller's membership record on success.
@@ -580,7 +540,7 @@ impl GroupRoutes {
         // so future child spans inherit it.
         Span::current().record("group_id", field::display(&created.id));
 
-        let response: GroupResponse = created.into();
+        let response = Self::group_response(&resources, created, auth.user_id).await?;
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
 
@@ -663,7 +623,7 @@ impl GroupRoutes {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
-        let response: GroupResponse = group.into();
+        let response = Self::group_response(&resources, group, auth.user_id).await?;
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
@@ -686,7 +646,7 @@ impl GroupRoutes {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
-        let response: GroupResponse = updated.into();
+        let response = Self::group_response(&resources, updated, auth.user_id).await?;
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
@@ -1101,7 +1061,7 @@ impl GroupRoutes {
                 span.record("tenant_id", field::display(&group_tenant_id));
                 span.record("group_id", field::display(&invite.group_id));
 
-                let response: GroupResponse = group.into();
+                let response = Self::group_response(&resources, group, auth.user_id).await?;
                 Ok((StatusCode::CREATED, Json(response)).into_response())
             }
         }
@@ -1153,8 +1113,12 @@ impl GroupRoutes {
             .list_coached_groups(auth.user_id)
             .await?;
 
-        let group_responses: Vec<GroupResponse> =
-            groups.into_iter().map(GroupResponse::from).collect();
+        let repos = resources.repos();
+        let locale = resolve_user_locale(repos.users.as_ref(), auth.user_id).await;
+        let mut group_responses = Vec::with_capacity(groups.len());
+        for group in groups {
+            group_responses.push(GroupResponse::for_reader(repos, group, &locale).await?);
+        }
 
         let response = CoachedGroupsResponse {
             total: group_responses.len(),

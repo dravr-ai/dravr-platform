@@ -1,0 +1,51 @@
+# ABOUTME: Helper to turn off Expo Go's floating developer-tools button on iOS, which covers the header's trailing buttons
+# ABOUTME: Opens the developer menu from the button and flips its "Tools button" switch; a no-op when the button is absent
+
+appId: host.exp.Exponent
+
+---
+# Expo Go 57 floats a developer-tools button — a gear, SF symbol
+# gearshape.fill — at the top-right corner by default. On iOS 27 it sits over
+# the header's trailing buttons, so chat/01's tap on the conversation list's
+# "+" opened the developer menu instead of the new-chat menu (2026-09-25,
+# iPhone 17, iOS 27.0, Expo Go 57.0.9). The switch that hides it is the
+# menu's own "Tools button" row, and Expo Go keeps the choice, so this acts
+# once per install and costs one visibility check afterwards.
+#
+# It only acts on the login screen: the app's own settings tab uses the same
+# gearshape.fill symbol when selected, and the login screen has no tab bar.
+- runFlow:
+    when:
+      platform: iOS
+      visible:
+        id: "login-screen"
+    commands:
+      - runFlow:
+          when:
+            visible:
+              id: "gearshape.fill"
+          commands:
+            - tapOn:
+                id: "gearshape.fill"
+            - scrollUntilVisible:
+                element: "Tools button"
+                direction: DOWN
+                timeout: 10000
+            # Each row's switch is an unlabelled SwiftUI Toggle whose frame
+            # spans the row and answers only on the switch itself, so the tap
+            # goes to the inner control. Maestro resolves a relative selector
+            # to the first match in tree order, and "Fast refresh" — the row
+            # above, whose switch reloads the app — is right of the label
+            # too; `below` is what excludes it.
+            - tapOn:
+                checked: true
+                childOf:
+                  checked: true
+                  rightOf: "Tools button"
+                  below: "Fast refresh"
+            - tapOn:
+                id: "xmark"
+            - extendedWaitUntil:
+                notVisible:
+                  id: "gearshape.fill"
+                timeout: 5000

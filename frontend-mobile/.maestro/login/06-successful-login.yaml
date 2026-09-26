@@ -51,11 +51,10 @@ appId: ai.dravr.app
 # Capture screenshot for debugging what appears after login
 - takeScreenshot: "test06-after-login"
 
-# Dismiss iOS "Save Password?" native dialog if present.
+# Dismiss iOS "Save Password?" native dialog if present. It arrives seconds
+# after the login screen has gone, so it is watched for while Home is awaited.
 - runFlow:
-    when:
-      visible: "Save Password?"
-    file: ../helpers/dismiss-save-password.yaml
+    file: ../helpers/wait-for-home-after-login.yaml
 
 # Verify we landed on Home, the first tab: today's plan and the latest
 # activities. 60s timeout for Expo Router transition and the screen's mount.

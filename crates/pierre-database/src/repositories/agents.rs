@@ -37,6 +37,14 @@ pub trait AgentsRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<Agent>>;
+    /// The agent `tenant_id` can run: one of that tenant's own agents, or a
+    /// system agent — the scope [`Self::get_agent_runtime_context`] resolves
+    /// an agent in, with no user in it.
+    ///
+    /// For naming an agent a tenant's resource points at to someone who
+    /// need not own, install or share a tenant with it: a coaching group's
+    /// AI agent, read by a member who joined from another tenant.
+    async fn get_in_tenant(&self, agent_id: &str, tenant_id: TenantId) -> AppResult<Option<Agent>>;
     /// Resolve an installed agent by its catalogue handle for one user.
     ///
     /// "Installed" means the agent sits on the user's agent list through a

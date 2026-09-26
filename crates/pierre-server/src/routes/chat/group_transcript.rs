@@ -49,7 +49,7 @@ pub struct TranscriptQuery {
 pub struct TranscriptMemberResponse {
     /// Member user id
     pub user_id: String,
-    /// Display name (email-derived, same source as the members listing)
+    /// Display name, else email — the same source as the members listing
     pub display_name: Option<String>,
     /// Role within the group
     pub role: String,
@@ -64,7 +64,7 @@ pub struct TranscriptEntryResponse {
     pub id: String,
     /// The member the entry is attributed to
     pub author_user_id: String,
-    /// Author display name (email-derived)
+    /// The author's display name, else their email
     pub author_display_name: Option<String>,
     /// `member` or `agent`
     pub speaker: String,

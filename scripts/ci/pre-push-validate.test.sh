@@ -244,6 +244,36 @@ run_change "$dir" .github/workflows/probe.yml "name: probe"
 expect_contains "a dead target names the failure" "FAIL: a workflow runs a cargo test target the workspace does not have!"
 expect_exit "a dead target fails the push" 1
 
+# 10. The root manifest. Its `overrides` pin react and react-dom for every
+#     workspace, so a bump there moves the web app and the mobile app with
+#     neither directory in the diff. The SDK is not a workspace, so its tier
+#     stays out.
+echo "  case 10: root package.json only"
+dir="$(make_repo)"
+run_change "$dir" package.json '{"scripts":{"typecheck:packages":"true","test:packages":"true"},"overrides":{"react":"19.2.3"}}'
+expect_contains "root manifest diff runs the frontend tier" "Tier 5: Frontend Validation"
+expect_contains "root manifest diff runs the mobile tier" "Tier 7: Mobile Validation"
+expect_absent "root manifest diff leaves the SDK tier alone" "Tier 6: SDK Validation"
+expect_contains "the echo block shows why the client tiers ran" "Root manifest: true"
+expect_exit "root manifest diff passes" 0
+
+# 11. The root lockfile, which a dependency bump moves on its own.
+echo "  case 11: root bun.lock only"
+dir="$(make_repo)"
+run_change "$dir" bun.lock '{"lockfileVersion":1,"workspaces":{}}'
+expect_contains "root lockfile diff runs the frontend tier" "Tier 5: Frontend Validation"
+expect_contains "root lockfile diff runs the mobile tier" "Tier 7: Mobile Validation"
+expect_absent "root lockfile diff leaves the SDK tier alone" "Tier 6: SDK Validation"
+expect_exit "root lockfile diff passes" 0
+
+# 12. A nested manifest is its own workspace's, not the root's.
+echo "  case 12: frontend/package.json only"
+dir="$(make_repo)"
+run_change "$dir" frontend/package.json '{"name":"probe-frontend"}'
+expect_contains "the nested manifest reads as not the root one" "Root manifest: false"
+expect_absent "a web manifest leaves the mobile tier alone" "Tier 7: Mobile Validation"
+expect_exit "web manifest diff passes" 0
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   echo "❌ $failures tier-selection fixture case(s) failed"

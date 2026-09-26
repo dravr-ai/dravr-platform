@@ -322,8 +322,12 @@ describe('client locale corpus', () => {
     // flow: `providers.whoopNotice` title, body and authorization. +3.
     // 2490 once a connected WHOOP that owes it says so:
     // `providers.authorizeToKeepSyncing` and its `authorizeAction`. +2.
+    // 2493 once a group named who runs it: `humanCoach.noneMember` is what a
+    // member reads when no human coach is attached, and
+    // `commands.group.role.agent` and `humanCoach.group_role` label the agent
+    // and the human coach in `/group members`. +3.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2490);
+    expect(reference).toHaveLength(2493);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

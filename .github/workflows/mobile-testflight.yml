@@ -111,15 +111,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Pinned, never `latest`: eas.json requires >= 24.4.2 (the first release
+      # that knows Xcode 27's Device Hub), and an unpinned CLI can change what
+      # a store build does between two dispatches of the same commit.
+      #
+      # Every EXPO_PUBLIC_* value, the Firebase API key included, comes from
+      # the EAS environment the profile names ("environment" in eas.json).
+      # Nothing edits eas.json on the runner: it used to have the key injected
+      # here, and a runtime version computed from a file no commit holds can
+      # never be matched by an update.
       - name: Setup EAS
         uses: expo/expo-github-action@v9
         with:
-          eas-version: latest
+          eas-version: "24.8.0"
           token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Inject Firebase API key into eas.json
-        run: |
-          jq '(.build[].env) += {"EXPO_PUBLIC_FIREBASE_API_KEY": "${{ vars.EXPO_PUBLIC_FIREBASE_API_KEY }}"}' eas.json > eas.tmp && mv eas.tmp eas.json
 
       - name: Build iOS
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'all' }}
@@ -183,10 +188,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Same pin as the build job.
       - name: Setup EAS
         uses: expo/expo-github-action@v9
         with:
-          eas-version: latest
+          eas-version: "24.8.0"
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Submit iOS to TestFlight

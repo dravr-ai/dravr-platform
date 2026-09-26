@@ -23,39 +23,25 @@ for arg in "$@"; do
     esac
 done
 
-# Find booted simulator
-BOOTED_UDID=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for runtime, devices in data.get('devices', {}).items():
-    for d in devices:
-        if d.get('state') == 'Booted':
-            print(d['udid'])
-            sys.exit(0)
-print('')
-" 2>/dev/null)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=ios-simulator.sh
+. "$SCRIPT_DIR/ios-simulator.sh"
+
+# IOS_SIM_UDID picks the device when more than one is booted.
+BOOTED_UDID="${IOS_SIM_UDID:-$(ios_sim_booted_udid)}"
 
 if [ -z "$BOOTED_UDID" ]; then
     echo -e "${YELLOW}No iOS Simulator is booted. Start one first:${NC}"
-    echo "    open -a Simulator"
+    ios_sim_boot_hint
     exit 1
 fi
 
-SIM_NAME=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for runtime, devices in data.get('devices', {}).items():
-    for d in devices:
-        if d.get('state') == 'Booted':
-            print(d.get('name', 'Unknown'))
-            sys.exit(0)
-" 2>/dev/null)
+SIM_NAME="$(ios_sim_device_name "$BOOTED_UDID")"
 
 echo "Building native app for $SIM_NAME ($BOOTED_UDID)..."
 echo -e "${YELLOW}This requires Xcode and may take several minutes on first build.${NC}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT/frontend-mobile"
 
 if [ "$NO_BUNDLER" = "true" ]; then

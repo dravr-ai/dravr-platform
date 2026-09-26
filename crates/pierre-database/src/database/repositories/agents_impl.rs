@@ -253,6 +253,23 @@ impl AgentsRepository for Database {
         row.map(|r| row_to_agent(&r)).transpose()
     }
 
+    async fn get_in_tenant(&self, agent_id: &str, tenant_id: TenantId) -> AppResult<Option<Agent>> {
+        let row = sqlx::query(
+            r"SELECT id, user_id, tenant_id, title, description, system_prompt,
+                   category, tags, sample_prompts, token_count,
+                   created_at, updated_at, is_system, visibility, prerequisites,
+                   forked_from, slug, max_tool_iterations, temperature, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
+            FROM agents WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)",
+        )
+        .bind(agent_id)
+        .bind(tenant_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get tenant coach: {e}")))?;
+        row.map(|r| row_to_agent(&r)).transpose()
+    }
+
     async fn find_installed_by_handle(
         &self,
         handle: &AgentHandle,

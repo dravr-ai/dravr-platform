@@ -48,6 +48,7 @@ import {
 } from '../hooks/useConversationList';
 import { useMarkConversationRead } from '../hooks/useMarkConversationRead';
 import { useCoachInfo } from '../hooks/useCoachInfo';
+import { useGroup } from '../hooks/useGroups';
 import { useSuccessToast, useInfoToast, useErrorToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { replySceneBlocks, TurnIdleAbortedError } from '@pierre/api-client';
@@ -239,7 +240,10 @@ export default function ChatTab({
   // `pendingCoachId` covers a freshly created conversation whose `agent_id`
   // has not yet been written back to the list.
   const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? pendingCoachId);
-  const activeCoachTitle = activeCoach?.title ?? null;
+  // A group's agent may belong to another tenant, where the caller's own agent
+  // list cannot see it; the group names its agent as the caller reads it.
+  const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
+  const activeCoachTitle = activeGroup?.agent_title ?? activeCoach?.title ?? null;
 
   // What the header names: the thread's stored title, which the server
   // already spells as the group, the agent, or the moment it started — the

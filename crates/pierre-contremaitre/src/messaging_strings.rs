@@ -775,6 +775,15 @@ pub const KEY_GROUP_ROLE_OWNER: &str = "commands.group.role.owner";
 pub const KEY_GROUP_ROLE_ADMIN: &str = "commands.group.role.admin";
 /// Key: localized label for the `Member` group role.
 pub const KEY_GROUP_ROLE_MEMBER: &str = "commands.group.role.member";
+/// Key: localized label `/group members` puts on the group's AI agent — the
+/// persona that answers in the group chat, which holds no membership row.
+pub const KEY_GROUP_ROLE_AGENT: &str = "commands.group.role.agent";
+/// Key: localized label `/group members` puts on the group's human coach.
+///
+/// The coach is attached to oversee the group rather than enrolled in it. The
+/// key lives under `humanCoach.*` because it names the human professional,
+/// never the agent.
+pub const KEY_GROUP_ROLE_COACH: &str = "humanCoach.group_role";
 /// Key: `/group invite` rejection when the user lacks admin rights.
 pub const KEY_GROUP_INVITE_FORBIDDEN: &str = "commands.group.invite_forbidden";
 /// Key: `/group invite` success body.

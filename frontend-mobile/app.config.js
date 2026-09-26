@@ -7,11 +7,13 @@ module.exports = {
   version: '1.0.0',
   // Over-the-air updates. Without these, everything the JS bundle decides is
   // frozen into each binary for the life of that install — and one of those
-  // decisions is EXPO_PUBLIC_API_URL, which eas.json still points at a raw
-  // Cloud Run hostname. Recreating that service changes the hostname, and
-  // every phone already carrying the old one would have talked to nothing,
+  // decisions is EXPO_PUBLIC_API_URL, https://app.dravr.ai, which the EAS
+  // `production` and `preview` environments hold (not eas.json, so a build and
+  // an `eas update --environment` inline the same value). If that host ever
+  // moves, every phone already carrying the old one would talk to nothing,
   // with the only remedy an App Store submission and a forced upgrade. An
-  // update channel is what turns that from a recall into a publish.
+  // update channel is what turns that from a recall into a publish, and
+  // .github/workflows/mobile-ota.yml is the one way to publish to it.
   updates: {
     url: 'https://u.expo.dev/74a36e57-41ac-4c07-95bc-89a1cde64bc7',
   },
@@ -39,19 +41,6 @@ module.exports = {
   // app/_layout.tsx for the runtime switch.
   userInterfaceStyle: 'automatic',
   scheme: 'dravr',
-  splash: {
-    image: './assets/splash-icon.png',
-    resizeMode: 'contain',
-    backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
-    // userInterfaceStyle is 'automatic', so a dark-mode launch flashed this
-    // light surface before the app painted its own dark canvas. The dark
-    // variant is the tuned surface from index.css, not black.
-    dark: {
-      image: './assets/splash-icon.png',
-      resizeMode: 'contain',
-      backgroundColor: '#11130f',
-    },
-  },
   ios: {
     supportsTablet: true,
     // Apple freezes the bundle id once an app record ships, so this is set
@@ -80,19 +69,6 @@ module.exports = {
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
     },
-    // Same reasoning as splash.dark above: an Android dark-mode launch got the
-    // light surface first.
-    splash: {
-      image: './assets/splash-icon.png',
-      resizeMode: 'contain',
-      backgroundColor: '#f9f9f6',
-      dark: {
-        image: './assets/splash-icon.png',
-        resizeMode: 'contain',
-        backgroundColor: '#11130f',
-      },
-    },
-    edgeToEdgeEnabled: true,
     package: 'ai.dravr.app',
     permissions: ['android.permission.RECORD_AUDIO'],
   },
@@ -108,6 +84,25 @@ module.exports = {
   plugins: [
     'expo-router',
     [
+      // The launch screen on both platforms. Prebuild reads it from this
+      // plugin entry only: a root `splash` or `android.splash` key reaches no
+      // native file, and the build falls back to a white screen with no logo.
+      'expo-splash-screen',
+      {
+        image: './assets/splash-icon.png',
+        imageWidth: 200,
+        resizeMode: 'contain',
+        backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
+        // userInterfaceStyle is 'automatic', so a dark-mode launch flashed the
+        // light surface before the app painted its own dark canvas. The dark
+        // variant is the tuned surface from index.css, not black.
+        dark: {
+          image: './assets/splash-icon.png',
+          backgroundColor: '#11130f',
+        },
+      },
+    ],
+    [
       'expo-build-properties',
       {
         android: {
@@ -116,16 +111,25 @@ module.exports = {
           // pulls that in. Compiling against 35 fails checkReleaseAarMetadata before
           // a single source file is built; the EAS log names the requirement.
           compileSdkVersion: 36,
+          // No targetSdkVersion: the target comes from React Native's version
+          // catalog (targetSdk 36 in react-native/gradle/libs.versions.toml),
+          // which the Expo root-project Gradle plugin applies to the app.
           // Google Play takes new apps and updates only at target API 36 or
           // later from 2026-08-31, which opts the app into Android 16's
           // runtime behaviour: edge-to-edge with no opt-out, predictive back,
           // and orientation and resizability locks ignored on large screens.
-          targetSdkVersion: 36,
           enableProguardInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
         },
         ios: {
           useFrameworks: 'static',
+          // Apps linked against the iOS 27 SDK must adopt the UIKit scene
+          // life cycle or UIKit traps at launch. This makes prebuild emit a
+          // UIApplicationSceneManifest pointing at Expo's scene delegate and
+          // moves React Native startup out of AppDelegate, which keeps
+          // forwarding URL and lifecycle events to Expo's app-delegate
+          // subscribers, Google Sign-In's among them.
+          enableSceneSupport: true,
         },
       },
     ],

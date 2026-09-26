@@ -1,4 +1,4 @@
-// ABOUTME: Tests for Group info inside chat — consent, roster, settings, the digest mode and gate, the exits and the coach's view
+// ABOUTME: Tests for Group info inside chat — who runs the group, consent, roster, settings, the digest, the exits, the coach's view
 // ABOUTME: Carries over the GroupDetail cases: the caller's OWN consent row, and the tier-gated report
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,6 +17,8 @@ const CALLER_ID = 'user-caller';
 const OTHER_ID = 'user-other';
 const GROUP_ID = 'group-1';
 const COACH_ID = 'user-coach';
+/** A coach id shaped as the server serialises it, to prove it never reaches the screen. */
+const COACH_UUID = '5b0c1e9e-8a61-4c1f-9d2e-3f4a5b6c7d8e';
 
 function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection {
   return {
@@ -79,7 +81,10 @@ function sampleGroup(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
     name: 'Marathon Squad',
     description: 'Sunday long runs',
     agent_id: 'coach-1',
+    agent_title: 'Marathon Coach',
+    agent_handle: 'marathon-coach',
     coach_user_id: null,
+    coach_display_name: null,
     owner_id: CALLER_ID,
     max_members: 10,
     peer_data_sharing: true,
@@ -89,7 +94,7 @@ function sampleGroup(overrides: Partial<CoachingGroup> = {}): CoachingGroup {
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
-  } as CoachingGroup;
+  };
 }
 
 function member(overrides: Partial<GroupMember> = {}): GroupMember {
@@ -204,6 +209,65 @@ describe('GroupInfoPanel', () => {
     expect(await screen.findByTestId('group-info-name')).toHaveTextContent('Marathon Squad');
     expect(screen.getByTestId('group-info-description')).toHaveTextContent('Sunday long runs');
     expect(await screen.findByText('Members: 2')).toBeInTheDocument();
+  });
+
+  it('names the AI agent and the human coach above the members for a plain member', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    renderPanel();
+
+    const agent = await screen.findByTestId('group-info-agent');
+    expect(within(agent).getByText('Marathon Coach')).toBeInTheDocument();
+    expect(within(agent).getByTestId('group-info-agent-handle')).toHaveTextContent('@marathon-coach');
+    expect(within(agent).getByText('AI agent')).toBeInTheDocument();
+    const coach = screen.getByTestId('group-info-coach-row');
+    expect(within(coach).getByText('Casey Coach')).toBeInTheDocument();
+    expect(within(coach).getByText('Coach')).toBeInTheDocument();
+    expect(within(coach).queryByText('(you)')).toBeNull();
+    expect(screen.queryByTestId('group-info-no-coach')).toBeNull();
+    // The header names the coach instead of only saying one is attached.
+    expect(screen.getByTestId('group-info-coach-badge')).toHaveTextContent('Coach Casey Coach');
+    // Both rows lead the roster: they sit before the member table.
+    const table = await screen.findByRole('table');
+    expect(agent.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(coach.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says the group has no human coach yet when none is attached', async () => {
+    renderPanel();
+
+    expect(await screen.findByTestId('group-info-no-coach')).toHaveTextContent(
+      'No human coach in this group yet.',
+    );
+    expect(screen.queryByTestId('group-info-coach-row')).toBeNull();
+    expect(screen.queryByTestId('group-info-coach-badge')).toBeNull();
+  });
+
+  it('labels an agent the server could not resolve as the AI agent, with no handle', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ agent_title: null, agent_handle: null }),
+    );
+    renderPanel();
+
+    const agent = await screen.findByTestId('group-info-agent');
+    expect(within(agent).getAllByText('AI agent')).toHaveLength(2);
+    expect(within(agent).queryByTestId('group-info-agent-handle')).toBeNull();
+  });
+
+  it('names the coach in the admin coach section and never prints their id', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_UUID, coach_display_name: 'Casey Coach' }),
+    );
+    renderPanel();
+
+    expect(await screen.findByTestId('group-info-coach-name')).toHaveTextContent('Casey Coach');
+    expect(screen.getByTestId('group-info-remove-coach')).toBeInTheDocument();
+    expect(screen.getByTestId('group-info-panel').textContent).not.toContain(COACH_UUID);
+    expect(document.body.textContent).not.toContain(COACH_UUID);
   });
 
   it('binds the consent switch to the caller own membership row', async () => {
@@ -396,6 +460,11 @@ describe('GroupInfoPanel', () => {
       expect(screen.getByText('Membres : 2')).toBeInTheDocument();
       expect(screen.getByText('(toi)')).toBeInTheDocument();
       expect(stats.getByText('41,5')).toBeInTheDocument();
+      // Who runs the group reads French as well.
+      expect(within(screen.getByTestId('group-info-agent')).getByText('Agent IA')).toBeInTheDocument();
+      expect(screen.getByTestId('group-info-no-coach')).toHaveTextContent(
+        "Ce groupe n'a pas encore de coach humain.",
+      );
     });
   });
 
@@ -463,7 +532,7 @@ describe('GroupInfoPanel', () => {
   it('shows the group coach the TrainingPeaks section and none of the member-only surfaces', async () => {
     // The caller is the group's human coach and holds no membership row.
     vi.mocked(groupsApi.getGroup).mockResolvedValue(
-      sampleGroup({ coach_user_id: CALLER_ID, owner_id: OTHER_ID }),
+      sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
     );
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Other' })],
@@ -492,6 +561,12 @@ describe('GroupInfoPanel', () => {
       'Alex Athlete',
     );
     expect(screen.getByTestId('group-info-coach-badge')).toHaveTextContent('You coach this group');
+    // The coach sees themself in the roster, marked as the viewer, under the agent.
+    const coachRow = screen.getByTestId('group-info-coach-row');
+    expect(within(coachRow).getByText('Caller Coach')).toBeInTheDocument();
+    expect(within(coachRow).getByText('(you)')).toBeInTheDocument();
+    expect(within(coachRow).getByText('Coach')).toBeInTheDocument();
+    expect(within(screen.getByTestId('group-info-agent')).getByText('Marathon Coach')).toBeInTheDocument();
     expect(screen.queryByTestId('group-info-leave')).toBeNull();
     expect(screen.queryByTestId('group-info-delete')).toBeNull();
     expect(screen.queryByTestId('peer-consent-card')).toBeNull();

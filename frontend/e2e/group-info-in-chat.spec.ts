@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for group management after the Groups tab: the group row, its header, and Group info
-// ABOUTME: Roster, invites, settings, consent, the digest gate, the exits, TrainingPeaks links, the /groups/join landing
+// ABOUTME: Who runs the group, roster, invites, settings, consent, the digest gate, the exits, TrainingPeaks links, /groups/join
 
 import { test, expect, type Page } from '@playwright/test';
 import type {
@@ -70,7 +70,10 @@ const mockGroupDetail = {
   name: 'Marathon Training 2026',
   description: 'Preparing for the fall marathon',
   agent_id: 'coach-marathon',
+  agent_title: 'Marathon Coach',
+  agent_handle: 'marathon-coach',
   coach_user_id: null,
+  coach_display_name: null,
   owner_id: 'user-123',
   peer_data_sharing: false,
   respond_mode: 'all',
@@ -506,6 +509,44 @@ test.describe('Group info — roster', () => {
     await expect(roster.getByText('Admin')).toBeVisible();
   });
 
+  test('names the AI agent and the human coach above the members', async ({ page }) => {
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...mockGroupDetail,
+            coach_user_id: 'user-coach',
+            coach_display_name: 'Casey Coach',
+          }),
+        });
+      });
+    });
+
+    const agent = page.getByTestId('group-info-agent');
+    await expect(agent).toContainText('Marathon Coach');
+    await expect(agent.getByTestId('group-info-agent-handle')).toHaveText('@marathon-coach');
+    await expect(agent).toContainText('AI agent');
+    const coach = page.getByTestId('group-info-coach-row');
+    await expect(coach).toContainText('Casey Coach');
+    // The role badge alone reads exactly "Coach"; the name merely contains it.
+    await expect(coach.getByText('Coach', { exact: true })).toBeVisible();
+    await expect(coach).not.toContainText('(you)');
+    await expect(page.getByTestId('group-info-coach-badge')).toHaveText('Coach Casey Coach');
+    await expect(page.getByTestId('group-info-no-coach')).toHaveCount(0);
+    // The coach's id is never printed, only their name.
+    await expect(page.getByTestId('group-info-panel')).not.toContainText('user-coach');
+  });
+
+  test('says the group has no human coach yet', async ({ page }) => {
+    await openGroupInfo(page, { userGroupRole: 'member' });
+
+    await expect(page.getByTestId('group-info-agent')).toContainText('Marathon Coach');
+    await expect(page.getByTestId('group-info-no-coach')).toHaveText('No human coach in this group yet.');
+    await expect(page.getByTestId('group-info-coach-row')).toHaveCount(0);
+  });
+
   test('an owner can promote and remove a member', async ({ page }) => {
     await openGroupInfo(page, { userGroupRole: 'owner' });
 
@@ -675,7 +716,12 @@ test.describe('Group info — TrainingPeaks links', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-123', owner_id: 'user-3' }),
+          body: JSON.stringify({
+            ...mockGroupDetail,
+            coach_user_id: 'user-123',
+            coach_display_name: 'Test Admin',
+            owner_id: 'user-3',
+          }),
         });
       });
       await p.route(`**/api/groups/${GROUP_ID}/members`, async (route) => {
@@ -725,6 +771,10 @@ test.describe('Group info — TrainingPeaks links', () => {
     const section = page.getByTestId('delegation-section');
     await expect(section).toBeVisible();
     await expect(page.getByTestId('group-info-coach-badge')).toHaveText('You coach this group');
+    // The coach finds themself in the roster, under the agent, marked as the viewer.
+    await expect(page.getByTestId('group-info-agent')).toContainText('Marathon Coach');
+    await expect(page.getByTestId('group-info-coach-row')).toContainText('Test Admin');
+    await expect(page.getByTestId('group-info-coach-row')).toContainText('(you)');
     // A coach holds no membership: nothing to leave, archive or consent to, and
     // of the settings only where the weekly digest goes.
     await expect(page.getByTestId('group-info-leave')).toHaveCount(0);
@@ -765,7 +815,11 @@ test.describe('Group info — TrainingPeaks links', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-coach' }),
+          body: JSON.stringify({
+            ...mockGroupDetail,
+            coach_user_id: 'user-coach',
+            coach_display_name: 'Casey Coach',
+          }),
         });
       });
       await p.route(LIST_URL, async (route) => {

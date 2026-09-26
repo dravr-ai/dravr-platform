@@ -1204,6 +1204,7 @@
       "respond_usage": "Usage: /group respond mentions  or  /group respond all",
       "role": {
         "admin": "admin",
+        "agent": "AI agent",
         "member": "member",
         "owner": "owner"
       },
@@ -1773,6 +1774,7 @@
     "detachQ": "Detach the human coach from this group? Their TrainingPeaks athlete links in this group end, and they lose access to the group's roster.",
     "detached": "The human coach has been detached from this group.",
     "group_detached": "{0} no longer has an attached human coach.",
+    "group_role": "coach",
     "iCoachOthers": "I coach others",
     "intake_persona": "First: do you train for yourself, or do you coach other people?\n\n**1** — I train for myself\n**2** — I coach others",
     "invite": "Coach invite",
@@ -1782,6 +1784,7 @@
     "joined_group": "You are now the human coach of {0}.",
     "none": "No human coach attached. Share a coach invite to bring one in.",
     "noneHint": "No human coach attached. Create a Coach invite above and share it with the coach you want to oversee this group.",
+    "noneMember": "No human coach in this group yet.",
     "persona_summary": "Power-athlete rigor, applied to the athletes you coach.",
     "remove": "Remove Coach",
     "removeFailed": "Failed to remove coach",

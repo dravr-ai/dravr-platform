@@ -6,6 +6,7 @@
 
 use super::super::AgentsRepository;
 use super::agents_assignments as assignments;
+use super::agents_by_id as by_id;
 use super::agents_copies as copies;
 use super::agents_rows::{
     compute_content_hash, compute_request_hash, row_to_agent_list_item_pg, row_to_agent_pg,
@@ -307,6 +308,10 @@ impl AgentsRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to get coach: {e}")))?;
 
         row.map(|r| row_to_agent_pg(&r)).transpose()
+    }
+
+    async fn get_in_tenant(&self, agent_id: &str, tenant_id: TenantId) -> AppResult<Option<Agent>> {
+        by_id::in_tenant(&self.pool, agent_id, tenant_id).await
     }
 
     async fn find_installed_by_handle(
@@ -975,44 +980,11 @@ impl AgentsRepository for PostgresDatabase {
         agent_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<Agent>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, tenant_id, title, description, system_prompt,
-                   category, tags, sample_prompts, token_count,
-                   created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, slug, max_tool_iterations, temperature, startup_query, data_requirements,
-                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            FROM agents
-            WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE
-            ",
-        )
-        .bind(agent_id)
-        .bind(tenant_id.as_uuid())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get system agent: {e}")))?;
-
-        row.map(|r| row_to_agent_pg(&r)).transpose()
+        by_id::system_agent(&self.pool, agent_id, tenant_id).await
     }
 
     async fn get_system_agent_any_tenant(&self, agent_id: &str) -> AppResult<Option<Agent>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, tenant_id, title, description, system_prompt,
-                   category, tags, sample_prompts, token_count,
-                   created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, slug, max_tool_iterations, temperature, startup_query, data_requirements,
-                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            FROM agents
-            WHERE id = $1 AND is_system = TRUE
-            ",
-        )
-        .bind(agent_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get system agent: {e}")))?;
-
-        row.map(|r| row_to_agent_pg(&r)).transpose()
+        by_id::system_agent_any_tenant(&self.pool, agent_id).await
     }
 
     async fn update_system_agent(

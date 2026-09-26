@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Group info's membership gating — who sees the admin rows and the digest mode, who leaves, who archives
+// ABOUTME: Tests Group info's roster and gating — the agent and human coach named above the members, admin rows, digest, exits
 // ABOUTME: An owner, a plain member and the group's coach each get their own; a member answers the coach's TrainingPeaks link
 
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CoachingGroup, GroupMember, GroupRole } from '@pierre/shared-types';
@@ -20,8 +20,11 @@ const GROUP: CoachingGroup = {
   name: 'Harricana 2027',
   description: 'Bloc ultra',
   agent_id: 'coach-1',
+  agent_title: 'Coach Marie',
+  agent_handle: 'marie',
   owner_id: 'user-owner',
   coach_user_id: null,
+  coach_display_name: null,
   peer_data_sharing: true,
   respond_mode: 'all',
   digest_mode: 'off',
@@ -30,6 +33,9 @@ const GROUP: CoachingGroup = {
   created_at: '2026-05-01T08:00:00Z',
   updated_at: '2026-08-01T08:00:00Z',
 };
+
+/** The same group with Casey attached as its human coach. */
+const COACHED_GROUP: CoachingGroup = { ...GROUP, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' };
 
 const mockLeaveGroup = jest.fn();
 const mockDeleteGroup = jest.fn();
@@ -70,7 +76,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { GroupInfoSheet } from '../src/screens/groups/GroupInfoSheet';
-import { groupsApi } from '../src/services/api';
+import { coachesApi, groupsApi } from '../src/services/api';
 
 function member(id: string, role: GroupRole, name: string): GroupMember {
   return {
@@ -130,6 +136,103 @@ describe('GroupInfoSheet', () => {
     expect(getByTestId('group-member-user-phil')).toHaveTextContent(/Member/);
     expect(getByTestId('group-member-user-owner')).toHaveTextContent(/ChefFamille/);
     expect(getByTestId('group-member-user-owner')).toHaveTextContent(/Owner/);
+  });
+
+  // Three kinds of people share a group, and the roster says which is which:
+  // the AI agent answering in the chat, the human coach overseeing it, and
+  // the members.
+  describe('who runs the group', () => {
+    it('names the agent and the coach above the members, for a plain member', async () => {
+      mockCallerId = 'user-phil';
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+      const { findByTestId, getByTestId, queryByTestId } = renderSheet();
+
+      const agent = await findByTestId('group-info-ai-coach');
+      expect(agent).toHaveTextContent(/Coach Marie · @marie/);
+      expect(agent).toHaveTextContent(/AI agent/);
+      const coach = getByTestId('group-info-human-coach');
+      expect(within(coach).getByText('Casey Coach')).toBeTruthy();
+      // The role line under the name.
+      expect(within(coach).getByText('Coach')).toBeTruthy();
+      expect(coach).not.toHaveTextContent(/\(you\)/);
+      // Detaching the coach is an admin's call; a member is not offered it.
+      expect(queryByTestId('remove-coach-button')).toBeNull();
+      expect(queryByTestId('group-info-no-coach')).toBeNull();
+
+      // One list, in order: who runs the group, then who is in it.
+      await findByTestId('group-member-user-phil');
+      const order = within(getByTestId('group-info-members-content'))
+        .getAllByTestId(/^group-(info-(ai|human)-coach|member-)/)
+        .map((row) => row.props.testID);
+      expect(order).toEqual([
+        'group-info-ai-coach',
+        'group-info-human-coach',
+        'group-member-user-phil',
+        'group-member-user-owner',
+      ]);
+    });
+
+    it('tells a plain member the group has no human coach yet', async () => {
+      mockCallerId = 'user-phil';
+      const { findByTestId, queryByTestId } = renderSheet();
+
+      const none = await findByTestId('group-info-no-coach');
+      expect(within(none).getByText('No human coach in this group yet.')).toBeTruthy();
+      expect(queryByTestId('group-info-human-coach')).toBeNull();
+    });
+
+    it('points an admin of a coach-less group at the coach invite', async () => {
+      const { findByTestId } = renderSheet();
+
+      const none = await findByTestId('group-info-no-coach');
+      expect(within(none).getByText('No human coach attached. Share a coach invite to bring one in.')).toBeTruthy();
+    });
+
+    it('gives an admin the remove control on the coach row, and detaches the coach through it', async () => {
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+      (groupsApi.removeCoach as jest.Mock).mockResolvedValue(undefined);
+      const { findByTestId } = renderSheet();
+
+      const coach = await findByTestId('group-info-human-coach');
+      expect(coach).toHaveTextContent(/Casey Coach/);
+      fireEvent.press(within(coach).getByTestId('remove-coach-button'));
+
+      const confirm = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
+        string,
+        string,
+        Array<{ text: string; onPress?: () => Promise<void> }>,
+      ];
+      expect(confirm[0]).toBe('Remove Coach');
+      await act(async () => {
+        await confirm[2].find((button) => button.text === 'Remove')?.onPress?.();
+      });
+      expect(groupsApi.removeCoach).toHaveBeenCalledWith('group-1');
+    });
+
+    // A member who joined from another tenant has no such agent on their own
+    // coach list; the group carries the title the server resolved in the
+    // group's tenant, and the sheet reads that, not the caller's list.
+    it("names the agent from the group, not from the caller's own coach list", async () => {
+      mockCallerId = 'user-phil';
+      (coachesApi.list as jest.Mock).mockResolvedValue({
+        agents: [{ id: 'coach-elsewhere', title: 'Somebody Else', handle: 'else' }],
+      });
+      const { findByTestId } = renderSheet();
+
+      const agent = await findByTestId('group-info-ai-coach');
+      expect(agent).toHaveTextContent(/Coach Marie · @marie/);
+      expect(agent).not.toHaveTextContent(/Somebody Else/);
+      expect(coachesApi.list).not.toHaveBeenCalled();
+    });
+
+    it('calls an agent the server could not resolve "AI agent", with no handle', async () => {
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, agent_title: null, agent_handle: null });
+      const { findByTestId } = renderSheet();
+
+      const agent = await findByTestId('group-info-ai-coach');
+      expect(agent).toHaveTextContent(/AI agent/);
+      expect(agent).not.toHaveTextContent(/@/);
+    });
   });
 
   // An owner cannot leave their own group; they archive it. A member cannot
@@ -207,7 +310,7 @@ describe('GroupInfoSheet', () => {
 
     it('gives the attached coach the digest rows without the admin settings', async () => {
       mockCallerId = 'user-coach';
-      (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-coach' });
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
       const view = renderSheet();
       await openSettings(view);
 
@@ -268,7 +371,7 @@ describe('GroupInfoSheet', () => {
 
   it("shows the group's coach the TrainingPeaks section and no exit, settings or analytics", async () => {
     mockCallerId = 'user-coach';
-    (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-coach' });
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
     (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
       connections: [],
       total: 0,
@@ -284,8 +387,10 @@ describe('GroupInfoSheet', () => {
 
     expect(await findByTestId('group-info-delegation')).toBeTruthy();
     expect(await findByTestId('delegation-roster-row-900001')).toHaveTextContent(/Alex Athlete/);
-    fireEvent.press(getByTestId('group-info-coach-toggle'));
-    expect(getByTestId('group-info-human-coach')).toHaveTextContent(/You coach this group/);
+    // The coach holds no membership row; the roster still names them, as themself.
+    expect(getByTestId('group-info-human-coach')).toHaveTextContent(/Casey Coach \(you\)/);
+    expect(getByTestId('group-info-ai-coach')).toHaveTextContent(/Coach Marie · @marie/);
+    expect(queryByTestId('group-member-user-coach')).toBeNull();
     expect(queryByTestId('leave-group-button')).toBeNull();
     expect(queryByTestId('archive-group-button')).toBeNull();
     expect(queryByTestId('group-info-settings')).toBeNull();
@@ -297,7 +402,11 @@ describe('GroupInfoSheet', () => {
 
   it('shows a coach who is also a member the TrainingPeaks section the server names them coach of', async () => {
     // The caller owns the group, holds its membership row, and coaches it.
-    (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-owner' });
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue({
+      ...GROUP,
+      coach_user_id: 'user-owner',
+      coach_display_name: 'ChefFamille',
+    });
     (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
       connections: [],
       total: 0,
@@ -313,15 +422,15 @@ describe('GroupInfoSheet', () => {
 
     expect(await findByTestId('group-info-delegation')).toBeTruthy();
     expect(await findByTestId('delegation-roster-row-900001')).toHaveTextContent(/Alex Athlete/);
-    fireEvent.press(getByTestId('group-info-coach-toggle'));
-    expect(getByTestId('group-info-human-coach')).toHaveTextContent(/You coach this group/);
-    // A member still: the owner keeps their exit.
+    expect(getByTestId('group-info-human-coach')).toHaveTextContent(/ChefFamille \(you\)/);
+    // A member still: the owner keeps their row and their exit.
+    expect(getByTestId('group-member-user-owner')).toHaveTextContent(/Owner/);
     expect(getByTestId('archive-group-button')).toBeTruthy();
   });
 
   it('asks a member to confirm the link their coach proposed, and confirms it', async () => {
     mockCallerId = 'user-phil';
-    (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, coach_user_id: 'user-coach' });
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
     (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({
       connections: [
         {

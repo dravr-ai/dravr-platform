@@ -54,6 +54,10 @@ pub mod group_digest_scheduler;
 /// caught up later that week in daytime, never at night.
 pub mod group_digest_slot;
 
+/// The group body the `/api/groups` routes return, its AI agent and human
+/// coach named for the reader.
+pub mod group_response;
+
 /// Group coaching endpoints (CRUD, membership, invites, analytics).
 pub mod groups;
 

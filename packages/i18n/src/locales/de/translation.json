@@ -1204,6 +1204,7 @@
       "respond_usage": "Verwendung: /group respond mentions  oder  /group respond all",
       "role": {
         "admin": "Admin",
+        "agent": "KI-Agent",
         "member": "Mitglied",
         "owner": "Eigentümer"
       },
@@ -1773,6 +1774,7 @@
     "detachQ": "Den menschlichen Coach von dieser Gruppe lösen? Seine TrainingPeaks-Athletenverknüpfungen in dieser Gruppe enden, und er verliert den Zugriff auf die Mitgliederliste der Gruppe.",
     "detached": "Der menschliche Coach wurde von dieser Gruppe gelöst.",
     "group_detached": "{0} hat jetzt keinen menschlichen Coach mehr.",
+    "group_role": "Coach",
     "iCoachOthers": "Ich trainiere andere",
     "intake_persona": "Zuerst: Trainierst du für dich selbst, oder trainierst du andere?\n\n**1** — Ich trainiere für mich\n**2** — Ich trainiere andere",
     "invite": "Coach-Einladung",
@@ -1782,6 +1784,7 @@
     "joined_group": "Du bist jetzt der menschliche Coach von {0}.",
     "none": "Kein menschlicher Coach zugeordnet. Teile eine Coach-Einladung, um jemanden dazuzuholen.",
     "noneHint": "Kein menschlicher Coach zugewiesen. Erstelle oben eine Coach-Einladung und teile sie mit dem Coach, der diese Gruppe betreuen soll.",
+    "noneMember": "Diese Gruppe hat noch keinen menschlichen Coach.",
     "persona_summary": "Die Power-athlete-Strenge, angewandt auf die Athleten, die du trainierst.",
     "remove": "Coach entfernen",
     "removeFailed": "Coach konnte nicht entfernt werden",

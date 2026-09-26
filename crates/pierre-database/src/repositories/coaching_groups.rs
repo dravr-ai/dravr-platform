@@ -68,13 +68,27 @@ macro_rules! group_columns {
     };
 }
 
-/// The columns every member read decodes, with the user's email joined in
+/// The name a person reads for the user joined in as `u`: their display name
+/// when it is not blank, else their email — the rule
+/// `pierre_services::delegated_connections::person_name` applies to a user
+/// row already in hand. `NULL` only when the user row is missing.
+macro_rules! person_name_column {
+    () => {
+        "COALESCE(NULLIF(TRIM(u.display_name), ''), u.email)"
+    };
+}
+
+/// The columns every member read decodes, with the member's name joined in
 /// as the display name.
 macro_rules! member_columns {
     () => {
-        "m.id, m.group_id, m.user_id, m.tenant_id, m.role,
+        concat!(
+            "m.id, m.group_id, m.user_id, m.tenant_id, m.role,
               m.peer_sharing_consent, m.consent_given_at, m.joined_at, m.left_at,
-              u.email AS display_name"
+              ",
+            person_name_column!(),
+            " AS display_name"
+        )
     };
 }
 
@@ -322,9 +336,12 @@ pub(crate) const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcr
 /// membership. Consent-gated like the peer-grounding fetch: a peer's entries
 /// need the group kill-switch AND that member's own standing consent; the
 /// viewer always sees their own entries.
-pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
+pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
+    r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
               e.content, e.source_conversation_id, e.source_message_id, e.created_at,
-              u.email AS author_display_name
+              ",
+    person_name_column!(),
+    r" AS author_display_name
               FROM group_transcript_entries e
               JOIN coaching_groups g ON g.id = e.group_id
               LEFT JOIN users u ON u.id = e.author_user_id
@@ -343,7 +360,8 @@ pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = r"SELECT e.id, e.group_i
                   )
                 )
               ORDER BY e.created_at DESC, e.id DESC
-              LIMIT $3";
+              LIMIT $3"
+);
 
 // ============================================================================
 // group_digest_deliveries
@@ -430,7 +448,7 @@ macro_rules! impl_coaching_group_repository {
             })
         }
 
-        /// Decode a `coaching_group_members` row joined to the user's email.
+        /// Decode a `coaching_group_members` row joined to the member's name.
         fn row_to_member(r: &$row) -> AppResult<GroupMember> {
             let role: String = column(r, "role")?;
             Ok(GroupMember {
@@ -447,7 +465,7 @@ macro_rules! impl_coaching_group_repository {
             })
         }
 
-        /// Decode a `group_transcript_entries` row joined to the author's email.
+        /// Decode a `group_transcript_entries` row joined to the author's name.
         fn row_to_transcript_entry(r: &$row) -> AppResult<GroupTranscriptEntry> {
             let speaker: String = column(r, "speaker")?;
             Ok(GroupTranscriptEntry {

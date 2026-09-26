@@ -18,8 +18,9 @@ use pierre_contremaitre::manifest::{
 };
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, DEFAULT_LOCALE, KEY_EMPTY_REPLY,
-    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_MEMBER, KEY_GROUP_ROLE_OWNER, KEY_GUARDIAN_DENIED,
-    KEY_HELP_FOOTER, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
+    KEY_GROUP_ROLE_ADMIN, KEY_GROUP_ROLE_AGENT, KEY_GROUP_ROLE_COACH, KEY_GROUP_ROLE_MEMBER,
+    KEY_GROUP_ROLE_OWNER, KEY_GUARDIAN_DENIED, KEY_HELP_FOOTER, KEY_VERIFICATION_BLOCK_FALLBACK,
+    KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_contremaitre::sync::system_prompt_content_is_valid;
@@ -1013,20 +1014,27 @@ fn test_group_role_labels_are_localized() {
     // The `/group` and `/group members` replies render the member's role
     // through the registry so it matches the surrounding locale instead of
     // leaking the raw English enum value (`owner`/`admin`/`member`) into an
-    // otherwise-translated message. Pin the FR labels and assert each role
-    // resolves in every compiled locale.
+    // otherwise-translated message. `/group members` also labels the group's
+    // AI agent and its human coach, who hold no membership role. Pin the FR
+    // labels and assert each label resolves in every compiled locale.
     let reg = MessagingStringsRegistry::new();
 
     assert_eq!(reg.get(KEY_GROUP_ROLE_OWNER, "fr"), "propriétaire");
     assert_eq!(reg.get(KEY_GROUP_ROLE_ADMIN, "fr"), "admin");
     assert_eq!(reg.get(KEY_GROUP_ROLE_MEMBER, "fr"), "membre");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_AGENT, "fr"), "agent IA");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_COACH, "fr"), "coach");
     assert_eq!(reg.get(KEY_GROUP_ROLE_OWNER, "en"), "owner");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_AGENT, "en"), "AI agent");
+    assert_eq!(reg.get(KEY_GROUP_ROLE_COACH, "pt"), "treinador");
 
     for locale in ["fr", "en", "es", "de", "pt"] {
         for key in [
             KEY_GROUP_ROLE_OWNER,
             KEY_GROUP_ROLE_ADMIN,
             KEY_GROUP_ROLE_MEMBER,
+            KEY_GROUP_ROLE_AGENT,
+            KEY_GROUP_ROLE_COACH,
         ] {
             assert!(
                 !reg.get(key, locale).is_empty(),

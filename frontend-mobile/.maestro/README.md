@@ -34,7 +34,9 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── config.yaml              # Global configuration
 ├── helpers/                 # Reusable helper flows
 │   ├── launch-app.yaml      # Launch app fresh
+│   ├── hide-dev-tools-button.yaml  # Switch off Expo Go's floating tools button (iOS)
 │   ├── login.yaml           # Perform login
+│   ├── wait-for-home-after-login.yaml  # Wait for Home, clearing the "Save Password?" sheet
 │   ├── login-if-needed.yaml # Conditional login
 │   ├── navigate-to-*.yaml   # Navigation helpers (chat, discover, settings)
 │   ├── new-chat.yaml        # Start new conversation
@@ -76,6 +78,32 @@ On Android, run flows **one file per `maestro test` invocation** — the way bot
 workflows do. Running the folder in one invocation restarts Maestro's on-device driver
 during the first flow's `launchApp` and every later flow fails within milliseconds with
 `Device server died … UNAVAILABLE` (observed 2026-09-05, Maestro 2.10.0, Pixel 6 API 33).
+
+## iOS simulator state the flows depend on
+
+Measured on iOS 27.0 with Expo Go 57.0.9 (iPhone 17, Xcode 27, 2026-09-25):
+
+- **Expo Go's floating tools button.** Expo Go 57 shows a gear over the header's
+  trailing buttons once its developer-menu onboarding is finished, and on iOS 27 it
+  covers the conversation list's "+". `helpers/hide-dev-tools-button.yaml` switches it
+  off through the menu's own "Tools button" row, and Expo Go keeps that choice. To
+  set it up front instead, write the preference through the simulator's `cfprefsd`:
+  ```bash
+  C=$(xcrun simctl get_app_container booted host.exp.Exponent data)
+  xcrun simctl spawn booted defaults write "$C/Library/Preferences/host.exp.Exponent" \
+    EXDevMenuShowFloatingActionButton -bool false
+  ```
+  Editing that plist with PlistBuddy is not reliable: the simulator's `cfprefsd`
+  rewrote it from its cache and dropped the edit, even with Expo Go stopped.
+- **"Save Password?" sheet.** `AutoFillPasswords=false` in the simulator's global and
+  `com.apple.WebUI` domains still suppresses it on iOS 27. Without that, the sheet
+  arrives a few seconds after login and, inside Expo Go, sits outside the hierarchy
+  Maestro reads; `helpers/wait-for-home-after-login.yaml` dismisses it either way.
+- **Keyboard.** The iOS hierarchy reports every element unfocused, so
+  `helpers/focus-message-input.yaml` proves focus on iOS by the software keyboard's
+  delete key instead, and fails when it never appears. With Xcode 27 the software
+  keyboard appeared even though `com.apple.iphonesimulator ConnectHardwareKeyboard`
+  was true, and `hideKeyboard` works in Expo Go 57.
 
 ## Test Credentials
 

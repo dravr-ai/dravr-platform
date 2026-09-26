@@ -47,7 +47,10 @@ const WHOOP_BLOCKS: ReplyBlock[] = [
 let mockBlocks: ReplyBlock[] = GARMIN_BLOCKS;
 
 // No navigator under a unit test, so the header the column offsets by is 0 tall.
-jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
+jest.mock('expo-router/react-navigation', () => ({
+  ...jest.requireActual('expo-router/react-navigation'),
+  useHeaderHeight: () => 0,
+}));
 
 jest.mock('expo-web-browser', () => ({
   openAuthSessionAsync: jest.fn(() => Promise.resolve({ type: 'cancel' })),
