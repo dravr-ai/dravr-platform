@@ -25,23 +25,58 @@ const read = (flow: string): string => readFileSync(join(MAESTRO_DIR, flow), 'ut
 /** A `tapOn:` whose target is the composer, in the two-line shape every flow writes it in. */
 const BARE_COMPOSER_TAP = /tapOn:\s*\n\s+id:\s*"message-input"/;
 
+/**
+ * The helper's top-level commands, one string per `- ` item at column 0, with
+ * comment and blank lines dropped so a branch ends on its last command.
+ */
+function topLevelCommands(flow: string): string[] {
+  const commands = flow.split('\n---\n')[1];
+  return commands
+    .split(/\n(?=- )/)
+    .map((item) =>
+      item
+        .split('\n')
+        .filter((line) => line.trim() !== '' && !line.trim().startsWith('#'))
+        .join('\n')
+    )
+    .filter((item) => item.startsWith('- '));
+}
+
+/** The last `count` lines of a command block. */
+const tail = (block: string, count: number): string => block.split('\n').slice(-count).join('\n');
+
 describe('the composer focus helper', () => {
   const helper = read(HELPER);
+  const branches = topLevelCommands(helper);
+  const branchFor = (platform: string): string =>
+    branches.find((branch) => new RegExp(`platform: ${platform}\\n`).test(branch)) ?? '';
 
-  it('taps the composer until the hierarchy reports it focused', () => {
+  it('taps the composer until the platform shows it focused', () => {
     // The tap is retried, so a first tap that lands before the field can take
-    // IME focus is not the last word.
-    expect(helper).toMatch(/- repeat:\s*\n\s+times: \d+\s*\n\s+while:\s*\n\s+notVisible:\s*\n\s+id: "message-input"\s*\n\s+focused: true/);
-    expect(helper).toMatch(BARE_COMPOSER_TAP);
+    // IME focus is not the last word. Android reports focus on the field; the
+    // iOS hierarchy reports every element unfocused, so there the software
+    // keyboard's delete key coming up is the sign.
+    expect(branchFor('Android')).toMatch(/- repeat:\s*\n\s+times: \d+\s*\n\s+while:\s*\n\s+notVisible:\s*\n\s+id: "message-input"\s*\n\s+focused: true/);
+    expect(branchFor('iOS')).toMatch(/- repeat:\s*\n\s+times: \d+\s*\n\s+while:\s*\n\s+notVisible:\s*\n\s+id: "delete"/);
+    expect(branchFor('Android')).toMatch(BARE_COMPOSER_TAP);
+    expect(branchFor('iOS')).toMatch(BARE_COMPOSER_TAP);
   });
 
-  it('ends on an unconditional focus assertion, so a composer that never takes focus fails here', () => {
-    // Without this, key codes typed by the next step would go to whatever holds
+  it('has one branch per platform and nothing outside them', () => {
+    // A top-level command would run on both platforms, and a platform with no
+    // branch would type without any proof of focus.
+    expect(branches).toHaveLength(2);
+    expect(branchFor('Android')).not.toBe('');
+    expect(branchFor('iOS')).not.toBe('');
+  });
+
+  it('ends each branch on a required focus assertion, so a composer that never takes focus fails here', () => {
+    // Without this, text typed by the next step would go to whatever holds
     // focus and the flow would fail some later step for no visible reason.
-    const commands = helper.split('\n---\n')[1];
-    const last = commands.trimEnd().split('\n').slice(-3).join('\n');
-    expect(last).toMatch(/- assertVisible:\s*\n\s+id: "message-input"\s*\n\s+focused: true$/);
-    expect(last).not.toContain('optional');
+    expect(tail(branchFor('Android'), 3)).toMatch(/- assertVisible:\s*\n\s+id: "message-input"\s*\n\s+focused: true$/);
+    expect(tail(branchFor('iOS'), 2)).toMatch(/- assertVisible:\s*\n\s+id: "delete"$/);
+    expect(tail(branchFor('Android'), 3)).not.toContain('optional');
+    expect(tail(branchFor('iOS'), 2)).not.toContain('optional');
   });
 });
 

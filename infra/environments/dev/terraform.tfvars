@@ -20,8 +20,9 @@ enable_frontend = true
 frontend_base_url = "https://app.dravr.ai"
 
 # The run.app origin stays accepted for the dual-origin window: mobile builds
-# in the field still point EXPO_PUBLIC_API_URL at it (frontend-mobile/eas.json)
-# and it keeps serving beside the load balancer. Empty this list — Phase 5 of
+# in the field still point EXPO_PUBLIC_API_URL at it (built before c3e8d95f3;
+# the value now comes from the EAS production environment, not eas.json) and
+# it keeps serving beside the load balancer. Empty this list — Phase 5 of
 # the plan in dravr-vault, Work Log 2026-09-21 — once a mobile release on
 # app.dravr.ai has shipped, two weeks or one release, whichever is later. The
 # window is ledgered as frontend-dual-origin-window in feature-phases.yaml, so

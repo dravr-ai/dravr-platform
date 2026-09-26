@@ -111,8 +111,8 @@ fixture bare_dollar '{
 
 fixture no_submit '{ "build": { "production": { "autoIncrement": true } } }'
 
-# The build job rewrites eas.json with jq before building, so a malformed file
-# is reachable and should read as one line, not a Python traceback.
+# eas.json is edited by hand, so a malformed file is reachable and should read
+# as one line, not a Python traceback.
 fixture malformed 'not json'
 
 expect        "rejects the 2026-08-21 config"        broken      1 "submit.production.ios.appleId"

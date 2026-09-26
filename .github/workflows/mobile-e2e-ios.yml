@@ -199,11 +199,23 @@ jobs:
         # both attempts). pipefail surfaces curl's status, and running the
         # binary is the success marker — an install that produced nothing
         # runnable fails here, not in the smoke test.
+        #
+        # Pinned: the installer takes MAESTRO_VERSION and otherwise fetches
+        # whatever released last, so a Maestro release could change this
+        # lane's verdict with no commit here. The Android lane pins the same
+        # version; move both together, after a local run on it.
+        env:
+          MAESTRO_VERSION: "2.10.0"
         run: |
           set -o pipefail
           curl -fsSL "https://get.maestro.mobile.dev" | bash
-          "$HOME/.maestro/bin/maestro" --version
-          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+          installed="$("$HOME/.maestro/bin/maestro" --version | tail -1)"
+          if [ "$installed" != "$MAESTRO_VERSION" ]; then
+            echo "::error::Maestro $MAESTRO_VERSION was asked for and $installed was installed"
+            exit 1
+          fi
+          echo "Maestro $installed"
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Create data directory
         run: mkdir -p data
@@ -285,8 +297,11 @@ jobs:
 
       - name: Boot iOS Simulator
         run: |
-          # Find the oldest available iOS runtime (most stable with Maestro).
-          # Prefer iOS 18.x over iOS 26.x for Expo Go SDK 55 compatibility.
+          # Prefer iOS 18.x, the runtime Maestro's XCUITest driver is proven on
+          # with Xcode 16.3. Expo Go for SDK 57 runs there: `expo start --ios`
+          # installs 57.0.9 (api.expo.dev/v2/versions, sdkVersions["57.0.0"]),
+          # whose simulator build declares MinimumOSVersion 16.4, links the iOS
+          # 26.4 simulator SDK and ships arm64 and x86_64 slices.
           RUNTIME=$(xcrun simctl list runtimes | grep -i "ios 18" | tail -1 | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+' || true)
           if [ -z "$RUNTIME" ]; then
             RUNTIME=$(xcrun simctl list runtimes | grep -i "ios" | head -1 | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+' || true)
@@ -335,10 +350,11 @@ jobs:
           xcrun simctl spawn "$SIMULATOR_UDID" defaults write -globalDomain AutoFillPasswords -bool false 2>/dev/null || true
           xcrun simctl spawn "$SIMULATOR_UDID" defaults write com.apple.WebUI AutoFillPasswords -bool false 2>/dev/null || true
 
-          # EXDevMenuIsOnboardingFinished must be set in the app's sandboxed container
-          # (not NSGlobalDomain). We use PlistBuddy to write directly to the container's
-          # preferences plist after Expo Go is installed. Combined with clearKeychain
-          # (instead of clearState) in Maestro, this flag persists across test runs.
+          # Expo Go's developer-menu preferences live in the app's sandboxed
+          # container (not NSGlobalDomain), so they are written after Expo Go is
+          # installed, in "Suppress Expo Go developer menu onboarding and tools
+          # button" below. Combined with clearKeychain (instead of clearState) in
+          # Maestro, they persist across test runs.
 
       - name: Adapt Maestro tests for Expo Go
         run: |
@@ -506,30 +522,33 @@ jobs:
         env:
           EXPO_PUBLIC_API_URL: "http://127.0.0.1:8081"
 
-      - name: Suppress Expo Go developer menu onboarding
+      - name: Suppress Expo Go developer menu onboarding and tools button
         run: |
-          # Write EXDevMenuIsOnboardingFinished directly to Expo Go's sandboxed
-          # preferences plist. This prevents the developer menu overlay from appearing.
-          # Combined with clearKeychain (not clearState) in Maestro, the flag persists.
+          # Two preferences in Expo Go's sandboxed domain:
+          # - EXDevMenuIsOnboardingFinished keeps the developer menu's
+          #   onboarding overlay off the app.
+          # - EXDevMenuShowFloatingActionButton=false. Once onboarding is
+          #   finished, Expo Go 57 floats a developer-tools gear over the
+          #   header's trailing buttons, where it takes chat/01's tap on "+".
+          #   helpers/hide-dev-tools-button.yaml switches it off in-flow as
+          #   well; writing it here means no flow depends on when it appears.
+          # Both go through the simulator's cfprefsd (`simctl spawn … defaults`)
+          # rather than into the plist file: cfprefsd caches the domain and
+          # rewrote a PlistBuddy edit from that cache, even with Expo Go
+          # stopped (iOS 27.0, 2026-09-25). Combined with clearKeychain (not
+          # clearState) in Maestro, both persist across flows.
           APP_CONTAINER=$(xcrun simctl get_app_container "$SIMULATOR_UDID" host.exp.Exponent data 2>/dev/null) || true
-          if [ -n "$APP_CONTAINER" ]; then
-            PLIST="$APP_CONTAINER/Library/Preferences/host.exp.Exponent.plist"
-            echo "App container: $APP_CONTAINER"
-            echo "Plist path: $PLIST"
-            # Ensure Preferences directory exists
-            mkdir -p "$(dirname "$PLIST")"
-            # Create or update the flag
-            if [ -f "$PLIST" ]; then
-              /usr/libexec/PlistBuddy -c "Set :EXDevMenuIsOnboardingFinished true" "$PLIST" 2>/dev/null || \
-              /usr/libexec/PlistBuddy -c "Add :EXDevMenuIsOnboardingFinished bool true" "$PLIST"
-            else
-              /usr/libexec/PlistBuddy -c "Add :EXDevMenuIsOnboardingFinished bool true" "$PLIST"
-            fi
-            echo "EXDevMenuIsOnboardingFinished set to true"
-            /usr/libexec/PlistBuddy -c "Print :EXDevMenuIsOnboardingFinished" "$PLIST" || echo "Verification failed"
-          else
+          if [ -z "$APP_CONTAINER" ]; then
             echo "WARNING: Could not find Expo Go app container - developer menu may appear"
+            exit 0
           fi
+          DOMAIN="$APP_CONTAINER/Library/Preferences/host.exp.Exponent"
+          echo "Expo Go preferences domain: $DOMAIN"
+          xcrun simctl spawn "$SIMULATOR_UDID" defaults write "$DOMAIN" EXDevMenuIsOnboardingFinished -bool true
+          xcrun simctl spawn "$SIMULATOR_UDID" defaults write "$DOMAIN" EXDevMenuShowFloatingActionButton -bool false
+          for key in EXDevMenuIsOnboardingFinished EXDevMenuShowFloatingActionButton; do
+            echo "$key=$(xcrun simctl spawn "$SIMULATOR_UDID" defaults read "$DOMAIN" "$key")"
+          done
 
       - name: Debug - capture simulator state before tests
         if: always()

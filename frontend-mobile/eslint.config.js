@@ -142,6 +142,7 @@ export default [
       '.expo/',
       'app.config.js',
       'babel.config.js',
+      'fingerprint.config.js',
       'metro.config.js',
       'jest.config.js',
       'jest.setup.js',

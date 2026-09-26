@@ -195,7 +195,8 @@ Bring-up. Every step here has failed in practice — none is a formality:
    the id it remembers no longer exists. Boot one yourself first:
    ```bash
    xcrun simctl list devices available          # Dravr-Test is the project's device
-   xcrun simctl boot <udid> && open -a Simulator
+   xcrun simctl boot <udid>
+   open -b com.apple.iphonesimulator || open -b com.apple.dt.Devices   # Xcode 27: Device Hub, no Simulator.app
    ```
    Confirm with `mcp__ios-simulator__get_booted_sim_id`.
 
@@ -206,24 +207,29 @@ Bring-up. Every step here has failed in practice — none is a formality:
    xcrun simctl listapps <udid> | grep -c host.exp.Exponent   # 0 means not installed
    ./bin/install-expo-go.sh
    ```
-   Two traps in that script: it starts its own dev server, so it **fails while Metro already
-   holds 8082** (`Input is required, but 'npx expo' is in non-interactive mode`) — stop Metro
-   first; and its 60-second wait is too short, since the download took ~120s. If it times out,
-   run `npx expo start --ios --go --port 8082` directly and wait for `host.exp.Exponent` to
-   appear in `listapps`.
+   The script installs through `simctl` and starts no dev server, so Metro can keep 8082. It
+   installs the Expo Go that matches the project's SDK and replaces an older one, which
+   `expo start` would otherwise stop to ask about. When several simulators are booted,
+   `IOS_SIM_UDID=<udid>` picks the device.
 
 3. **The first load is slow and the accessibility tree is empty while it bundles.** Metro shows
    `Building JavaScript bundle... NN%` on the splash. Screenshot before concluding anything —
    an empty tree here is the bundler, not a blank app.
 
 4. **Expo Go puts a native project-info sheet over the RN tree** ("Dravr / Runtime version:
-   exposdk:55.0.0 / Close / Reload / Go home"). Dismiss it by tapping **Close** (it carries
+   exposdk:57.0.0 / Close / Reload / Go home"). Dismiss it by tapping **Close** (it carries
    `AXUniqueId: "xmark"`) — `.maestro/helpers/launch-app.yaml` retries this three times for the
    same reason. An "everything is blank" finding that turns out to be that sheet is not a
    finding.
 
-5. **iOS offers to save the password after login.** Dismiss with **Not Now**; there is a
-   `.maestro/helpers/dismiss-save-password.yaml` for the Maestro path.
+5. **iOS offers to save the password after login**, a few seconds after the login screen has
+   gone. Dismiss with **Not Now**; on the Maestro path `.maestro/helpers/wait-for-home-after-login.yaml`
+   watches for it while it waits for Home.
+
+6. **Expo Go 57 floats a developer-tools gear** over the header's trailing buttons, where it
+   takes taps meant for the app (the conversation list's "+"). Switch it off in the developer
+   menu's "Tools button" row; `.maestro/helpers/hide-dev-tools-button.yaml` does it on the
+   Maestro path.
 
 **Interaction loop for every screen — do all four, every time:**
 
@@ -501,10 +507,12 @@ Flow rules learned the hard way in this repo — the existing flows encode them,
   because Maestro has no sleep and Expo Go needs settling).
 - `runFlow: when: visible:` evaluates **once**, instantly — it is not a wait. Pair it with a
   preceding `extendedWaitUntil` if the element can appear late.
-- `hideKeyboard` fails in Expo Go v55. Dismiss the keyboard by tapping a non-interactive area
-  (`point: "50%,20%"` above the form, `"50%,15%"` in chat) before tapping a button.
-- iOS shows a native **Save Password?** sheet after any `secureTextEntry` submit; it blocks the
-  whole RN tree. `helpers/dismiss-save-password.yaml` swipes it away.
+- Dismiss the keyboard by tapping a non-interactive area (`point: "50%,20%"` above the form,
+  `"50%,15%"` in chat) before tapping a button. `hideKeyboard` failed in Expo Go 55; it works in
+  Expo Go 57 on iOS, but on Android it sends BACK when no keyboard is up, which closes the screen.
+- iOS shows a native **Save Password?** sheet a few seconds after any `secureTextEntry` submit;
+  it blocks the whole RN tree. A flow that logs in reaches Home through
+  `helpers/wait-for-home-after-login.yaml`, which dismisses it on every round of the wait.
 - Prefer `id:` anchors over text. If the screen has no stable anchor, add the `testID` as part of
   the fix.
 - New area directory → register it in `.maestro/config.yaml` `flows:` **and** in the CI critical

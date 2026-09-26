@@ -62,11 +62,11 @@ appId: host.exp.Exponent
 
 # Dismiss iOS "Save Password?" native dialog if present.
 # iOS shows this dialog after form submission with secureTextEntry fields.
-# The dialog blocks the entire RN accessibility tree until dismissed.
+# The dialog blocks the entire RN accessibility tree until dismissed, and it
+# arrives seconds after the login screen has gone, so it is watched for while
+# Home is awaited rather than checked once.
 - runFlow:
-    when:
-      visible: "Save Password?"
-    file: dismiss-save-password.yaml
+    file: wait-for-home-after-login.yaml
 
 # Wait for Home — the first tab and where the app lands after login. A flow
 # that needs the conversation list goes there with navigate-to-chat.yaml; one

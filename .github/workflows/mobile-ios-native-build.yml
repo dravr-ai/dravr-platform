@@ -1,0 +1,225 @@
+# ABOUTME: Compiles the iOS app under Xcode 27 and launches it on an iOS 27 simulator — the only CI lane that builds native code
+# ABOUTME: Path-filtered to the native inputs; catches the UIScene launch trap, pod deployment targets and Swift errors
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+name: "CI: Mobile iOS Native Build"
+
+# Every other mobile lane runs the JS inside a prebuilt Expo Go, and EAS
+# builds on an Xcode 26 image, so nothing else ever links the app against the
+# iOS 27 SDK. That is where the failures live: UIKit traps at launch in an app
+# that has not adopted the scene life cycle, Xcode 27 refuses pods whose
+# deployment target is below iOS 15, and Swift that compiled on 26 may not.
+#
+# Paths are the native inputs only. The root bun.lock is left out on purpose,
+# so a web dependency bump does not start a macOS run; a native bump changes
+# frontend-mobile/package.json, which is listed.
+on:
+  push:
+    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
+    paths:
+      - 'frontend-mobile/package.json'
+      - 'frontend-mobile/app.config.js'
+      - 'frontend-mobile/react-native.config.js'
+      - 'frontend-mobile/plugins/**'
+      - 'frontend-mobile/eas.json'
+      - '.github/workflows/mobile-ios-native-build.yml'
+  workflow_dispatch:
+
+concurrency:
+  # On main the sha is part of the group, so every commit gets its own group
+  # and nothing can cancel another commit's verdict. Branches share a group per
+  # ref and keep cancelling, where fast feedback beats a stale result.
+  # `github.event_name` keeps a dispatched run on main out of the tip's push
+  # group, which it would otherwise share through the same sha.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios-native-build:
+    name: Xcode 27 build and launch (iOS 27 simulator)
+    # The standard xcode-27 label, public preview, arm64 only, which costs no
+    # minutes on this public repository. Not xcode-27-xlarge: that is a
+    # larger runner, and larger runners are billed per minute. The image is a
+    # preview, so a single green run is not yet evidence; it takes several.
+    runs-on: xcode-27
+    timeout-minutes: 75
+    env:
+      DERIVED_DATA: ${{ github.workspace }}/frontend-mobile/ios/build/DerivedData
+    defaults:
+      run:
+        working-directory: frontend-mobile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # The label decides the image, and the image decides the default Xcode.
+      # If a future xcode-27 image defaulted to something else, this lane
+      # would quietly stop testing the toolchain it exists for, so it says so.
+      - name: Require Xcode 27
+        run: |
+          xcodebuild -version
+          major="$(xcodebuild -version | awk 'NR==1 { split($2, v, "."); print v[1] }')"
+          if [ "$major" != "27" ]; then
+            echo "::error::The default Xcode on this runner is $(xcodebuild -version | head -1), not Xcode 27. Re-pin the lane deliberately."
+            ls -d /Applications/Xcode*.app >&2 || true
+            exit 1
+          fi
+
+      # The image defaults to Node 24; SDK 57 is built and tested on 22, and
+      # eas.json pins EAS to 22.23.1.
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.23.1"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install mobile dependencies
+        run: bun install --frozen-lockfile
+
+      # --no-install leaves CocoaPods to the next step, so its output is a
+      # step of its own. The project name comes from the app name ("Dravr").
+      - name: Generate the iOS project
+        run: |
+          bunx expo prebuild --platform ios --no-install
+          project="$(find ios -maxdepth 1 -name '*.xcodeproj' | head -1)"
+          if [ -z "$project" ]; then
+            echo "::error::prebuild produced no ios/*.xcodeproj"
+            exit 1
+          fi
+          scheme="$(basename "$project" .xcodeproj)"
+          echo "SCHEME=$scheme" >> "$GITHUB_ENV"
+          echo "WORKSPACE=ios/$scheme.xcworkspace" >> "$GITHUB_ENV"
+
+      - name: Install pods
+        run: |
+          (cd ios && pod install)
+          if [ ! -d "$WORKSPACE" ]; then
+            echo "::error::pod install produced no $WORKSPACE"
+            exit 1
+          fi
+
+      # Xcode 27 accepts deployment targets from iOS 15 up. RN's post-install
+      # hook only raises native targets, so resource-bundle targets used to be
+      # left behind; expo-modules-autolinking 57.0.13 reconciles them. Checked
+      # here in seconds rather than as a compile error twenty minutes in.
+      - name: Check pod deployment targets
+        run: |
+          pbx="ios/Pods/Pods.xcodeproj/project.pbxproj"
+          targets="$(grep -oE 'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;' "$pbx" | awk '{ v = $3; sub(/;$/, "", v); print v }')"
+          if [ -z "$targets" ]; then
+            echo "::error::$pbx sets no IPHONEOS_DEPLOYMENT_TARGET at all; the scan checked nothing."
+            exit 1
+          fi
+          echo "Pod build configurations by deployment target:"
+          sort <<<"$targets" | uniq -c
+          below="$(awk '{ split($1, p, "."); if (p[1] + 0 < 15) print $1 }' <<<"$targets" | sort | uniq -c)"
+          if [ -n "$below" ]; then
+            echo "::error::Pod build configurations below iOS 15.0, which Xcode 27 refuses to build:"
+            echo "$below"
+            exit 1
+          fi
+
+      # The launch check below is what proves the scene adoption works; this
+      # names the cause when it does not.
+      - name: Check the scene manifest
+        run: |
+          plist="ios/$SCHEME/Info.plist"
+          delegate="$(plutil -extract UIApplicationSceneManifest.UISceneConfigurations.UIWindowSceneSessionRoleApplication.0.UISceneDelegateClassName raw "$plist" 2>/dev/null || true)"
+          if [ "$delegate" != "EXExpoAppSceneDelegate" ]; then
+            echo "::error::$plist declares no EXExpoAppSceneDelegate scene (got '${delegate:-nothing}'). Is enableSceneSupport still set in app.config.js?"
+            exit 1
+          fi
+          echo "$plist: scene delegate $delegate"
+
+      - name: Create an iOS 27 simulator
+        run: |
+          runtime="$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform == "iOS" and .isAvailable and (.version | startswith("27")))] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier // empty')"
+          if [ -z "$runtime" ]; then
+            echo "::error::No iOS 27 simulator runtime on this image."
+            xcrun simctl list runtimes
+            exit 1
+          fi
+          device_type="$(xcrun simctl list runtimes -j | jq -r --arg rt "$runtime" '.runtimes[] | select(.identifier == $rt) | .supportedDeviceTypes | (map(select(.name == "iPhone 17")) + map(select(.productFamily == "iPhone"))) | first | .identifier // empty')"
+          if [ -z "$device_type" ]; then
+            echo "::error::$runtime supports no iPhone device type."
+            exit 1
+          fi
+          udid="$(xcrun simctl create ios-native-build "$device_type" "$runtime")"
+          echo "Created $udid ($device_type on $runtime)"
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+
+      - name: Build (Debug, iOS simulator)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" | xcbeautify --renderer github-actions
+
+      # The scene trap is an EXC_BREAKPOINT raised while UIKit connects the
+      # first scene, so a process still running seconds after launch is the
+      # proof. A Debug simulator build embeds no bundle and no Metro runs
+      # here, so what stays up is the dev-client launcher, a running app.
+      - name: Launch on the simulator and stay alive
+        run: |
+          app="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/$SCHEME.app"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b >/dev/null
+          xcrun simctl install "$SIMULATOR_UDID" "$app"
+          launch_out="$(xcrun simctl launch "$SIMULATOR_UDID" "$bundle_id")"
+          echo "$launch_out"
+          pid="${launch_out##*: }"
+          case "$pid" in
+            '' | *[!0-9]*) echo "::error::simctl launch printed no pid: $launch_out"; exit 1 ;;
+          esac
+          alive_secs=15
+          sleep "$alive_secs"
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::$bundle_id (pid $pid) exited within ${alive_secs}s of launch. The crash report is in the diagnostics artifact."
+            exit 1
+          fi
+          label_line="$(xcrun simctl spawn "$SIMULATOR_UDID" launchctl list | grep "UIKitApplication:$bundle_id" || true)"
+          echo "launchctl: $label_line"
+          case "$label_line" in
+            "$pid"*) ;;
+            *) echo "::error::launchd does not list $bundle_id as running pid $pid"; exit 1 ;;
+          esac
+          echo "$bundle_id is still running (pid $pid) ${alive_secs}s after launch on $(xcrun simctl list devices | grep "$SIMULATOR_UDID" | sed 's/^ *//')"
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/diagnostics"
+          cp "$RUNNER_TEMP/xcodebuild.log" "$RUNNER_TEMP/diagnostics/" 2>/dev/null || true
+          find "$HOME/Library/Logs/DiagnosticReports" -type f -mmin -90 \
+            -exec cp {} "$RUNNER_TEMP/diagnostics/" \; 2>/dev/null || true
+          if [ -n "${SIMULATOR_UDID:-}" ]; then
+            xcrun simctl io "$SIMULATOR_UDID" screenshot "$RUNNER_TEMP/diagnostics/simulator.png" 2>/dev/null || true
+            xcrun simctl spawn "$SIMULATOR_UDID" log show --last 10m --style compact \
+              --predicate 'process == "Dravr" OR eventMessage CONTAINS "SceneLifecycle"' \
+              > "$RUNNER_TEMP/diagnostics/simulator.log" 2>&1 || true
+          fi
+          ls -la "$RUNNER_TEMP/diagnostics"
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-native-build-diagnostics
+          path: ${{ runner.temp }}/diagnostics/
+          retention-days: 3

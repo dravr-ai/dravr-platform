@@ -106,6 +106,26 @@ that pid: `ps -eo pid,args | grep '[c]loudflared tunnel'`. `pkill -f 'cloudflare
 tunnel'` reaches every checkout's tunnel on the machine, which on a host running
 several worktrees takes down someone else's device testing.
 
+## iOS Simulator on Xcode 27
+
+Xcode 27 replaced Simulator.app with Device Hub (`com.apple.dt.Devices`), which
+does not boot a device when it opens, so `open -a Simulator` and
+`expo start --ios` no longer get a device on screen by themselves. The helpers
+in `ios-simulator.sh` do those steps with `simctl`, and the scripts pick them
+by what the selected Xcode ships:
+
+- **Xcode 16 and 26** (Simulator.app present): the setup script runs
+  `expo start --ios --go`, unchanged.
+- **Xcode 27** (Device Hub): the setup script uses the booted simulator, or
+  boots the first iPhone on the newest iOS runtime, installs the Expo Go that
+  matches the project's SDK, starts Metro
+  without `--ios` and opens `exp://127.0.0.1:$EXPO_PORT` once Metro answers.
+  iOS 27 asks "Open in Expo Go?" first, and one tap on Open is needed.
+- `install-expo-go.sh` installs the matching Expo Go through `simctl` on either
+  Xcode, replacing an older one.
+- `IOS_SIM_UDID=<udid>` pins the device for all three scripts, for when another
+  checkout's simulator is booted too.
+
 ## See Also
 
 - `scripts/` - CI/Dev tools (validation, testing, release)

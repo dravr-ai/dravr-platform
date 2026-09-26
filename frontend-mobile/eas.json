@@ -1,65 +1,60 @@
 {
   "cli": {
-    "version": ">= 12.0.0",
+    "version": ">= 24.4.2",
     "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "node": "22.23.1",
+      "bun": "1.3.4",
       "ios": {
+        "image": "macos-tahoe-26.5-xcode-26.6",
         "simulator": true
       },
-      "env": {
-        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
-        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
-        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
-        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "629001562818",
-        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:629001562818:web:9c09e313ead19b4d72695b",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "629001562818-fqu15igkvlj6jt1ftusktilq7rpg5imn.apps.googleusercontent.com"
+      "environment": "development",
+      "channel": "development"
+    },
+    "development-device": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "node": "22.23.1",
+      "bun": "1.3.4",
+      "ios": {
+        "image": "macos-tahoe-26.5-xcode-26.6",
+        "resourceClass": "medium"
       },
+      "environment": "development",
       "channel": "development"
     },
     "preview": {
       "autoIncrement": true,
       "distribution": "internal",
+      "node": "22.23.1",
+      "bun": "1.3.4",
       "ios": {
-        "resourceClass": "m-medium"
+        "image": "macos-tahoe-26.5-xcode-26.6",
+        "resourceClass": "medium"
       },
       "android": {
         "buildType": "apk"
       },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.dravr.ai",
-        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
-        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
-        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
-        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "629001562818",
-        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:629001562818:web:9c09e313ead19b4d72695b",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "629001562818-fqu15igkvlj6jt1ftusktilq7rpg5imn.apps.googleusercontent.com"
-      },
+      "environment": "preview",
       "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
+      "node": "22.23.1",
+      "bun": "1.3.4",
       "ios": {
-        "resourceClass": "m-medium"
+        "image": "macos-tahoe-26.5-xcode-26.6",
+        "resourceClass": "medium"
       },
       "android": {
         "buildType": "app-bundle"
       },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://app.dravr.ai",
-        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
-        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
-        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
-        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "629001562818",
-        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:629001562818:web:9c09e313ead19b4d72695b",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "629001562818-fqu15igkvlj6jt1ftusktilq7rpg5imn.apps.googleusercontent.com"
-      },
+      "environment": "production",
       "channel": "production"
     }
   },

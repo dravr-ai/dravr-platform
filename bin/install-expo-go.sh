@@ -1,8 +1,8 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Installs Expo Go on the booted iOS Simulator if not already present
-# ABOUTME: Fast path for development — no Xcode build needed
+# ABOUTME: Installs the Expo Go that matches the project's Expo SDK on the booted iOS Simulator
+# ABOUTME: Fast path for development — no Xcode build and no Metro; works with Simulator.app and Device Hub
 
 set -e
 
@@ -10,87 +10,38 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-EXPO_GO_BUNDLE_ID="host.exp.Exponent"
 EXPO_PORT="${EXPO_PORT:-8082}"
 
-# Find booted simulator
-BOOTED_UDID=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for runtime, devices in data.get('devices', {}).items():
-    for d in devices:
-        if d.get('state') == 'Booted':
-            print(d['udid'])
-            sys.exit(0)
-print('')
-" 2>/dev/null)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=ios-simulator.sh
+. "$SCRIPT_DIR/ios-simulator.sh"
+
+# IOS_SIM_UDID picks the device when more than one is booted.
+BOOTED_UDID="${IOS_SIM_UDID:-$(ios_sim_booted_udid)}"
 
 if [ -z "$BOOTED_UDID" ]; then
     echo -e "${YELLOW}No iOS Simulator is booted. Start one first:${NC}"
-    echo "    open -a Simulator"
+    ios_sim_boot_hint
     exit 1
 fi
 
-SIM_NAME=$(xcrun simctl list devices booted -j 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for runtime, devices in data.get('devices', {}).items():
-    for d in devices:
-        if d.get('state') == 'Booted':
-            print(d.get('name', 'Unknown'))
-            sys.exit(0)
-" 2>/dev/null)
+echo "Simulator: $(ios_sim_device_name "$BOOTED_UDID") ($BOOTED_UDID)"
 
-echo "Simulator: $SIM_NAME ($BOOTED_UDID)"
-
-# Check if Expo Go is already installed
-APP_INSTALLED=$(xcrun simctl listapps "$BOOTED_UDID" 2>/dev/null \
-    | plutil -convert json -o - - 2>/dev/null \
-    | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-print('yes' if '$EXPO_GO_BUNDLE_ID' in data else 'no')
-" 2>/dev/null || echo "no")
-
-if [ "$APP_INSTALLED" = "yes" ]; then
-    echo -e "${GREEN}Expo Go is already installed${NC}"
+# The install goes straight through simctl rather than through
+# `expo start --ios`, which also opens the simulator app — the step Xcode 27
+# broke — and asks before replacing an older Expo Go.
+INSTALLED="$(ios_sim_expo_go_version "$BOOTED_UDID")"
+if ios_sim_ensure_expo_go "$BOOTED_UDID" "$PROJECT_ROOT/frontend-mobile"; then
+    NOW="$(ios_sim_expo_go_version "$BOOTED_UDID")"
+    if [ "$INSTALLED" = "$NOW" ]; then
+        echo -e "${GREEN}Expo Go $NOW is already installed${NC}"
+    else
+        echo -e "${GREEN}Expo Go $NOW installed${INSTALLED:+ (replaced $INSTALLED)}${NC}"
+    fi
     exit 0
 fi
 
-echo "Installing Expo Go on $SIM_NAME..."
-
-# Navigate to frontend-mobile for npx expo context
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$PROJECT_ROOT/frontend-mobile"
-
-# Start Metro with --ios --go to install Expo Go and launch it
-# Then shut down Metro — the setup script starts it separately
-npx expo start --ios --go --port "$EXPO_PORT" &
-METRO_PID=$!
-
-# Wait for Expo Go to appear on the simulator (up to 60 seconds)
-for _ in $(seq 1 60); do
-    INSTALLED=$(xcrun simctl listapps "$BOOTED_UDID" 2>/dev/null \
-        | plutil -convert json -o - - 2>/dev/null \
-        | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-print('yes' if '$EXPO_GO_BUNDLE_ID' in data else 'no')
-" 2>/dev/null || echo "no")
-
-    if [ "$INSTALLED" = "yes" ]; then
-        echo -e "${GREEN}Expo Go installed successfully${NC}"
-        # Kill the temporary Metro process
-        kill "$METRO_PID" 2>/dev/null || true
-        wait "$METRO_PID" 2>/dev/null || true
-        exit 0
-    fi
-    sleep 1
-done
-
-# Timed out
-kill "$METRO_PID" 2>/dev/null || true
-echo -e "${YELLOW}Timed out waiting for Expo Go to install. Try running manually:${NC}"
+echo -e "${YELLOW}Could not install Expo Go. Try running manually:${NC}"
 echo "    cd frontend-mobile && npx expo start --ios --go --port $EXPO_PORT"
 exit 1

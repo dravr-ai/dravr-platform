@@ -4,7 +4,7 @@
 // ABOUTME: The native stack header, once, for every stack in the app
 // ABOUTME: Paper ground, ink title, the one green as the tint, the system back chevron and nothing hand-drawn
 
-import type { NativeStackNavigationOptions } from '@react-navigation/native-stack';
+import type { NativeStackNavigationOptions } from 'expo-router/native-stack';
 import { useThemeColors } from '../constants/theme';
 
 /**

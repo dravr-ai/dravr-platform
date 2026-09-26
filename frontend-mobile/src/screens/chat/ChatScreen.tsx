@@ -14,7 +14,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 

@@ -12,21 +12,53 @@ appId: ai.dravr.app
 # on API 33 (carnet#355 item 4). So the composer is tapped until the hierarchy
 # reports it focused, and the assertion after the loop is what fails loudly if
 # it never does, rather than a reload failing some later step for no reason.
-- repeat:
-    times: 3
-    while:
-      notVisible:
-        id: "message-input"
-        focused: true
+- runFlow:
+    when:
+      platform: Android
     commands:
-      - tapOn:
+      - repeat:
+          times: 3
+          while:
+            notVisible:
+              id: "message-input"
+              focused: true
+          commands:
+            - tapOn:
+                id: "message-input"
+            - extendedWaitUntil:
+                visible:
+                  id: "message-input"
+                  focused: true
+                timeout: 3000
+                optional: true
+      - assertVisible:
           id: "message-input"
-      - extendedWaitUntil:
-          visible:
-            id: "message-input"
-            focused: true
-          timeout: 3000
-          optional: true
-- assertVisible:
-    id: "message-input"
-    focused: true
+          focused: true
+
+# The iOS hierarchy Maestro reads reports `focused: false` for every element,
+# the composer included while it holds the cursor (iOS 27.0, 2026-09-25), so
+# the Android proof can never pass here. The software keyboard is in that
+# hierarchy instead, and its delete key coming up is what shows the composer
+# took focus. The software keyboard is also the only one that types into Expo
+# Go: with a hardware keyboard connected, XCUITest's direct text insertion
+# bypasses React Native's onChangeText and inputText is dropped silently, which
+# is why the iOS lane disconnects it before boot. So its absence fails here too.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - repeat:
+          times: 3
+          while:
+            notVisible:
+              id: "delete"
+          commands:
+            - tapOn:
+                id: "message-input"
+            - extendedWaitUntil:
+                visible:
+                  id: "delete"
+                timeout: 3000
+                optional: true
+      - assertVisible:
+          id: "delete"

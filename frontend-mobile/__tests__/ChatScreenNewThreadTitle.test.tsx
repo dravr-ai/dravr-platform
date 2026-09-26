@@ -11,7 +11,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // The native header's height feeds the keyboard-avoiding column; there is no
 // navigator under a unit test, so the header is as tall as nothing.
-jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 0 }));
+jest.mock('expo-router/react-navigation', () => ({
+  ...jest.requireActual('expo-router/react-navigation'),
+  useHeaderHeight: () => 0,
+}));
 jest.mock('@expo/vector-icons', () => {
   const View = require('react-native').View;
   const glyph = (props: Record<string, unknown>) =>

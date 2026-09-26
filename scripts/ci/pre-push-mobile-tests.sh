@@ -181,7 +181,7 @@ echo -n "Checking every flow can fail... "
 # skipped when its precondition is absent, and a skipped flow reports success.
 # Four store flows and two others were in that state; two of them were in the
 # Android nightly. Compile-free, so it costs nothing to run here.
-MAESTRO_OUT=$("$(dirname "${BASH_SOURCE[0]}")/check-maestro-assertions.sh" 2>&1)
+MAESTRO_OUT=$("$SCRIPT_DIR/check-maestro-assertions.sh" 2>&1)
 MAESTRO_STATUS=$?
 
 if [[ $MAESTRO_STATUS -eq 0 ]]; then

@@ -59,6 +59,7 @@ HAS_SHARED_PACKAGE_CHANGES=false
 HAS_WEB_INPUT_PACKAGE_CHANGES=false
 HAS_MOBILE_INPUT_PACKAGE_CHANGES=false
 HAS_SDK_INPUT_PACKAGE_CHANGES=false
+HAS_ROOT_MANIFEST_CHANGES=false
 
 # Track which crates have changes (folder name under crates/)
 declare -A CHANGED_CRATES
@@ -101,6 +102,13 @@ while IFS= read -r file; do
         packages/mcp-types/*) HAS_SDK_INPUT_PACKAGE_CHANGES=true ;;
         packages/*) HAS_WEB_INPUT_PACKAGE_CHANGES=true; HAS_MOBILE_INPUT_PACKAGE_CHANGES=true ;;
     esac
+    # The root manifest and lockfile resolve every workspace (packages/*,
+    # frontend, frontend-mobile), so an `overrides` pin or a lockfile move
+    # changes what both clients compile and test against with neither client
+    # directory in the diff. The SDK is not a workspace and has its own lockfile.
+    case "$file" in
+        package.json|bun.lock) HAS_ROOT_MANIFEST_CHANGES=true ;;
+    esac
 done <<< "$CHANGED_FILES"
 
 HAS_RUST_CHANGES=false
@@ -110,14 +118,16 @@ fi
 
 # Tier selection follows the dependency edge, not the directory the diff sits
 # in: a client tier runs for that client's own sources AND for the shared
-# packages it compiles against.
+# packages and root manifest it compiles against.
 RUN_WEB_TIER=false
-if [[ "$HAS_FRONTEND_CHANGES" == "true" ]] || [[ "$HAS_WEB_INPUT_PACKAGE_CHANGES" == "true" ]]; then
+if [[ "$HAS_FRONTEND_CHANGES" == "true" ]] || [[ "$HAS_WEB_INPUT_PACKAGE_CHANGES" == "true" ]] \
+    || [[ "$HAS_ROOT_MANIFEST_CHANGES" == "true" ]]; then
     RUN_WEB_TIER=true
 fi
 
 RUN_MOBILE_TIER=false
-if [[ "$HAS_MOBILE_CHANGES" == "true" ]] || [[ "$HAS_MOBILE_INPUT_PACKAGE_CHANGES" == "true" ]]; then
+if [[ "$HAS_MOBILE_CHANGES" == "true" ]] || [[ "$HAS_MOBILE_INPUT_PACKAGE_CHANGES" == "true" ]] \
+    || [[ "$HAS_ROOT_MANIFEST_CHANGES" == "true" ]]; then
     RUN_MOBILE_TIER=true
 fi
 
@@ -136,6 +146,7 @@ echo "   SDK: $HAS_SDK_CHANGES (tier runs: $RUN_SDK_TIER)"
 echo "   MCP types: $HAS_MCP_TYPES_CHANGES"
 echo "   API client: $HAS_API_CLIENT_CHANGES"
 echo "   Shared packages: $HAS_SHARED_PACKAGE_CHANGES"
+echo "   Root manifest: $HAS_ROOT_MANIFEST_CHANGES"
 echo "   Mobile: $HAS_MOBILE_CHANGES (tier runs: $RUN_MOBILE_TIER)"
 echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then

@@ -31,8 +31,14 @@ appId: ai.dravr.app
       #
       # So tap the magnifier's trailing sliver, right of the overlay: x=313 is
       # inside the magnifier and 9px clear of the overlay's edge.
+      #
+      # Height: SDK 57's taller header moved the magnifier to y=52..100
+      # (run 36213845671's hierarchy; SDK 55 had y=28..76), so the old 8%
+      # (y=51) landed one pixel above it. 12% (y=77) is its vertical centre,
+      # clear of both edges on the 640-high emulator, and the Expo Go 57 gear
+      # (label at x=265..291) stays left of x=313.
       - tapOn:
-          point: "98%,8%"
+          point: "98%,12%"
       # The expanded SearchView exposes its EditText as `:id/search_src_text`.
       # Wait on that id, not on the placeholder: the hint depends on the app
       # language, and the id proves the field expanded and took focus, which

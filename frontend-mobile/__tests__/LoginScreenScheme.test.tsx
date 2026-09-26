@@ -58,7 +58,7 @@ function renderInTheme() {
 }
 
 /** React Native flattens an array style; read the resolved background either way. */
-function background(node: { props: { style: unknown } }): string | undefined {
+function background(node: { props: { style?: unknown } }): string | undefined {
   const style = node.props.style as { backgroundColor?: string } | Array<{ backgroundColor?: string }>;
   const list = Array.isArray(style) ? style : [style];
   return list.reduce<string | undefined>((found, layer) => layer?.backgroundColor ?? found, undefined);

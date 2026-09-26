@@ -123,3 +123,8 @@ appId: host.exp.Exponent
     visible:
       id: "email-input"
     timeout: 30000
+
+# Expo Go 57's floating developer-tools button covers the header's trailing
+# buttons on iOS; switch it off while nothing else is on screen.
+- runFlow:
+    file: hide-dev-tools-button.yaml
