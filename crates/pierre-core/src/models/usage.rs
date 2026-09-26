@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::models::conversation::ConversationTurnId;
+use crate::models::user::UserTier;
 
 /// A single usage counter record
 #[derive(Debug, Clone)]
@@ -224,6 +225,42 @@ pub struct JwtUsage {
     pub ip_address: Option<String>,
     /// Client user agent string
     pub user_agent: Option<String>,
+}
+
+/// An admin's per-user monthly request limit, as `user_rate_limit_overrides`
+/// holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonthlyLimitOverride {
+    /// No override row: the user's tier sets the monthly limit
+    NotSet,
+    /// A row whose monthly limit is NULL: no monthly ceiling
+    Unlimited,
+    /// A row capping the UTC month at this many requests
+    Limit(u32),
+}
+
+impl MonthlyLimitOverride {
+    /// The monthly request limit in force for a user on `tier`: this
+    /// override's when one is set, else the tier's. `None` is no ceiling.
+    #[must_use]
+    pub const fn resolve(self, tier: &UserTier) -> Option<u32> {
+        match self {
+            Self::NotSet => tier.monthly_limit(),
+            Self::Unlimited => None,
+            Self::Limit(limit) => Some(limit),
+        }
+    }
+}
+
+/// A user's JWT requests since the first instant of the UTC month and the
+/// admin's monthly override for them, read in one statement: everything the
+/// JWT request budget needs besides the user's tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JwtMonthlyUsage {
+    /// Requests counted this UTC month, before the current one
+    pub used: u32,
+    /// The admin's per-user monthly limit, if one is set
+    pub monthly_override: MonthlyLimitOverride,
 }
 
 /// `call_type` sentinel that marks an `llm_usage` row as the

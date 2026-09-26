@@ -568,3 +568,26 @@ fn test_user_allow_help_offers_send_invite() {
         "allow must still take --email: {stdout}"
     );
 }
+
+/// A per-user override sets the monthly request limit only: the verb offers
+/// `--monthly` and refuses `--daily` before it opens any database, so an
+/// operator cannot set a cap nothing enforces.
+#[test]
+fn test_set_rate_limit_takes_a_monthly_cap_and_refuses_a_daily_one() {
+    let (exit_code, stdout, _stderr) = run_cli(&["user", "set-rate-limit", "--help"]);
+    assert_eq!(exit_code, 0, "set-rate-limit help should exit with 0");
+    assert!(stdout.contains("--monthly"), "{stdout}");
+    assert!(!stdout.contains("--daily"), "{stdout}");
+
+    let (exit_code, stdout, stderr) = run_cli(&[
+        "user",
+        "set-rate-limit",
+        "--email",
+        "someone@example.com",
+        "--daily",
+        "100",
+    ]);
+    assert_eq!(exit_code, 2, "clap's usage error: {stdout}{stderr}");
+    assert!(stderr.contains("unexpected argument '--daily'"), "{stderr}");
+    assert!(!format!("{stdout}{stderr}").contains("Connecting to database"));
+}

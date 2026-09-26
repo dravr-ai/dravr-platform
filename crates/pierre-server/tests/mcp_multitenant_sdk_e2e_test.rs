@@ -490,7 +490,8 @@ async fn test_rate_limiting_per_tenant_isolation() -> Result<()> {
         .repos
         .usage
         .get_jwt_current_usage(user2.id)
-        .await?;
+        .await?
+        .used;
     assert_eq!(
         used_by_b, 3,
         "tenant B's budget counts only its own requests"

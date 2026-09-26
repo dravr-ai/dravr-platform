@@ -210,11 +210,9 @@ export const adminApi = {
     user_id: string;
     tier: string;
     rate_limits: {
-      daily: { limit: number | null; used: number; remaining: number | null };
       monthly: { limit: number | null; used: number; remaining: number | null };
     };
     reset_times: {
-      daily_reset: string;
       monthly_reset: string;
     };
     override_active: boolean;
@@ -226,7 +224,7 @@ export const adminApi = {
 
   async setUserRateLimitOverride(
     userId: string,
-    body: { daily_limit: number | null; monthly_limit: number | null; note: string | null },
+    body: { monthly_limit: number | null; note: string | null },
   ): Promise<void> {
     await axios.put(`/api/admin/users/${userId}/rate-limit-override`, body);
   },

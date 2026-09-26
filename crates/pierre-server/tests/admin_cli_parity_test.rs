@@ -29,7 +29,6 @@ async fn test_rate_limit_override_set_and_clear() {
         &repos,
         user_id,
         Some(500),
-        None,
         Some("cli parity test".to_owned()),
         Some(admin_id),
     )
@@ -42,20 +41,39 @@ async fn test_rate_limit_override_set_and_clear() {
         .await
         .unwrap()
         .expect("override row should exist");
-    assert_eq!(row.daily_limit, Some(500));
-    assert_eq!(row.monthly_limit, None, "omitted dimension is unlimited");
+    assert_eq!(row.monthly_limit, Some(500));
     assert_eq!(row.note.as_deref(), Some("cli parity test"));
     assert_eq!(row.set_by, Some(admin_id));
 
-    // Zero caps are rejected before any write.
-    let err = admin_ops::set_user_rate_limit_override(&repos, user_id, Some(0), None, None, None)
+    // The admin view reports the override as the monthly limit in force
+    let view = admin_ops::compute_user_rate_limits(&repos, user_id)
         .await
-        .expect_err("zero daily cap must be rejected");
+        .unwrap();
+    assert_eq!(view.monthly_limit, Some(500));
+    assert_eq!(view.monthly_remaining, Some(500));
+    assert!(view.override_active);
+    assert_eq!(view.override_note.as_deref(), Some("cli parity test"));
+
+    // An omitted cap lifts the monthly ceiling
+    admin_ops::set_user_rate_limit_override(&repos, user_id, None, None, Some(admin_id))
+        .await
+        .unwrap();
+    let view = admin_ops::compute_user_rate_limits(&repos, user_id)
+        .await
+        .unwrap();
+    assert_eq!(view.monthly_limit, None);
+    assert_eq!(view.monthly_remaining, None);
+    assert!(view.override_active);
+
+    // Zero caps are rejected before any write.
+    let err = admin_ops::set_user_rate_limit_override(&repos, user_id, Some(0), None, None)
+        .await
+        .expect_err("zero monthly cap must be rejected");
     assert!(err.to_string().contains("positive"), "got: {err}");
 
     // Unknown users are a clean not-found.
     let missing = uuid::Uuid::new_v4();
-    let err = admin_ops::set_user_rate_limit_override(&repos, missing, Some(10), None, None, None)
+    let err = admin_ops::set_user_rate_limit_override(&repos, missing, Some(10), None, None)
         .await
         .expect_err("unknown user must be rejected");
     assert!(err.to_string().contains("not found"), "got: {err}");
@@ -73,6 +91,15 @@ async fn test_rate_limit_override_set_and_clear() {
     assert!(!admin_ops::clear_user_rate_limit_override(&repos, user_id)
         .await
         .unwrap());
+    let view = admin_ops::compute_user_rate_limits(&repos, user_id)
+        .await
+        .unwrap();
+    assert!(!view.override_active);
+    assert_eq!(
+        view.monthly_limit,
+        UserTier::Starter.monthly_limit(),
+        "cleared: the tier's limit is back"
+    );
 }
 
 #[tokio::test]

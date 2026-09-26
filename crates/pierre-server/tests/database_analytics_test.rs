@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_core::models::JwtUsage;
 use pierre_core::models::User;
+use pierre_core::models::{JwtUsage, MonthlyLimitOverride};
 use pierre_database::backends::factory::Database;
 use uuid::Uuid;
 
@@ -61,7 +61,12 @@ async fn test_jwt_usage_tracking() {
         .get_jwt_current_usage(user.id)
         .await
         .expect("Failed to get current JWT usage");
-    assert_eq!(current_usage, 1);
+    assert_eq!(current_usage.used, 1);
+    assert_eq!(
+        current_usage.monthly_override,
+        MonthlyLimitOverride::NotSet,
+        "no override row: the tier's limit applies"
+    );
 }
 
 #[tokio::test]

@@ -510,26 +510,20 @@ pub async fn reset_password(repos: &RepositoryRegistry, email: String) -> Result
     Ok(())
 }
 
-/// Set a per-user rate-limit override. An omitted dimension means
-/// "unlimited at that dimension" — passing neither cap grants a fully
-/// unlimited override.
+/// Set a per-user monthly rate-limit override. An omitted cap means no
+/// monthly ceiling for the user, whatever its tier.
 pub async fn set_rate_limit(
     repos: &RepositoryRegistry,
     email: String,
-    daily: Option<u32>,
     monthly: Option<u32>,
     note: Option<String>,
 ) -> Result<()> {
     let user = lookup(repos, &email).await?;
     let actor = admin_actor(repos).await;
     let note = note.or_else(|| Some("set via pierre-cli".to_owned()));
-    admin_ops::set_user_rate_limit_override(repos, user.id, daily, monthly, note, actor).await?;
-    let fmt = |v: Option<u32>| v.map_or_else(|| "unlimited".to_owned(), |n| n.to_string());
-    println!(
-        "Success: rate-limit override for {email} — daily: {}, monthly: {}",
-        fmt(daily),
-        fmt(monthly)
-    );
+    admin_ops::set_user_rate_limit_override(repos, user.id, monthly, note, actor).await?;
+    let monthly = monthly.map_or_else(|| "unlimited".to_owned(), |n| n.to_string());
+    println!("Success: rate-limit override for {email} — monthly: {monthly}");
     Ok(())
 }
 

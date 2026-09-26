@@ -28,15 +28,15 @@ use pierre_auth::{
     },
     auth::AuthManager,
     rate_limiting::{
-        api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit,
-        RequestBudget, UserRequestLimits, UserRequestUsage,
+        api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
     },
 };
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{ApiKeyWindowUsage, User, UserTier};
+use pierre_core::models::{
+    ApiKeyWindowUsage, JwtMonthlyUsage, MonthlyLimitOverride, User, UserTier,
+};
 use pierre_database::database::test_utils::create_test_db_with_key;
-use pierre_database::repositories::analytics::{next_utc_day_start, next_utc_month_start};
-use pierre_database::repositories::UserRateLimitOverride;
+use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::rate_limiting::enforce_request_budget;
 use pierre_middleware::McpAuthMiddleware;
@@ -149,29 +149,27 @@ fn user_on(tier: UserTier) -> User {
     user
 }
 
-/// `user`'s budget with no override set, `used_this_month` requests counted.
-fn tier_budget(user: &User, used_this_month: u32, now: DateTime<Utc>) -> RequestBudget {
+/// `user`'s budget under `monthly_override`, `used_this_month` requests
+/// counted.
+fn budget_under(
+    user: &User,
+    monthly_override: MonthlyLimitOverride,
+    used_this_month: u32,
+    now: DateTime<Utc>,
+) -> RequestBudget {
     calculate_jwt_rate_limit(
-        UserRequestLimits::resolve(user, None),
-        UserRequestUsage {
-            today: 0,
-            this_month: used_this_month,
+        user,
+        JwtMonthlyUsage {
+            used: used_this_month,
+            monthly_override,
         },
         now,
     )
 }
 
-/// An override row for `user` with these limits.
-fn override_for(user: &User, daily: Option<u32>, monthly: Option<u32>) -> UserRateLimitOverride {
-    UserRateLimitOverride {
-        user_id: user.id,
-        daily_limit: daily,
-        monthly_limit: monthly,
-        note: None,
-        set_by: None,
-        set_at: fixed_now(),
-        updated_at: fixed_now(),
-    }
+/// `user`'s budget with no override set, `used_this_month` requests counted.
+fn tier_budget(user: &User, used_this_month: u32, now: DateTime<Utc>) -> RequestBudget {
+    budget_under(user, MonthlyLimitOverride::NotSet, used_this_month, now)
 }
 
 #[tokio::test]
@@ -439,122 +437,53 @@ fn test_jwt_budget_follows_the_user_tier() {
 }
 
 #[test]
-fn test_a_user_override_replaces_the_tier_limits() {
+fn test_a_user_override_replaces_the_tier_monthly_limit() {
     let now = fixed_now();
     let starter = user_on(UserTier::Starter);
+    let enterprise = user_on(UserTier::Enterprise);
 
-    // A tier sets a monthly limit and no daily one
+    // Without a row the tier decides
     assert_eq!(
-        UserRequestLimits::resolve(&starter, None),
-        UserRequestLimits {
-            daily: None,
-            monthly: Some(10_000),
-        }
+        MonthlyLimitOverride::NotSet.resolve(&starter.tier),
+        Some(10_000)
     );
+    assert_eq!(MonthlyLimitOverride::NotSet.resolve(&enterprise.tier), None);
 
     // An override below the tier is the limit, and refuses at its own count
-    let lowered = override_for(&starter, None, Some(5));
-    let limits = UserRequestLimits::resolve(&starter, Some(&lowered));
+    let lowered = MonthlyLimitOverride::Limit(5);
+    assert_eq!(lowered.resolve(&starter.tier), Some(5));
     assert_eq!(
-        limits,
-        UserRequestLimits {
-            daily: None,
-            monthly: Some(5),
-        }
-    );
-    let at = |this_month| {
-        calculate_jwt_rate_limit(
-            limits,
-            UserRequestUsage {
-                today: 0,
-                this_month,
-            },
-            now,
-        )
-    };
-    assert_eq!(
-        at(4),
+        budget_under(&starter, lowered, 4, now),
         RequestBudget::Metered {
             limit: 5,
             used: 4,
             resets_at: next_utc_month_start(now),
         }
     );
-    assert!(!at(4).is_exceeded());
-    assert!(at(5).is_exceeded());
+    assert!(!budget_under(&starter, lowered, 4, now).is_exceeded());
+    assert!(budget_under(&starter, lowered, 5, now).is_exceeded());
 
-    // A null monthly limit lifts the tier's ceiling
-    let lifted = override_for(&starter, None, None);
+    // An override above the tier admits past the tier's ceiling
+    let raised = MonthlyLimitOverride::Limit(25_000);
+    assert!(tier_budget(&starter, 10_000, now).is_exceeded());
     assert_eq!(
-        calculate_jwt_rate_limit(
-            UserRequestLimits::resolve(&starter, Some(&lifted)),
-            UserRequestUsage {
-                today: 50_000,
-                this_month: 50_000,
-            },
-            now,
-        ),
+        budget_under(&starter, raised, 10_000, now).remaining_after_this_request(),
+        Some(14_999)
+    );
+
+    // A NULL monthly limit lifts the tier's ceiling
+    assert_eq!(
+        budget_under(&starter, MonthlyLimitOverride::Unlimited, 50_000, now),
         RequestBudget::Unlimited
     );
 
     // An override on an unlimited tier imposes its limit
-    let enterprise = user_on(UserTier::Enterprise);
-    let capped = override_for(&enterprise, None, Some(1_500));
-    let RequestBudget::Metered { limit, .. } = calculate_jwt_rate_limit(
-        UserRequestLimits::resolve(&enterprise, Some(&capped)),
-        UserRequestUsage::default(),
-        now,
-    ) else {
+    let RequestBudget::Metered { limit, .. } =
+        budget_under(&enterprise, MonthlyLimitOverride::Limit(1_500), 0, now)
+    else {
         panic!("an override caps an enterprise user");
     };
     assert_eq!(limit, 1_500);
-}
-
-#[test]
-fn test_a_daily_override_decides_while_it_is_the_tighter_window() {
-    let now = fixed_now();
-    let user = user_on(UserTier::Starter);
-    let limits = UserRequestLimits::resolve(&user, Some(&override_for(&user, Some(20), Some(100))));
-    let budget = |today, this_month| {
-        calculate_jwt_rate_limit(limits, UserRequestUsage { today, this_month }, now)
-    };
-    let daily = |used| RequestBudget::Metered {
-        limit: 20,
-        used,
-        resets_at: next_utc_day_start(now),
-    };
-    let monthly = |used| RequestBudget::Metered {
-        limit: 100,
-        used,
-        resets_at: next_utc_month_start(now),
-    };
-
-    // Fewer left today (20 - 3) than this month (100 - 50): the day decides
-    assert_eq!(budget(3, 50), daily(3));
-    // The day spent: refused until tomorrow
-    assert_eq!(budget(20, 50), daily(20));
-    assert!(budget(20, 50).is_exceeded());
-    // Fewer left this month (100 - 95) than today (20 - 1): the month decides
-    assert_eq!(budget(1, 95), monthly(95));
-    // Both spent: the month, which resets last
-    assert_eq!(budget(20, 100), monthly(100));
-    // A daily limit alone resets at the next UTC midnight
-    let daily_only = UserRequestLimits::resolve(&user, Some(&override_for(&user, Some(20), None)));
-    assert_eq!(
-        calculate_jwt_rate_limit(
-            daily_only,
-            UserRequestUsage {
-                today: 7,
-                this_month: 9_999_999,
-            },
-            now,
-        ),
-        daily(7)
-    );
-    assert_eq!(
-        next_utc_day_start(now),
-        Utc.with_ymd_and_hms(2026, 9, 26, 0, 0, 0).unwrap()
-    );
 }
 
 #[test]

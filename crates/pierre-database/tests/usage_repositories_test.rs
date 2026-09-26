@@ -1,5 +1,5 @@
 // ABOUTME: Covers the usage, usage-counter and LLM-usage repositories against whichever backend DATABASE_URL names
-// ABOUTME: Pins the request-log round trip, the JWT month window, the counter timestamp, the llm_usage read-back and the since contract
+// ABOUTME: Pins the request-log round trip, the JWT month window and override, the counter timestamp, the llm_usage read-back and the since contract
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,7 +12,8 @@
 //! Every assertion here pins something the two halves used to disagree on
 //! or that no test read back: the request log's stored id, sizes and
 //! saturated response time; the case-insensitive tool filter; the JWT
-//! month-to-date window against a row from last month; the counter's
+//! month-to-date window against a row from last month, and the admin's
+//! monthly override read in the same statement; the counter's
 //! `updated_at` shape; an `llm_usage` row reading back exactly as its
 //! insert returned it; a key's window count and its oldest call; and a
 //! `since` given as a bare day or as garbage.
@@ -25,11 +26,11 @@ use chrono::{DateTime, Datelike, Duration, SubsecRound, Utc};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
-    ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyWindowUsage, ConversationTurnId, JwtUsage, TenantId,
-    User,
+    ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyWindowUsage, ConversationTurnId, JwtMonthlyUsage,
+    JwtUsage, MonthlyLimitOverride, TenantId, User,
 };
 use pierre_database::database::test_utils::create_test_db;
-use pierre_database::repositories::analytics::{next_utc_day_start, utc_day_start};
+use pierre_database::repositories::UserRateLimitOverride;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -307,44 +308,93 @@ async fn jwt_usage_counts_this_utc_month_and_not_last_month() {
         .unwrap();
 
     assert_eq!(
-        repo.get_jwt_current_usage(user_id).await.unwrap(),
+        repo.get_jwt_current_usage(user_id).await.unwrap().used,
         2,
         "the month's first instant counts, the hour before it does not, another user's call never does"
     );
 }
 
+/// An override row for `user_id` capping the month at `monthly_limit`.
+fn monthly_override(user_id: Uuid, monthly_limit: Option<u32>) -> UserRateLimitOverride {
+    UserRateLimitOverride {
+        user_id,
+        monthly_limit,
+        note: None,
+        set_by: None,
+        set_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
 #[tokio::test]
-async fn jwt_usage_today_counts_from_the_utc_midnight() {
+async fn jwt_usage_reads_the_users_own_override_with_the_months_count() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let user_id = fresh_user(&repos).await;
-    let repo = &repos.usage;
-
+    let neighbour = fresh_user(&repos).await;
     let now = Utc::now();
-    let midnight = utc_day_start(now);
+    for _ in 0..2 {
+        repos
+            .usage
+            .record_jwt_usage(&jwt_call(user_id, now))
+            .await
+            .unwrap();
+    }
+    let read = || async { repos.usage.get_jwt_current_usage(user_id).await.unwrap() };
+
     assert_eq!(
-        midnight,
-        now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc()
+        read().await,
+        JwtMonthlyUsage {
+            used: 2,
+            monthly_override: MonthlyLimitOverride::NotSet,
+        },
+        "no row: the tier decides"
     );
-    assert_eq!(next_utc_day_start(now), midnight + Duration::days(1));
 
-    repo.record_jwt_usage(&jwt_call(user_id, now))
+    // Another user's row is not this user's override
+    repos
+        .user_rate_limit_overrides
+        .upsert(&monthly_override(neighbour, Some(9)))
         .await
         .unwrap();
-    repo.record_jwt_usage(&jwt_call(user_id, midnight))
-        .await
-        .unwrap();
-    repo.record_jwt_usage(&jwt_call(user_id, midnight - Duration::seconds(1)))
-        .await
-        .unwrap();
-    repo.record_jwt_usage(&jwt_call(fresh_user(&repos).await, now))
-        .await
-        .unwrap();
+    assert_eq!(read().await.monthly_override, MonthlyLimitOverride::NotSet);
 
+    repos
+        .user_rate_limit_overrides
+        .upsert(&monthly_override(user_id, Some(5)))
+        .await
+        .unwrap();
     assert_eq!(
-        repo.get_jwt_usage_today(user_id).await.unwrap(),
-        2,
-        "midnight counts, the second before it does not, another user's call never does"
+        read().await,
+        JwtMonthlyUsage {
+            used: 2,
+            monthly_override: MonthlyLimitOverride::Limit(5),
+        }
+    );
+
+    // A row with a NULL limit is told apart from no row at all
+    repos
+        .user_rate_limit_overrides
+        .upsert(&monthly_override(user_id, None))
+        .await
+        .unwrap();
+    assert_eq!(
+        read().await.monthly_override,
+        MonthlyLimitOverride::Unlimited
+    );
+
+    assert!(repos
+        .user_rate_limit_overrides
+        .delete(user_id)
+        .await
+        .unwrap());
+    assert_eq!(
+        read().await,
+        JwtMonthlyUsage {
+            used: 2,
+            monthly_override: MonthlyLimitOverride::NotSet,
+        },
+        "clearing the row puts the tier back"
     );
 }
 

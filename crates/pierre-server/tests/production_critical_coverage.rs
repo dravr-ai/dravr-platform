@@ -13,10 +13,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_auth::rate_limiting::{
-    calculate_jwt_rate_limit, RequestBudget, UserRequestLimits, UserRequestUsage,
-};
-use pierre_core::models::CoachingPersona;
+use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
+use pierre_core::models::{CoachingPersona, JwtMonthlyUsage, MonthlyLimitOverride};
 use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -352,8 +350,11 @@ async fn test_production_rate_limiting() -> Result<()> {
     // The budget the auth gate computes for this user: the Starter tier's
     // monthly limit, none of it used yet
     let budget = calculate_jwt_rate_limit(
-        UserRequestLimits::resolve(&user, None),
-        UserRequestUsage::default(),
+        &user,
+        JwtMonthlyUsage {
+            used: 0,
+            monthly_override: MonthlyLimitOverride::NotSet,
+        },
         chrono::Utc::now(),
     );
     let RequestBudget::Metered { limit, used, .. } = budget else {

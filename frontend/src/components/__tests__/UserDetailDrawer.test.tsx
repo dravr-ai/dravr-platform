@@ -1,5 +1,5 @@
-// ABOUTME: Tests for the UserDetailDrawer tier override control (super-admin only)
-// ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier args and role gating
+// ABOUTME: Tests for the UserDetailDrawer tier override control (super-admin only) and its monthly rate-limit override
+// ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier and setUserRateLimitOverride args and role gating
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,6 +16,8 @@ const getUserUsage = vi.fn();
 const getUserAdminProfile = vi.fn();
 const setUserTier = vi.fn();
 const clearUserTier = vi.fn();
+const setUserRateLimitOverride = vi.fn();
+const clearUserRateLimitOverride = vi.fn();
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -26,8 +28,8 @@ vi.mock('../../services/api', () => ({
     getUserAdminProfile: (...args: unknown[]) => getUserAdminProfile(...args),
     setUserTier: (...args: unknown[]) => setUserTier(...args),
     clearUserTier: (...args: unknown[]) => clearUserTier(...args),
-    setUserRateLimitOverride: vi.fn(),
-    clearUserRateLimitOverride: vi.fn(),
+    setUserRateLimitOverride: (...args: unknown[]) => setUserRateLimitOverride(...args),
+    clearUserRateLimitOverride: (...args: unknown[]) => clearUserRateLimitOverride(...args),
   },
 }));
 
@@ -88,7 +90,7 @@ async function renderAndSettle(user: User = targetUser) {
   renderDrawer(user);
   // Wait for the rate-limit query so state updates stay inside the test body
   await waitFor(() => {
-    expect(screen.getByText('Daily Usage')).toBeInTheDocument();
+    expect(screen.getByText('Monthly Usage')).toBeInTheDocument();
   });
 }
 
@@ -100,11 +102,9 @@ describe('UserDetailDrawer tier control', () => {
       user_id: 'user-42',
       tier: 'starter',
       rate_limits: {
-        daily: { limit: 100, used: 5, remaining: 95 },
         monthly: { limit: 3000, used: 50, remaining: 2950 },
       },
       reset_times: {
-        daily_reset: '2026-07-17T00:00:00Z',
         monthly_reset: '2026-08-01T00:00:00Z',
       },
       override_active: false,
@@ -189,5 +189,137 @@ describe('UserDetailDrawer tier control', () => {
     expect(screen.queryByText('Edit tier')).not.toBeInTheDocument();
     // Static tier badge still shows
     expect(screen.getByText('starter')).toBeInTheDocument();
+  });
+});
+
+describe('UserDetailDrawer rate-limit override', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRole = 'super_admin';
+    getUserRateLimit.mockResolvedValue({
+      user_id: 'user-42',
+      tier: 'starter',
+      rate_limits: {
+        monthly: { limit: 10000, used: 1234, remaining: 8766 },
+      },
+      reset_times: {
+        monthly_reset: '2026-10-01T00:00:00Z',
+      },
+      override_active: false,
+      override_note: null,
+    });
+    getUserActivity.mockResolvedValue({
+      user_id: 'user-42',
+      period_days: 30,
+      total_requests: 0,
+      top_tools: [],
+    });
+    getUserUsage.mockResolvedValue({
+      user_id: 'user-42',
+      from: '2026-09-01T00:00:00Z',
+      by_model: [],
+      total_cost_usd: 0,
+      daily: [],
+    });
+    getUserAdminProfile.mockResolvedValue({
+      user_id: 'user-42',
+      coaching_persona: 'supportive_coach',
+      default_coach_id: null,
+      installed_agents: [],
+      joined_groups: [],
+    });
+    setUserRateLimitOverride.mockResolvedValue(undefined);
+    clearUserRateLimitOverride.mockResolvedValue({ removed: true });
+  });
+
+  it('shows the monthly budget and no daily one', async () => {
+    await renderAndSettle();
+
+    expect(screen.getByText('1,234 / 10,000')).toBeInTheDocument();
+    expect(screen.queryByText('Daily Usage')).not.toBeInTheDocument();
+  });
+
+  it('sends a monthly limit and note, and never a daily one', async () => {
+    await renderAndSettle();
+
+    fireEvent.click(screen.getByText('Override limits for this user…'));
+    expect(screen.queryByText('Daily limit')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('e.g. 3000, or blank for unlimited'), {
+      target: { value: '500' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Why this override exists'), {
+      target: { value: 'pilot cap' },
+    });
+    fireEvent.click(screen.getByText('Save override'));
+
+    await waitFor(() => {
+      expect(setUserRateLimitOverride).toHaveBeenCalledTimes(1);
+    });
+    expect(setUserRateLimitOverride).toHaveBeenCalledWith('user-42', {
+      monthly_limit: 500,
+      note: 'pilot cap',
+    });
+  });
+
+  it('sends a blank monthly limit as null, which lifts the ceiling', async () => {
+    await renderAndSettle();
+
+    fireEvent.click(screen.getByText('Override limits for this user…'));
+    fireEvent.click(screen.getByText('Save override'));
+
+    await waitFor(() => {
+      expect(setUserRateLimitOverride).toHaveBeenCalledWith('user-42', {
+        monthly_limit: null,
+        note: null,
+      });
+    });
+  });
+
+  it('refuses a zero monthly limit without calling the API', async () => {
+    await renderAndSettle();
+
+    fireEvent.click(screen.getByText('Override limits for this user…'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. 3000, or blank for unlimited'), {
+      target: { value: '0' },
+    });
+    fireEvent.click(screen.getByText('Save override'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('The monthly limit must be a positive integer or blank for unlimited'),
+      ).toBeInTheDocument();
+    });
+    expect(setUserRateLimitOverride).not.toHaveBeenCalled();
+  });
+
+  it('edits an active override from its monthly limit and clears it', async () => {
+    getUserRateLimit.mockResolvedValue({
+      user_id: 'user-42',
+      tier: 'starter',
+      rate_limits: {
+        monthly: { limit: 500, used: 20, remaining: 480 },
+      },
+      reset_times: {
+        monthly_reset: '2026-10-01T00:00:00Z',
+      },
+      override_active: true,
+      override_note: 'pilot cap',
+    });
+    await renderAndSettle();
+
+    expect(screen.getByText('Per-user override active')).toBeInTheDocument();
+    expect(screen.getByText('20 / 500')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Edit'));
+    expect(
+      (screen.getByPlaceholderText('e.g. 3000, or blank for unlimited') as HTMLInputElement).value,
+    ).toBe('500');
+
+    // Two "Clear override" buttons can exist (tier and rate limit); the
+    // rate-limit one is inside the override editor.
+    const clearButtons = screen.getAllByText('Clear override');
+    fireEvent.click(clearButtons[clearButtons.length - 1]);
+    await waitFor(() => {
+      expect(clearUserRateLimitOverride).toHaveBeenCalledWith('user-42');
+    });
   });
 });

@@ -1,5 +1,5 @@
 // ABOUTME: Drives the production HTTP app (build_http_app) to pin X-RateLimit-* and 429 Retry-After per credential
-// ABOUTME: Covers API keys, JWTs, superseded credentials, MCP, A2A, usage rows, CORS and the messaging leak guard
+// ABOUTME: Covers API keys, JWTs, admin overrides, superseded credentials, MCP, A2A, usage rows, CORS and the messaging leak guard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -41,7 +41,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
 };
-use pierre_database::repositories::analytics::{next_utc_day_start, next_utc_month_start};
+use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use serde_json::{json, Value};
@@ -55,29 +55,19 @@ const KEY_WINDOW_SECS: u32 = 3_600;
 /// The browser origin the CORS test configures and sends.
 const BROWSER_ORIGIN: &str = "https://app.dravr.ai";
 
-/// An active user on `tier` who owns a tenant, with a JWT naming that tenant.
+/// An active user on `tier` who belongs to a tenant, with a JWT naming it.
 struct Athlete {
     user: User,
+    tenant_id: TenantId,
     token: String,
 }
 
 async fn athlete(resources: &Arc<ServerContext>, tier: UserTier, role: UserRole) -> Athlete {
-    let mut user = User::new(
-        format!("budget+{}@example.com", Uuid::new_v4()),
-        "not-a-real-hash".to_owned(),
-        Some("Budget Athlete".to_owned()),
-    );
-    user.tier = tier;
-    user.role = role;
-    user.is_admin = role.is_admin_or_higher();
-    user.user_status = UserStatus::Active;
-    user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
-
-    let repos = &resources.common.repos;
-    repos.users.create(&user).await.unwrap();
+    let user = active_user(resources, tier, role).await;
     let tenant_id = TenantId::generate();
-    repos
+    resources
+        .common
+        .repos
         .tenants
         .create(&Tenant {
             id: tenant_id,
@@ -91,7 +81,41 @@ async fn athlete(resources: &Arc<ServerContext>, tier: UserTier, role: UserRole)
         })
         .await
         .unwrap();
+    signed_in(resources, user, tenant_id)
+}
 
+/// Another active Starter user in `of`'s tenant, with a JWT naming it.
+async fn teammate(resources: &Arc<ServerContext>, of: &Athlete) -> Athlete {
+    let user = active_user(resources, UserTier::Starter, UserRole::User).await;
+    resources
+        .common
+        .repos
+        .users
+        .update_tenant_id(user.id, of.tenant_id)
+        .await
+        .unwrap();
+    signed_in(resources, user, of.tenant_id)
+}
+
+/// A stored active user on `tier` with `role`.
+async fn active_user(resources: &Arc<ServerContext>, tier: UserTier, role: UserRole) -> User {
+    let mut user = User::new(
+        format!("budget+{}@example.com", Uuid::new_v4()),
+        "not-a-real-hash".to_owned(),
+        Some("Budget Athlete".to_owned()),
+    );
+    user.tier = tier;
+    user.role = role;
+    user.is_admin = role.is_admin_or_higher();
+    user.user_status = UserStatus::Active;
+    user.approved_by = Some(user.id);
+    user.approved_at = Some(Utc::now());
+    resources.common.repos.users.create(&user).await.unwrap();
+    user
+}
+
+/// `user` with a JWT naming `tenant_id`.
+fn signed_in(resources: &Arc<ServerContext>, user: User, tenant_id: TenantId) -> Athlete {
     let token = resources
         .auth
         .auth_manager
@@ -101,7 +125,11 @@ async fn athlete(resources: &Arc<ServerContext>, tier: UserTier, role: UserRole)
             Some(tenant_id.to_string()),
         )
         .unwrap();
-    Athlete { user, token }
+    Athlete {
+        user,
+        tenant_id,
+        token,
+    }
 }
 
 /// A stored API key for `user_id` admitting `limit` calls per hour, and the
@@ -407,9 +435,9 @@ async fn test_jwt_bearer_request_returns_numeric_rate_limit_headers() {
     assert!(answer.header("retry-after").is_none());
 }
 
-/// `PUT /api/admin/users/{user_id}/rate-limit-override` as `admin`.
-async fn set_override(app: &Router, admin: &Athlete, user_id: Uuid, body: &Value) {
-    let answer = send(
+/// `PUT /api/admin/users/{user_id}/rate-limit-override` as `admin` with `body`.
+async fn put_override(app: &Router, admin: &Athlete, user_id: Uuid, body: &Value) -> Answer {
+    send(
         app,
         Request::put(format!("/api/admin/users/{user_id}/rate-limit-override"))
             .header(AUTHORIZATION, format!("Bearer {}", admin.token))
@@ -417,8 +445,28 @@ async fn set_override(app: &Router, admin: &Athlete, user_id: Uuid, body: &Value
             .body(Body::from(body.to_string()))
             .unwrap(),
     )
-    .await;
+    .await
+}
+
+/// [`put_override`], which must succeed.
+async fn set_override(app: &Router, admin: &Athlete, user_id: Uuid, body: &Value) {
+    let answer = put_override(app, admin, user_id, body).await;
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
+}
+
+/// `GET /api/admin/users/{user_id}/rate-limit` as `admin`: the admin view's
+/// `data`.
+async fn admin_rate_limit_view(app: &Router, admin: &Athlete, user_id: Uuid) -> Value {
+    let view = send(
+        app,
+        get_with(
+            &format!("/api/admin/users/{user_id}/rate-limit"),
+            &[("authorization", &format!("Bearer {}", admin.token))],
+        ),
+    )
+    .await;
+    assert_eq!(view.status, StatusCode::OK, "{}", view.body);
+    view.body["data"].clone()
 }
 
 /// `GET /api/usage/status` with `athlete`'s bearer token.
@@ -437,14 +485,16 @@ async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limi
     let app = ProviderToolRouter::build_http_app(&resources);
     let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
     let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    let colleague = teammate(&resources, &starter).await;
     seed_jwt_calls(&resources, starter.user.id, 2).await;
+    seed_jwt_calls(&resources, colleague.user.id, 2).await;
 
     // The Starter tier admits 10 000 a month; the admin lowers it to 4
     set_override(
         &app,
         &admin,
         starter.user.id,
-        &json!({"daily_limit": null, "monthly_limit": 4, "note": "abuse review"}),
+        &json!({"monthly_limit": 4, "note": "abuse review"}),
     )
     .await;
 
@@ -476,23 +526,39 @@ async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limi
     );
     assert!(fifth.numeric_header("retry-after") >= 1);
 
-    // The admin view reports the limit the gate enforced
-    let view = send(
-        &app,
-        get_with(
-            &format!("/api/admin/users/{}/rate-limit", starter.user.id),
-            &[("authorization", &format!("Bearer {}", admin.token))],
-        ),
-    )
-    .await;
-    assert_eq!(view.status, StatusCode::OK, "{}", view.body);
-    assert_eq!(view.body["data"]["rate_limits"]["monthly"]["limit"], 4);
-    assert_eq!(view.body["data"]["rate_limits"]["monthly"]["used"], 4);
+    // A user in the same tenant, with as many requests counted, keeps the tier
+    let unaffected = usage_status(&app, &colleague).await;
+    assert_eq!(unaffected.status, StatusCode::OK, "{}", unaffected.body);
+    assert_eq!(unaffected.header("x-ratelimit-limit"), Some("10000"));
+    assert_eq!(unaffected.header("x-ratelimit-remaining"), Some("9997"));
+
+    // The admin view reports the limit the gate enforced, monthly only
+    let view = admin_rate_limit_view(&app, &admin, starter.user.id).await;
+    assert_eq!(view["rate_limits"]["monthly"]["limit"], 4);
+    assert_eq!(view["rate_limits"]["monthly"]["used"], 4);
+    assert_eq!(view["rate_limits"]["monthly"]["remaining"], 0);
     assert_eq!(
-        view.body["data"]["rate_limits"]["daily"]["limit"],
-        Value::Null
+        view["rate_limits"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["monthly"],
+        "no daily figure: nothing enforces one"
     );
-    assert_eq!(view.body["data"]["override_active"], true);
+    assert_eq!(
+        view["reset_times"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["monthly_reset"]
+    );
+    assert_eq!(view["override_active"], true);
+    assert_eq!(view["override_note"], "abuse review");
+    let colleague_view = admin_rate_limit_view(&app, &admin, colleague.user.id).await;
+    assert_eq!(colleague_view["rate_limits"]["monthly"]["limit"], 10_000);
+    assert_eq!(colleague_view["override_active"], false);
 
     // Clearing the override puts the tier back
     let cleared = send(
@@ -511,48 +577,110 @@ async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limi
     assert_eq!(restored.status, StatusCode::OK, "{}", restored.body);
     assert_eq!(restored.header("x-ratelimit-limit"), Some("10000"));
     assert_eq!(restored.header("x-ratelimit-remaining"), Some("9995"));
+    let view = admin_rate_limit_view(&app, &admin, starter.user.id).await;
+    assert_eq!(view["rate_limits"]["monthly"]["limit"], 10_000);
+    assert_eq!(view["override_active"], false);
 }
 
 #[tokio::test]
-async fn test_an_admin_daily_override_refuses_until_the_next_utc_day() {
+async fn test_a_null_monthly_override_lifts_the_ceiling_and_sends_no_budget() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
     let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
-    // An Enterprise user has no tier ceiling at all
-    let enterprise = athlete(&resources, UserTier::Enterprise, UserRole::User).await;
-    let unmetered = usage_status(&app, &enterprise).await;
-    assert_eq!(unmetered.status, StatusCode::OK, "{}", unmetered.body);
-    unmetered.assert_no_budget_headers("an enterprise user before any override");
+    // A spent Starter month: the tier refuses the next request
+    let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    seed_jwt_calls(&resources, starter.user.id, 10_000).await;
+    let refused = usage_status(&app, &starter).await;
+    assert_eq!(
+        refused.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "{}",
+        refused.body
+    );
 
     set_override(
         &app,
         &admin,
-        enterprise.user.id,
-        &json!({"daily_limit": 2, "monthly_limit": null, "note": null}),
+        starter.user.id,
+        &json!({"monthly_limit": null, "note": "unlimited pilot"}),
     )
     .await;
 
-    // The request above counted today: this one is the second of two
-    let second = usage_status(&app, &enterprise).await;
-    assert_eq!(second.status, StatusCode::OK, "{}", second.body);
-    assert_eq!(second.header("x-ratelimit-limit"), Some("2"));
-    assert_eq!(second.header("x-ratelimit-remaining"), Some("0"));
+    let lifted = usage_status(&app, &starter).await;
+    assert_eq!(lifted.status, StatusCode::OK, "{}", lifted.body);
+    lifted.assert_no_budget_headers("a user whose override lifts the monthly ceiling");
+    let view = admin_rate_limit_view(&app, &admin, starter.user.id).await;
+    assert_eq!(view["rate_limits"]["monthly"]["limit"], Value::Null);
+    assert_eq!(view["rate_limits"]["monthly"]["remaining"], Value::Null);
+    assert_eq!(view["rate_limits"]["monthly"]["used"], 10_001);
+    assert_eq!(view["override_active"], true);
+}
 
-    let before = next_utc_day_start(Utc::now()).timestamp();
-    let third = usage_status(&app, &enterprise).await;
-    let after = next_utc_day_start(Utc::now()).timestamp();
+#[tokio::test]
+async fn test_an_override_body_naming_a_daily_limit_is_refused_and_writes_nothing() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
+
+    let refused = put_override(
+        &app,
+        &admin,
+        starter.user.id,
+        &json!({"daily_limit": 2, "monthly_limit": 50, "note": null}),
+    )
+    .await;
     assert_eq!(
-        third.status,
-        StatusCode::TOO_MANY_REQUESTS,
+        refused.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
         "{}",
-        third.body
+        refused.body
     );
-    assert_eq!(third.header("x-ratelimit-limit"), Some("2"));
-    let reset = third.numeric_header("x-ratelimit-reset");
-    assert!(
-        reset == before || reset == after,
-        "the next UTC midnight, got {reset}"
+    assert!(resources
+        .common
+        .repos
+        .user_rate_limit_overrides
+        .get(starter.user.id)
+        .await
+        .unwrap()
+        .is_none());
+    let tier = usage_status(&app, &starter).await;
+    assert_eq!(tier.header("x-ratelimit-limit"), Some("10000"));
+}
+
+/// A body that leaves `monthly_limit` out is refused: read as null it would
+/// write an unlimited override and lift a ceiling the caller never named.
+#[tokio::test]
+async fn test_an_override_body_without_a_monthly_limit_is_refused_and_writes_nothing() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
+
+    let refused = put_override(
+        &app,
+        &admin,
+        starter.user.id,
+        &json!({"note": "abuse review"}),
+    )
+    .await;
+    assert_eq!(
+        refused.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        refused.body
     );
+    assert!(resources
+        .common
+        .repos
+        .user_rate_limit_overrides
+        .get(starter.user.id)
+        .await
+        .unwrap()
+        .is_none());
+    let tier = usage_status(&app, &starter).await;
+    assert_eq!(tier.header("x-ratelimit-limit"), Some("10000"));
+    assert_eq!(tier.header("x-ratelimit-remaining"), Some("9999"));
 }
 
 #[tokio::test]
@@ -1095,7 +1223,8 @@ async fn test_messaging_webhook_through_full_app_carries_no_rate_limit_headers()
         .usage
         .get_jwt_current_usage(linked.user.id)
         .await
-        .unwrap();
+        .unwrap()
+        .used;
     assert_eq!(
         used, 1,
         "the channel path authenticated and counted the linked athlete's turn, and reported nothing"
@@ -1296,7 +1425,8 @@ async fn test_a2a_user_jwt_reports_its_budget_and_a_spent_one_gets_429() {
             .usage
             .get_jwt_current_usage(admitted.user.id)
             .await
-            .unwrap(),
+            .unwrap()
+            .used,
         4,
         "the A2A request counts against the month like any other"
     );

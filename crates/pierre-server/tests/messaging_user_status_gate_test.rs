@@ -17,22 +17,22 @@ mod messaging_user_status_gate_tests {
     use axum::http::StatusCode;
     use chrono::Utc;
     use hmac::{Hmac, Mac};
-    use pierre_auth::rate_limiting::{
-        calculate_jwt_rate_limit, RequestBudget, UserRequestLimits, UserRequestUsage,
-    };
+    use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
     use pierre_auth::user_status::enforce_user_status;
     use pierre_contremaitre::messaging_strings::{
         MessagingStringsRegistry, KEY_ACCOUNT_PENDING, KEY_ACCOUNT_SUSPENDED,
     };
     use pierre_core::errors::ErrorCode;
+    use pierre_core::models::usage::JwtUsage;
     use pierre_core::models::ConnectionType;
-    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_core::models::{MonthlyLimitOverride, Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_database::repositories::analytics::next_utc_month_start;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
+    use pierre_services::admin_ops;
     use pierre_services::user_status_gate::messaging_key_for_status;
     use serde_json::json;
     use sha2::Sha256;
@@ -301,27 +301,21 @@ mod messaging_user_status_gate_tests {
             .await
             .unwrap()
             .unwrap();
-        let used_this_month = resources
+        let usage = resources
             .common
             .repos
             .usage
             .get_jwt_current_usage(user_id)
             .await
             .unwrap();
+        assert_eq!(usage.monthly_override, MonthlyLimitOverride::NotSet);
         let now = Utc::now();
-        let budget = calculate_jwt_rate_limit(
-            UserRequestLimits::resolve(&user, None),
-            UserRequestUsage {
-                today: 0,
-                this_month: used_this_month,
-            },
-            now,
-        );
+        let budget = calculate_jwt_rate_limit(&user, usage, now);
         assert_eq!(
             budget,
             RequestBudget::Metered {
                 limit: 10_000,
-                used: used_this_month,
+                used: usage.used,
                 resets_at: next_utc_month_start(now),
             },
             "a Starter user's channel turns are metered by the tier's monthly budget"
@@ -330,6 +324,89 @@ mod messaging_user_status_gate_tests {
             !budget.is_exceeded(),
             "fresh user should not be rate-limited"
         );
+    }
+
+    /// An admin's monthly override is the channel path's limit too: a
+    /// Starter user lowered to 2 is refused on the third turn of the month
+    /// with the override's numbers, far below the tier's 10 000, and
+    /// clearing the override admits the turn again.
+    #[tokio::test]
+    async fn authenticate_channel_refuses_at_the_admin_monthly_override() {
+        let resources = create_test_server_resources().await.unwrap();
+        let repos = &resources.common.repos;
+        let db: &dyn MessagingRepository = &*repos.messaging;
+
+        let (user_id, tenant_id) = create_user_with_status(
+            &resources,
+            "channel_override@example.com",
+            "ChannelOverride123!",
+            UserStatus::Active,
+        )
+        .await;
+        let sender_id = "15550008010";
+        link_channel(db, tenant_id, user_id, sender_id).await;
+
+        admin_ops::set_user_rate_limit_override(
+            repos,
+            user_id,
+            Some(2),
+            Some("channel abuse review".to_owned()),
+            None,
+        )
+        .await
+        .unwrap();
+        let authenticate = || {
+            resources
+                .auth
+                .auth_middleware
+                .authenticate_channel(tenant_id, "whatsapp", sender_id)
+        };
+
+        // One turn counted: the second of two is admitted
+        record_turn(&resources, user_id).await;
+        authenticate()
+            .await
+            .expect("one turn counted against an override of 2 is admitted");
+
+        // Two counted: the third is past the override
+        record_turn(&resources, user_id).await;
+        let refusal = authenticate()
+            .await
+            .expect_err("the third turn of the month is past the override");
+        assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
+        let details = refusal.details.as_deref().unwrap();
+        assert_eq!(details["limit"], 2);
+        assert_eq!(details["current"], 2);
+
+        assert!(admin_ops::clear_user_rate_limit_override(repos, user_id)
+            .await
+            .unwrap());
+        authenticate()
+            .await
+            .expect("cleared: the tier's 10 000 applies again");
+    }
+
+    /// One `jwt_usage` row for `user_id`, as a counted channel turn writes.
+    async fn record_turn(resources: &ServerContext, user_id: Uuid) {
+        resources
+            .common
+            .repos
+            .usage
+            .record_jwt_usage(&JwtUsage {
+                id: None,
+                user_id,
+                timestamp: Utc::now(),
+                endpoint: "messaging:whatsapp".to_owned(),
+                method: "AUTH".to_owned(),
+                status_code: 200,
+                response_time_ms: None,
+                request_size_bytes: None,
+                response_size_bytes: None,
+                ip_address: None,
+                user_agent: None,
+            })
+            .await
+            .unwrap();
     }
 
     /// Unlinked sender → `AppError::auth_invalid` with `ErrorCode::AuthInvalid`,
@@ -441,7 +518,8 @@ mod messaging_user_status_gate_tests {
             .usage
             .get_jwt_current_usage(user_id)
             .await
-            .unwrap();
+            .unwrap()
+            .used;
 
         let payload = whatsapp_text_payload(sender_id, "wamid.usage_001", "ping");
         let status = send_whatsapp_webhook(&resources, wa_secret, &payload).await;
@@ -453,7 +531,8 @@ mod messaging_user_status_gate_tests {
             .usage
             .get_jwt_current_usage(user_id)
             .await
-            .unwrap();
+            .unwrap()
+            .used;
         assert!(
             after > before,
             "channel turn must increment jwt_usage counter (before={before}, after={after})"
