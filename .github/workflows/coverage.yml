@@ -1,25 +1,35 @@
 name: "CI: Code Coverage"
 
-# This lane does not run on push. It measures line coverage of the SQLite test
-# suite — the local development database, not the one in production — and it
-# is the longest single job the fleet has (~1h45m). Nothing consumes the
+# The coverage run never fires on push. It measures line coverage of the SQLite
+# test suite — the local development database, not the one in production — and
+# it is the longest single job the fleet has (~1h45m). Nothing consumes the
 # per-commit number: there is no codecov config, threshold, badge or PR bot, and
 # every test it runs already gets a per-commit verdict from ci-backend.yml's own
 # SQLite shards, so bisect fidelity comes from there. Against the free plan's
 # cap of 20 concurrent jobs, the 2026-08-30 main burst held three of these at
 # once and queued the deploy behind them (carnet#156). Weekly plus on-demand
 # is the honest cadence for a number nobody reads per commit.
+#
+# A push to main that touches the batcher runs only its self-test, a job of
+# seconds: otherwise a broken edit to it would first show at the next Sunday run.
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/ci/coverage-in-batches.sh'
+      - 'scripts/ci/coverage-in-batches.test.sh'
   pull_request:
     branches: [ main ]
     paths:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/ci/coverage-in-batches.sh'
+      - 'scripts/ci/coverage-in-batches.test.sh'
       - '.github/workflows/coverage.yml'
   schedule:
     # Weekly, Sundays 03:17 UTC. Off :00 on purpose — GitHub drops or delays
-    # top-of-the-hour crons, and this is now the lane's only trigger on main.
+    # top-of-the-hour crons, and this is the coverage run's only trigger on main.
     - cron: '17 3 * * 0'
   workflow_dispatch:
 
@@ -34,7 +44,10 @@ concurrency:
   # The ref test lives in `group` rather than in `cancel-in-progress` because
   # only the former is known to work here — see the same block in ci-backend.yml
   # for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  #
+  # A push runs only the batcher's self-test, so it gets its own group: a
+  # dispatch on the same sha must not cancel it, nor it the dispatch.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'batcher-' || '' }}${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 # Security: Explicit permissions following principle of least privilege
@@ -50,8 +63,27 @@ env:
   CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
+  batcher-self-test:
+    name: Coverage batcher self-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.98.1
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run the batcher's self-test
+        run: ./scripts/ci/coverage-in-batches.test.sh
+
   coverage:
     name: Generate Coverage Report
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
 
     steps:
@@ -106,7 +138,14 @@ jobs:
           bun run build
 
       - name: Run tests with coverage
-        run: cargo llvm-cov --lib --bins --tests --lcov --output-path lcov.info -- --test-threads=4
+        # In batches, deleting each batch's test executables once it is
+        # reported: linked all at once they outgrew the runner's disk (run
+        # 36308946454). The script's header has the mechanics; its test runs
+        # first against a throwaway workspace, so a broken batcher fails here in
+        # seconds rather than after the build.
+        run: |
+          ./scripts/ci/coverage-in-batches.test.sh
+          ./scripts/ci/coverage-in-batches.sh lcov.info -- --test-threads=4
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
