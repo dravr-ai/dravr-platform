@@ -35,9 +35,11 @@ export interface HomeActivity {
   /** Elevation gained in metres, or null when the provider reports none. */
   elevation_gain_meters: number | null;
   /**
-   * True when the activity carries a start position or a route polyline —
-   * recorded outdoors with GPS. False for indoor, trainer and manual entries,
-   * which have no map to draw and no route to ask for.
+   * Whether the activity may have a route to draw. False only when its route
+   * was read once and the recording held no GPS, so there is no map to draw
+   * and no route to ask for. True otherwise — including an activity whose
+   * route was never read, since most providers' activity lists carry no
+   * position: the route endpoint is what says whether there is a track.
    */
   has_gps: boolean;
   /**
@@ -62,8 +64,9 @@ export interface RecentActivitiesResponse {
   as_of: string | null;
   /**
    * True when `as_of` is older than the freshness window: the server has
-   * started a background refresh and the client asks again once, after
-   * `HOME_STALE_REFETCH_DELAY_MS`.
+   * started a background refresh and the client asks again on the
+   * `HOME_STALE_REFETCH_DELAYS_MS` schedule, stopping at the first answer
+   * that is not stale.
    */
   stale: boolean;
 }

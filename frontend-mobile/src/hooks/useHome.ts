@@ -1,36 +1,57 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks behind the Home tab — recent activities, one activity's route, the plan for today
-// ABOUTME: A stale activity answer is asked again once, after HOME_STALE_REFETCH_DELAY_MS and only while the app is in use
+// ABOUTME: React Query hooks behind the Home tab — recent activities, one activity's route, the plan for today, the provider status
+// ABOUTME: A stale activity answer is followed up on the HOME_STALE_REFETCH_DELAYS_MS schedule, which ends, and only while the app is in use
 
 import { useEffect, useRef, useState } from 'react';
 import { focusManager, useQuery } from '@tanstack/react-query';
-import { HOME_STALE_REFETCH_DELAY_MS, QUERY_KEYS } from '@pierre/shared-constants';
+import { HOME_STALE_REFETCH_DELAYS_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { athleteApi, oauthApi } from '../services/api';
 
 /**
- * Where the one follow-up read for a stale answer stands.
+ * Where the follow-up reads for a stale answer stand.
  *
  * - `none` — no stale answer has arrived, so nothing is scheduled.
- * - `pending` — the server said stale and started its own refresh; the hook
- *   asks again after the delay.
- * - `done` — the follow-up answered. Whatever it said, nothing more is asked:
- *   a second stale answer is shown with its sync time, never polled.
+ * - `pending` — a schedule is running: the server said stale and started its
+ *   own refresh, and a follow-up read is still owed.
+ * - `done` — the schedule ended, on an answer that was not stale or on the
+ *   answer to its last follow-up. A list still stale then is shown with its
+ *   sync time, and nothing more is asked until another stale answer arrives,
+ *   which starts a schedule of its own.
  */
 export type StaleRefetchPhase = 'none' | 'pending' | 'done';
 
+/** The answers a schedule has judged: none, for a list no read has answered. */
+const NO_ANSWER = { dataUpdatedAt: 0, errorUpdateCount: 0 } as const;
+
 /**
- * The newest cached activities, and the one follow-up read a stale answer earns.
+ * The newest cached activities, and the follow-up reads a stale answer earns.
  *
  * Reading this never reaches a provider: the server answers from its durable
  * cache and, when the cache is past its freshness window, refreshes it in the
- * background and says `stale`. The hook then asks once more after
- * {@link HOME_STALE_REFETCH_DELAY_MS}. The delay is a timer, cancelled when
- * the screen unmounts; when it expires while the app is backgrounded or idle —
- * the idle watch expresses both as "not focused" — the read waits for the
- * athlete to come back instead of spending a request nobody will see.
+ * background and says `stale`. That refresh can take minutes through a
+ * scraped provider, so the hook follows {@link HOME_STALE_REFETCH_DELAYS_MS}:
+ * it waits the first delay and asks, and while the answer is still stale it
+ * waits the next delay and asks again, each wait measured from the answer
+ * before it. The schedule ends at the first answer that is not stale, and
+ * after the last delay whatever that answer says. A follow-up that fails is
+ * an answer too: the list keeps the stale answer it had, and the schedule
+ * moves on to its next delay.
+ *
+ * Each delay is a timer, cancelled when the screen unmounts; when it expires
+ * while the app is backgrounded or idle — the idle watch expresses both as
+ * "not focused" — the read waits for the athlete to come back instead of
+ * spending a request nobody will see. A follow-up that falls due while
+ * another read is in flight joins that read.
+ *
+ * One schedule runs at a time, on one timer. A stale answer from elsewhere —
+ * a refocus, a pull to refresh — changes nothing while a schedule is
+ * running, and starts a schedule once none is: an ended schedule is ended
+ * for the answer it ended on, never for the ones after it. An answer the
+ * cache already holds when the screen mounts, restored from disk or left by
+ * an earlier visit, is judged like any other.
  */
 export function useRecentActivities() {
   const query = useQuery({
@@ -40,15 +61,23 @@ export function useRecentActivities() {
   });
 
   const stale = query.data?.stale === true;
-  const { refetch } = query;
+  const { refetch, dataUpdatedAt, errorUpdateCount } = query;
   const [staleRefetch, setStaleRefetch] = useState<StaleRefetchPhase>('none');
-  // The phase is also kept in a ref: the effect below must read the current
-  // value, not the one it closed over, to schedule at most one follow-up.
+  // The schedule is kept in refs: an answer is judged against where the
+  // schedule stands when it arrives, not where it stood when an effect
+  // closed over it, and a timer outlives the render that set it.
   const phase = useRef<StaleRefetchPhase>('none');
+  /** How many follow-ups the running schedule has asked. */
+  const asked = useRef(0);
+  /** Whether the last of them is still waiting for its answer. */
+  const awaiting = useRef(false);
+  /** The newest answer judged, so each is judged once. */
+  const judged = useRef<{ dataUpdatedAt: number; errorUpdateCount: number }>(NO_ANSWER);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unsubscribeFocus = useRef<(() => void) | null>(null);
 
-  // Unmounting cancels whatever is scheduled — the delay and the wait for focus.
+  // Unmounting cancels whatever is scheduled — the delay and the wait for
+  // focus — and forgets the schedule with it.
   useEffect(
     () => () => {
       if (timer.current !== null) {
@@ -57,39 +86,94 @@ export function useRecentActivities() {
       }
       unsubscribeFocus.current?.();
       unsubscribeFocus.current = null;
+      phase.current = 'none';
+      asked.current = 0;
+      awaiting.current = false;
+      judged.current = NO_ANSWER;
     },
     [],
   );
 
   useEffect(() => {
-    if (!stale || phase.current !== 'none') {
+    const answered = dataUpdatedAt !== judged.current.dataUpdatedAt;
+    const failed = errorUpdateCount !== judged.current.errorUpdateCount;
+    if (!answered && !failed) {
       return;
     }
-    phase.current = 'pending';
-    setStaleRefetch('pending');
+    judged.current = { dataUpdatedAt, errorUpdateCount };
+
+    const end = () => {
+      if (timer.current !== null) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
+      unsubscribeFocus.current?.();
+      unsubscribeFocus.current = null;
+      awaiting.current = false;
+      phase.current = 'done';
+      setStaleRefetch('done');
+    };
 
     const ask = () => {
       unsubscribeFocus.current?.();
       unsubscribeFocus.current = null;
-      void refetch().finally(() => {
-        phase.current = 'done';
-        setStaleRefetch('done');
-      });
+      asked.current += 1;
+      awaiting.current = true;
+      // A read already in flight — a pull to refresh, a refocus — is joined,
+      // never cancelled: its answer serves as this ask's answer.
+      void refetch({ cancelRefetch: false });
     };
 
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      if (focusManager.isFocused()) {
-        ask();
+    /** Wait the schedule's next delay and ask, or end the schedule when it has none left. */
+    const waitOrEnd = () => {
+      if (asked.current >= HOME_STALE_REFETCH_DELAYS_MS.length) {
+        end();
         return;
       }
-      unsubscribeFocus.current = focusManager.subscribe((focused) => {
-        if (focused) {
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        if (focusManager.isFocused()) {
           ask();
+          return;
         }
-      });
-    }, HOME_STALE_REFETCH_DELAY_MS);
-  }, [stale, refetch]);
+        unsubscribeFocus.current = focusManager.subscribe((focused) => {
+          if (focused) {
+            ask();
+          }
+        });
+      }, HOME_STALE_REFETCH_DELAYS_MS[asked.current]);
+    };
+
+    if (awaiting.current) {
+      // The follow-up's own answer. One that failed left the stale answer it
+      // followed in place, and moves the schedule on as a stale one does.
+      awaiting.current = false;
+      if (stale) {
+        waitOrEnd();
+      } else {
+        end();
+      }
+      return;
+    }
+    if (!answered) {
+      // A read that failed outside a follow-up says nothing about the cache.
+      return;
+    }
+    if (phase.current === 'pending') {
+      // An answer from elsewhere while a delay is running: a fresh one ends
+      // the schedule, a stale one leaves it on its one timer.
+      if (!stale) {
+        end();
+      }
+      return;
+    }
+    if (stale) {
+      asked.current = 0;
+      phase.current = 'pending';
+      setStaleRefetch('pending');
+      waitOrEnd();
+    }
+  }, [dataUpdatedAt, errorUpdateCount, stale, refetch]);
 
   return {
     activities: query.data?.activities ?? [],
@@ -106,10 +190,14 @@ export function useRecentActivities() {
 /**
  * One activity's route, or the reason there is none.
  *
- * `enabled` is false for an activity without GPS: an indoor ride has no route
- * to ask for, and asking would spend a provider call on the answer the row
- * already carries. A completed activity's route never changes and the server
- * stores it after the first read, so the answer is never considered stale.
+ * `enabled` keeps a caller off the wire when there is nothing to ask: the row
+ * says `has_gps: false` — its route was read once and the recording held no
+ * GPS, the answer the row already carries — or the caller draws from the
+ * row's own polyline. Every other row may have a route, one whose route was
+ * never read included: most providers' activity lists carry no position, so
+ * this answer, not the flag, is what says whether there is a track. A
+ * completed activity's route never changes and the server stores it after
+ * the first read, so the answer is never considered stale.
  */
 export function useActivityRoute(provider: string, activityId: string, enabled: boolean) {
   const query = useQuery({
@@ -153,21 +241,26 @@ export function useTrainingPlan() {
 }
 
 /**
- * Whether any fitness provider is connected, from the provider status the
- * Connections pane reads — the activity list carries no such flag.
+ * Whether any fitness provider is connected, and which connected ones have
+ * to be reconnected, from the provider status the Connections pane reads —
+ * the activity list carries neither.
  *
- * `enabled` is true only while the list is empty: a list with rows already
- * says a provider is there, so asking would spend a request on a known
- * answer. `null` until the status answers; a status read that fails reads
- * as connected, because the empty sentence ("they show up once your
+ * `connected` is `null` until the status answers; a status read that fails
+ * reads as connected, because the empty sentence ("they show up once your
  * provider syncs") is true either way while telling a connected athlete to
  * connect is not.
+ *
+ * `needsReconnect` names the connected providers flagged `needs_reauth`, in
+ * the order the server lists them. The server refreshes nothing for such a
+ * connection, so its activities stay as old as its last sync. The flag only
+ * means something on a connected provider, so a disconnected one is never
+ * named; and two rows can carry one name — the `sciotte` mirror and the
+ * `strava` OAuth row are both "Strava" — so a name is listed once.
  */
-export function useProviderConnected(enabled: boolean) {
+export function useProviderConnected() {
   const query = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => oauthApi.getProvidersStatus(),
-    enabled,
   });
 
   let connected: boolean | null = null;
@@ -177,5 +270,13 @@ export function useProviderConnected(enabled: boolean) {
     connected = true;
   }
 
-  return { connected, refetch: query.refetch };
+  const needsReconnect = [
+    ...new Set(
+      (query.data?.providers ?? [])
+        .filter((provider) => provider.connected && provider.needs_reauth)
+        .map((provider) => provider.display_name),
+    ),
+  ];
+
+  return { connected, needsReconnect, refetch: query.refetch };
 }

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home "Recent activities" section — the latest on a live map, the four before it with a route sketch
-// ABOUTME: An indoor activity says it has no track, a stale cache says it is checking, and a tap opens a chat drafted about the activity
+// ABOUTME: No GPS in the recording, a stale cache and a connection to reconnect are each said in words; a tap opens a chat drafted about the activity
 
 import React from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
@@ -27,11 +27,14 @@ function MapNote({ children, testID }: { children: string; testID: string }) {
 }
 
 /**
- * The latest activity's map. Only an activity recorded with GPS asks for its
- * route; one without says so and costs no request. The route arrives
- * privacy-trimmed from the server and is drawn by the chat's own route card,
- * loaded on demand behind the boundary that keeps a runtime without MapLibre
- * (Expo Go) showing a sentence instead of losing the screen.
+ * The latest activity's map. A row that says `has_gps: false` had its route
+ * read once and the recording held no GPS: it says so and costs no request.
+ * Every other row asks the route endpoint — its route may never have been
+ * read — and the answer is what says whether there is a track: a route to
+ * draw, or the reason there is none. The route arrives privacy-trimmed from
+ * the server and is drawn by the chat's own route card, loaded on demand
+ * behind the boundary that keeps a runtime without MapLibre (Expo Go)
+ * showing a sentence instead of losing the screen.
  */
 function LatestMap({ activity }: { activity: HomeActivity }) {
   const { t } = useTranslation();
@@ -119,8 +122,9 @@ function ActivityButton({
 }
 
 /**
- * Where the list stands against the provider: checking while a stale answer's
- * follow-up is pending, otherwise when it last synced — the web page's rule.
+ * Where the list stands against the provider: checking while a stale answer
+ * is still owed a follow-up, otherwise when it last synced — the web page's
+ * rule.
  */
 function SyncLine({
   stale,
@@ -165,6 +169,12 @@ interface RecentActivitiesProps {
    * the activity list carries no such flag. `null` until the status answers.
    */
   providerConnected: boolean | null;
+  /**
+   * The names of the connected providers that have to be reconnected before
+   * they sync again, from the same status. Empty when there are none.
+   */
+  needsReconnect: string[];
+  /** Leave for Connections, where a provider is connected and reconnected. */
   onConnect: () => void;
   openDraft: OpenDraft;
 }
@@ -173,6 +183,11 @@ interface RecentActivitiesProps {
  * The newest five activities: the latest on its map, the rest as rows with a
  * sketch of their route. An empty list says why in one sentence — no
  * provider to read from, with the way to connect one, or nothing synced yet.
+ *
+ * A connection to reconnect is named above the rows, never instead of them:
+ * the rows the cache holds are still the athlete's, and the prompt says why
+ * the list has stopped growing. With no rows it stands in for the empty
+ * sentence, which would promise a sync the flagged connection cannot make.
  */
 export function RecentActivities({
   activities,
@@ -183,6 +198,7 @@ export function RecentActivities({
   asOf,
   onRetry,
   providerConnected,
+  needsReconnect,
   onConnect,
   openDraft,
 }: RecentActivitiesProps) {
@@ -211,7 +227,10 @@ export function RecentActivities({
         </View>
       );
     } else if (providerConnected) {
-      body = <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>;
+      body =
+        needsReconnect.length > 0 ? null : (
+          <EmptyState testID="home-activities-empty">{t('home.activities.empty')}</EmptyState>
+        );
     } else {
       body = (
         <EmptyState
@@ -248,9 +267,22 @@ export function RecentActivities({
     );
   }
 
+  // The names are joined with a comma, as the chat header joins its provider
+  // names: the phone's JavaScript engine ships no `Intl.ListFormat`.
+  const reconnect =
+    hasData && needsReconnect.length > 0 ? (
+      <EmptyState
+        action={{ label: t('providers.reconnect'), onPress: onConnect, testID: 'home-activities-reconnect' }}
+        testID="home-reconnect-provider"
+      >
+        {t('home.activities.reconnect', { providers: needsReconnect.join(', ') })}
+      </EmptyState>
+    ) : null;
+
   return (
     <Section title={t('home.activities.heading')} testID="home-section-activities">
       {hasData ? <SyncLine stale={stale} staleRefetch={staleRefetch} asOf={asOf} /> : null}
+      {reconnect}
       {body}
       {isError && hasData ? (
         <EmptyState

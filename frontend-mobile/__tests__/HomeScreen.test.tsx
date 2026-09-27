@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home tab over mocked athlete reads — today and tomorrow, the week strip, the map, the sketches, every empty state
+// ABOUTME: The Home tab over mocked athlete reads — today and tomorrow, the week strip, the map, the sketches, the prompts, every empty state
 // ABOUTME: Pins that a rest day and an uncovered day read differently, and that each tap opens a chat drafted about what was tapped
 
 import React from 'react';
@@ -13,10 +13,12 @@ import type { ActivityRouteResponse, RecentActivitiesResponse, TrainingPlanRespo
 import {
   ACTIVITIES,
   LATEST_ROUTE_RESPONSE,
+  NO_GPS_ROUTE_RESPONSE,
   NO_PLAN_RESPONSE,
   PLAN_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
+  PROVIDERS_RECONNECT,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
 } from '../integration/app/helpers/homeFixtures';
@@ -80,6 +82,7 @@ function draftHref(draft: string) {
 function routeFor(provider: string, id: string): ActivityRouteResponse {
   if (provider === 'strava' && id === '9001') return LATEST_ROUTE_RESPONSE;
   if (provider === 'intervals_icu' && id === 'i77') return TRAIL_ROUTE_RESPONSE;
+  if (provider === 'strava' && id === '8998') return NO_GPS_ROUTE_RESPONSE;
   throw new Error(`no route stubbed for ${provider}/${id}`);
 }
 
@@ -249,11 +252,13 @@ describe('recent activities', () => {
     const track = screen.getByTestId('route-track').props.data as { coordinates: number[][] };
     expect(track.coordinates[0]).toEqual([-73.6, 45.5]);
 
-    await waitFor(() => expect(mockGetActivityRoute).toHaveBeenCalledTimes(2));
-    // The latest (for its map) and the intervals.icu row (no polyline). The
-    // Strava row sketches from its polyline; the indoor rows ask for nothing.
+    await waitFor(() => expect(mockGetActivityRoute).toHaveBeenCalledTimes(3));
+    // The latest (for its map) and the two rows that carry no polyline and
+    // may still have a route. The Strava row sketches from its polyline; the
+    // row whose route read held no GPS asks for nothing.
     expect(mockGetActivityRoute.mock.calls.sort()).toEqual([
       ['intervals_icu', 'i77'],
+      ['strava', '8998'],
       ['strava', '9001'],
     ]);
     expect(mockGetRecentActivities).toHaveBeenCalledWith(undefined);
@@ -267,6 +272,11 @@ describe('recent activities', () => {
     expect(screen.getByTestId('home-activity-sketch-strava-9000').props.accessibilityLabel).toBe(
       'Sketch of the route',
     );
+    // One row's route read held no GPS; the other's route is read here and
+    // answers that it held none.
+    await waitFor(() => expect(mockGetActivityRoute).toHaveBeenCalledWith('strava', '8998'));
+    await waitFor(() => expect(mockGetActivityRoute.mock.results).toHaveLength(3));
+    await Promise.all(mockGetActivityRoute.mock.results.map((read) => read.value));
     expect(screen.queryByTestId('home-activity-sketch-strava-8999')).toBeNull();
     expect(screen.queryByTestId('home-activity-sketch-strava-8998')).toBeNull();
     // Two sketches, plus the map card's own climb-less drawing draws no SVG.
@@ -298,7 +308,8 @@ describe('recent activities', () => {
     );
   });
 
-  it('says an indoor latest activity recorded no track, without asking for a route', async () => {
+  it('says a latest activity whose route read held no GPS recorded no track, without asking again', async () => {
+    expect(ACTIVITIES[3].has_gps).toBe(false);
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[3]] }));
     const screen = renderHome();
 
@@ -306,6 +317,35 @@ describe('recent activities', () => {
       'This activity recorded no GPS track.',
     );
     expect(mockGetActivityRoute).not.toHaveBeenCalled();
+  });
+
+  it('asks for the route of a latest activity whose row carries no position, and draws the answer', async () => {
+    expect(ACTIVITIES[2]).toMatchObject({ has_gps: true, summary_polyline: null });
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[2]] }));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('route-track')).toBeTruthy();
+    expect(mockGetActivityRoute.mock.calls).toEqual([['intervals_icu', 'i77']]);
+    const track = screen.getByTestId('route-track').props.data as { coordinates: number[][] };
+    expect(track.coordinates).toEqual([
+      [-74.2, 46.1],
+      [-74.18, 46.12],
+      [-74.15, 46.13],
+    ]);
+    expect(screen.queryByTestId('home-latest-no-track')).toBeNull();
+  });
+
+  it('says the latest recorded no track once the route read answers that it held no GPS', async () => {
+    expect(ACTIVITIES[4]).toMatchObject({ has_gps: true, summary_polyline: null });
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [ACTIVITIES[4]] }));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-latest-no-track')).toHaveTextContent(
+      'This activity recorded no GPS track.',
+    );
+    // The row could not say so: the route read did.
+    expect(mockGetActivityRoute.mock.calls).toEqual([['strava', '8998']]);
+    expect(screen.queryByTestId('route-track')).toBeNull();
   });
 
   it('says the map is on its way while the route read has not answered', async () => {
@@ -363,11 +403,69 @@ describe('recent activities', () => {
     expect(screen.queryByTestId('home-activities-connect')).toBeNull();
   });
 
-  it('asks the provider status only for an empty list', async () => {
+  it('asks the provider status for a list with rows too, and says nothing while every connection is healthy', async () => {
     const screen = renderHome();
 
     await screen.findByTestId('home-activity-strava-9001');
-    expect(mockGetProvidersStatus).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
+    await mockGetProvidersStatus.mock.results[0].value;
+    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
+  });
+
+  it('names the connections to reconnect above the rows, and keeps the rows', async () => {
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
+    const screen = renderHome();
+
+    // Each name once, whatever backends carry it, and never a disconnected one.
+    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
+      'Reconnect Strava, Garmin to see your new activities.Reconnect',
+    );
+    expect(screen.getByTestId('home-activity-strava-9001')).toBeTruthy();
+    expect(screen.getByTestId('home-activity-strava-8998')).toBeTruthy();
+    expect(screen.getByTestId('home-activities-synced-at')).toBeTruthy();
+
+    const order = within(screen.getByTestId('home-section-activities'))
+      .getAllByTestId(/^home-(activities-synced-at|reconnect-provider|activity-latest)$/)
+      .map((node) => node.props.testID);
+    expect(order).toEqual(['home-activities-synced-at', 'home-reconnect-provider', 'home-activity-latest']);
+
+    fireEvent.press(screen.getByTestId('home-activities-reconnect'));
+    expect(mockPush).toHaveBeenCalledWith(CONNECTIONS_ROUTE);
+  });
+
+  it('names them in place of the empty sentence when there are no rows', async () => {
+    mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
+      /^Reconnect Strava, Garmin to see your new activities\./,
+    );
+    // The sentence promises a sync the flagged connection cannot make.
+    expect(screen.queryByTestId('home-activities-empty')).toBeNull();
+    // Connected, only not usable: never the prompt to connect.
+    expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
+  });
+
+  it('names one connection without a separator', async () => {
+    mockGetProvidersStatus.mockResolvedValue({ providers: [PROVIDERS_RECONNECT.providers[2]] });
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
+      /^Reconnect Garmin to see your new activities\./,
+    );
+  });
+
+  it('says nothing about reconnecting while the list has not answered', async () => {
+    mockGetRecentActivities.mockReturnValue(new Promise<RecentActivitiesResponse>(() => undefined));
+    mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
+    const screen = renderHome();
+
+    await screen.findByTestId('home-activities-loading');
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
+    await mockGetProvidersStatus.mock.results[0].value;
+    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
   });
 
   it('shows a failed list read as a failure with a retry', async () => {
@@ -414,7 +512,7 @@ describe('coming back to Home', () => {
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(1);
   });
 
-  it('reads the plan, the list and, for an empty list, the provider status again on a refocus', async () => {
+  it('reads the plan, the list and the provider status again on a refocus', async () => {
     mockGetRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
     const screen = renderHome();
     await screen.findByTestId('home-activities-empty');
@@ -431,25 +529,41 @@ describe('coming back to Home', () => {
     expect(mockGetActivityRoute).not.toHaveBeenCalled();
   });
 
-  it('leaves the provider status alone on a refocus when the list has rows', async () => {
+  it('reads the provider status again on a refocus when the list has rows, and no route', async () => {
     const screen = renderHome();
     await screen.findByTestId('home-activity-strava-9001');
-    const routeReads = mockGetActivityRoute.mock.calls.length;
+    await waitFor(() => expect(mockGetActivityRoute).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       mockFocusCallback?.();
     });
 
     await waitFor(() => expect(mockGetRecentActivities).toHaveBeenCalledTimes(2));
-    expect(mockGetProvidersStatus).not.toHaveBeenCalled();
-    expect(mockGetActivityRoute.mock.calls.length).toBe(routeReads);
+    expect(mockGetProvidersStatus).toHaveBeenCalledTimes(2);
+    expect(mockGetActivityRoute).toHaveBeenCalledTimes(3);
+  });
+
+  it('drops the reconnect prompt once the athlete comes back from reconnecting', async () => {
+    mockGetProvidersStatus.mockResolvedValueOnce(PROVIDERS_RECONNECT).mockResolvedValue(PROVIDERS_CONNECTED);
+    const screen = renderHome();
+    fireEvent.press(await screen.findByTestId('home-activities-reconnect'));
+    expect(mockPush).toHaveBeenCalledWith(CONNECTIONS_ROUTE);
+
+    await act(async () => {
+      mockFocusCallback?.();
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('home-reconnect-provider')).toBeNull());
+    expect(screen.getByTestId('home-activity-strava-9001')).toBeTruthy();
   });
 });
 
 describe('pull to refresh', () => {
-  it('reads the plan and the list again', async () => {
+  it('reads the plan, the list and the provider status again', async () => {
     const screen = renderHome();
     await screen.findByTestId('home-activity-strava-9001');
+    await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     expect(mockGetTrainingPlan).toHaveBeenCalledTimes(1);
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(1);
 
@@ -460,5 +574,6 @@ describe('pull to refresh', () => {
 
     await waitFor(() => expect(mockGetTrainingPlan).toHaveBeenCalledTimes(2));
     expect(mockGetRecentActivities).toHaveBeenCalledTimes(2);
+    expect(mockGetProvidersStatus).toHaveBeenCalledTimes(2);
   });
 });

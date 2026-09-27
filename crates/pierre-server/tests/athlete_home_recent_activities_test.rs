@@ -33,13 +33,18 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures_util::future::join_all;
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
-use pierre_fitness_compute::{encode_polyline, trimmed_overview_polyline};
+use pierre_database::repositories::StoredRouteTrack;
+use pierre_fitness_compute::{
+    encode_polyline, trimmed_overview_polyline, RouteTrack, RouteTrackError,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
+use pierre_mcp_server::services::activity_route::RouteGeometrySource;
 use serde_json::{json, Value};
 use serial_test::serial;
 use tokio::net::TcpListener;
@@ -341,7 +346,10 @@ async fn a_row_carries_every_contract_field_with_nulls_where_nothing_was_recorde
 
     let indoor = &rows[1];
     assert_eq!(indoor["sport_type"], "virtual_ride");
-    assert_eq!(indoor["has_gps"], false);
+    assert_eq!(
+        indoor["has_gps"], true,
+        "neither the sport nor a bare row settles it: no route read is stored"
+    );
     assert!(indoor["distance_meters"].is_null());
     assert!(indoor["elevation_gain_meters"].is_null());
     assert!(indoor["summary_polyline"].is_null());
@@ -412,6 +420,291 @@ async fn a_mirror_backend_row_reads_as_the_provider_it_mirrors() {
 
     let body = recent(&resources, &athlete.token, "").await;
     assert_eq!(body["activities"][0]["provider"], "strava");
+}
+
+// ---------------------------------------------------------------------------
+// has_gps: what the stored route read says, never what the list row lacks
+// ---------------------------------------------------------------------------
+
+/// A ride as a mirror backend's list caches it: the numbers of the ride, no
+/// start position and no route overview, whether or not it recorded GPS.
+fn mirror_ride(id: &str, started: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        id,
+        format!("Sortie {id}"),
+        SportType::Ride,
+        started,
+        5_400,
+        oauth_providers::SCIOTTE,
+    )
+    .distance_meters(42_000.0)
+    .elevation_gain(380.0)
+    .average_heart_rate(141)
+    .build()
+}
+
+/// The key one stored route read is filed under.
+struct RouteKey<'a> {
+    user_id: Uuid,
+    tenant: TenantId,
+    provider: &'a str,
+    activity_id: &'a str,
+}
+
+impl<'a> RouteKey<'a> {
+    const fn of(athlete: &Athlete, provider: &'a str, activity_id: &'a str) -> Self {
+        Self {
+            user_id: athlete.user_id,
+            tenant: athlete.tenant,
+            provider,
+            activity_id,
+        }
+    }
+}
+
+/// Store what a streams read of one activity's route found, as the route
+/// endpoint does once it has read the provider.
+async fn store_route_read(
+    resources: &Arc<ServerContext>,
+    key: RouteKey<'_>,
+    outcome: Result<RouteTrack, RouteTrackError>,
+) {
+    let source = RouteGeometrySource::Streams.as_str().to_owned();
+    let stored = match outcome {
+        Ok(track) => StoredRouteTrack::Drawn {
+            source,
+            track_json: serde_json::to_string(&track).unwrap(),
+        },
+        Err(reason) => StoredRouteTrack::Unavailable {
+            source,
+            reason: reason.as_str().to_owned(),
+        },
+    };
+    resources
+        .common
+        .repos
+        .activity_route_tracks
+        .upsert_route_track(
+            &key.tenant,
+            key.user_id,
+            key.provider,
+            key.activity_id,
+            &stored,
+        )
+        .await
+        .unwrap();
+}
+
+/// A drawn track, as a streams read of a real ride stores it.
+fn drawn_track() -> RouteTrack {
+    RouteTrack::from_overview(&weaving_track(300)).unwrap()
+}
+
+/// Each row's `(id, has_gps)`, in the order the list serves them.
+fn gps_by_id(body: &Value) -> Vec<(String, bool)> {
+    body["activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap().to_owned(),
+                row["has_gps"].as_bool().unwrap(),
+            )
+        })
+        .collect()
+}
+
+fn gps(rows: &[(&str, bool)]) -> Vec<(String, bool)> {
+    rows.iter()
+        .map(|&(id, has_gps)| (id.to_owned(), has_gps))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_mirror_row_whose_route_was_never_read_says_it_may_have_gps() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gps-unread").await;
+    for (day, backend, id) in [
+        (1, oauth_providers::SCIOTTE_GARMIN, "garmin-ride"),
+        (2, oauth_providers::SCIOTTE, "strava-ride"),
+        (3, oauth_providers::SCIOTTE_COROS, "coros-ride"),
+    ] {
+        cache(
+            &resources,
+            &athlete,
+            backend,
+            &[mirror_ride(id, days_ago(day))],
+        )
+        .await;
+    }
+
+    let body = recent(&resources, &athlete.token, "").await;
+    let rows = body["activities"].as_array().unwrap();
+    assert_eq!(rows.len(), 3);
+    for (row, (id, provider)) in rows.iter().zip([
+        ("garmin-ride", "garmin"),
+        ("strava-ride", "strava"),
+        ("coros-ride", "coros"),
+    ]) {
+        assert_eq!(row["id"], id);
+        assert_eq!(row["provider"], provider);
+        assert_eq!(row["distance_meters"], 42_000.0);
+        assert!(row["summary_polyline"].is_null(), "{row}");
+        assert_eq!(
+            row["has_gps"], true,
+            "a list row that carries no position is not a ride without GPS: {row}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn has_gps_is_false_only_for_the_row_whose_stored_read_found_no_gps() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gps-stored").await;
+    let backend = oauth_providers::SCIOTTE_GARMIN;
+    let rides: Vec<Activity> = ["unread", "trainer", "drawn", "doorstep"]
+        .iter()
+        .zip(1..)
+        .map(|(id, day)| mirror_ride(id, days_ago(day)))
+        .collect();
+    cache(&resources, &athlete, backend, &rides).await;
+
+    assert_eq!(
+        gps_by_id(&recent(&resources, &athlete.token, "").await),
+        gps(&[
+            ("unread", true),
+            ("trainer", true),
+            ("drawn", true),
+            ("doorstep", true)
+        ]),
+        "nothing is stored, so nothing is known to lack GPS"
+    );
+
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, backend, "trainer"),
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, backend, "drawn"),
+        Ok(drawn_track()),
+    )
+    .await;
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, backend, "doorstep"),
+        Err(RouteTrackError::TooShort),
+    )
+    .await;
+    // The same activity id, read under another provider's key: another
+    // provider's activity, which says nothing about this one.
+    store_route_read(
+        &resources,
+        RouteKey::of(&athlete, oauth_providers::SCIOTTE_COROS, "unread"),
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+
+    let body = recent(&resources, &athlete.token, "").await;
+    assert_eq!(
+        gps_by_id(&body),
+        gps(&[
+            ("unread", true),
+            ("trainer", false),
+            ("drawn", true),
+            ("doorstep", true)
+        ])
+    );
+    for row in body["activities"].as_array().unwrap() {
+        assert_eq!(row["provider"], "garmin");
+        assert!(
+            row["summary_polyline"].is_null(),
+            "a stored read adds no overview to the row: {row}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_stored_read_that_is_replaced_changes_what_the_row_says() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gps-replaced").await;
+    let backend = oauth_providers::SCIOTTE;
+    cache(
+        &resources,
+        &athlete,
+        backend,
+        &[mirror_ride("ride", days_ago(1))],
+    )
+    .await;
+
+    for (outcome, has_gps) in [
+        (Err(RouteTrackError::NoGps), false),
+        (Err(RouteTrackError::TooShort), true),
+        (Ok(drawn_track()), true),
+        (Err(RouteTrackError::NoGps), false),
+    ] {
+        let stored = outcome.as_ref().map(|_| "drawn").map_err(|e| e.as_str());
+        store_route_read(&resources, RouteKey::of(&athlete, backend, "ride"), outcome).await;
+        assert_eq!(
+            gps_by_id(&recent(&resources, &athlete.token, "").await),
+            gps(&[("ride", has_gps)]),
+            "after a stored {stored:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_route_read_stored_for_another_tenant_or_user_never_reaches_the_row() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "gps-tenancy").await;
+    let stranger = seed_athlete(&resources, "gps-stranger").await;
+    let (elsewhere, elsewhere_token) = second_tenant(&resources, &athlete).await;
+    let backend = oauth_providers::SCIOTTE_GARMIN;
+    let rides = [mirror_ride("same-id", days_ago(1))];
+    cache(&resources, &athlete, backend, &rides).await;
+    cache_in(&resources, athlete.user_id, elsewhere, backend, &rides).await;
+    cache(&resources, &stranger, backend, &rides).await;
+
+    // The same user, provider key and activity id — in the athlete's other
+    // tenant.
+    store_route_read(
+        &resources,
+        RouteKey {
+            tenant: elsewhere,
+            ..RouteKey::of(&athlete, backend, "same-id")
+        },
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+    // The same tenant, provider key and activity id — for another user.
+    store_route_read(
+        &resources,
+        RouteKey {
+            user_id: stranger.user_id,
+            ..RouteKey::of(&athlete, backend, "same-id")
+        },
+        Err(RouteTrackError::NoGps),
+    )
+    .await;
+
+    assert_eq!(
+        gps_by_id(&recent(&resources, &athlete.token, "").await),
+        gps(&[("same-id", true)]),
+        "neither read is this tenant's read of this athlete's ride"
+    );
+    assert_eq!(
+        gps_by_id(&recent(&resources, &elsewhere_token, "").await),
+        gps(&[("same-id", false)]),
+        "the other tenant reads its own"
+    );
+    assert_eq!(
+        gps_by_id(&recent(&resources, &stranger.token, "").await),
+        gps(&[("same-id", true)]),
+        "the stranger's own tenant holds no read of their ride"
+    );
 }
 
 #[tokio::test]

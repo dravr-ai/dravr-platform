@@ -25,12 +25,14 @@ mod common;
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
+use futures_util::future::join_all;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
 };
@@ -45,6 +47,7 @@ use pierre_services::provider_revocation::DisconnectReason;
 use serde_json::{json, Value};
 use serial_test::serial;
 use tokio::net::TcpListener;
+use tokio::time::sleep;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -104,17 +107,12 @@ async fn second_tenant(resources: &Arc<ServerContext>, athlete: &Athlete) -> (Te
     (tenant, token)
 }
 
-async fn route_of(
-    resources: &Arc<ServerContext>,
-    token: &str,
-    provider: &str,
-    activity_id: &str,
-) -> (StatusCode, Value) {
+async fn get_json(resources: &Arc<ServerContext>, token: &str, uri: &str) -> (StatusCode, Value) {
     let response = athlete_home_routes()
         .with_state(Arc::clone(resources))
         .oneshot(
             Request::builder()
-                .uri(format!("/api/me/activities/{provider}/{activity_id}/route"))
+                .uri(uri)
                 .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
@@ -127,6 +125,34 @@ async fn route_of(
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     )
+}
+
+async fn route_of(
+    resources: &Arc<ServerContext>,
+    token: &str,
+    provider: &str,
+    activity_id: &str,
+) -> (StatusCode, Value) {
+    get_json(
+        resources,
+        token,
+        &format!("/api/me/activities/{provider}/{activity_id}/route"),
+    )
+    .await
+}
+
+/// What the Home list says of one activity's GPS.
+async fn listed_has_gps(resources: &Arc<ServerContext>, token: &str, activity_id: &str) -> bool {
+    let (status, body) = get_json(resources, token, "/api/me/activities/recent?limit=20").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == activity_id)
+        .unwrap_or_else(|| panic!("{activity_id} is not on the list: {body}"))["has_gps"]
+        .as_bool()
+        .unwrap()
 }
 
 /// A northbound track weaving east and west, `count` samples ~11 m apart.
@@ -183,6 +209,21 @@ fn run_without_overview(id: &str) -> Activity {
     )
     .start_latitude(HOME.0)
     .start_longitude(HOME.1)
+    .build()
+}
+
+/// A ride as a list that carries neither a start position nor a route
+/// overview caches it, whether or not the ride recorded GPS.
+fn ride_without_position(id: &str) -> Activity {
+    ActivityBuilder::new(
+        id,
+        "Long ride",
+        SportType::Ride,
+        Utc::now() - Duration::days(2),
+        9_000,
+        "strava",
+    )
+    .distance_meters(60_000.0)
     .build()
 }
 
@@ -245,11 +286,14 @@ impl Drop for EnvGuard {
     }
 }
 
-/// How many times the mock was asked for a detail and for streams.
+/// How many times the mock was asked for a detail and for streams, and the
+/// most requests it was answering at one moment.
 #[derive(Default)]
 struct Hits {
     detail: AtomicUsize,
     streams: AtomicUsize,
+    answering: AtomicUsize,
+    most_answering: AtomicUsize,
 }
 
 impl Hits {
@@ -259,11 +303,30 @@ impl Hits {
             self.streams.load(Ordering::SeqCst),
         )
     }
+
+    fn most_at_once(&self) -> usize {
+        self.most_answering.load(Ordering::SeqCst)
+    }
+
+    /// Hold one request for `latency`, counted as being answered meanwhile.
+    async fn answer_after(&self, latency: StdDuration) {
+        let answering = self.answering.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most_answering.fetch_max(answering, Ordering::SeqCst);
+        sleep(latency).await;
+        self.answering.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// A mock answering `/activities/{id}` and `/activities/{id}/streams` with
 /// `streams` as the keyed stream set.
 async fn mock_strava(streams: Value) -> (String, Arc<Hits>) {
+    mock_strava_answering_after(streams, StdDuration::ZERO).await
+}
+
+/// [`mock_strava`], taking `latency` over every answer: long enough that
+/// requests made together are at the provider together unless something
+/// keeps them apart.
+async fn mock_strava_answering_after(streams: Value, latency: StdDuration) -> (String, Arc<Hits>) {
     let hits = Arc::new(Hits::default());
     let detail_hits = Arc::clone(&hits);
     let stream_hits = Arc::clone(&hits);
@@ -274,6 +337,7 @@ async fn mock_strava(streams: Value) -> (String, Arc<Hits>) {
                 let hits = Arc::clone(&detail_hits);
                 async move {
                     hits.detail.fetch_add(1, Ordering::SeqCst);
+                    hits.answer_after(latency).await;
                     Json(json!({
                         "id": 55_001,
                         "name": "Long ride",
@@ -293,6 +357,7 @@ async fn mock_strava(streams: Value) -> (String, Arc<Hits>) {
                 let streams = streams.clone();
                 async move {
                     hits.streams.fetch_add(1, Ordering::SeqCst);
+                    hits.answer_after(latency).await;
                     Json(streams)
                 }
             }),
@@ -548,6 +613,211 @@ async fn a_ride_that_never_leaves_the_doorstep_answers_too_short() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body, json!({ "route": null, "reason": "too_short" }));
     assert_eq!(hits.counts(), (1, 1));
+}
+
+// ---------------------------------------------------------------------------
+// A list row with no position: the streams settle it, and the list follows
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[serial]
+async fn a_row_with_no_start_and_no_overview_is_drawn_from_its_streams() {
+    let recorded = weaving_track(900, 0.0);
+    let (api_base, hits) = mock_strava(streams_for(&recorded)).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-bare").await;
+    link_strava(&resources, &athlete).await;
+    let ride = ride_without_position("55004");
+    assert!(ride.start_latitude().is_none() && ride.start_longitude().is_none());
+    assert!(ride.summary_polyline().is_none());
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[ride],
+    )
+    .await;
+
+    assert!(
+        listed_has_gps(&resources, &athlete.token, "55004").await,
+        "the list sends the client to the route endpoint"
+    );
+    assert_eq!(hits.counts(), (0, 0), "the list reads no provider");
+
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "55004").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(hits.counts(), (1, 1), "one detail read, one streams read");
+    assert!(body["reason"].is_null());
+    let route = &body["route"];
+    let drawn = coordinates(route);
+    assert!(drawn.len() > 2 && drawn.len() <= HOME_ROUTE_MAX_POINTS);
+    assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
+    assert!(
+        metres(*drawn.last().unwrap(), *recorded.last().unwrap()) >= DEFAULT_PRIVACY_RADIUS_METERS
+    );
+    assert_eq!(
+        route["elevation_meters"].as_array().unwrap().len(),
+        drawn.len()
+    );
+    assert!(matches!(
+        stored(&resources, &athlete, "strava", "55004").await,
+        Some(StoredRouteTrack::Drawn { ref source, .. }) if source == "streams"
+    ));
+    assert!(listed_has_gps(&resources, &athlete.token, "55004").await);
+}
+
+#[tokio::test]
+#[serial]
+async fn a_row_with_no_position_whose_streams_hold_no_gps_leaves_the_list_saying_so() {
+    let (api_base, hits) = mock_strava(streams_for(&[])).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-bare-indoor").await;
+    link_strava(&resources, &athlete).await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[ride_without_position("55005")],
+    )
+    .await;
+
+    assert!(listed_has_gps(&resources, &athlete.token, "55005").await);
+    let (status, body) = route_of(&resources, &athlete.token, "strava", "55005").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "route": null, "reason": "no_gps" }));
+    assert!(
+        !listed_has_gps(&resources, &athlete.token, "55005").await,
+        "the stored read is what the list reads"
+    );
+    assert_eq!(hits.counts(), (1, 1), "the list reads no provider");
+}
+
+// ---------------------------------------------------------------------------
+// One athlete's reads take turns at the provider
+// ---------------------------------------------------------------------------
+
+/// Long enough for requests made together to overlap at the mock.
+const PROVIDER_LATENCY: StdDuration = StdDuration::from_millis(120);
+
+#[tokio::test]
+#[serial]
+async fn two_requests_at_once_for_one_activity_cost_one_provider_read() {
+    let recorded = weaving_track(900, 0.0);
+    let (api_base, hits) =
+        mock_strava_answering_after(streams_for(&recorded), PROVIDER_LATENCY).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-twice").await;
+    link_strava(&resources, &athlete).await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[ride_without_position("55006")],
+    )
+    .await;
+
+    let ((first_status, first), (second_status, second)) = tokio::join!(
+        route_of(&resources, &athlete.token, "strava", "55006"),
+        route_of(&resources, &athlete.token, "strava", "55006"),
+    );
+    assert_eq!(first_status, StatusCode::OK, "{first}");
+    assert_eq!(second_status, StatusCode::OK, "{second}");
+    assert!(coordinates(&first["route"]).len() > 2);
+    assert_eq!(
+        second, first,
+        "the request that waited answers what the read stored"
+    );
+    assert_eq!(
+        hits.counts(),
+        (1, 1),
+        "one detail read and one streams read between the two requests"
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn one_athletes_routes_are_read_from_the_provider_one_at_a_time() {
+    let recorded = weaving_track(900, 0.0);
+    let (api_base, hits) =
+        mock_strava_answering_after(streams_for(&recorded), PROVIDER_LATENCY).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "route-turns").await;
+    link_strava(&resources, &athlete).await;
+    let ids = ["55007", "55008", "55009"];
+    let rides: Vec<Activity> = ids.iter().map(|id| ride_without_position(id)).collect();
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &rides,
+    )
+    .await;
+
+    let answers = join_all(
+        ids.iter()
+            .map(|id| route_of(&resources, &athlete.token, "strava", id)),
+    )
+    .await;
+    for (status, body) in &answers {
+        assert_eq!(*status, StatusCode::OK, "{body}");
+        assert!(coordinates(&body["route"]).len() > 2);
+    }
+    assert_eq!(hits.counts(), (3, 3), "each activity is read once");
+    assert_eq!(
+        hits.most_at_once(),
+        1,
+        "the provider answers one of the athlete's reads at a time"
+    );
+    for id in ids {
+        assert!(matches!(
+            stored(&resources, &athlete, "strava", id).await,
+            Some(StoredRouteTrack::Drawn { ref source, .. }) if source == "streams"
+        ));
+    }
+}
+
+#[tokio::test]
+#[serial]
+async fn two_athletes_do_not_wait_for_each_other() {
+    let recorded = weaving_track(900, 0.0);
+    let (api_base, hits) =
+        mock_strava_answering_after(streams_for(&recorded), PROVIDER_LATENCY).await;
+    let _env = strava_at(api_base);
+    let resources = common::create_test_server_resources().await.unwrap();
+    let one = seed_athlete(&resources, "route-one").await;
+    let other = seed_athlete(&resources, "route-other").await;
+    for athlete in [&one, &other] {
+        link_strava(&resources, athlete).await;
+        cache(
+            &resources,
+            athlete.user_id,
+            athlete.tenant,
+            "strava",
+            &[ride_without_position("55010")],
+        )
+        .await;
+    }
+
+    let ((one_status, one_body), (other_status, other_body)) = tokio::join!(
+        route_of(&resources, &one.token, "strava", "55010"),
+        route_of(&resources, &other.token, "strava", "55010"),
+    );
+    assert_eq!(one_status, StatusCode::OK, "{one_body}");
+    assert_eq!(other_status, StatusCode::OK, "{other_body}");
+    assert_eq!(hits.counts(), (2, 2), "each athlete's own read");
+    assert_eq!(
+        hits.most_at_once(),
+        2,
+        "a turn is one athlete's: another athlete reads meanwhile"
+    );
 }
 
 // ---------------------------------------------------------------------------

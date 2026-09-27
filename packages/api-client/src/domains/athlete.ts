@@ -48,7 +48,7 @@ export function createAthleteApi(axios: AxiosInstance) {
      *
      * Reading it never calls a provider. When the cache is older than the
      * freshness window the server starts a background refresh and answers
-     * `stale: true`; ask once more after `HOME_STALE_REFETCH_DELAY_MS`.
+     * `stale: true`; ask again on the `HOME_STALE_REFETCH_DELAYS_MS` schedule.
      * `limit` is clamped to 1..=20 by the server; omitted, it is 5.
      */
     async getRecentActivities(limit?: number): Promise<RecentActivitiesResponse> {

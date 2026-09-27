@@ -326,8 +326,10 @@ describe('client locale corpus', () => {
     // member reads when no human coach is attached, and
     // `commands.group.role.agent` and `humanCoach.group_role` label the agent
     // and the human coach in `/group members`. +3.
+    // 2494 once Home named a connection to reconnect instead of showing a
+    // stale list with a calm sync time: `home.activities.reconnect`. +1.
     const reference = leafKeys(bundleFor('en')).sort();
-    expect(reference).toHaveLength(2493);
+    expect(reference).toHaveLength(2494);
 
     for (const language of SUPPORTED_LANGUAGES) {
       expect(leafKeys(bundleFor(language)).sort()).toEqual(reference);

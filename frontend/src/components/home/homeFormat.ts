@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Formatting for the Home page — plan calendar days, activity instants, sport labels and activity figures
+// ABOUTME: Formatting for the Home page — plan calendar days, activity instants, sport labels, activity figures, name lists
 // ABOUTME: A plan date is a calendar day and is never shifted by the device timezone; an activity start is an instant and is
 
 import type { TFunction } from '@pierre/i18n';
@@ -54,6 +54,11 @@ export function formatInstant(instant: string, language: string, options: Intl.D
 /** "Last synced" time for the activity cache's `as_of`. */
 export function formatSyncTime(instant: string, language: string): string {
   return formatInstant(instant, language, SYNC_TIME);
+}
+
+/** Names as one phrase in the app's language — "Garmin and Strava", "Garmin et Strava". */
+export function formatNameList(names: readonly string[], language: string): string {
+  return new Intl.ListFormat(language, { style: 'long', type: 'conjunction' }).format(names);
 }
 
 /**

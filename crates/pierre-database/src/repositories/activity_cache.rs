@@ -10,6 +10,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use uuid::Uuid;
 
+use super::activity_route_tracks::{joined_route_outcome, StoredRouteOutcome};
+
 /// How deep a historical backfill has reached for a `(tenant, user, provider)`.
 ///
 /// Lets the historical-activity gate distinguish "cached but only the recent
@@ -66,7 +68,8 @@ pub struct CaptureFreshness {
     pub last_fetch_at: Option<DateTime<Utc>>,
 }
 
-/// A cached activity with the provider key its row is stored under.
+/// A cached activity with the provider key its row is stored under and what
+/// its stored route read settled.
 ///
 /// The key is not always the activity's own `provider()`: a row is filed
 /// under the provider name the fetch that wrote it was made for, while a
@@ -79,6 +82,9 @@ pub struct CachedActivityRow {
     pub provider: String,
     /// The cached activity.
     pub activity: Activity,
+    /// What the route read stored under the row's own key settled; `None`
+    /// when the activity's route has not been read.
+    pub route: Option<StoredRouteOutcome>,
 }
 
 /// Persistence for activities fetched from any provider, enabling
@@ -121,7 +127,8 @@ pub trait ActivityCacheRepository: Send + Sync {
 
     /// Cached activities for a user within `[start, end]` across every
     /// provider, newest first, each with the provider key its row is stored
-    /// under.
+    /// under and what its stored route read settled — read in the same
+    /// query, scoped to the same tenant and user.
     async fn get_cached_activity_rows(
         &self,
         user_id: Uuid,
@@ -310,12 +317,29 @@ pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
     LIMIT $6";
 
 /// Cached activities across every provider within a window, newest first,
-/// with the provider key each row is stored under.
+/// with the provider key each row is stored under and the outcome of its
+/// stored route read.
+///
+/// The route read is joined on the whole key of `activity_route_tracks`. Its
+/// tenant and user are the bound parameters themselves, named in the join as
+/// in the filter, so a read stored for the same provider and activity id
+/// under another tenant or another user never reaches a row. LEFT JOIN, not
+/// INNER: an activity whose route has not been read keeps its row, with both
+/// route columns NULL. The track itself is not selected. Every id column on
+/// both tables is TEXT on both engines, so the join carries no cast.
 pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
-    SELECT provider, data_json
-    FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND start_date >= $3 AND start_date <= $4
-    ORDER BY start_date DESC
+    SELECT ca.provider, ca.data_json,
+           rt.source AS route_source,
+           rt.unavailable_reason AS route_unavailable_reason
+    FROM cached_activities ca
+    LEFT JOIN activity_route_tracks rt
+           ON rt.tenant_id = $2
+          AND rt.user_id = $1
+          AND rt.provider = ca.provider
+          AND rt.activity_id = ca.activity_id
+    WHERE ca.user_id = $1 AND ca.tenant_id = $2
+      AND ca.start_date >= $3 AND ca.start_date <= $4
+    ORDER BY ca.start_date DESC
     LIMIT $5";
 
 /// One cached activity, by the table's uniqueness key.
@@ -545,16 +569,18 @@ where
         .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))
 }
 
-/// Read a [`CachedActivityRow`] out of one `(provider, data_json)` row.
+/// Read a [`CachedActivityRow`] out of one row of
+/// [`GET_CACHED_ACTIVITY_ROWS_SQL`].
 ///
 /// # Errors
-/// Returns a database error when either column is missing or `data_json`
-/// does not hold an `Activity`.
+/// Returns a database error when a column is missing or `data_json` does not
+/// hold an `Activity`.
 pub(crate) fn cached_activity_row_from_row<R>(row: &R) -> AppResult<CachedActivityRow>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let provider: String = row
         .try_get("provider")
@@ -562,6 +588,7 @@ where
     Ok(CachedActivityRow {
         provider,
         activity: activity_from_row(row)?,
+        route: joined_route_outcome(row)?,
     })
 }
 

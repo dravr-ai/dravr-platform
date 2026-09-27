@@ -14,10 +14,16 @@
 //!   login never waits on a provider: when the cache is older than the
 //!   freshness bands allow, a refresh is started in the background through
 //!   the same stale-head path the chat turn uses, and the answer says so
-//!   (`stale`), so the client asks once more a little later.
+//!   (`stale`), so the client asks once more a little later. Each row's
+//!   `has_gps` is `false` only when the activity's stored route read found no
+//!   GPS; a row whose route has not been read says `true`, because a list row
+//!   cannot settle it: only some providers' list payloads carry a start
+//!   position or a route overview, and a GPS-recorded ride cached without
+//!   them is drawn from its streams by the route read below.
 //! - `GET /api/me/activities/{provider}/{activity_id}/route` — one cached
 //!   activity's privacy-trimmed route, in the shape both clients' map already
-//!   draws. Read at most once per activity; see [`crate::services::activity_route`].
+//!   draws. Read at most once per activity, and its outcome — drawn or not —
+//!   is what the list's `has_gps` reads; see [`crate::services::activity_route`].
 //! - `GET /api/me/training-plan?locale=xx` — what `/plan` shows, as the
 //!   structured plan card: the active plan under the agent `/plan` reads it
 //!   under, projected on the athlete's own "today".
@@ -35,8 +41,8 @@ use photograveur::{RouteBounds as ViewBounds, RouteView};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, ConnectionStatus, DataFreshness, TenantId};
-use pierre_database::repositories::{sport_type_string, CachedActivityRow};
-use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack};
+use pierre_database::repositories::{sport_type_string, CachedActivityRow, StoredRouteOutcome};
+use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
 use pierre_services::locale::user_locale;
@@ -95,8 +101,15 @@ pub struct HomeActivity {
     pub distance_meters: Option<f64>,
     /// Elevation gained in metres, when recorded.
     pub elevation_gain_meters: Option<f64>,
-    /// Whether the activity has a route to draw: a start position, or a route
-    /// overview.
+    /// `false` when, and only when, the activity's stored route read found
+    /// no GPS (`no_gps`): the one case a client has nothing to ask the route
+    /// endpoint for. `true` in every other case — a drawn route is stored,
+    /// the stored read found the track `too_short` (the route endpoint says
+    /// so), or no read is stored, where the route endpoint reads the route
+    /// once and stores the answer. A row that carries a start position or a
+    /// route overview is one of those cases like any other; a row that
+    /// carries neither is too, because only some providers' list payloads
+    /// carry them. Neither the sport nor the distance decides it.
     pub has_gps: bool,
     /// The provider's route overview with its endpoint neighbourhoods
     /// removed, as a Google encoded polyline at precision 5; `null` when there
@@ -109,7 +122,6 @@ impl HomeActivity {
     fn from_row(row: &CachedActivityRow) -> Self {
         let activity = &row.activity;
         let overview = raw_overview(activity);
-        let has_start = activity.start_latitude().is_some() && activity.start_longitude().is_some();
         Self {
             id: activity.id().to_owned(),
             provider: user_facing_name(&row.provider).to_owned(),
@@ -119,10 +131,22 @@ impl HomeActivity {
             duration_seconds: activity.duration_seconds(),
             distance_meters: activity.distance_meters(),
             elevation_gain_meters: activity.elevation_gain(),
-            has_gps: has_start || overview.is_some(),
+            has_gps: !read_found_no_gps(row.route.as_ref()),
             summary_polyline: overview.and_then(trimmed_overview_polyline),
         }
     }
+}
+
+/// Whether a stored route read settled that the activity recorded no GPS.
+///
+/// No stored read, a drawn track and any other reason all answer `false`: the
+/// route endpoint still has something to say about the activity.
+fn read_found_no_gps(route: Option<&StoredRouteOutcome>) -> bool {
+    matches!(
+        route,
+        Some(StoredRouteOutcome::Unavailable { reason })
+            if RouteTrackError::from_slug(reason) == Some(RouteTrackError::NoGps)
+    )
 }
 
 /// The route overview a cached activity carries, when it is not blank.
@@ -148,6 +172,9 @@ pub struct RecentActivitiesResponse {
 
 /// Body of `GET /api/me/activities/{provider}/{activity_id}/route`: exactly
 /// one of `route` and `reason` is non-null.
+///
+/// Either answer is stored, and the recent list reads the stored one: after a
+/// `no_gps` answer the activity's row says `has_gps: false`.
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivityRouteResponse {
     /// The drawable route.

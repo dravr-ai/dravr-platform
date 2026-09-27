@@ -68,6 +68,7 @@ use serde_json::{Map, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
+use crate::sciotte_session_read::SESSION_NOT_HELD_DETAIL;
 use crate::sciotte_transport::{transport_error, TransportFailure};
 
 /// Environment variable holding the remote scraper's base URL. Required since
@@ -304,15 +305,27 @@ const SESSION_NOT_FOUND_MARKER: &str = "session_not_found";
 /// incident). The provider slug here is the generic `sciotte`; the provider
 /// layer re-tags it with the owning backend name so a `sciotte_garmin`
 /// session reconnects to Garmin, not Strava.
+///
+/// The `session_not_found` answer is marked in the error's details under
+/// [`SESSION_NOT_HELD_DETAIL`], so [`RemoteSciotteClient::read_imported`] can
+/// tell an instance that holds no session from a provider that refused the
+/// session's cookies.
 #[must_use]
 pub fn auth_required_error(http_status: StatusCode, body: &Value) -> Option<AppError> {
     if http_status != StatusCode::UNAUTHORIZED {
         return None;
     }
     let marker = body.get("error").and_then(Value::as_str)?;
-    SESSION_AUTH_ERROR_MARKERS
-        .contains(&marker)
-        .then(|| AppError::provider_auth_required("sciotte"))
+    if !SESSION_AUTH_ERROR_MARKERS.contains(&marker) {
+        return None;
+    }
+    let mut error = AppError::provider_auth_required("sciotte");
+    if marker == SESSION_NOT_FOUND_MARKER {
+        if let Some(Value::Object(details)) = error.details.as_deref_mut() {
+            details.insert(SESSION_NOT_HELD_DETAIL.to_owned(), Value::Bool(true));
+        }
+    }
+    Some(error)
 }
 
 /// The typed error for a scraper refusal of the athlete a read named, or

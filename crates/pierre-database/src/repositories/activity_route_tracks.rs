@@ -45,6 +45,23 @@ pub enum StoredRouteTrack {
     },
 }
 
+/// What one activity's stored route read settled, without the track itself.
+///
+/// A list of activities reads this beside each row: it has to tell an
+/// activity whose read found no GPS from one whose route has not been read,
+/// and carrying every track to do so would cost the list a payload it never
+/// draws.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StoredRouteOutcome {
+    /// A drawable track is stored.
+    Drawn,
+    /// No drawable track, and why.
+    Unavailable {
+        /// Why there is no track (`no_gps` or `too_short`).
+        reason: String,
+    },
+}
+
 /// Persistence for the one route read each activity costs.
 #[async_trait]
 pub trait ActivityRouteTrackRepository: Send + Sync {
@@ -125,6 +142,36 @@ where
             "stored route track holds neither exactly one track nor one reason",
         )),
     }
+}
+
+/// What the stored route read joined to one row settled, or `None` when the
+/// join found no stored read.
+///
+/// Reads the `route_source` and `route_unavailable_reason` columns a LEFT
+/// JOIN on `activity_route_tracks` selects. `source` is NOT NULL in a stored
+/// row, so a NULL `route_source` is the join finding nothing; the table's
+/// CHECK constraint gives a stored row exactly one of a track and a reason,
+/// so a stored row with no reason holds a track.
+///
+/// # Errors
+/// Returns a database error naming the column that cannot be decoded.
+pub(crate) fn joined_route_outcome<R>(row: &R) -> AppResult<Option<StoredRouteOutcome>>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let source: Option<String> = row
+        .try_get("route_source")
+        .map_err(|e| AppError::database(format!("activity col route_source: {e}")))?;
+    let reason: Option<String> = row
+        .try_get("route_unavailable_reason")
+        .map_err(|e| AppError::database(format!("activity col route_unavailable_reason: {e}")))?;
+    Ok(source.map(|_| {
+        reason.map_or(StoredRouteOutcome::Drawn, |reason| {
+            StoredRouteOutcome::Unavailable { reason }
+        })
+    }))
 }
 
 /// The `(source, track_json, unavailable_reason)` columns one read writes.

@@ -78,13 +78,14 @@ const NO_POINTS: readonly LatLon[] = [];
  * The sketch for one activity, from the cheapest geometry it has.
  *
  * The summary polyline arrives with the row, already trimmed at both ends on
- * the server, so drawing it costs nothing. Only an activity recorded with GPS
- * that carries no polyline — every provider but Strava, and older cache rows —
- * asks for its stored route, which the server keeps after the first read. An
- * indoor activity asks for nothing and has no sketch. A polyline that does
- * not decode draws nothing rather than falling back to a request: the server
- * sent a value it vouched for, and a malformed one is a bug to see, not a
- * provider call to spend.
+ * the server, so drawing it costs nothing. A row that carries no polyline —
+ * every provider but Strava, and older cache rows — asks for its route, which
+ * the server keeps after the first read, and an answer without a route draws
+ * no sketch. A row that says `has_gps: false` had its route read once and the
+ * recording held no GPS: it asks for nothing and has no sketch. A polyline
+ * that does not decode draws nothing rather than falling back to a request:
+ * the server sent a value it vouched for, and a malformed one is a bug to
+ * see, not a provider call to spend.
  */
 export function ActivitySketch({ activity }: { activity: HomeActivity }) {
   const polyline = activity.summary_polyline;

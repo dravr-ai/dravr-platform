@@ -60,8 +60,10 @@ describe('quotaNoticeBanner', () => {
 
 describe('formatResetTime', () => {
   it('names the reset instant with its hour and its zone', () => {
-    // The default locale decides 12- or 24-hour; the zone name is always printed.
-    expect(formatResetTime('2026-08-26T00:00:00Z', 'midnight UTC')).toMatch(/^(12:00\sAM|0?0:00) UTC$/);
+    // The default locale decides 12- or 24-hour and how it spells the
+    // meridiem (`AM`, or `a.m.` in Canadian English); the zone name is always
+    // printed.
+    expect(formatResetTime('2026-08-26T00:00:00Z', 'midnight UTC')).toMatch(/^(12:00\s(AM|a\.m\.)|0?0:00) UTC$/);
   });
 
   it('hands back the caller wording for an instant it cannot parse', () => {

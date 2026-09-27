@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: WCAG 2.1 AA coverage for the athlete Home — the page sign-in lands on — with colour contrast enabled
-// ABOUTME: Scans the planned week with activities and the empty no-plan state, in both themes
+// ABOUTME: Scans the planned week with activities, the reconnect prompt above them and the empty no-plan state, in both themes
 
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -81,13 +81,26 @@ const ROUTE = {
   source_tool: 'strava',
 };
 
-async function signIn(page: Page, plan: unknown) {
+/** Strava as `GET /api/providers` lists it, connected; `needsReauth` is a session the athlete has to renew. */
+function strava(needsReauth: boolean) {
+  return {
+    provider: 'strava',
+    display_name: 'Strava',
+    requires_oauth: true,
+    connected: true,
+    needs_reauth: needsReauth,
+    capabilities: ['activities'],
+    consent_required: false,
+  };
+}
+
+async function signIn(page: Page, plan: unknown, needsReauth = false) {
   await setupDashboardMocks(page, { role: 'user' });
   await page.route('**/api/providers', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ providers: [{ provider: 'strava', connected: true, status: 'connected' }] }),
+      body: JSON.stringify({ providers: [strava(needsReauth)] }),
     }),
   );
   await page.route('**/api/me/training-plan**', (route) =>
@@ -139,6 +152,17 @@ test.describe('Home accessibility', () => {
       // Open a day so the reused plan-card row is measured too.
       await page.getByTestId(`home-week-day-${TODAY}`).click();
       await expect(page.getByTestId('home-week-detail')).toBeVisible();
+      await setTheme(page, theme);
+
+      expect(await scan(page)).toBe('');
+    });
+
+    test(`the reconnect prompt above the activities has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
+      await signIn(page, PLAN, true);
+      await expect(page.getByTestId('home-reconnect-provider')).toContainText(
+        'Reconnect Strava to see your new activities.',
+      );
+      await expect(page.getByTestId('home-activity-row')).toHaveCount(1);
       await setTheme(page, theme);
 
       expect(await scan(page)).toBe('');

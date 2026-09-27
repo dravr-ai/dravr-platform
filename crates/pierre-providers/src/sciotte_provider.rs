@@ -698,11 +698,10 @@ impl FitnessProvider for SciotteProvider {
         // — re-hydrates the service after a scale-to-zero / redeploy — then fetch.
         let target = SciotteTarget::from_backend_name(self.provider_name);
         let remote = RemoteSciotteClient::require_from_env()?;
-        remote
-            .import_session(session, target.scraper_provider_name())
-            .await?;
         let profile = remote
-            .get_athlete(&session.session_id)
+            .read_imported(session, target.scraper_provider_name(), || {
+                remote.get_athlete(&session.session_id)
+            })
             .await
             .map_err(|e| self.tag_remote_auth(e))?;
         match &self.subject {
@@ -748,11 +747,10 @@ impl FitnessProvider for SciotteProvider {
             enrich_details,
             athlete: self.subject.clone(),
         };
-        remote
-            .import_session(session, target.scraper_provider_name())
-            .await?;
         let list = remote
-            .get_activities(&session.session_id, &query)
+            .read_imported(session, target.scraper_provider_name(), || {
+                remote.get_activities(&session.session_id, &query)
+            })
             .await
             .map_err(|e| self.tag_remote_auth(e))?;
         self.head_complete
@@ -805,11 +803,10 @@ impl FitnessProvider for SciotteProvider {
         // ADR-021: fetch the single activity's detail on the dedicated service.
         let target = SciotteTarget::from_backend_name(self.provider_name);
         let remote = RemoteSciotteClient::require_from_env()?;
-        remote
-            .import_session(session, target.scraper_provider_name())
-            .await?;
         let sciotte_activity = remote
-            .get_activity(&session.session_id, id)
+            .read_imported(session, target.scraper_provider_name(), || {
+                remote.get_activity(&session.session_id, id)
+            })
             .await
             .map_err(|e| self.tag_remote_auth(e))?;
         Ok(convert_activity(&sciotte_activity, target))
@@ -860,11 +857,15 @@ impl FitnessProvider for SciotteProvider {
         // the same athlete: a delegated provider's, or else the signed-in
         // account's own.
         let remote = RemoteSciotteClient::require_from_env()?;
-        remote
-            .import_session(session, target.scraper_provider_name())
-            .await?;
         let planned = remote
-            .get_planned_workouts(&session.session_id, after, before, self.subject.as_ref())
+            .read_imported(session, target.scraper_provider_name(), || {
+                remote.get_planned_workouts(
+                    &session.session_id,
+                    after,
+                    before,
+                    self.subject.as_ref(),
+                )
+            })
             .await
             .map_err(|e| self.tag_remote_auth(e))?;
         info!(

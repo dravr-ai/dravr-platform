@@ -1,17 +1,20 @@
-// ABOUTME: e2e — the Home tab over one stubbed server: the three /api/me reads on the wire, the map, the sketches, the drafts
+// ABOUTME: e2e — the Home tab over one stubbed server: the /api/me reads and the provider status on the wire, the map, the sketches, the drafts
 // ABOUTME: The real api-client parses every body, so a response that breaks the contract shows an error, never a half-drawn card
 
 import React from 'react';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { HOME_STALE_REFETCH_DELAY_MS } from '@pierre/shared-constants';
+import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
 
 import { installHttpStub, type HttpStub, type StubRoutes } from './helpers/httpStub';
 import {
   ACTIVITIES,
   LATEST_ROUTE_RESPONSE,
+  NO_GPS_ROUTE_RESPONSE,
   PLAN_RESPONSE,
+  PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
+  PROVIDERS_RECONNECT,
   TRAIL_ROUTE_RESPONSE,
   recentResponse,
 } from './helpers/homeFixtures';
@@ -45,16 +48,41 @@ const PLAN_URL = 'GET /api/me/training-plan?locale=en';
 const RECENT_URL = 'GET /api/me/activities/recent';
 const LATEST_ROUTE_URL = 'GET /api/me/activities/strava/9001/route';
 const TRAIL_ROUTE_URL = 'GET /api/me/activities/intervals_icu/i77/route';
+const GYM_ROUTE_URL = 'GET /api/me/activities/strava/8998/route';
+const PROVIDERS_URL = 'GET /api/providers';
+const RECENT_PATH = '/api/me/activities/recent';
 
-/** The server as a Home visit finds it: a plan, five activities, two stored routes. */
+/** The whole follow-up schedule, first answer to last ask. */
+const SCHEDULE_MS = HOME_STALE_REFETCH_DELAYS_MS.reduce((sum, delay) => sum + delay, 0);
+
+/**
+ * The server as a Home visit finds it: a plan, five activities, the answer to
+ * each route read the page makes, and one healthy connection.
+ */
 function homeServer(overrides: StubRoutes = {}): StubRoutes {
   return {
     [PLAN_URL]: { data: PLAN_RESPONSE },
     [RECENT_URL]: { data: recentResponse() },
     [LATEST_ROUTE_URL]: { data: LATEST_ROUTE_RESPONSE },
     [TRAIL_ROUTE_URL]: { data: TRAIL_ROUTE_RESPONSE },
+    [GYM_ROUTE_URL]: { data: NO_GPS_ROUTE_RESPONSE },
+    [PROVIDERS_URL]: { data: PROVIDERS_CONNECTED },
     ...overrides,
   };
+}
+
+/**
+ * Let the fake clock run, then what it started settle: the read, its answer,
+ * and the render after it, which React Query puts on a zero-delay timeout of
+ * its own — a millisecond away on a fake clock.
+ */
+async function elapse(ms: number) {
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1);
+  });
 }
 
 function renderHome() {
@@ -85,25 +113,29 @@ describe('the Home tab over the wire', () => {
   });
 
   // Turns red if a client stops calling the routes the server serves, adds a
-  // `limit` the server would clamp, drops the locale, or asks a provider for a
-  // route the row's own polyline already draws.
-  it('reads the plan, the list and only the routes it cannot draw from a polyline', async () => {
+  // `limit` the server would clamp, drops the locale, asks for a route the
+  // row's own polyline already draws, or asks again for one the row says
+  // held no GPS.
+  it('reads the plan, the list, the provider status and only the routes it has to ask for', async () => {
     stub = installHttpStub(homeServer());
     const screen = renderHome();
 
     expect(await screen.findByTestId('route-track')).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(6));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
       [
         '/api/me/activities/intervals_icu/i77/route',
         '/api/me/activities/recent',
+        '/api/me/activities/strava/8998/route',
         '/api/me/activities/strava/9001/route',
         '/api/me/training-plan?locale=en',
+        '/api/providers',
       ].sort(),
     );
-    // All three are reads: none of them carries a body.
+    // Every one is a read: none of them carries a body.
     expect(stub.requests.every((request) => request.body === undefined)).toBe(true);
   });
 
@@ -192,6 +224,46 @@ describe('the Home tab over the wire', () => {
     );
   });
 
+  it('asks for the route of a latest activity whose row carries no position, and draws it', async () => {
+    expect(ACTIVITIES[2]).toMatchObject({ has_gps: true, summary_polyline: null });
+    stub = installHttpStub(homeServer({ [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[2]] }) } }));
+    const screen = renderHome();
+
+    const track = (await screen.findByTestId('route-track')).props.data as { coordinates: number[][] };
+    expect(track.coordinates[0]).toEqual([-74.2, 46.1]);
+    expect(screen.queryByTestId('home-latest-no-track')).toBeNull();
+    expect(stub.requestsFor('GET').map((request) => request.url)).toContain(
+      '/api/me/activities/intervals_icu/i77/route',
+    );
+  });
+
+  it('says a never-read latest activity recorded no track once its route read says so', async () => {
+    expect(ACTIVITIES[4]).toMatchObject({ has_gps: true, summary_polyline: null });
+    stub = installHttpStub(homeServer({ [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[4]] }) } }));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-latest-no-track')).toHaveTextContent(
+      'This activity recorded no GPS track.',
+    );
+    expect(stub.requestsFor('GET').map((request) => request.url)).toContain(
+      '/api/me/activities/strava/8998/route',
+    );
+  });
+
+  it('puts no route read on the wire for a row that says its route held no GPS', async () => {
+    expect(ACTIVITIES[3].has_gps).toBe(false);
+    stub = installHttpStub(homeServer({ [RECENT_URL]: { data: recentResponse({ activities: [ACTIVITIES[3]] }) } }));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-latest-no-track')).toHaveTextContent(
+      'This activity recorded no GPS track.',
+    );
+    await waitFor(() =>
+      expect(stub.requestsFor('GET').map((request) => request.url)).toContain('/api/providers'),
+    );
+    expect(stub.requestsFor('GET').filter((request) => request.url.endsWith('/route'))).toEqual([]);
+  });
+
   it('says the map failed when the route is not the caller\'s', async () => {
     stub = installHttpStub(
       homeServer({
@@ -218,9 +290,38 @@ describe('the Home tab over the wire', () => {
     expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(settings)/connections');
   });
 
-  // The one follow-up read: after the delay, once, and the second answer is
-  // what the page shows — here the refreshed cache with a sixth activity.
-  it('asks once more for a stale list, after the delay, and draws the fresher answer', async () => {
+  it('names the connections to reconnect above the rows it still shows, and leads to Connections', async () => {
+    stub = installHttpStub(homeServer({ [PROVIDERS_URL]: { data: PROVIDERS_RECONNECT } }));
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
+      'Reconnect Strava, Garmin to see your new activities.Reconnect',
+    );
+    expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-no-provider')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('home-activities-reconnect'));
+    expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(settings)/connections');
+  });
+
+  it('names them in place of the empty sentence when the cache holds no rows', async () => {
+    stub = installHttpStub(
+      homeServer({
+        [RECENT_URL]: { data: recentResponse({ activities: [] }) },
+        [PROVIDERS_URL]: { data: PROVIDERS_RECONNECT },
+      }),
+    );
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-reconnect-provider')).toBeTruthy();
+    expect(screen.queryByTestId('home-activities-empty')).toBeNull();
+    expect(screen.queryByTestId('home-activities-connect')).toBeNull();
+  });
+
+  // The follow-up schedule: an ask after each delay while the answer is still
+  // stale, and the first answer that is not is what the page shows — here the
+  // refreshed cache with a sixth activity, on the second follow-up.
+  it('asks again on the schedule until the list has caught up, and draws the fresher answer', async () => {
     jest.useFakeTimers();
     const fresher = {
       ...ACTIVITIES[0],
@@ -233,7 +334,7 @@ describe('the Home tab over the wire', () => {
       homeServer({
         [RECENT_URL]: () => {
           reads += 1;
-          return reads === 1
+          return reads < 3
             ? { data: recentResponse({ stale: true, as_of: '2026-09-22T06:00:00Z' }) }
             : { data: recentResponse({ activities: [fresher, ...ACTIVITIES.slice(0, 4)], stale: false }) };
         },
@@ -245,34 +346,73 @@ describe('the Home tab over the wire', () => {
     expect(await screen.findByTestId('home-activities-refreshing')).toBeTruthy();
     expect(reads).toBe(1);
 
-    await act(async () => {
-      jest.advanceTimersByTime(HOME_STALE_REFETCH_DELAY_MS);
-    });
-
-    expect(await screen.findByTestId('home-activity-strava-9002')).toBeTruthy();
+    // The first follow-up finds the server still refreshing.
+    await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
     expect(reads).toBe(2);
+    expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+    expect(screen.queryByTestId('home-activity-strava-9002')).toBeNull();
+
+    // The second finds the new ride.
+    await elapse(HOME_STALE_REFETCH_DELAYS_MS[1]);
+    expect(await screen.findByTestId('home-activity-strava-9002')).toBeTruthy();
+    expect(reads).toBe(3);
     expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
 
-    await act(async () => {
-      jest.advanceTimersByTime(HOME_STALE_REFETCH_DELAY_MS * 4);
-    });
-    expect(reads).toBe(2);
+    await elapse(SCHEDULE_MS * 2);
+    expect(reads).toBe(3);
   });
 
-  it('shows when it last synced once the follow-up is still stale', async () => {
+  it('stops after the last delay, and shows when it last synced while the list is still stale', async () => {
     jest.useFakeTimers();
     stub = installHttpStub(
       homeServer({ [RECENT_URL]: { data: recentResponse({ stale: true, as_of: '2026-09-22T06:00:00Z' }) } }),
     );
     const screen = renderHome();
+    const recentReads = () => stub.requestsFor('GET').filter((request) => request.url === RECENT_PATH);
 
     await screen.findByTestId('home-activities-refreshing');
-    await act(async () => {
-      jest.advanceTimersByTime(HOME_STALE_REFETCH_DELAY_MS);
-    });
+    for (const [index, delay] of HOME_STALE_REFETCH_DELAYS_MS.entries()) {
+      // A follow-up is still owed, and the page says it is checking.
+      expect(screen.getByTestId('home-activities-refreshing')).toBeTruthy();
+      await elapse(delay);
+      expect(recentReads()).toHaveLength(index + 2);
+    }
 
     expect(await screen.findByTestId('home-activities-synced-at')).toHaveTextContent(/^Last synced: /);
-    expect(stub.requestsFor('GET').filter((request) => request.url === '/api/me/activities/recent')).toHaveLength(2);
+    expect(screen.queryByTestId('home-activities-refreshing')).toBeNull();
+
+    await elapse(SCHEDULE_MS * 2);
+    expect(recentReads()).toHaveLength(1 + HOME_STALE_REFETCH_DELAYS_MS.length);
+  });
+
+  it('follows up a pull to refresh that finds the list still stale after the schedule ended', async () => {
+    jest.useFakeTimers();
+    stub = installHttpStub(
+      homeServer({ [RECENT_URL]: { data: recentResponse({ stale: true, as_of: '2026-09-22T06:00:00Z' }) } }),
+    );
+    const screen = renderHome();
+    const recentReads = () => stub.requestsFor('GET').filter((request) => request.url === RECENT_PATH);
+
+    await screen.findByTestId('home-activities-refreshing');
+    for (const delay of HOME_STALE_REFETCH_DELAYS_MS) {
+      await elapse(delay);
+    }
+    await screen.findByTestId('home-activities-synced-at');
+    const afterFirstSchedule = 1 + HOME_STALE_REFETCH_DELAYS_MS.length;
+    expect(recentReads()).toHaveLength(afterFirstSchedule);
+
+    await elapse(SCHEDULE_MS);
+    await act(async () => {
+      screen.getByTestId('home-scroll').props.refreshControl.props.onRefresh();
+    });
+    await elapse(0);
+
+    // The pull's own read, and the page is checking again.
+    expect(recentReads()).toHaveLength(afterFirstSchedule + 1);
+    expect(await screen.findByTestId('home-activities-refreshing')).toBeTruthy();
+
+    await elapse(HOME_STALE_REFETCH_DELAYS_MS[0]);
+    expect(recentReads()).toHaveLength(afterFirstSchedule + 2);
   });
 });
 

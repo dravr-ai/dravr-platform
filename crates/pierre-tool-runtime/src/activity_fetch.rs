@@ -624,6 +624,10 @@ pub async fn fetch_provider_activities(
 /// sweep fetch and a chat turn's fetch can never disagree about upsert, prune
 /// or freshness.
 ///
+/// A read the provider answered also re-arms a connection flagged
+/// `needs_reauth` ([`rearm_after_live_read`]), for every caller alike: the
+/// credential that just served is the one the flag doubted.
+///
 /// # Errors
 ///
 /// Returns [`AppError::provider_auth_required`] when the connection is
@@ -660,6 +664,13 @@ pub async fn fetch_provider_head(
         }
     };
 
+    // The provider answered through the stored credential, which is what a
+    // `needs_reauth` flag says it cannot do. This sits ahead of the head gate
+    // below because a capture missing its head is incomplete, not
+    // unauthenticated: the provider accepted the credential before it read
+    // anything at all.
+    rearm_after_live_read(runtime, user_id, tenant_id, provider.name()).await;
+
     // A capture whose head the provider never saw is served, not persisted.
     // The write-through moves every row's `synced_at` and the fetch mark to
     // now, and `DataFreshness` then reads the days it missed as a quiet week
@@ -688,6 +699,55 @@ pub async fn fetch_provider_head(
         .await;
     }
     Ok(activities)
+}
+
+/// Re-arm a connection flagged `needs_reauth` once its stored credential has
+/// served a live read.
+///
+/// A flag is a verdict one failed attempt reached, and nothing else revisits
+/// it for a scrape session: those are never refreshed, so the re-arm a
+/// successful token refresh performs never runs for them. A connection flagged
+/// over an answer that was not the session dying (on 2026-09-25 the capture
+/// sweep flagged one over a single `401` from a scraper instance that had not
+/// seen the session import) then stays flagged while every later read through
+/// the same session succeeds, and the sweep and the athlete's Home page, which
+/// act on `active` connections only, stop refreshing it.
+///
+/// `backend` is the provider that served the read, by the key its connection
+/// row is stored under: the provider's own name, never the name the caller
+/// asked for, which may be the user-facing half of a mirror pair. Only a
+/// `needs_reauth` row flips; a `revoked` or `active` one is left as it is.
+///
+/// Best-effort: the read has already succeeded, so a failed write is logged
+/// and the activities are served regardless.
+async fn rearm_after_live_read(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: &str,
+    backend: &str,
+) {
+    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
+        return;
+    };
+    match runtime
+        .repos()
+        .provider_connections
+        .mark_active_if_needs_reauth(user_id, tenant, backend)
+        .await
+    {
+        Ok(true) => info!(
+            user_id = %user_id,
+            provider = %backend,
+            "connection re-armed: a live read through its stored credential succeeded"
+        ),
+        Ok(false) => {}
+        Err(e) => warn!(
+            user_id = %user_id,
+            provider = %backend,
+            error = %e,
+            "connection re-arm after a live read failed; its status is left as it was"
+        ),
+    }
 }
 
 /// Type a failed `create_authenticated_provider`, preserving the auth shape.

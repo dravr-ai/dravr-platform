@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's recent activities — the latest on the chat's live map, the four before it as route sketches
-// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, no GPS and no rows are each said in words
+// ABOUTME: A tap drafts "analyze my activity" in a new chat; no provider, a provider to reconnect, no GPS and no rows are each said in words
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -20,12 +20,13 @@ import {
   ROW_DATE,
   activityFigures,
   formatInstant,
+  formatNameList,
   formatSyncTime,
   sportLabel,
 } from './homeFormat';
 
 interface RecentActivitiesProps {
-  /** Dashboard route navigator, `tab[/subview]` — the connect prompt leaves for the connections pane. */
+  /** Dashboard route navigator, `tab[/subview]` — the connect and reconnect prompts leave for the connections pane. */
   onNavigate: (route: string) => void;
   /** Open a new chat whose composer holds `text`. */
   onOpenChatDraft: (text: string) => void;
@@ -89,9 +90,11 @@ function MapNote({ children }: { children: ReactNode }) {
 }
 
 /**
- * The latest activity's map. A track the activity never recorded costs no
- * request; everything else asks the route endpoint once and draws what it
- * answers with the chat's own map component, unchanged.
+ * The latest activity's map. `has_gps: false` says the route was read once
+ * and the recording held no GPS, so it costs no request. Every other activity
+ * asks the route endpoint once — its route may never have been read, and the
+ * answer is what says whether there is a track — and draws what comes back
+ * with the chat's own map component, unchanged.
  */
 function LatestMap({ activity }: { activity: HomeActivity }) {
   const { t } = useTranslation();
@@ -144,7 +147,8 @@ function LatestActivity({ activity, onOpenChatDraft }: { activity: HomeActivity;
 /**
  * One of the four before the newest: a sketch beside the row. The sketch
  * comes from the summary polyline when the activity carries one, else from
- * the route endpoint's coordinates when it recorded GPS, else there is none.
+ * the route endpoint's coordinates unless the activity says its route held
+ * no GPS (`has_gps: false`); an answer without a route draws none.
  */
 function ActivityRow({
   activity,
@@ -152,7 +156,7 @@ function ActivityRow({
   onOpenChatDraft,
 }: {
   activity: HomeActivity;
-  /** Whether the list keeps a sketch column — false when no row can draw one. */
+  /** Whether the list keeps a sketch column — false when no row may have a route. */
   sketchSlot: boolean;
   onOpenChatDraft: (text: string) => void;
 }) {
@@ -181,8 +185,12 @@ function ActivityRow({
 }
 
 /**
- * The section: its heading and sync line, then the rows, the connect prompt
- * or the empty sentence — never a made-up row.
+ * The section: its heading and sync line, then the rows, the connect prompt,
+ * the reconnect prompt or the empty sentence — never a made-up row.
+ *
+ * A provider to reconnect is named above the rows rather than instead of
+ * them: the cached rows are the athlete's own activities, and the server
+ * adds none from that provider until it is reconnected.
  */
 export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActivitiesProps) {
   const { t, language } = useTranslation();
@@ -205,6 +213,15 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
       {t('home.activities.noProvider')}
     </EmptyState>
   );
+  const needsReconnect = providers.needsReconnect.length > 0;
+  const reconnectPrompt = (
+    <EmptyState
+      data-testid="home-reconnect-provider"
+      action={{ label: t('providers.reconnect'), onClick: () => onNavigate(CONNECTIONS_ROUTE) }}
+    >
+      {t('home.activities.reconnect', { providers: formatNameList(providers.needsReconnect, language) })}
+    </EmptyState>
+  );
 
   let body: ReactNode;
   if (recent.isPending) {
@@ -223,16 +240,25 @@ export function RecentActivities({ onNavigate, onOpenChatDraft }: RecentActiviti
       </EmptyState>
     );
   } else if (activities.length === 0) {
-    body = noProvider ? connectPrompt : <EmptyState>{t('home.activities.empty')}</EmptyState>;
+    if (noProvider) {
+      body = connectPrompt;
+    } else if (needsReconnect) {
+      body = reconnectPrompt;
+    } else {
+      body = <EmptyState>{t('home.activities.empty')}</EmptyState>;
+    }
   } else {
     const [latest, ...earlier] = activities;
-    // A column no row can fill is only an indent: an indoor-only list keeps
-    // its text flush with the latest row instead.
+    // A column no row can fill is only an indent: a list whose earlier rows
+    // all say their route held no GPS keeps its text flush with the latest
+    // row instead.
     const sketchSlot = earlier.some((activity) => activity.has_gps || activity.summary_polyline !== null);
+    const prompted = noProvider || needsReconnect;
     body = (
       <>
         {noProvider && connectPrompt}
-        <ul className={clsx(noProvider && 'mt-2')}>
+        {needsReconnect && reconnectPrompt}
+        <ul className={clsx(prompted && 'mt-2')}>
           <LatestActivity key={`${latest.provider}:${latest.id}`} activity={latest} onOpenChatDraft={onOpenChatDraft} />
           {earlier.map((activity) => (
             <ActivityRow

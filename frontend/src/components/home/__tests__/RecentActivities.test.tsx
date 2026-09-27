@@ -1,23 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Home's recent activities — the latest on the chat's map, the rest as sketches, and who asks for a route
-// ABOUTME: Red if an indoor activity or one with a polyline costs a route call, or an empty state invents a row
+// ABOUTME: Tests Home's recent activities — the latest on the chat's map, the rest as sketches, who asks for a route, who is told to reconnect
+// ABOUTME: Red if a stored no-GPS activity or one with a polyline costs a route call, a never-read route is called trackless, or a dead connection stays silent
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ActivityRouteResponse, RecentActivitiesResponse } from '@pierre/shared-types';
+import type {
+  ActivityRouteResponse,
+  ExtendedProviderStatus,
+  ProvidersStatusResponse,
+  RecentActivitiesResponse,
+} from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { RecentActivities } from '../RecentActivities';
-import { DRAFT_DATE, formatInstant } from '../homeFormat';
-import { activity, recentResponse, routeView, ROUTE_COORDINATES } from './homeFixtures';
+import { DRAFT_DATE, formatInstant, formatNameList } from '../homeFormat';
+import { activity, providerStatus, recentResponse, routeView, ROUTE_COORDINATES } from './homeFixtures';
 
 const api = vi.hoisted(() => ({
   getRecentActivities: vi.fn<() => Promise<RecentActivitiesResponse>>(),
   getActivityRoute: vi.fn<(provider: string, id: string) => Promise<ActivityRouteResponse>>(),
-  getProvidersStatus: vi.fn(),
+  getProvidersStatus: vi.fn<() => Promise<ProvidersStatusResponse>>(),
 }));
 
 vi.mock('../../../services/api', () => ({
@@ -57,11 +62,25 @@ vi.mock('maplibre-gl', () => {
   };
 });
 
-function connected(isConnected: boolean) {
-  api.getProvidersStatus.mockResolvedValue({
-    providers: [{ provider: 'strava', connected: isConnected, status: isConnected ? 'connected' : 'disconnected' }],
-  });
+function providers(...list: ExtendedProviderStatus[]) {
+  api.getProvidersStatus.mockResolvedValue({ providers: list });
 }
+
+function connected(isConnected: boolean) {
+  providers(providerStatus({ provider: 'strava', display_name: 'Strava', connected: isConnected }));
+}
+
+/** A connected provider whose session died: the server refreshes nothing for it. */
+function toReconnect(provider: string, display_name: string): ExtendedProviderStatus {
+  return providerStatus({ provider, display_name, needs_reauth: true });
+}
+
+/** The routes the five fixture activities answer with, by activity id. */
+const FIXTURE_ROUTES: Record<string, { title: string; source: string }> = {
+  'act-5': { title: 'Long ride', source: 'strava' },
+  'act-3': { title: 'Hill repeats', source: 'strava' },
+  'act-1': { title: 'Lake loop', source: 'garmin' },
+};
 
 function renderSection() {
   const onNavigate = vi.fn();
@@ -74,7 +93,9 @@ function renderSection() {
       </ThemeProvider>
     </QueryClientProvider>,
   );
-  return { onNavigate, onOpenChatDraft };
+  /** Every read the section started has answered — what an absence has to wait for. */
+  const settled = () => waitFor(() => expect(queryClient.isFetching()).toBe(0));
+  return { onNavigate, onOpenChatDraft, settled };
 }
 
 beforeEach(() => {
@@ -82,10 +103,10 @@ beforeEach(() => {
   maps.constructed.length = 0;
   window.localStorage.clear();
   connected(true);
-  api.getActivityRoute.mockImplementation(async (_provider, id) => ({
-    route: routeView(id === 'act-5' ? 'Long ride' : 'Hill repeats'),
-    reason: null,
-  }));
+  api.getActivityRoute.mockImplementation(async (_provider, id) => {
+    const known = FIXTURE_ROUTES[id] ?? { title: 'Morning run', source: 'strava' };
+    return { route: routeView(known.title, known.source), reason: null };
+  });
 });
 
 describe('RecentActivities', () => {
@@ -97,24 +118,26 @@ describe('RecentActivities', () => {
     await waitFor(() => expect(maps.constructed).toHaveLength(1));
     expect(screen.getByText('source: strava')).toBeInTheDocument();
 
-    // act-5 is the latest (the map); act-3 recorded GPS but carries no
-    // polyline, so its sketch needs the route. act-4 has a polyline, act-2
-    // and act-1 recorded no GPS: none of the three may reach the endpoint.
-    await waitFor(() => expect(api.getActivityRoute).toHaveBeenCalledTimes(2));
+    // act-5 is the latest (the map); act-3 and Garmin's act-1 carry no
+    // polyline, so their sketches need the route. act-4 has a polyline and
+    // act-2 says its route held no GPS: neither may reach the endpoint.
+    await waitFor(() => expect(api.getActivityRoute).toHaveBeenCalledTimes(3));
     expect(api.getActivityRoute.mock.calls).toEqual(
       expect.arrayContaining([
         ['strava', 'act-5'],
         ['strava', 'act-3'],
+        ['garmin', 'act-1'],
       ]),
     );
 
     const rows = screen.getAllByTestId('home-activity-row');
     expect(rows).toHaveLength(4);
-    // Polyline row and route-backed row draw a sketch; the two without GPS do not.
+    // The polyline row and the two route-backed rows draw a sketch; the one
+    // whose route held no GPS does not.
     await waitFor(() => expect(within(rows[1]).getByTestId('route-sketch')).toBeInTheDocument());
+    await waitFor(() => expect(within(rows[3]).getByTestId('route-sketch')).toBeInTheDocument());
     expect(within(rows[0]).getByRole('img', { name: 'Sketch of the route' })).toBeInTheDocument();
     expect(within(rows[2]).queryByTestId('route-sketch')).toBeNull();
-    expect(within(rows[3]).queryByTestId('route-sketch')).toBeNull();
 
     // Figures ride in mono after the sport label.
     const latest = screen.getByTestId('home-activity-latest');
@@ -147,15 +170,96 @@ describe('RecentActivities', () => {
     expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Analyze my activity from ${date} (Run)`);
   });
 
-  it('says an indoor latest activity has no track, without asking for a route', async () => {
+  it('says a latest activity whose stored route held no GPS has no track, without asking for a route', async () => {
     api.getRecentActivities.mockResolvedValue(
       recentResponse({ activities: [activity({ id: 'indoor', has_gps: false, sport_type: 'virtual_ride' })] }),
     );
-    renderSection();
+    const { settled } = renderSection();
 
     expect(await screen.findByText('This activity recorded no GPS track.')).toBeInTheDocument();
+    await settled();
     expect(api.getActivityRoute).not.toHaveBeenCalled();
     expect(maps.constructed).toHaveLength(0);
+  });
+
+  it('asks for the route of an activity whose list carried no position, and draws the map and the sketch from the answer', async () => {
+    api.getRecentActivities.mockResolvedValue(
+      recentResponse({
+        activities: [
+          activity({
+            id: 'g-2',
+            provider: 'garmin',
+            name: 'River ride',
+            sport_type: 'ride',
+            has_gps: true,
+            summary_polyline: null,
+            start_date: '2026-09-21T13:00:00Z',
+          }),
+          activity({
+            id: 'g-1',
+            provider: 'garmin',
+            name: 'Lake loop',
+            has_gps: true,
+            summary_polyline: null,
+            start_date: '2026-09-19T11:00:00Z',
+          }),
+        ],
+      }),
+    );
+    api.getActivityRoute.mockImplementation(async (_provider, id) => ({
+      route: routeView(id === 'g-2' ? 'River ride' : 'Lake loop', 'garmin'),
+      reason: null,
+    }));
+    const { settled } = renderSection();
+
+    expect(await screen.findByRole('figure', { name: 'Map of the recorded route: River ride' })).toBeInTheDocument();
+    await waitFor(() => expect(maps.constructed).toHaveLength(1));
+    expect(screen.getByText('source: garmin')).toBeInTheDocument();
+
+    const sketch = await within(screen.getByTestId('home-activity-row')).findByTestId('route-sketch');
+    const d = sketch.querySelector('path')?.getAttribute('d') ?? '';
+    expect(d.match(/[ML]/g)).toHaveLength(ROUTE_COORDINATES.length);
+
+    await settled();
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
+    expect(api.getActivityRoute.mock.calls).toEqual(
+      expect.arrayContaining([
+        ['garmin', 'g-2'],
+        ['garmin', 'g-1'],
+      ]),
+    );
+    expect(screen.queryByText('This activity recorded no GPS track.')).toBeNull();
+  });
+
+  it('says there is no track once the route endpoint answers that the recording held no GPS', async () => {
+    api.getRecentActivities.mockResolvedValue(
+      recentResponse({
+        activities: [
+          activity({ id: 'g-2', provider: 'garmin', name: 'Treadmill', has_gps: true, summary_polyline: null }),
+          activity({
+            id: 'g-1',
+            provider: 'garmin',
+            name: 'Track session',
+            has_gps: true,
+            summary_polyline: null,
+            start_date: '2026-09-19T11:00:00Z',
+          }),
+        ],
+      }),
+    );
+    api.getActivityRoute.mockResolvedValue({ route: null, reason: 'no_gps' });
+    const { settled } = renderSection();
+
+    const latest = await screen.findByTestId('home-activity-latest');
+    expect(await within(latest).findByText('This activity recorded no GPS track.')).toBeInTheDocument();
+    expect(api.getActivityRoute).toHaveBeenCalledWith('garmin', 'g-2');
+    expect(maps.constructed).toHaveLength(0);
+
+    // The row asked as well, and an answer without a route draws no sketch.
+    await settled();
+    expect(api.getActivityRoute).toHaveBeenCalledWith('garmin', 'g-1');
+    expect(api.getActivityRoute).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('route-sketch')).toBeNull();
   });
 
   it("says a route trimmed below two points is too short to draw", async () => {
@@ -195,10 +299,84 @@ describe('RecentActivities', () => {
 
   it('says there are no activities yet for a connected athlete with an empty cache', async () => {
     api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [] }));
-    renderSection();
+    const { settled } = renderSection();
 
     expect(await screen.findByText('No activities yet. They show up here once your provider syncs.')).toBeInTheDocument();
+    await settled();
     expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
+  });
+
+  it('names the provider to reconnect above the rows, which stay, and leads to the connections pane', async () => {
+    providers(providerStatus({ provider: 'strava', display_name: 'Strava' }), toReconnect('garmin', 'Garmin'));
+    api.getRecentActivities.mockResolvedValue(recentResponse());
+    const { onNavigate, settled } = renderSection();
+
+    const prompt = await screen.findByTestId('home-reconnect-provider');
+    expect(prompt).toHaveTextContent('Reconnect Garmin to see your new activities.');
+
+    // What the cache holds is still shown, under the prompt and the sync line.
+    const latest = await screen.findByTestId('home-activity-latest');
+    expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
+    expect(prompt.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText(/^Last synced: /)).toBeInTheDocument();
+    await settled();
+    expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+
+    await userEvent.click(within(prompt).getByRole('button', { name: 'Reconnect' }));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('settings/connections');
+  });
+
+  it('names every provider to reconnect in one phrase, in the order the server lists them', async () => {
+    providers(
+      toReconnect('garmin', 'Garmin'),
+      providerStatus({ provider: 'strava', display_name: 'Strava' }),
+      toReconnect('coros', 'COROS'),
+    );
+    api.getRecentActivities.mockResolvedValue(recentResponse());
+    renderSection();
+
+    expect(await screen.findByTestId('home-reconnect-provider')).toHaveTextContent(
+      'Reconnect Garmin and COROS to see your new activities.',
+    );
+  });
+
+  it('puts the reconnect prompt where the empty sentence would be when the cache holds no rows', async () => {
+    providers(toReconnect('garmin', 'Garmin'));
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: [], as_of: '2026-09-20T06:00:00Z' }));
+    const { onNavigate, settled } = renderSection();
+
+    const prompt = await screen.findByTestId('home-reconnect-provider');
+    expect(prompt).toHaveTextContent('Reconnect Garmin to see your new activities.');
+    await settled();
+    expect(screen.queryByText('No activities yet. They show up here once your provider syncs.')).toBeNull();
+    expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-activity-latest')).toBeNull();
+
+    await userEvent.click(within(prompt).getByRole('button', { name: 'Reconnect' }));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith('settings/connections');
+  });
+
+  it('asks nobody to reconnect a provider that is not connected', async () => {
+    providers(
+      providerStatus({ provider: 'strava', display_name: 'Strava' }),
+      providerStatus({ provider: 'garmin', display_name: 'Garmin', connected: false, needs_reauth: true }),
+    );
+    api.getRecentActivities.mockResolvedValue(recentResponse());
+    const { settled } = renderSection();
+
+    await screen.findByTestId('home-activity-latest');
+    await settled();
+    expect(screen.queryByTestId('home-reconnect-provider')).toBeNull();
+    expect(screen.queryByTestId('home-connect-provider')).toBeNull();
+  });
+
+  it('joins provider names the way the language does', () => {
+    expect(formatNameList(['Garmin'], 'en')).toBe('Garmin');
+    expect(formatNameList(['Garmin', 'Strava'], 'en')).toBe('Garmin and Strava');
+    expect(formatNameList(['Garmin', 'Strava', 'COROS'], 'en')).toBe('Garmin, Strava, and COROS');
+    expect(formatNameList(['Garmin', 'Strava'], 'fr')).toBe('Garmin et Strava');
+    expect(formatNameList(['Garmin', 'Strava', 'COROS'], 'de')).toBe('Garmin, Strava und COROS');
   });
 
   it('says the activities could not be loaded, and offers a retry', async () => {
@@ -232,21 +410,23 @@ describe('RecentActivities', () => {
     renderSection();
 
     await screen.findByTestId('home-activity-latest');
-    // The fixture's four earlier rows mix GPS and indoor, so every row keeps
-    // the column and their text stays on one line.
+    // The fixture's four earlier rows mix rows that may have a route with one
+    // whose route held no GPS, so every row keeps the column and their text
+    // stays on one line.
     expect(screen.getAllByTestId('home-sketch-slot')).toHaveLength(4);
   });
 
-  it('drops the sketch column when every earlier row was recorded indoors', async () => {
-    const indoor = [1, 2, 3, 4, 5].map((n) =>
+  it('drops the sketch column when every earlier row says its route held no GPS', async () => {
+    const trackless = [1, 2, 3, 4, 5].map((n) =>
       activity({ id: `indoor-${n}`, has_gps: false, summary_polyline: null, start_date: `2026-09-1${n}T08:00:00Z` }),
     );
-    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: indoor }));
-    renderSection();
+    api.getRecentActivities.mockResolvedValue(recentResponse({ activities: trackless }));
+    const { settled } = renderSection();
 
     await screen.findByTestId('home-activity-latest');
     expect(screen.getAllByTestId('home-activity-row')).toHaveLength(4);
     expect(screen.queryByTestId('home-sketch-slot')).toBeNull();
+    await settled();
     expect(api.getActivityRoute).not.toHaveBeenCalled();
   });
 });

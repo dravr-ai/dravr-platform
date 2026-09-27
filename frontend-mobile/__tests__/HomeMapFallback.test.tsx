@@ -23,7 +23,7 @@ jest.mock('../src/services/api', () => {
       getRecentActivities: jest.fn(async () => fixtures.recentResponse()),
       getActivityRoute: jest.fn(async () => fixtures.LATEST_ROUTE_RESPONSE),
     },
-    oauthApi: { getProvidersStatus: jest.fn() },
+    oauthApi: { getProvidersStatus: jest.fn(async () => fixtures.PROVIDERS_CONNECTED) },
   };
 });
 

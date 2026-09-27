@@ -4,7 +4,7 @@
 // ABOUTME: The Home tab — today's session from the plan, the week around it, and the latest activities with their routes
 // ABOUTME: Where the app lands after sign-in; every day and activity on it opens a new chat with a drafted question
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
@@ -24,28 +24,23 @@ export function HomeScreen() {
   const recent = useRecentActivities();
   const [refreshing, setRefreshing] = useState(false);
 
-  // The activity list carries no provider flag, so an empty list asks the
-  // provider status whether there is anything to read from — and only then:
-  // a list with rows has its answer already.
-  const listIsEmpty = recent.hasData && recent.activities.length === 0;
-  const provider = useProviderConnected(listIsEmpty);
+  // The activity list carries no provider flag, so the provider status says
+  // whether there is anything to read from, and which connections have to be
+  // reconnected before they bring anything new — with rows or without: a
+  // list with rows cannot say its provider stopped syncing.
+  const provider = useProviderConnected();
 
   // The queries fetch on mount; a later focus — back from a chat that built a
   // plan, from Connections, from a notification — reads them again so Home
-  // shows what changed while it was out of sight: the provider status too
-  // while the list is empty, since Connections is where the empty state
-  // sends the athlete. The route answers are left alone: a completed
-  // activity's route does not change.
+  // shows what changed while it was out of sight: the provider status too,
+  // since Connections is where the connect and reconnect prompts send the
+  // athlete. The route answers are left alone: a completed activity's route
+  // does not change.
   //
-  // Whether the list is empty is read through a ref: a focus callback whose
-  // identity changed would be run again by the router while the tab is
-  // focused, and the list turning out empty on the first load would then
-  // read everything a second time.
+  // The three refetches keep their identity, and so does the focus callback:
+  // one whose identity changed would be run again by the router while the
+  // tab is focused, and would read everything a second time.
   const focusedOnce = useRef(false);
-  const listIsEmptyNow = useRef(listIsEmpty);
-  useEffect(() => {
-    listIsEmptyNow.current = listIsEmpty;
-  }, [listIsEmpty]);
   const { refetch: refetchPlan } = plan;
   const { refetch: refetchRecent } = recent;
   const { refetch: refetchProvider } = provider;
@@ -57,16 +52,16 @@ export function HomeScreen() {
       }
       void refetchPlan();
       void refetchRecent();
-      if (listIsEmptyNow.current) {
-        void refetchProvider();
-      }
+      void refetchProvider();
     }, [refetchPlan, refetchRecent, refetchProvider]),
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    void Promise.allSettled([refetchPlan(), refetchRecent()]).finally(() => setRefreshing(false));
-  }, [refetchPlan, refetchRecent]);
+    void Promise.allSettled([refetchPlan(), refetchRecent(), refetchProvider()]).finally(() =>
+      setRefreshing(false),
+    );
+  }, [refetchPlan, refetchRecent, refetchProvider]);
 
   // Every tap on Home asks the agent about what was tapped, in a fresh
   // thread, with the question in the composer and the send left to the athlete.
@@ -117,6 +112,7 @@ export function HomeScreen() {
           asOf={recent.asOf}
           onRetry={() => void refetchRecent()}
           providerConnected={provider.connected}
+          needsReconnect={provider.needsReconnect}
           onConnect={() => router.push(CONNECTIONS_ROUTE)}
           openDraft={openDraft}
         />

@@ -505,6 +505,23 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
+    /// Re-arm a connection flagged `needs_reauth` after a read its stored
+    /// credential served.
+    ///
+    /// Transitions `status` back to `active`, stamps the transition and clears
+    /// `last_error` and the disconnect notification marker, as
+    /// [`Self::mark_active`] does, but only from `needs_reauth`. A `revoked`
+    /// connection is left as it is: access that was withdrawn is restored by a
+    /// reconnect, never by a credential that still answers.
+    ///
+    /// Returns whether the connection flipped: `false` when it was `active` or
+    /// `revoked`, or when the row does not exist.
+    async fn mark_active_if_needs_reauth(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<bool>;
     /// Atomically claim the one-time disconnect notification for a `needs_reauth`
     /// connection.
     ///

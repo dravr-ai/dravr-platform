@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Wire-shaped fixtures for the Home tests — a plan card around Thursday 2026-09-24 and five cached activities
+// ABOUTME: Wire-shaped fixtures for the Home tests — a plan card around Thursday 2026-09-24, five cached activities, a provider's status
 // ABOUTME: Built as the server serializes them, so a component test starts from the contract rather than a convenience shape
 
-import type { HomeActivity, RecentActivitiesResponse, WorkoutPlan } from '@pierre/shared-types';
+import type {
+  ExtendedProviderStatus,
+  HomeActivity,
+  RecentActivitiesResponse,
+  WorkoutPlan,
+} from '@pierre/shared-types';
 import type { RouteView } from '@pierre/scene-types';
 
 /** The athlete's today in every Home test: a Thursday, week 2 of the build phase. */
@@ -92,8 +97,8 @@ export const ROUTE_COORDINATES: Array<[number, number]> = [
   [45.53, -73.62],
 ];
 
-/** The chat's `RouteView`, as the route endpoint answers it for the latest activity. */
-export function routeView(title: string): RouteView {
+/** The chat's `RouteView`, as the route endpoint answers it for an activity read through `sourceTool`. */
+export function routeView(title: string, sourceTool = 'strava'): RouteView {
   return {
     coordinates: ROUTE_COORDINATES,
     bounds: { min_latitude: 45.5, max_latitude: 45.53, min_longitude: -73.63, max_longitude: -73.6 },
@@ -101,7 +106,7 @@ export function routeView(title: string): RouteView {
     distances_meters: [0, 1400, 3100, 4500],
     climbs: [],
     title,
-    source_tool: 'strava',
+    source_tool: sourceTool,
   };
 }
 
@@ -127,9 +132,11 @@ export function activity(overrides: Partial<HomeActivity> & Pick<HomeActivity, '
 }
 
 /**
- * Five activities, newest first: the latest outdoors with a stored route, one
- * with a summary polyline, one recorded with GPS but no polyline (its sketch
- * comes from the route endpoint), one indoor, and one from another provider.
+ * Five activities, newest first: the latest with a route to ask for, one with
+ * a summary polyline, one without a polyline (its sketch comes from the route
+ * endpoint), one whose route was read and held no GPS (`has_gps: false`), and
+ * one from a provider whose activity list carries no position — its route was
+ * never read, so it says `has_gps: true` and the route endpoint is what knows.
  */
 export function fiveActivities(): HomeActivity[] {
   return [
@@ -159,7 +166,7 @@ export function fiveActivities(): HomeActivity[] {
       name: 'Lake loop',
       start_date: '2026-09-14T11:00:00Z',
       summary_polyline: null,
-      has_gps: false,
+      has_gps: true,
     }),
   ];
 }
@@ -169,6 +176,20 @@ export function recentResponse(overrides: Partial<RecentActivitiesResponse> = {}
     activities: fiveActivities(),
     as_of: '2026-09-24T08:15:00Z',
     stale: false,
+    ...overrides,
+  };
+}
+
+/** One provider of `GET /api/providers`: connected and healthy unless the test says otherwise. */
+export function providerStatus(
+  overrides: Partial<ExtendedProviderStatus> & Pick<ExtendedProviderStatus, 'provider' | 'display_name'>,
+): ExtendedProviderStatus {
+  return {
+    requires_oauth: true,
+    connected: true,
+    needs_reauth: false,
+    capabilities: ['activities'],
+    consent_required: false,
     ...overrides,
   };
 }

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home route sketch — the shared projection drawn as one react-native-svg path, and where its geometry comes from
-// ABOUTME: A polyline costs no request, a GPS row without one reads its stored route, and an indoor or malformed row draws nothing
+// ABOUTME: A polyline costs no request, a row without one reads its route, and a recording without GPS or a malformed polyline draws nothing
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
@@ -11,7 +11,13 @@ import { Path } from 'react-native-svg';
 import { decodePolyline, projectRouteToSvgPath } from '@pierre/domain-utils';
 import type { ActivityRouteResponse } from '@pierre/shared-types';
 
-import { ACTIVITIES, SUMMARY_POLYLINE, TRAIL_ROUTE, TRAIL_ROUTE_RESPONSE } from '../integration/app/helpers/homeFixtures';
+import {
+  ACTIVITIES,
+  NO_GPS_ROUTE_RESPONSE,
+  SUMMARY_POLYLINE,
+  TRAIL_ROUTE,
+  TRAIL_ROUTE_RESPONSE,
+} from '../integration/app/helpers/homeFixtures';
 
 const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string]>();
 jest.mock('../src/services/api', () => ({
@@ -67,7 +73,8 @@ describe('ActivitySketch', () => {
     expect(mockGetActivityRoute).not.toHaveBeenCalled();
   });
 
-  it('sketches a GPS row without a polyline from its stored route', async () => {
+  it('asks for the route of a row that carries no polyline, and sketches the answer', async () => {
+    expect(ACTIVITIES[2]).toMatchObject({ has_gps: true, summary_polyline: null });
     const screen = renderWithClient(<ActivitySketch activity={ACTIVITIES[2]} />);
 
     await waitFor(() => expect(screen.getByTestId('home-activity-sketch-intervals_icu-i77')).toBeTruthy());
@@ -83,7 +90,20 @@ describe('ActivitySketch', () => {
     expect(screen.queryByTestId('home-activity-sketch-intervals_icu-i77')).toBeNull();
   });
 
-  it('asks for nothing and draws nothing for an indoor activity', () => {
+  it('draws no sketch for a row whose route read answers that the recording held no GPS', async () => {
+    expect(ACTIVITIES[4]).toMatchObject({ has_gps: true, summary_polyline: null });
+    mockGetActivityRoute.mockResolvedValue(NO_GPS_ROUTE_RESPONSE);
+    const screen = renderWithClient(<ActivitySketch activity={ACTIVITIES[4]} />);
+
+    await waitFor(() => expect(mockGetActivityRoute).toHaveBeenCalledTimes(1));
+    expect(mockGetActivityRoute).toHaveBeenCalledWith('strava', '8998');
+    await mockGetActivityRoute.mock.results[0].value;
+    expect(screen.queryByTestId('home-activity-sketch-strava-8998')).toBeNull();
+    expect(screen.UNSAFE_queryAllByType(Path)).toHaveLength(0);
+  });
+
+  it('asks for nothing and draws nothing for a row whose route read held no GPS', () => {
+    expect(ACTIVITIES[3].has_gps).toBe(false);
     const screen = renderWithClient(<ActivitySketch activity={ACTIVITIES[3]} />);
 
     expect(screen.queryByTestId('home-activity-sketch-strava-8999')).toBeNull();

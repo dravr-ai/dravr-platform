@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Mobile-viewport E2E for the athlete Home — lands there, Home leads the bottom bar, the page fits the phone
-// ABOUTME: Tapping an activity opens chat with the draft at this width too, where there is no rail and no logo
+// ABOUTME: Tapping an activity opens chat with the draft at this width too, and a connection to reconnect is named within the phone's width
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -30,8 +30,9 @@ const PLAN = {
 };
 
 const ACTIVITIES = [
+  // Its route was read once and the recording held no GPS.
   {
-    id: 'act-2',
+    id: 'act-3',
     provider: 'strava',
     name: 'Trainer spin',
     sport_type: 'virtual_ride',
@@ -43,7 +44,7 @@ const ACTIVITIES = [
     summary_polyline: null,
   },
   {
-    id: 'act-1',
+    id: 'act-2',
     provider: 'strava',
     name: 'Morning run',
     sport_type: 'run',
@@ -54,7 +55,48 @@ const ACTIVITIES = [
     has_gps: true,
     summary_polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
   },
+  // Garmin's activity list carries no position and this route was never
+  // read: the row says it may have one, and the route endpoint answers.
+  {
+    id: 'act-1',
+    provider: 'garmin',
+    name: 'Lake loop',
+    sport_type: 'run',
+    start_date: '2026-09-16T11:00:00Z',
+    duration_seconds: 2700,
+    distance_meters: 8100,
+    elevation_gain_meters: 40,
+    has_gps: true,
+    summary_polyline: null,
+  },
 ];
+
+const ROUTE = {
+  coordinates: [
+    [45.5, -73.6],
+    [45.51, -73.61],
+    [45.52, -73.63],
+  ],
+  bounds: { min_latitude: 45.5, max_latitude: 45.52, min_longitude: -73.63, max_longitude: -73.6 },
+  elevation_meters: null,
+  distances_meters: [0, 1400, 3100],
+  climbs: [],
+  title: 'Lake loop',
+  source_tool: 'garmin',
+};
+
+/** One provider of `GET /api/providers`, connected; `needsReauth` is a session the athlete has to renew. */
+function provider(slug: string, displayName: string, needsReauth = false) {
+  return {
+    provider: slug,
+    display_name: displayName,
+    requires_oauth: true,
+    connected: true,
+    needs_reauth: needsReauth,
+    capabilities: ['activities'],
+    consent_required: false,
+  };
+}
 
 const CONVERSATION = {
   id: 'conv-home-mobile',
@@ -67,13 +109,9 @@ const CONVERSATION = {
   last_message: null,
 };
 
-async function mockHome(page: Page) {
+async function mockHome(page: Page, providers = [provider('strava', 'Strava'), provider('garmin', 'Garmin')]) {
   await page.route('**/api/providers', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ providers: [{ provider: 'strava', connected: true, status: 'connected' }] }),
-    });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ providers }) });
   });
   await page.route('**/api/me/training-plan**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan: PLAN, today: TODAY }) });
@@ -83,6 +121,13 @@ async function mockHome(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', stale: false }),
+    });
+  });
+  await page.route('**/api/me/activities/*/*/route', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ route: ROUTE, reason: null }),
     });
   });
   await page.route(`**/api/chat/conversations/${CONVERSATION.id}/messages**`, async (route) => {
@@ -138,12 +183,46 @@ test.describe('Athlete Home — mobile viewport', () => {
     }
   });
 
-  test('an indoor latest activity says it has no track; tapping a row opens the analyze draft', async ({ page }) => {
+  test('a latest activity whose stored route held no GPS says it has no track; tapping a row opens the analyze draft', async ({ page }) => {
     await expect(page.getByTestId('home-activity-latest')).toContainText('This activity recorded no GPS track.');
-    await expect(page.getByTestId('route-sketch')).toHaveCount(1);
+    // One sketch from the summary polyline, one from the route the endpoint
+    // answers for the row whose route had never been read.
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(2);
+    await expect(page.getByTestId('route-sketch')).toHaveCount(2);
+    await expect(page.getByTestId('home-reconnect-provider')).toHaveCount(0);
 
     await page.getByTestId('home-activity-row').first().getByRole('button').click();
     await expect(page).toHaveURL(/#chat\/conv-home-mobile$/);
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(/^Analyze my activity from .+ \(Run\)$/);
+  });
+});
+
+test.describe('Athlete Home — mobile viewport, a connection to reconnect', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page, [provider('strava', 'Strava', true), provider('garmin', 'Garmin', true)]);
+    await loginToDashboard(page, { email: 'alice@acme.com', password: 'password123' });
+    await expect(page.getByTestId('home-page')).toBeVisible();
+  });
+
+  test('names the providers inside the phone width, keeps the rows, and leads to the connections pane', async ({ page }) => {
+    const prompt = page.getByTestId('home-reconnect-provider');
+    await expect(prompt).toContainText('Reconnect Strava and Garmin to see your new activities.');
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(2);
+
+    const viewport = page.viewportSize();
+    expect(viewport).not.toBeNull();
+    const box = await prompt.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual((viewport?.width ?? 0) + 1);
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+
+    await prompt.getByRole('button', { name: 'Reconnect' }).click();
+    await expect(page).toHaveURL(/#settings\/connections$/);
   });
 });

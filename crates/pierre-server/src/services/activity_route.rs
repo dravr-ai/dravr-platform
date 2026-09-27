@@ -22,9 +22,20 @@
 //! has a middle to draw — so the streams decide. What the streams say is
 //! stored either way: a track, or the reason there is none, so an indoor ride
 //! costs one read too, not one per page load.
+//!
+//! A Home page asks for several routes at once, and a streams read is the
+//! expensive step: through a mirror backend it is a headless scrape of a few
+//! seconds, on a service that sheds the requests it cannot queue. So one
+//! athlete's streams reads take turns — a `(user, tenant)` reads its provider
+//! for one activity at a time — and a request that waited for its turn looks
+//! at the store again before it reads, so any number of requests for the same
+//! activity cost one read between them. The turns are held in this process:
+//! each server instance keeps its own, and two instances can read for the
+//! same athlete at the same time.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use dashmap::DashMap;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::StoredRouteTrack;
@@ -33,6 +44,7 @@ use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use pierre_tool_runtime::protocol::provider_helpers::fetch_activity_from_provider;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -78,8 +90,73 @@ pub struct CachedActivityRef<'a> {
     pub activity: &'a Activity,
 }
 
+/// Whose turn at the provider a lock is: an athlete, in the tenant they act
+/// in.
+type TurnKey = (Uuid, TenantId);
+
+/// One athlete's lock. An `Arc` because the map and every request queued for
+/// that athlete share it: they have to contend for one lock, and a request
+/// keeps it across awaits the map's own borrow cannot span.
+type TurnLock = Arc<TokioMutex<()>>;
+
+/// The provider-read turns in use: one lock per `(user, tenant)` with a
+/// streams read in flight or waiting.
+///
+/// An entry lives while a request holds or waits for it and is removed by the
+/// last one to leave, so the map holds the athletes being read for at this
+/// moment, not every athlete ever read for.
+static PROVIDER_READ_TURNS: LazyLock<DashMap<TurnKey, TurnLock>> = LazyLock::new(DashMap::new);
+
+/// One request's place in an athlete's queue for their provider.
+///
+/// Claimed before the wait and given up on drop, so a request that fails, or
+/// is dropped while it waits or reads because its client went away, leaves
+/// the map as it found it.
+struct ProviderReadTurn {
+    key: TurnKey,
+    /// The athlete's lock, shared with the map and with every other request
+    /// queued for the same athlete.
+    lock: TurnLock,
+}
+
+impl ProviderReadTurn {
+    /// Join the queue for one athlete's provider.
+    fn claim(user_id: Uuid, tenant_id: TenantId) -> Self {
+        let key = (user_id, tenant_id);
+        let lock = Arc::clone(
+            PROVIDER_READ_TURNS
+                .entry(key)
+                .or_insert_with(|| Arc::new(TokioMutex::new(())))
+                .value(),
+        );
+        Self { key, lock }
+    }
+}
+
+impl Drop for ProviderReadTurn {
+    fn drop(&mut self) {
+        // Two strong references are the map's and this one: nobody else is
+        // queued, so the entry goes. A request that claims after that finds
+        // no entry and inserts a lock of its own, which nobody holds; one
+        // that claimed before it holds a third reference, so the entry stays
+        // for that request to remove. Two requests leaving at the same
+        // moment can each count the other's reference and both leave the
+        // entry behind: it is unlocked and nobody waits on it, and the next
+        // request for the athlete claims it and removes it when it leaves.
+        PROVIDER_READ_TURNS.remove_if(&self.key, |_, stored| {
+            Arc::ptr_eq(stored, &self.lock) && Arc::strong_count(stored) <= 2
+        });
+    }
+}
+
 /// The drawable route of one cached activity, read at most once from its
 /// provider.
+///
+/// A route overview settles it without a provider call. Otherwise the request
+/// takes the athlete's turn at their provider, so one `(user, tenant)` has
+/// one streams read in flight, and looks at the store again once the turn is
+/// its own: a request for the same activity that went first has stored the
+/// answer. The turns are this server instance's own.
 ///
 /// # Errors
 ///
@@ -95,15 +172,45 @@ pub async fn activity_route(
     cached: CachedActivityRef<'_>,
 ) -> AppResult<ActivityRouteOutcome> {
     let repos = runtime.repos();
+    if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached).await? {
+        return Ok(outcome);
+    }
+    if let Some(track) = overview_track(cached.activity) {
+        let source = RouteGeometrySource::SummaryPolyline;
+        return settle(repos, tenant_id, user_id, cached, source, Ok(track)).await;
+    }
+    let turn = ProviderReadTurn::claim(user_id, tenant_id);
+    let reading = turn.lock.lock().await;
+    if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached).await? {
+        return Ok(outcome);
+    }
+    let outcome = read_streams(runtime, tenant_id, user_id, cached).await?;
+    let source = RouteGeometrySource::Streams;
+    let settled = settle(repos, tenant_id, user_id, cached, source, outcome).await;
+    // Held until the outcome is stored, so the next request in the queue
+    // finds it.
+    drop(reading);
+    settled
+}
+
+/// The outcome stored for the activity, or `None` when none is stored or the
+/// stored one no longer decodes.
+async fn stored_route(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    cached: CachedActivityRef<'_>,
+) -> AppResult<Option<ActivityRouteOutcome>> {
     let activity_id = cached.activity.id();
-    if let Some(stored) = repos
+    let Some(stored) = repos
         .activity_route_tracks
         .get_route_track(&tenant_id, user_id, cached.provider, activity_id)
         .await?
-    {
-        if let Some(outcome) = stored_outcome(&stored) {
-            return Ok(outcome);
-        }
+    else {
+        return Ok(None);
+    };
+    let outcome = stored_outcome(&stored);
+    if outcome.is_none() {
         // A row whose track no longer decodes (the track shape has evolved
         // since it was written) is a miss: read again and the upsert
         // overwrites it.
@@ -112,22 +219,32 @@ pub async fn activity_route(
             "stored route track no longer decodes; reading it again"
         );
     }
-    let (source, outcome) = read_route(runtime, tenant_id, user_id, cached).await?;
+    Ok(outcome)
+}
+
+/// Simplify a read's track to the points a Home map carries, store the
+/// outcome and answer it.
+async fn settle(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    cached: CachedActivityRef<'_>,
+    source: RouteGeometrySource,
+    outcome: ActivityRouteOutcome,
+) -> AppResult<ActivityRouteOutcome> {
     let outcome = outcome.map(|track| track.simplified(HOME_ROUTE_MAX_POINTS));
     store_outcome(repos, tenant_id, user_id, cached, source, &outcome).await?;
     Ok(outcome)
 }
 
-/// Read the route from the cheapest source that settles it.
-async fn read_route(
+/// Read the route from the activity's recorded streams: one detail read
+/// against the athlete's provider.
+async fn read_streams(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
-) -> AppResult<(RouteGeometrySource, ActivityRouteOutcome)> {
-    if let Some(track) = overview_track(cached.activity) {
-        return Ok((RouteGeometrySource::SummaryPolyline, Ok(track)));
-    }
+) -> AppResult<ActivityRouteOutcome> {
     let tenant = tenant_id.to_string();
     let detailed = fetch_activity_from_provider(
         runtime,
@@ -137,10 +254,9 @@ async fn read_route(
         cached.activity.id(),
     )
     .await?;
-    let outcome = detailed
+    Ok(detailed
         .time_series_data()
-        .map_or(Err(RouteTrackError::NoGps), RouteTrack::from_streams);
-    Ok((RouteGeometrySource::Streams, outcome))
+        .map_or(Err(RouteTrackError::NoGps), RouteTrack::from_streams))
 }
 
 /// The drawable track the activity's own route overview yields, or `None`

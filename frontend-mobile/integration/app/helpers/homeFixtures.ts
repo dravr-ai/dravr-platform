@@ -1,4 +1,4 @@
-// ABOUTME: Server-shaped Home payloads for the mobile specs — a plan around one Thursday, five activities, two routes
+// ABOUTME: Server-shaped Home payloads for the mobile specs — a plan around one Thursday, five activities, their route answers
 // ABOUTME: Mirrors the /api/me/... contract: every key present, None as null, the polyline already trimmed by the server
 
 import type { RouteView } from '@pierre/scene-types';
@@ -92,10 +92,12 @@ export const SUMMARY_POLYLINE = '_p~iF~ps|U_ulLnnqC_mqNvxq`@';
 /**
  * Five activities, newest first, one of each kind the page draws differently:
  * the latest with a map, a Strava row sketched from its polyline, a row from
- * a provider that sends none (its sketch comes from the stored route), an
- * indoor ride and a strength session, neither of which has anything to draw.
- * Start times sit mid-afternoon UTC so the printed day is the same in any
- * zone a test machine runs in.
+ * a provider whose list carries no position (its sketch comes from the route
+ * read), an indoor ride whose route was read once and held no GPS — the one
+ * row that says `has_gps: false` — and a strength session whose route was
+ * never read, so it says `has_gps: true` and the route read is what answers
+ * that there is no track. Start times sit mid-afternoon UTC so the printed
+ * day is the same in any zone a test machine runs in.
  */
 export const ACTIVITIES: HomeActivity[] = [
   {
@@ -155,7 +157,7 @@ export const ACTIVITIES: HomeActivity[] = [
     duration_seconds: 2700,
     distance_meters: null,
     elevation_gain_meters: null,
-    has_gps: false,
+    has_gps: true,
     summary_polyline: null,
   },
 ];
@@ -180,7 +182,7 @@ export const LATEST_ROUTE: RouteView = {
   source_tool: 'strava',
 };
 
-/** The intervals.icu row's stored route: no polyline came with the row, so its sketch is drawn from these. */
+/** The intervals.icu row's route: no polyline came with the row, so its sketch is drawn from these. */
 export const TRAIL_ROUTE: RouteView = {
   coordinates: [
     [46.1, -74.2],
@@ -197,6 +199,8 @@ export const TRAIL_ROUTE: RouteView = {
 
 export const LATEST_ROUTE_RESPONSE: ActivityRouteResponse = { route: LATEST_ROUTE, reason: null };
 export const TRAIL_ROUTE_RESPONSE: ActivityRouteResponse = { route: TRAIL_ROUTE, reason: null };
+/** The strength session's route read: the recording held no GPS. */
+export const NO_GPS_ROUTE_RESPONSE: ActivityRouteResponse = { route: null, reason: 'no_gps' };
 
 /** A connected Strava, as `GET /api/providers` lists it. */
 export const PROVIDERS_CONNECTED = {
@@ -215,4 +219,25 @@ export const PROVIDERS_CONNECTED = {
 /** The same list with nothing connected. */
 export const PROVIDERS_NONE = {
   providers: [{ ...PROVIDERS_CONNECTED.providers[0], connected: false }],
+};
+
+/**
+ * A Strava whose session died, served by two backends that carry one name,
+ * beside a Garmin whose session died too, a healthy intervals.icu, and a
+ * disconnected COROS whose flag means nothing: two names to reconnect.
+ */
+export const PROVIDERS_RECONNECT = {
+  providers: [
+    { ...PROVIDERS_CONNECTED.providers[0], needs_reauth: true },
+    { ...PROVIDERS_CONNECTED.providers[0], provider: 'sciotte', requires_oauth: false, needs_reauth: true },
+    { ...PROVIDERS_CONNECTED.providers[0], provider: 'garmin', display_name: 'Garmin', needs_reauth: true },
+    { ...PROVIDERS_CONNECTED.providers[0], provider: 'intervals_icu', display_name: 'Intervals.icu' },
+    {
+      ...PROVIDERS_CONNECTED.providers[0],
+      provider: 'coros',
+      display_name: 'COROS',
+      connected: false,
+      needs_reauth: true,
+    },
+  ],
 };

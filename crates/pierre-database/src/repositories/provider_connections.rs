@@ -195,6 +195,20 @@ pub(crate) const MARK_ACTIVE_SQL: &str = r"
                AND status != 'active'
             ";
 
+/// Re-arm a connection whose stored credential just served a read, and only
+/// one flagged `needs_reauth`. A `revoked` connection stands: access that was
+/// withdrawn is restored by a reconnect, never by a credential that still
+/// answers. An `active` one is left untouched, its transition stamp included.
+pub(crate) const MARK_ACTIVE_IF_NEEDS_REAUTH_SQL: &str = r"
+            UPDATE provider_connections
+               SET status = 'active',
+                   status_changed_at = $1,
+                   last_error = NULL,
+                   notified_at = NULL
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+               AND status = 'needs_reauth'
+            ";
+
 /// Claim the one-time disconnect notification: only the first caller after
 /// the transition affects a row.
 pub(crate) const CLAIM_REAUTH_NOTIFICATION_SQL: &str = r"
@@ -499,6 +513,23 @@ macro_rules! impl_provider_connection_repository {
                     .await?;
 
                 Ok(())
+            }
+
+            async fn mark_active_if_needs_reauth(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(MARK_ACTIVE_IF_NEEDS_REAUTH_SQL)
+                    .bind(Utc::now())
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
             }
 
             async fn claim_reauth_notification(

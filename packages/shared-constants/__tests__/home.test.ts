@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  HOME_STALE_REFETCH_DELAY_MS,
+  HOME_STALE_REFETCH_DELAYS_MS,
   IDLE_STOP_AFTER_MS,
   QUERY_KEYS,
   USER_SURFACES,
@@ -62,9 +62,20 @@ describe('home query keys', () => {
   });
 });
 
-describe('home stale refetch delay', () => {
-  it('asks again well before the client would go idle', () => {
-    expect(HOME_STALE_REFETCH_DELAY_MS).toBe(15000);
-    expect(HOME_STALE_REFETCH_DELAY_MS).toBeLessThan(IDLE_STOP_AFTER_MS);
+describe('home stale refetch schedule', () => {
+  /** The server's bound on one background refresh, `REVALIDATION_TIMEOUT_SECS`. */
+  const SERVER_REFRESH_BOUND_MS = 240000;
+  const total = HOME_STALE_REFETCH_DELAYS_MS.reduce((sum, delay) => sum + delay, 0);
+
+  it('asks first after fifteen seconds, then at widening waits', () => {
+    expect(HOME_STALE_REFETCH_DELAYS_MS).toEqual([15000, 30000, 60000, 150000]);
+  });
+
+  it('asks last after the server has given up on a refresh', () => {
+    expect(total).toBeGreaterThan(SERVER_REFRESH_BOUND_MS);
+  });
+
+  it('ends before the client would go idle', () => {
+    expect(total).toBeLessThan(IDLE_STOP_AFTER_MS);
   });
 });

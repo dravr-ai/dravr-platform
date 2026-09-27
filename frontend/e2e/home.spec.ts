@@ -2,9 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for the athlete Home — sign-in lands on it, the rail logo leads back, and every tap opens a chat draft
-// ABOUTME: Runs against mocked /api/me reads shaped like the server's; a stale cache is asked for exactly once more
+// ABOUTME: Runs against mocked /api/me reads shaped like the server's; a stale cache is followed up on a schedule that ends
 
 import { test, expect, type Page } from '@playwright/test';
+import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 
 const TODAY = '2026-09-24';
@@ -86,8 +87,11 @@ const ACTIVITIES = [
   }),
   activity('act-4', { name: 'Tempo Tuesday', summary_polyline: '_p~iF~ps|U_ulLnnqC_mqNvxq`@' }),
   activity('act-3', { name: 'Hill repeats', start_date: '2026-09-16T11:00:00Z' }),
+  // Its route was read once and the recording held no GPS.
   activity('act-2', { name: 'Trainer spin', sport_type: 'virtual_ride', has_gps: false, start_date: '2026-09-15T22:00:00Z' }),
-  activity('act-1', { name: 'Lake loop', provider: 'garmin', has_gps: false, start_date: '2026-09-14T11:00:00Z' }),
+  // Garmin's activity list carries no position and this route was never
+  // read: the row says it may have one, and the route endpoint answers.
+  activity('act-1', { name: 'Lake loop', provider: 'garmin', has_gps: true, start_date: '2026-09-14T11:00:00Z' }),
 ];
 
 const ROUTE = {
@@ -115,10 +119,26 @@ const CONVERSATION = {
   last_message: null,
 };
 
+/** One provider of `GET /api/providers`: connected and healthy unless the spec says otherwise. */
+function provider(slug: string, displayName: string, overrides: Record<string, unknown> = {}) {
+  return {
+    provider: slug,
+    display_name: displayName,
+    requires_oauth: true,
+    connected: true,
+    needs_reauth: false,
+    capabilities: ['activities'],
+    consent_required: false,
+    ...overrides,
+  };
+}
+
 interface HomeAnswers {
   plan?: unknown;
   recent?: Array<Record<string, unknown>>;
   connected?: boolean;
+  /** The whole provider list, for a spec that needs more than one Strava. */
+  providers?: Array<Record<string, unknown>>;
 }
 
 /**
@@ -129,15 +149,10 @@ interface HomeAnswers {
  */
 async function mockHome(page: Page, answers: HomeAnswers = {}) {
   const recent = answers.recent ?? [{ activities: ACTIVITIES, as_of: '2026-09-24T08:15:00Z', stale: false }];
+  const providers = answers.providers ?? [provider('strava', 'Strava', { connected: answers.connected ?? true })];
   const calls = { recent: 0, routes: [] as string[] };
   await page.route('**/api/providers', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        providers: [{ provider: 'strava', connected: answers.connected ?? true, status: 'connected' }],
-      }),
-    });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ providers }) });
   });
   await page.route('**/api/me/training-plan**', async (route) => {
     await route.fulfill({
@@ -208,12 +223,16 @@ test.describe('Athlete Home', () => {
 
     await expect(page.getByRole('figure', { name: 'Map of the recorded route: Long ride' })).toBeVisible();
     await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
-    await expect(page.getByTestId('route-sketch')).toHaveCount(2);
-    // The latest and the one GPS row without a polyline — never the rest.
+    // The polyline row and the two rows the route endpoint answers for.
+    await expect(page.getByTestId('route-sketch')).toHaveCount(3);
+    // The latest and the two rows without a polyline — never the row with
+    // one, nor the row whose route held no GPS.
     await expect.poll(() => [...calls.routes].sort()).toEqual([
+      '/api/me/activities/garmin/act-1/route',
       '/api/me/activities/strava/act-3/route',
       '/api/me/activities/strava/act-5/route',
     ]);
+    await expect(page.getByTestId('home-reconnect-provider')).toHaveCount(0);
     // The rail marks Home as the page the athlete is on.
     await expect(page.getByTestId('icon-rail').getByRole('button', { name: 'Home', exact: true }).last()).toHaveAttribute(
       'aria-current',
@@ -292,30 +311,129 @@ test.describe('Athlete Home', () => {
     await expect(page).toHaveURL(/#settings\/connections$/);
   });
 
-  test('a stale cache is asked for exactly once more, after the delay', async ({ page }) => {
+  test('a connection to reconnect is named above the cached rows, and leads to the connections pane', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page, {
+      providers: [provider('strava', 'Strava'), provider('garmin', 'Garmin', { needs_reauth: true })],
+      recent: [{ activities: ACTIVITIES, as_of: '2026-09-22T06:00:00Z', stale: false }],
+    });
+    await login(page);
+
+    const section = page.getByTestId('home-activities');
+    const prompt = section.getByTestId('home-reconnect-provider');
+    await expect(prompt).toContainText('Reconnect Garmin to see your new activities.');
+    await expect(page.getByTestId('home-connect-provider')).toHaveCount(0);
+    // What the cache holds stays on the page, under the prompt.
+    await expect(section).toContainText('Last synced:');
+    await expect(page.getByTestId('home-activity-latest')).toContainText('Long ride');
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
+    const promptBox = await prompt.boundingBox();
+    const latestBox = await page.getByTestId('home-activity-latest').boundingBox();
+    expect(promptBox).not.toBeNull();
+    expect(latestBox).not.toBeNull();
+    expect(promptBox?.y ?? 0).toBeLessThan(latestBox?.y ?? 0);
+
+    await prompt.getByRole('button', { name: 'Reconnect' }).click();
+    await expect(page).toHaveURL(/#settings\/connections$/);
+  });
+
+  test('a stale cache is asked for again until an answer is fresh, each ask after its own delay', async ({ page }) => {
     await page.clock.install({ time: new Date('2026-09-24T10:00:00Z') });
     await signInAthlete(page);
-    const refreshed = activity('act-6', { name: 'Lunch run', start_date: '2026-09-24T12:00:00Z' });
+    // The token provider's refresh lands within seconds; the scraped one
+    // takes longer, and the cache stays stale until it has answered too.
+    const fromToken = activity('act-6', { name: 'Lunch run', start_date: '2026-09-24T09:00:00Z' });
+    const fromScrape = activity('act-7', {
+      name: 'Dawn ride',
+      provider: 'garmin',
+      sport_type: 'ride',
+      start_date: '2026-09-24T09:30:00Z',
+    });
     const calls = await mockHome(page, {
       recent: [
         { activities: ACTIVITIES, as_of: '2026-09-22T06:00:00Z', stale: true },
-        { activities: [refreshed, ...ACTIVITIES.slice(0, 4)], as_of: '2026-09-24T10:00:10Z', stale: false },
+        { activities: [fromToken, ...ACTIVITIES.slice(0, 4)], as_of: '2026-09-22T06:00:00Z', stale: true },
+        {
+          activities: [fromScrape, fromToken, ...ACTIVITIES.slice(0, 3)],
+          as_of: '2026-09-24T10:00:40Z',
+          stale: false,
+        },
       ],
     });
     await login(page);
 
     const section = page.getByTestId('home-activities');
+    const latest = page.getByTestId('home-activity-latest');
     await expect(section).toContainText('Checking your provider for new activities…');
+    await expect(latest).toContainText('Long ride');
     expect(calls.recent).toBe(1);
 
-    await page.clock.fastForward(15_000);
-    await expect(section).toContainText('Last synced:');
-    await expect(page.getByTestId('home-activity-latest')).toContainText('Lunch run');
+    const [first, second, ...unused] = HOME_STALE_REFETCH_DELAYS_MS;
+
+    // First follow-up: still stale, so the page keeps saying it is checking.
+    await page.clock.fastForward(first);
+    await expect(latest).toContainText('Lunch run');
+    await expect(section).toContainText('Checking your provider for new activities…');
     expect(calls.recent).toBe(2);
 
-    // Never a poll: another minute on the page asks for nothing more.
-    await page.clock.fastForward(60_000);
+    // Second follow-up, one wider delay on: the fresh answer ends the schedule.
+    await page.clock.fastForward(second);
+    await expect(latest).toContainText('Dawn ride');
     await expect(section).toContainText('Last synced:');
-    expect(calls.recent).toBe(2);
+    await expect(section).not.toContainText('Checking your provider for new activities…');
+    expect(calls.recent).toBe(3);
+
+    // Never a poll: the delays the schedule had left ask for nothing more.
+    for (const delay of unused) {
+      await page.clock.fastForward(delay);
+    }
+    await expect(section).toContainText('Last synced:');
+    expect(calls.recent).toBe(3);
+  });
+
+  test('a cache that stays stale is asked for once per delay, then the page says when it last synced', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-09-24T10:00:00Z') });
+    await signInAthlete(page);
+    const delays = HOME_STALE_REFETCH_DELAYS_MS;
+    // Every answer is stale. Each one names its latest row after its place in
+    // the sequence, so the spec can see the page has taken an answer in
+    // before it moves the clock to the next ask.
+    const answers = Array.from({ length: delays.length + 1 }, (_, index) => ({
+      activities: [{ ...ACTIVITIES[0], name: `Long ride, read ${index + 1}` }, ...ACTIVITIES.slice(1)],
+      as_of: '2026-09-22T06:00:00Z',
+      stale: true,
+    }));
+    const calls = await mockHome(page, { recent: answers });
+    await login(page);
+
+    const section = page.getByTestId('home-activities');
+    const latest = page.getByTestId('home-activity-latest');
+    await expect(latest).toContainText('Long ride, read 1');
+    await expect(section).toContainText('Checking your provider for new activities…');
+
+    for (const [index, delay] of delays.entries()) {
+      // Halfway through its delay the ask has not gone out. The page's clock
+      // also runs on its own between the jumps, so the spec stops well short
+      // of the delay; the hook's own test pins it to the millisecond.
+      await page.clock.fastForward(delay / 2);
+      expect(calls.recent).toBe(index + 1);
+      await expect(section).toContainText('Checking your provider for new activities…');
+      // The athlete is still here: a pointer move keeps the idle watch from
+      // holding the ask back.
+      await page.mouse.move(40 + index, 40);
+      await page.clock.fastForward(delay / 2);
+      await expect(latest).toContainText(`Long ride, read ${index + 2}`);
+      expect(calls.recent).toBe(index + 2);
+    }
+
+    // The schedule ended on a stale answer: the rows stay, with their sync time.
+    await expect(section).toContainText('Last synced:');
+    await expect(section).not.toContainText('Checking your provider for new activities…');
+    await expect(page.getByTestId('home-activity-row')).toHaveCount(4);
+
+    // Never a poll: however long the page stays open, nothing more is asked.
+    await page.clock.fastForward(delays[delays.length - 1]);
+    await expect(section).toContainText('Last synced:');
+    expect(calls.recent).toBe(delays.length + 1);
   });
 });

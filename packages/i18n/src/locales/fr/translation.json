@@ -1755,6 +1755,7 @@
     "activities": {
       "heading": "Activités récentes",
       "noProvider": "Connecte un service de fitness pour voir tes activités récentes ici.",
+      "reconnect": "Reconnecte {{providers}} pour voir tes nouvelles activités.",
       "empty": "Aucune activité pour le moment. Elles s’afficheront ici dès que ton fournisseur se synchronisera.",
       "routeTooShort": "Ce parcours est trop court pour être tracé sans révéler son point de départ.",
       "mapLoading": "Chargement de la carte…",

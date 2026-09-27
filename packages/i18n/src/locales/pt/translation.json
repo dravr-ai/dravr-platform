@@ -1755,6 +1755,7 @@
     "activities": {
       "heading": "Atividades recentes",
       "noProvider": "Liga um serviço de fitness para veres aqui as tuas atividades recentes.",
+      "reconnect": "Liga {{providers}} de novo para veres as tuas atividades novas.",
       "empty": "Ainda não há atividades. Aparecem aqui assim que o teu fornecedor sincronizar.",
       "routeTooShort": "Este percurso é demasiado curto para ser desenhado sem revelar onde começa.",
       "mapLoading": "A carregar o mapa…",

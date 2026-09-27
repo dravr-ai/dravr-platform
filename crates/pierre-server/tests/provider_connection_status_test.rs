@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for ProviderConnectionRepository::{mark_needs_reauth, mark_active}
+// ABOUTME: Integration tests for ProviderConnectionRepository::{mark_needs_reauth, mark_active, mark_active_if_needs_reauth}
 // ABOUTME: Pins the connection-status lifecycle that surfaces a dead OAuth refresh as needs_reauth
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,6 +14,10 @@
 //! context, and the app). A successful reconnect/refresh re-arms it to `Active` and
 //! clears the notification marker. This is the persisted half of the "tell the user his
 //! OAuth is disconnected, and update our state" work.
+//!
+//! A read the stored credential served re-arms too, through
+//! `mark_active_if_needs_reauth`, which flips a `needs_reauth` connection and nothing
+//! else.
 
 use std::time::Duration;
 
@@ -405,5 +409,90 @@ async fn a_flag_from_an_attempt_that_began_before_a_rearm_leaves_it_active() {
     assert_eq!(
         status_of(&database, user_id, tenant_id, "whoop").await,
         ConnectionStatus::Active
+    );
+}
+
+/// A read the stored credential served re-arms a flagged connection, says so, and
+/// releases the reconnect nudge for the next disconnect as a reconnect does. On a
+/// connection that is already active, or that the athlete never had, it changes
+/// nothing and says that too, which is what lets its caller log a re-arm once.
+#[tokio::test]
+async fn mark_active_if_needs_reauth_flips_only_a_flagged_connection() {
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = sole_tenant(&database, user_id).await;
+    let pc = &database.repositories().provider_connections;
+    pc.register_connection(user_id, tenant_id, "sciotte", &ConnectionType::Manual, None)
+        .await
+        .unwrap();
+
+    assert!(
+        !pc.mark_active_if_needs_reauth(user_id, tenant_id, "sciotte")
+            .await
+            .unwrap(),
+        "an active connection has nothing to re-arm"
+    );
+    assert!(
+        !pc.mark_active_if_needs_reauth(user_id, tenant_id, "made_up_provider")
+            .await
+            .unwrap(),
+        "a connection the athlete never had is not re-armed into existence"
+    );
+    assert_eq!(
+        pc.get_for_user(user_id, None).await.unwrap().len(),
+        1,
+        "no row was inserted for the unknown provider"
+    );
+
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        "sciotte",
+        Some("session_expired"),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        pc.claim_reauth_notification(user_id, tenant_id, "sciotte")
+            .await
+            .unwrap(),
+        "the disconnect's one nudge is claimed"
+    );
+
+    assert!(
+        pc.mark_active_if_needs_reauth(user_id, tenant_id, "sciotte")
+            .await
+            .unwrap(),
+        "a flagged connection flips, and the caller is told it did"
+    );
+    assert_eq!(
+        status_of(&database, user_id, tenant_id, "sciotte").await,
+        ConnectionStatus::Active
+    );
+    assert!(
+        !pc.mark_active_if_needs_reauth(user_id, tenant_id, "sciotte")
+            .await
+            .unwrap(),
+        "the second call finds it active: one re-arm, reported once"
+    );
+
+    // The flag is guarded on the re-arm's stamp, so the next attempt begins
+    // measurably after it.
+    sleep(Duration::from_millis(10)).await;
+    pc.mark_needs_reauth(
+        user_id,
+        tenant_id,
+        "sciotte",
+        Some("session_expired"),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        pc.claim_reauth_notification(user_id, tenant_id, "sciotte")
+            .await
+            .unwrap(),
+        "the re-arm cleared the marker, so a later disconnect can nudge again"
     );
 }
