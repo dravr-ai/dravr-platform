@@ -141,7 +141,12 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # CRITICAL) gated two consecutive dev deploys on 2026-09-18 — 104403e56 and
 # b3ff27888, the first touching no Docker file; both runs echo "apt security
 # epoch: 2026-09-14" and report 152.0.7977.82-1~deb13u1 installed.
-ARG APT_SECURITY_EPOCH=2026-09-18
+# nodejs 20.19.2+dfsg-1+deb13u3 closes CVE-2026-48930 (CRITICAL, authority
+# rebinding through embedded-NUL hostnames in TLS) and six HIGH CVEs — 21
+# findings, since Trivy reports each once for nodejs, libnode115 and
+# libnode-dev. Gated two consecutive dev deploys on 2026-09-27 (571b471dd and
+# 3c4257b9e, neither touching a Docker file) with deb13u2 installed.
+ARG APT_SECURITY_EPOCH=2026-09-27
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
