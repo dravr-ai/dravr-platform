@@ -39,6 +39,27 @@ struct AuthCodeParams<'a> {
     code_challenge_method: Option<&'a str>,
 }
 
+/// Refuse a request parameter carrying a control character.
+///
+/// Every value a client sends here is printable: RFC 6749 Appendix A defines
+/// `state` and `code` as visible ASCII, RFC 7636 the PKCE values as unreserved
+/// characters. `PostgreSQL` rejects a NUL byte in a text parameter, so one let
+/// through to a query would report the caller's malformed request as a
+/// database failure, and page the operators for it.
+fn refuse_control_characters(values: &[Option<&str>]) -> Result<(), OAuth2Error> {
+    if values
+        .iter()
+        .flatten()
+        .any(|value| value.chars().any(char::is_control))
+    {
+        warn!("OAuth2 request refused: a parameter carries a control character");
+        return Err(OAuth2Error::invalid_request(
+            "Request parameters must not contain control characters",
+        ));
+    }
+    Ok(())
+}
+
 /// OAuth 2.0 Authorization Server
 pub struct OAuth2AuthorizationServer {
     client_manager: ClientRegistrationManager,
@@ -96,10 +117,7 @@ impl OAuth2AuthorizationServer {
             .get_client(&request.client_id)
             .await
             .map_err(|e| {
-                error!(
-                    "Client lookup failed for client_id={}: {:#}",
-                    request.client_id, e
-                );
+                ClientRegistrationManager::log_lookup_failure(&request.client_id, &e);
                 AuthorizeRejection::ShownToUser(OAuth2Error::invalid_client())
             })?;
 
@@ -120,6 +138,8 @@ impl OAuth2AuthorizationServer {
         client: &OAuth2Client,
         request: &AuthorizeRequest,
     ) -> Result<String, OAuth2Error> {
+        refuse_control_characters(&[request.state.as_deref(), request.code_challenge.as_deref()])?;
+
         if request.response_type.is_empty() {
             return Err(OAuth2Error::invalid_request(
                 "Missing response_type parameter",
@@ -184,7 +204,7 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::invalid_request("Failed to resolve user tenant")
             })?;
             tenants.first().map(|t| t.id.to_string()).ok_or_else(|| {
-                error!("User {} has no tenant memberships", user_id);
+                warn!("User {} has no tenant memberships", user_id);
                 OAuth2Error::invalid_request("User does not belong to any tenant")
             })?
         };
@@ -228,10 +248,14 @@ impl OAuth2AuthorizationServer {
             .validate_client(&request.client_id, &request.client_secret)
             .await
             .inspect_err(|e| {
-                error!(
-                    client_id = %request.client_id,
+                // A refused client is the caller's mistake. `validate_client`
+                // already logged each cause at its own level, the server faults
+                // among them (a failed lookup, an unreadable stored hash) at
+                // ERROR, so this line only adds the grant being attempted.
+                warn!(
+                    client_id = ?request.client_id,
                     grant_type = %request.grant_type,
-                    error = ?e,
+                    error = %e.error,
                     "OAuth client validation failed"
                 );
             })?;
@@ -255,6 +279,14 @@ impl OAuth2AuthorizationServer {
                 "Client is not registered for the requested grant_type",
             ));
         }
+
+        refuse_control_characters(&[
+            request.code.as_deref(),
+            request.redirect_uri.as_deref(),
+            request.code_verifier.as_deref(),
+            request.refresh_token.as_deref(),
+            request.scope.as_deref(),
+        ])?;
 
         match request.grant_type.as_str() {
             "authorization_code" => self.handle_authorization_code_grant(request).await,

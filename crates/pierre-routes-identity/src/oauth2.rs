@@ -461,7 +461,7 @@ impl OAuth2Routes {
                 code_redirect(&redirect_uri, &response.code, response.state.as_deref())
             }
             Err(error) => {
-                error!(
+                warn!(
                     "OAuth authorization failed for user {}: {:?}",
                     authenticated_user_id, error
                 );
@@ -703,7 +703,7 @@ impl OAuth2Routes {
                 Self::validation_success_response()
             }
             Err(e) => {
-                debug!("Client validation failed for {}: {}", client_id, e);
+                ClientRegistrationManager::log_lookup_failure(client_id, &e);
                 Self::validation_invalid_client_response()
             }
         }
@@ -1397,7 +1397,7 @@ impl OAuth2Routes {
             .ok_or_else(|| AppError::not_found("User not found"))?;
 
         // Verify password hash
-        if !Self::verify_password(password, &user.password_hash).await? {
+        if !user.has_password() || !Self::verify_password(password, &user.password_hash).await? {
             return Err(AppError::auth_invalid("Invalid password"));
         }
 
@@ -1431,8 +1431,8 @@ impl OAuth2Routes {
                 error!("Password verification task panicked: {e}");
                 AppError::internal("Password verification failed")
             })?
-            .map_err(|e| {
-                error!("bcrypt verification error: {e}");
+            .map_err(|_| {
+                error!("bcrypt could not read the stored password hash");
                 AppError::internal("Password verification failed")
             })?;
 

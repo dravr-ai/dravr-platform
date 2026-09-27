@@ -25,7 +25,7 @@ use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     default_locale, CoachingPersona, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User,
-    UserStatus, UserTier,
+    UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
 };
 use pierre_core::permissions::UserRole;
 use pierre_runtime_context::DataContext;
@@ -613,7 +613,7 @@ impl AuthService {
             id: user_id,
             email: email.to_owned(),
             display_name: claims.name.clone(),
-            password_hash: "!firebase-auth-only!".to_owned(),
+            password_hash: FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
             tier: UserTier::Starter,
             strava_token: None,
             created_at: now,

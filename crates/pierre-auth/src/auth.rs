@@ -67,6 +67,32 @@ fn humanize_duration(duration: Duration) -> String {
     }
 }
 
+/// Whether a `jsonwebtoken` failure lies with the token the caller presented.
+///
+/// An expired, forged, malformed or mis-addressed token is the caller's, and
+/// anyone can send one. The remaining kinds (a key this server cannot read, an
+/// algorithm list it configured empty, the crypto provider failing) are the
+/// server's. An unlisted kind counts as the server's, so a variant a later
+/// `jsonwebtoken` adds is reported loudly until someone classifies it.
+const fn is_presented_token_fault(kind: &ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::InvalidToken
+            | ErrorKind::InvalidSignature
+            | ErrorKind::MissingRequiredClaim(_)
+            | ErrorKind::InvalidClaimFormat(_)
+            | ErrorKind::ExpiredSignature
+            | ErrorKind::InvalidIssuer
+            | ErrorKind::InvalidAudience
+            | ErrorKind::InvalidSubject
+            | ErrorKind::ImmatureSignature
+            | ErrorKind::InvalidAlgorithm
+            | ErrorKind::Base64(_)
+            | ErrorKind::Json(_)
+            | ErrorKind::Utf8(_)
+    )
+}
+
 /// `JWT` validation error with detailed information
 #[non_exhaustive]
 #[derive(Debug, Clone)]
@@ -574,7 +600,11 @@ impl AuthManager {
         validation.set_issuer(&[PIERRE_MCP_SERVER]);
 
         let token_data = decode::<Claims>(token, &decoding_key, &validation).map_err(|e| {
-            error!("RS256 JWT validation failed: {:?}", e);
+            if is_presented_token_fault(e.kind()) {
+                warn!("RS256 JWT validation failed: {:?}", e);
+            } else {
+                error!("RS256 JWT validation failed: {:?}", e);
+            }
             AppError::auth_invalid(format!("JWT validation failed: {e}"))
         })?;
 

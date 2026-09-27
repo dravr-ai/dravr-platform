@@ -14,7 +14,7 @@ use argon2::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::OAuth2ClientSweep;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::OAuth2ServerRepository;
@@ -193,7 +193,7 @@ impl ClientRegistrationManager {
         debug!("Validating OAuth client: {}", client_id);
 
         let client = self.get_client(client_id).await.map_err(|e| {
-            warn!("OAuth client {} not found: {}", client_id, e);
+            Self::log_lookup_failure(client_id, &e);
             OAuth2Error::invalid_client()
         })?;
 
@@ -211,13 +211,36 @@ impl ClientRegistrationManager {
 
     /// Get client by `client_id`
     ///
+    /// A `client_id` carrying a control character names no client this server
+    /// issued, and is refused as unknown without a query: `PostgreSQL` rejects
+    /// a NUL byte in a text parameter, which would otherwise report the
+    /// caller's malformed id as a database failure.
+    ///
     /// # Errors
-    /// Returns an error if client is not found in the database
+    /// Returns `ErrorCode::ResourceNotFound` when no such client exists, and the
+    /// repository's error when the lookup itself fails
     pub async fn get_client(&self, client_id: &str) -> AppResult<OAuth2Client> {
+        if client_id.chars().any(char::is_control) {
+            return Err(AppError::not_found("OAuth2 client"));
+        }
         self.oauth2
             .get_client(client_id)
             .await?
-            .ok_or_else(|| AppError::not_found("OAuth2 client not found"))
+            .ok_or_else(|| AppError::not_found("OAuth2 client"))
+    }
+
+    /// Log a failed [`Self::get_client`] at the level its cause deserves.
+    ///
+    /// An unknown `client_id` is the caller's mistake, anyone can send one, so
+    /// it is a warning. Anything else is the server failing to answer (the
+    /// database, or a stored row that no longer decodes) and is an error,
+    /// which is what pages the operators.
+    pub fn log_lookup_failure(client_id: &str, error: &AppError) {
+        if error.code == ErrorCode::ResourceNotFound {
+            warn!(client_id = ?client_id, "OAuth2 client refused: unknown client_id");
+        } else {
+            error!(client_id = %client_id, error = %error, "OAuth2 client lookup failed");
+        }
     }
 
     /// Delete the registrations the retention policy no longer keeps, as of `now`.
@@ -281,6 +304,23 @@ impl ClientRegistrationManager {
                     )));
                 }
             }
+        }
+
+        // The name and URI are stored as given. `PostgreSQL` rejects a NUL byte
+        // in a text value, so a control character here would fail the insert
+        // and read as a database outage; it is the caller's metadata instead.
+        let named = [
+            request.client_name.as_deref(),
+            request.client_uri.as_deref(),
+        ];
+        if named
+            .into_iter()
+            .flatten()
+            .any(|v| v.chars().any(char::is_control))
+        {
+            return Err(OAuth2Error::invalid_client_metadata(
+                "client_name and client_uri must not contain control characters",
+            ));
         }
 
         Ok(())
