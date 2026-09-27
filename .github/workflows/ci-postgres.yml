@@ -1,4 +1,4 @@
-# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*; *_postgresql_test.rs smoke on fix|debug|claude|copilot prefixes.
+# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*/claude/*; *_postgresql_test.rs smoke on fix|debug|copilot prefixes.
 # ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
 name: "CI: Backend (PostgreSQL)"
 
@@ -204,7 +204,7 @@ jobs:
             SELECT pg_reload_conf();
           SQL
 
-      - name: Run PostgreSQL tests (full suite on main/schedule/dispatch/feature; PG smoke on short-lived prefixes)
+      - name: Run PostgreSQL tests (full suite on main/schedule/dispatch/feature/claude; PG smoke on short-lived prefixes)
         # Every test database in this job is PostgreSQL. The factory in
         # `pierre_database::database::test_utils` clones each test a private
         # database from a migrated template on the service container; with
@@ -218,12 +218,15 @@ jobs:
         # daily SQLite shards in ci-backend.yml, not here.
         #
         # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
-        # dispatch and feature/* or features/* refs run EVERY test file; the short-lived
-        # prefixes (fix/*, debug/*, claude/*, copilot/*) run the
+        # dispatch and feature/*, features/* or claude/* refs run EVERY test
+        # file. claude/* is the prefix Claude Code sessions push on, and those
+        # branches carry whole slices of work that squash onto main, so they
+        # get the same full verdict a feature branch does. The short-lived
+        # prefixes (fix/*, debug/*, copilot/*) run the
         # `*_postgresql_test.rs` smoke — the files whose failure shape is
         # PostgreSQL-only. A green run on those refs therefore means the
-        # smoke ran, not the suite: name the branch feature(s)/* or dispatch
-        # this workflow for a full verdict on any ref (~21-24 min). Files are
+        # smoke ran, not the suite: name the branch feature(s)/* or claude/*,
+        # or dispatch this workflow, for a full verdict on any ref (~21-24 min). Files are
         # partitioned round-robin across 4 shards; an empty selection fails
         # the job rather than reporting green over zero tests.
         #
@@ -263,7 +266,7 @@ jobs:
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
-          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]] || [[ "${{ github.ref }}" == refs/heads/features/* ]]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]] || [[ "${{ github.ref }}" == refs/heads/features/* ]] || [[ "${{ github.ref }}" == refs/heads/claude/* ]]; then
             LANE="full suite"
             mapfile -t ALL_TESTS < <(
               find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -not -name '*_sqlite_test.rs' -printf '%f\n' \
