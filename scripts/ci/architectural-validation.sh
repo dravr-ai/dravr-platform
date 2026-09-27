@@ -835,7 +835,8 @@ fi
 # ============================================================================
 # "Consume what you declare" — the dual of the phantom-dependency rule. The
 # canot capability surface (ResponseRenderer/ChannelDescriptor `supports_*` /
-# `max_*` predicates, MessageContent variants) is library-complete; this check
+# `max_*` predicates, read directly or through `capabilities_for`'s
+# `ChannelCapabilities`, and MessageContent variants) is library-complete; this check
 # polices the platform actually CONSUMING it. A predicate with no production
 # call site, or a variant never constructed outside tests, is a phantom
 # surface: portability silently degrades to hardcoded floors (the /plan
@@ -890,8 +891,25 @@ else
     CAPABILITY_FNS=$(rg -o 'fn (supports_[a-z_]+|max_[a-z_]+)' \
         "$CANOT_SRC/renderer.rs" "$CANOT_SRC/descriptor.rs" -I -N 2>/dev/null \
         | sed 's/^fn //' | sort -u || true)
+    # canot's `capabilities_for` is the one ChannelType -> descriptor match: it
+    # calls every descriptor predicate and hands back a `ChannelCapabilities`
+    # value whose fields carry the predicates' names. A production file that
+    # calls it and reads one of those fields consumes that predicate exactly as
+    # a direct call would, so the field read counts as a call site. Only a
+    # field of that struct qualifies, and only in a file that calls
+    # `capabilities_for` — a same-named field on some unrelated type elsewhere
+    # proves nothing.
+    CAPS_FIELDS=$(awk '/pub struct ChannelCapabilities/{f=1} f{print} f&&/^}/{exit}' \
+        "$CANOT_SRC/channels/mod.rs" 2>/dev/null \
+        | rg -o '^    pub ([a-z_]+):' -r '$1' 2>/dev/null || true)
+    CAPS_READERS=$(rg -l 'capabilities_for\(' crates/*/src -g '*.rs' 2>/dev/null || true)
     for fn_name in $CAPABILITY_FNS; do
         CALL_SITES=$(rg "\.${fn_name}\(" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$CALL_SITES" -eq 0 ] && [ -n "$CAPS_READERS" ] \
+            && printf '%s\n' "$CAPS_FIELDS" | grep -qx "$fn_name"; then
+            CALL_SITES=$(printf '%s\n' "$CAPS_READERS" \
+                | xargs rg "\.${fn_name}([^(a-z_]|$)" 2>/dev/null | wc -l | tr -d ' ')
+        fi
         if [ "$CALL_SITES" -eq 0 ]; then
             MARKED=$(rg "LIMITATION\(registre#[0-9]+\):.*${fn_name}" crates/*/src -g '*.rs' 2>/dev/null | wc -l | tr -d ' ')
             if [ "$MARKED" -eq 0 ]; then

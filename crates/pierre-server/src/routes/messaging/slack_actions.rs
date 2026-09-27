@@ -1,18 +1,18 @@
 // ABOUTME: Slack interactive actions handler for ops notifications and messaging command postbacks
-// ABOUTME: Verifies HMAC-SHA256 signature via dravr-tronc, routes ops actions and command callbacks
+// ABOUTME: Decodes the payload with dravr-canot's Slack parser, routes ops actions and command callbacks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
-use std::str;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::Json;
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_core::models::TenantId;
+use pierre_messaging::channels::slack::transport::parse_slack_body;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -50,8 +50,10 @@ pub(crate) async fn handle_slack_action(
     resources: &Arc<ServerContext>,
     body: &Bytes,
 ) -> AppResult<(StatusCode, Json<Value>)> {
-    // Parse the Slack interactive payload (form-encoded with `payload` key)
-    let payload = parse_interactive_payload(body)?;
+    // Slack posts interactive payloads form-encoded under a `payload` key.
+    // canot decodes them with the form rules, so a `+` is a space and an
+    // encoded literal `+` (`%2B`) survives as a `+` in every field.
+    let payload = parse_slack_body(body)?;
 
     // Extract action details
     let action = extract_action(&payload)?;
@@ -62,12 +64,9 @@ pub(crate) async fn handle_slack_action(
         "Processing Slack interactive action"
     );
 
-    // Normalize action_id: Slack may URL-encode spaces as `+`
-    let normalized_action_id = action.action_id.replace('+', " ");
-
     // Route command postbacks (action_id starts with `/`) through the command system
-    if normalized_action_id.starts_with('/') {
-        return handle_command_postback(resources, &action, &normalized_action_id).await;
+    if action.action_id.starts_with('/') {
+        return handle_command_postback(resources, &action, &action.action_id).await;
     }
 
     // --- Ops actions below (approve/reject users) ---
@@ -126,37 +125,6 @@ pub(crate) async fn handle_slack_action(
 
     // Return 200 immediately (Slack expects a response within 3 seconds)
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
-}
-
-/// Verify the Slack request signature using dravr-tronc's `SlackClient`
-///
-/// Extracts timestamp and signature headers, delegates HMAC verification
-/// to the shared implementation.
-pub(crate) fn verify_slack_signature(
-    signing_secret: &str,
-    headers: &HeaderMap,
-    body: &[u8],
-) -> AppResult<()> {
-    let timestamp = headers
-        .get("x-slack-request-timestamp")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::auth_invalid("Missing x-slack-request-timestamp header"))?;
-
-    let signature = headers
-        .get("x-slack-signature")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::auth_invalid("Missing x-slack-signature header"))?;
-
-    let config = SlackConfig {
-        bot_token: String::new(),
-        error_channel: String::new(),
-        signing_secret: Some(signing_secret.to_owned()),
-    };
-    let client = SlackClient::new(&config);
-
-    client
-        .verify_signature(timestamp, signature, body)
-        .map_err(|e| AppError::auth_invalid(format!("Slack signature verification failed: {e}")))
 }
 
 // =============================================================================
@@ -374,28 +342,6 @@ struct SlackAction {
 enum ActionType {
     Approve,
     Reject,
-}
-
-/// Parse the form-encoded interactive payload from Slack
-///
-/// Slack sends interactive payloads as `application/x-www-form-urlencoded`
-/// with a single `payload` key containing JSON.
-fn parse_interactive_payload(body: &Bytes) -> AppResult<Value> {
-    let body_str = str::from_utf8(body)
-        .map_err(|e| AppError::invalid_input(format!("Invalid UTF-8 in body: {e}")))?;
-
-    for pair in body_str.split('&') {
-        if let Some(value) = pair.strip_prefix("payload=") {
-            let decoded = urlencoding::decode(value)
-                .map_err(|e| AppError::invalid_input(format!("Invalid URL encoding: {e}")))?;
-            return serde_json::from_str(&decoded)
-                .map_err(|e| AppError::invalid_input(format!("Invalid JSON in payload: {e}")));
-        }
-    }
-
-    Err(AppError::invalid_input(
-        "Missing payload field in interactive request",
-    ))
 }
 
 /// Extract the first action from a Slack `block_actions` payload

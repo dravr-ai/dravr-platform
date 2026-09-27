@@ -18,6 +18,7 @@
 )]
 
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
+use pierre_messaging::channels::capabilities_for;
 use pierre_messaging::renderer::ResponseRenderer;
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use uuid::Uuid;
@@ -149,13 +150,13 @@ mod whatsapp {
 
     #[test]
     fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 4096);
-        assert!(r.supports_media());
-        // WhatsApp used to be the one renderer answering false here, which is
+        let caps = capabilities_for(ChannelType::WhatsApp).unwrap();
+        assert_eq!(caps.max_message_length, 4096);
+        assert!(caps.supports_media);
+        // WhatsApp used to be the one channel answering false here, which is
         // what kept the platform degrading every card to text before it ever
         // reached this file. Reply buttons and list menus changed that.
-        assert!(r.supports_cards());
+        assert!(caps.supports_cards);
     }
 }
 
@@ -214,10 +215,10 @@ mod messenger {
 
     #[test]
     fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 2000);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
+        let caps = capabilities_for(ChannelType::Messenger).unwrap();
+        assert_eq!(caps.max_message_length, 2000);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 }
 
@@ -264,10 +265,10 @@ mod discord {
 
     #[test]
     fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 2000);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
+        let caps = capabilities_for(ChannelType::Discord).unwrap();
+        assert_eq!(caps.max_message_length, 2000);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 }
 
@@ -325,10 +326,10 @@ mod slack {
 
     #[test]
     fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 40000);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
+        let caps = capabilities_for(ChannelType::Slack).unwrap();
+        assert_eq!(caps.max_message_length, 40000);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 }
 
@@ -377,10 +378,10 @@ mod telegram {
 
     #[test]
     fn test_capabilities() {
-        let r = renderer();
-        assert_eq!(r.max_message_length(), 4096);
-        assert!(r.supports_media());
-        assert!(r.supports_cards());
+        let caps = capabilities_for(ChannelType::Telegram).unwrap();
+        assert_eq!(caps.max_message_length, 4096);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 
     #[test]

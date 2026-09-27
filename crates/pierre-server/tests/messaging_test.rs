@@ -24,6 +24,7 @@ mod messaging_tests {
         CardAction, ChannelType, MessageContent, OutgoingMessage,
     };
     use pierre_messaging::channel::MessagingChannel;
+    use pierre_messaging::channels::capabilities_for;
     use pierre_messaging::channels::discord::{
         renderer::DiscordRenderer, transport::DiscordTransport,
     };
@@ -760,11 +761,11 @@ mod messaging_tests {
     }
 
     #[test]
-    fn test_slack_renderer_capabilities() {
-        let renderer = SlackRenderer;
-        assert_eq!(renderer.max_message_length(), 40000);
-        assert!(renderer.supports_media());
-        assert!(renderer.supports_cards());
+    fn test_slack_channel_capabilities() {
+        let caps = capabilities_for(ChannelType::Slack).unwrap();
+        assert_eq!(caps.max_message_length, 40000);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 
     // ── Telegram Renderer ──
@@ -826,11 +827,11 @@ mod messaging_tests {
     }
 
     #[test]
-    fn test_telegram_renderer_capabilities() {
-        let renderer = TelegramRenderer;
-        assert_eq!(renderer.max_message_length(), 4096);
-        assert!(renderer.supports_media());
-        assert!(renderer.supports_cards());
+    fn test_telegram_channel_capabilities() {
+        let caps = capabilities_for(ChannelType::Telegram).unwrap();
+        assert_eq!(caps.max_message_length, 4096);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 
     // ── WhatsApp Renderer (Meta Cloud API) ──
@@ -883,12 +884,12 @@ mod messaging_tests {
     }
 
     #[test]
-    fn test_whatsapp_renderer_capabilities() {
-        let renderer = WhatsAppRenderer;
-        assert_eq!(renderer.max_message_length(), 4096);
-        assert!(renderer.supports_media());
+    fn test_whatsapp_channel_capabilities() {
+        let caps = capabilities_for(ChannelType::WhatsApp).unwrap();
+        assert_eq!(caps.max_message_length, 4096);
+        assert!(caps.supports_media);
         assert!(
-            renderer.supports_cards(),
+            caps.supports_cards,
             "WhatsApp lays out reply buttons and list menus natively now"
         );
     }
@@ -923,11 +924,11 @@ mod messaging_tests {
     }
 
     #[test]
-    fn test_messenger_renderer_capabilities() {
-        let renderer = MessengerRenderer;
-        assert_eq!(renderer.max_message_length(), 2000);
-        assert!(renderer.supports_media());
-        assert!(renderer.supports_cards());
+    fn test_messenger_channel_capabilities() {
+        let caps = capabilities_for(ChannelType::Messenger).unwrap();
+        assert_eq!(caps.max_message_length, 2000);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 
     // ── Discord Renderer ──
@@ -964,11 +965,11 @@ mod messaging_tests {
     }
 
     #[test]
-    fn test_discord_renderer_capabilities() {
-        let renderer = DiscordRenderer;
-        assert_eq!(renderer.max_message_length(), 2000);
-        assert!(renderer.supports_media());
-        assert!(renderer.supports_cards());
+    fn test_discord_channel_capabilities() {
+        let caps = capabilities_for(ChannelType::Discord).unwrap();
+        assert_eq!(caps.max_message_length, 2000);
+        assert!(caps.supports_media);
+        assert!(caps.supports_cards);
     }
 
     // ════════════════════════════════════════════════════════════════

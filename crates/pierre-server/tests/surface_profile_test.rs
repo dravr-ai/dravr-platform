@@ -116,35 +116,34 @@ fn in_app_surface_renders_markdown_cards_and_inline_scenes() {
 }
 
 #[test]
-fn every_messaging_ceiling_comes_from_the_canot_descriptor() {
+fn every_messaging_transport_cap_comes_from_the_canot_descriptor() {
     // The point of the whole resolution path: the number the egress enforces
     // is the number canot publishes, not a table in this repository. A canot
     // bump that changes a ceiling changes the profile with no edit here.
-    let pairs: [(ChannelType, usize); 5] = [
-        (
-            ChannelType::Telegram,
-            TelegramDescriptor.max_message_length(),
-        ),
-        (
-            ChannelType::WhatsApp,
-            WhatsAppDescriptor.max_message_length(),
-        ),
-        (ChannelType::Discord, DiscordDescriptor.max_message_length()),
-        (ChannelType::Slack, SlackDescriptor.max_message_length()),
-        (
-            ChannelType::Messenger,
-            MessengerDescriptor.max_message_length(),
-        ),
+    let pairs: [(ChannelType, &dyn ChannelDescriptor); 5] = [
+        (ChannelType::Telegram, &TelegramDescriptor),
+        (ChannelType::WhatsApp, &WhatsAppDescriptor),
+        (ChannelType::Discord, &DiscordDescriptor),
+        (ChannelType::Slack, &SlackDescriptor),
+        (ChannelType::Messenger, &MessengerDescriptor),
     ];
-    for (channel_type, descriptor_limit) in pairs {
+    for (channel_type, descriptor) in pairs {
         assert_eq!(
             messaging(channel_type).render.max_reply_chars,
-            descriptor_limit,
+            descriptor.max_message_length(),
             "{channel_type:?} must resolve the descriptor's own ceiling"
         );
+        let caps = transport_caps(channel_type);
+        assert_eq!(caps.max_message_length, descriptor.max_message_length());
         assert_eq!(
-            transport_caps(channel_type).max_message_length,
-            descriptor_limit
+            caps.renders_media_natively,
+            descriptor.supports_media(),
+            "{channel_type:?} media support must be the descriptor's own answer"
+        );
+        assert_eq!(
+            caps.renders_cards_natively,
+            descriptor.supports_cards(),
+            "{channel_type:?} card support must be the descriptor's own answer"
         );
     }
 }

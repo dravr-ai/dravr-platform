@@ -51,6 +51,7 @@ use crate::mcp::resources::ServerContext;
 use adapter_factory::{ChannelAdapterFactory, ConfigChannelAdapters};
 use axum::Extension;
 use pierre_core::errors::AppError;
+use pierre_messaging::channels::slack::transport::verify_slack_signature;
 
 /// Messaging gateway routes handler
 pub struct MessagingRoutes;
@@ -136,7 +137,8 @@ impl MessagingRoutes {
 
 /// Axum handler for Slack interactive actions (button clicks)
 ///
-/// Verifies HMAC-SHA256 signature using `SLACK_SIGNING_SECRET` before
+/// Verifies the Slack v0 HMAC-SHA256 signature and its replay window with
+/// dravr-canot's Slack verifier, keyed by `SLACK_SIGNING_SECRET`, before
 /// delegating to the action handler. Returns 200 immediately on auth failure
 /// to avoid Slack retries.
 async fn handle_slack_ops_action(
@@ -148,7 +150,7 @@ async fn handle_slack_ops_action(
     let signing_secret = env::var("SLACK_SIGNING_SECRET")
         .map_err(|_| AppError::internal("SLACK_SIGNING_SECRET not configured"))?;
 
-    if let Err(e) = slack_actions::verify_slack_signature(&signing_secret, &headers, &body) {
+    if let Err(e) = verify_slack_signature(&signing_secret, &headers, &body) {
         tracing::warn!(error = %e, "Slack ops action signature verification failed");
         // Return 200 to prevent Slack from retrying with invalid signature
         return Ok((

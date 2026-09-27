@@ -1,4 +1,4 @@
-// ABOUTME: Resolves a messaging channel's SurfaceProfile from the canot descriptor and renderer
+// ABOUTME: Resolves a messaging channel's SurfaceProfile from canot's channel capability descriptor
 // ABOUTME: The one place transport capabilities cross from canot into the chat pipeline
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,10 +9,10 @@
 //! The chat pipeline decides what to render from
 //! [`pierre_chat_pipeline::RenderCapabilities`], never from a channel name.
 //! This module is where those capabilities are read off the real transport:
-//! canot's [`ChannelDescriptor::max_message_length`] for the character
-//! ceiling, and the channel renderer's `supports_media` / `supports_cards`
-//! for whether a chart arrives as pixels and whether an action arrives as a
-//! button.
+//! canot's [`capabilities_for`] reports, from each channel's own descriptor,
+//! the character ceiling, whether a chart arrives as pixels
+//! (`supports_media`) and whether an action arrives as a button
+//! (`supports_cards`).
 //!
 //! It lives in `pierre-server` rather than in the pipeline crate because
 //! canot's channel adapters are feature-gated per channel and only the
@@ -23,18 +23,7 @@
 
 use pierre_chat_pipeline::{MessagingTransportCaps, SurfaceId, SurfaceProfile, SurfaceRequest};
 use pierre_core::models::messaging::ChannelType;
-use pierre_messaging::channels::discord::renderer::DiscordRenderer;
-use pierre_messaging::channels::discord::DiscordDescriptor;
-use pierre_messaging::channels::messenger::renderer::MessengerRenderer;
-use pierre_messaging::channels::messenger::MessengerDescriptor;
-use pierre_messaging::channels::slack::renderer::SlackRenderer;
-use pierre_messaging::channels::slack::SlackDescriptor;
-use pierre_messaging::channels::telegram::renderer::TelegramRenderer;
-use pierre_messaging::channels::telegram::TelegramDescriptor;
-use pierre_messaging::channels::whatsapp::renderer::WhatsAppRenderer;
-use pierre_messaging::channels::whatsapp::WhatsAppDescriptor;
-use pierre_messaging::descriptor::ChannelDescriptor;
-use pierre_messaging::ResponseRenderer;
+use pierre_messaging::channels::capabilities_for;
 
 /// The [`SurfaceId`] a channel type reports on every pipeline span.
 #[must_use]
@@ -53,34 +42,23 @@ pub const fn surface_id(channel_type: ChannelType) -> SurfaceId {
 /// Asking canot rather than keeping a table here means a channel that gains
 /// media support, card support, or a longer message ceiling upstream reaches
 /// athletes on the next dependency bump with no change in this repository.
+///
+/// # Panics
+///
+/// Never in a build of this module: [`capabilities_for`] answers `None` only
+/// for a channel whose canot Cargo feature is off, and the `client-messaging`
+/// feature that compiles this module enables `pierre-messaging/all-channels`.
 #[must_use]
 pub fn transport_caps(channel_type: ChannelType) -> MessagingTransportCaps {
-    match channel_type {
-        ChannelType::Telegram => MessagingTransportCaps {
-            max_message_length: TelegramDescriptor.max_message_length(),
-            renders_media_natively: TelegramRenderer.supports_media(),
-            renders_cards_natively: TelegramRenderer.supports_cards(),
-        },
-        ChannelType::WhatsApp => MessagingTransportCaps {
-            max_message_length: WhatsAppDescriptor.max_message_length(),
-            renders_media_natively: WhatsAppRenderer.supports_media(),
-            renders_cards_natively: WhatsAppRenderer.supports_cards(),
-        },
-        ChannelType::Discord => MessagingTransportCaps {
-            max_message_length: DiscordDescriptor.max_message_length(),
-            renders_media_natively: DiscordRenderer.supports_media(),
-            renders_cards_natively: DiscordRenderer.supports_cards(),
-        },
-        ChannelType::Slack => MessagingTransportCaps {
-            max_message_length: SlackDescriptor.max_message_length(),
-            renders_media_natively: SlackRenderer.supports_media(),
-            renders_cards_natively: SlackRenderer.supports_cards(),
-        },
-        ChannelType::Messenger => MessagingTransportCaps {
-            max_message_length: MessengerDescriptor.max_message_length(),
-            renders_media_natively: MessengerRenderer.supports_media(),
-            renders_cards_natively: MessengerRenderer.supports_cards(),
-        },
+    let Some(caps) = capabilities_for(channel_type) else {
+        unreachable!(
+            "client-messaging enables pierre-messaging/all-channels, so canot describes {channel_type}"
+        );
+    };
+    MessagingTransportCaps {
+        max_message_length: caps.max_message_length,
+        renders_media_natively: caps.supports_media,
+        renders_cards_natively: caps.supports_cards,
     }
 }
 
