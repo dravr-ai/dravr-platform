@@ -2,9 +2,11 @@ name: "CI: Code Coverage"
 
 # The coverage run never fires on push. It measures line coverage of the SQLite
 # test suite — the local development database, not the one in production — and
-# it is the longest single job the fleet has (~1h45m). Nothing consumes the
-# per-commit number: there is no codecov config, threshold, badge or PR bot, and
-# every test it runs already gets a per-commit verdict from ci-backend.yml's own
+# it is the longest single job the fleet has (~65 min in batches). The report goes to Codecov,
+# and an upload Codecov refuses fails the job: until 2026-09-27 every upload was
+# refused ("Repository not found") while the lane stayed green. Nothing gates on
+# the per-commit number — there is no codecov config, threshold, badge or PR
+# bot — and every test it runs already gets a per-commit verdict from ci-backend.yml's own
 # SQLite shards, so bisect fidelity comes from there. Against the free plan's
 # cap of 20 concurrent jobs, the 2026-08-30 main burst held three of these at
 # once and queued the deploy behind them (carnet#156). Weekly plus on-demand
@@ -171,4 +173,4 @@ jobs:
           flags: backend
           name: backend-coverage
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          fail_ci_if_error: true
