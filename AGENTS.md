@@ -454,14 +454,15 @@ Routing (use the `obsidian-writer` skill, which writes to the live vault):
 | Feature R&D / feasibility analysis, not yet committed to | dravr-vault `Features/Potential/` (`stage: potential` + `verdict:`) |
 | Directory-scoped specs | repo `<dir>/README.md` |
 
+- **The vault's remote is the source of truth.** Every sync goes through `.agents/skills/obsidian-writer/vault-sync.sh` (`pull` before reading or writing, `push -m "<msg>" <path>…` to publish): it stashes local work, rebases onto `origin/main` with the remote winning conflicts, and re-applies the stash. Never `git merge`/`git pull` the vault by hand.
 - **Local Claude Code (this CLI):** prefer the vault via `obsidian-writer`. Avoid `gh gist create` for the doc types above — gists aren't vault-searchable or wikilinkable.
 - **Claude Code for Web (containerized):** `obsidian-writer` routes to `../dravr-vault` there as it
   does locally — but **check it is actually present** (`ls ../dravr-vault`) before relying on it.
   Whether the environment's setup script clones it is per-environment config this repo does not
   control, and it has been absent; if it is, clone it or say so, never fall back silently. Three
   things then differ from local. The checkout is a filesystem snapshot that can be ~7 days stale, so
-  `git -C ../dravr-vault pull` before reading it as current. The VM is reclaimed when the session
-  ends, so a note is **lost unless you commit and push it** in the same session. And `gh` is absent
+  `.agents/skills/obsidian-writer/vault-sync.sh pull` before reading it as current. The VM is reclaimed
+  when the session ends, so a note is **lost unless you publish it** (`vault-sync.sh push`) in the same session. And `gh` is absent
   in that container — the vault is a plain git checkout, so use `git`.
 - Gists are also fine for pasteable snippets, cross-project material, and ephemeral share-with-stranger artifacts.
 - Writing markdown via the Write tool is limited to the `claude_docs/` folder under the repo — a per-dev, gitignored symlink into the vault's `Work Log/` (create it if missing; without the symlink, output stays local and never reaches the vault). Notes there need `type: worklog` plus `kind:`/`area:`/`status:`/`date:` or they stay invisible to `Work Log.base` — `obsidian-writer` applies that contract for you.

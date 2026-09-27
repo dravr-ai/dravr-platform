@@ -121,6 +121,14 @@ is findable only by search.
 - **`claude_docs/` is the fallback, not the default.** It is a gitignored symlink to the
   vault's `Work Log/`, so a Write-tool note must include the `type: worklog` frontmatter
   itself — nothing downstream adds it.
-- **Commit explicitly** after writing. obsidian-git auto-commits every 10 minutes under a
-  generic `vault: auto-save` message; an explicit commit is attributable and revertible.
+- **The vault's remote wins — sync through `vault-sync.sh`, never by hand.** Run
+  `.agents/skills/obsidian-writer/vault-sync.sh pull` before reading or writing the vault,
+  and publish with `vault-sync.sh push -m "<kind>: <what>" <path>…` (paths relative to the
+  vault, never the whole tree). It fetches, stashes local uncommitted work, rebases onto
+  `origin/main` with the remote side winning every conflict, re-applies the stash (a
+  conflicting stash stays in `git stash list`), and retries a rejected push against the new
+  tip. Never `git merge` origin into the vault or resolve a conflict in favour of local.
+- **Commit explicitly** after writing — `vault-sync.sh push` does it. obsidian-git
+  auto-commits every 10 minutes under a generic `vault: auto-save` message; an explicit
+  commit is attributable and revertible.
 - See `references/vault-structure.md` for the full directory map and naming conventions.
