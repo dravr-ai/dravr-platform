@@ -129,6 +129,6 @@ is findable only by search.
   conflicting stash stays in `git stash list`), and retries a rejected push against the new
   tip. Never `git merge` origin into the vault or resolve a conflict in favour of local.
 - **Commit explicitly** after writing — `vault-sync.sh push` does it. obsidian-git
-  auto-commits every 10 minutes under a generic `vault: auto-save` message; an explicit
+  auto-commits every 10 minutes (or the launchd `vault-sync` agent does, on machines that run it) under a generic `vault: auto-save` message; an explicit
   commit is attributable and revertible.
 - See `references/vault-structure.md` for the full directory map and naming conventions.
