@@ -220,35 +220,6 @@ async fn test_whoop_provider_get_activity_requires_auth() {
         .to_string()
         .contains("No credentials available"));
 }
-
-#[tokio::test]
-async fn test_whoop_provider_get_personal_records() {
-    ensure_http_clients_initialized();
-    let provider = WhoopProvider::new();
-
-    // Set credentials
-    let credentials = OAuth2Credentials {
-        client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: None,
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
-        scopes: vec!["read:profile".to_owned()],
-    };
-
-    provider
-        .set_credentials(credentials)
-        .await
-        .expect("Failed to set credentials");
-
-    // Personal records should return empty vec (WHOOP doesn't track PRs)
-    let result = provider
-        .get_personal_records()
-        .await
-        .expect("Failed to get personal records");
-    assert!(result.is_empty());
-}
-
 #[tokio::test]
 async fn test_whoop_provider_refresh_token_no_credentials() {
     ensure_http_clients_initialized();

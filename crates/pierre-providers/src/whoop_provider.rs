@@ -22,7 +22,7 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::{Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats};
+use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::registry::ProviderRegistry;
 use crate::utils;
@@ -578,11 +578,6 @@ impl FitnessProvider for WhoopProvider {
             total_elevation_gain,
             year_to_date: None,
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // WHOOP doesn't track personal records in the same way
-        Ok(vec![])
     }
 }
 

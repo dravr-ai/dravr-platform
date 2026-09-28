@@ -26,7 +26,6 @@
 //! - **Activity**: Unified workout/activity representation
 //! - **Athlete**: User profile information
 //! - **Stats**: Aggregate performance statistics
-//! - **PersonalRecord**: Best performance achievements
 //!
 //! Sleep, recovery and body metrics are not read through this trait: every
 //! source's health data is synced into stored rows by dravr-enforme and read
@@ -109,9 +108,6 @@
 //! #   async fn get_stats(&self) -> AppResult<Stats> {
 //! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0, year_to_date: None })
 //! #   }
-//! #   async fn get_personal_records(&self) -> AppResult<Vec<pierre_core::models::PersonalRecord>> {
-//! #       Ok(vec![])
-//! #   }
 //! }
 //! ```
 //!
@@ -128,8 +124,7 @@ use crate::backend_resolver::user_facing_name;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
 use crate::models::{
-    Activity, Athlete, CalendarEventRef, PersonalRecord, PlannedSession, PlannedWorkout, Stats,
-    TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
@@ -490,9 +485,6 @@ pub trait FitnessProvider: Send + Sync {
     /// ```
     async fn get_stats(&self) -> AppResult<Stats>;
 
-    /// Get user's personal records
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>>;
-
     // ── Training-calendar reads ──────────────────────────────────────────
 
     /// Read the workouts the provider's calendar plans for the athlete over
@@ -713,10 +705,6 @@ impl FitnessProvider for TenantProvider {
 
     async fn get_stats(&self) -> AppResult<Stats> {
         self.inner.get_stats().await
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        self.inner.get_personal_records().await
     }
 
     // The planned read is forwarded for the same reason: without it a

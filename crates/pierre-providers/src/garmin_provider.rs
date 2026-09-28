@@ -17,7 +17,7 @@ use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
-    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+    Activity, ActivityBuilder, Athlete, SportType, Stats,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
@@ -812,13 +812,6 @@ impl FitnessProvider for GarminProvider {
             total_elevation_gain,
             year_to_date: None,
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // Garmin Connect does not expose a dedicated personal records endpoint
-        // Personal records would need to be computed from activity history analysis
-        // or extracted from the athlete profile if available in future API updates
-        Ok(vec![])
     }
 }
 

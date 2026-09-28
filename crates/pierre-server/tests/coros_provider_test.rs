@@ -525,25 +525,3 @@ async fn test_coros_provider_stats_returns_empty() {
     let stats = provider.get_stats().await.unwrap();
     assert_eq!(stats.total_activities, 0);
 }
-
-#[tokio::test]
-async fn test_coros_provider_personal_records_returns_empty() {
-    ensure_http_clients_initialized();
-    let provider = CorosProvider::new();
-
-    // Set credentials
-    let credentials = OAuth2Credentials {
-        client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: Some("test_refresh_token".to_owned()),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
-        scopes: vec!["read:workouts".to_owned()],
-    };
-
-    provider.set_credentials(credentials).await.unwrap();
-
-    // Personal records returns empty (COROS may not expose PRs via API)
-    let prs = provider.get_personal_records().await.unwrap();
-    assert!(prs.is_empty());
-}

@@ -24,7 +24,7 @@ use crate::core::{
 };
 use crate::errors::provider::ProviderError;
 use crate::errors::AppResult;
-use crate::models::{Activity, Athlete, PersonalRecord, Stats};
+use crate::models::{Activity, Athlete, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::spi::{OAuthEndpoints, OAuthParams, ProviderCapabilities, ProviderDescriptor};
 
@@ -305,12 +305,6 @@ impl FitnessProvider for TerraProvider {
             total_elevation_gain,
             year_to_date: None,
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // Terra's aggregator API exposes no personal-records endpoint, so there
-        // are none to return for this provider.
-        Ok(Vec::new())
     }
 }
 

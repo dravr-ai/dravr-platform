@@ -33,8 +33,8 @@ use crate::coros_self_report::feel_from_coros;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::models::{
     activity::{Lap, Split},
-    Activity, ActivityBuilder, ActivityComment, Athlete, Feel, PersonalRecord, PlannedWorkout,
-    SportType, Stats, TimeSeriesData,
+    Activity, ActivityBuilder, ActivityComment, Athlete, Feel, PlannedWorkout, SportType, Stats,
+    TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_remote::{
@@ -832,10 +832,6 @@ impl FitnessProvider for SciotteProvider {
             total_elevation_gain: total_elevation,
             year_to_date: None,
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        Ok(vec![])
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one

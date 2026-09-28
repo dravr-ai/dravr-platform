@@ -239,35 +239,6 @@ async fn test_garmin_provider_get_stats_requires_auth() {
         .to_string()
         .contains("No credentials available"));
 }
-
-#[tokio::test]
-async fn test_garmin_provider_get_personal_records() {
-    ensure_http_clients_initialized();
-    let provider = GarminProvider::new();
-
-    // Set credentials
-    let credentials = OAuth2Credentials {
-        client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: None,
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
-        scopes: vec!["wellness:read".to_owned()],
-    };
-
-    provider
-        .set_credentials(credentials)
-        .await
-        .expect("Failed to set credentials");
-
-    // Personal records should return empty vec (not yet implemented)
-    let result = provider
-        .get_personal_records()
-        .await
-        .expect("Failed to get personal records");
-    assert!(result.is_empty());
-}
-
 #[test]
 fn test_garmin_api_limits() {
     assert_eq!(api_provider_limits::garmin::DEFAULT_ACTIVITIES_PER_PAGE, 20);

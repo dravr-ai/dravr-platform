@@ -188,23 +188,6 @@ async fn empty_credentials_struct_rejects_at_set() {
     let msg = format!("{err}");
     assert!(msg.contains("athlete id") || msg.contains("API key"));
 }
-
-#[tokio::test]
-async fn personal_records_returns_empty_no_endpoint() {
-    let provider = IntervalsIcuProvider::new();
-    provider
-        .set_credentials(good_credentials())
-        .await
-        .expect("set creds");
-    // No Intervals.icu endpoint exposes personal records in an agent-relevant
-    // shape; the provider returns an empty list rather than an error.
-    let records = provider
-        .get_personal_records()
-        .await
-        .expect("personal_records ok");
-    assert!(records.is_empty());
-}
-
 #[tokio::test]
 async fn registry_registers_intervals_icu_as_non_oauth() {
     // The provider is registered (factory + descriptor) and reports as an

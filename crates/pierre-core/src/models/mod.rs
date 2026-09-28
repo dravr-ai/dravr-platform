@@ -26,7 +26,6 @@
 //! - `Activity`: Represents a single fitness activity (run, ride, etc.)
 //! - `Athlete`: User profile information
 //! - `Stats`: Aggregated fitness statistics
-//! - `PersonalRecord`: Individual performance records
 //! - `SportType`: Enumeration of supported activity types
 
 // Domain modules
@@ -133,7 +132,7 @@ pub use dravr_equilibre::{
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
-pub use athlete::{Athlete, PeriodTotals, PersonalRecord, PrMetric, Stats};
+pub use athlete::{Athlete, PeriodTotals, Stats};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAthlete,
 };

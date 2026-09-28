@@ -1,10 +1,9 @@
 // ABOUTME: Athlete profile and statistics models from fitness providers
-// ABOUTME: Athlete, Stats, PersonalRecord, and PrMetric definitions
+// ABOUTME: Athlete profile, all-time and period Stats definitions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Represents an athlete/user profile from any provider
@@ -96,37 +95,4 @@ pub struct PeriodTotals {
     pub total_duration: u64,
     /// Elevation gained in the period (meters)
     pub total_elevation_gain: f64,
-}
-
-/// Types of personal record metrics tracked
-///
-/// Each metric represents a different aspect of athletic performance
-/// that can be optimized and tracked over time.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PrMetric {
-    /// Fastest pace achieved (seconds per meter)
-    FastestPace,
-    /// Longest distance covered in a single activity (meters)
-    LongestDistance,
-    /// Highest elevation gained in a single activity (meters)
-    HighestElevation,
-    /// Fastest completion time for a standard distance (seconds)
-    FastestTime,
-}
-
-/// Represents a personal record achievement
-///
-/// Tracks the athlete's best performance in various metrics.
-/// Links back to the specific activity where the record was achieved.
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PersonalRecord {
-    /// `ID` of the activity where this record was achieved
-    pub activity_id: String,
-    /// Type of performance metric
-    pub metric: PrMetric,
-    /// Value of the record (units depend on metric type)
-    pub value: f64,
-    /// When the record was achieved
-    pub date: DateTime<Utc>,
 }

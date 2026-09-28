@@ -19,8 +19,7 @@ use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::{
     activity::{Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
-    TimeSeriesData,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::strava_types::{
@@ -850,12 +849,6 @@ impl FitnessProvider for StravaProvider {
             total_elevation_gain: all_time.total_elevation_gain,
             year_to_date: Some(year_to_date),
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // Strava doesn't provide personal records via API in the same format
-        // This would require analyzing activities to determine PRs
-        Ok(vec![])
     }
 }
 

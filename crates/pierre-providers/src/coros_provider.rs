@@ -53,7 +53,7 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::{Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats};
+use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::utils;
 use async_trait::async_trait;
@@ -639,11 +639,6 @@ impl FitnessProvider for CorosProvider {
             total_elevation_gain: 0.0,
             year_to_date: None,
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // COROS may not expose personal records via API
-        Ok(vec![])
     }
 }
 

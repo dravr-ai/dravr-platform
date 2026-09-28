@@ -73,8 +73,8 @@ use crate::intervals_icu_self_report::{
     comments_from_messages, feel_from_icu, rpe_from_icu, IntervalsIcuMessage, MAX_ACTIVITY_MESSAGES,
 };
 use crate::models::{
-    Activity, ActivityBuilder, ActivityComment, Athlete, CalendarEventRef, PersonalRecord,
-    PlannedSession, SportType, Stats, TimeSeriesData,
+    Activity, ActivityBuilder, ActivityComment, Athlete, CalendarEventRef, PlannedSession,
+    SportType, Stats, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 
@@ -995,13 +995,6 @@ impl FitnessProvider for IntervalsIcuProvider {
             total_elevation_gain,
             year_to_date: None,
         })
-    }
-
-    async fn get_personal_records(&self) -> AppResult<Vec<PersonalRecord>> {
-        // LIMITATION(registre#45): `IntervalsIcuProvider::get_personal_records` returns an empty
-        // list — nothing derives records from intervals.icu's best-effort curves, so a caller
-        // cannot tell a recordless athlete from one this provider never read.
-        Ok(Vec::new())
     }
 
     async fn list_calendar_events(

@@ -10,9 +10,8 @@
 use chrono::Utc;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals,
-    PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant, TenantId, User,
-    UserStatus, UserTier,
+    Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals, PowerZone,
+    SegmentEffort, SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
 use uuid::Uuid;
@@ -187,44 +186,6 @@ fn test_stats_serialization() {
     let ytd = deserialized.year_to_date.expect("ytd round-trips");
     assert_eq!(ytd.total_activities, 30);
     assert!((ytd.total_distance - 300_000.0).abs() < f64::EPSILON);
-}
-
-#[test]
-fn test_personal_record_creation() {
-    let pr = PersonalRecord {
-        activity_id: "12345".into(),
-        metric: PrMetric::LongestDistance,
-        value: 42195.0, // Marathon distance in meters
-        date: Utc::now(),
-    };
-
-    assert_eq!(pr.activity_id, "12345");
-    assert!(matches!(pr.metric, PrMetric::LongestDistance));
-    assert!((pr.value - 42195.0).abs() < f64::EPSILON);
-}
-
-#[test]
-fn test_pr_metric_serialization() {
-    assert_eq!(
-        serde_json::to_string(&PrMetric::FastestPace).unwrap(),
-        "\"fastest_pace\""
-    );
-    assert_eq!(
-        serde_json::to_string(&PrMetric::LongestDistance).unwrap(),
-        "\"longest_distance\""
-    );
-    assert_eq!(
-        serde_json::to_string(&PrMetric::HighestElevation).unwrap(),
-        "\"highest_elevation\""
-    );
-    assert_eq!(
-        serde_json::to_string(&PrMetric::FastestTime).unwrap(),
-        "\"fastest_time\""
-    );
-
-    // Test deserialization
-    let metric: PrMetric = serde_json::from_str("\"fastest_pace\"").unwrap();
-    assert!(matches!(metric, PrMetric::FastestPace));
 }
 
 #[test]
