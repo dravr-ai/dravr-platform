@@ -144,6 +144,24 @@ impl OAuth2Routes {
         } else {
             params.scope.to_owned()
         };
+        // The pending authorization, for the athlete who signs in through the
+        // app instead (Google): the app sends them back to it once signed in.
+        let oauth_return = Self::build_authorization_url_from_form(&HashMap::from([
+            ("client_id".to_owned(), params.client_id.to_owned()),
+            ("redirect_uri".to_owned(), params.redirect_uri.to_owned()),
+            ("response_type".to_owned(), params.response_type.to_owned()),
+            ("state".to_owned(), params.state.to_owned()),
+            ("scope".to_owned(), params.scope.to_owned()),
+            (
+                "code_challenge".to_owned(),
+                params.code_challenge.to_owned(),
+            ),
+            (
+                "code_challenge_method".to_owned(),
+                params.code_challenge_method.to_owned(),
+            ),
+            ("resource".to_owned(), params.resource.to_owned()),
+        ]));
 
         with_hosted_page_css(Self::OAUTH_LOGIN_TEMPLATE)
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
@@ -166,6 +184,10 @@ impl OAuth2Routes {
                 &escape_html_attribute(params.code_challenge_method),
             )
             .replace("{{RESOURCE}}", &escape_html_attribute(params.resource))
+            .replace(
+                "{{OAUTH_RETURN}}",
+                &escape_html_attribute(&urlencoding::encode(&oauth_return)),
+            )
             .replace(
                 "{{DEFAULT_EMAIL}}",
                 &escape_html_attribute(params.default_email),

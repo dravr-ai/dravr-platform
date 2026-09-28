@@ -106,6 +106,61 @@ fn test_oauth_login_error_template_exists() {
     );
 }
 
+/// A Google-only athlete leaves the password form for the app's own sign-in
+/// and must come back to this exact authorization (carnet#652): the link
+/// carries every request parameter, and only as a path under /oauth2/authorize.
+#[tokio::test]
+async fn test_login_page_links_google_sign_in_back_to_the_authorization() {
+    common::init_server_config();
+
+    let html = OAuth2Routes::generate_login_html(pierre_routes_identity::LoginHtmlParams {
+        client_id: "client&id",
+        redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+        response_type: "code",
+        state: "state with spaces",
+        scope: "fitness:read profile:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "https://mcp.example.test",
+        default_email: "",
+        default_password: "",
+    });
+
+    assert!(html.contains("Continue with Google"), "{html}");
+    let href = html
+        .split("href=\"/?oauth_return=")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_else(|| panic!("the Google link carries the authorization: {html}"));
+    // HTML-attribute unescaping, then the query value's own percent-encoding.
+    let encoded = href.replace("&amp;", "&");
+    let authorize = urlencoding::decode(&encoded).unwrap().into_owned();
+    assert!(
+        authorize.starts_with("/oauth2/authorize?"),
+        "only the authorize endpoint: {authorize}"
+    );
+
+    let url = url::Url::parse(&format!("https://app.example.test{authorize}")).unwrap();
+    let param = |name: &str| {
+        url.query_pairs()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.into_owned())
+    };
+    assert_eq!(param("client_id").as_deref(), Some("client&id"));
+    assert_eq!(
+        param("redirect_uri").as_deref(),
+        Some("https://claude.ai/api/mcp/auth_callback")
+    );
+    assert_eq!(param("state").as_deref(), Some("state with spaces"));
+    assert_eq!(param("scope").as_deref(), Some("fitness:read profile:read"));
+    assert_eq!(param("code_challenge").as_deref(), Some("challenge_abc"));
+    assert_eq!(param("code_challenge_method").as_deref(), Some("S256"));
+    assert_eq!(
+        param("resource").as_deref(),
+        Some("https://mcp.example.test")
+    );
+}
+
 /// Test OAuth login HTML generation with template replacement
 #[tokio::test]
 async fn test_generate_login_html() {
